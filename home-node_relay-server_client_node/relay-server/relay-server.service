@@ -1,0 +1,26 @@
+[Unit]
+Description=libp2p Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/relay-server
+ExecStart=/opt/relay-server/relay-server
+Restart=always
+RestartSec=5
+
+# Increase file descriptor limit
+LimitNOFILE=65536
+
+# Environment
+Environment="PATH=/usr/local/go/bin:/usr/bin:/bin"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=relay-server
+
+[Install]
+WantedBy=multi-user.target
