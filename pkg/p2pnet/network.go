@@ -3,6 +3,7 @@ package p2pnet
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -61,7 +62,8 @@ func New(cfg *Config) (*Network, error) {
 			return nil, fmt.Errorf("failed to load authorized_keys: %w", err)
 		}
 
-		gater := auth.NewAuthorizedPeerGater(authorizedPeers)
+		logger := log.New(log.Writer(), "[p2pnet] ", log.LstdFlags)
+		gater := auth.NewAuthorizedPeerGater(authorizedPeers, logger)
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(gater))
 	}
 
