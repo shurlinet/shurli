@@ -1,6 +1,0 @@
-{
-  "listenAddr": "/ip6/::/tcp/8443/wss",
-  "enableRelay": true,
-  "enableRelayHop": true,
-  "localPeerName": "linode-relay"
-}

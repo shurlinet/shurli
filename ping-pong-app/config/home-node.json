@@ -1,7 +1,0 @@
-{
-  "peerID": "",
-  "privateKey": "",
-  "listenAddrs": ["/ip6/::/tcp/0", "/ip4/0.0.0.0/tcp/0"],
-  "relayAddr": "/dns4/linode-relay.example.com/tcp/8443/wss/p2p-circuit/p2p/LINODE_RELAY_PEERID",
-  "localPeerName": "home-node"
-}

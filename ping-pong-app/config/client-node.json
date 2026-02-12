@@ -1,5 +1,0 @@
-{
-  "relayAddr": "/dns4/linode-relay.example.com/tcp/8443/wss/p2p-circuit/p2p/LINODE_RELAY_PEERID",
-  "targetPeerID": "HOME_NODE_PEERID",
-  "localPeerName": "iphone-client"
-}
