@@ -132,6 +132,13 @@ func main() {
 		}
 	}()
 
+	// DEBUG: Check services configuration
+	fmt.Printf("🔍 DEBUG: cfg.Services = %+v\n", cfg.Services)
+	fmt.Printf("🔍 DEBUG: cfg.Services == nil? %v\n", cfg.Services == nil)
+	if cfg.Services != nil {
+		fmt.Printf("🔍 DEBUG: Number of services: %d\n", len(cfg.Services))
+	}
+
 	// Expose services from config
 	if cfg.Services != nil {
 		for name, svc := range cfg.Services {
