@@ -98,6 +98,11 @@ type ServiceConfig struct {
 // NamesConfig holds name resolution configuration
 type NamesConfig map[string]string // name → peer ID
 
+// NodeConfig is the unified configuration for all peerup modes.
+// HomeNodeConfig already has all fields (Identity, Network, Relay, Discovery,
+// Security, Protocols, Services, Names). ClientNodeConfig is a strict subset.
+type NodeConfig = HomeNodeConfig
+
 // Config is a unified configuration structure for all components
 type Config struct {
 	Identity  IdentityConfig  `yaml:"identity"`

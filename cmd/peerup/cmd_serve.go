@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,25 +27,33 @@ import (
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
-func main() {
+func runServe(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	configFlag := fs.String("config", "", "path to config file")
+	fs.Parse(args)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Println("=== Home Node ===")
+	fmt.Println("=== peer-up serve ===")
 	fmt.Println()
 
-	// Load configuration
-	cfg, err := config.LoadHomeNodeConfig("home-node.yaml")
+	// Find and load configuration
+	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v\n", err)
+		log.Fatalf("Config error: %v", err)
 	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
-	// Validate configuration
-	if err := config.ValidateHomeNodeConfig(cfg); err != nil {
+	if err := config.ValidateNodeConfig(cfg); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	fmt.Printf("Loaded configuration from home-node.yaml\n")
+	fmt.Printf("Loaded configuration from %s\n", cfgFile)
 	fmt.Printf("Rendezvous: %s\n", cfg.Discovery.Rendezvous)
 	fmt.Println()
 
@@ -54,9 +64,9 @@ func main() {
 			log.Fatalf("Connection gating enabled but no authorized_keys_file specified")
 		}
 		authorizedKeysFile = cfg.Security.AuthorizedKeysFile
-		fmt.Printf("✅ Loading authorized peers from %s\n", authorizedKeysFile)
+		fmt.Printf("Loading authorized peers from %s\n", authorizedKeysFile)
 	} else {
-		fmt.Println("⚠️  WARNING: Connection gating is DISABLED - any peer can connect!")
+		fmt.Println("WARNING: Connection gating is DISABLED - any peer can connect!")
 	}
 	fmt.Println()
 
@@ -78,14 +88,13 @@ func main() {
 	// Load name mappings from config
 	if cfg.Names != nil {
 		if err := net.LoadNames(cfg.Names); err != nil {
-			log.Printf("⚠️  Failed to load names: %v", err)
+			log.Printf("Failed to load names: %v", err)
 		}
 	}
 
-	// Get underlying libp2p host for advanced features
 	h := net.Host()
 
-	fmt.Printf("🏠 Peer ID: %s\n", h.ID())
+	fmt.Printf("Peer ID: %s\n", h.ID())
 	fmt.Println()
 
 	// Parse relay addresses for manual connection
@@ -97,9 +106,9 @@ func main() {
 	// Connect to the relay
 	for _, ai := range relayInfos {
 		if err := h.Connect(ctx, ai); err != nil {
-			fmt.Printf("⚠️  Could not connect to relay %s: %v\n", ai.ID.String()[:16], err)
+			fmt.Printf("Could not connect to relay %s: %v\n", ai.ID.String()[:16], err)
 		} else {
-			fmt.Printf("✅ Connected to relay %s\n", ai.ID.String()[:16])
+			fmt.Printf("Connected to relay %s\n", ai.ID.String()[:16])
 		}
 	}
 
@@ -111,18 +120,18 @@ func main() {
 	hasRelay := false
 	for _, addr := range h.Addrs() {
 		if strings.Contains(addr.String(), "p2p-circuit") {
-			fmt.Printf("✅ Relay address: %s\n", addr)
+			fmt.Printf("Relay address: %s\n", addr)
 			hasRelay = true
 		}
 	}
 	if !hasRelay {
-		fmt.Println("⚠️  No relay addresses yet — trying manual reservation...")
+		fmt.Println("No relay addresses yet - trying manual reservation...")
 		for _, ai := range relayInfos {
 			_, err := circuitv2client.Reserve(ctx, h, ai)
 			if err != nil {
-				fmt.Printf("⚠️  Manual reservation failed: %v\n", err)
+				fmt.Printf("Manual reservation failed: %v\n", err)
 			} else {
-				fmt.Printf("✅ Manual relay reservation active on %s\n", ai.ID.String()[:16])
+				fmt.Printf("Manual relay reservation active on %s\n", ai.ID.String()[:16])
 			}
 		}
 	}
@@ -142,9 +151,9 @@ func main() {
 	if cfg.Services != nil {
 		for name, svc := range cfg.Services {
 			if svc.Enabled {
-				fmt.Printf("📡 Exposing service: %s -> %s\n", name, svc.LocalAddress)
+				fmt.Printf("Exposing service: %s -> %s\n", name, svc.LocalAddress)
 				if err := net.ExposeService(name, svc.LocalAddress); err != nil {
-					log.Printf("⚠️  Failed to expose service %s: %v", name, err)
+					log.Printf("Failed to expose service %s: %v", name, err)
 				}
 			}
 		}
@@ -155,13 +164,11 @@ func main() {
 	h.SetStreamHandler(protocol.ID(cfg.Protocols.PingPong.ID), func(s network.Stream) {
 		remotePeer := s.Conn().RemotePeer()
 
-		connType := "unknown"
+		connType := "DIRECT"
 		if s.Conn().Stat().Limited {
 			connType = "RELAYED"
-		} else {
-			connType = "DIRECT"
 		}
-		fmt.Printf("\n📨 Incoming stream from %s [%s]\n", remotePeer.String()[:16], connType)
+		fmt.Printf("\nIncoming stream from %s [%s]\n", remotePeer.String()[:16], connType)
 
 		reader := bufio.NewReader(s)
 		msg, err := reader.ReadString('\n')
@@ -174,7 +181,7 @@ func main() {
 		fmt.Printf("   Received: %s\n", msg)
 
 		if msg == "ping" {
-			fmt.Println("   🏓 PONG!")
+			fmt.Println("   PONG!")
 			s.Write([]byte("pong\n"))
 		} else {
 			fmt.Printf("   Unknown message: %s\n", msg)
@@ -199,7 +206,7 @@ func main() {
 		for _, addr := range cfg.Discovery.BootstrapPeers {
 			maddr, err := ma.NewMultiaddr(addr)
 			if err != nil {
-				fmt.Printf("⚠️  Invalid bootstrap peer %s: %v\n", addr, err)
+				fmt.Printf("Invalid bootstrap peer %s: %v\n", addr, err)
 				continue
 			}
 			bootstrapPeers = append(bootstrapPeers, maddr)
@@ -254,7 +261,7 @@ func main() {
 				label := "local"
 				addrStr := addr.String()
 				if strings.Contains(addrStr, "/p2p-circuit") {
-					label = "RELAY ✅"
+					label = "RELAY"
 				} else if !strings.Contains(addrStr, "/ip4/10.") &&
 					!strings.Contains(addrStr, "/ip4/192.168.") &&
 					!strings.Contains(addrStr, "/ip4/127.") &&
@@ -271,7 +278,7 @@ func main() {
 	}()
 
 	fmt.Println()
-	fmt.Println("✅ Home node is running!")
+	fmt.Println("peer-up server is running!")
 	fmt.Println("   Share your Peer ID with clients.")
 	fmt.Println("   Press Ctrl+C to stop.")
 

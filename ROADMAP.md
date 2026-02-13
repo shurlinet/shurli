@@ -93,57 +93,18 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - [x] Extend config structs for service definitions
 - [x] Update sample YAML configs with service examples
 - [x] Refactor to `cmd/` layout with single Go module
-  - [x] `cmd/home-node/` - Home node binary using library
-  - [x] `cmd/peerup/` - Single client binary with subcommands (proxy, ping)
 - [x] Tested: SSH, XRDP, generic TCP proxy all working across LAN and 5G
-
-**Service Configuration Example**:
-```yaml
-# home-node.yaml
-services:
-  ssh:
-    enabled: true
-    local_address: "localhost:22"
-
-  web:
-    enabled: true
-    local_address: "localhost:80"
-
-  plex:
-    enabled: true
-    local_address: "localhost:32400"
-```
-
-**Library Usage Example**:
-```go
-import "github.com/satindergrewal/peer-up/pkg/p2pnet"
-
-// Your app creates a P2P network
-net, _ := p2pnet.New(&p2pnet.Config{
-    KeyFile: "myapp.key",
-    AuthorizedKeys: "authorized_keys",
-})
-
-// Expose a service
-net.ExposeService("api", "localhost:8080")
-
-// Connect to peer's service
-conn, _ := net.ConnectToService(peerID, "api")
-
-// Resolve names to peer IDs
-net.LoadNames(map[string]string{"home": "12D3KooW..."})
-peerID, _ := net.ResolveName("home")
-
-// Add relay addresses for a remote peer
-net.AddRelayAddressesForPeer(relayAddrs, peerID)
-```
+- [x] **UX Streamlining**:
+  - [x] Single binary — merged home-node into `peerup serve`
+  - [x] Standard config path — auto-discovery (`./peerup.yaml` → `~/.config/peerup/config.yaml` → `/etc/peerup/config.yaml`)
+  - [x] `peerup init` — interactive setup wizard (generates config, keys, authorized_keys)
+  - [x] All commands support `--config <path>` flag
+  - [x] Unified config type (one config format for all modes)
 
 **Key Files**:
-- `pkg/p2pnet/network.go` - Network creation, relay helpers, name resolution
-- `pkg/p2pnet/service.go` - ServiceRegistry, ServiceConn interface
-- `pkg/p2pnet/proxy.go` - TCPListener, bidirectional proxy
-- `cmd/home-node/main.go` - Home node binary
-- `cmd/peerup/main.go` - Client binary (proxy + ping subcommands)
+- `cmd/peerup/` - Single binary with subcommands: init, serve, proxy, ping
+- `pkg/p2pnet/` - Reusable P2P networking library
+- `internal/config/loader.go` - Config discovery, loading, path resolution
 
 ---
 
@@ -379,7 +340,7 @@ resolvers := []NameResolver{
 | Phase 1: Configuration | ✅ 1 week | Complete |
 | Phase 2: Authentication | ✅ 2 weeks | Complete |
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
-| Phase 4A: Core Library | ✅ 2-3 weeks | Complete |
+| Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | **Phase 4B: Desktop Gateway** | 📋 2-3 weeks | **Next** |
 | Phase 4C: Federation | 📋 2-3 weeks | Planned |
 | Phase 4D: Mobile Apps | 📋 3-4 weeks | Planned |

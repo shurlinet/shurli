@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -12,27 +14,38 @@ import (
 )
 
 func runProxy(args []string) {
-	if len(args) < 3 {
-		fmt.Println("Usage: peerup proxy <peer-id-or-name> <service> <local-port>")
+	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
+	configFlag := fs.String("config", "", "path to config file")
+	fs.Parse(args)
+
+	remaining := fs.Args()
+	if len(remaining) < 3 {
+		fmt.Println("Usage: peerup proxy [--config <path>] <target> <service> <local-port>")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  peerup proxy 12D3KooWLutPZ... ssh 2222")
-		fmt.Println("  peerup proxy home ssh 2222          # using name from config")
+		fmt.Println("  peerup proxy home ssh 2222")
 		fmt.Println("  peerup proxy home xrdp 13389")
+		fmt.Println("  peerup proxy --config /path/to/config.yaml home ssh 2222")
 		os.Exit(1)
 	}
 
-	target := args[0]
-	serviceName := args[1]
-	localPort := args[2]
+	target := remaining[0]
+	serviceName := remaining[1]
+	localPort := remaining[2]
 
-	// Load config
-	cfg, err := config.LoadClientNodeConfig("client-node.yaml")
+	// Find and load config
+	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
 	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		log.Fatalf("Config error: %v", err)
+	}
+	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	fmt.Printf("=== TCP Proxy via P2P ===\n")
+	fmt.Printf("Config: %s\n", cfgFile)
 	fmt.Printf("Service: %s\n", serviceName)
 	fmt.Println()
 
@@ -54,7 +67,7 @@ func runProxy(args []string) {
 	// Load names from config for resolution
 	if cfg.Names != nil {
 		if err := p2pNetwork.LoadNames(cfg.Names); err != nil {
-			log.Printf("⚠️  Failed to load names: %v", err)
+			log.Printf("Failed to load names: %v", err)
 		}
 	}
 
@@ -64,15 +77,15 @@ func runProxy(args []string) {
 		log.Fatalf("Cannot resolve target %q: %v", target, err)
 	}
 
-	fmt.Printf("📱 Client Peer ID: %s\n", p2pNetwork.PeerID())
-	fmt.Printf("🎯 Home Peer: %s\n", homePeerID)
+	fmt.Printf("Client Peer ID: %s\n", p2pNetwork.PeerID())
+	fmt.Printf("Target Peer: %s\n", homePeerID)
 	if target != homePeerID.String() {
 		fmt.Printf("   (resolved from name %q)\n", target)
 	}
 	fmt.Println()
 
 	// Add relay circuit addresses for the home peer
-	fmt.Println("🔗 Connecting to home peer...")
+	fmt.Println("Connecting to target peer...")
 	if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, homePeerID); err != nil {
 		log.Fatalf("Failed to add relay addresses: %v", err)
 	}
@@ -88,10 +101,10 @@ func runProxy(args []string) {
 	}
 	defer listener.Close()
 
-	fmt.Printf("✅ TCP proxy listening on %s\n", localAddr)
+	fmt.Printf("TCP proxy listening on %s\n", localAddr)
 	fmt.Println()
-	fmt.Println("💡 Connect to the service:")
-	fmt.Printf("   %s → %s service on home-node\n", localAddr, serviceName)
+	fmt.Println("Connect to the service:")
+	fmt.Printf("   %s -> %s service on target\n", localAddr, serviceName)
 	fmt.Println("\nPress Ctrl+C to stop.")
 	fmt.Println()
 
@@ -108,7 +121,6 @@ func runProxy(args []string) {
 
 	// Serve connections
 	if err := listener.Serve(); err != nil {
-		// Serve returns error when listener is closed (normal shutdown)
 		log.Printf("Listener stopped: %v", err)
 	}
 }

@@ -50,7 +50,7 @@ func New(cfg *Config) (*Network, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Load identity
-	priv, err := loadOrCreateIdentity(cfg.KeyFile)
+	priv, err := LoadOrCreateIdentity(cfg.KeyFile)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to load identity: %w", err)

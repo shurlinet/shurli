@@ -5,10 +5,11 @@ import (
 	"os"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// loadOrCreateIdentity loads an existing identity from a file or creates a new one
-func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
+// LoadOrCreateIdentity loads an existing identity from a file or creates a new one.
+func LoadOrCreateIdentity(path string) (crypto.PrivKey, error) {
 	// Try to load existing key
 	if data, err := os.ReadFile(path); err == nil {
 		priv, err := crypto.UnmarshalPrivateKey(data)
@@ -35,4 +36,17 @@ func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
 	}
 
 	return priv, nil
+}
+
+// PeerIDFromKeyFile loads (or creates) a key file and returns the derived peer ID.
+func PeerIDFromKeyFile(path string) (peer.ID, error) {
+	priv, err := LoadOrCreateIdentity(path)
+	if err != nil {
+		return "", err
+	}
+	id, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive peer ID: %w", err)
+	}
+	return id, nil
 }

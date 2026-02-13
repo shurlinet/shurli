@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,16 +24,21 @@ import (
 )
 
 func runPing(args []string) {
-	if len(args) < 1 {
-		fmt.Println("Usage: peerup ping <peer-id-or-name>")
+	fs := flag.NewFlagSet("ping", flag.ExitOnError)
+	configFlag := fs.String("config", "", "path to config file")
+	fs.Parse(args)
+
+	remaining := fs.Args()
+	if len(remaining) < 1 {
+		fmt.Println("Usage: peerup ping [--config <path>] <target>")
 		fmt.Println()
 		fmt.Println("Examples:")
+		fmt.Println("  peerup ping home")
 		fmt.Println("  peerup ping 12D3KooWLutPZ...")
-		fmt.Println("  peerup ping home              # using name from config")
 		os.Exit(1)
 	}
 
-	target := args[0]
+	target := remaining[0]
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -39,11 +46,19 @@ func runPing(args []string) {
 	fmt.Println("=== Ping via P2P ===")
 	fmt.Println()
 
-	// Load configuration
-	cfg, err := config.LoadClientNodeConfig("client-node.yaml")
+	// Find and load configuration
+	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
 	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		log.Fatalf("Config error: %v", err)
+	}
+	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
+
+	fmt.Printf("Config: %s\n", cfgFile)
+	fmt.Println()
 
 	// Create P2P network
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
@@ -63,7 +78,7 @@ func runPing(args []string) {
 	// Load names from config
 	if cfg.Names != nil {
 		if err := p2pNetwork.LoadNames(cfg.Names); err != nil {
-			log.Printf("⚠️  Failed to load names: %v", err)
+			log.Printf("Failed to load names: %v", err)
 		}
 	}
 
@@ -75,8 +90,8 @@ func runPing(args []string) {
 
 	h := p2pNetwork.Host()
 
-	fmt.Printf("📱 Client Peer ID: %s\n", h.ID())
-	fmt.Printf("🎯 Target Peer: %s\n", targetPeerID)
+	fmt.Printf("Client Peer ID: %s\n", h.ID())
+	fmt.Printf("Target Peer: %s\n", targetPeerID)
 	if target != targetPeerID.String() {
 		fmt.Printf("   (resolved from name %q)\n", target)
 	}
@@ -98,7 +113,7 @@ func runPing(args []string) {
 		for _, addr := range cfg.Discovery.BootstrapPeers {
 			maddr, err := ma.NewMultiaddr(addr)
 			if err != nil {
-				fmt.Printf("⚠️  Invalid bootstrap peer %s: %v\n", addr, err)
+				fmt.Printf("Invalid bootstrap peer %s: %v\n", addr, err)
 				continue
 			}
 			bootstrapPeers = append(bootstrapPeers, maddr)
@@ -133,9 +148,9 @@ func runPing(args []string) {
 	fmt.Println("Connecting to dedicated relay...")
 	for _, ai := range relayInfos {
 		if err := h.Connect(ctx, ai); err != nil {
-			fmt.Printf("⚠️  Could not connect to relay: %v\n", err)
+			fmt.Printf("Could not connect to relay: %v\n", err)
 		} else {
-			fmt.Printf("✅ Connected to relay %s\n", ai.ID.String()[:16])
+			fmt.Printf("Connected to relay %s\n", ai.ID.String()[:16])
 		}
 	}
 	fmt.Println()
@@ -143,7 +158,7 @@ func runPing(args []string) {
 	// Search for the target via DHT
 	routingDiscovery := drouting.NewRoutingDiscovery(kdht)
 
-	fmt.Println("🔍 Searching for target peer via rendezvous discovery...")
+	fmt.Println("Searching for target peer via rendezvous discovery...")
 	fmt.Println("   (This can take 30-60 seconds)")
 
 	// Method 1: Rendezvous discovery
@@ -156,12 +171,12 @@ func runPing(args []string) {
 	} else {
 		for p := range peerCh {
 			if p.ID == targetPeerID && len(p.Addrs) > 0 {
-				fmt.Printf("✅ Found target peer via rendezvous!\n")
+				fmt.Printf("Found target peer via rendezvous!\n")
 				targetAddrInfo = &p
 				break
 			}
 			if p.ID == targetPeerID && len(p.Addrs) == 0 {
-				fmt.Printf("⚠️  Found peer via rendezvous but no addresses yet\n")
+				fmt.Printf("Found peer via rendezvous but no addresses yet\n")
 			}
 			if p.ID != h.ID() && p.ID != targetPeerID {
 				fmt.Printf("   Found peer %s (not our target)\n", p.ID.String()[:16])
@@ -173,19 +188,19 @@ func runPing(args []string) {
 	// Method 2: Direct DHT lookup
 	if targetAddrInfo == nil || len(targetAddrInfo.Addrs) == 0 {
 		fmt.Println()
-		fmt.Println("🔍 Trying direct DHT peer routing lookup...")
+		fmt.Println("Trying direct DHT peer routing lookup...")
 		lookupCtx, lookupCancel := context.WithTimeout(ctx, 60*time.Second)
 		pi, err := kdht.FindPeer(lookupCtx, targetPeerID)
 		lookupCancel()
 		if err != nil {
-			fmt.Printf("❌ Could not find target peer: %v\n", err)
+			fmt.Printf("Could not find target peer: %v\n", err)
 			fmt.Println()
-			fmt.Println("Make sure the home node is running and has had time to")
+			fmt.Println("Make sure the server is running and has had time to")
 			fmt.Println("register with the DHT (give it at least 3-5 minutes).")
 			os.Exit(1)
 		}
 		targetAddrInfo = &pi
-		fmt.Printf("✅ Found target peer via DHT lookup! (%d addresses)\n", len(pi.Addrs))
+		fmt.Printf("Found target peer via DHT lookup! (%d addresses)\n", len(pi.Addrs))
 	}
 
 	// Show discovered addresses
@@ -201,16 +216,16 @@ func runPing(args []string) {
 
 	// Connect to the target
 	fmt.Println()
-	fmt.Println("📡 Connecting to target peer...")
+	fmt.Println("Connecting to target peer...")
 
 	connectCtx, connectCancel := context.WithTimeout(ctx, 15*time.Second)
 	err = h.Connect(connectCtx, *targetAddrInfo)
 	connectCancel()
 
 	if err != nil {
-		fmt.Printf("⚠️  Direct connection failed: %v\n", err)
+		fmt.Printf("Direct connection failed: %v\n", err)
 		fmt.Println()
-		fmt.Println("📡 Trying via relay circuit...")
+		fmt.Println("Trying via relay circuit...")
 
 		// Add relay addresses for the target peer
 		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
@@ -222,7 +237,7 @@ func runPing(args []string) {
 		err = h.Connect(connectCtx2, peer.AddrInfo{ID: targetPeerID})
 		connectCancel2()
 		if err != nil {
-			log.Fatalf("❌ Failed to connect via relay: %v", err)
+			log.Fatalf("Failed to connect via relay: %v", err)
 		}
 	}
 
@@ -233,17 +248,17 @@ func runPing(args []string) {
 		if conn.Stat().Limited {
 			connType = "RELAYED"
 		}
-		fmt.Printf("✅ Connected! [%s] via %s\n", connType, conn.RemoteMultiaddr())
+		fmt.Printf("Connected! [%s] via %s\n", connType, conn.RemoteMultiaddr())
 	}
 
 	// Send ping
 	fmt.Println()
-	fmt.Println("🏓 Sending PING...")
+	fmt.Println("Sending PING...")
 	streamCtx, streamCancel := context.WithTimeout(ctx, 15*time.Second)
 	s, err := h.NewStream(streamCtx, targetPeerID, protocol.ID(cfg.Protocols.PingPong.ID))
 	streamCancel()
 	if err != nil {
-		log.Fatalf("❌ Failed to open stream: %v", err)
+		log.Fatalf("Failed to open stream: %v", err)
 	}
 
 	streamConnType := "DIRECT"
@@ -254,17 +269,17 @@ func runPing(args []string) {
 
 	_, err = s.Write([]byte("ping\n"))
 	if err != nil {
-		log.Fatalf("❌ Failed to send ping: %v", err)
+		log.Fatalf("Failed to send ping: %v", err)
 	}
 
 	reader := bufio.NewReader(s)
 	response, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("❌ Failed to read response: %v", err)
+		log.Fatalf("Failed to read response: %v", err)
 	}
 	response = strings.TrimSpace(response)
 
-	fmt.Printf("\n🎉 Response: %s\n", response)
+	fmt.Printf("\nResponse: %s\n", response)
 	fmt.Printf("   Connection: %s\n", streamConnType)
 
 	s.Close()
@@ -272,30 +287,30 @@ func runPing(args []string) {
 	// If connected via relay, wait to see if hole-punching upgrades
 	if streamConnType == "RELAYED" {
 		fmt.Println()
-		fmt.Println("⏳ Connected via relay. Waiting 15s to see if hole-punching upgrades to direct...")
+		fmt.Println("Connected via relay. Waiting 15s to see if hole-punching upgrades to direct...")
 		time.Sleep(15 * time.Second)
 
 		conns = h.Network().ConnsToPeer(targetPeerID)
 		upgraded := false
 		for _, conn := range conns {
 			if !conn.Stat().Limited {
-				fmt.Printf("🎉 Hole-punch SUCCESS! Direct connection via %s\n", conn.RemoteMultiaddr())
+				fmt.Printf("Hole-punch SUCCESS! Direct connection via %s\n", conn.RemoteMultiaddr())
 				upgraded = true
 			}
 		}
 		if !upgraded {
-			fmt.Println("ℹ️  Still relayed. Hole-punching didn't upgrade in time.")
+			fmt.Println("Still relayed. Hole-punching didn't upgrade in time.")
 			fmt.Println("   This is normal with Starlink CGNAT.")
 		}
 
 		// Second ping over potentially upgraded connection
 		fmt.Println()
-		fmt.Println("🏓 Sending second PING (may use upgraded connection)...")
+		fmt.Println("Sending second PING (may use upgraded connection)...")
 		s2Ctx, s2Cancel := context.WithTimeout(ctx, 15*time.Second)
 		s2, err := h.NewStream(s2Ctx, targetPeerID, protocol.ID(cfg.Protocols.PingPong.ID))
 		s2Cancel()
 		if err != nil {
-			fmt.Printf("❌ Second stream failed: %v\n", err)
+			fmt.Printf("Second stream failed: %v\n", err)
 		} else {
 			connType2 := "DIRECT"
 			if s2.Conn().Stat().Limited {
@@ -305,7 +320,7 @@ func runPing(args []string) {
 			reader2 := bufio.NewReader(s2)
 			resp2, err := reader2.ReadString('\n')
 			if err == nil {
-				fmt.Printf("🎉 Response: %s [%s]\n", strings.TrimSpace(resp2), connType2)
+				fmt.Printf("Response: %s [%s]\n", strings.TrimSpace(resp2), connType2)
 			}
 			s2.Close()
 		}

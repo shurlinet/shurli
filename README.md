@@ -13,8 +13,11 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 - Flexible naming - Local names, network-scoped domains, optional blockchain anchoring
 - Reusable library - Import `pkg/p2pnet` in your own Go projects
 
-## Current Status (Phase 4A Complete)
+## Current Status
 
+- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`
+- **Easy Setup** - `peerup init` interactive wizard generates config, keys, and authorized_keys
+- **Standard Config** - Auto-discovers config from `./peerup.yaml` or `~/.config/peerup/config.yaml`
 - **Configuration-Based** - YAML config files, no hardcoded values
 - **SSH-Style Authentication** - `authorized_keys` file for peer access control
 - **NAT Traversal** - Works through Starlink CGNAT using relay + hole-punching
@@ -24,7 +27,6 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 - **Key Management Tool** - `keytool` CLI for managing keypairs and authorized_keys
 - **Service Exposure** - Expose any TCP service (SSH, XRDP, HTTP, etc.) via P2P
 - **Reusable Library** - `pkg/p2pnet` package for building P2P applications
-- **Unified Client** - Single `peerup` binary with subcommands (proxy, ping)
 - **Name Resolution** - Map friendly names to peer IDs in config
 
 ## The Problem
@@ -35,7 +37,7 @@ Starlink uses Carrier-Grade NAT (CGNAT) on IPv4, and blocks inbound IPv6 connect
 
 ```
 ┌──────────┐         ┌──────────────┐         ┌──────────────┐
-│  Client   │───────▶│ Relay Server │◀────────│  Home Node   │
+│  Client   │───────▶│ Relay Server │◀────────│    Server    │
 │  (Phone)  │ outbound    (VPS)   outbound   │  (Linux/Mac) │
 └──────────┘         └──────────────┘         └──────────────┘
                            │
@@ -44,17 +46,122 @@ Starlink uses Carrier-Grade NAT (CGNAT) on IPv4, and blocks inbound IPv6 connect
 ```
 
 1. **Relay Server** (VPS) - Circuit relay with optional authentication via `authorized_keys`
-2. **Home Node** - Exposes local services, accepts only authorized peers
-3. **Client (`peerup`)** - Connects to home node services through the relay
+2. **Server** (`peerup serve`) - Exposes local services, accepts only authorized peers
+3. **Client** (`peerup proxy`) - Connects to server's services through the relay
+
+## Quick Start
+
+### 1. Deploy Relay Server (VPS)
+
+```bash
+cd relay-server
+
+# Create config from sample
+cp ../configs/relay-server.sample.yaml relay-server.yaml
+# Edit relay-server.yaml if needed (defaults are fine)
+
+# Build and run
+go build -o relay-server
+./relay-server
+```
+
+Copy the **Relay Peer ID** from the output - you'll need it for the next steps.
+
+### 2. Set Up a Node
+
+Run the setup wizard on each machine (server and client):
+
+```bash
+# Build
+go build -o peerup ./cmd/peerup
+
+# Run the setup wizard
+./peerup init
+```
+
+The wizard will:
+1. Create `~/.config/peerup/` directory
+2. Ask for your relay server address
+3. Generate an Ed25519 identity key
+4. Display your **Peer ID** (share this with peers who need to authorize you)
+5. Write `config.yaml`, `identity.key`, and `authorized_keys`
+
+### 3. Authorize Peers
+
+On each machine, add the other machine's Peer ID to the authorized_keys file:
+
+```bash
+# Edit ~/.config/peerup/authorized_keys
+# Add one peer ID per line:
+12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY  # my-server
+12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # my-laptop
+```
+
+### 4. Configure the Server
+
+Edit `~/.config/peerup/config.yaml` on the server machine:
+
+```yaml
+network:
+  force_private_reachability: true  # Required for CGNAT (Starlink, etc.)
+
+# Uncomment and enable services you want to expose:
+services:
+  ssh:
+    enabled: true
+    local_address: "localhost:22"
+  xrdp:
+    enabled: true
+    local_address: "localhost:3389"
+
+# Map friendly names to peer IDs (optional):
+names:
+  laptop: "12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6"
+```
+
+### 5. Configure the Client
+
+Edit `~/.config/peerup/config.yaml` on the client machine:
+
+```yaml
+# Map friendly names to peer IDs:
+names:
+  home: "12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY"
+```
+
+### 6. Run
+
+**On the server:**
+```bash
+peerup serve
+```
+
+**On the client:**
+```bash
+# SSH
+peerup proxy home ssh 2222
+# Then: ssh -p 2222 user@localhost
+
+# Remote desktop (XRDP)
+peerup proxy home xrdp 13389
+# Then: xfreerdp /v:localhost:13389 /u:user
+
+# Any TCP service
+peerup proxy home web 8080
+# Then: http://localhost:8080
+
+# Test connectivity
+peerup ping home
+```
 
 ## Project Structure
 
 ```
 ├── cmd/
-│   ├── home-node/              # Home node binary
-│   │   └── main.go
-│   ├── peerup/                 # Client binary (proxy + ping subcommands)
+│   ├── peerup/                 # Main binary (init, serve, proxy, ping)
 │   │   ├── main.go
+│   │   ├── cmd_init.go
+│   │   ├── cmd_serve.go
 │   │   ├── cmd_proxy.go
 │   │   └── cmd_ping.go
 │   └── keytool/                # Key management CLI
@@ -77,148 +184,99 @@ Starlink uses Carrier-Grade NAT (CGNAT) on IPv4, and blocks inbound IPv6 connect
 │   ├── main.go
 │   └── relay-server.service
 ├── configs/                    # Sample configuration files
-│   ├── home-node.sample.yaml
-│   ├── client-node.sample.yaml
+│   ├── peerup.sample.yaml
 │   ├── relay-server.sample.yaml
 │   └── authorized_keys.sample
 ├── go.mod                      # Single root module
 └── ROADMAP.md
 ```
 
-## Quick Start
-
-### 1. Deploy Relay Server (VPS)
-
-```bash
-cd relay-server
-
-# Create config from sample
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults are fine)
-
-# Build and run
-go build -o relay-server
-./relay-server
-```
-
-Copy the **Relay Peer ID** from the output - you'll need it for the next steps.
-
-### 2. Set Up Home Node
-
-The home node runs on your home computer and exposes local services.
-
-```bash
-# Build from repo root (outputs binary to current directory)
-go build -o home-node ./cmd/home-node
-
-# Create a working directory for the home node
-mkdir -p ~/home-node && cd ~/home-node
-
-# Create config from sample
-cp /path/to/peer-up/configs/home-node.sample.yaml home-node.yaml
-
-# Edit home-node.yaml:
-# 1. Set relay address and peer ID from step 1
-# 2. Enable services you want to expose (ssh, xrdp, web, etc.)
-
-# Create authorized_keys file
-cp /path/to/peer-up/configs/authorized_keys.sample authorized_keys
-# Add client peer IDs (one per line)
-
-# Run
-./home-node
-```
-
-Copy the **Home Node Peer ID** from the output.
-
-### 3. Set Up Client (peerup)
-
-The `peerup` client runs on your phone/laptop and connects to home node services.
-
-```bash
-# Build from repo root
-go build -o peerup ./cmd/peerup
-
-# Create a working directory for the client
-mkdir -p ~/client-node && cd ~/client-node
-
-# Create config from sample
-cp /path/to/peer-up/configs/client-node.sample.yaml client-node.yaml
-
-# Edit client-node.yaml:
-# 1. Set relay address and peer ID from step 1
-# 2. Add name mappings (optional, for convenience)
-# 3. Set key_file for persistent identity (recommended)
-
-# Create authorized_keys file
-cp /path/to/peer-up/configs/authorized_keys.sample authorized_keys
-# Add home node peer ID
-```
-
-### 4. Use Services
-
-**Important:** Always run `peerup` from the directory containing `client-node.yaml`.
-
-```bash
-cd ~/client-node
-
-# SSH to home node
-../peerup proxy home ssh 2222
-# In another terminal: ssh -p 2222 user@localhost
-
-# Remote desktop (XRDP)
-../peerup proxy home xrdp 13389
-# In another terminal: xfreerdp /v:localhost:13389 /u:user
-
-# Any TCP service
-../peerup proxy home web 8080
-# In browser: http://localhost:8080
-
-# Ping home node (test connectivity)
-../peerup ping home
-```
-
-You can use either a name (like `home`) or the full peer ID:
-```bash
-../peerup proxy 12D3KooWLutPZ... ssh 2222
-```
-
 ## Building
 
-All binaries are built from the repo root using the single Go module:
-
 ```bash
-# Build home node
-go build -o home-node ./cmd/home-node
-
-# Build client (peerup)
+# Build peerup (single binary for everything)
 go build -o peerup ./cmd/peerup
 
-# Build keytool
+# Build keytool (key management utility)
 go build -o keytool ./cmd/keytool
 
-# Build relay server (separate module)
+# Build relay server (separate module, runs on VPS)
 cd relay-server && go build -o relay-server
+
+# Cross-compile for Linux (e.g., deploy to a Linux server)
+GOOS=linux GOARCH=amd64 go build -o peerup ./cmd/peerup
 ```
 
-**Cross-compile for Linux** (e.g., to deploy home-node on a Linux server):
-```bash
-GOOS=linux GOARCH=amd64 go build -o home-node ./cmd/home-node
+## Commands
+
+### `peerup init` - Interactive setup wizard
+
+```
+Usage: peerup init [--dir <path>]
+
+Creates config directory with config.yaml, identity.key, and authorized_keys.
+Default directory: ~/.config/peerup/
+```
+
+### `peerup serve` - Run as server
+
+```
+Usage: peerup serve [--config <path>]
+
+Starts the server node, exposing configured services.
+Connects to relay, bootstraps DHT, and accepts authorized connections.
+```
+
+### `peerup proxy` - Forward TCP to remote service
+
+```
+Usage: peerup proxy [--config <path>] <target> <service> <local-port>
+
+Arguments:
+  target       Peer ID or name from config (e.g., "home")
+  service      Service name as defined in server config (e.g., "ssh", "xrdp")
+  local-port   Local TCP port to listen on
+
+Examples:
+  peerup proxy home ssh 2222
+  peerup proxy home xrdp 13389
+  peerup proxy 12D3KooW... ssh 2222
+```
+
+### `peerup ping` - Test connectivity
+
+```
+Usage: peerup ping [--config <path>] <target>
+
+Arguments:
+  target    Peer ID or name from config
+
+Examples:
+  peerup ping home
+  peerup ping 12D3KooW...
 ```
 
 ## Configuration
 
-### Home Node Config (`home-node.yaml`)
+### Config Search Order
+
+All commands support `--config <path>` to specify a config file explicitly. Without it, peerup searches:
+
+1. `./peerup.yaml` (current directory)
+2. `~/.config/peerup/config.yaml` (standard location, created by `peerup init`)
+3. `/etc/peerup/config.yaml` (system-wide)
+
+### Unified Config (`peerup.yaml`)
 
 ```yaml
 identity:
-  key_file: "home_node.key"
+  key_file: "identity.key"
 
 network:
   listen_addresses:
-    - "/ip4/0.0.0.0/tcp/9100"
-    - "/ip4/0.0.0.0/udp/9100/quic-v1"
-  force_private_reachability: true  # Required for CGNAT
+    - "/ip4/0.0.0.0/tcp/0"
+    - "/ip4/0.0.0.0/udp/0/quic-v1"
+  force_private_reachability: false  # Set true for server behind CGNAT
 
 relay:
   addresses:
@@ -226,7 +284,8 @@ relay:
   reservation_interval: "2m"
 
 discovery:
-  rendezvous: "my-private-p2p-network"
+  rendezvous: "peerup-default-network"
+  bootstrap_peers: []
 
 security:
   authorized_keys_file: "authorized_keys"
@@ -237,52 +296,18 @@ protocols:
     enabled: true
     id: "/pingpong/1.0.0"
 
-# Expose local services through P2P
-services:
-  ssh:
-    enabled: true
-    local_address: "localhost:22"
-  xrdp:
-    enabled: true
-    local_address: "localhost:3389"
-  web:
-    enabled: false
-    local_address: "localhost:80"
-  plex:
-    enabled: false
-    local_address: "localhost:32400"
-```
+# Services to expose (server only, uncomment as needed):
+# services:
+#   ssh:
+#     enabled: true
+#     local_address: "localhost:22"
+#   xrdp:
+#     enabled: true
+#     local_address: "localhost:3389"
 
-### Client Node Config (`client-node.yaml`)
-
-```yaml
-identity:
-  key_file: "client_node.key"
-
-network:
-  listen_addresses:
-    - "/ip4/0.0.0.0/tcp/0"
-    - "/ip4/0.0.0.0/udp/0/quic-v1"
-
-relay:
-  addresses:
-    - "/ip4/YOUR_VPS_IP/tcp/7777/p2p/YOUR_RELAY_PEER_ID"
-
-discovery:
-  rendezvous: "my-private-p2p-network"
-
-security:
-  authorized_keys_file: "authorized_keys"
-  enable_connection_gating: true
-
-protocols:
-  ping_pong:
-    enabled: true
-    id: "/pingpong/1.0.0"
-
-# Map friendly names to peer IDs
-names:
-  home: "YOUR_HOME_NODE_PEER_ID"
+# Map friendly names to peer IDs:
+names: {}
+#  home: "12D3KooW..."
 ```
 
 ### Authorized Keys Format
@@ -292,37 +317,6 @@ names:
 # Format: <peer_id> # optional comment
 12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL  # my-laptop
 12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYUXCUVwbj7QbA  # my-phone
-```
-
-## peerup Commands
-
-### `peerup proxy` - Forward TCP to remote service
-
-```
-Usage: peerup proxy <target> <service> <local-port>
-
-Arguments:
-  target       Peer ID or name from config (e.g., "home")
-  service      Service name as defined in home node config (e.g., "ssh", "xrdp")
-  local-port   Local TCP port to listen on
-
-Examples:
-  peerup proxy home ssh 2222          # SSH via name
-  peerup proxy home xrdp 13389       # Remote desktop
-  peerup proxy 12D3KooW... ssh 2222  # SSH via peer ID
-```
-
-### `peerup ping` - Test connectivity
-
-```
-Usage: peerup ping <target>
-
-Arguments:
-  target    Peer ID or name from config
-
-Examples:
-  peerup ping home
-  peerup ping 12D3KooW...
 ```
 
 ## Library (`pkg/p2pnet`)
@@ -368,7 +362,7 @@ Two layers of defense:
 
 ### How It Works
 
-1. **Home node** loads `authorized_keys` at startup
+1. Server loads `authorized_keys` at startup
 2. When a peer attempts to connect, `InterceptSecured()` checks the peer ID
 3. If not authorized, connection is **DENIED** at network level
 4. If authorized, connection is allowed and protocol handler performs secondary check
@@ -377,8 +371,8 @@ Two layers of defense:
 
 - If `enable_connection_gating: true` but no `authorized_keys` file: **refuses to start**
 - If `authorized_keys` is empty: **warns loudly** but allows (for initial setup)
-- Home node: **allows all outbound** connections (for DHT, relay, etc.)
-- Home node: **blocks all unauthorized inbound** connections
+- Server: **allows all outbound** connections (for DHT, relay, etc.)
+- Server: **blocks all unauthorized inbound** connections
 
 ## Security Notes
 
@@ -398,11 +392,11 @@ The relay server supports `authorized_keys` to restrict who can make reservation
 
 ### Relay Circuit (Circuit Relay v2)
 
-1. Home node connects outbound to relay and makes a **reservation**
+1. Server connects outbound to relay and makes a **reservation**
 2. Client connects outbound to relay
-3. Client dials home via circuit address:
+3. Client dials server via circuit address:
    ```
-   /ip4/<RELAY_IP>/tcp/7777/p2p/<RELAY_PEER_ID>/p2p-circuit/p2p/<HOME_PEER_ID>
+   /ip4/<RELAY_IP>/tcp/7777/p2p/<RELAY_PEER_ID>/p2p-circuit/p2p/<SERVER_PEER_ID>
    ```
 4. Relay bridges the connection - both sides only made outbound connections
 
@@ -414,8 +408,8 @@ After relay connection is established, libp2p attempts **Direct Connection Upgra
 
 ### Peer Discovery (Kademlia DHT)
 
-Home node **advertises** on DHT using rendezvous string.
-Client node **searches** DHT for the rendezvous string to find home node's peer ID and addresses.
+Server **advertises** on DHT using rendezvous string.
+Client **searches** DHT for the rendezvous string to find the server's peer ID and addresses.
 
 ### Bidirectional Proxy
 
@@ -426,21 +420,15 @@ The TCP proxy uses the half-close pattern (inspired by Go stdlib's `httputil.Rev
 
 ## keytool - Key Management Utility
 
-### Building
-
 ```bash
-cd cmd/keytool
-go build -o keytool
-```
+# Build
+go build -o keytool ./cmd/keytool
 
-### Commands
-
-```bash
 # Generate new Ed25519 keypair
 keytool generate my-node.key
 
 # Extract peer ID from key file
-keytool peerid home_node.key
+keytool peerid identity.key
 
 # Validate authorized_keys file
 keytool validate authorized_keys
@@ -450,16 +438,6 @@ keytool authorize 12D3KooW... --comment "laptop" --file authorized_keys
 
 # Remove peer from authorized_keys
 keytool revoke 12D3KooW... --file authorized_keys
-```
-
-### Common Workflows
-
-```bash
-# Initial setup
-keytool generate home-node.key
-keytool generate client-node.key
-keytool peerid client-node.key
-keytool authorize <CLIENT_PEER_ID> --comment "my-phone" --file authorized_keys
 ```
 
 ## Running as a Service (systemd)
@@ -473,18 +451,17 @@ sudo systemctl enable relay-server
 sudo systemctl start relay-server
 ```
 
-### Home Node
+### peerup serve
 
-Create `/etc/systemd/system/home-node.service`:
+Create `/etc/systemd/system/peerup.service`:
 ```ini
 [Unit]
-Description=peer-up Home Node
+Description=peer-up Server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/path/to/home-node
-WorkingDirectory=/path/to/home-node-config-dir
+ExecStart=/usr/local/bin/peerup serve --config /etc/peerup/config.yaml
 Restart=always
 RestartSec=5
 
@@ -496,11 +473,11 @@ WantedBy=multi-user.target
 
 | Issue | Solution |
 |-------|----------|
-| `Failed to load config` | Ensure you're running from the directory containing the YAML config |
-| `Cannot resolve target` | Add name mapping to `names:` section in `client-node.yaml` |
-| `DENIED inbound connection` | Add peer ID to `authorized_keys` and restart home-node |
-| Home node shows no `/p2p-circuit` addresses | Check `force_private_reachability: true` and relay address |
-| `protocols not supported: [/libp2p/circuit/relay/0.2.0/hop]` | Relay service not running |
+| `Config error: no config file found` | Run `peerup init` or use `--config <path>` |
+| `Cannot resolve target` | Add name mapping to `names:` section in config |
+| `DENIED inbound connection` | Add peer ID to `authorized_keys` and restart server |
+| Server shows no `/p2p-circuit` addresses | Check `force_private_reachability: true` and relay address |
+| `protocols not supported` | Relay service not running |
 | XRDP window manager crashes | Ensure no conflicting physical desktop session for the same user |
 | `failed to sufficiently increase receive buffer size` | Warning only: `sudo sysctl -w net.core.rmem_max=7500000` |
 
@@ -513,28 +490,6 @@ WantedBy=multi-user.target
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for detailed multi-phase implementation plan.
-
-### Phase 1-3: Foundation - COMPLETE
-- Configuration system (YAML-based)
-- SSH-style authentication (ConnectionGater + authorized_keys)
-- Relay-based NAT traversal
-- `keytool` CLI utility for key management
-
-### Phase 4A: Core Library & Service Registry - COMPLETE
-- `pkg/p2pnet` reusable library
-- Service registry and bidirectional TCP proxy
-- `cmd/` layout with single Go module
-- `peerup` unified client with subcommands
-- Local name resolution
-- Tested: SSH, XRDP, generic TCP across LAN and 5G
-
-### Phase 4B: Desktop Gateway - Next
-- Multi-mode daemon: SOCKS / DNS / TUN
-- Virtual network overlay
-- Local DNS server (`.p2p` TLD)
-
-### Phase 4C-4E: Federation, Mobile, Advanced Naming
-See [ROADMAP.md](ROADMAP.md).
 
 ## Dependencies
 
@@ -554,7 +509,6 @@ MIT
 This is a personal project, but issues and PRs are welcome!
 
 **Testing checklist for PRs:**
-- [ ] `go build ./cmd/home-node` succeeds
 - [ ] `go build ./cmd/peerup` succeeds
 - [ ] `go build ./cmd/keytool` succeeds
 - [ ] Config files load without errors

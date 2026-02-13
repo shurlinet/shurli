@@ -9,8 +9,7 @@
 *.dylib
 
 # Built executables
-home-node
-peerup
+/peerup
 cmd/keytool/keytool
 relay-server/relay-server
 
