@@ -11,6 +11,7 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - ✅ **Progressive enhancement** - Each phase adds value independently
 - ✅ **No hard dependencies** - Works without optional features (naming, blockchain, etc.)
 - ✅ **Local-first** - Offline-capable, no central services required
+- ✅ **Self-sovereign** - No accounts, no telemetry, no vendor dependency
 
 ---
 
@@ -108,14 +109,58 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 
 ---
 
-### Phase 4B: Desktop Gateway Daemon (Next)
+### Phase 4B: Frictionless Onboarding (Next)
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Eliminate manual key exchange and config editing. Get two machines connected in under 60 seconds.
+
+**Rationale**: The current flow (generate key → share peer ID → edit authorized_keys → write config) has 4 friction points before anything works. This is the single biggest adoption barrier.
+
+**Deliverables**:
+- [ ] `peerup invite` — generate short-lived invite code (encodes relay address + peer ID)
+- [ ] `peerup join <code>` — accept invite, exchange keys, auto-configure, connect
+- [ ] QR code output for `peerup invite` (scannable by mobile app later)
+- [ ] `peerup whoami` — show own peer ID and friendly name for sharing
+- [ ] `peerup auth add <peer-id> --comment "friend"` — append to authorized_keys
+- [ ] `peerup auth list` — show authorized peers
+- [ ] `peerup auth remove <peer-id>` — revoke access
+
+**User Experience**:
+```bash
+# Machine A (home server)
+$ peerup invite
+Invite code (expires in 10 minutes): ABCX-7KMN-P2P3
+Share this with your other device.
+
+# Machine B (laptop)
+$ peerup join ABCX-7KMN-P2P3
+✓ Connected to relay
+✓ Found peer "home" (12D3KooW...Gukpf4)
+✓ Keys exchanged and authorized
+✓ Config written to ~/.config/peerup/config.yaml
+Ready! Try: peerup proxy home ssh 2222
+```
+
+**Security**:
+- Invite codes are short-lived (configurable TTL, default 10 minutes)
+- One-time use — code is invalidated after successful join
+- Relay mediates the handshake but never sees private keys
+- Both sides must be online simultaneously during join
+
+---
+
+### Phase 4C: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Create multi-mode gateway daemon for transparent service access.
+**Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
 **Deliverables**:
+
+**Client-side Gateway**:
 - [ ] `cmd/gateway/` - Gateway daemon with multiple modes
 - [ ] **Mode 1**: SOCKS5 proxy (localhost:1080)
 - [ ] **Mode 2**: Local DNS server (`.p2p` TLD)
@@ -123,15 +168,43 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - [ ] `/etc/hosts` integration for local name overrides
 - [ ] Virtual IP assignment (10.64.0.0/16 range)
 
+**Relay-side Private DNS**:
+- [ ] Lightweight DNS zone on the relay server (e.g., CoreDNS or custom)
+- [ ] Exposed **only** via P2P protocol — never bound to public UDP/53
+- [ ] Relay operator configures a real domain (e.g., `example.com`) pointing to the VPS IP
+- [ ] Subdomains (`bob.example.com`, `home.example.com`) assigned on the relay, resolvable only within the P2P network
+- [ ] Public DNS returns NXDOMAIN for all subdomains — they don't exist outside the network
+- [ ] Gateway daemon queries relay's private DNS as upstream resolver
+
+**Private DNS Architecture**:
+```
+Public Internet:
+  example.com → 123.123.123.123 (relay VPS)    ← public, A record
+  bob.example.com → NXDOMAIN                    ← not in public DNS
+  home.example.com → NXDOMAIN                   ← not in public DNS
+
+Inside P2P network (via relay's private DNS):
+  bob.example.com → Bob's peer ID → Bob's services
+  home.example.com → Home's peer ID → SSH, XRDP, Ollama
+```
+
+**How it works**:
+1. Relay operator owns `example.com`, points it to the relay VPS
+2. Relay runs a private DNS zone mapping `<name>.example.com` → peer ID
+3. Peers register their friendly name with the relay on connect
+4. Client gateway daemon queries the relay's DNS over a P2P stream (not raw UDP)
+5. Gateway translates the response into a local DNS answer for the OS
+6. Subdomains stay private — no DNS records ever created on public registrars
+
 **Usage Examples**:
 ```bash
 # Mode 1: SOCKS proxy (no root needed)
 peerup-gateway --mode socks --port 1080
 # Configure apps to use SOCKS proxy
 
-# Mode 2: DNS server
+# Mode 2: DNS server (queries relay's private DNS)
 peerup-gateway --mode dns --port 53
-# Resolves: laptop.grewal.p2p → virtual IP
+# Resolves: home.example.com → virtual IP (via relay's private zone)
 
 # Mode 3: Virtual network (requires root)
 sudo peerup-gateway --mode tun --network 10.64.0.0/16
@@ -141,19 +214,174 @@ sudo peerup-gateway --mode tun --network 10.64.0.0/16
 **Connection Examples**:
 ```bash
 # After gateway is running:
-ssh user@laptop.grewal
-curl http://desktop.alice:8080
-mount -t cifs //home.grewal/media /mnt/media
+ssh user@home.example.com        # resolved privately via relay
+curl http://bob.example.com:8080 # never touches public DNS
+mount -t cifs //home.example.com/media /mnt/media
 ```
 
 ---
 
-### Phase 4C: Federation - Network Peering
+### Phase 4D: File Sharing
+
+**Timeline**: 1 week
+**Status**: 📋 Planned
+
+**Goal**: Simple peer-to-peer file transfer between authorized devices.
+
+**Rationale**: Before people need SSH tunnels or GPU inference, they need to send files. This is a universal use case that gives people a reason to install peer-up *today*. Low effort — builds directly on existing bidirectional streams.
+
+**Deliverables**:
+- [ ] `peerup send <file> --to <peer>` — send a file to an authorized peer
+- [ ] `peerup receive` — listen for incoming file transfers
+- [ ] Auto-accept from authorized peers (configurable)
+- [ ] Progress bar and transfer speed display
+- [ ] Resume interrupted transfers
+- [ ] Directory transfer support (`peerup send ./folder --to laptop`)
+
+**Usage**:
+```bash
+# Send a file
+$ peerup send photo.jpg --to laptop
+Sending photo.jpg (4.2 MB) to laptop...
+████████████████████████████ 100% — 4.2 MB/s
+✓ Transfer complete
+
+# Send to multiple peers
+$ peerup send presentation.pdf --to home --to phone
+
+# Receive mode (optional — auto-accept if peer is authorized)
+$ peerup receive --save-to ~/Downloads/
+Waiting for transfers...
+```
+
+---
+
+### Phase 4E: Distribution & Install
+
+**Timeline**: 1 week
+**Status**: 📋 Planned
+
+**Goal**: Make peer-up installable without a Go toolchain. Nobody will try later features if they can't `curl | sh` the binary.
+
+**Rationale**: High impact, low effort. Prerequisite for wider adoption.
+
+**Deliverables**:
+- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
+- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
+- [ ] Publish to GitHub Releases with checksums
+- [ ] Homebrew tap: `brew install satindergrewal/tap/peerup`
+- [ ] One-line install script: `curl -sSL https://get.peerup.dev | sh`
+- [ ] APT repository for Debian/Ubuntu
+- [ ] AUR package for Arch Linux
+
+**Result**: Zero-dependency install on any platform.
+
+---
+
+### Phase 4F: GPU Inference Tunnel
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Polish the GPU inference use case into a first-class, demo-ready feature. This is peer-up's killer differentiator — Tailscale doesn't market this at all.
+
+**Rationale**: The Starlink + home GPU crowd is a real, underserved audience actively searching for solutions. This is peer-up's **Hacker News moment**.
+
+**Deliverables**:
+- [ ] `peerup serve --ollama` shortcut (auto-detects Ollama on localhost:11434)
+- [ ] `peerup serve --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] Health check endpoint — verify GPU service is reachable before exposing
+- [ ] Streaming response support verification (chunked transfer for LLM output)
+- [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
+- [ ] Example: phone → relay → home 5090 → streaming LLM response
+- [ ] Blog post / demo: *"Access your home GPU from anywhere through Starlink CGNAT"*
+
+**How it works**:
+- Home machine runs Ollama, vLLM, or TGI on the GPU
+- `peerup serve` exposes it as a service (e.g., `ollama` on `localhost:11434`)
+- Remote VPS or laptop runs `peerup proxy home ollama 11434`
+- VPS sends prompts, gets completions back — only text over the wire
+- Home IP/ports never exposed to the internet
+
+**Config (home machine)**:
+```yaml
+services:
+  ollama:
+    enabled: true
+    local_address: "localhost:11434"
+```
+
+**Multi-GPU / distributed inference**:
+- Multiple LAN machines with GPUs run exo or llama.cpp RPC
+- One machine runs `peerup serve` as the entry point
+- Remote peers connect through the single peer-up tunnel
+- Cluster stays on LAN, only the API endpoint is exposed via P2P
+
+**Why this is a differentiator**:
+- Same TCP proxy pattern as SSH/XRDP (already working)
+- Authentication via authorized_keys — only trusted peers can use your GPU
+- No port forwarding, no dynamic DNS, no VPN setup
+- Works through CGNAT (Starlink, mobile hotspot)
+- Relay handles NAT traversal; DCUtR upgrades to direct for lower latency
+- **No competing tool markets this use case** — peer-up can own the narrative
+
+---
+
+### Phase 4G: Mobile Applications
+
+**Timeline**: 3-4 weeks
+**Status**: 📋 Planned
+
+**Goal**: Native iOS and Android apps with VPN-like functionality.
+
+**Rationale**: Phone → relay → home GPU is the dream demo. Mobile closes the loop on "access your stuff from anywhere."
+
+**iOS Strategy**:
+- **Primary**: NEPacketTunnelProvider (VPN mode)
+  - Full TUN interface
+  - Virtual network support
+  - Frame as "self-hosted personal network" (like WireGuard)
+- **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
+- **Apple Review Approach**: "Connect to your own devices via relay server"
+
+**Android Strategy**:
+- VPNService API (full feature parity)
+- TUN interface
+- No approval process limitations
+
+**Deliverables**:
+- [ ] iOS app with NEPacketTunnelProvider
+- [ ] Android app with VPNService
+- [ ] Mobile-optimized config UI
+- [ ] QR code scanning for `peerup invite` codes
+- [ ] Background connection maintenance
+- [ ] Battery optimization
+- [ ] Per-app SDK for third-party integration
+
+**User Experience**:
+```
+iOS/Android App Config:
+├─ Scan QR Code (from peerup invite)
+├─ Or enter invite code: ABCX-7KMN-P2P3
+└─ Connect Button
+
+Once connected:
+- SSH clients work: ssh user@home
+- Browsers work: http://laptop:8080
+- Native apps work: Plex connects to home.grewal:32400
+- Chat with home LLM via Ollama API
+```
+
+---
+
+### Phase 4H: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Enable relay-to-relay federation for cross-network communication.
+
+**Rationale**: Only matters once you have multiple users with their own networks. Deferred until adoption features ship first.
 
 **Deliverables**:
 - [ ] Relay federation configuration
@@ -204,50 +432,7 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 4D: Mobile Applications
-
-**Timeline**: 3-4 weeks
-**Status**: 📋 Planned
-
-**Goal**: Native iOS and Android apps with VPN-like functionality.
-
-**iOS Strategy**:
-- **Primary**: NEPacketTunnelProvider (VPN mode)
-  - Full TUN interface
-  - Virtual network support
-  - Frame as "self-hosted personal network" (like WireGuard)
-- **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
-- **Apple Review Approach**: "Connect to your own devices via relay server"
-
-**Android Strategy**:
-- VPNService API (full feature parity)
-- TUN interface
-- No approval process limitations
-
-**Deliverables**:
-- [ ] iOS app with NEPacketTunnelProvider
-- [ ] Android app with VPNService
-- [ ] Mobile-optimized config UI
-- [ ] Background connection maintenance
-- [ ] Battery optimization
-- [ ] Per-app SDK for third-party integration
-
-**User Experience**:
-```
-iOS/Android App Config:
-├─ Relay Server: relay.grewal.com:7777
-├─ Network Key: [Import/Generate]
-└─ Connect Button
-
-Once connected:
-- SSH clients work: ssh user@home
-- Browsers work: http://laptop:8080
-- Native apps work: Plex connects to home.grewal:32400
-```
-
----
-
-### Phase 4E: Advanced Naming Systems (Optional)
+### Phase 4I: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -314,72 +499,36 @@ resolvers := []NameResolver{
 
 ---
 
-## Distribution & Packaging
+## Positioning & Community
 
-**Status**: 📋 Planned (low effort, high impact)
+### Privacy Narrative — peer-up's Moat
 
-These items make peer-up easy to install and share with others.
+peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
 
-### Pre-built Binaries (GoReleaser + GitHub Releases)
+| | **peer-up** | **Tailscale** |
+|---|---|---|
+| **Accounts** | None — no email, no OAuth | Required (Google, GitHub, etc.) |
+| **Telemetry** | Zero — no data leaves your network | Coordination server sees device graph |
+| **Control plane** | None — relay only forwards bytes | Centralized coordination server |
+| **Key custody** | You generate, you store, you control | Keys managed via their control plane |
+| **Source** | Fully open, self-hosted | Open source client, proprietary control plane |
 
-- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
-- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
-- [ ] Publish to GitHub Releases with checksums
-- [ ] Users download a single binary — no Go toolchain needed
+> *"Tailscale for people who don't want to trust a company with their network topology."*
 
-**Result**: `curl -L https://github.com/.../releases/latest/download/peerup-linux-amd64 -o peerup`
+### Target Audiences (in order of receptiveness)
 
-### Easy Peer Authorization
+1. **r/selfhosted** — Already run services at home, hate port forwarding, value self-sovereignty
+2. **Starlink/CGNAT users** — Actively searching for solutions to reach home machines
+3. **AI/ML hobbyists** — Home GPU + remote access is exactly their problem
+4. **Privacy-conscious developers** — Won't use Tailscale because of the coordination server
 
-- [ ] `peerup auth add <peer-id> --comment "friend"` — append to authorized_keys
-- [ ] `peerup auth list` — show authorized peers
-- [ ] `peerup auth remove <peer-id>` — revoke access
-- [ ] `peerup whoami` — show own peer ID (for sharing with friends)
+### Launch Strategy
 
-**Result**: No manual file editing to authorize a friend.
-
-### Package Managers
-
-- [ ] Homebrew tap for macOS: `brew install satindergrewal/tap/peerup`
-- [ ] APT repository for Debian/Ubuntu
-- [ ] AUR package for Arch Linux
-- [ ] Snap or Flatpak (optional)
-
----
-
-## Use Case: GPU Inference Tunnel
-
-**Status**: 📋 Planned — natural extension of existing service registry
-
-Expose a local GPU inference server running on a home machine (e.g., NVIDIA RTX 5090) through peer-up's P2P relay to a remote VPS or any authorized peer.
-
-**How it works**:
-- Home machine runs Ollama, vLLM, or TGI on the GPU
-- `peerup serve` exposes it as a service (e.g., `ollama` on `localhost:11434`)
-- Remote VPS or laptop runs `peerup proxy home ollama 11434`
-- VPS sends prompts, gets completions back — only text over the wire
-- Home IP/ports never exposed to the internet
-
-**Config (home machine)**:
-```yaml
-services:
-  ollama:
-    enabled: true
-    local_address: "localhost:11434"
-```
-
-**Multi-GPU / distributed inference**:
-- Multiple LAN machines with GPUs run exo or llama.cpp RPC
-- One machine runs `peerup serve` as the entry point
-- Remote peers connect through the single peer-up tunnel
-- Cluster stays on LAN, only the API endpoint is exposed via P2P
-
-**Why peer-up is a good fit**:
-- Same TCP proxy pattern as SSH/XRDP (already working)
-- Authentication via authorized_keys — only trusted peers can use your GPU
-- No port forwarding, no dynamic DNS, no VPN setup
-- Works through CGNAT (Starlink, mobile hotspot)
-- Relay handles NAT traversal; DCUtR upgrades to direct for lower latency
+1. **Hacker News post**: *"Show HN: peer-up — self-hosted P2P tunnels through Starlink CGNAT (no accounts, no vendor)"*
+2. **r/selfhosted post**: Focus on SSH + XRDP + GPU inference through CGNAT
+3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
+4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
+5. **Comparisons**: Honest peer-up vs Tailscale / Zerotier / Netbird posts
 
 ---
 
@@ -410,13 +559,19 @@ services:
 | Phase 2: Authentication | ✅ 2 weeks | Complete |
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
-| **Phase 4B: Desktop Gateway** | 📋 2-3 weeks | **Next** |
-| Phase 4C: Federation | 📋 2-3 weeks | Planned |
-| Phase 4D: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 4E: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| **Phase 4B: Frictionless Onboarding** | 📋 1-2 weeks | **Next** |
+| Phase 4C: Desktop Gateway | 📋 2-3 weeks | Planned |
+| Phase 4D: File Sharing | 📋 1 week | Planned |
+| Phase 4E: Distribution & Install | 📋 1 week | Planned |
+| Phase 4F: GPU Inference Polish | 📋 1-2 weeks | Planned |
+| Phase 4G: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 4H: Federation | 📋 2-3 weeks | Planned |
+| Phase 4I: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 5+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 12-16 weeks (3-4 months)
+**Total estimated time for Phase 4**: 16-22 weeks (4-5 months)
+
+**Priority logic**: Onboarding first (remove friction), then gateway (transparent access), then quick wins (file sharing, distribution), then polish (GPU inference), then expand (mobile → federation → naming).
 
 ---
 
@@ -440,21 +595,42 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - At least 3 example services documented (SSH, HTTP, custom)
 
 **Phase 4B Success**:
-- Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
-- Native apps connect without configuration
-- 100+ named peers in network without port conflicts
+- Two machines connected via invite code in under 60 seconds
+- Zero manual file editing required
+- Invite codes expire and are single-use
 
 **Phase 4C Success**:
+- Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
+- Private DNS on relay resolves subdomains only within P2P network
+- Public DNS queries for subdomains return NXDOMAIN (zero leakage)
+- Native apps connect using real domain names (e.g., `home.example.com`)
+
+**Phase 4D Success**:
+- File transfer works between authorized peers
+- Transfer speed saturates relay bandwidth
+- Resume works after interrupted transfer
+
+**Phase 4E Success**:
+- GoReleaser builds binaries for 6 targets (linux/mac/windows × amd64/arm64)
+- Homebrew tap works: `brew install satindergrewal/tap/peerup`
+- Install-to-running in under 30 seconds
+
+**Phase 4F Success**:
+- `peerup serve --ollama` auto-detects and exposes Ollama
+- Streaming LLM responses work end-to-end through relay
+- Blog post / demo published
+
+**Phase 4G Success**:
+- iOS app approved by Apple
+- Android app published on Play Store
+- QR code invite flow works mobile → desktop
+
+**Phase 4H Success**:
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 4D Success**:
-- iOS app approved by Apple
-- Android app published on Play Store
-- Native apps (Plex, SSH clients) work on mobile
-
-**Phase 4E Success**:
+**Phase 4I Success**:
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
@@ -463,4 +639,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 **Last Updated**: 2026-02-13
 **Current Phase**: 4A Complete, 4B Next
-**Next Milestone**: Desktop Gateway Daemon (SOCKS5 proxy mode)
+**Next Milestone**: Frictionless Onboarding (invite/join flow)
