@@ -347,6 +347,42 @@ These items make peer-up easy to install and share with others.
 
 ---
 
+## Use Case: GPU Inference Tunnel
+
+**Status**: 📋 Planned — natural extension of existing service registry
+
+Expose a local GPU inference server running on a home machine (e.g., NVIDIA RTX 5090) through peer-up's P2P relay to a remote VPS or any authorized peer.
+
+**How it works**:
+- Home machine runs Ollama, vLLM, or TGI on the GPU
+- `peerup serve` exposes it as a service (e.g., `ollama` on `localhost:11434`)
+- Remote VPS or laptop runs `peerup proxy home ollama 11434`
+- VPS sends prompts, gets completions back — only text over the wire
+- Home IP/ports never exposed to the internet
+
+**Config (home machine)**:
+```yaml
+services:
+  ollama:
+    enabled: true
+    local_address: "localhost:11434"
+```
+
+**Multi-GPU / distributed inference**:
+- Multiple LAN machines with GPUs run exo or llama.cpp RPC
+- One machine runs `peerup serve` as the entry point
+- Remote peers connect through the single peer-up tunnel
+- Cluster stays on LAN, only the API endpoint is exposed via P2P
+
+**Why peer-up is a good fit**:
+- Same TCP proxy pattern as SSH/XRDP (already working)
+- Authentication via authorized_keys — only trusted peers can use your GPU
+- No port forwarding, no dynamic DNS, no VPN setup
+- Works through CGNAT (Starlink, mobile hotspot)
+- Relay handles NAT traversal; DCUtR upgrades to direct for lower latency
+
+---
+
 ## Phase 5+: Ecosystem & Polish
 
 **Timeline**: Ongoing
