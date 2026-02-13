@@ -1,13 +1,17 @@
 #!/bin/bash
 # Deploy, verify, and uninstall relay server on a VPS (Ubuntu 22.04 / 24.04)
 #
-# IMPORTANT: Run as a regular user, NOT root. The script uses sudo where needed.
-#
 # Usage:
 #   cd ~/peer-up/relay-server
 #   bash setup-linode.sh              # Full setup (install + start + verify)
 #   bash setup-linode.sh --check      # Health check only (no changes)
 #   bash setup-linode.sh --uninstall  # Remove service, firewall rules, tuning
+#
+# If run as root:
+#   - --check and --uninstall work directly as root
+#   - Setup mode guides you through creating or selecting a secure non-root
+#     service user, audits their security settings, then re-runs setup as
+#     that user automatically
 #
 # What the full setup does:
 #   1. Installs Go (if not present)
@@ -32,17 +36,305 @@ RELAY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CURRENT_USER="$(whoami)"
 
 # ============================================================
-# Root guard — never run this script as root
+# Security audit for an existing user
+# ============================================================
+audit_user() {
+    local TARGET="$1"
+    local TARGET_HOME
+    TARGET_HOME=$(eval echo "~$TARGET")
+
+    echo "--- Security audit: $TARGET ---"
+    echo
+
+    # 1. Sudo group
+    if groups "$TARGET" 2>/dev/null | grep -qw sudo; then
+        echo "  [OK]   Member of sudo group"
+    else
+        echo "  [FIX]  Not in sudo group (required for setup)"
+        read -p "         Add to sudo group? [Y/n] " RESP
+        if [ "$RESP" != "n" ] && [ "$RESP" != "N" ]; then
+            usermod -aG sudo "$TARGET"
+            echo "         Added"
+        fi
+    fi
+
+    # 2. Password status (needed for sudo)
+    local PASS_STATUS
+    PASS_STATUS=$(passwd -S "$TARGET" 2>/dev/null | awk '{print $2}')
+    case "$PASS_STATUS" in
+        P)  echo "  [OK]   Password is set (can use sudo)" ;;
+        L)
+            echo "  [FIX]  Password is locked — cannot use sudo"
+            echo "         Set a password now:"
+            passwd "$TARGET"
+            ;;
+        NP)
+            echo "  [FIX]  No password set — cannot use sudo"
+            echo "         Set a password now:"
+            passwd "$TARGET"
+            ;;
+        *)  echo "  [WARN] Could not determine password status" ;;
+    esac
+
+    # 3. SSH keys
+    if [ -f "$TARGET_HOME/.ssh/authorized_keys" ] && [ -s "$TARGET_HOME/.ssh/authorized_keys" ]; then
+        local KEY_COUNT
+        KEY_COUNT=$(grep -c '' "$TARGET_HOME/.ssh/authorized_keys")
+        echo "  [OK]   SSH authorized_keys: $KEY_COUNT key(s)"
+    else
+        echo "  [FIX]  No SSH keys found"
+        if [ -f /root/.ssh/authorized_keys ]; then
+            read -p "         Copy root's SSH keys to $TARGET? [Y/n] " RESP
+            if [ "$RESP" != "n" ] && [ "$RESP" != "N" ]; then
+                mkdir -p "$TARGET_HOME/.ssh"
+                cp /root/.ssh/authorized_keys "$TARGET_HOME/.ssh/"
+                chown -R "$TARGET:$TARGET" "$TARGET_HOME/.ssh"
+                chmod 700 "$TARGET_HOME/.ssh"
+                chmod 600 "$TARGET_HOME/.ssh/authorized_keys"
+                echo "         Copied"
+            fi
+        else
+            echo "         Add keys manually: $TARGET_HOME/.ssh/authorized_keys"
+        fi
+    fi
+
+    # 4. SSH directory permissions
+    if [ -d "$TARGET_HOME/.ssh" ]; then
+        local SSH_PERMS
+        SSH_PERMS=$(stat -c '%a' "$TARGET_HOME/.ssh" 2>/dev/null)
+        if [ "$SSH_PERMS" = "700" ]; then
+            echo "  [OK]   .ssh permissions: 700"
+        else
+            chmod 700 "$TARGET_HOME/.ssh"
+            [ -f "$TARGET_HOME/.ssh/authorized_keys" ] && chmod 600 "$TARGET_HOME/.ssh/authorized_keys"
+            chown -R "$TARGET:$TARGET" "$TARGET_HOME/.ssh"
+            echo "  [FIX]  .ssh permissions corrected to 700"
+        fi
+    fi
+
+    # 5. Home directory permissions
+    local HOME_PERMS
+    HOME_PERMS=$(stat -c '%a' "$TARGET_HOME" 2>/dev/null)
+    if [ "$HOME_PERMS" = "700" ] || [ "$HOME_PERMS" = "750" ]; then
+        echo "  [OK]   Home directory permissions: $HOME_PERMS"
+    else
+        echo "  [FIX]  Home directory permissions: $HOME_PERMS (should be 700)"
+        read -p "         Set to 700? [Y/n] " RESP
+        if [ "$RESP" != "n" ] && [ "$RESP" != "N" ]; then
+            chmod 700 "$TARGET_HOME"
+            echo "         Set to 700"
+        fi
+    fi
+
+    # 6. SSH daemon config
+    echo
+    echo "  SSH daemon:"
+    local SSH_ISSUES=0
+    if grep -qE '^\s*PasswordAuthentication\s+no' /etc/ssh/sshd_config 2>/dev/null; then
+        echo "  [OK]   Password authentication disabled"
+    else
+        echo "  [WARN] Password authentication may be enabled"
+        SSH_ISSUES=$((SSH_ISSUES + 1))
+    fi
+    if grep -qE '^\s*PermitRootLogin\s+no' /etc/ssh/sshd_config 2>/dev/null; then
+        echo "  [OK]   Root login disabled"
+    else
+        echo "  [WARN] Root login may be enabled"
+        SSH_ISSUES=$((SSH_ISSUES + 1))
+    fi
+    if [ "$SSH_ISSUES" -gt 0 ]; then
+        echo
+        echo "  Recommended: harden /etc/ssh/sshd_config:"
+        echo "    PasswordAuthentication no"
+        echo "    PermitRootLogin no"
+        read -p "  Apply SSH hardening now? [y/N] " RESP
+        if [ "$RESP" = "y" ] || [ "$RESP" = "Y" ]; then
+            sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+            grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+            sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+            grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+            systemctl restart sshd
+            echo "  [OK] SSH hardened and restarted"
+            echo
+            echo "  *** TEST: Verify SSH in a NEW terminal before closing this session! ***"
+        fi
+    fi
+    echo
+}
+
+# ============================================================
+# Create a new hardened user for the relay service
+# ============================================================
+create_secure_user() {
+    local NEW_USER="$1"
+    echo "--- Creating hardened user: $NEW_USER ---"
+    echo
+
+    # Create with home directory and bash shell
+    useradd -m -s /bin/bash "$NEW_USER"
+    echo "  [OK] User created: /home/$NEW_USER"
+
+    # Set password (required for sudo)
+    echo
+    echo "  Set a strong password for $NEW_USER (required for sudo):"
+    passwd "$NEW_USER"
+    echo
+
+    # Sudo group
+    usermod -aG sudo "$NEW_USER"
+    echo "  [OK] Added to sudo group"
+
+    # Lock down home directory
+    chmod 700 "/home/$NEW_USER"
+    echo "  [OK] Home directory: 700"
+
+    # SSH keys from root
+    local HAS_SSH_KEYS=false
+    if [ -f /root/.ssh/authorized_keys ]; then
+        mkdir -p "/home/$NEW_USER/.ssh"
+        cp /root/.ssh/authorized_keys "/home/$NEW_USER/.ssh/"
+        chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
+        chmod 700 "/home/$NEW_USER/.ssh"
+        chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
+        echo "  [OK] SSH keys copied from root"
+        HAS_SSH_KEYS=true
+    else
+        echo "  [WARN] No root SSH keys to copy"
+        echo "         Add keys manually: /home/$NEW_USER/.ssh/authorized_keys"
+    fi
+
+    # SSH daemon hardening
+    echo
+    echo "  SSH daemon hardening:"
+    echo "    PasswordAuthentication no  — key-only SSH login"
+    echo "    PermitRootLogin no         — block root SSH access"
+    echo
+    if [ "$HAS_SSH_KEYS" = true ]; then
+        echo "  SSH keys are in place — safe to harden."
+        read -p "  Apply SSH hardening? [Y/n] " RESP
+        RESP=${RESP:-Y}
+    else
+        echo "  WARNING: No SSH keys confirmed. Hardening could lock you out!"
+        read -p "  Apply SSH hardening? [y/N] " RESP
+        RESP=${RESP:-N}
+    fi
+    if [ "$RESP" = "y" ] || [ "$RESP" = "Y" ]; then
+        sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+        grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+        grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+        systemctl restart sshd
+        echo "  [OK] SSH hardened and restarted"
+        echo
+        local VPS_IP
+        VPS_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+        echo "  *** CRITICAL: Test SSH in a NEW terminal before closing this session! ***"
+        echo "  ssh $NEW_USER@${VPS_IP:-YOUR_VPS_IP}"
+    else
+        echo "  Skipped — apply manually later in /etc/ssh/sshd_config"
+    fi
+
+    echo
+    echo "User $NEW_USER created and secured."
+    echo
+}
+
+# ============================================================
+# Root handler — create/select service user or allow --check/--uninstall
 # ============================================================
 if [ "$CURRENT_USER" = "root" ]; then
-    echo "ERROR: Do not run this script as root."
-    echo
-    echo "  1. Create a non-root user:  adduser peerup && usermod -aG sudo peerup"
-    echo "  2. Log in as that user:     su - peerup"
-    echo "  3. Run again:               bash setup-linode.sh"
-    echo
-    echo "The script uses 'sudo' internally where needed."
-    exit 1
+    # --check and --uninstall are safe to run as root
+    if [ "$1" = "--check" ] || [ "$1" = "--uninstall" ]; then
+        : # fall through to handlers below
+    else
+        echo "=== Running as root — service user setup ==="
+        echo
+        echo "The relay server must NOT run as root."
+        echo "Let's set up a proper service user first."
+        echo
+        echo "  1) Select an existing user"
+        echo "  2) Create a new dedicated user"
+        echo
+        read -p "Choice [1/2]: " USER_CHOICE
+        echo
+
+        TARGET_USER=""
+
+        case "$USER_CHOICE" in
+            1)
+                echo "Non-root users with login shells:"
+                USERS=()
+                while IFS=: read -r name _ uid _ _ home shell; do
+                    if [ "$uid" -ge 1000 ] && [ "$uid" -lt 65534 ] && \
+                       [[ "$shell" == */bash || "$shell" == */zsh || "$shell" == */sh ]]; then
+                        USERS+=("$name")
+                        echo "  ${#USERS[@]}) $name  (home: $home)"
+                    fi
+                done < /etc/passwd
+
+                if [ ${#USERS[@]} -eq 0 ]; then
+                    echo "  No suitable users found. Use option 2 to create one."
+                    exit 1
+                fi
+
+                echo
+                read -p "Select [1-${#USERS[@]}]: " IDX
+                if [[ "$IDX" =~ ^[0-9]+$ ]] && [ "$IDX" -ge 1 ] && [ "$IDX" -le "${#USERS[@]}" ]; then
+                    TARGET_USER="${USERS[$((IDX - 1))]}"
+                else
+                    echo "Invalid selection."
+                    exit 1
+                fi
+                echo
+                audit_user "$TARGET_USER"
+                ;;
+            2)
+                read -p "Username for the new user: " NEW_NAME
+                if [ -z "$NEW_NAME" ]; then
+                    echo "Username cannot be empty."
+                    exit 1
+                fi
+                if id "$NEW_NAME" &>/dev/null; then
+                    echo "ERROR: User '$NEW_NAME' already exists. Use option 1."
+                    exit 1
+                fi
+                echo
+                create_secure_user "$NEW_NAME"
+                TARGET_USER="$NEW_NAME"
+                ;;
+            *)
+                echo "Invalid choice."
+                exit 1
+                ;;
+        esac
+
+        # --- Hand off to the target user ---
+        # If repo is under /root/, the target user can't access it
+        if [[ "$RELAY_DIR" == /root/* ]]; then
+            echo "The repository is under /root/ — inaccessible to $TARGET_USER."
+            echo
+            echo "Log in as $TARGET_USER and clone the repo:"
+            echo "  su - $TARGET_USER"
+            echo "  git clone https://github.com/satindergrewal/peer-up.git"
+            echo "  cd peer-up/relay-server"
+            echo "  bash setup-linode.sh"
+            exit 0
+        fi
+
+        # Chown the repo to the target user and re-run setup
+        REPO_ROOT="$(cd "$RELAY_DIR/.." && pwd)"
+        if [ "$REPO_ROOT" = "/" ]; then
+            echo "Cannot determine safe repo root. Run setup manually as $TARGET_USER."
+            exit 1
+        fi
+        chown -R "$TARGET_USER:$TARGET_USER" "$REPO_ROOT"
+        echo "Repository ownership transferred to $TARGET_USER."
+        echo
+        echo "Continuing setup as $TARGET_USER..."
+        echo
+        su - "$TARGET_USER" -c "bash '$RELAY_DIR/setup-linode.sh'"
+        exit $?
+    fi
 fi
 
 # ============================================================

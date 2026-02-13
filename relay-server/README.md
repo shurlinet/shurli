@@ -2,118 +2,57 @@
 
 Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.04).
 
-## 1. Initial VPS Setup (as root)
+## 1. Initial VPS Setup
 
-SSH into your VPS as root:
+SSH into your fresh VPS and install git:
 
 ```bash
 ssh root@YOUR_VPS_IP
+apt update && apt upgrade -y
+apt install -y git ufw
+
+# Enable firewall with SSH access
+ufw allow OpenSSH
+ufw default deny incoming
+ufw default allow outgoing
+ufw enable
 ```
 
-### Create a non-root user
+### Clone the repo
 
 ```bash
-# Create user (replace 'peerup' with your preferred username)
-adduser peerup
-
-# Give sudo access
-usermod -aG sudo peerup
-
-# Set up SSH key access (copy your public key)
-mkdir -p /home/peerup/.ssh
-cp ~/.ssh/authorized_keys /home/peerup/.ssh/
-chown -R peerup:peerup /home/peerup/.ssh
-chmod 700 /home/peerup/.ssh
-chmod 600 /home/peerup/.ssh/authorized_keys
+git clone https://github.com/satindergrewal/peer-up.git
+cd peer-up/relay-server
 ```
 
-### Harden SSH
+### Run the setup script
+
+The script detects that you're root and walks you through creating a secure service user:
 
 ```bash
-# Edit SSH config
-nano /etc/ssh/sshd_config
+bash setup-linode.sh
 ```
 
-Set these values:
+It will:
+1. Ask you to **select an existing user** or **create a new one**
+2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
+3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config — offers to fix any issues
+4. Transfers repo ownership to the selected user
+5. Automatically re-runs setup as that user (builds binary, installs systemd service, configures firewall, etc.)
 
-```
-PermitRootLogin no
-PasswordAuthentication no
-```
+**If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
 ```bash
-# Apply changes
-systemctl restart sshd
-```
-
-**Test in a new terminal before closing root session:**
-
-```bash
-ssh peerup@YOUR_VPS_IP
+ssh newuser@YOUR_VPS_IP
 sudo whoami    # should print: root
 ```
 
-### Enable firewall
-
-```bash
-# Allow SSH first (don't lock yourself out!)
-ufw allow OpenSSH
-
-# Allow relay port
-ufw allow 7777/tcp comment 'peer-up relay TCP'
-ufw allow 7777/udp comment 'peer-up relay QUIC'
-
-# Block everything else inbound
-ufw default deny incoming
-ufw default allow outgoing
-
-# Enable
-ufw enable
-ufw status verbose
-```
-
-### System updates
-
-```bash
-apt update && apt upgrade -y
-apt install -y git
-```
-
-Now **log out of root** and continue as the new user.
-
----
-
-## 2. Deploy Relay Server (as your user)
-
-SSH in as your user:
+### Configure (as the service user)
 
 ```bash
 ssh peerup@YOUR_VPS_IP
-```
-
-### Clone and build
-
-```bash
-# Install Go
-wget -q https://go.dev/dl/go1.23.6.linux-amd64.tar.gz
-sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz
-rm go1.23.6.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-source ~/.bashrc
-go version
-
-# Clone the repo
-git clone https://github.com/satindergrewal/peer-up.git
 cd peer-up/relay-server
 
-# Build
-go build -o relay-server .
-```
-
-### Configure
-
-```bash
 # Create config from sample
 cp ../configs/relay-server.sample.yaml relay-server.yaml
 
@@ -131,29 +70,15 @@ Add one peer ID per line to `relay_authorized_keys`:
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # client-node
 ```
 
-### Test manually first
+Then restart the service to pick up config changes:
 
 ```bash
-./relay-server
+sudo systemctl restart relay-server
 ```
-
-You should see your **Relay Peer ID** in the output. Copy it — you'll need it for your home-node and client-node configs. Press Ctrl+C to stop.
-
-### Run the setup script
-
-**Important:** Run as your regular user, not root. The script will refuse to run as root and uses `sudo` internally where needed.
-
-This installs the systemd service, sets permissions, configures log rotation, and runs a health check:
-
-```bash
-bash setup-linode.sh
-```
-
-Done. The relay server is now running as a systemd service.
 
 ---
 
-## 3. Verify
+## 2. Verify
 
 Run the health check anytime:
 
@@ -186,7 +111,7 @@ Everything looks great!
 
 ---
 
-## 4. Uninstall
+## 3. Uninstall
 
 To remove the systemd service, firewall rules, and system tuning:
 
@@ -209,7 +134,7 @@ rm -rf ~/peer-up  # Only if you want to remove everything
 
 ---
 
-## 5. Useful Commands
+## 4. Useful Commands
 
 ```bash
 # Service management
@@ -236,7 +161,7 @@ sudo systemctl restart relay-server
 
 ---
 
-## 6. Security Checklist
+## 5. Security Checklist
 
 | Item | How to verify |
 |------|--------------|
@@ -283,4 +208,4 @@ After setup, your relay-server directory looks like:
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
-| Service runs as root | `bash setup-linode.sh --uninstall` then re-run `bash setup-linode.sh` as a non-root user |
+| Service runs as root | `bash setup-linode.sh --uninstall` then re-run `bash setup-linode.sh` (as root it will guide you through user setup) |
