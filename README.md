@@ -182,7 +182,9 @@ peerup ping home
 │       └── gater.go
 ├── relay-server/               # VPS relay node (separate module)
 │   ├── main.go
-│   └── relay-server.service
+│   ├── relay-server.service
+│   ├── setup-linode.sh         # Setup + health check (--check)
+│   └── README.md               # Full VPS deployment guide
 ├── configs/                    # Sample configuration files
 │   ├── peerup.sample.yaml
 │   ├── relay-server.sample.yaml
@@ -444,11 +446,13 @@ keytool revoke 12D3KooW... --file authorized_keys
 
 ### Relay Server
 
+See [relay-server/README.md](relay-server/README.md) for the full VPS setup guide (user creation, SSH hardening, firewall, systemd).
+
+Quick version if already configured:
 ```bash
-sudo cp relay-server/relay-server.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable relay-server
-sudo systemctl start relay-server
+cd relay-server
+bash setup-linode.sh        # Full setup (build, permissions, systemd, health check)
+bash setup-linode.sh --check  # Health check only
 ```
 
 ### peerup serve
