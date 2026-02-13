@@ -10,8 +10,8 @@
 # If run as root:
 #   - --check and --uninstall work directly as root
 #   - Setup mode guides you through creating or selecting a secure non-root
-#     service user, audits their security settings, then re-runs setup as
-#     that user automatically
+#     service user, audits their security settings, then continues the
+#     setup with the service running as that user
 #
 # What the full setup does:
 #   1. Installs Go (if not present)
@@ -34,6 +34,23 @@ set -e
 
 RELAY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CURRENT_USER="$(whoami)"
+SERVICE_USER="$CURRENT_USER"
+
+# Detect SSH service name (sshd on RHEL/Fedora, ssh on Debian/Ubuntu)
+if systemctl list-unit-files sshd.service &>/dev/null && systemctl list-unit-files sshd.service 2>/dev/null | grep -q sshd; then
+    SSH_SERVICE="sshd"
+else
+    SSH_SERVICE="ssh"
+fi
+
+# Run a command with sudo only when not already root
+run_sudo() {
+    if [ "$CURRENT_USER" = "root" ]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
 
 # ============================================================
 # Security audit for an existing user
@@ -153,7 +170,7 @@ audit_user() {
             grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
             sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
             grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo "PermitRootLogin no" >> /etc/ssh/sshd_config
-            systemctl restart sshd
+            systemctl restart "$SSH_SERVICE"
             echo "  [OK] SSH hardened and restarted"
             echo
             echo "  *** TEST: Verify SSH in a NEW terminal before closing this session! ***"
@@ -308,32 +325,13 @@ if [ "$CURRENT_USER" = "root" ]; then
                 ;;
         esac
 
-        # --- Hand off to the target user ---
-        # If repo is under /root/, the target user can't access it
-        if [[ "$RELAY_DIR" == /root/* ]]; then
-            echo "The repository is under /root/ — inaccessible to $TARGET_USER."
-            echo
-            echo "Log in as $TARGET_USER and clone the repo:"
-            echo "  su - $TARGET_USER"
-            echo "  git clone https://github.com/satindergrewal/peer-up.git"
-            echo "  cd peer-up/relay-server"
-            echo "  bash setup-linode.sh"
-            exit 0
-        fi
-
-        # Chown the repo to the target user and re-run setup
-        REPO_ROOT="$(cd "$RELAY_DIR/.." && pwd)"
-        if [ "$REPO_ROOT" = "/" ]; then
-            echo "Cannot determine safe repo root. Run setup manually as $TARGET_USER."
-            exit 1
-        fi
-        chown -R "$TARGET_USER:$TARGET_USER" "$REPO_ROOT"
-        echo "Repository ownership transferred to $TARGET_USER."
+        # Set SERVICE_USER and fall through to the setup section.
+        # We stay as root (which doesn't need sudo) and use SERVICE_USER
+        # for the systemd service file and file ownership.
+        SERVICE_USER="$TARGET_USER"
+        echo "Service will run as: $SERVICE_USER"
+        echo "Continuing with setup..."
         echo
-        echo "Continuing setup as $TARGET_USER..."
-        echo
-        su - "$TARGET_USER" -c "bash '$RELAY_DIR/setup-linode.sh'"
-        exit $?
     fi
 fi
 
@@ -480,18 +478,18 @@ run_check() {
 
     # Check firewall
     if command -v ufw &> /dev/null; then
-        if sudo ufw status 2>/dev/null | grep -q '7777'; then
+        if run_sudo ufw status 2>/dev/null | grep -q '7777'; then
             check_pass "UFW: port 7777 is allowed"
         else
             check_fail "UFW: port 7777 not in firewall rules"
             echo "         Fix: sudo ufw allow 7777/tcp && sudo ufw allow 7777/udp"
         fi
 
-        if sudo ufw status 2>/dev/null | grep -q 'Status: active'; then
+        if run_sudo ufw status 2>/dev/null | grep -q 'Status: active'; then
             check_pass "UFW firewall is active"
 
             # Check default policy
-            if sudo ufw status verbose 2>/dev/null | grep -q 'Default: deny (incoming)'; then
+            if run_sudo ufw status verbose 2>/dev/null | grep -q 'Default: deny (incoming)'; then
                 check_pass "UFW default incoming policy: deny"
             else
                 check_warn "UFW default incoming policy is not 'deny'"
@@ -589,16 +587,16 @@ if [ "$1" = "--uninstall" ]; then
     # --- 1. Stop and remove systemd service ---
     echo "[1/4] Removing systemd service..."
     if systemctl is-active --quiet relay-server 2>/dev/null; then
-        sudo systemctl stop relay-server
+        run_sudo systemctl stop relay-server
         echo "  Service stopped"
     fi
     if systemctl is-enabled --quiet relay-server 2>/dev/null; then
-        sudo systemctl disable relay-server
+        run_sudo systemctl disable relay-server
         echo "  Service disabled"
     fi
     if [ -f /etc/systemd/system/relay-server.service ]; then
-        sudo rm /etc/systemd/system/relay-server.service
-        sudo systemctl daemon-reload
+        run_sudo rm /etc/systemd/system/relay-server.service
+        run_sudo systemctl daemon-reload
         echo "  Service file removed, daemon reloaded"
     else
         echo "  Service file not found (already removed)"
@@ -608,8 +606,8 @@ if [ "$1" = "--uninstall" ]; then
     # --- 2. Remove firewall rules ---
     echo "[2/4] Removing firewall rules..."
     if command -v ufw &> /dev/null; then
-        sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp rule" || echo "  No 7777/tcp rule found"
-        sudo ufw delete allow 7777/udp > /dev/null 2>&1 && echo "  Removed 7777/udp rule" || echo "  No 7777/udp rule found"
+        run_sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp rule" || echo "  No 7777/tcp rule found"
+        run_sudo ufw delete allow 7777/udp > /dev/null 2>&1 && echo "  Removed 7777/udp rule" || echo "  No 7777/udp rule found"
     else
         echo "  UFW not found — remove port 7777 rules from your firewall manually"
     fi
@@ -618,9 +616,9 @@ if [ "$1" = "--uninstall" ]; then
     # --- 3. Remove sysctl QUIC buffer tuning ---
     echo "[3/4] Removing QUIC buffer tuning..."
     if grep -q 'net.core.rmem_max=7500000' /etc/sysctl.conf 2>/dev/null; then
-        sudo sed -i '/^net\.core\.rmem_max=7500000$/d' /etc/sysctl.conf
-        sudo sed -i '/^net\.core\.wmem_max=7500000$/d' /etc/sysctl.conf
-        sudo sysctl -p > /dev/null 2>&1
+        run_sudo sed -i '/^net\.core\.rmem_max=7500000$/d' /etc/sysctl.conf
+        run_sudo sed -i '/^net\.core\.wmem_max=7500000$/d' /etc/sysctl.conf
+        run_sudo sysctl -p > /dev/null 2>&1
         echo "  Removed buffer tuning from /etc/sysctl.conf"
     else
         echo "  No QUIC buffer tuning found in /etc/sysctl.conf"
@@ -632,15 +630,15 @@ if [ "$1" = "--uninstall" ]; then
     JOURNALD_CONF="/etc/systemd/journald.conf"
     JOURNALD_CHANGED=false
     if grep -q '^SystemMaxUse=500M' "$JOURNALD_CONF" 2>/dev/null; then
-        sudo sed -i 's/^SystemMaxUse=500M/#SystemMaxUse=/' "$JOURNALD_CONF"
+        run_sudo sed -i 's/^SystemMaxUse=500M/#SystemMaxUse=/' "$JOURNALD_CONF"
         JOURNALD_CHANGED=true
     fi
     if grep -q '^MaxRetentionSec=30day' "$JOURNALD_CONF" 2>/dev/null; then
-        sudo sed -i 's/^MaxRetentionSec=30day/#MaxRetentionSec=/' "$JOURNALD_CONF"
+        run_sudo sed -i 's/^MaxRetentionSec=30day/#MaxRetentionSec=/' "$JOURNALD_CONF"
         JOURNALD_CHANGED=true
     fi
     if [ "$JOURNALD_CHANGED" = true ]; then
-        sudo systemctl restart systemd-journald
+        run_sudo systemctl restart systemd-journald
         echo "  Reverted journald settings (restarted)"
     else
         echo "  No journald changes to revert"
@@ -665,7 +663,8 @@ fi
 echo "=== peer-up Relay Server Setup ==="
 echo
 echo "Relay directory: $RELAY_DIR"
-echo "Running as user: $CURRENT_USER"
+echo "Running as:      $CURRENT_USER"
+echo "Service user:    $SERVICE_USER"
 echo
 
 # --- 1. Install Go if not present ---
@@ -673,8 +672,8 @@ if ! command -v go &> /dev/null; then
     echo "[1/7] Installing Go..."
     GO_VERSION="1.23.6"
     wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-    sudo rm -rf /usr/local/go
-    sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
+    run_sudo rm -rf /usr/local/go
+    run_sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
     rm "go${GO_VERSION}.linux-amd64.tar.gz"
     export PATH=$PATH:/usr/local/go/bin
     if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
@@ -689,11 +688,11 @@ echo
 # --- 2. Tune network buffers for QUIC ---
 echo "[2/7] Tuning network buffers for QUIC..."
 if ! grep -q 'net.core.rmem_max=7500000' /etc/sysctl.conf 2>/dev/null; then
-    echo "net.core.rmem_max=7500000" | sudo tee -a /etc/sysctl.conf > /dev/null
-    echo "net.core.wmem_max=7500000" | sudo tee -a /etc/sysctl.conf > /dev/null
+    echo "net.core.rmem_max=7500000" | run_sudo tee -a /etc/sysctl.conf > /dev/null
+    echo "net.core.wmem_max=7500000" | run_sudo tee -a /etc/sysctl.conf > /dev/null
 fi
-sudo sysctl -w net.core.rmem_max=7500000 > /dev/null
-sudo sysctl -w net.core.wmem_max=7500000 > /dev/null
+run_sudo sysctl -w net.core.rmem_max=7500000 > /dev/null
+run_sudo sysctl -w net.core.wmem_max=7500000 > /dev/null
 echo "  Buffer sizes set to 7.5MB"
 echo
 
@@ -703,23 +702,23 @@ JOURNALD_CONF="/etc/systemd/journald.conf"
 NEEDS_RESTART=false
 
 if ! grep -q '^SystemMaxUse=500M' "$JOURNALD_CONF" 2>/dev/null; then
-    sudo sed -i 's/^#\?SystemMaxUse=.*/SystemMaxUse=500M/' "$JOURNALD_CONF"
+    run_sudo sed -i 's/^#\?SystemMaxUse=.*/SystemMaxUse=500M/' "$JOURNALD_CONF"
     if ! grep -q '^SystemMaxUse=' "$JOURNALD_CONF"; then
-        echo "SystemMaxUse=500M" | sudo tee -a "$JOURNALD_CONF" > /dev/null
+        echo "SystemMaxUse=500M" | run_sudo tee -a "$JOURNALD_CONF" > /dev/null
     fi
     NEEDS_RESTART=true
 fi
 
 if ! grep -q '^MaxRetentionSec=30day' "$JOURNALD_CONF" 2>/dev/null; then
-    sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=30day/' "$JOURNALD_CONF"
+    run_sudo sed -i 's/^#\?MaxRetentionSec=.*/MaxRetentionSec=30day/' "$JOURNALD_CONF"
     if ! grep -q '^MaxRetentionSec=' "$JOURNALD_CONF"; then
-        echo "MaxRetentionSec=30day" | sudo tee -a "$JOURNALD_CONF" > /dev/null
+        echo "MaxRetentionSec=30day" | run_sudo tee -a "$JOURNALD_CONF" > /dev/null
     fi
     NEEDS_RESTART=true
 fi
 
 if [ "$NEEDS_RESTART" = true ]; then
-    sudo systemctl restart systemd-journald
+    run_sudo systemctl restart systemd-journald
     echo "  Journald: max 500MB, 30-day retention (restarted)"
 else
     echo "  Journald already configured"
@@ -729,8 +728,8 @@ echo
 # --- 4. Firewall ---
 echo "[4/7] Configuring firewall..."
 if command -v ufw &> /dev/null; then
-    sudo ufw allow 7777/tcp comment 'peer-up relay TCP' > /dev/null 2>&1 || true
-    sudo ufw allow 7777/udp comment 'peer-up relay QUIC' > /dev/null 2>&1 || true
+    run_sudo ufw allow 7777/tcp comment 'peer-up relay TCP' > /dev/null 2>&1 || true
+    run_sudo ufw allow 7777/udp comment 'peer-up relay QUIC' > /dev/null 2>&1 || true
     echo "  UFW: ports 7777 TCP+UDP open"
 else
     echo "  UFW not found — manually open port 7777 TCP+UDP in your firewall"
@@ -756,6 +755,11 @@ fi
 if [ -f "$RELAY_DIR/relay-server.yaml" ]; then
     chmod 644 "$RELAY_DIR/relay-server.yaml"
 fi
+# When running as root for a different service user, transfer ownership
+if [ "$SERVICE_USER" != "$CURRENT_USER" ]; then
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$RELAY_DIR"
+    echo "  Ownership: $SERVICE_USER"
+fi
 echo "  Binary: 700, keys: 600, config: 644"
 echo
 
@@ -771,8 +775,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${CURRENT_USER}
-Group=${CURRENT_USER}
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
 WorkingDirectory=${RELAY_DIR}
 ExecStart=${RELAY_DIR}/relay-server
 Restart=always
@@ -800,19 +804,19 @@ SyslogIdentifier=relay-server
 WantedBy=multi-user.target
 SERVICEEOF
 
-sudo cp /tmp/relay-server.service /etc/systemd/system/relay-server.service
+run_sudo cp /tmp/relay-server.service /etc/systemd/system/relay-server.service
 rm /tmp/relay-server.service
-sudo systemctl daemon-reload
-sudo systemctl enable relay-server
+run_sudo systemctl daemon-reload
+run_sudo systemctl enable relay-server
 echo "  Service installed and enabled"
 echo
 
 # --- Start or restart ---
 if systemctl is-active --quiet relay-server; then
-    sudo systemctl restart relay-server
+    run_sudo systemctl restart relay-server
     echo "Service restarted."
 else
-    sudo systemctl start relay-server
+    run_sudo systemctl start relay-server
     echo "Service started."
 fi
 
