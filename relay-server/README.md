@@ -141,6 +141,8 @@ You should see your **Relay Peer ID** in the output. Copy it — you'll need it 
 
 ### Run the setup script
 
+**Important:** Run as your regular user, not root. The script will refuse to run as root and uses `sudo` internally where needed.
+
 This installs the systemd service, sets permissions, configures log rotation, and runs a health check:
 
 ```bash
@@ -184,7 +186,30 @@ Everything looks great!
 
 ---
 
-## 4. Useful Commands
+## 4. Uninstall
+
+To remove the systemd service, firewall rules, and system tuning:
+
+```bash
+cd ~/peer-up/relay-server
+bash setup-linode.sh --uninstall
+```
+
+This removes:
+- The systemd service (stopped, disabled, file deleted)
+- Firewall rules for port 7777
+- QUIC buffer tuning from `/etc/sysctl.conf`
+- Journald log rotation settings
+
+It does **not** delete your binary, config, keys, or source code. To fully clean up:
+
+```bash
+rm -rf ~/peer-up  # Only if you want to remove everything
+```
+
+---
+
+## 5. Useful Commands
 
 ```bash
 # Service management
@@ -211,7 +236,7 @@ sudo systemctl restart relay-server
 
 ---
 
-## 5. Security Checklist
+## 6. Security Checklist
 
 | Item | How to verify |
 |------|--------------|
@@ -258,4 +283,4 @@ After setup, your relay-server directory looks like:
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
-| Service runs as root | Re-run `bash setup-linode.sh` to regenerate service file |
+| Service runs as root | `bash setup-linode.sh --uninstall` then re-run `bash setup-linode.sh` as a non-root user |

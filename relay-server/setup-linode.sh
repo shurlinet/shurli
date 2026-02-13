@@ -1,10 +1,13 @@
 #!/bin/bash
-# Deploy and verify relay server on a VPS (Ubuntu 22.04 / 24.04)
+# Deploy, verify, and uninstall relay server on a VPS (Ubuntu 22.04 / 24.04)
+#
+# IMPORTANT: Run as a regular user, NOT root. The script uses sudo where needed.
 #
 # Usage:
 #   cd ~/peer-up/relay-server
-#   bash setup-linode.sh            # Full setup (install + start + verify)
-#   bash setup-linode.sh --check    # Health check only (no changes)
+#   bash setup-linode.sh              # Full setup (install + start + verify)
+#   bash setup-linode.sh --check      # Health check only (no changes)
+#   bash setup-linode.sh --uninstall  # Remove service, firewall rules, tuning
 #
 # What the full setup does:
 #   1. Installs Go (if not present)
@@ -15,11 +18,32 @@
 #   6. Sets correct file permissions
 #   7. Installs and starts the systemd service
 #   8. Runs health check
+#
+# What --uninstall does:
+#   1. Stops and removes the systemd service
+#   2. Removes firewall rules for port 7777
+#   3. Removes QUIC buffer tuning from sysctl
+#   4. Reverts journald log rotation settings
+#   (Does NOT delete binary, config, keys, or source code)
 
 set -e
 
 RELAY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CURRENT_USER="$(whoami)"
+
+# ============================================================
+# Root guard — never run this script as root
+# ============================================================
+if [ "$CURRENT_USER" = "root" ]; then
+    echo "ERROR: Do not run this script as root."
+    echo
+    echo "  1. Create a non-root user:  adduser peerup && usermod -aG sudo peerup"
+    echo "  2. Log in as that user:     su - peerup"
+    echo "  3. Run again:               bash setup-linode.sh"
+    echo
+    echo "The script uses 'sudo' internally where needed."
+    exit 1
+fi
 
 # ============================================================
 # Health check function — verifies everything is correct
@@ -250,6 +274,97 @@ run_check() {
 if [ "$1" = "--check" ]; then
     run_check
     exit $?
+fi
+
+# ============================================================
+# If --uninstall flag, reverse the full setup
+# ============================================================
+if [ "$1" = "--uninstall" ]; then
+    echo "=== peer-up Relay Server Uninstall ==="
+    echo
+    echo "This will remove the systemd service, firewall rules,"
+    echo "and system tuning applied by setup-linode.sh."
+    echo
+    echo "It will NOT delete your config, keys, binary, or source code."
+    echo
+    read -p "Continue? [y/N] " CONFIRM
+    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+        echo "Aborted."
+        exit 0
+    fi
+    echo
+
+    # --- 1. Stop and remove systemd service ---
+    echo "[1/4] Removing systemd service..."
+    if systemctl is-active --quiet relay-server 2>/dev/null; then
+        sudo systemctl stop relay-server
+        echo "  Service stopped"
+    fi
+    if systemctl is-enabled --quiet relay-server 2>/dev/null; then
+        sudo systemctl disable relay-server
+        echo "  Service disabled"
+    fi
+    if [ -f /etc/systemd/system/relay-server.service ]; then
+        sudo rm /etc/systemd/system/relay-server.service
+        sudo systemctl daemon-reload
+        echo "  Service file removed, daemon reloaded"
+    else
+        echo "  Service file not found (already removed)"
+    fi
+    echo
+
+    # --- 2. Remove firewall rules ---
+    echo "[2/4] Removing firewall rules..."
+    if command -v ufw &> /dev/null; then
+        sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp rule" || echo "  No 7777/tcp rule found"
+        sudo ufw delete allow 7777/udp > /dev/null 2>&1 && echo "  Removed 7777/udp rule" || echo "  No 7777/udp rule found"
+    else
+        echo "  UFW not found — remove port 7777 rules from your firewall manually"
+    fi
+    echo
+
+    # --- 3. Remove sysctl QUIC buffer tuning ---
+    echo "[3/4] Removing QUIC buffer tuning..."
+    if grep -q 'net.core.rmem_max=7500000' /etc/sysctl.conf 2>/dev/null; then
+        sudo sed -i '/^net\.core\.rmem_max=7500000$/d' /etc/sysctl.conf
+        sudo sed -i '/^net\.core\.wmem_max=7500000$/d' /etc/sysctl.conf
+        sudo sysctl -p > /dev/null 2>&1
+        echo "  Removed buffer tuning from /etc/sysctl.conf"
+    else
+        echo "  No QUIC buffer tuning found in /etc/sysctl.conf"
+    fi
+    echo
+
+    # --- 4. Revert journald log rotation ---
+    echo "[4/4] Reverting journald log rotation..."
+    JOURNALD_CONF="/etc/systemd/journald.conf"
+    JOURNALD_CHANGED=false
+    if grep -q '^SystemMaxUse=500M' "$JOURNALD_CONF" 2>/dev/null; then
+        sudo sed -i 's/^SystemMaxUse=500M/#SystemMaxUse=/' "$JOURNALD_CONF"
+        JOURNALD_CHANGED=true
+    fi
+    if grep -q '^MaxRetentionSec=30day' "$JOURNALD_CONF" 2>/dev/null; then
+        sudo sed -i 's/^MaxRetentionSec=30day/#MaxRetentionSec=/' "$JOURNALD_CONF"
+        JOURNALD_CHANGED=true
+    fi
+    if [ "$JOURNALD_CHANGED" = true ]; then
+        sudo systemctl restart systemd-journald
+        echo "  Reverted journald settings (restarted)"
+    else
+        echo "  No journald changes to revert"
+    fi
+    echo
+
+    echo "=== Uninstall complete ==="
+    echo
+    echo "The following were left untouched (delete manually if desired):"
+    echo "  $RELAY_DIR/relay-server          (binary)"
+    echo "  $RELAY_DIR/relay-server.yaml     (config)"
+    echo "  $RELAY_DIR/relay_node.key        (identity key)"
+    echo "  $RELAY_DIR/relay_authorized_keys (peer allowlist)"
+    echo
+    echo "To reinstall later:  bash setup-linode.sh"
+    exit 0
 fi
 
 # ============================================================
