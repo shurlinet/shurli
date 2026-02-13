@@ -17,11 +17,12 @@ network:
     - "/ip6/::/tcp/7777"
 
 security:
-  # Path to authorized_keys file (for future use)
-  # Currently not enforced - relay is open to all connections
-  # In the future, only peers in this file will be allowed to make reservations
+  # Path to authorized_keys file
+  # Only peers listed here can connect to this relay
+  # Add one peer ID per line (home-node and client-node peer IDs)
   authorized_keys_file: "relay_authorized_keys"
 
-  # Enable connection gating (currently disabled for simplicity)
-  # Set to true once you want to restrict relay usage to authorized peers only
-  enable_connection_gating: false
+  # Enable connection gating — STRONGLY RECOMMENDED for production
+  # When true, only peers in authorized_keys can use this relay
+  # When false, any peer on the internet can relay through your VPS
+  enable_connection_gating: true

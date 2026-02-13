@@ -1,23 +1,42 @@
 [Unit]
-Description=libp2p Relay Server
+Description=peer-up Relay Server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/relay-server
-ExecStart=/opt/relay-server/relay-server
+
+# Run as the user who owns the repo — NEVER as root
+# Change this to your username:
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+
+# Set WorkingDirectory to where relay-server.yaml lives
+# Change this to your actual path:
+WorkingDirectory=/home/YOUR_USERNAME/peer-up/relay-server
+
+# Binary path (same directory)
+ExecStart=/home/YOUR_USERNAME/peer-up/relay-server/relay-server
+
 Restart=always
 RestartSec=5
 
-# Increase file descriptor limit
+# Increase file descriptor limit for many concurrent connections
 LimitNOFILE=65536
 
-# Environment
-Environment="PATH=/usr/local/go/bin:/usr/bin:/bin"
+# Security hardening — restrict what the service can do
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
-# Logging
+# Allow read/write only to the working directory (for key file, config, logs)
+ReadWritePaths=/home/YOUR_USERNAME/peer-up/relay-server
+
+# Logging via journald (configure rotation in /etc/systemd/journald.conf)
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=relay-server
