@@ -37,13 +37,14 @@ func printRelayUsage() {
 	fmt.Println("Usage: peerup relay <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  add    <multiaddr>   Add a relay server address")
-	fmt.Println("  list                 List configured relay addresses")
-	fmt.Println("  remove <multiaddr>   Remove a relay server address")
+	fmt.Println("  add    <address> [--peer-id <ID>]   Add a relay server address")
+	fmt.Println("  list                                List configured relay addresses")
+	fmt.Println("  remove <multiaddr>                  Remove a relay server address")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  peerup relay add /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")
-	fmt.Println("  peerup relay add /ip6/2600:3c00::1/tcp/7777/p2p/12D3KooW...")
+	fmt.Println("  peerup relay add 203.0.113.50:7777 --peer-id 12D3KooW...")
+	fmt.Println("  peerup relay add 203.0.113.50 --peer-id 12D3KooW...  (default port: 7777)")
 	fmt.Println("  peerup relay list")
 	fmt.Println("  peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")
 	fmt.Println()
@@ -66,14 +67,45 @@ func resolveConfigFile(configFlag string) (string, *config.NodeConfig) {
 func runRelayAdd(args []string) {
 	fs := flag.NewFlagSet("relay add", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
+	peerIDFlag := fs.String("peer-id", "", "relay server's peer ID (when using IP:PORT format)")
 	fs.Parse(reorderFlagsFirst(args))
 
 	if fs.NArg() < 1 {
-		fmt.Println("Usage: peerup relay add <multiaddr> [<multiaddr> ...]")
+		fmt.Println("Usage: peerup relay add <address> [--peer-id <PEER_ID>]")
+		fmt.Println()
+		fmt.Println("Address formats:")
+		fmt.Println("  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>   Full multiaddr")
+		fmt.Println("  <IP>:<PORT> --peer-id <PEER_ID>      IP with port")
+		fmt.Println("  <IP> --peer-id <PEER_ID>             IP (default port: 7777)")
 		os.Exit(1)
 	}
 
 	cfgFile, cfg := resolveConfigFile(*configFlag)
+
+	// Resolve addresses — handle both full multiaddr and IP:PORT + --peer-id
+	var resolvedAddrs []string
+	for _, arg := range fs.Args() {
+		if isFullMultiaddr(arg) {
+			// Validate multiaddr format
+			if _, err := ma.NewMultiaddr(arg); err != nil {
+				log.Fatalf("Invalid multiaddr: %s\n  Error: %v", arg, err)
+			}
+			resolvedAddrs = append(resolvedAddrs, arg)
+		} else {
+			// Short format — needs --peer-id
+			if *peerIDFlag == "" {
+				log.Fatalf("Short address format requires --peer-id flag.\n  Example: peerup relay add %s --peer-id 12D3KooW...", arg)
+			}
+			ip, port, err := parseRelayHostPort(arg)
+			if err != nil {
+				log.Fatalf("Invalid address: %s\n  Error: %v", arg, err)
+			}
+			if err := validatePeerID(*peerIDFlag); err != nil {
+				log.Fatalf("Invalid peer ID: %v", err)
+			}
+			resolvedAddrs = append(resolvedAddrs, buildRelayMultiaddr(ip, port, *peerIDFlag))
+		}
+	}
 
 	// Validate and collect new addresses
 	var toAdd []string
@@ -82,11 +114,7 @@ func runRelayAdd(args []string) {
 		existing[addr] = true
 	}
 
-	for _, addr := range fs.Args() {
-		// Validate multiaddr format
-		if _, err := ma.NewMultiaddr(addr); err != nil {
-			log.Fatalf("Invalid multiaddr: %s\n  Error: %v", addr, err)
-		}
+	for _, addr := range resolvedAddrs {
 		if existing[addr] {
 			color.Yellow("Already configured: %s", truncateAddr(addr))
 			continue

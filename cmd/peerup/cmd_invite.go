@@ -124,15 +124,17 @@ func runInvite(args []string) {
 		defer s.Close()
 		remotePeer := s.Conn().RemotePeer()
 
-		reader := bufio.NewReader(s)
-
 		// Read: <token_hex> <joiner_name>\n
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			log.Printf("Invite stream read error: %v", err)
+		// Limit read to 512 bytes to prevent OOM from a malicious peer
+		// sending unbounded data without a newline.
+		scanner := bufio.NewScanner(s)
+		scanner.Buffer(make([]byte, 512), 512)
+		if !scanner.Scan() {
+			log.Printf("Invite stream read error: %v", scanner.Err())
 			s.Write([]byte("ERR read error\n"))
 			return
 		}
+		line := scanner.Text()
 		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
 		receivedToken := parts[0]
 		joinerName := ""

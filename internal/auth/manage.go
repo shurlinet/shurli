@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -13,6 +14,20 @@ import (
 type PeerEntry struct {
 	PeerID  peer.ID
 	Comment string
+}
+
+// sanitizeComment strips characters that could corrupt the authorized_keys
+// file format: newlines (line injection), carriage returns, and null bytes.
+func sanitizeComment(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == 0 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // AddPeer validates and appends a peer ID to the authorized_keys file.
@@ -33,6 +48,10 @@ func AddPeer(authKeysPath, peerIDStr, comment string) error {
 			return fmt.Errorf("peer already authorized: %s", peerID.String()[:16]+"...")
 		}
 	}
+
+	// Sanitize comment: strip newlines, carriage returns, and null bytes
+	// to prevent line injection into authorized_keys.
+	comment = sanitizeComment(comment)
 
 	entry := peerID.String()
 	if comment != "" {
@@ -113,11 +132,21 @@ func RemovePeer(authKeysPath, peerIDStr string) error {
 		return fmt.Errorf("peer not found: %s", targetID.String()[:16]+"...")
 	}
 
-	// Atomic write via temp file + rename
-	tempPath := authKeysPath + ".tmp"
-	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	// Atomic write via temp file + rename.
+	// Use os.CreateTemp in the same directory to avoid predictable temp paths
+	// (symlink attack) and ensure same-filesystem rename.
+	dir := filepath.Dir(authKeysPath)
+	tempFile, err := os.CreateTemp(dir, ".authorized_keys.*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+
+	// Ensure correct permissions on temp file
+	if err := tempFile.Chmod(0600); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to set temp file permissions: %w", err)
 	}
 
 	for _, line := range newLines {

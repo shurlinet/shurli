@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	ma "github.com/multiformats/go-multiaddr"
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -51,15 +52,48 @@ func runInit(args []string) {
 	// Prompt for relay address
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Enter relay server address")
-	fmt.Println("  (format: /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>)")
+	fmt.Println("  Full multiaddr:  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>")
+	fmt.Println("  Or just:         <IP>:<PORT>  or  <IP>  (default port: 7777)")
 	fmt.Print("> ")
-	relayAddr, err := reader.ReadString('\n')
+	relayInput, err := reader.ReadString('\n')
 	if err != nil {
 		log.Fatalf("Failed to read input: %v", err)
 	}
-	relayAddr = strings.TrimSpace(relayAddr)
-	if relayAddr == "" {
+	relayInput = strings.TrimSpace(relayInput)
+	if relayInput == "" {
 		log.Fatal("Relay address is required")
+	}
+
+	var relayAddr string
+	if isFullMultiaddr(relayInput) {
+		// Validate the multiaddr before embedding in config YAML.
+		// A malformed string with quotes or newlines would corrupt the config.
+		if _, err := ma.NewMultiaddr(relayInput); err != nil {
+			log.Fatalf("Invalid multiaddr: %v", err)
+		}
+		relayAddr = relayInput
+	} else {
+		ip, port, err := parseRelayHostPort(relayInput)
+		if err != nil {
+			log.Fatalf("Invalid relay address: %v", err)
+		}
+		fmt.Println()
+		fmt.Println("Enter the relay server's Peer ID")
+		fmt.Println("  (shown in the relay server's setup output)")
+		fmt.Print("> ")
+		peerIDStr, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Failed to read input: %v", err)
+		}
+		peerIDStr = strings.TrimSpace(peerIDStr)
+		if peerIDStr == "" {
+			log.Fatal("Relay Peer ID is required")
+		}
+		if err := validatePeerID(peerIDStr); err != nil {
+			log.Fatalf("Invalid Peer ID: %v", err)
+		}
+		relayAddr = buildRelayMultiaddr(ip, port, peerIDStr)
+		fmt.Printf("Relay: %s\n", relayAddr)
 	}
 	fmt.Println()
 

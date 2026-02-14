@@ -544,6 +544,48 @@ run_check() {
     fi
     echo
 
+    # --- Connection Info ---
+    echo "Connection info:"
+    # Try to get peer ID from journal logs
+    PEER_ID=$(journalctl -u relay-server --no-pager -n 100 2>/dev/null | grep 'Relay Peer ID:' | tail -1 | awk '{print $NF}')
+    if [ -z "$PEER_ID" ]; then
+        check_warn "Cannot determine Peer ID (start the service first)"
+    else
+        check_pass "Relay Peer ID: $PEER_ID"
+
+        # Detect public IPs
+        PUBLIC_IPV4=$(ip -4 addr show scope global 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -1)
+        PUBLIC_IPV6=$(ip -6 addr show scope global 2>/dev/null | grep 'inet6 ' | awk '{print $2}' | cut -d/ -f1 | head -1)
+
+        if [ -n "$PUBLIC_IPV4" ]; then
+            MADDR_V4="/ip4/$PUBLIC_IPV4/tcp/7777/p2p/$PEER_ID"
+            echo "  [INFO] Multiaddr (IPv4): $MADDR_V4"
+        fi
+        if [ -n "$PUBLIC_IPV6" ]; then
+            MADDR_V6="/ip6/$PUBLIC_IPV6/tcp/7777/p2p/$PEER_ID"
+            echo "  [INFO] Multiaddr (IPv6): $MADDR_V6"
+        fi
+
+        # Show QR code if qrencode is available
+        if command -v qrencode &>/dev/null; then
+            if [ -n "$PUBLIC_IPV4" ]; then
+                echo
+                echo "  Scan this QR code during 'peerup init':"
+                qrencode -t ANSIUTF8 "$MADDR_V4" 2>/dev/null || qrencode -t UTF8 "$MADDR_V4" 2>/dev/null
+            fi
+        else
+            echo "  [INFO] Install qrencode for QR code display: sudo apt install qrencode"
+        fi
+
+        echo
+        echo "  Quick setup on your nodes:"
+        if [ -n "$PUBLIC_IPV4" ]; then
+            echo "    peerup init   →  enter: $PUBLIC_IPV4:7777"
+        fi
+        echo "    Peer ID:  $PEER_ID"
+    fi
+    echo
+
     # --- Summary ---
     echo "=== Summary: $PASS passed, $WARN warnings, $FAIL failures ==="
     if [ "$FAIL" -gt 0 ]; then

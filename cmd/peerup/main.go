@@ -51,7 +51,7 @@ func printUsage() {
 	fmt.Println("  auth list                               List authorized peers")
 	fmt.Println("  auth remove <peer-id>                   Revoke a peer's access")
 	fmt.Println()
-	fmt.Println("  relay add <multiaddr>                   Add a relay server address")
+	fmt.Println("  relay add <address> [--peer-id <ID>]     Add a relay server address")
 	fmt.Println("  relay list                              List configured relay addresses")
 	fmt.Println("  relay remove <multiaddr>                Remove a relay server address")
 	fmt.Println()

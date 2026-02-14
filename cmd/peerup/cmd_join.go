@@ -119,13 +119,17 @@ func runJoin(args []string) {
 	}
 	s.Write([]byte(msg + "\n"))
 
-	// Read response
-	reader := bufio.NewReader(s)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatalf("Failed to read response from inviter: %v", err)
+	// Read response (limit to 512 bytes to prevent OOM from malicious inviter)
+	scanner := bufio.NewScanner(s)
+	scanner.Buffer(make([]byte, 512), 512)
+	if !scanner.Scan() {
+		err := scanner.Err()
+		if err != nil {
+			log.Fatalf("Failed to read response from inviter: %v", err)
+		}
+		log.Fatalf("No response from inviter (connection closed)")
 	}
-	response = strings.TrimSpace(response)
+	response := strings.TrimSpace(scanner.Text())
 
 	if strings.HasPrefix(response, "ERR") {
 		log.Fatalf("Invite rejected: %s", response)
@@ -271,9 +275,29 @@ names: {}
 	return cfgFile, cfg, configDir, true
 }
 
+// sanitizeYAMLName strips characters unsafe for use as a bare YAML key.
+// Only allows alphanumeric, hyphen, underscore, and dot.
+func sanitizeYAMLName(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // updateConfigNames appends a name mapping to the config file.
 // This does a simple text append to preserve formatting and comments.
 func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
+	// Sanitize name to prevent YAML injection — the name comes from a remote peer
+	name = sanitizeYAMLName(name)
+	if name == "" {
+		log.Printf("Warning: peer name was empty after sanitization, skipping names update")
+		return
+	}
+
 	data, err := os.ReadFile(cfgFile)
 	if err != nil {
 		log.Printf("Warning: could not read config to update names: %v", err)
