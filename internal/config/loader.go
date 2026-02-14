@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/satindergrewal/peer-up/internal/validate"
 )
 
 // LoadHomeNodeConfig loads home node configuration from a YAML file
@@ -258,8 +259,8 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	}
 	// Validate service names (prevent protocol ID injection)
 	for name := range cfg.Services {
-		if !validServiceNameRe.MatchString(name) {
-			return fmt.Errorf("services: invalid name %q (must be 1-63 lowercase alphanumeric or hyphens, starting and ending with alphanumeric)", name)
+		if err := validate.ServiceName(name); err != nil {
+			return fmt.Errorf("services: %w", err)
 		}
 	}
 	return nil
@@ -303,10 +304,6 @@ func ValidateRelayServerConfig(cfg *RelayServerConfig) error {
 	}
 	return nil
 }
-
-// validServiceNameRe matches DNS-label-style service names: 1-63 lowercase alphanumeric or hyphens,
-// starting and ending with alphanumeric. Prevents protocol ID injection.
-var validServiceNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // DefaultRelayResources returns the default relay resource configuration.
 // Values are tuned for a private relay serving 2-10 peers with SSH/XRDP workloads.

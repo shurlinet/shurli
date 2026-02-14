@@ -17,23 +17,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build main module
+      - name: Build
         run: go build ./...
 
-      - name: Build relay-server
-        run: cd relay-server && go build ./...
-
-      - name: Build keytool
-        run: cd cmd/keytool && go build ./...
-
-      - name: Vet main module
+      - name: Vet
         run: go vet ./...
 
-      - name: Vet relay-server
-        run: cd relay-server && go vet ./...
-
-      - name: Test main module
+      - name: Test
         run: go test -race -count=1 ./...
-
-      - name: Test relay-server
-        run: cd relay-server && go test -race -count=1 ./...

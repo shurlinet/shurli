@@ -37,6 +37,9 @@ sudo systemctl start sshd
 ```bash
 # Build peerup (single binary for everything)
 go build -o peerup ./cmd/peerup
+
+# Build relay server (if deploying your own)
+go build -o relay-server/relay-server ./cmd/relay-server
 ```
 
 ---
@@ -51,8 +54,11 @@ Quick version:
 cd relay-server
 cp ../configs/relay-server.sample.yaml relay-server.yaml
 # Edit relay-server.yaml if needed (defaults are fine)
-go build -o relay-server
-./relay-server
+
+# Build from project root
+cd ..
+go build -o relay-server/relay-server ./cmd/relay-server
+./relay-server/relay-server
 ```
 
 **Expected output:**
@@ -370,18 +376,18 @@ peer-up has automated unit tests for core packages. These run in CI (GitHub Acti
 
 ### Running Tests
 
+All packages are in a single Go module. Run everything from the project root:
+
 ```bash
-# Run all tests with race detection
-go test -race -count=1 github.com/satindergrewal/peer-up/...
+# Run all tests with race detection (same as CI)
+go test -race -count=1 ./...
 
 # Run tests for a specific package
 go test -race ./internal/config/
 go test -race ./internal/auth/
 go test -race ./internal/invite/
 go test -race ./cmd/peerup/
-
-# Run relay-server tests (separate module)
-cd relay-server && go test -race ./...
+go test -race ./cmd/relay-server/
 
 # Verbose output (see individual test names)
 go test -race -v ./internal/auth/
@@ -408,13 +414,13 @@ Performance benchmarks establish baselines for hot-path and cold-path functions.
 
 ```bash
 # Run all benchmarks with memory stats
-go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/auth
-go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/invite
-go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/config
-go test -bench=. -benchmem github.com/satindergrewal/peer-up/pkg/p2pnet
+go test -bench=. -benchmem ./internal/auth/
+go test -bench=. -benchmem ./internal/invite/
+go test -bench=. -benchmem ./internal/config/
+go test -bench=. -benchmem ./pkg/p2pnet/
 
 # For statistical comparison (3+ runs recommended)
-go test -bench=. -benchmem -count=3 github.com/satindergrewal/peer-up/internal/auth
+go test -bench=. -benchmem -count=3 ./internal/auth/
 
 # Compare before/after with benchstat
 go install golang.org/x/perf/cmd/benchstat@latest
@@ -438,9 +444,9 @@ benchstat old.txt new.txt
 
 ### CI Pipeline
 
-GitHub Actions runs on every push to `main` and `dev/next-iteration`:
+GitHub Actions runs on every push to `main` and `dev/next-iteration`. All commands run from the project root against the single Go module:
 
-1. **Build** — all modules compile (`go build ./...`)
+1. **Build** — all packages compile (`go build ./...`)
 2. **Vet** — static analysis (`go vet ./...`)
 3. **Test** — all tests with race detection (`go test -race -count=1 ./...`)
 
@@ -448,4 +454,4 @@ Config: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 ---
 
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-02-15

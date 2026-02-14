@@ -6,29 +6,19 @@ import (
 	"io"
 	"log"
 	"net"
-	"regexp"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-)
 
-// validServiceName matches DNS-label-style service names: 1-63 lowercase alphanumeric
-// or hyphens, starting and ending with alphanumeric. Prevents protocol ID injection
-// via names containing '/', newlines, or other special characters.
-var validServiceName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	"github.com/satindergrewal/peer-up/internal/validate"
+)
 
 // ValidateServiceName checks that a service name is safe for use in protocol IDs.
 func ValidateServiceName(name string) error {
-	if name == "" {
-		return fmt.Errorf("service name cannot be empty")
-	}
-	if !validServiceName.MatchString(name) {
-		return fmt.Errorf("invalid service name %q: must be 1-63 lowercase alphanumeric characters or hyphens, starting and ending with alphanumeric", name)
-	}
-	return nil
+	return validate.ServiceName(name)
 }
 
 // Service represents a service that can be exposed over the P2P network

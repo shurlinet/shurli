@@ -29,21 +29,20 @@ peer-up/
 │   │   ├── cmd_proxy.go     # TCP proxy client
 │   │   ├── cmd_ping.go      # Connectivity test
 │   │   ├── cmd_whoami.go    # Show own peer ID
-│   │   ├── cmd_auth.go      # Auth add/list/remove subcommands
+│   │   ├── cmd_auth.go      # Auth add/list/remove/validate subcommands
 │   │   ├── cmd_relay.go     # Relay add/list/remove subcommands
 │   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake
 │   │   ├── cmd_join.go      # Decode invite, connect, auto-configure
 │   │   └── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
-│   └── keytool/             # Key management CLI (legacy, shares internal/auth)
-│       ├── main.go
-│       └── commands/
+│   └── relay-server/        # Circuit relay v2 source (builds relay binary)
+│       └── main.go
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
-│   ├── service.go           # Service registry and management
+│   ├── service.go           # Service registry (delegates validation to internal/validate)
 │   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close
 │   ├── naming.go            # Local name resolution (name → peer ID)
-│   └── identity.go          # Ed25519 identity management
+│   └── identity.go          # Identity helpers (delegates to internal/identity)
 │
 ├── internal/
 │   ├── config/              # YAML configuration loading
@@ -52,14 +51,18 @@ peer-up/
 │   ├── auth/                # SSH-style authentication
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
 │   │   ├── gater.go            # ConnectionGater implementation
-│   │   └── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI + keytool)
-│   └── invite/              # Invite code encoding/decoding
-│       └── code.go          # Binary → base32 with dash grouping
+│   │   └── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI commands)
+│   ├── identity/            # Ed25519 identity management (shared by peerup + relay-server)
+│   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
+│   ├── invite/              # Invite code encoding/decoding
+│   │   └── code.go          # Binary → base32 with dash grouping
+│   └── validate/            # Input validation helpers
+│       └── validate.go      # ServiceName() — DNS-label format for protocol IDs
 │
-├── relay-server/            # Circuit relay v2 (VPS, separate module)
-│   ├── main.go
-│   ├── setup.sh      # Deploy/verify/uninstall (incl. QR code + connection info)
-│   └── relay-server.service
+├── relay-server/            # Deployment artifacts (not a Go module)
+│   ├── setup.sh             # Deploy/verify/uninstall (builds from cmd/relay-server)
+│   ├── relay-server.service # systemd unit file
+│   └── relay-server.sample.yaml
 │
 ├── configs/                 # Sample configuration files
 │   ├── peerup.sample.yaml
@@ -186,7 +189,7 @@ peer-up/
 ├── cmd/
 │   ├── peerup/              # ✅ Single binary (init, serve, proxy, ping, whoami,
 │   │                        #   auth, relay, invite, join)
-│   ├── keytool/             # ✅ Key management CLI
+│   ├── relay-server/        # ✅ Circuit relay v2 source
 │   └── gateway/             # 🆕 Phase 4F: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
@@ -197,6 +200,8 @@ peer-up/
 ├── internal/
 │   ├── config/              # ✅ Configuration
 │   ├── auth/                # ✅ Authentication
+│   ├── identity/            # ✅ Shared identity management
+│   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── transfer/            # 🆕 Phase 4D: File transfer plugin
 │   └── tun/                 # 🆕 Phase 4F: TUN/TAP interface
 │
@@ -204,7 +209,7 @@ peer-up/
 │   ├── ios/
 │   └── android/
 │
-└── ...existing (relay-server, configs, docs, examples)
+└── ...existing (relay-server/, configs, docs, examples)
 ```
 
 ### Service Exposure Architecture
@@ -741,7 +746,7 @@ Session duration and data limits are raised from libp2p defaults (2min/128KB) to
 
 ### Key File Permission Verification
 
-Private key files are verified on load to ensure they are not readable by group or others. Both `pkg/p2pnet/LoadOrCreateIdentity()` and the relay server's `loadOrCreateIdentity()` check file permissions before using the key:
+Private key files are verified on load to ensure they are not readable by group or others. The shared `internal/identity` package provides `CheckKeyFilePermissions()` and `LoadOrCreateIdentity()`, used by both `peerup` and `relay-server`:
 
 - **Expected**: `0600` (owner read/write only)
 - **On violation**: Returns error with actionable fix: `chmod 600 <path>`
@@ -752,6 +757,8 @@ Keys are already created with `0600` permissions, but this check catches degrada
 ### Service Name Validation
 
 Service names are validated before use in protocol IDs to prevent injection attacks. Names flow into `fmt.Sprintf("/peerup/%s/1.0.0", name)` — without validation, a name like `ssh/../../evil` or `foo\nbar` creates ambiguous or invalid protocol IDs.
+
+The validation logic lives in `internal/validate/validate.go` (`validate.ServiceName()`), shared by all callers.
 
 **Validation rules** (DNS-label format):
 - 1-63 characters
@@ -842,5 +849,5 @@ Validated at three points:
 
 ---
 
-**Last Updated**: 2026-02-14
-**Architecture Version**: 2.2 (Phase 4C Security Batch)
+**Last Updated**: 2026-02-15
+**Architecture Version**: 2.3 (Module Consolidation)

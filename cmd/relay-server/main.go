@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -20,45 +19,8 @@ import (
 
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/identity"
 )
-
-func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
-	if data, err := os.ReadFile(path); err == nil {
-		// Check permissions before using the key
-		if err := checkKeyFilePermissions(path); err != nil {
-			return nil, err
-		}
-		return crypto.UnmarshalPrivateKey(data)
-	}
-	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
-	if err != nil {
-		return nil, err
-	}
-	data, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return nil, fmt.Errorf("failed to save key: %w", err)
-	}
-	return priv, nil
-}
-
-// checkKeyFilePermissions verifies that a key file is not readable by group or others.
-func checkKeyFilePermissions(path string) error {
-	if runtime.GOOS == "windows" {
-		return nil // Windows file permissions work differently
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("cannot stat key file %s: %w", path, err)
-	}
-	mode := info.Mode().Perm()
-	if mode&0077 != 0 {
-		return fmt.Errorf("key file %s has insecure permissions %04o (expected 0600); fix with: chmod 600 %s", path, mode, path)
-	}
-	return nil
-}
 
 // buildRelayResources converts config resource settings into relayv2 types.
 func buildRelayResources(rc *config.RelayResourcesConfig) (relayv2.Resources, *relayv2.RelayLimit) {
@@ -400,7 +362,7 @@ func main() {
 	fmt.Printf("Authentication: %v\n", cfg.Security.EnableConnectionGating)
 	fmt.Println()
 
-	priv, err := loadOrCreateIdentity(cfg.Identity.KeyFile)
+	priv, err := identity.LoadOrCreateIdentity(cfg.Identity.KeyFile)
 	if err != nil {
 		log.Fatalf("Identity error: %v", err)
 	}

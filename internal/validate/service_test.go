@@ -1,11 +1,11 @@
-package p2pnet
+package validate
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestValidateServiceName(t *testing.T) {
+func TestServiceName(t *testing.T) {
 	valid := []string{
 		"ssh",
 		"xrdp",
@@ -18,8 +18,8 @@ func TestValidateServiceName(t *testing.T) {
 		"my-long-service-name",
 	}
 	for _, name := range valid {
-		if err := ValidateServiceName(name); err != nil {
-			t.Errorf("ValidateServiceName(%q) = %v, want nil", name, err)
+		if err := ServiceName(name); err != nil {
+			t.Errorf("ServiceName(%q) = %v, want nil", name, err)
 		}
 	}
 
@@ -45,22 +45,22 @@ func TestValidateServiceName(t *testing.T) {
 		{"service.name", "dot"},
 	}
 	for _, tc := range invalid {
-		if err := ValidateServiceName(tc.name); err == nil {
-			t.Errorf("ValidateServiceName(%q) [%s] = nil, want error", tc.name, tc.desc)
+		if err := ServiceName(tc.name); err == nil {
+			t.Errorf("ServiceName(%q) [%s] = nil, want error", tc.name, tc.desc)
 		}
 	}
 }
 
-func TestValidateServiceName_MaxLength(t *testing.T) {
+func TestServiceName_MaxLength(t *testing.T) {
 	// 63 chars should be valid
 	name63 := strings.Repeat("a", 63)
-	if err := ValidateServiceName(name63); err != nil {
-		t.Errorf("ValidateServiceName(63 chars) = %v, want nil", err)
+	if err := ServiceName(name63); err != nil {
+		t.Errorf("ServiceName(63 chars) = %v, want nil", err)
 	}
 
 	// 64 chars should be invalid
 	name64 := strings.Repeat("a", 64)
-	if err := ValidateServiceName(name64); err == nil {
-		t.Error("ValidateServiceName(64 chars) = nil, want error")
+	if err := ServiceName(name64); err == nil {
+		t.Error("ServiceName(64 chars) = nil, want error")
 	}
 }

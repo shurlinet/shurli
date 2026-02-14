@@ -54,11 +54,11 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 
 ---
 
-## Phase 3: Enhanced Usability - keytool CLI ✅ COMPLETE
+## Phase 3: Enhanced Usability - keytool CLI ✅ COMPLETE (superseded)
 
 **Goal**: Create production-ready CLI tool for managing Ed25519 keypairs and authorized_keys.
 
-**Status**: ✅ Completed
+**Status**: ✅ Completed (keytool features merged into `peerup` subcommands in Phase 4C module consolidation; `cmd/keytool/` deleted)
 
 **Deliverables**:
 - [x] `cmd/keytool` with 5 commands: generate, peerid, validate, authorize, revoke
@@ -67,12 +67,7 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - [x] Integration with existing auth system
 - [x] Comprehensive documentation in README
 
-**Commands**:
-- `keytool generate` - Create new Ed25519 keypair
-- `keytool peerid` - Extract peer ID from key file
-- `keytool validate` - Check authorized_keys format
-- `keytool authorize` - Add peer to authorized_keys
-- `keytool revoke` - Remove peer from authorized_keys
+**Note**: All keytool functionality now lives in `peerup` subcommands: `peerup whoami` (peerid), `peerup auth add` (authorize), `peerup auth remove` (revoke), `peerup auth list`, `peerup auth validate` (validate). Key generation happens via `peerup init`.
 
 ---
 
@@ -253,6 +248,16 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Metrics export — peer count, proxy throughput, relay latency, connection counts, stream utilization
 - [ ] Audit logging — every peer auth decision logged with peer ID, action, timestamp, result (structured JSON for SIEM integration)
 - [ ] Trace correlation IDs — propagate through relay path for debugging multi-hop connections
+
+**Module Consolidation** (completed — single Go module):
+- [x] Merged three Go modules (main, relay-server, cmd/keytool) into a single `go.mod`
+- [x] Deleted `go.work` — no workspace needed with one module
+- [x] Moved relay-server source from `relay-server/main.go` to `cmd/relay-server/main.go`; `relay-server/` is now a deployment directory (setup.sh, configs, systemd)
+- [x] Extracted `internal/identity/` package (from `pkg/p2pnet/identity.go`) — `CheckKeyFilePermissions()`, `LoadOrCreateIdentity()`, `PeerIDFromKeyFile()` shared by peerup and relay-server
+- [x] Extracted `internal/validate/` package — `ServiceName()` for DNS-label validation of service names
+- [x] Deleted `cmd/keytool/` entirely — all features exist in `peerup` subcommands (`whoami`, `auth add/list/remove/validate`)
+- [x] Added `peerup auth validate` (ported from keytool validate)
+- [x] CI simplified to `go build ./...`, `go vet ./...`, `go test -race -count=1 ./...` from project root
 
 **Pre-Refactoring Foundation** (completed before main 4C work):
 - [x] GitHub Actions CI — build, vet, and test on every push to `main` and `dev/next-iteration`
@@ -870,7 +875,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-14
-**Current Phase**: 4C In Progress (pre-refactoring foundation: CI, tests, config versioning complete)
+**Last Updated**: 2026-02-15
+**Current Phase**: 4C In Progress (module consolidation complete; pre-refactoring foundation: CI, tests, config versioning complete)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Core Hardening & Security — continue with libp2p upgrade, auth hot-reload, self-healing, daemon mode, reconnection

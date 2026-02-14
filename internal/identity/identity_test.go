@@ -1,9 +1,10 @@
-package p2pnet
+package identity
 
 import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -90,20 +91,29 @@ func TestLoadOrCreateIdentity_BadPermissions(t *testing.T) {
 	if err == nil {
 		t.Fatal("LoadOrCreateIdentity() should fail with insecure permissions")
 	}
-	if got := err.Error(); !contains(got, "insecure permissions") {
-		t.Errorf("error = %q, want it to contain 'insecure permissions'", got)
+	if !strings.Contains(err.Error(), "insecure permissions") {
+		t.Errorf("error = %q, want it to contain 'insecure permissions'", err.Error())
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
+func TestPeerIDFromKeyFile(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "test.key")
 
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+	pid, err := PeerIDFromKeyFile(keyPath)
+	if err != nil {
+		t.Fatalf("PeerIDFromKeyFile() error = %v", err)
 	}
-	return false
+	if pid == "" {
+		t.Fatal("PeerIDFromKeyFile() returned empty peer ID")
+	}
+
+	// Second call should return same ID
+	pid2, err := PeerIDFromKeyFile(keyPath)
+	if err != nil {
+		t.Fatalf("second PeerIDFromKeyFile() error = %v", err)
+	}
+	if pid != pid2 {
+		t.Errorf("peer IDs differ: %s != %s", pid, pid2)
+	}
 }

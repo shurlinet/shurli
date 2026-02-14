@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
 )
@@ -48,6 +50,8 @@ func runAuth(args []string) {
 		runAuthList(args[1:])
 	case "remove":
 		runAuthRemove(args[1:])
+	case "validate":
+		runAuthValidate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown auth command: %s\n\n", args[0])
 		printAuthUsage()
@@ -59,9 +63,10 @@ func printAuthUsage() {
 	fmt.Println("Usage: peerup auth <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  add    <peer-id> [--comment \"label\"]   Authorize a peer")
-	fmt.Println("  list                                   List authorized peers")
-	fmt.Println("  remove <peer-id>                       Revoke a peer's access")
+	fmt.Println("  add      <peer-id> [--comment \"label\"]   Authorize a peer")
+	fmt.Println("  list                                     List authorized peers")
+	fmt.Println("  remove   <peer-id>                       Revoke a peer's access")
+	fmt.Println("  validate [file]                          Validate authorized_keys format")
 	fmt.Println()
 	fmt.Println("All commands support --config <path> and --file <path>.")
 }
@@ -167,5 +172,75 @@ func runAuthRemove(args []string) {
 	}
 
 	color.Green("Revoked peer: %s", peerIDStr[:min(16, len(peerIDStr))]+"...")
+	fmt.Printf("  File: %s\n", authKeysPath)
+}
+
+func runAuthValidate(args []string) {
+	fs := flag.NewFlagSet("auth validate", flag.ExitOnError)
+	configFlag := fs.String("config", "", "path to config file")
+	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
+	fs.Parse(reorderFlagsFirst(args))
+
+	// Accept positional arg or resolve from config
+	authKeysPath := ""
+	if fs.NArg() >= 1 {
+		authKeysPath = fs.Arg(0)
+	} else {
+		authKeysPath = resolveAuthKeysPath(*fileFlag, *configFlag)
+	}
+
+	file, err := os.Open(authKeysPath)
+	if err != nil {
+		log.Fatalf("Failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lineNum := 0
+	validCount := 0
+	errorCount := 0
+	var errors []string
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Extract peer ID (before # comment)
+		parts := strings.SplitN(line, "#", 2)
+		peerIDStr := strings.TrimSpace(parts[0])
+
+		if peerIDStr == "" {
+			continue
+		}
+
+		// Validate peer ID
+		_, err := peer.Decode(peerIDStr)
+		if err != nil {
+			errorCount++
+			errors = append(errors, fmt.Sprintf("Line %d: invalid peer ID format - %v", lineNum, err))
+		} else {
+			validCount++
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatalf("Error reading file: %v", err)
+	}
+
+	if errorCount > 0 {
+		color.Red("Validation failed with %d error(s):", errorCount)
+		for _, e := range errors {
+			fmt.Printf("  %s\n", e)
+		}
+		os.Exit(1)
+	}
+
+	color.Green("Validation passed")
+	fmt.Printf("  Valid peer IDs: %d\n", validCount)
 	fmt.Printf("  File: %s\n", authKeysPath)
 }

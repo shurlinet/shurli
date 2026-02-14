@@ -26,7 +26,6 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 - **DHT Discovery** - Find peers using rendezvous on Kademlia DHT
 - **Direct Connection Upgrade** - DCUtR attempts hole-punching for direct P2P
 - **CLI Auth & Relay Management** - `peerup auth` and `peerup relay` for managing peers and relays without editing files
-- **Key Management Tool** - `keytool` CLI for managing keypairs and authorized_keys
 - **Service Exposure** - Expose any TCP service (SSH, XRDP, HTTP, etc.) via P2P
 - **Reusable Library** - `pkg/p2pnet` package for building P2P applications
 - **Name Resolution** - Map friendly names to peer IDs in config
@@ -62,9 +61,10 @@ cd relay-server
 cp ../configs/relay-server.sample.yaml relay-server.yaml
 # Edit relay-server.yaml if needed (defaults are fine)
 
-# Build and run
-go build -o relay-server
-./relay-server
+# Build and run (from project root)
+cd ..
+go build -o relay-server/relay-server ./cmd/relay-server
+./relay-server/relay-server
 ```
 
 Copy the **Relay Peer ID** from the output - you'll need it for the next steps.
@@ -171,20 +171,19 @@ peerup ping home
 │   │   ├── cmd_proxy.go        # TCP proxy client
 │   │   ├── cmd_ping.go         # Connectivity test
 │   │   ├── cmd_whoami.go       # Show own peer ID
-│   │   ├── cmd_auth.go         # Auth add/list/remove subcommands
+│   │   ├── cmd_auth.go         # Auth add/list/remove/validate subcommands
 │   │   ├── cmd_relay.go        # Relay add/list/remove subcommands
 │   │   ├── cmd_invite.go       # Generate invite code + QR + P2P handshake
 │   │   ├── cmd_join.go         # Decode invite, connect, auto-configure
 │   │   └── relay_input.go      # Flexible relay address parsing
-│   └── keytool/                # Key management CLI
-│       ├── main.go
-│       └── commands/
+│   └── relay-server/           # Circuit relay v2 source
+│       └── main.go
 ├── pkg/p2pnet/                 # Reusable P2P networking library
 │   ├── network.go              # Core network setup, relay helpers, name resolution
-│   ├── service.go              # Service registry and management
+│   ├── service.go              # Service registry (delegates to internal/validate)
 │   ├── proxy.go                # Bidirectional TCP↔Stream proxy with half-close
 │   ├── naming.go               # Local name resolution (name → peer ID)
-│   └── identity.go             # Ed25519 identity management
+│   └── identity.go             # Identity helpers (delegates to internal/identity)
 ├── internal/
 │   ├── config/                 # YAML configuration loading
 │   │   ├── config.go
@@ -193,13 +192,15 @@ peerup ping home
 │   │   ├── authorized_keys.go
 │   │   ├── gater.go
 │   │   └── manage.go           # AddPeer/RemovePeer/ListPeers
-│   └── invite/                 # Invite code encoding/decoding
-│       ├── code.go             # Binary → base32 with dash grouping
-│       └── code_test.go        # Round-trip, invalid input, trailing junk tests
-├── relay-server/               # VPS relay node (separate module)
-│   ├── main.go
+│   ├── identity/               # Ed25519 identity management (shared)
+│   │   └── identity.go         # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
+│   ├── invite/                 # Invite code encoding/decoding
+│   │   └── code.go             # Binary → base32 with dash grouping
+│   └── validate/               # Input validation helpers
+│       └── validate.go         # ServiceName() — DNS-label format
+├── relay-server/               # Deployment artifacts (setup, configs, systemd)
+│   ├── setup.sh                # Deploy/verify/uninstall (builds from cmd/relay-server)
 │   ├── relay-server.service
-│   ├── setup.sh                # Setup + health check (--check)
 │   └── README.md               # Full VPS deployment guide
 ├── configs/                    # Sample configuration files
 │   ├── peerup.sample.yaml
@@ -212,7 +213,7 @@ peerup ping home
 │   ├── FAQ.md
 │   ├── ROADMAP.md
 │   └── TESTING.md
-├── go.mod                      # Single root module
+├── go.mod                      # Single module (all packages under one module)
 ```
 
 ## Building
@@ -221,14 +222,14 @@ peerup ping home
 # Build peerup (single binary for everything)
 go build -o peerup ./cmd/peerup
 
-# Build keytool (key management utility)
-go build -o keytool ./cmd/keytool
-
-# Build relay server (separate module, runs on VPS)
-cd relay-server && go build -o relay-server
+# Build relay server (into relay-server/ deployment directory)
+go build -o relay-server/relay-server ./cmd/relay-server
 
 # Cross-compile for Linux (e.g., deploy to a Linux server)
 GOOS=linux GOARCH=amd64 go build -o peerup ./cmd/peerup
+
+# Run all tests
+go test -race -count=1 ./...
 ```
 
 ## Commands
@@ -322,6 +323,7 @@ Usage:
   peerup auth add <peer-id> [--comment "label"]   Add a peer to authorized_keys
   peerup auth list                                 List authorized peers
   peerup auth remove <peer-id>                     Remove a peer
+  peerup auth validate                             Validate authorized_keys file format
 ```
 
 ### `peerup relay` - Manage relay addresses
@@ -500,28 +502,6 @@ The TCP proxy uses the half-close pattern (inspired by Go stdlib's `httputil.Rev
 - The other direction can continue sending until it also finishes
 - This prevents premature connection closure and works correctly with protocols like SSH and XRDP
 
-## keytool - Key Management Utility
-
-```bash
-# Build
-go build -o keytool ./cmd/keytool
-
-# Generate new Ed25519 keypair
-keytool generate my-node.key
-
-# Extract peer ID from key file
-keytool peerid identity.key
-
-# Validate authorized_keys file
-keytool validate authorized_keys
-
-# Add peer to authorized_keys
-keytool authorize 12D3KooW... --comment "laptop" --file authorized_keys
-
-# Remove peer from authorized_keys
-keytool revoke 12D3KooW... --file authorized_keys
-```
-
 ## Running as a Service (systemd)
 
 ### Relay Server
@@ -583,8 +563,6 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed multi-phase implementation plan.
 - [go-libp2p-kad-dht](https://github.com/libp2p/go-libp2p-kad-dht) v0.28.1
 - [go-multiaddr](https://github.com/multiformats/go-multiaddr)
 - [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1
-- [urfave/cli](https://github.com/urfave/cli) v1.22.17 (keytool)
-- [fatih/color](https://github.com/fatih/color) v1.18.0 (keytool)
 
 ## License
 
@@ -595,8 +573,9 @@ MIT
 This is a personal project, but issues and PRs are welcome!
 
 **Testing checklist for PRs:**
-- [ ] `go build ./cmd/peerup` succeeds
-- [ ] `go build ./cmd/keytool` succeeds
+- [ ] `go build ./...` succeeds
+- [ ] `go vet ./...` passes
+- [ ] `go test -race -count=1 ./...` passes
 - [ ] Config files load without errors
 - [ ] Unauthorized peer is denied
 - [ ] Authorized peer connects successfully

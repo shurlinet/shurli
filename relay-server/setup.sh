@@ -385,7 +385,7 @@ run_check() {
     if [ -f "$RELAY_DIR/relay-server" ]; then
         check_pass "relay-server binary exists"
     else
-        check_fail "relay-server binary not found — run: go build -o relay-server ."
+        check_fail "relay-server binary not found — run: go build -o relay-server/relay-server ./cmd/relay-server"
     fi
 
     if [ -x "$RELAY_DIR/relay-server" ]; then
@@ -625,7 +625,7 @@ run_check() {
     elif [ -x "$RELAY_DIR/relay-server" ]; then
         check_warn "Cannot retrieve relay info (check relay-server.yaml and identity key)"
     else
-        check_warn "Cannot determine Peer ID (build relay-server first: go build -o relay-server .)"
+        check_warn "Cannot determine Peer ID (build relay-server first: go build -o relay-server/relay-server ./cmd/relay-server)"
     fi
     echo
 
@@ -919,8 +919,9 @@ echo
 
 # --- 5. Build ---
 echo "[6/8] Building relay-server..."
-cd "$RELAY_DIR"
-go build -o relay-server .
+PROJECT_ROOT="$(cd "$RELAY_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+go build -o "$RELAY_DIR/relay-server" ./cmd/relay-server
 echo "  Built: $RELAY_DIR/relay-server"
 echo
 
