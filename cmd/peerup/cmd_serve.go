@@ -36,7 +36,7 @@ func runServe(args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Println("=== peer-up serve ===")
+	fmt.Printf("=== peer-up serve (%s) ===\n", version)
 	fmt.Println()
 
 	// Find and load configuration
