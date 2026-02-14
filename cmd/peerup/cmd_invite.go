@@ -16,6 +16,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -103,8 +104,16 @@ func runInvite(args []string) {
 	fmt.Println()
 	fmt.Println(code)
 	fmt.Println()
-	fmt.Println("Share this code with the other device.")
-	fmt.Println("On that device, run:  peerup join <code>")
+
+	// Show QR code for easy scanning (e.g., from mobile app)
+	qr, err := qrcode.New(code, qrcode.Medium)
+	if err == nil {
+		fmt.Println("Scan this QR code to join:")
+		fmt.Println()
+		fmt.Print(qr.ToSmallString(false))
+	}
+
+	fmt.Println("Or on that device, run:  peerup join <code>")
 	fmt.Println()
 	fmt.Println("Waiting for peer to join...")
 

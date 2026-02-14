@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	qrcode "github.com/skip2/go-qrcode"
+
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
@@ -132,15 +134,23 @@ names: {}
 #  home: "PEER_ID_HERE"
 `, relayAddr)
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		log.Fatalf("Failed to write config: %v", err)
 	}
 
 	fmt.Printf("Config written to:  %s\n", configFile)
 	fmt.Printf("Identity saved to:  %s\n", keyFile)
 	fmt.Println()
+
+	// Show peer ID as QR for easy sharing
+	fmt.Println("Your Peer ID (scan to share):")
+	fmt.Println()
+	if qr, err := qrcode.New(peerID.String(), qrcode.Medium); err == nil {
+		fmt.Print(qr.ToSmallString(false))
+	}
+
 	fmt.Println("Next steps:")
-	fmt.Printf("  1. Add authorized peer IDs to %s\n", authKeysFile)
-	fmt.Println("  2. Run as server:  peerup serve")
+	fmt.Println("  1. Run as server:  peerup serve")
+	fmt.Println("  2. Invite a peer:  peerup invite --name home")
 	fmt.Println("  3. Or connect:     peerup proxy <target> <service> <port>")
 }
