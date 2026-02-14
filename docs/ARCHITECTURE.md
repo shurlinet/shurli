@@ -58,7 +58,7 @@ peer-up/
 │
 ├── relay-server/            # Circuit relay v2 (VPS, separate module)
 │   ├── main.go
-│   ├── setup-linode.sh      # Deploy/verify/uninstall (incl. QR code + connection info)
+│   ├── setup.sh      # Deploy/verify/uninstall (incl. QR code + connection info)
 │   └── relay-server.service
 │
 ├── configs/                 # Sample configuration files

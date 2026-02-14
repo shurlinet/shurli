@@ -30,7 +30,7 @@ cd peer-up/relay-server
 The script detects that you're root and walks you through creating a secure service user:
 
 ```bash
-bash setup-linode.sh
+bash setup.sh
 ```
 
 It will:
@@ -83,7 +83,7 @@ Run the health check anytime:
 
 ```bash
 cd ~/peer-up/relay-server
-bash setup-linode.sh --check
+bash setup.sh --check
 ```
 
 You should see all `[OK]` items:
@@ -116,7 +116,7 @@ To remove the systemd service, firewall rules, and system tuning:
 
 ```bash
 cd ~/peer-up/relay-server
-bash setup-linode.sh --uninstall
+bash setup.sh --uninstall
 ```
 
 This removes:
@@ -174,7 +174,7 @@ sudo systemctl restart relay-server
 | Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` → `500M` |
 | System updates | `sudo apt update && sudo apt upgrade` |
 
-Or just run: `bash setup-linode.sh --check`
+Or just run: `bash setup.sh --check`
 
 ---
 
@@ -189,7 +189,7 @@ After setup, your relay-server directory looks like:
 ├── relay-server.service      # Template service file (in git)
 ├── relay_node.key            # Identity key (auto-generated, gitignored)
 ├── relay_authorized_keys     # Allowed peer IDs (gitignored)
-├── setup-linode.sh           # Setup + health check script
+├── setup.sh           # Setup + health check script
 ├── main.go                   # Source code
 ├── go.mod
 └── go.sum
@@ -207,4 +207,4 @@ After setup, your relay-server directory looks like:
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
-| Service runs as root | `bash setup-linode.sh --uninstall` then re-run `bash setup-linode.sh` (as root it will guide you through user setup) |
+| Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |

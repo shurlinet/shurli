@@ -129,7 +129,7 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - [x] `peerup relay add/list/remove` — manage relay addresses without editing YAML
 - [x] Flexible relay address input — accept `IP:PORT` or bare `IP` (default port 7777) in addition to full multiaddr
 - [x] QR code display in `peerup init` (peer ID) and `peerup invite` (invite code)
-- [x] Relay connection info + QR code in `setup-linode.sh --check`
+- [x] Relay connection info + QR code in `setup.sh --check`
 
 **Security hardening** (done as part of 4B):
 - [x] Sanitize authorized_keys comments (prevent newline injection)

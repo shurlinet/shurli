@@ -278,7 +278,7 @@ After initial setup, you can add or remove relay servers:
 
 On the VPS, verify the relay is healthy:
 ```bash
-sudo ./setup-linode.sh --check
+sudo ./setup.sh --check
 ```
 This shows systemd status, peer ID, public IPs, full multiaddrs, and a QR code for easy sharing.
 

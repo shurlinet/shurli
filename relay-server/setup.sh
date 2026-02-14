@@ -3,9 +3,9 @@
 #
 # Usage:
 #   cd ~/peer-up/relay-server
-#   bash setup-linode.sh              # Full setup (install + start + verify)
-#   bash setup-linode.sh --check      # Health check only (no changes)
-#   bash setup-linode.sh --uninstall  # Remove service, firewall rules, tuning
+#   bash setup.sh              # Full setup (install + start + verify)
+#   bash setup.sh --check      # Health check only (no changes)
+#   bash setup.sh --uninstall  # Remove service, firewall rules, tuning
 #
 # Relay server subcommands (via the Go binary):
 #   ./relay-server info                          # Show peer ID, multiaddrs, QR code
@@ -57,6 +57,21 @@ run_sudo() {
     else
         sudo "$@"
     fi
+}
+
+# Find an available port from a prioritized list of candidates.
+# Returns the first port not currently in use by another process.
+# Usage: AVAILABLE=$(find_available_port 443 8443 9443 8080 8444 8445)
+find_available_port() {
+    for PORT in "$@"; do
+        PORT_OWNER=$(ss -tlnp 2>/dev/null | grep ":${PORT} " | grep -oP 'users:\(\("\K[^"]+' | head -1)
+        if [ -z "$PORT_OWNER" ] || [ "$PORT_OWNER" = "relay-server" ]; then
+            echo "$PORT"
+            return 0
+        fi
+    done
+    # No candidate port is available
+    return 1
 }
 
 # ============================================================
@@ -504,8 +519,14 @@ run_check() {
             check_pass "Port $WS_PORT TCP is listening (WebSocket anti-censorship)"
         elif [ -n "$WS_PORT_OWNER" ]; then
             check_fail "Port $WS_PORT is used by '$WS_PORT_OWNER' — conflicts with WebSocket transport"
-            echo "         Fix: use a different port (e.g., 8443) in relay-server.yaml"
-            echo "         Or stop $WS_PORT_OWNER: sudo systemctl stop $WS_PORT_OWNER"
+            ALT_PORT=$(find_available_port 8443 9443 8080 8444 8445 9090)
+            echo "         Options:"
+            echo "           a) Stop $WS_PORT_OWNER: sudo systemctl stop $WS_PORT_OWNER"
+            if [ -n "$ALT_PORT" ]; then
+                echo "           b) Switch port: change tcp/$WS_PORT/ws to tcp/$ALT_PORT/ws in relay-server.yaml (port $ALT_PORT is free)"
+            else
+                echo "           b) Pick a free port manually and update relay-server.yaml"
+            fi
         elif systemctl is-active --quiet relay-server 2>/dev/null; then
             check_warn "Port $WS_PORT TCP not detected (WebSocket configured but not listening)"
         fi
@@ -637,7 +658,7 @@ if [ "$1" = "--uninstall" ]; then
     echo "=== peer-up Relay Server Uninstall ==="
     echo
     echo "This will remove the systemd service, firewall rules,"
-    echo "and system tuning applied by setup-linode.sh."
+    echo "and system tuning applied by setup.sh."
     echo
     echo "It will NOT delete your config, keys, binary, or source code."
     echo
@@ -672,8 +693,8 @@ if [ "$1" = "--uninstall" ]; then
     if command -v ufw &> /dev/null; then
         run_sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp rule" || echo "  No 7777/tcp rule found"
         run_sudo ufw delete allow 7777/udp > /dev/null 2>&1 && echo "  Removed 7777/udp rule" || echo "  No 7777/udp rule found"
-        # Remove WebSocket port rule (443, 8443, or whatever was configured)
-        for WS_CLEANUP_PORT in 443 8443; do
+        # Remove WebSocket port rules (any port that setup may have opened)
+        for WS_CLEANUP_PORT in 443 8443 9443 8080 8444 8445 9090; do
             run_sudo ufw delete allow "${WS_CLEANUP_PORT}/tcp" > /dev/null 2>&1 && echo "  Removed ${WS_CLEANUP_PORT}/tcp rule (WebSocket)" || true
         done
     else
@@ -721,7 +742,7 @@ if [ "$1" = "--uninstall" ]; then
     echo "  $RELAY_DIR/relay_node.key        (identity key)"
     echo "  $RELAY_DIR/relay_authorized_keys (peer allowlist)"
     echo
-    echo "To reinstall later:  bash setup-linode.sh"
+    echo "To reinstall later:  bash setup.sh"
     exit 0
 fi
 
@@ -818,12 +839,52 @@ if command -v ufw &> /dev/null; then
             # Check if the port is already in use by another service
             WS_PORT_OWNER=$(ss -tlnp 2>/dev/null | grep ":${WS_PORT} " | grep -oP 'users:\(\("\K[^"]+' | head -1)
             if [ -n "$WS_PORT_OWNER" ] && [ "$WS_PORT_OWNER" != "relay-server" ]; then
+                echo
                 echo "  [WARN] Port $WS_PORT is already in use by: $WS_PORT_OWNER"
                 echo "         WebSocket transport will fail to bind on this port."
-                echo "         Options:"
-                echo "           1. Stop $WS_PORT_OWNER and free port $WS_PORT"
-                echo "           2. Use port 8443 instead: edit relay-server.yaml"
-                echo "              Change: tcp/$WS_PORT/ws  →  tcp/8443/ws"
+                echo
+                # Find an available alternative port dynamically
+                ALT_PORT=$(find_available_port 8443 9443 8080 8444 8445 9090)
+                if [ -t 0 ]; then
+                    # Interactive — let the user choose
+                    echo "  Options:"
+                    echo "    1) Keep port $WS_PORT (you plan to stop $WS_PORT_OWNER yourself)"
+                    if [ -n "$ALT_PORT" ]; then
+                        echo "    2) Switch to port $ALT_PORT (available now — updates relay-server.yaml)"
+                    fi
+                    echo "    3) Skip WebSocket setup for now"
+                    echo
+                    read -p "  Choice [1${ALT_PORT:+/2}/3]: " WS_CHOICE
+                    case "$WS_CHOICE" in
+                        1)
+                            run_sudo ufw allow "${WS_PORT}/tcp" comment 'peer-up relay WebSocket' > /dev/null 2>&1 || true
+                            echo "  UFW: port $WS_PORT TCP open (WebSocket)"
+                            echo "  Note: relay-server won't bind until $WS_PORT_OWNER releases port $WS_PORT"
+                            ;;
+                        2)
+                            if [ -n "$ALT_PORT" ]; then
+                                # Update the config file: replace the old port with the new one
+                                sed -i "s|tcp/${WS_PORT}/ws|tcp/${ALT_PORT}/ws|g" "$RELAY_DIR/relay-server.yaml"
+                                run_sudo ufw allow "${ALT_PORT}/tcp" comment 'peer-up relay WebSocket' > /dev/null 2>&1 || true
+                                echo "  Updated relay-server.yaml: tcp/$WS_PORT/ws → tcp/$ALT_PORT/ws"
+                                echo "  UFW: port $ALT_PORT TCP open (WebSocket anti-censorship)"
+                            else
+                                echo "  Invalid choice (no alternative port available)"
+                            fi
+                            ;;
+                        *)
+                            echo "  Skipped WebSocket firewall setup"
+                            ;;
+                    esac
+                else
+                    # Non-interactive (piped/scripted) — open the configured port and warn
+                    run_sudo ufw allow "${WS_PORT}/tcp" comment 'peer-up relay WebSocket' > /dev/null 2>&1 || true
+                    echo "  UFW: port $WS_PORT TCP open (WebSocket)"
+                    echo "  [WARN] Port $WS_PORT is held by $WS_PORT_OWNER — relay-server won't bind until it's freed"
+                    if [ -n "$ALT_PORT" ]; then
+                        echo "         Alternative: change tcp/$WS_PORT/ws to tcp/$ALT_PORT/ws in relay-server.yaml"
+                    fi
+                fi
             else
                 run_sudo ufw allow "${WS_PORT}/tcp" comment 'peer-up relay WebSocket' > /dev/null 2>&1 || true
                 echo "  UFW: port $WS_PORT TCP open (WebSocket anti-censorship)"

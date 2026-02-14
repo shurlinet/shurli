@@ -183,7 +183,7 @@ peerup ping home
 ├── relay-server/               # VPS relay node (separate module)
 │   ├── main.go
 │   ├── relay-server.service
-│   ├── setup-linode.sh         # Setup + health check (--check)
+│   ├── setup.sh         # Setup + health check (--check)
 │   └── README.md               # Full VPS deployment guide
 ├── configs/                    # Sample configuration files
 │   ├── peerup.sample.yaml
@@ -457,8 +457,8 @@ See [relay-server/README.md](relay-server/README.md) for the full VPS setup guid
 Quick version if already configured:
 ```bash
 cd relay-server
-bash setup-linode.sh        # Full setup (build, permissions, systemd, health check)
-bash setup-linode.sh --check  # Health check only
+bash setup.sh        # Full setup (build, permissions, systemd, health check)
+bash setup.sh --check  # Health check only
 ```
 
 ### peerup serve

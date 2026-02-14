@@ -22,18 +22,14 @@ network:
     #
     # IMPORTANT: Port 443 is often used by web servers (nginx, Apache, Caddy).
     # Check first: ss -tlnp | grep :443
-    # If port 443 is taken, use 8443 instead (still benefits from WebSocket
-    # protocol blending, just on a non-standard port).
+    # If port 443 is taken, pick any free port (setup.sh will detect
+    # conflicts and suggest an available alternative automatically).
     #
-    # Port 443 requires CAP_NET_BIND_SERVICE (setup-linode.sh adds this).
-    # Port 8443 works without any special capabilities.
+    # Port 443 requires CAP_NET_BIND_SERVICE (setup.sh adds this).
+    # Ports above 1024 (e.g., 8443, 9443) work without special capabilities.
     #
     # - "/ip4/0.0.0.0/tcp/443/ws"
     # - "/ip6/::/tcp/443/ws"
-    #
-    # Fallback if 443 is taken:
-    # - "/ip4/0.0.0.0/tcp/8443/ws"
-    # - "/ip6/::/tcp/8443/ws"
 
 security:
   # Path to authorized_keys file
