@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +24,10 @@ import (
 
 func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
 	if data, err := os.ReadFile(path); err == nil {
+		// Check permissions before using the key
+		if err := checkKeyFilePermissions(path); err != nil {
+			return nil, err
+		}
 		return crypto.UnmarshalPrivateKey(data)
 	}
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
@@ -37,6 +42,51 @@ func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
 		return nil, fmt.Errorf("failed to save key: %w", err)
 	}
 	return priv, nil
+}
+
+// checkKeyFilePermissions verifies that a key file is not readable by group or others.
+func checkKeyFilePermissions(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil // Windows file permissions work differently
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("cannot stat key file %s: %w", path, err)
+	}
+	mode := info.Mode().Perm()
+	if mode&0077 != 0 {
+		return fmt.Errorf("key file %s has insecure permissions %04o (expected 0600); fix with: chmod 600 %s", path, mode, path)
+	}
+	return nil
+}
+
+// buildRelayResources converts config resource settings into relayv2 types.
+func buildRelayResources(rc *config.RelayResourcesConfig) (relayv2.Resources, *relayv2.RelayLimit) {
+	// Parse durations (already validated by ValidateRelayServerConfig)
+	reservationTTL, _ := time.ParseDuration(rc.ReservationTTL)
+	sessionDuration, _ := time.ParseDuration(rc.SessionDuration)
+	sessionDataLimit, _ := config.ParseDataSize(rc.SessionDataLimit)
+
+	resources := relayv2.Resources{
+		Limit: &relayv2.RelayLimit{
+			Duration: sessionDuration,
+			Data:     sessionDataLimit,
+		},
+		ReservationTTL:        reservationTTL,
+		MaxReservations:       rc.MaxReservations,
+		MaxCircuits:           rc.MaxCircuits,
+		BufferSize:            rc.BufferSize,
+		MaxReservationsPerPeer: 1,
+		MaxReservationsPerIP:  rc.MaxReservationsPerIP,
+		MaxReservationsPerASN: rc.MaxReservationsPerASN,
+	}
+
+	limit := &relayv2.RelayLimit{
+		Duration: sessionDuration,
+		Data:     sessionDataLimit,
+	}
+
+	return resources, limit
 }
 
 // loadAuthKeysPath loads config and returns the authorized_keys file path.
@@ -398,11 +448,15 @@ func main() {
 	}
 	defer h.Close()
 
-	// Now manually start the relay service on this host
-	_, err = relayv2.New(h, relayv2.WithInfiniteLimits())
+	// Start the relay service with configured resource limits
+	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
+	_, err = relayv2.New(h, relayv2.WithResources(relayResources), relayv2.WithLimit(relayLimit))
 	if err != nil {
 		log.Fatalf("Failed to start relay service: %v", err)
 	}
+	fmt.Printf("Relay limits: max_reservations=%d, max_circuits=%d, session=%s, data=%s/direction\n",
+		cfg.Resources.MaxReservations, cfg.Resources.MaxCircuits,
+		cfg.Resources.SessionDuration, cfg.Resources.SessionDataLimit)
 
 	fmt.Printf("🔄 Relay Peer ID: %s\n", h.ID())
 	fmt.Println()

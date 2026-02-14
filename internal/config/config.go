@@ -34,10 +34,11 @@ type ClientNodeConfig struct {
 
 // RelayServerConfig represents configuration for the relay server
 type RelayServerConfig struct {
-	Version  int                  `yaml:"version,omitempty"`
-	Identity IdentityConfig       `yaml:"identity"`
-	Network  RelayNetworkConfig   `yaml:"network"`
-	Security RelaySecurityConfig  `yaml:"security"`
+	Version   int                  `yaml:"version,omitempty"`
+	Identity  IdentityConfig       `yaml:"identity"`
+	Network   RelayNetworkConfig   `yaml:"network"`
+	Security  RelaySecurityConfig  `yaml:"security"`
+	Resources RelayResourcesConfig `yaml:"resources,omitempty"`
 }
 
 // IdentityConfig holds identity-related configuration
@@ -78,6 +79,19 @@ type SecurityConfig struct {
 type RelaySecurityConfig struct {
 	AuthorizedKeysFile     string `yaml:"authorized_keys_file"`
 	EnableConnectionGating bool   `yaml:"enable_connection_gating"`
+}
+
+// RelayResourcesConfig holds relay v2 resource limit configuration.
+// Zero values are replaced with defaults at load time.
+type RelayResourcesConfig struct {
+	MaxReservations      int    `yaml:"max_reservations"`         // default: 128
+	MaxCircuits          int    `yaml:"max_circuits"`             // default: 16
+	BufferSize           int    `yaml:"buffer_size"`              // default: 2048
+	MaxReservationsPerIP int    `yaml:"max_reservations_per_ip"`  // default: 8
+	MaxReservationsPerASN int   `yaml:"max_reservations_per_asn"` // default: 32
+	ReservationTTL       string `yaml:"reservation_ttl"`          // default: "1h"
+	SessionDuration      string `yaml:"session_duration"`         // default: "10m"
+	SessionDataLimit     string `yaml:"session_data_limit"`       // default: "64MB"
 }
 
 // ProtocolsConfig holds protocol-specific configuration

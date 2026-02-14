@@ -398,3 +398,182 @@ func TestValidateRelayServerConfig(t *testing.T) {
 		t.Error("expected error for missing key_file")
 	}
 }
+
+func TestValidateNodeConfigServiceNames(t *testing.T) {
+	base := NodeConfig{
+		Identity:  IdentityConfig{KeyFile: "x"},
+		Network:   NetworkConfig{ListenAddresses: []string{"x"}},
+		Relay:     RelayConfig{Addresses: []string{"x"}},
+		Discovery: DiscoveryConfig{Rendezvous: "x"},
+		Protocols: ProtocolsConfig{PingPong: PingPongConfig{ID: "x"}},
+	}
+
+	// Valid service names should pass
+	valid := base
+	valid.Services = ServicesConfig{
+		"ssh":  {Enabled: true, LocalAddress: "localhost:22"},
+		"xrdp": {Enabled: true, LocalAddress: "localhost:3389"},
+	}
+	if err := ValidateNodeConfig(&valid); err != nil {
+		t.Errorf("valid service names rejected: %v", err)
+	}
+
+	// Invalid service name should fail
+	invalid := base
+	invalid.Services = ServicesConfig{
+		"foo/bar": {Enabled: true, LocalAddress: "localhost:8080"},
+	}
+	if err := ValidateNodeConfig(&invalid); err == nil {
+		t.Error("expected error for service name 'foo/bar'")
+	}
+
+	// Service name with newline should fail
+	invalid2 := base
+	invalid2.Services = ServicesConfig{
+		"foo\nbar": {Enabled: true, LocalAddress: "localhost:8080"},
+	}
+	if err := ValidateNodeConfig(&invalid2); err == nil {
+		t.Error("expected error for service name with newline")
+	}
+
+	// Uppercase service name should fail
+	invalid3 := base
+	invalid3.Services = ServicesConfig{
+		"SSH": {Enabled: true, LocalAddress: "localhost:22"},
+	}
+	if err := ValidateNodeConfig(&invalid3); err == nil {
+		t.Error("expected error for uppercase service name 'SSH'")
+	}
+}
+
+func TestParseDataSize(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"128KB", 128 * 1024},
+		{"64MB", 64 * 1024 * 1024},
+		{"1GB", 1024 * 1024 * 1024},
+		{"1024B", 1024},
+		{"100", 100},
+		{"0B", 0},
+		{"128kb", 128 * 1024},
+		{"64mb", 64 * 1024 * 1024},
+	}
+	for _, tc := range tests {
+		got, err := ParseDataSize(tc.input)
+		if err != nil {
+			t.Errorf("ParseDataSize(%q) error = %v", tc.input, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("ParseDataSize(%q) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+
+	// Error cases
+	invalid := []string{"", "abc", "-1MB", "MB", "1.5MB"}
+	for _, s := range invalid {
+		if _, err := ParseDataSize(s); err == nil {
+			t.Errorf("ParseDataSize(%q) should fail", s)
+		}
+	}
+}
+
+func TestLoadRelayServerConfigDefaults(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+identity:
+  key_file: "relay.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  enable_connection_gating: false
+`
+	path := filepath.Join(dir, "relay.yaml")
+	os.WriteFile(path, []byte(yaml), 0600)
+
+	cfg, err := LoadRelayServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRelayServerConfig: %v", err)
+	}
+
+	// Verify resource defaults were applied
+	if cfg.Resources.MaxReservations != 128 {
+		t.Errorf("MaxReservations = %d, want 128", cfg.Resources.MaxReservations)
+	}
+	if cfg.Resources.MaxCircuits != 16 {
+		t.Errorf("MaxCircuits = %d, want 16", cfg.Resources.MaxCircuits)
+	}
+	if cfg.Resources.SessionDuration != "10m" {
+		t.Errorf("SessionDuration = %q, want %q", cfg.Resources.SessionDuration, "10m")
+	}
+	if cfg.Resources.SessionDataLimit != "64MB" {
+		t.Errorf("SessionDataLimit = %q, want %q", cfg.Resources.SessionDataLimit, "64MB")
+	}
+}
+
+func TestLoadRelayServerConfigCustomResources(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+identity:
+  key_file: "relay.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  enable_connection_gating: false
+resources:
+  max_reservations: 64
+  session_duration: "30m"
+  session_data_limit: "256MB"
+`
+	path := filepath.Join(dir, "relay.yaml")
+	os.WriteFile(path, []byte(yaml), 0600)
+
+	cfg, err := LoadRelayServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRelayServerConfig: %v", err)
+	}
+
+	if cfg.Resources.MaxReservations != 64 {
+		t.Errorf("MaxReservations = %d, want 64", cfg.Resources.MaxReservations)
+	}
+	if cfg.Resources.SessionDuration != "30m" {
+		t.Errorf("SessionDuration = %q, want %q", cfg.Resources.SessionDuration, "30m")
+	}
+	if cfg.Resources.SessionDataLimit != "256MB" {
+		t.Errorf("SessionDataLimit = %q, want %q", cfg.Resources.SessionDataLimit, "256MB")
+	}
+	// Defaults should fill in unset fields
+	if cfg.Resources.MaxCircuits != 16 {
+		t.Errorf("MaxCircuits = %d, want 16 (default)", cfg.Resources.MaxCircuits)
+	}
+}
+
+func TestValidateRelayServerConfigBadDuration(t *testing.T) {
+	cfg := &RelayServerConfig{
+		Identity:  IdentityConfig{KeyFile: "key"},
+		Network:   RelayNetworkConfig{ListenAddresses: []string{"/ip4/0.0.0.0/tcp/7777"}},
+		Security:  RelaySecurityConfig{EnableConnectionGating: false},
+		Resources: RelayResourcesConfig{SessionDuration: "not-a-duration"},
+	}
+
+	if err := ValidateRelayServerConfig(cfg); err == nil {
+		t.Error("expected error for invalid session_duration")
+	}
+}
+
+func TestValidateRelayServerConfigBadDataSize(t *testing.T) {
+	cfg := &RelayServerConfig{
+		Identity:  IdentityConfig{KeyFile: "key"},
+		Network:   RelayNetworkConfig{ListenAddresses: []string{"/ip4/0.0.0.0/tcp/7777"}},
+		Security:  RelaySecurityConfig{EnableConnectionGating: false},
+		Resources: RelayResourcesConfig{SessionDataLimit: "abc"},
+	}
+
+	if err := ValidateRelayServerConfig(cfg); err == nil {
+		t.Error("expected error for invalid session_data_limit")
+	}
+}

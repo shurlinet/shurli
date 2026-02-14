@@ -44,3 +44,16 @@ security:
   # When true, only peers in authorized_keys can use this relay
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
+
+# Relay resource limits (defaults shown — uncomment to customize)
+# These control how much relay capacity each peer and session can consume.
+# Tuned for private relays serving 2-10 peers with SSH/XRDP workloads.
+# resources:
+#   max_reservations: 128        # Total active relay slots
+#   max_circuits: 16             # Open relay connections per peer
+#   buffer_size: 2048            # Relay buffer size (bytes)
+#   max_reservations_per_ip: 8   # Reservations per source IP
+#   max_reservations_per_asn: 32 # Reservations per AS number
+#   reservation_ttl: "1h"        # How long a reservation lasts
+#   session_duration: "10m"      # Max duration per relayed session
+#   session_data_limit: "64MB"   # Max data per session per direction

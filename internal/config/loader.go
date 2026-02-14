@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,6 +139,9 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 		return nil, fmt.Errorf("config version %d is newer than supported version %d; please upgrade relay-server", config.Version, CurrentConfigVersion)
 	}
 
+	// Apply defaults for zero-valued resource fields
+	applyRelayResourceDefaults(&config.Resources)
+
 	return &config, nil
 }
 
@@ -251,6 +256,12 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	if cfg.Security.EnableConnectionGating && cfg.Security.AuthorizedKeysFile == "" {
 		return fmt.Errorf("security.authorized_keys_file is required when connection gating is enabled")
 	}
+	// Validate service names (prevent protocol ID injection)
+	for name := range cfg.Services {
+		if !validServiceNameRe.MatchString(name) {
+			return fmt.Errorf("services: invalid name %q (must be 1-63 lowercase alphanumeric or hyphens, starting and ending with alphanumeric)", name)
+		}
+	}
 	return nil
 }
 
@@ -274,5 +285,109 @@ func ValidateRelayServerConfig(cfg *RelayServerConfig) error {
 	if cfg.Security.EnableConnectionGating && cfg.Security.AuthorizedKeysFile == "" {
 		return fmt.Errorf("security.authorized_keys_file is required when connection gating is enabled")
 	}
+	// Validate resource durations if set
+	if cfg.Resources.ReservationTTL != "" {
+		if _, err := time.ParseDuration(cfg.Resources.ReservationTTL); err != nil {
+			return fmt.Errorf("resources.reservation_ttl: %w", err)
+		}
+	}
+	if cfg.Resources.SessionDuration != "" {
+		if _, err := time.ParseDuration(cfg.Resources.SessionDuration); err != nil {
+			return fmt.Errorf("resources.session_duration: %w", err)
+		}
+	}
+	if cfg.Resources.SessionDataLimit != "" {
+		if _, err := ParseDataSize(cfg.Resources.SessionDataLimit); err != nil {
+			return fmt.Errorf("resources.session_data_limit: %w", err)
+		}
+	}
 	return nil
+}
+
+// validServiceNameRe matches DNS-label-style service names: 1-63 lowercase alphanumeric or hyphens,
+// starting and ending with alphanumeric. Prevents protocol ID injection.
+var validServiceNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// DefaultRelayResources returns the default relay resource configuration.
+// Values are tuned for a private relay serving 2-10 peers with SSH/XRDP workloads.
+func DefaultRelayResources() RelayResourcesConfig {
+	return RelayResourcesConfig{
+		MaxReservations:      128,
+		MaxCircuits:          16,
+		BufferSize:           2048,
+		MaxReservationsPerIP: 8,
+		MaxReservationsPerASN: 32,
+		ReservationTTL:       "1h",
+		SessionDuration:      "10m",
+		SessionDataLimit:     "64MB",
+	}
+}
+
+// applyRelayResourceDefaults fills zero-valued fields with defaults.
+func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
+	defaults := DefaultRelayResources()
+	if rc.MaxReservations == 0 {
+		rc.MaxReservations = defaults.MaxReservations
+	}
+	if rc.MaxCircuits == 0 {
+		rc.MaxCircuits = defaults.MaxCircuits
+	}
+	if rc.BufferSize == 0 {
+		rc.BufferSize = defaults.BufferSize
+	}
+	if rc.MaxReservationsPerIP == 0 {
+		rc.MaxReservationsPerIP = defaults.MaxReservationsPerIP
+	}
+	if rc.MaxReservationsPerASN == 0 {
+		rc.MaxReservationsPerASN = defaults.MaxReservationsPerASN
+	}
+	if rc.ReservationTTL == "" {
+		rc.ReservationTTL = defaults.ReservationTTL
+	}
+	if rc.SessionDuration == "" {
+		rc.SessionDuration = defaults.SessionDuration
+	}
+	if rc.SessionDataLimit == "" {
+		rc.SessionDataLimit = defaults.SessionDataLimit
+	}
+}
+
+// ParseDataSize parses a human-readable data size string (e.g., "128KB", "64MB", "1GB")
+// and returns the value in bytes. Supported suffixes: B, KB, MB, GB (case-insensitive).
+func ParseDataSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty data size")
+	}
+
+	s = strings.ToUpper(s)
+	var multiplier int64 = 1
+	var numStr string
+
+	switch {
+	case strings.HasSuffix(s, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		numStr = strings.TrimSuffix(s, "GB")
+	case strings.HasSuffix(s, "MB"):
+		multiplier = 1024 * 1024
+		numStr = strings.TrimSuffix(s, "MB")
+	case strings.HasSuffix(s, "KB"):
+		multiplier = 1024
+		numStr = strings.TrimSuffix(s, "KB")
+	case strings.HasSuffix(s, "B"):
+		numStr = strings.TrimSuffix(s, "B")
+	default:
+		// Try parsing as plain number (bytes)
+		numStr = s
+	}
+
+	numStr = strings.TrimSpace(numStr)
+	val, err := strconv.ParseInt(numStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid data size %q: %w", s, err)
+	}
+	if val < 0 {
+		return 0, fmt.Errorf("data size must be non-negative: %s", s)
+	}
+	return val * multiplier, nil
 }

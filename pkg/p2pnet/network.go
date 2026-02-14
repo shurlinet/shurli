@@ -140,6 +140,9 @@ func (n *Network) PeerID() peer.ID {
 
 // ExposeService exposes a local TCP service through the P2P network
 func (n *Network) ExposeService(name, localAddress string) error {
+	if err := ValidateServiceName(name); err != nil {
+		return err
+	}
 	return n.serviceRegistry.RegisterService(&Service{
 		Name:         name,
 		Protocol:     fmt.Sprintf("/peerup/%s/1.0.0", name),
@@ -150,6 +153,9 @@ func (n *Network) ExposeService(name, localAddress string) error {
 
 // ConnectToService connects to a remote peer's service
 func (n *Network) ConnectToService(peerID peer.ID, serviceName string) (ServiceConn, error) {
+	if err := ValidateServiceName(serviceName); err != nil {
+		return nil, err
+	}
 	protocol := fmt.Sprintf("/peerup/%s/1.0.0", serviceName)
 	return n.serviceRegistry.DialService(n.ctx, peerID, protocol)
 }

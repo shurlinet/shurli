@@ -206,15 +206,15 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 **Deliverables**:
 
 **Security (Critical)**:
-- [ ] Relay resource limits — replace `WithInfiniteLimits()` with libp2p Resource Manager scopes: per-peer connection limits, per-peer bandwidth caps, memory and file descriptor budgets. DAG-based constraints at system, protocol, and peer levels.
+- [x] Relay resource limits — replace `WithInfiniteLimits()` with configurable `WithResources()` + `WithLimit()`. Defaults tuned for SSH/XRDP (10min sessions, 64MB data). Configurable via `resources:` section in relay-server.yaml.
 - [ ] Auth hot-reload — file watcher or SIGHUP to reload `authorized_keys` without restart (revoke access immediately)
 - [ ] Per-service access control — allow granting specific peers access to specific services only
 - [ ] Rate limiting on incoming connections and streams — leverage go-libp2p's built-in per-IP rate limiting (1 connection per 5s default, 16-burst). Add per-peer stream throttling.
 - [ ] QUIC source address verification — validate peer source IPs aren't spoofed, prevents relay from being used as DDoS reflector (built into quic-go v0.54.0+)
 - [ ] OS-level rate limiting — iptables/nftables rules in `setup.sh` (SYN flood protection, `--connlimit-above` per source IP)
 - [x] Config file permissions — write with 0600 (not 0644) *(done in Phase 4B)*
-- [ ] Key file permission check on load — warn/refuse if not 0600
-- [ ] Service name validation — reject special characters that could create ambiguous protocol IDs
+- [x] Key file permission check on load — refuse to load keys with permissions wider than 0600 (actionable error message with `chmod` fix)
+- [x] Service name validation — DNS-label format enforced (1-63 lowercase alphanumeric + hyphens), prevents protocol ID injection
 - [x] Relay address validation in `peerup init` — parse multiaddr before writing config *(done in Phase 4B)*
 
 **libp2p Upgrade (Critical)**:
@@ -873,4 +873,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Last Updated**: 2026-02-14
 **Current Phase**: 4C In Progress (pre-refactoring foundation: CI, tests, config versioning complete)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Core Hardening & Security — continue with libp2p upgrade, resource limits, self-healing, daemon mode, reconnection
+**Next Milestone**: Core Hardening & Security — continue with libp2p upgrade, auth hot-reload, self-healing, daemon mode, reconnection

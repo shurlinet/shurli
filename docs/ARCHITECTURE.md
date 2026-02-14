@@ -721,6 +721,51 @@ Similar to iOS but with full VPNService API access:
 
 ---
 
+## Security Hardening
+
+### Relay Resource Limits
+
+The relay server enforces resource limits via libp2p's circuit relay v2 `WithResources()` and `WithLimit()` options. All limits are configurable in `relay-server.yaml` under the `resources:` section. Defaults are tuned for a private relay serving 2-10 peers with SSH/XRDP workloads:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_reservations` | 128 | Total active relay slots |
+| `max_circuits` | 16 | Open relay connections per peer |
+| `max_reservations_per_ip` | 8 | Reservations per source IP |
+| `max_reservations_per_asn` | 32 | Reservations per AS number |
+| `reservation_ttl` | 1h | Reservation lifetime |
+| `session_duration` | 10m | Max per-session duration |
+| `session_data_limit` | 64MB | Max data per session per direction |
+
+Session duration and data limits are raised from libp2p defaults (2min/128KB) to support real workloads (SSH, XRDP, file transfers). Zero-valued fields in config are filled with defaults at load time.
+
+### Key File Permission Verification
+
+Private key files are verified on load to ensure they are not readable by group or others. Both `pkg/p2pnet/LoadOrCreateIdentity()` and the relay server's `loadOrCreateIdentity()` check file permissions before using the key:
+
+- **Expected**: `0600` (owner read/write only)
+- **On violation**: Returns error with actionable fix: `chmod 600 <path>`
+- **Windows**: Check is skipped (Windows uses ACLs, not POSIX permissions)
+
+Keys are already created with `0600` permissions, but this check catches degradation from manual `chmod`, file copies across systems, or archive extraction.
+
+### Service Name Validation
+
+Service names are validated before use in protocol IDs to prevent injection attacks. Names flow into `fmt.Sprintf("/peerup/%s/1.0.0", name)` — without validation, a name like `ssh/../../evil` or `foo\nbar` creates ambiguous or invalid protocol IDs.
+
+**Validation rules** (DNS-label format):
+- 1-63 characters
+- Lowercase alphanumeric and hyphens only
+- Must start and end with alphanumeric character
+- Regex: `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
+
+Validated at three points:
+1. `ValidateNodeConfig()` — rejects bad names in config before startup
+2. `ExposeService()` — rejects bad names at service registration time
+3. `ConnectToService()` — rejects bad names at connection time
+
+---
+
 ## Security Considerations
 
 ### Threat Model
@@ -729,7 +774,10 @@ Similar to iOS but with full VPNService API access:
 - ✅ Unauthorized peer access (ConnectionGater)
 - ✅ Man-in-the-middle (libp2p Noise encryption)
 - ✅ Replay attacks (Noise protocol nonces)
-- ✅ Relay bandwidth theft (relay authentication)
+- ✅ Relay bandwidth theft (relay authentication + resource limits)
+- ✅ Relay resource exhaustion (configurable per-peer/per-IP/per-ASN limits)
+- ✅ Protocol ID injection (service name validation)
+- ✅ Key file permission degradation (0600 check on load)
 - ✅ Newline injection in authorized_keys (sanitized comments)
 - ✅ YAML injection via peer names (allowlisted characters)
 - ✅ OOM via unbounded stream reads (512-byte buffer limits)
@@ -795,4 +843,4 @@ Similar to iOS but with full VPNService API access:
 ---
 
 **Last Updated**: 2026-02-14
-**Architecture Version**: 2.1 (Phase 4B Complete)
+**Architecture Version**: 2.2 (Phase 4C Security Batch)
