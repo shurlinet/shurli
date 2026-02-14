@@ -256,4 +256,57 @@ For Starlink CGNAT with a self-hosted relay, Circuit Relay v2 is **functionally 
 
 ---
 
+## Is Bitcoin's P2P faster than libp2p?
+
+Bitcoin's P2P protocol has **less overhead per message**, but it can't do what peer-up needs.
+
+### The Comparison
+
+| | **Bitcoin P2P** | **libp2p** |
+|---|---|---|
+| **Transport** | Raw TCP only | TCP, QUIC, WebSocket, WebRTC |
+| **Handshake** | 1.5-3 RTTs (~296 bytes) | 4+ RTTs (TCP) / 3 RTTs (QUIC) |
+| **Per-message overhead** | 24 bytes (fixed header) | 12 bytes (Yamux) + encryption framing |
+| **Encryption** | None | TLS 1.3 or Noise (mandatory) |
+| **Multiplexing** | None (1 connection = 1 stream) | Yes (many streams per connection) |
+| **NAT/CGNAT traversal** | No — requires port forwarding | Yes — relay, hole punching, AutoNAT |
+| **Bulk data transfer** | Fast (minimal overhead) | Comparable once connected |
+
+### Why Bitcoin P2P is "faster"
+
+It's simpler — not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It's lean because it *trusts nothing* at the network layer — blocks are verified cryptographically after receipt anyway.
+
+### Why it doesn't matter for peer-up
+
+**Bitcoin P2P cannot traverse NAT or CGNAT at all.** If both sides can't directly reach each other, Bitcoin nodes simply can't connect inbound. Users behind ISP CGNAT cannot run full Bitcoin nodes that accept inbound connections. Bitcoin originally had UPnP enabled by default but disabled it due to [miniupnpc vulnerabilities](https://bitcoin.org/en/alert/2015-10-12-upnp-vulnerability). It now uses PCP (Port Control Protocol), which ISP CGNAT equipment intentionally blocks.
+
+NAT/CGNAT traversal is peer-up's entire reason for existing.
+
+### The key research finding
+
+A 2021 study implemented Bitcoin's block exchange protocol on top of libp2p and found:
+
+> *"Setting up communication channels is time-consuming, but data transfers are fast"*
+
+Once the connection is established, **bulk throughput is comparable**. The overhead is in the handshake, not the data flow. For peer-up's use case (long-lived connections proxying SSH, Ollama, XRDP), connection setup latency is a one-time cost that becomes irrelevant.
+
+**Source**: Barbara Guidi, Andrea Michienzi, Laura Ricci. *"A libP2P Implementation of the Bitcoin Block Exchange Protocol."* Proceedings of the 2nd International Workshop on Distributed Infrastructure for Common Good (DICG '21), ACM, 2021. DOI: [10.1145/3493426.3493822](https://dl.acm.org/doi/10.1145/3493426.3493822)
+
+### What peer-up does to close the gap
+
+These optimizations are planned in Phase 4C (Core Hardening):
+
+1. **QUIC transport** — saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
+2. **Connection warmup** — pre-establish connection at `peerup proxy` startup
+3. **Stream pooling** — reuse streams instead of fresh ones per TCP connection
+4. **DCUtR hole punching** — bypass relay entirely for direct peer-to-peer (approaches Bitcoin-like raw TCP speed)
+
+Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame — very close to Bitcoin's raw TCP speed but with encryption and NAT traversal.
+
+### Bottom line
+
+Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption — and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
+
+---
+
 **Last Updated**: 2026-02-14
