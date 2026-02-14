@@ -10,6 +10,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	mh "github.com/multiformats/go-multihash"
 )
 
 var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -137,7 +138,7 @@ func Decode(code string) (*InviteData, error) {
 	relayPeerID := peer.ID(raw[16 : 16+relayIDLen])
 	inviterPeerID := peer.ID(raw[16+relayIDLen:])
 
-	// Validate peer IDs by re-encoding
+	// Validate peer IDs: basic multihash check
 	if err := relayPeerID.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid relay peer ID in invite code: %w", err)
 	}
@@ -145,8 +146,36 @@ func Decode(code string) (*InviteData, error) {
 		return nil, fmt.Errorf("invalid inviter peer ID in invite code: %w", err)
 	}
 
+	// Strict check: reject trailing data after the inviter multihash.
+	// Go's base32 NoPadding decoder silently accepts extra characters,
+	// so we must verify the byte slice is exactly one valid multihash.
+	if err := strictMultihashLen([]byte(relayPeerID)); err != nil {
+		return nil, fmt.Errorf("invalid relay peer ID in invite code: %w", err)
+	}
+	if err := strictMultihashLen([]byte(inviterPeerID)); err != nil {
+		return nil, fmt.Errorf("invalid inviter peer ID in invite code: %w", err)
+	}
+
 	data.RelayAddr = fmt.Sprintf("/ip4/%s/tcp/%d/p2p/%s", ip.String(), port, relayPeerID.String())
 	data.PeerID = inviterPeerID
 
 	return &data, nil
+}
+
+// strictMultihashLen verifies that buf is exactly one multihash with no
+// trailing bytes. multihash.Decode is lenient about trailing data, so we
+// re-encode from the parsed digest and compare lengths.
+func strictMultihashLen(buf []byte) error {
+	dm, err := mh.Decode(buf)
+	if err != nil {
+		return err
+	}
+	canonical, err := mh.Encode(dm.Digest, dm.Code)
+	if err != nil {
+		return err
+	}
+	if len(buf) != len(canonical) {
+		return fmt.Errorf("multihash has %d trailing bytes", len(buf)-len(canonical))
+	}
+	return nil
 }
