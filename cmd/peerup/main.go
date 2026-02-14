@@ -20,6 +20,14 @@ func main() {
 		runProxy(os.Args[2:])
 	case "ping":
 		runPing(os.Args[2:])
+	case "whoami":
+		runWhoami(os.Args[2:])
+	case "auth":
+		runAuth(os.Args[2:])
+	case "invite":
+		runInvite(os.Args[2:])
+	case "join":
+		runJoin(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -35,6 +43,14 @@ func printUsage() {
 	fmt.Println("  serve                                   Run as a server (expose services)")
 	fmt.Println("  proxy <target> <service> <local-port>   Forward a local TCP port to a remote service")
 	fmt.Println("  ping  <target>                          Send a ping to a remote peer")
+	fmt.Println()
+	fmt.Println("  whoami                                  Show your peer ID")
+	fmt.Println("  auth add <peer-id> [--comment \"...\"]    Authorize a peer")
+	fmt.Println("  auth list                               List authorized peers")
+	fmt.Println("  auth remove <peer-id>                   Revoke a peer's access")
+	fmt.Println()
+	fmt.Println("  invite                                  Generate an invite code for pairing")
+	fmt.Println("  join <code>                             Accept an invite and auto-configure")
 	fmt.Println()
 	fmt.Println("The <target> can be a peer ID or a name from the names section of your config.")
 	fmt.Println()
