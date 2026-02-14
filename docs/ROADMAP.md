@@ -151,7 +151,171 @@ Ready! Try: peerup proxy home ssh 2222
 
 ---
 
-### Phase 4C: Desktop Gateway Daemon + Private DNS
+### Phase 4C: Core Hardening & Security
+
+**Timeline**: 2-3 weeks
+**Status**: 📋 Planned
+
+**Goal**: Harden the core for production reliability. Fix critical security gaps, add test coverage, and improve connection resilience before expanding features.
+
+**Rationale**: The relay has no resource limits, there are zero tests, and connections don't survive relay restarts. These must be solid before wider adoption — especially before distribution (4F) puts binaries in more hands.
+
+**Deliverables**:
+
+**Security (Critical)**:
+- [ ] Relay resource limits — replace `WithInfiniteLimits()` with explicit caps (max reservations, circuits, bandwidth per peer)
+- [ ] Auth hot-reload — file watcher or SIGHUP to reload `authorized_keys` without restart (revoke access immediately)
+- [ ] Per-service access control — allow granting specific peers access to specific services only
+- [ ] Rate limiting on incoming connections and streams (per-peer throttling)
+- [ ] Config file permissions — write with 0600 (not 0644)
+- [ ] Key file permission check on load — warn/refuse if not 0600
+- [ ] Service name validation — reject special characters that could create ambiguous protocol IDs
+- [ ] Relay address validation in `peerup init` — parse multiaddr before writing config
+
+**Reliability**:
+- [ ] Reconnection with exponential backoff — recover from relay drops automatically
+- [ ] Connection warmup — pre-establish connection to target peer at `peerup proxy` startup
+- [ ] Stream pooling — reuse streams instead of creating fresh ones per TCP connection
+- [ ] DHT bootstrap in proxy command — enable DCUtR hole-punching (currently proxy always relays)
+- [ ] Graceful shutdown — replace `os.Exit(0)` with proper cleanup, drain active connections
+- [ ] Goroutine lifecycle — use `select` + `context.Done()` instead of bare `time.Sleep` loops
+- [ ] TCP dial timeout — `net.DialTimeout(5s)` for local service connections
+- [ ] Fix data race in bootstrap peer counter (`atomic.AddInt32`)
+
+**Code Quality**:
+- [ ] Unit test suite — auth (gater, authorized_keys), config (loader, validation), naming, proxy
+- [ ] Structured logging — migrate to `log/slog` with levels and structured fields
+- [ ] Sentinel errors — define `ErrServiceNotFound`, `ErrPeerNotAuthorized`, etc.
+- [ ] Deduplicate proxy pattern — extract single `bidirectionalProxy()` function (currently copy-pasted 4x)
+- [ ] Consolidate config loaders — unify `LoadHomeNodeConfig`/`LoadClientNodeConfig`
+- [ ] Upgrade relay-server libp2p to v0.47.0 (currently 9 minor versions behind main module)
+- [ ] Health/status endpoint — expose connection state, relay status, active streams
+- [ ] `peerup status` command — show peer online status, connection type (relay/direct), latency
+
+---
+
+### Phase 4D: Plugin Architecture & SDK
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Make peer-up extensible by third parties. Define clean interfaces, add extension points, and document the SDK.
+
+**Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring — without forking. This also makes the codebase easier to test and maintain.
+
+**Deliverables**:
+
+**Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
+- [ ] `PeerNetwork` — interface for core network operations (expose, connect, resolve, close)
+- [ ] `Resolver` — interface for name resolution (resolve, register). Enables chaining: local → DNS → DHT → blockchain
+- [ ] `ServiceManager` — interface for service registration and dialing. Enables middleware.
+- [ ] `Authorizer` — interface for authorization decisions. Enables pluggable auth (certs, tokens, database)
+- [ ] `Logger` — interface for structured logging injection
+
+**Extension Points**:
+- [ ] Constructor injection — `Network.Config` accepts optional `Resolver`, `ConnectionGater`, `Logger`
+- [ ] Event hook system — `OnEvent(handler)` for peer connected/disconnected, auth allow/deny, service registered, stream opened
+- [ ] Stream middleware — `ServiceRegistry.Use(middleware)` for compression, bandwidth limiting, audit trails
+- [ ] Protocol ID formatter — configurable protocol namespace and versioning
+
+**Library Consolidation**:
+- [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
+- [ ] Centralize orchestration — new commands become ~20 lines instead of ~200
+- [ ] Package-level documentation for `pkg/p2pnet/`
+
+**SDK Documentation**:
+- [ ] `docs/SDK.md` — guide for building on `pkg/p2pnet`
+- [ ] Example: custom name resolver plugin
+- [ ] Example: auth middleware (rate limiting, logging)
+- [ ] Example: service middleware (bandwidth metering)
+
+**Plugin Interface Preview**:
+```go
+// Third-party resolver
+type DNSResolver struct { ... }
+func (r *DNSResolver) Resolve(name string) (peer.ID, error) { ... }
+
+// Third-party auth
+type DatabaseAuthorizer struct { ... }
+func (a *DatabaseAuthorizer) IsAuthorized(p peer.ID) bool { ... }
+
+// Wire it up
+net, _ := p2pnet.New(&p2pnet.Config{
+    Resolver:        &DNSResolver{},
+    ConnectionGater: &DatabaseAuthorizer{},
+    Logger:          slog.Default(),
+})
+
+// React to events
+net.OnEvent(func(e p2pnet.Event) {
+    if e.Type == p2pnet.EventPeerConnected {
+        metrics.PeerConnections.Inc()
+    }
+})
+```
+
+---
+
+### Phase 4E: File Sharing
+
+**Timeline**: 1 week
+**Status**: 📋 Planned
+
+**Goal**: Simple peer-to-peer file transfer between authorized devices.
+
+**Rationale**: Before people need SSH tunnels or GPU inference, they need to send files. This is a universal use case that gives people a reason to install peer-up *today*. Low effort — builds directly on existing bidirectional streams.
+
+**Deliverables**:
+- [ ] `peerup send <file> --to <peer>` — send a file to an authorized peer
+- [ ] `peerup receive` — listen for incoming file transfers
+- [ ] Auto-accept from authorized peers (configurable)
+- [ ] Progress bar and transfer speed display
+- [ ] Resume interrupted transfers
+- [ ] Directory transfer support (`peerup send ./folder --to laptop`)
+
+**Usage**:
+```bash
+# Send a file
+$ peerup send photo.jpg --to laptop
+Sending photo.jpg (4.2 MB) to laptop...
+████████████████████████████ 100% — 4.2 MB/s
+✓ Transfer complete
+
+# Send to multiple peers
+$ peerup send presentation.pdf --to home --to phone
+
+# Receive mode (optional — auto-accept if peer is authorized)
+$ peerup receive --save-to ~/Downloads/
+Waiting for transfers...
+```
+
+---
+
+### Phase 4F: Distribution & Install
+
+**Timeline**: 1 week
+**Status**: 📋 Planned
+
+**Goal**: Make peer-up installable without a Go toolchain. Nobody will try later features if they can't `curl | sh` the binary.
+
+**Rationale**: High impact, low effort. Prerequisite for wider adoption.
+
+**Deliverables**:
+- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
+- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
+- [ ] Publish to GitHub Releases with checksums
+- [ ] Homebrew tap: `brew install satindergrewal/tap/peerup`
+- [ ] One-line install script: `curl -sSL https://get.peerup.dev | sh`
+- [ ] APT repository for Debian/Ubuntu
+- [ ] AUR package for Arch Linux
+- [ ] Docker image + `docker-compose.yml` for containerized deployment
+- [ ] Use case guides: IoT/smart home remote access, media server sharing, game server hosting
+
+**Result**: Zero-dependency install on any platform.
+
+---
+
+### Phase 4G: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -167,6 +331,8 @@ Ready! Try: peerup proxy home ssh 2222
 - [ ] **Mode 3**: TUN/TAP virtual network interface (requires root)
 - [ ] `/etc/hosts` integration for local name overrides
 - [ ] Virtual IP assignment (10.64.0.0/16 range)
+- [ ] Subnet routing — route entire LAN segments through tunnel (access printers, cameras, IoT without per-device install)
+- [ ] Trusted network detection — auto-disable tunneling when already on home LAN
 
 **Relay-side Private DNS**:
 - [ ] Lightweight DNS zone on the relay server (e.g., CoreDNS or custom)
@@ -221,71 +387,14 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 4D: File Sharing
-
-**Timeline**: 1 week
-**Status**: 📋 Planned
-
-**Goal**: Simple peer-to-peer file transfer between authorized devices.
-
-**Rationale**: Before people need SSH tunnels or GPU inference, they need to send files. This is a universal use case that gives people a reason to install peer-up *today*. Low effort — builds directly on existing bidirectional streams.
-
-**Deliverables**:
-- [ ] `peerup send <file> --to <peer>` — send a file to an authorized peer
-- [ ] `peerup receive` — listen for incoming file transfers
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar and transfer speed display
-- [ ] Resume interrupted transfers
-- [ ] Directory transfer support (`peerup send ./folder --to laptop`)
-
-**Usage**:
-```bash
-# Send a file
-$ peerup send photo.jpg --to laptop
-Sending photo.jpg (4.2 MB) to laptop...
-████████████████████████████ 100% — 4.2 MB/s
-✓ Transfer complete
-
-# Send to multiple peers
-$ peerup send presentation.pdf --to home --to phone
-
-# Receive mode (optional — auto-accept if peer is authorized)
-$ peerup receive --save-to ~/Downloads/
-Waiting for transfers...
-```
-
----
-
-### Phase 4E: Distribution & Install
-
-**Timeline**: 1 week
-**Status**: 📋 Planned
-
-**Goal**: Make peer-up installable without a Go toolchain. Nobody will try later features if they can't `curl | sh` the binary.
-
-**Rationale**: High impact, low effort. Prerequisite for wider adoption.
-
-**Deliverables**:
-- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
-- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
-- [ ] Publish to GitHub Releases with checksums
-- [ ] Homebrew tap: `brew install satindergrewal/tap/peerup`
-- [ ] One-line install script: `curl -sSL https://get.peerup.dev | sh`
-- [ ] APT repository for Debian/Ubuntu
-- [ ] AUR package for Arch Linux
-
-**Result**: Zero-dependency install on any platform.
-
----
-
-### Phase 4F: GPU Inference Tunnel
+### Phase 4H: GPU Inference & Streaming Polish
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
 
-**Goal**: Polish the GPU inference use case into a first-class, demo-ready feature. This is peer-up's killer differentiator — Tailscale doesn't market this at all.
+**Goal**: Polish GPU inference and low-latency streaming into first-class, demo-ready features.
 
-**Rationale**: The Starlink + home GPU crowd is a real, underserved audience actively searching for solutions. This is peer-up's **Hacker News moment**.
+**Rationale**: The Starlink + home GPU crowd is a real, underserved audience actively searching for solutions. No competing tool markets this use case — peer-up can own the narrative.
 
 **Deliverables**:
 - [ ] `peerup serve --ollama` shortcut (auto-detects Ollama on localhost:11434)
@@ -294,6 +403,8 @@ Waiting for transfers...
 - [ ] Streaming response support verification (chunked transfer for LLM output)
 - [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
 - [ ] Example: phone → relay → home 5090 → streaming LLM response
+- [ ] Game/media streaming optimization — test Moonlight/Sunshine tunneling, document latency characteristics
+- [ ] `peerup wake <peer>` — Wake-on-LAN integration (send magic packet before connecting)
 - [ ] Blog post / demo: *"Access your home GPU from anywhere through Starlink CGNAT"*
 
 **How it works**:
@@ -317,17 +428,9 @@ services:
 - Remote peers connect through the single peer-up tunnel
 - Cluster stays on LAN, only the API endpoint is exposed via P2P
 
-**Why this is a differentiator**:
-- Same TCP proxy pattern as SSH/XRDP (already working)
-- Authentication via authorized_keys — only trusted peers can use your GPU
-- No port forwarding, no dynamic DNS, no VPN setup
-- Works through CGNAT (Starlink, mobile hotspot)
-- Relay handles NAT traversal; DCUtR upgrades to direct for lower latency
-- **No competing tool markets this use case** — peer-up can own the narrative
-
 ---
 
-### Phase 4G: Mobile Applications
+### Phase 4I: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -374,7 +477,7 @@ Once connected:
 
 ---
 
-### Phase 4H: Federation - Network Peering
+### Phase 4J: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -389,6 +492,7 @@ Once connected:
 - [ ] Cross-network routing protocol
 - [ ] Trust/authorization between networks
 - [ ] Route advertisement and discovery
+- [ ] Multi-network client support — single client connected to multiple independent networks simultaneously
 
 **Federation Config Example**:
 ```yaml
@@ -432,7 +536,7 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 4I: Advanced Naming Systems (Optional)
+### Phase 4K: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -540,14 +644,16 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 **Potential Features**:
 - [ ] Web-based dashboard for network management
 - [ ] Protocol marketplace (community-contributed service templates)
-- [ ] Performance monitoring and analytics
+- [ ] Performance monitoring and analytics (Prometheus metrics)
 - [ ] Automatic relay failover/redundancy
-- [ ] Bandwidth optimization and QoS
+- [ ] Bandwidth optimization and QoS per peer/service
 - [ ] Multi-relay routing for redundancy
 - [ ] Integration with existing VPN clients (OpenVPN, WireGuard)
 - [ ] Desktop apps (macOS, Windows, Linux)
 - [ ] Browser extension for `.p2p` domain resolution
-- [ ] Community relay network (like Tor)
+- [ ] Community relay network
+- [ ] IPv6 transport testing and documentation
+- [ ] Split tunneling (route only specific traffic through tunnel)
 
 ---
 
@@ -560,18 +666,20 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | **Phase 4B: Frictionless Onboarding** | 📋 1-2 weeks | **Next** |
-| Phase 4C: Desktop Gateway | 📋 2-3 weeks | Planned |
-| Phase 4D: File Sharing | 📋 1 week | Planned |
-| Phase 4E: Distribution & Install | 📋 1 week | Planned |
-| Phase 4F: GPU Inference Polish | 📋 1-2 weeks | Planned |
-| Phase 4G: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 4H: Federation | 📋 2-3 weeks | Planned |
-| Phase 4I: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 4C: Core Hardening & Security | 📋 2-3 weeks | Planned |
+| Phase 4D: Plugin Architecture & SDK | 📋 1-2 weeks | Planned |
+| Phase 4E: File Sharing | 📋 1 week | Planned |
+| Phase 4F: Distribution & Install | 📋 1 week | Planned |
+| Phase 4G: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 4H: GPU Inference & Streaming | 📋 1-2 weeks | Planned |
+| Phase 4I: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 4J: Federation | 📋 2-3 weeks | Planned |
+| Phase 4K: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 5+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 16-22 weeks (4-5 months)
+**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
 
-**Priority logic**: Onboarding first (remove friction), then gateway (transparent access), then quick wins (file sharing, distribution), then polish (GPU inference), then expand (mobile → federation → naming).
+**Priority logic**: Onboarding first (remove friction) → harden the core (security, reliability, tests) → make it extensible (plugin architecture) → quick wins (file sharing, distribution) → transparent access (gateway, GPU streaming) → expand (mobile → federation → naming).
 
 ---
 
@@ -600,43 +708,58 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Invite codes expire and are single-use
 
 **Phase 4C Success**:
+- `go test -race ./...` passes with >60% coverage on auth, config, naming, proxy
+- Relay has explicit resource limits (not infinite)
+- `authorized_keys` changes take effect without restart
+- Proxy command attempts DCUtR direct connection before falling back to relay
+- Relay reconnection recovers automatically within 30 seconds
+
+**Phase 4D Success**:
+- Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
+- Event hooks fire for peer connect/disconnect and auth decisions
+- New CLI commands require <30 lines of orchestration (bootstrap consolidated)
+- SDK documentation published with working examples
+
+**Phase 4E Success**:
+- File transfer works between authorized peers
+- Transfer speed saturates relay bandwidth
+- Resume works after interrupted transfer
+
+**Phase 4F Success**:
+- GoReleaser builds binaries for 6 targets (linux/mac/windows × amd64/arm64)
+- Homebrew tap works: `brew install satindergrewal/tap/peerup`
+- Docker image available
+- Install-to-running in under 30 seconds
+
+**Phase 4G Success**:
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 4D Success**:
-- File transfer works between authorized peers
-- Transfer speed saturates relay bandwidth
-- Resume works after interrupted transfer
-
-**Phase 4E Success**:
-- GoReleaser builds binaries for 6 targets (linux/mac/windows × amd64/arm64)
-- Homebrew tap works: `brew install satindergrewal/tap/peerup`
-- Install-to-running in under 30 seconds
-
-**Phase 4F Success**:
+**Phase 4H Success**:
 - `peerup serve --ollama` auto-detects and exposes Ollama
 - Streaming LLM responses work end-to-end through relay
+- Game/media streaming latency documented
 - Blog post / demo published
 
-**Phase 4G Success**:
+**Phase 4I Success**:
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 4H Success**:
+**Phase 4J Success**:
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 4I Success**:
+**Phase 4K Success**:
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
 ---
 
-**Last Updated**: 2026-02-13
+**Last Updated**: 2026-02-14
 **Current Phase**: 4A Complete, 4B Next
 **Next Milestone**: Frictionless Onboarding (invite/join flow)
