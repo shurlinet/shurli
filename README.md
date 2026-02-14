@@ -15,7 +15,8 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 
 ## Current Status
 
-- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`
+- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`, `invite`, `join`, `whoami`, `auth`, `relay`
+- **60-Second Onboarding** - `peerup invite` + `peerup join` pairs two machines with zero manual config
 - **Easy Setup** - `peerup init` interactive wizard generates config, keys, and authorized_keys
 - **Standard Config** - Auto-discovers config from `./peerup.yaml` or `~/.config/peerup/config.yaml`
 - **Configuration-Based** - YAML config files, no hardcoded values
@@ -24,6 +25,7 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 - **Persistent Identity** - Ed25519 keypairs saved to files
 - **DHT Discovery** - Find peers using rendezvous on Kademlia DHT
 - **Direct Connection Upgrade** - DCUtR attempts hole-punching for direct P2P
+- **CLI Auth & Relay Management** - `peerup auth` and `peerup relay` for managing peers and relays without editing files
 - **Key Management Tool** - `keytool` CLI for managing keypairs and authorized_keys
 - **Service Exposure** - Expose any TCP service (SSH, XRDP, HTTP, etc.) via P2P
 - **Reusable Library** - `pkg/p2pnet` package for building P2P applications
@@ -86,15 +88,33 @@ The wizard will:
 4. Display your **Peer ID** (share this with peers who need to authorize you)
 5. Write `config.yaml`, `identity.key`, and `authorized_keys`
 
-### 3. Authorize Peers
+### 3. Pair Machines (invite/join)
 
-On each machine, add the other machine's Peer ID to the authorized_keys file:
+The fastest way to connect two machines — handles authorization and naming automatically:
 
+**On the server (home machine):**
 ```bash
-# Edit ~/.config/peerup/authorized_keys
-# Add one peer ID per line:
-12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY  # my-server
-12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # my-laptop
+./peerup invite --name home
+# Displays an invite code + QR code
+# Waits for the other machine to join...
+```
+
+**On the client (laptop):**
+```bash
+./peerup join <invite-code> --name laptop
+# Automatically: connects, exchanges keys, adds authorized_keys, adds name mapping
+```
+
+Both machines are now mutually authorized and can use friendly names.
+
+**Alternative: Manual authorization**
+
+If you prefer manual control, use the `auth` CLI commands:
+```bash
+# On each machine, add the other's peer ID:
+peerup auth add 12D3KooW... --comment "home-server"
+peerup auth list
+peerup auth remove 12D3KooW...
 ```
 
 ### 4. Configure the Server
@@ -113,23 +133,9 @@ services:
   xrdp:
     enabled: true
     local_address: "localhost:3389"
-
-# Map friendly names to peer IDs (optional):
-names:
-  laptop: "12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6"
 ```
 
-### 5. Configure the Client
-
-Edit `~/.config/peerup/config.yaml` on the client machine:
-
-```yaml
-# Map friendly names to peer IDs:
-names:
-  home: "12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY"
-```
-
-### 6. Run
+### 5. Run
 
 **On the server:**
 ```bash
@@ -158,12 +164,18 @@ peerup ping home
 
 ```
 ├── cmd/
-│   ├── peerup/                 # Main binary (init, serve, proxy, ping)
-│   │   ├── main.go
-│   │   ├── cmd_init.go
-│   │   ├── cmd_serve.go
-│   │   ├── cmd_proxy.go
-│   │   └── cmd_ping.go
+│   ├── peerup/                 # Single binary with subcommands
+│   │   ├── main.go             # Command dispatch
+│   │   ├── cmd_init.go         # Interactive setup wizard
+│   │   ├── cmd_serve.go        # Server mode (expose services)
+│   │   ├── cmd_proxy.go        # TCP proxy client
+│   │   ├── cmd_ping.go         # Connectivity test
+│   │   ├── cmd_whoami.go       # Show own peer ID
+│   │   ├── cmd_auth.go         # Auth add/list/remove subcommands
+│   │   ├── cmd_relay.go        # Relay add/list/remove subcommands
+│   │   ├── cmd_invite.go       # Generate invite code + QR + P2P handshake
+│   │   ├── cmd_join.go         # Decode invite, connect, auto-configure
+│   │   └── relay_input.go      # Flexible relay address parsing
 │   └── keytool/                # Key management CLI
 │       ├── main.go
 │       └── commands/
@@ -177,21 +189,25 @@ peerup ping home
 │   ├── config/                 # YAML configuration loading
 │   │   ├── config.go
 │   │   └── loader.go
-│   └── auth/                   # Authentication system
-│       ├── authorized_keys.go
-│       └── gater.go
+│   ├── auth/                   # Authentication system
+│   │   ├── authorized_keys.go
+│   │   ├── gater.go
+│   │   └── manage.go           # AddPeer/RemovePeer/ListPeers
+│   └── invite/                 # Invite code encoding/decoding
+│       ├── code.go             # Binary → base32 with dash grouping
+│       └── code_test.go        # Round-trip, invalid input, trailing junk tests
 ├── relay-server/               # VPS relay node (separate module)
 │   ├── main.go
 │   ├── relay-server.service
-│   ├── setup.sh         # Setup + health check (--check)
+│   ├── setup.sh                # Setup + health check (--check)
 │   └── README.md               # Full VPS deployment guide
 ├── configs/                    # Sample configuration files
 │   ├── peerup.sample.yaml
 │   ├── relay-server.sample.yaml
 │   └── authorized_keys.sample
-├── examples/                  # Example implementations
+├── examples/                   # Example implementations
 │   └── basic-service/
-├── docs/                      # Project documentation
+├── docs/                       # Project documentation
 │   ├── ARCHITECTURE.md
 │   ├── FAQ.md
 │   ├── ROADMAP.md
@@ -262,6 +278,64 @@ Arguments:
 Examples:
   peerup ping home
   peerup ping 12D3KooW...
+```
+
+### `peerup invite` - Generate invite code for pairing
+
+```
+Usage: peerup invite [--config <path>] [--name "home"] [--ttl 10m]
+
+Generates a one-time invite code (+ QR code) and waits for a peer to join.
+Both sides are mutually authorized on successful join.
+
+Options:
+  --name    Friendly name for this peer (shared with joiner)
+  --ttl     Invite code expiry duration (default: 10m)
+```
+
+### `peerup join` - Accept invite and auto-configure
+
+```
+Usage: peerup join [--config <path>] <invite-code> [--name "laptop"]
+
+Decodes the invite code, connects to the inviter through the relay,
+exchanges peer IDs, and auto-configures both sides (authorized_keys + names).
+
+If no config exists, creates one automatically at ~/.config/peerup/.
+
+Options:
+  --name    Friendly name for this peer (shared with inviter)
+```
+
+### `peerup whoami` - Show your peer ID
+
+```
+Usage: peerup whoami [--config <path>]
+
+Displays your peer ID derived from the identity key file.
+```
+
+### `peerup auth` - Manage authorized peers
+
+```
+Usage:
+  peerup auth add <peer-id> [--comment "label"]   Add a peer to authorized_keys
+  peerup auth list                                 List authorized peers
+  peerup auth remove <peer-id>                     Remove a peer
+```
+
+### `peerup relay` - Manage relay addresses
+
+```
+Usage:
+  peerup relay add <address> [--peer-id <ID>]      Add a relay server
+  peerup relay list                                 List configured relays
+  peerup relay remove <multiaddr>                   Remove a relay
+
+The <address> accepts flexible formats:
+  /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...   Full multiaddr
+  1.2.3.4:7777                              IP:port (prompts for peer ID)
+  1.2.3.4                                   Bare IP (default port 7777)
 ```
 
 ## Configuration
@@ -486,6 +560,8 @@ WantedBy=multi-user.target
 | `Config error: no config file found` | Run `peerup init` or use `--config <path>` |
 | `Cannot resolve target` | Add name mapping to `names:` section in config |
 | `DENIED inbound connection` | Add peer ID to `authorized_keys` and restart server |
+| `Invalid invite code` | Ensure the full invite code is pasted as one argument (quote it if it contains spaces) |
+| `Failed to connect to inviter` | Ensure `peerup invite` is still running on the other machine |
 | Server shows no `/p2p-circuit` addresses | Check `force_private_reachability: true` and relay address |
 | `protocols not supported` | Relay service not running |
 | XRDP window manager crashes | Ensure no conflicting physical desktop session for the same user |

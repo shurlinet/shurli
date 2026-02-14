@@ -184,6 +184,13 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - Stream reads capped at 512 bytes to prevent OOM attacks
 - All user-facing inputs sanitized before writing to files
 
+**Bug fixes (discovered during real-world testing)**:
+- [x] Fixed invite code corruption when `--name` flag follows positional arg (`peerup join CODE --name laptop` — Go's `flag.Parse` stops at first non-flag, concatenating `--name` and `laptop` into the base32 code)
+- [x] Added strict multihash length validation in invite decoder — Go's `base32.NoPadding` silently accepts trailing junk, so `Decode()` now re-encodes and compares multihash byte lengths
+- [x] Fixed stream reset during invite join — inviter now flushes the OK response through the relay circuit before closing the stream
+- [x] Added `reorderFlagsFirst()` to `runJoin()` so flags can appear after positional args (natural CLI usage)
+- [x] First test file: `internal/invite/code_test.go` — round-trip, invalid input, and trailing junk rejection tests
+
 ---
 
 ### Phase 4C: Core Hardening & Security
