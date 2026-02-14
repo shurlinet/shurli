@@ -195,12 +195,12 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 
 ### Phase 4C: Core Hardening & Security
 
-**Timeline**: 2-3 weeks
+**Timeline**: 3-4 weeks
 **Status**: 📋 Planned
 
-**Goal**: Harden the core for production reliability. Fix critical security gaps, add test coverage, and improve connection resilience before expanding features.
+**Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically — before wider distribution puts binaries in more hands.
 
-**Rationale**: The relay has no resource limits, there are zero tests, and connections don't survive relay restarts. These must be solid before wider adoption — especially before distribution (4F) puts binaries in more hands.
+**Rationale**: The relay is a public-facing VPS with no resource limits. There are near-zero tests. Connections don't survive relay restarts. A bad config change on the relay can lock you out permanently. These are unacceptable for a mission-critical system that people depend on for remote access. Industry practice for hardened infrastructure (Juniper, Cisco, Kubernetes, systemd) demands: validated configs, automatic recovery, resource isolation, and health monitoring.
 
 **Deliverables**:
 
@@ -209,13 +209,24 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Auth hot-reload — file watcher or SIGHUP to reload `authorized_keys` without restart (revoke access immediately)
 - [ ] Per-service access control — allow granting specific peers access to specific services only
 - [ ] Rate limiting on incoming connections and streams (per-peer throttling)
+- [ ] OS-level rate limiting — iptables/nftables rules in `setup.sh` (SYN flood protection, `--connlimit-above` per source IP)
 - [x] Config file permissions — write with 0600 (not 0644) *(done in Phase 4B)*
 - [ ] Key file permission check on load — warn/refuse if not 0600
 - [ ] Service name validation — reject special characters that could create ambiguous protocol IDs
 - [x] Relay address validation in `peerup init` — parse multiaddr before writing config *(done in Phase 4B)*
+- [ ] Upgrade relay-server libp2p to v0.47.0 (currently 9 minor versions behind main module — potential unpatched CVEs)
+
+**Self-Healing & Resilience** (inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik):
+- [ ] **Config validation command** — `peerup validate` / `relay-server validate` — parse config, check key file exists, verify relay address reachable, dry-run before applying. Catches errors before they cause downtime.
+- [ ] **Config archive** — automatically save last 5 configs to `~/.config/peerup/config.d/` with timestamps on every change (init, join, relay add/remove, auth add/remove). Enables rollback.
+- [ ] **Config rollback** — `peerup config rollback [N]` / `relay-server config rollback [N]` — restore Nth previous config from archive. Critical for recovering from bad changes.
+- [ ] **Commit-confirmed pattern** (Juniper JunOS / Cisco IOS) — `relay-server apply --confirm-timeout 120` applies a config change and auto-reverts to previous config if not confirmed within N seconds. **Prevents permanent lockout on remote relay.** No P2P networking tool implements this.
+- [ ] **systemd watchdog integration** — relay-server sends `sd_notify("WATCHDOG=1")` every 30s with internal health check (relay service alive, listening, at least 1 protocol registered). If health check fails, stop notifying → systemd auto-restarts. Add `WatchdogSec=60` to service file.
+- [ ] **Health check HTTP endpoint** — relay exposes `/healthz` on a configurable port (default: disabled). Returns JSON: peer ID, uptime, connected peers count, reservation count, memory usage. Used by monitoring (Prometheus, UptimeKuma) and `setup.sh --check`.
+- [ ] **`peerup status` command** — show connection state: relay connected/disconnected, peer online status, connection type (relay/direct), latency, uptime. Replaces guessing with observability.
 
 **Reliability**:
-- [ ] Reconnection with exponential backoff — recover from relay drops automatically
+- [ ] Reconnection with exponential backoff — recover from relay drops automatically (1s → 2s → 4s → ... → 60s cap)
 - [ ] Connection warmup — pre-establish connection to target peer at `peerup proxy` startup
 - [ ] Stream pooling — reuse streams instead of creating fresh ones per TCP connection
 - [ ] DHT bootstrap in proxy command — enable DCUtR hole-punching (currently proxy always relays)
@@ -230,9 +241,15 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Sentinel errors — define `ErrServiceNotFound`, `ErrPeerNotAuthorized`, etc.
 - [ ] Deduplicate proxy pattern — extract single `bidirectionalProxy()` function (currently copy-pasted 4x)
 - [ ] Consolidate config loaders — unify `LoadHomeNodeConfig`/`LoadClientNodeConfig`
-- [ ] Upgrade relay-server libp2p to v0.47.0 (currently 9 minor versions behind main module)
 - [ ] Health/status endpoint — expose connection state, relay status, active streams
-- [ ] `peerup status` command — show peer online status, connection type (relay/direct), latency
+
+**Industry References**:
+- **Juniper JunOS `commit confirmed`**: Apply config, auto-revert if not confirmed. Standard in network equipment for 20+ years. Prevents lockout on remote devices — identical problem to a remote relay server.
+- **Cisco IOS `configure replace`**: Atomic config replacement with automatic rollback on failure.
+- **MikroTik Safe Mode**: Track all changes since entering safe mode; revert everything if connection drops.
+- **Kubernetes liveness/readiness probes**: Health endpoints that trigger automatic restart on failure.
+- **systemd WatchdogSec**: Process heartbeat — if the process stops responding, systemd restarts it. Used by PostgreSQL, nginx, and other production services.
+- **Caddy atomic reload**: Start new config alongside old; if new config fails, keep old. Zero-downtime config changes.
 
 ---
 
@@ -708,7 +725,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | 📋 2-3 weeks | **Next** |
+| **Phase 4C: Core Hardening & Security** | 📋 3-4 weeks | **Next** |
 | Phase 4D: Plugin Architecture & SDK | 📋 1-2 weeks | Planned |
 | Phase 4E: File Sharing | 📋 1 week | Planned |
 | Phase 4F: Distribution & Install | 📋 1 week | Planned |
@@ -719,9 +736,9 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | Phase 4K: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 5+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
+**Total estimated time for Phase 4**: 19-28 weeks (5-7 months)
 
-**Priority logic**: Onboarding first (remove friction) → harden the core (security, reliability, tests) → make it extensible (plugin architecture) → quick wins (file sharing, distribution) → transparent access (gateway, GPU streaming) → expand (mobile → federation → naming).
+**Priority logic**: Onboarding first (remove friction) → harden the core (security, self-healing, reliability, tests) → make it extensible (plugin architecture) → quick wins (file sharing, distribution) → transparent access (gateway, GPU streaming) → expand (mobile → federation → naming).
 
 ---
 
@@ -755,6 +772,12 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - `authorized_keys` changes take effect without restart
 - Proxy command attempts DCUtR direct connection before falling back to relay
 - Relay reconnection recovers automatically within 30 seconds
+- `peerup validate` / `relay-server validate` catches bad configs before applying
+- Config archive stores last 5 configs; `config rollback` restores any of them
+- `relay-server apply --confirm-timeout` auto-reverts if not confirmed (no lockout)
+- systemd watchdog restarts relay within 60s if health check fails
+- `/healthz` endpoint returns relay status (monitorable by Prometheus/UptimeKuma)
+- `peerup status` shows connection state, peer status, and latency
 
 **Phase 4D Success**:
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
@@ -804,4 +827,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 **Last Updated**: 2026-02-14
 **Current Phase**: 4B Complete, 4C Next
-**Next Milestone**: Core Hardening & Security (relay limits, tests, reconnection)
+**Next Milestone**: Core Hardening & Security (relay limits, self-healing, config validation, tests, reconnection)
