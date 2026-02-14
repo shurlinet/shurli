@@ -3,12 +3,14 @@
 #
 # Usage:
 #   cd ~/peer-up/relay-server
-#   bash setup-linode.sh                              # Full setup (install + start + verify)
-#   bash setup-linode.sh --check                      # Health check only (no changes)
-#   bash setup-linode.sh --authorize <peer-id> [name] # Add peer to relay's authorized_keys
-#   bash setup-linode.sh --deauthorize <peer-id>      # Remove peer from authorized_keys
-#   bash setup-linode.sh --list-peers                 # Show authorized peers
-#   bash setup-linode.sh --uninstall                  # Remove service, firewall rules, tuning
+#   bash setup-linode.sh              # Full setup (install + start + verify)
+#   bash setup-linode.sh --check      # Health check only (no changes)
+#   bash setup-linode.sh --uninstall  # Remove service, firewall rules, tuning
+#
+# Peer authorization (via the relay-server binary):
+#   ./relay-server authorize <peer-id> [comment]
+#   ./relay-server deauthorize <peer-id>
+#   ./relay-server list-peers
 #
 # If run as root:
 #   - --check and --uninstall work directly as root
@@ -264,8 +266,8 @@ create_secure_user() {
 # Root handler — create/select service user or allow --check/--uninstall
 # ============================================================
 if [ "$CURRENT_USER" = "root" ]; then
-    # These commands are safe to run as root
-    if [ "$1" = "--check" ] || [ "$1" = "--uninstall" ] || [ "$1" = "--authorize" ] || [ "$1" = "--deauthorize" ] || [ "$1" = "--list-peers" ]; then
+    # --check and --uninstall are safe to run as root
+    if [ "$1" = "--check" ] || [ "$1" = "--uninstall" ]; then
         : # fall through to handlers below
     else
         echo "=== Running as root — service user setup ==="
@@ -601,105 +603,6 @@ run_check() {
         return 0
     fi
 }
-
-# ============================================================
-# Peer authorization management
-# ============================================================
-AUTH_FILE="$RELAY_DIR/relay_authorized_keys"
-
-if [ "$1" = "--authorize" ]; then
-    PEER_ID="$2"
-    COMMENT="$3"
-    if [ -z "$PEER_ID" ]; then
-        echo "Usage: setup-linode.sh --authorize <peer-id> [comment]"
-        echo
-        echo "Examples:"
-        echo "  bash setup-linode.sh --authorize 12D3KooW... home-node"
-        echo "  bash setup-linode.sh --authorize 12D3KooW... laptop"
-        exit 1
-    fi
-
-    # Validate peer ID format (must start with 12D3KooW or Qm)
-    if [[ ! "$PEER_ID" =~ ^(12D3KooW|Qm) ]]; then
-        echo "Error: invalid peer ID format (expected 12D3KooW... or Qm...)"
-        exit 1
-    fi
-
-    # Check for duplicates
-    if [ -f "$AUTH_FILE" ] && grep -qF "$PEER_ID" "$AUTH_FILE"; then
-        echo "Peer already authorized: ${PEER_ID:0:16}..."
-        exit 0
-    fi
-
-    # Append to file
-    if [ -n "$COMMENT" ]; then
-        echo "$PEER_ID  # $COMMENT" >> "$AUTH_FILE"
-    else
-        echo "$PEER_ID" >> "$AUTH_FILE"
-    fi
-    chmod 600 "$AUTH_FILE"
-
-    echo "Authorized: ${PEER_ID:0:16}..."
-    [ -n "$COMMENT" ] && echo "Comment:    $COMMENT"
-    echo "File:       $AUTH_FILE"
-    echo
-    echo "Restart relay to apply: sudo systemctl restart relay-server"
-    exit 0
-fi
-
-if [ "$1" = "--deauthorize" ]; then
-    PEER_ID="$2"
-    if [ -z "$PEER_ID" ]; then
-        echo "Usage: setup-linode.sh --deauthorize <peer-id>"
-        exit 1
-    fi
-
-    if [ ! -f "$AUTH_FILE" ]; then
-        echo "Error: $AUTH_FILE not found"
-        exit 1
-    fi
-
-    if ! grep -qF "$PEER_ID" "$AUTH_FILE"; then
-        echo "Peer not found: ${PEER_ID:0:16}..."
-        exit 1
-    fi
-
-    # Remove matching line(s) via temp file
-    TMPFILE=$(mktemp "$AUTH_FILE.XXXXXX")
-    grep -vF "$PEER_ID" "$AUTH_FILE" > "$TMPFILE" || true
-    chmod 600 "$TMPFILE"
-    mv "$TMPFILE" "$AUTH_FILE"
-
-    echo "Deauthorized: ${PEER_ID:0:16}..."
-    echo
-    echo "Restart relay to apply: sudo systemctl restart relay-server"
-    exit 0
-fi
-
-if [ "$1" = "--list-peers" ]; then
-    if [ ! -f "$AUTH_FILE" ]; then
-        echo "No authorized_keys file found at: $AUTH_FILE"
-        echo "Run setup first, or use --authorize to add a peer."
-        exit 0
-    fi
-
-    echo "Authorized peers ($AUTH_FILE):"
-    echo
-    COUNT=0
-    while IFS= read -r line; do
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-        COUNT=$((COUNT + 1))
-        echo "  $line"
-    done < "$AUTH_FILE"
-
-    if [ "$COUNT" -eq 0 ]; then
-        echo "  (none)"
-    fi
-    echo
-    echo "Total: $COUNT peer(s)"
-    exit 0
-fi
 
 # ============================================================
 # If --check flag, run health check only and exit

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,7 +36,103 @@ func loadOrCreateIdentity(path string) (crypto.PrivKey, error) {
 	return priv, nil
 }
 
+// loadAuthKeysPath loads config and returns the authorized_keys file path.
+func loadAuthKeysPath() string {
+	cfg, err := config.LoadRelayServerConfig("relay-server.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.Security.AuthorizedKeysFile == "" {
+		log.Fatal("No authorized_keys_file configured in relay-server.yaml")
+	}
+	return cfg.Security.AuthorizedKeysFile
+}
+
+func runAuthorize(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Usage: relay-server authorize <peer-id> [comment]")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  ./relay-server authorize 12D3KooW... home-node")
+		fmt.Println("  ./relay-server authorize 12D3KooW... laptop")
+		os.Exit(1)
+	}
+
+	peerID := args[0]
+	comment := ""
+	if len(args) > 1 {
+		comment = strings.Join(args[1:], " ")
+	}
+
+	authKeysPath := loadAuthKeysPath()
+	if err := auth.AddPeer(authKeysPath, peerID, comment); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	fmt.Printf("Authorized: %s\n", peerID[:16]+"...")
+	if comment != "" {
+		fmt.Printf("Comment:    %s\n", comment)
+	}
+	fmt.Printf("File:       %s\n", authKeysPath)
+	fmt.Println()
+	fmt.Println("Restart relay to apply: sudo systemctl restart relay-server")
+}
+
+func runDeauthorize(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Usage: relay-server deauthorize <peer-id>")
+		os.Exit(1)
+	}
+
+	peerID := args[0]
+	authKeysPath := loadAuthKeysPath()
+	if err := auth.RemovePeer(authKeysPath, peerID); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	fmt.Printf("Deauthorized: %s\n", peerID[:16]+"...")
+	fmt.Println()
+	fmt.Println("Restart relay to apply: sudo systemctl restart relay-server")
+}
+
+func runListPeers() {
+	authKeysPath := loadAuthKeysPath()
+	peers, err := auth.ListPeers(authKeysPath)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	fmt.Printf("Authorized peers (%s):\n\n", authKeysPath)
+	if len(peers) == 0 {
+		fmt.Println("  (none)")
+	} else {
+		for _, p := range peers {
+			if p.Comment != "" {
+				fmt.Printf("  %s  # %s\n", p.PeerID, p.Comment)
+			} else {
+				fmt.Printf("  %s\n", p.PeerID)
+			}
+		}
+	}
+	fmt.Printf("\nTotal: %d peer(s)\n", len(peers))
+}
+
 func main() {
+	// Handle subcommands before starting the relay
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "authorize":
+			runAuthorize(os.Args[2:])
+			return
+		case "deauthorize":
+			runDeauthorize(os.Args[2:])
+			return
+		case "list-peers":
+			runListPeers()
+			return
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	_ = ctx
