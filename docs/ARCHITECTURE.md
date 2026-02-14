@@ -357,6 +357,41 @@ peer-up/
 
 ---
 
+## Concurrency Model
+
+Background goroutines follow a consistent pattern for lifecycle management:
+
+### Ticker + Select Pattern
+
+All recurring background tasks (relay reservation, DHT advertising, status printing, stats logging) use `time.Ticker` with `select` on `ctx.Done()`:
+
+```go
+go func() {
+    ticker := time.NewTicker(interval)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            // do work
+        }
+    }
+}()
+```
+
+This ensures goroutines exit cleanly when the parent context is cancelled (e.g., on Ctrl+C).
+
+### Graceful Shutdown
+
+Long-running commands (`serve`, `proxy`, `relay-server`) handle `SIGINT`/`SIGTERM` by calling `cancel()` on their root context, which propagates to all background goroutines. Deferred cleanup (`net.Close()`, `listener.Close()`) runs after goroutines stop.
+
+### Atomic Counters
+
+Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) use `atomic.Int32` instead of bare `int` to prevent data races.
+
+---
+
 ## Core Concepts
 
 ### 1. Service Definition

@@ -109,18 +109,23 @@ func runProxy(args []string) {
 	fmt.Println()
 
 	// Handle graceful shutdown
+	shutdownCh := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-		<-ch
+		<-sigCh
 		fmt.Println("\nShutting down...")
-		listener.Close()
-		p2pNetwork.Close()
-		os.Exit(0)
+		close(shutdownCh)
+		listener.Close() // causes Serve() to return
 	}()
 
-	// Serve connections
+	// Serve connections (blocks until listener is closed)
 	if err := listener.Serve(); err != nil {
-		log.Printf("Listener stopped: %v", err)
+		select {
+		case <-shutdownCh:
+			// Intentional shutdown — don't log the accept error
+		default:
+			log.Printf("Listener stopped: %v", err)
+		}
 	}
 }

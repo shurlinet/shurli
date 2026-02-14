@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -138,11 +139,17 @@ func runServe(args []string) {
 
 	// Keep reservation alive
 	go func() {
+		ticker := time.NewTicker(cfg.Relay.ReservationInterval)
+		defer ticker.Stop()
 		for {
-			time.Sleep(cfg.Relay.ReservationInterval)
-			for _, ai := range relayInfos {
-				h.Connect(ctx, ai)
-				circuitv2client.Reserve(ctx, h, ai)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				for _, ai := range relayInfos {
+					h.Connect(ctx, ai)
+					circuitv2client.Reserve(ctx, h, ai)
+				}
 			}
 		}
 	}()
@@ -216,7 +223,7 @@ func runServe(args []string) {
 	}
 
 	var wg sync.WaitGroup
-	connected := 0
+	var connected atomic.Int32
 	for _, pAddr := range bootstrapPeers {
 		pi, err := peer.AddrInfoFromP2pAddr(pAddr)
 		if err != nil {
@@ -226,12 +233,12 @@ func runServe(args []string) {
 		go func(pi peer.AddrInfo) {
 			defer wg.Done()
 			if err := h.Connect(ctx, pi); err == nil {
-				connected++
+				connected.Add(1)
 			}
 		}(*pi)
 	}
 	wg.Wait()
-	fmt.Printf("Connected to %d bootstrap peers\n", connected)
+	fmt.Printf("Connected to %d bootstrap peers\n", connected.Load())
 
 	// Advertise ourselves on the DHT using a rendezvous string
 	routingDiscovery := drouting.NewRoutingDiscovery(kdht)
@@ -239,18 +246,30 @@ func runServe(args []string) {
 
 	// Keep advertising in the background
 	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
 		for {
 			_, err := routingDiscovery.Advertise(ctx, cfg.Discovery.Rendezvous)
 			if err != nil {
 				fmt.Printf("Advertise error: %v\n", err)
 			}
-			time.Sleep(time.Minute)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
 
 	// Periodically print status
 	go func() {
-		time.Sleep(10 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
 		for {
 			fmt.Println()
 			fmt.Println("--- Status ---")
@@ -273,7 +292,11 @@ func runServe(args []string) {
 				fmt.Printf("  [%s] %s\n", label, addrStr)
 			}
 			fmt.Println("--------------")
-			time.Sleep(30 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
 
@@ -286,4 +309,5 @@ func runServe(args []string) {
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 	fmt.Println("\nShutting down...")
+	cancel() // Stop all background goroutines
 }

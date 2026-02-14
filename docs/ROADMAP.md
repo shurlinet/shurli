@@ -219,7 +219,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 
 **libp2p Upgrade (Critical)**:
 - [ ] Upgrade main module go-libp2p to latest — gains AutoNAT v2, smart dialing, QUIC improvements, Resource Manager, per-IP rate limiting, source address verification
-- [ ] Upgrade relay-server go-libp2p to match main module (currently v0.38.2, many versions behind — potential unpatched CVEs)
+- [x] Upgrade relay-server go-libp2p to match main module *(v0.38.2 → v0.47.0, done via `go work sync`)*
 - [ ] Enable AutoNAT v2 — per-address reachability testing (know which specific addresses are publicly reachable; distinguish IPv4 vs IPv6 NAT state). Includes nonce-based dial verification and amplification attack prevention.
 - [ ] Enable smart dialing — address ranking, QUIC prioritization, sequential dial with fast failover (reduces connection churn vs old parallel-dial-all approach)
 - [ ] QUIC as preferred transport — 1 fewer RTT on connection setup (3 RTTs vs 4 for TCP), native multiplexing, better for hole punching
@@ -243,10 +243,10 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Stream pooling — reuse streams instead of creating fresh ones per TCP connection (eliminates per-connection protocol negotiation)
 - [ ] Persistent relay reservation — keep reservation alive with periodic refresh instead of re-reserving per connection. Reduces connection setup toward 1-3s (matching Iroh's performance).
 - [ ] DHT bootstrap in proxy command — enable DCUtR hole-punching (currently proxy always relays). With hole punch success (~70%), many connections bypass relay entirely.
-- [ ] Graceful shutdown — replace `os.Exit(0)` with proper cleanup, drain active connections
-- [ ] Goroutine lifecycle — use `select` + `context.Done()` instead of bare `time.Sleep` loops
+- [x] Graceful shutdown — replace `os.Exit(0)` with proper cleanup, context cancellation stops background goroutines
+- [x] Goroutine lifecycle — use `time.Ticker` + `select ctx.Done()` instead of bare `time.Sleep` loops
 - [ ] TCP dial timeout — `net.DialTimeout(5s)` for local service connections
-- [ ] Fix data race in bootstrap peer counter (`atomic.AddInt32`)
+- [x] Fix data race in bootstrap peer counter (`atomic.Int32`)
 
 **Observability**:
 - [ ] OpenTelemetry integration — instrument key paths with traces and metrics (invite/join flow, proxy setup, relay connection). Users pick their backend (Jaeger, Honeycomb, Prometheus, etc.)

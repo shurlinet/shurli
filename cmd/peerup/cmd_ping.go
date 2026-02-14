@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -123,7 +124,7 @@ func runPing(args []string) {
 	}
 
 	var wg sync.WaitGroup
-	connected := 0
+	var connected atomic.Int32
 	for _, pAddr := range bootstrapPeers {
 		pi, err := peer.AddrInfoFromP2pAddr(pAddr)
 		if err != nil {
@@ -133,12 +134,12 @@ func runPing(args []string) {
 		go func(pi peer.AddrInfo) {
 			defer wg.Done()
 			if err := h.Connect(ctx, pi); err == nil {
-				connected++
+				connected.Add(1)
 			}
 		}(*pi)
 	}
 	wg.Wait()
-	fmt.Printf("Connected to %d bootstrap peers\n", connected)
+	fmt.Printf("Connected to %d bootstrap peers\n", connected.Load())
 
 	// Connect to relay
 	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
@@ -288,7 +289,11 @@ func runPing(args []string) {
 	if streamConnType == "RELAYED" {
 		fmt.Println()
 		fmt.Println("Connected via relay. Waiting 15s to see if hole-punching upgrades to direct...")
-		time.Sleep(15 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(15 * time.Second):
+		}
 
 		conns = h.Network().ConnsToPeer(targetPeerID)
 		upgraded := false

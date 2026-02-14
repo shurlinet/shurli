@@ -328,7 +328,6 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_ = ctx
 
 	fmt.Println("=== Private libp2p Relay Server ===")
 	fmt.Println()
@@ -421,12 +420,18 @@ func main() {
 	}
 
 	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
 		for {
-			time.Sleep(15 * time.Second)
-			peers := h.Network().Peers()
-			fmt.Printf("\n--- %d connected peers ---\n", len(peers))
-			for _, p := range peers {
-				fmt.Printf("  %s\n", p.String()[:16])
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				peers := h.Network().Peers()
+				fmt.Printf("\n--- %d connected peers ---\n", len(peers))
+				for _, p := range peers {
+					fmt.Printf("  %s\n", p.String()[:16])
+				}
 			}
 		}
 	}()
@@ -439,4 +444,5 @@ func main() {
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 	fmt.Println("\nShutting down...")
+	cancel() // Stop background goroutines
 }

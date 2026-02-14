@@ -86,7 +86,11 @@ func runInvite(args []string) {
 
 	// Wait for relay address
 	fmt.Println("Waiting for relay reservation...")
-	time.Sleep(3 * time.Second)
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(3 * time.Second):
+	}
 
 	// Encode invite
 	inviteData := &invite.InviteData{
