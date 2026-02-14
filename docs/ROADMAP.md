@@ -12,6 +12,7 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 - ✅ **No hard dependencies** - Works without optional features (naming, blockchain, etc.)
 - ✅ **Local-first** - Offline-capable, no central services required
 - ✅ **Self-sovereign** - No accounts, no telemetry, no vendor dependency
+- ✅ **Automation-friendly** - Daemon API, headless onboarding, multi-language SDKs
 
 ---
 
@@ -225,6 +226,10 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] **Health check HTTP endpoint** — relay exposes `/healthz` on a configurable port (default: disabled). Returns JSON: peer ID, uptime, connected peers count, reservation count, memory usage. Used by monitoring (Prometheus, UptimeKuma) and `setup.sh --check`.
 - [ ] **`peerup status` command** — show connection state: relay connected/disconnected, peer online status, connection type (relay/direct), latency, uptime. Replaces guessing with observability.
 
+**Automation & Integration**:
+- [ ] **Daemon mode** — `peerup daemon` runs in background, exposes Unix socket API (`~/.config/peerup/peerup.sock`) for programmatic control. Enables scripting, automation, and third-party integration without spawning CLI subprocesses. JSON-based request/response. Operations: status, list-peers, list-services, connect, expose, authorize.
+- [ ] **Headless onboarding** — `peerup join --non-interactive` reads invite code from stdin or `PEERUP_INVITE_CODE` env var, writes config, exits. No TTY prompts, no QR rendering. Essential for containerized and automated deployments (Docker, systemd, scripts).
+
 **Reliability**:
 - [ ] Reconnection with exponential backoff — recover from relay drops automatically (1s → 2s → 4s → ... → 60s cap)
 - [ ] Connection warmup — pre-establish connection to target peer at `peerup proxy` startup
@@ -299,6 +304,24 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 **Built-in Plugin: Wake-on-LAN** (proves event hooks + new protocol):
 - [ ] `peerup wake <peer>` — send magic packet before connecting
 - [ ] Event hook: auto-wake peer on connection attempt (optional)
+
+**Service Discovery Protocol**:
+- [ ] New protocol `/peerup/discovery/1.0.0` — query a remote peer for their exposed services
+- [ ] Response includes service names and optional tags (e.g., `gpu`, `storage`, `inference`)
+- [ ] `peerup discover <peer>` CLI command — list services offered by a peer
+- [ ] Service tags in config: `tags: [gpu, inference]` — categorize services for discovery
+
+**Python SDK** (`peerup-sdk`):
+- [ ] Thin wrapper around daemon Unix socket API
+- [ ] `pip install peerup-sdk`
+- [ ] Core operations: connect, expose_service, discover_services, proxy, status
+- [ ] Async support (asyncio) for integration with event-driven applications
+- [ ] Example: connect to a remote service in <10 lines of Python
+
+**Headless Onboarding Enhancements**:
+- [ ] `peerup invite --headless` — outputs invite data as JSON (no QR, no interactive wait)
+- [ ] `peerup join --from-env` — reads config from environment variables
+- [ ] Docker-friendly: `PEERUP_INVITE_CODE=xxx peerup join --non-interactive --name node-1`
 
 **SDK Documentation** (the plugins above ARE the examples):
 - [ ] `docs/SDK.md` — guide for building on `pkg/p2pnet`
@@ -380,6 +403,12 @@ Waiting for transfers...
 - [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
 - [ ] Multi-GPU / distributed inference documentation (exo, llama.cpp RPC)
 - [ ] Blog post / demo: phone → relay → home 5090 → streaming LLM response
+
+**Automation & Integration Guides**:
+- [ ] Guide: *"Scripting & Automation with peer-up"* — daemon API, headless onboarding, Python SDK usage
+- [ ] Guide: *"Containerized Deployments"* — Docker, env-based config, non-interactive join
+- [ ] Docker compose examples for multi-service setups (GPU inference, media server, development environment)
+- [ ] Python SDK published to PyPI alongside binary releases
 
 **GPU Inference Config (already works today)**:
 ```yaml
@@ -743,6 +772,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - systemd watchdog restarts relay within 60s if health check fails
 - `/healthz` endpoint returns relay status (monitorable by Prometheus/UptimeKuma)
 - `peerup status` shows connection state, peer status, and latency
+- `peerup daemon` runs in background; scripts can query status and list services via Unix socket
+- `peerup join --non-interactive` works in Docker containers and CI/CD pipelines without TTY
 
 **Phase 4D Success**:
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
@@ -753,6 +784,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - `peerup wake <peer>` sends magic packet (WoL plugin)
 - Transfer speed saturates relay bandwidth; resume works after interruption
 - SDK documentation published with working plugin examples
+- `peerup discover <peer>` returns list of exposed services with tags
+- Python SDK works: `pip install peerup-sdk` → connect to remote service in <10 lines
+- `peerup invite --headless` outputs JSON; `peerup join --from-env` reads env vars
 
 **Phase 4E Success**:
 - GoReleaser builds binaries for 6 targets (linux/mac/windows × amd64/arm64)
@@ -761,6 +795,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Install-to-running in under 30 seconds
 - GPU inference use-case guide published
 - Blog post / demo published
+- Scripting & automation guide published
+- Containerized deployment guide published with working Docker compose examples
+- Python SDK available on PyPI
 
 **Phase 4F Success**:
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
@@ -788,4 +825,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Last Updated**: 2026-02-14
 **Current Phase**: 4B Complete, 4C Next
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Core Hardening & Security (relay limits, self-healing, config validation, tests, reconnection)
+**Next Milestone**: Core Hardening & Security (relay limits, self-healing, config validation, daemon mode, tests, reconnection)
