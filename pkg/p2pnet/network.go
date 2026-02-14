@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -23,6 +24,19 @@ import (
 // holePunchTracer logs DCUtR hole-punching events.
 type holePunchTracer struct{}
 
+// truncateError returns the first line of an error string, capped at 200 chars.
+// libp2p dial errors can be enormous (20+ lines listing every address attempt).
+func truncateError(s string) string {
+	// Take first line only
+	if i := strings.Index(s, "\n"); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 200 {
+		s = s[:200] + "..."
+	}
+	return s
+}
+
 func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 	short := evt.Remote.String()
 	if len(short) > 16 {
@@ -36,13 +50,13 @@ func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 		if e.Success {
 			slog.Info("hole punch succeeded", "peer", short, "elapsed", e.EllapsedTime)
 		} else {
-			slog.Warn("hole punch failed", "peer", short, "elapsed", e.EllapsedTime, "error", e.Error)
+			slog.Warn("hole punch failed", "peer", short, "elapsed", e.EllapsedTime, "error", truncateError(e.Error))
 		}
 	case *holepunch.DirectDialEvt:
 		if e.Success {
 			slog.Info("direct dial succeeded", "peer", short, "elapsed", e.EllapsedTime)
 		} else {
-			slog.Warn("direct dial failed", "peer", short, "error", e.Error)
+			slog.Warn("direct dial failed", "peer", short, "error", truncateError(e.Error))
 		}
 	}
 }
