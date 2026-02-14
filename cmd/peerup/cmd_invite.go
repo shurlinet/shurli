@@ -170,6 +170,10 @@ func runInvite(args []string) {
 		inviterName := *nameFlag
 		s.Write([]byte(fmt.Sprintf("OK %s\n", inviterName)))
 
+		// Allow the response to flush through the relay circuit before
+		// the deferred s.Close() fires and the host potentially shuts down.
+		time.Sleep(2 * time.Second)
+
 		joined <- joinerName
 	})
 
