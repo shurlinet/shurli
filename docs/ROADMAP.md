@@ -248,6 +248,12 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] TCP dial timeout — `net.DialTimeout(5s)` for local service connections
 - [ ] Fix data race in bootstrap peer counter (`atomic.AddInt32`)
 
+**Observability**:
+- [ ] OpenTelemetry integration — instrument key paths with traces and metrics (invite/join flow, proxy setup, relay connection). Users pick their backend (Jaeger, Honeycomb, Prometheus, etc.)
+- [ ] Metrics export — peer count, proxy throughput, relay latency, connection counts, stream utilization
+- [ ] Audit logging — every peer auth decision logged with peer ID, action, timestamp, result (structured JSON for SIEM integration)
+- [ ] Trace correlation IDs — propagate through relay path for debugging multi-hop connections
+
 **Code Quality**:
 - [ ] Unit test suite — auth (gater, authorized_keys), config (loader, validation), naming, proxy
 - [ ] Structured logging — migrate to `log/slog` with levels and structured fields
@@ -723,6 +729,21 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - [ ] Community relay network
 - [ ] IPv6 transport testing and documentation
 - [ ] Split tunneling (route only specific traffic through tunnel)
+
+**Protocol & Security Evolution**:
+- [ ] MASQUE relay transport ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) — HTTP/3 relay alternative to Circuit Relay v2. Looks like standard HTTPS to DPI, supports 0-RTT session resumption for instant reconnection. Could coexist with Circuit Relay v2 as user-selectable relay transport.
+- [ ] Post-quantum cryptography — hybrid Noise + ML-KEM ([FIPS 203](https://csrc.nist.gov/pubs/fips/203/final)) handshakes for quantum-resistant key exchange. Implement when libp2p adopts PQC. Design cipher suite negotiation now (cryptographic agility).
+- [ ] WebTransport transport — replace WebSocket anti-censorship layer with native QUIC-based WebTransport. Lower overhead, browser-compatible, native datagrams.
+- [ ] Zero-RTT proxy connection resume — QUIC session tickets for instant reconnection after network switch (WiFi→cellular). No existing P2P tool provides this.
+- [ ] Hardware-backed peer identity — store peer private keys in TPM 2.0 (Linux) or Secure Enclave (macOS/iOS). No existing P2P tool provides this.
+- [ ] eBPF/XDP relay acceleration — kernel-bypass packet forwarding for high-throughput relay deployments. DDoS mitigation at millions of packets/sec.
+- [ ] W3C DID-compatible identity — export peer IDs in [Decentralized Identifier](https://www.w3.org/TR/did-1.1/) format (`did:key`, `did:peer`) for interoperability with verifiable credential systems.
+- [ ] Formal verification of invite/join protocol state machine — mathematically prove correctness of key exchange. Possible with TLA+ model or Kani (Rust).
+
+**Performance & Language**:
+- [ ] Selective Rust rewrite of hot paths — proxy loop, relay forwarding, SOCKS5 gateway via FFI. Zero GC, zero-copy, ~1.5x throughput improvement. Evaluate when performance metrics justify it.
+- [ ] Rust QUIC library evaluation — [Iroh](https://github.com/n0-computer/iroh) (QUIC multipath, ~90% NAT traversal), [Quinn](https://github.com/quinn-rs/quinn) (pure Rust), [s2n-quic](https://github.com/aws/s2n-quic) (AWS, formally verified)
+- [ ] Go GC tuning — profile at 100+ concurrent proxies, set GOGC, evaluate memory allocation patterns in proxy loop
 
 ---
 
