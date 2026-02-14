@@ -9,7 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func genPeerIDStr(t *testing.T) string {
+func genPeerIDStr(t testing.TB) string {
 	t.Helper()
 	priv, _, _ := crypto.GenerateKeyPair(crypto.Ed25519, -1)
 	pid, _ := peer.IDFromPrivateKey(priv)

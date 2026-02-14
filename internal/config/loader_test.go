@@ -36,7 +36,7 @@ names:
   home: "12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt"
 `
 
-func writeTestConfig(t *testing.T, dir, content string) string {
+func writeTestConfig(t testing.TB, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {

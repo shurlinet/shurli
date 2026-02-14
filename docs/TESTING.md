@@ -398,6 +398,44 @@ go test -race -v ./internal/auth/
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
 | `cmd/peerup` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
 
+---
+
+## Benchmarks
+
+Performance benchmarks establish baselines for hot-path and cold-path functions.
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks with memory stats
+go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/auth
+go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/invite
+go test -bench=. -benchmem github.com/satindergrewal/peer-up/internal/config
+go test -bench=. -benchmem github.com/satindergrewal/peer-up/pkg/p2pnet
+
+# For statistical comparison (3+ runs recommended)
+go test -bench=. -benchmem -count=3 github.com/satindergrewal/peer-up/internal/auth
+
+# Compare before/after with benchstat
+go install golang.org/x/perf/cmd/benchstat@latest
+go test -bench=. -benchmem -count=5 ./internal/auth/ > old.txt
+# (make changes)
+go test -bench=. -benchmem -count=5 ./internal/auth/ > new.txt
+benchstat old.txt new.txt
+```
+
+### Benchmark Coverage
+
+| File | Benchmarks | Path Type | What's Measured |
+|------|-----------|-----------|-----------------|
+| `internal/auth/gater_bench_test.go` | `InterceptSecuredAllowed`, `InterceptSecuredDenied`, `IsAuthorized` | Hot (per-connection) | RWMutex + map lookup latency |
+| `internal/auth/authorized_keys_bench_test.go` | `LoadAuthorizedKeys5`, `LoadAuthorizedKeys50` | Cold (startup/reload) | File parse + peer ID decode |
+| `internal/invite/code_bench_test.go` | `Encode`, `Decode` | Mixed (per-invite) | Base32 + multihash + multiaddr ops |
+| `internal/config/loader_bench_test.go` | `LoadNodeConfig`, `ValidateNodeConfig` | Cold (startup) | YAML parse, validation |
+| `pkg/p2pnet/naming_bench_test.go` | `ResolveByName`, `ResolveByPeerID` | Hot (per-proxy) | Map lookup vs peer.Decode fallback |
+
+---
+
 ### CI Pipeline
 
 GitHub Actions runs on every push to `main` and `dev/next-iteration`:

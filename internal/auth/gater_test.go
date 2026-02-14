@@ -24,7 +24,7 @@ func testConnMultiaddrs() network.ConnMultiaddrs {
 	return &mockConnMultiaddrs{local: local, remote: remote}
 }
 
-func genPeerID(t *testing.T) peer.ID {
+func genPeerID(t testing.TB) peer.ID {
 	t.Helper()
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
 	if err != nil {
