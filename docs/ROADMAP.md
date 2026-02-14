@@ -253,14 +253,14 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 
 ---
 
-### Phase 4D: Plugin Architecture & SDK
+### Phase 4D: Plugin Architecture, SDK & First Plugins
 
-**Timeline**: 1-2 weeks
+**Timeline**: 3-4 weeks
 **Status**: 📋 Planned
 
-**Goal**: Make peer-up extensible by third parties. Define clean interfaces, add extension points, and document the SDK.
+**Goal**: Make peer-up extensible by third parties — and prove the architecture works by shipping real plugins: file transfer, service templates, and Wake-on-LAN. The plugins ARE the SDK examples.
 
-**Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring — without forking. This also makes the codebase easier to test and maintain.
+**Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring — without forking. But empty interfaces are worthless: shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them. File sharing is the perfect first plugin — universal use case, builds on existing streams, proves the full `ServiceManager` lifecycle.
 
 **Deliverables**:
 
@@ -282,11 +282,30 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Centralize orchestration — new commands become ~20 lines instead of ~200
 - [ ] Package-level documentation for `pkg/p2pnet/`
 
-**SDK Documentation**:
+**Built-in Plugin: File Transfer** (proves `ServiceManager` + stream middleware):
+- [ ] `peerup send <file> --to <peer>` — send a file to an authorized peer
+- [ ] `peerup receive` — listen for incoming file transfers
+- [ ] Auto-accept from authorized peers (configurable)
+- [ ] Progress bar and transfer speed display (stream middleware)
+- [ ] Resume interrupted transfers
+- [ ] Directory transfer support (`peerup send ./folder --to laptop`)
+
+**Built-in Plugin: Service Templates** (proves `ServiceManager` + health middleware):
+- [ ] `peerup serve --ollama` shortcut (auto-detects Ollama on localhost:11434)
+- [ ] `peerup serve --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] Health check middleware — verify local service is reachable before exposing
+- [ ] Streaming response verification (chunked transfer for LLM output)
+
+**Built-in Plugin: Wake-on-LAN** (proves event hooks + new protocol):
+- [ ] `peerup wake <peer>` — send magic packet before connecting
+- [ ] Event hook: auto-wake peer on connection attempt (optional)
+
+**SDK Documentation** (the plugins above ARE the examples):
 - [ ] `docs/SDK.md` — guide for building on `pkg/p2pnet`
+- [ ] Example walkthrough: how file transfer was built as a plugin
+- [ ] Example walkthrough: how service templates use health middleware
 - [ ] Example: custom name resolver plugin
 - [ ] Example: auth middleware (rate limiting, logging)
-- [ ] Example: service middleware (bandwidth metering)
 
 **Plugin Interface Preview**:
 ```go
@@ -313,26 +332,7 @@ net.OnEvent(func(e p2pnet.Event) {
 })
 ```
 
----
-
-### Phase 4E: File Sharing
-
-**Timeline**: 1 week
-**Status**: 📋 Planned
-
-**Goal**: Simple peer-to-peer file transfer between authorized devices.
-
-**Rationale**: Before people need SSH tunnels or GPU inference, they need to send files. This is a universal use case that gives people a reason to install peer-up *today*. Low effort — builds directly on existing bidirectional streams.
-
-**Deliverables**:
-- [ ] `peerup send <file> --to <peer>` — send a file to an authorized peer
-- [ ] `peerup receive` — listen for incoming file transfers
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar and transfer speed display
-- [ ] Resume interrupted transfers
-- [ ] Directory transfer support (`peerup send ./folder --to laptop`)
-
-**Usage**:
+**File Transfer Usage**:
 ```bash
 # Send a file
 $ peerup send photo.jpg --to laptop
@@ -350,16 +350,18 @@ Waiting for transfers...
 
 ---
 
-### Phase 4F: Distribution & Install
+### Phase 4E: Distribution & Launch
 
-**Timeline**: 1 week
+**Timeline**: 1-2 weeks
 **Status**: 📋 Planned
 
-**Goal**: Make peer-up installable without a Go toolchain. Nobody will try later features if they can't `curl | sh` the binary.
+**Goal**: Make peer-up installable without a Go toolchain, and launch with compelling use-case content. Nobody will try later features if they can't `curl | sh` the binary.
 
-**Rationale**: High impact, low effort. Prerequisite for wider adoption.
+**Rationale**: High impact, low effort. Prerequisite for wider adoption. GPU inference, game streaming, and IoT use cases already work — they just need documentation and a distribution channel.
 
 **Deliverables**:
+
+**Distribution**:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
 - [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
 - [ ] Publish to GitHub Releases with checksums
@@ -368,18 +370,43 @@ Waiting for transfers...
 - [ ] APT repository for Debian/Ubuntu
 - [ ] AUR package for Arch Linux
 - [ ] Docker image + `docker-compose.yml` for containerized deployment
-- [ ] Use case guides: IoT/smart home remote access, media server sharing, game server hosting
 
-**Result**: Zero-dependency install on any platform.
+**Use-Case Guides & Launch Content**:
+- [ ] Guide: GPU inference — *"Access your home GPU from anywhere through Starlink CGNAT"*
+- [ ] Guide: IoT/smart home remote access (Home Assistant, cameras behind CGNAT)
+- [ ] Guide: Media server sharing (Jellyfin/Plex with friends via invite flow)
+- [ ] Guide: Game server hosting (Minecraft, Valheim through CGNAT)
+- [ ] Guide: Game/media streaming (Moonlight/Sunshine tunneling, latency characteristics)
+- [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
+- [ ] Multi-GPU / distributed inference documentation (exo, llama.cpp RPC)
+- [ ] Blog post / demo: phone → relay → home 5090 → streaming LLM response
+
+**GPU Inference Config (already works today)**:
+```yaml
+services:
+  ollama:
+    enabled: true
+    local_address: "localhost:11434"
+```
+
+```bash
+# Home: peerup serve
+# Remote: peerup proxy home ollama 11434
+# Then: curl http://localhost:11434/api/generate -d '{"model":"llama3",...}'
+```
+
+**Result**: Zero-dependency install on any platform. Compelling use-case content drives adoption.
 
 ---
 
-### Phase 4G: Desktop Gateway Daemon + Private DNS
+### Phase 4F: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
+
+**Rationale**: Infrastructure-level features that make peer-up transparent — services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 4D.
 
 **Deliverables**:
 
@@ -393,7 +420,7 @@ Waiting for transfers...
 - [ ] Subnet routing — route entire LAN segments through tunnel (access printers, cameras, IoT without per-device install)
 - [ ] Trusted network detection — auto-disable tunneling when already on home LAN
 
-**Relay-side Private DNS**:
+**Relay-side Private DNS** (pluggable `Resolver` backend from 4D):
 - [ ] Lightweight DNS zone on the relay server (e.g., CoreDNS or custom)
 - [ ] Exposed **only** via P2P protocol — never bound to public UDP/53
 - [ ] Relay operator configures a real domain (e.g., `example.com`) pointing to the VPS IP
@@ -446,50 +473,7 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 4H: GPU Inference & Streaming Polish
-
-**Timeline**: 1-2 weeks
-**Status**: 📋 Planned
-
-**Goal**: Polish GPU inference and low-latency streaming into first-class, demo-ready features.
-
-**Rationale**: The Starlink + home GPU crowd is a real, underserved audience actively searching for solutions. No competing tool markets this use case — peer-up can own the narrative.
-
-**Deliverables**:
-- [ ] `peerup serve --ollama` shortcut (auto-detects Ollama on localhost:11434)
-- [ ] `peerup serve --vllm` shortcut (auto-detects vLLM on localhost:8000)
-- [ ] Health check endpoint — verify GPU service is reachable before exposing
-- [ ] Streaming response support verification (chunked transfer for LLM output)
-- [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
-- [ ] Example: phone → relay → home 5090 → streaming LLM response
-- [ ] Game/media streaming optimization — test Moonlight/Sunshine tunneling, document latency characteristics
-- [ ] `peerup wake <peer>` — Wake-on-LAN integration (send magic packet before connecting)
-- [ ] Blog post / demo: *"Access your home GPU from anywhere through Starlink CGNAT"*
-
-**How it works**:
-- Home machine runs Ollama, vLLM, or TGI on the GPU
-- `peerup serve` exposes it as a service (e.g., `ollama` on `localhost:11434`)
-- Remote VPS or laptop runs `peerup proxy home ollama 11434`
-- VPS sends prompts, gets completions back — only text over the wire
-- Home IP/ports never exposed to the internet
-
-**Config (home machine)**:
-```yaml
-services:
-  ollama:
-    enabled: true
-    local_address: "localhost:11434"
-```
-
-**Multi-GPU / distributed inference**:
-- Multiple LAN machines with GPUs run exo or llama.cpp RPC
-- One machine runs `peerup serve` as the entry point
-- Remote peers connect through the single peer-up tunnel
-- Cluster stays on LAN, only the API endpoint is exposed via P2P
-
----
-
-### Phase 4I: Mobile Applications
+### Phase 4G: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -536,7 +520,7 @@ Once connected:
 
 ---
 
-### Phase 4J: Federation - Network Peering
+### Phase 4H: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -595,15 +579,14 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 4K: Advanced Naming Systems (Optional)
+### Phase 4I: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 4D.
 
 **Deliverables**:
-- [ ] Plugin architecture for name resolvers
 - [ ] Built-in resolvers:
   - [ ] Local file (YAML/JSON)
   - [ ] DHT-based (federated)
@@ -642,22 +625,6 @@ Format: <hostname>.grewal (globally unique)
 ```
 Use ENS: grewal.eth ($5-640/year)
 Format: laptop.grewal.eth
-```
-
-**Plugin Interface**:
-```go
-type NameResolver interface {
-    Resolve(name string) (peer.ID, error)
-}
-
-// Users can add custom resolvers
-resolvers := []NameResolver{
-    LocalFileResolver,
-    DHTResolver,
-    BlockchainResolver,  // Optional
-    ENSResolver,         // Optional
-    CustomResolver,      // Your plugin
-}
 ```
 
 ---
@@ -726,19 +693,17 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | 📋 3-4 weeks | **Next** |
-| Phase 4D: Plugin Architecture & SDK | 📋 1-2 weeks | Planned |
-| Phase 4E: File Sharing | 📋 1 week | Planned |
-| Phase 4F: Distribution & Install | 📋 1 week | Planned |
-| Phase 4G: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 4H: GPU Inference & Streaming | 📋 1-2 weeks | Planned |
-| Phase 4I: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 4J: Federation | 📋 2-3 weeks | Planned |
-| Phase 4K: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 4D: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 4E: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 4F: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 4G: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 4H: Federation | 📋 2-3 weeks | Planned |
+| Phase 4I: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 5+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 19-28 weeks (5-7 months)
+**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
 
-**Priority logic**: Onboarding first (remove friction) → harden the core (security, self-healing, reliability, tests) → make it extensible (plugin architecture) → quick wins (file sharing, distribution) → transparent access (gateway, GPU streaming) → expand (mobile → federation → naming).
+**Priority logic**: Onboarding first (remove friction) → harden the core (security, self-healing, reliability, tests) → make it extensible with real plugins (file sharing, service templates, WoL prove the architecture) → distribute with use-case content (GPU, IoT, gaming) → transparent access (gateway, DNS) → expand (mobile → federation → naming).
 
 ---
 
@@ -783,42 +748,37 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
-- SDK documentation published with working examples
+- File transfer works between authorized peers (first plugin)
+- `peerup serve --ollama` auto-detects and exposes Ollama (service template plugin)
+- `peerup wake <peer>` sends magic packet (WoL plugin)
+- Transfer speed saturates relay bandwidth; resume works after interruption
+- SDK documentation published with working plugin examples
 
 **Phase 4E Success**:
-- File transfer works between authorized peers
-- Transfer speed saturates relay bandwidth
-- Resume works after interrupted transfer
-
-**Phase 4F Success**:
 - GoReleaser builds binaries for 6 targets (linux/mac/windows × amd64/arm64)
 - Homebrew tap works: `brew install satindergrewal/tap/peerup`
 - Docker image available
 - Install-to-running in under 30 seconds
+- GPU inference use-case guide published
+- Blog post / demo published
 
-**Phase 4G Success**:
+**Phase 4F Success**:
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 4H Success**:
-- `peerup serve --ollama` auto-detects and exposes Ollama
-- Streaming LLM responses work end-to-end through relay
-- Game/media streaming latency documented
-- Blog post / demo published
-
-**Phase 4I Success**:
+**Phase 4G Success**:
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 4J Success**:
+**Phase 4H Success**:
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 4K Success**:
+**Phase 4I Success**:
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
@@ -827,4 +787,5 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 **Last Updated**: 2026-02-14
 **Current Phase**: 4B Complete, 4C Next
+**Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Core Hardening & Security (relay limits, self-healing, config validation, tests, reconnection)

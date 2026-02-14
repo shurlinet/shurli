@@ -187,16 +187,18 @@ peer-up/
 │   ├── peerup/              # ✅ Single binary (init, serve, proxy, ping, whoami,
 │   │                        #   auth, relay, invite, join)
 │   ├── keytool/             # ✅ Key management CLI
-│   └── gateway/             # 🆕 Phase 4C: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 4F: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
+│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces
 │   └── federation.go        # 🆕 Phase 4H: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration
 │   ├── auth/                # ✅ Authentication
-│   └── tun/                 # 🆕 Phase 4C: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 4D: File transfer plugin
+│   └── tun/                 # 🆕 Phase 4F: TUN/TAP interface
 │
 ├── mobile/                  # 🆕 Phase 4G: Mobile apps
 │   ├── ios/
