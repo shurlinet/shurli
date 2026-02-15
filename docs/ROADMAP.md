@@ -213,7 +213,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 **Security (Critical)**:
 - [x] Relay resource limits — replace `WithInfiniteLimits()` with configurable `WithResources()` + `WithLimit()`. Defaults tuned for SSH/XRDP (10min sessions, 64MB data). Configurable via `resources:` section in relay-server.yaml.
 - [ ] Auth hot-reload — file watcher or SIGHUP to reload `authorized_keys` without restart (revoke access immediately)
-- [ ] Per-service access control — allow granting specific peers access to specific services only
+- [ ] Per-service access control — allow granting specific peers access to specific services only. Critical when home node acts as LAN gateway (e.g., `local_address: "192.168.0.5:22"` exposes another machine's SSH). Config supports per-service `authorized_keys` override. CLI: `peerup service acl <name> add/remove <peer-id>`. Without this, every authorized peer can reach every service.
 - [ ] Rate limiting on incoming connections and streams — leverage go-libp2p's built-in per-IP rate limiting (1 connection per 5s default, 16-burst). Add per-peer stream throttling.
 - [ ] QUIC source address verification — validate peer source IPs aren't spoofed, prevents relay from being used as DDoS reflector (built into quic-go v0.54.0+)
 - [ ] OS-level rate limiting — iptables/nftables rules in `setup.sh` (SYN flood protection, `--connlimit-above` per source IP)
@@ -301,6 +301,15 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] `peerup invite --non-interactive` — bare invite code to stdout, progress to stderr, skip QR
 - [x] `peerup join --non-interactive` — reads code from CLI arg, `PEERUP_INVITE_CODE` env var, or stdin
 - [x] UserAgent fix — added `peerup/<version>` UserAgent to invite/join hosts (was missing from Batch D)
+
+**Service CLI** (completed — completes the CLI config management pattern):
+- [x] `peerup service add <name> <address>` — add a service (enabled by default), optional `--protocol` flag
+- [x] `peerup service remove <name>` — remove a service from config
+- [x] `peerup service enable <name>` — enable a disabled service
+- [x] `peerup service disable <name>` — disable a service without removing it
+- [x] `peerup service list` — list configured services with status
+- [x] All config sections (auth, relay, service) now manageable via CLI — no YAML editing required
+- [x] `local_address` can point to any reachable host (e.g., `192.168.0.5:22`) — home node acts as LAN gateway
 
 **Code Quality**:
 - [ ] Expand test coverage — naming, proxy, invite edge cases, relay input parsing
