@@ -456,6 +456,13 @@ Waiting for transfers...
 - [ ] Install page with platform-specific instructions (curl, brew, apt, Docker, source)
 - [ ] Blog section for announcements and technical posts
 
+**AI-Agent Discoverability ([llms.txt](https://llmstxt.org/) spec)**:
+- [ ] `/llms.txt` — markdown index of the project: name, summary, links to detailed doc pages. ~200 tokens for an AI agent to understand the entire project. Hugo build step generates this from site content.
+- [ ] `/llms-full.txt` — all site content concatenated into a single markdown file. One URL paste gives an AI agent full project context without HTML/CSS/JS token overhead.
+- [ ] `.md` variants of every page — any page URL + `.md` suffix returns clean markdown (Hugo already has the source, just serve it as a static file alongside the HTML)
+- [ ] Adopted by 600+ sites including Anthropic, Cloudflare, Stripe, Cursor, Hugging Face
+- [ ] **WebMCP** ([Google + Microsoft, W3C](https://developer.chrome.com/blog/webmcp-epp)) — watch for future relevance. Protocol for AI agents to *interact* with websites via structured tool contracts (Declarative API for HTML forms, Imperative API for JS). Early preview in Chrome 146 Canary (Feb 2026). Not immediately relevant for a docs site, but valuable if peerup.dev adds interactive features (e.g., invite code generator, service discovery dashboard)
+
 **Release Manifest & Upgrade Endpoint**:
 - [ ] CI generates static `releases/latest.json` on every tagged release — deployed as part of the Hugo site
 - [ ] Manifest contains version, commit, date, checksums, and per-platform download URLs for all mirrors:
@@ -957,6 +964,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Phase 4E Success**:
 - `peerup.dev` serves a Hugo documentation site with landing page, guides, and install instructions
 - Site auto-deploys on push to `main` via GitHub Actions
+- `peerup.dev/llms.txt` returns markdown index; `peerup.dev/llms-full.txt` returns full site content — AI agents can understand the project in ~200 tokens
 - `curl get.peerup.dev | sh` installs the correct binary for the user's OS/arch
 - `peerup.dev/releases/latest.json` manifest is the single source of truth for all upgrade/install consumers
 - Binary and install script try GitHub → GitLab → IPFS in order (three-tier fallback)
