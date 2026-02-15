@@ -15,7 +15,7 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 
 ## Current Status
 
-- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`, `invite`, `join`, `whoami`, `auth`, `relay`, `version`
+- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`, `invite`, `join`, `whoami`, `auth`, `relay`, `config`, `version`
 - **60-Second Onboarding** - `peerup invite` + `peerup join` pairs two machines with zero manual config
 - **Easy Setup** - `peerup init` interactive wizard generates config, keys, and authorized_keys
 - **Standard Config** - Auto-discovers config from `./peerup.yaml` or `~/.config/peerup/config.yaml`
@@ -173,6 +173,7 @@ peerup ping home
 │   │   ├── cmd_whoami.go       # Show own peer ID
 │   │   ├── cmd_auth.go         # Auth add/list/remove/validate subcommands
 │   │   ├── cmd_relay.go        # Relay add/list/remove subcommands
+│   │   ├── cmd_config.go       # Config validate/show/rollback/apply/confirm
 │   │   ├── cmd_invite.go       # Generate invite code + QR + P2P handshake
 │   │   ├── cmd_join.go         # Decode invite, connect, auto-configure
 │   │   └── relay_input.go      # Flexible relay address parsing
@@ -185,9 +186,11 @@ peerup ping home
 │   ├── naming.go               # Local name resolution (name → peer ID)
 │   └── identity.go             # Identity helpers (delegates to internal/identity)
 ├── internal/
-│   ├── config/                 # YAML configuration loading
+│   ├── config/                 # YAML configuration loading + self-healing
 │   │   ├── config.go
-│   │   └── loader.go
+│   │   ├── loader.go
+│   │   ├── archive.go          # Last-known-good config archive/rollback
+│   │   └── confirm.go          # Commit-confirmed pattern (safe remote changes)
 │   ├── auth/                   # Authentication system
 │   │   ├── authorized_keys.go
 │   │   ├── gater.go
@@ -196,8 +199,10 @@ peerup ping home
 │   │   └── identity.go         # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   ├── invite/                 # Invite code encoding/decoding
 │   │   └── code.go             # Binary → base32 with dash grouping
-│   └── validate/               # Input validation helpers
-│       └── validate.go         # ServiceName() — DNS-label format
+│   ├── validate/               # Input validation helpers
+│   │   └── validate.go         # ServiceName() — DNS-label format
+│   └── watchdog/               # Health monitoring + systemd sd_notify
+│       └── watchdog.go         # Health check loop, Ready/Watchdog/Stopping
 ├── relay-server/               # Deployment artifacts (setup, configs, systemd)
 │   ├── setup.sh                # Deploy/verify/uninstall (builds from cmd/relay-server)
 │   ├── relay-server.service
@@ -344,6 +349,32 @@ The <address> accepts flexible formats:
   /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...   Full multiaddr
   1.2.3.4:7777                              IP:port (prompts for peer ID)
   1.2.3.4                                   Bare IP (default port 7777)
+```
+
+### `peerup config` - Config management & self-healing
+
+```
+Usage:
+  peerup config validate [--config path]                                   Validate config
+  peerup config show     [--config path]                                   Show resolved config
+  peerup config rollback [--config path]                                   Restore last-known-good
+  peerup config apply    <new-config> [--config path] [--confirm-timeout]  Apply with safety net
+  peerup config confirm  [--config path]                                   Confirm applied config
+```
+
+**Config archive**: On each successful `peerup serve` startup, the validated config is archived as last-known-good. If a bad edit prevents startup, `peerup config rollback` restores it.
+
+**Commit-confirmed** (for safe remote config changes):
+```bash
+# On the remote machine:
+peerup config apply new-config.yaml --confirm-timeout 5m
+sudo systemctl restart peerup
+
+# Test connectivity, then confirm:
+peerup config confirm
+
+# If you don't confirm within 5 minutes, the config auto-reverts
+# and systemd restarts with the previous known-good config.
 ```
 
 ## Configuration
@@ -531,6 +562,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=notify
+WatchdogSec=90
 ExecStart=/usr/local/bin/peerup serve --config /etc/peerup/config.yaml
 Restart=always
 RestartSec=5
@@ -538,6 +571,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
+
+Both `peerup serve` and `relay-server` send `sd_notify` signals to systemd: `READY=1` after startup, `WATCHDOG=1` every 30s while healthy, `STOPPING=1` on shutdown. On non-systemd systems (macOS), these are no-ops.
 
 ## Troubleshooting
 
@@ -552,6 +587,9 @@ WantedBy=multi-user.target
 | `protocols not supported` | Relay service not running |
 | XRDP window manager crashes | Ensure no conflicting physical desktop session for the same user |
 | `failed to sufficiently increase receive buffer size` | Warning only: `sudo sysctl -w net.core.rmem_max=7500000` |
+| Bad config edit broke startup | `peerup config rollback` restores last-known-good config |
+| Need to test config changes on remote node | Use `peerup config apply new.yaml --confirm-timeout 5m`, then `peerup config confirm` |
+| `commit-confirmed timeout` in logs | Config auto-reverted because `peerup config confirm` wasn't run in time |
 
 ## Bandwidth Considerations
 

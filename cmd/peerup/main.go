@@ -41,6 +41,8 @@ func main() {
 		runAuth(os.Args[2:])
 	case "relay":
 		runRelay(os.Args[2:])
+	case "config":
+		runConfig(os.Args[2:])
 	case "invite":
 		runInvite(os.Args[2:])
 	case "join":
@@ -76,6 +78,12 @@ func printUsage() {
 	fmt.Println("  relay add <address> [--peer-id <ID>]     Add a relay server address")
 	fmt.Println("  relay list                              List configured relay addresses")
 	fmt.Println("  relay remove <multiaddr>                Remove a relay server address")
+	fmt.Println()
+	fmt.Println("  config validate [--config path]          Validate config without starting")
+	fmt.Println("  config show     [--config path]          Show resolved config")
+	fmt.Println("  config rollback [--config path]          Restore last-known-good config")
+	fmt.Println("  config apply <new> [--confirm-timeout]   Apply config with auto-revert safety")
+	fmt.Println("  config confirm  [--config path]          Confirm applied config")
 	fmt.Println()
 	fmt.Println("  invite [--name \"home\"]                   Generate an invite code for pairing")
 	fmt.Println("  join <code> [--name \"laptop\"]            Accept an invite and auto-configure")

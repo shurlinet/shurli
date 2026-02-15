@@ -25,6 +25,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/watchdog"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -53,6 +54,22 @@ func runServe(args []string) {
 	if err := config.ValidateNodeConfig(cfg); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
+
+	// Archive last-known-good config on successful validation
+	if err := config.Archive(cfgFile); err != nil {
+		log.Printf("Warning: failed to archive config: %v", err)
+	}
+
+	// Check for pending commit-confirmed
+	var confirmCancel context.CancelFunc
+	if deadline, err := config.CheckPending(cfgFile); err == nil && !deadline.IsZero() {
+		confirmCtx, cc := context.WithCancel(ctx)
+		confirmCancel = cc
+		go config.EnforceCommitConfirmed(confirmCtx, cfgFile, deadline, os.Exit)
+		remaining := time.Until(deadline).Round(time.Second)
+		fmt.Printf("Commit-confirmed active: %s remaining (run 'peerup config confirm' to keep this config)\n", remaining)
+	}
+	_ = confirmCancel // used on shutdown if needed
 
 	fmt.Printf("Loaded configuration from %s\n", cfgFile)
 	fmt.Printf("Rendezvous: %s\n", cfg.Discovery.Rendezvous)
@@ -300,6 +317,31 @@ func runServe(args []string) {
 		}
 	}()
 
+	// Start watchdog health checks
+	watchdog.Ready()
+	go watchdog.Run(ctx, watchdog.Config{Interval: 30 * time.Second}, []watchdog.HealthCheck{
+		{
+			Name: "host-listening",
+			Check: func() error {
+				if len(h.Addrs()) == 0 {
+					return fmt.Errorf("no listen addresses")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "relay-reservation",
+			Check: func() error {
+				for _, addr := range h.Addrs() {
+					if strings.Contains(addr.String(), "p2p-circuit") {
+						return nil
+					}
+				}
+				return fmt.Errorf("no relay addresses")
+			},
+		},
+	})
+
 	fmt.Println()
 	fmt.Println("peer-up server is running!")
 	fmt.Println("   Share your Peer ID with clients.")
@@ -308,6 +350,7 @@ func runServe(args []string) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
+	watchdog.Stopping()
 	fmt.Println("\nShutting down...")
 	cancel() // Stop all background goroutines
 }

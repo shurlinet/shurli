@@ -14,7 +14,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 ---
 
-## Current Architecture (Phase 4B Complete)
+## Current Architecture (Phase 4C Batch C Complete)
 
 ### Component Overview
 
@@ -23,14 +23,15 @@ peer-up/
 ├── cmd/
 │   ├── peerup/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (init, serve, proxy, ping, whoami,
-│   │   │                    #   auth, relay, invite, join)
+│   │   │                    #   auth, relay, config, invite, join)
 │   │   ├── cmd_init.go      # Interactive setup wizard
-│   │   ├── cmd_serve.go     # Server mode (expose services)
+│   │   ├── cmd_serve.go     # Server mode (expose services, watchdog, config archive)
 │   │   ├── cmd_proxy.go     # TCP proxy client
 │   │   ├── cmd_ping.go      # Connectivity test
 │   │   ├── cmd_whoami.go    # Show own peer ID
 │   │   ├── cmd_auth.go      # Auth add/list/remove/validate subcommands
 │   │   ├── cmd_relay.go     # Relay add/list/remove subcommands
+│   │   ├── cmd_config.go    # Config validate/show/rollback/apply/confirm
 │   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake
 │   │   ├── cmd_join.go      # Decode invite, connect, auto-configure
 │   │   └── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
@@ -45,9 +46,12 @@ peer-up/
 │   └── identity.go          # Identity helpers (delegates to internal/identity)
 │
 ├── internal/
-│   ├── config/              # YAML configuration loading
-│   │   ├── config.go
-│   │   └── loader.go
+│   ├── config/              # YAML configuration loading + self-healing
+│   │   ├── config.go           # Config structs (HomeNode, Client, Relay, unified NodeConfig)
+│   │   ├── loader.go           # Load, validate, resolve paths, find config
+│   │   ├── archive.go          # Last-known-good archive/rollback (atomic writes)
+│   │   ├── confirm.go          # Commit-confirmed pattern (apply/confirm/enforce)
+│   │   └── errors.go           # Sentinel errors (ErrConfigNotFound, ErrNoArchive, etc.)
 │   ├── auth/                # SSH-style authentication
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
 │   │   ├── gater.go            # ConnectionGater implementation
@@ -56,8 +60,10 @@ peer-up/
 │   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   ├── invite/              # Invite code encoding/decoding
 │   │   └── code.go          # Binary → base32 with dash grouping
-│   └── validate/            # Input validation helpers
-│       └── validate.go      # ServiceName() — DNS-label format for protocol IDs
+│   ├── validate/            # Input validation helpers
+│   │   └── validate.go      # ServiceName() — DNS-label format for protocol IDs
+│   └── watchdog/            # Health monitoring + systemd integration
+│       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
 ├── relay-server/            # Deployment artifacts (not a Go module)
 │   ├── setup.sh             # Deploy/verify/uninstall (builds from cmd/relay-server)
@@ -198,10 +204,11 @@ peer-up/
 │   └── federation.go        # 🆕 Phase 4H: Network peering
 │
 ├── internal/
-│   ├── config/              # ✅ Configuration
+│   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
 │   ├── auth/                # ✅ Authentication
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
+│   ├── watchdog/            # ✅ Health checks + sd_notify
 │   ├── transfer/            # 🆕 Phase 4D: File transfer plugin
 │   └── tun/                 # 🆕 Phase 4F: TUN/TAP interface
 │
@@ -386,6 +393,21 @@ go func() {
 ```
 
 This ensures goroutines exit cleanly when the parent context is cancelled (e.g., on Ctrl+C).
+
+### Watchdog + sd_notify
+
+Both `serve` and `relay-server` run a watchdog goroutine (`internal/watchdog`) that performs health checks every 30 seconds:
+
+- **peerup serve**: Checks host has listen addresses and relay reservation is active
+- **relay-server**: Checks host has listen addresses and protocols are registered
+
+On success, sends `WATCHDOG=1` to systemd via the `NOTIFY_SOCKET` unix datagram socket (pure Go, no CGo). On non-systemd systems (macOS), all sd_notify calls are no-ops. `READY=1` is sent after startup completes; `STOPPING=1` on shutdown.
+
+The systemd service uses `Type=notify` and `WatchdogSec=90` (3x the 30s check interval) so systemd will restart the process if health checks stop succeeding.
+
+### Commit-Confirmed Enforcement
+
+When a commit-confirmed is active (`peerup config apply --confirm-timeout`), `serve` starts an `EnforceCommitConfirmed` goroutine that waits for the deadline. If `peerup config confirm` is not run before the timer fires, the goroutine reverts the config and calls `os.Exit(1)`. Systemd then restarts the process with the restored config.
 
 ### Graceful Shutdown
 
@@ -754,6 +776,16 @@ Private key files are verified on load to ensure they are not readable by group 
 
 Keys are already created with `0600` permissions, but this check catches degradation from manual `chmod`, file copies across systems, or archive extraction.
 
+### Config Self-Healing
+
+The config system provides three layers of protection against bad configuration:
+
+1. **Archive/Rollback** (`internal/config/archive.go`): On each successful `serve` or `relay-server` startup, the validated config is archived as `.{name}.last-good.yaml` next to the original. If a future edit breaks the config, `peerup config rollback` restores it. Archive writes are atomic (write temp file + rename).
+
+2. **Commit-Confirmed** (`internal/config/confirm.go`): For remote config changes, `peerup config apply` backs up the current config, applies the new one, and writes a pending marker with a deadline. If `peerup config confirm` is not run before the deadline, the serve process reverts the config and exits. Systemd restarts with the restored config.
+
+3. **Validation CLI** (`peerup config validate`): Check config syntax and required fields without starting the node. Useful before restarting a remote service.
+
 ### Service Name Validation
 
 Service names are validated before use in protocol IDs to prevent injection attacks. Names flow into `fmt.Sprintf("/peerup/%s/1.0.0", name)` — without validation, a name like `ssh/../../evil` or `foo\nbar` creates ambiguous or invalid protocol IDs.
@@ -850,4 +882,4 @@ Validated at three points:
 ---
 
 **Last Updated**: 2026-02-15
-**Architecture Version**: 2.3 (Module Consolidation)
+**Architecture Version**: 2.4 (Self-Healing + Watchdog)

@@ -22,6 +22,7 @@ import (
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/internal/identity"
+	"github.com/satindergrewal/peer-up/internal/watchdog"
 )
 
 // Set via -ldflags at build time.
@@ -375,6 +376,11 @@ func main() {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
 
+	// Archive last-known-good config on successful validation
+	if err := config.Archive("relay-server.yaml"); err != nil {
+		log.Printf("Warning: failed to archive config: %v", err)
+	}
+
 	fmt.Printf("Loaded configuration from relay-server.yaml\n")
 	fmt.Printf("Authentication: %v\n", cfg.Security.EnableConnectionGating)
 	fmt.Println()
@@ -469,6 +475,29 @@ func main() {
 		}
 	}()
 
+	// Start watchdog health checks and notify systemd
+	watchdog.Ready()
+	go watchdog.Run(ctx, watchdog.Config{Interval: 30 * time.Second}, []watchdog.HealthCheck{
+		{
+			Name: "host-listening",
+			Check: func() error {
+				if len(h.Addrs()) == 0 {
+					return fmt.Errorf("no listen addresses")
+				}
+				return nil
+			},
+		},
+		{
+			Name: "protocols-registered",
+			Check: func() error {
+				if len(h.Mux().Protocols()) == 0 {
+					return fmt.Errorf("no protocols registered")
+				}
+				return nil
+			},
+		},
+	})
+
 	fmt.Println()
 	fmt.Println("✅ Private relay running.")
 	fmt.Println("Press Ctrl+C to stop.")
@@ -476,6 +505,7 @@ func main() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
+	watchdog.Stopping()
 	fmt.Println("\nShutting down...")
 	cancel() // Stop background goroutines
 }

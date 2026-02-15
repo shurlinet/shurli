@@ -398,6 +398,9 @@ go test -race -v ./internal/auth/
 | Package | Tests | What's covered |
 |---------|-------|---------------|
 | `internal/config` | `loader_test.go` | Config loading, YAML parsing, validation (all config types), path resolution, config version handling, FindConfigFile discovery |
+| `internal/config` | `archive_test.go` | Archive path derivation, archive/rollback round-trip, permissions (0600), overwrite semantics, no temp file leaks, ErrNoArchive sentinel |
+| `internal/config` | `confirm_test.go` | Begin/confirm lifecycle, duplicate prevention (ErrCommitConfirmedPending), ErrNoPending, ApplyCommitConfirmed file swap, EnforceCommitConfirmed timeout revert, context cancellation, expired deadline handling |
+| `internal/watchdog` | `watchdog_test.go` | Health check loop execution, unhealthy check logging, context cancellation, default interval, sd_notify no-op without NOTIFY_SOCKET, sd_notify error on bad socket |
 | `internal/auth` | `gater_test.go` | ConnectionGater: inbound/outbound filtering, peer authorization, hot-reload |
 | `internal/auth` | `authorized_keys_test.go` | File loading, comment handling, invalid peer IDs, missing files |
 | `internal/auth` | `manage_test.go` | AddPeer (with duplicate/sanitize), RemovePeer (atomic write, preserves comments), ListPeers |

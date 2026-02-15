@@ -4,7 +4,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=90
 
 # Run as the user who owns the repo — NEVER as root
 # Change this to your username:
