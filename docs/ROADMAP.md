@@ -438,18 +438,76 @@ Waiting for transfers...
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
 
-**Goal**: Make peer-up installable without a Go toolchain, and launch with compelling use-case content. Nobody will try later features if they can't `curl | sh` the binary.
+**Goal**: Make peer-up installable without a Go toolchain, launch with compelling use-case content, and establish `peerup.dev` as the stable distribution anchor — independent of any single hosting provider.
 
-**Rationale**: High impact, low effort. Prerequisite for wider adoption. GPU inference, game streaming, and IoT use cases already work — they just need documentation and a distribution channel.
+**Rationale**: High impact, low effort. Prerequisite for wider adoption. GPU inference, game streaming, and IoT use cases already work — they just need documentation and a distribution channel. The domain `peerup.dev` is the one thing no third party can take away — every user-facing URL routes through it, never hardcoded to `github.com` or any other host.
 
 **Deliverables**:
 
-**Distribution**:
-- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`)
+**Website & Documentation (peerup.dev)**:
+- [ ] Static documentation site built with [Hugo](https://gohugo.io/) + [Hextra](https://imfing.github.io/hextra/) theme — Go-based SSG, fast builds, matches the project toolchain, built-in search and dark mode
+- [ ] GitHub Pages hosting with custom domain (`peerup.dev`)
+- [ ] GitHub Actions CI/CD — build Hugo site and deploy to GitHub Pages on every push to `main`
+- [ ] DNS managed on Cloudflare — CNAME `peerup.dev` → GitHub Pages, CNAME `get.peerup.dev` → serves install script
+- [ ] Landing page — project overview, quick start, feature highlights, comparison table (vs Tailscale/ZeroTier/Netbird)
+- [ ] Existing docs rendered as site pages (ARCHITECTURE, FAQ, TESTING, ROADMAP)
+- [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
+- [ ] Use-case guides integrated into the site (GPU inference, IoT, game servers — see Launch Content below)
+- [ ] Install page with platform-specific instructions (curl, brew, apt, Docker, source)
+- [ ] Blog section for announcements and technical posts
+
+**Release Manifest & Upgrade Endpoint**:
+- [ ] CI generates static `releases/latest.json` on every tagged release — deployed as part of the Hugo site
+- [ ] Manifest contains version, commit, date, checksums, and per-platform download URLs for all mirrors:
+  ```json
+  {
+    "version": "1.2.0",
+    "commit": "abc1234",
+    "date": "2026-03-15",
+    "binaries": {
+      "linux-amd64": {
+        "github": "https://github.com/.../peerup-linux-amd64.tar.gz",
+        "gitlab": "https://gitlab.com/.../peerup-linux-amd64.tar.gz",
+        "ipfs": "bafybeiabc123...",
+        "sha256": "..."
+      }
+    }
+  }
+  ```
+- [ ] `peerup upgrade` fetches `peerup.dev/releases/latest.json` (not GitHub API directly)
+- [ ] Install script fetches the same manifest — one source of truth for all consumers
+- [ ] Fallback order in binary and install script: GitHub → GitLab → IPFS gateway
+
+**Distribution Resilience** (gradual rollout):
+
+The domain (`peerup.dev`) is the anchor. DNS is on Cloudflare under our control. Every user-facing URL goes through the domain, never directly to a third-party host. If any host disappears, one DNS record change restores service.
+
+| Layer | GitHub (primary) | GitLab (mirror) | IPFS (fallback) |
+|-------|-----------------|-----------------|-----------------|
+| Source code | Primary repo | Push-hook mirror | — |
+| Release binaries | GitHub Releases | GitLab Releases (GoReleaser) | Pinned on Filebase |
+| Static site | GitHub Pages | GitLab Pages | Pinned + DNSLink ready |
+| DNS failover | CNAME → GitHub Pages | Manual flip to GitLab Pages | Manual flip to Cloudflare IPFS gateway |
+
+Rollout phases:
+1. **Phase 1**: GitHub Pages only. CNAME `peerup.dev` → GitHub. Simple, free, fast.
+2. **Phase 2**: Mirror site + releases to GitLab Pages + GitLab Releases. Same Hugo CI. Manual DNS failover if needed (CNAME swap on Cloudflare).
+3. **Phase 3**: IPFS pinning on every release. DNSLink TXT record pre-configured. Nuclear fallback if both GitHub and GitLab die — flip CNAME to Cloudflare IPFS gateway.
+
+Deliverables:
+- [ ] Git mirror to GitLab via push hook or CI (source code resilience)
+- [ ] GoReleaser config to publish to both GitHub Releases and GitLab Releases
+- [ ] GitLab Pages deployment (`.gitlab-ci.yml` for Hugo build)
+- [ ] CI step: `ipfs add` release binaries + site → pin on [Filebase](https://filebase.com/) (S3-compatible, 5GB free)
+- [ ] DNSLink TXT record at `_dnslink.peerup.dev` pointing to IPNS key (pre-configured, activated on failover)
+- [ ] Document failover runbook: which DNS records to change, in what order, for each failure scenario
+
+**Package Managers & Binaries**:
+- [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) — publish to GitHub Releases + GitLab Releases
 - [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
 - [ ] Publish to GitHub Releases with Ed25519-signed checksums (release key in repo)
 - [ ] Homebrew tap: `brew install satindergrewal/tap/peerup`
-- [ ] One-line install script: `curl -sSL https://get.peerup.dev | sh`
+- [ ] One-line install script: `curl -sSL get.peerup.dev | sh` — fetches `releases/latest.json`, detects OS/arch, downloads binary (GitHub → GitLab → IPFS fallback), verifies checksum, installs to `~/.local/bin` or `/usr/local/bin`
 - [ ] APT repository for Debian/Ubuntu
 - [ ] AUR package for Arch Linux
 - [ ] Docker image + `docker-compose.yml` for containerized deployment
@@ -463,8 +521,8 @@ Waiting for transfers...
 - [ ] Binary size budget: default ≤25MB stripped, embedded ≤10MB compressed. Current: 34MB full → 25MB stripped → ~8MB UPX.
 
 **Auto-Upgrade** (builds on commit-confirmed pattern from Phase 4C):
-- [ ] `peerup upgrade --check` — query GitHub Releases API for latest version, compare with running version, show changelog
-- [ ] `peerup upgrade` — download binary, verify Ed25519 signature against release key, replace binary, restart. Manual confirmation required.
+- [ ] `peerup upgrade --check` — fetch `peerup.dev/releases/latest.json`, compare version with running binary, show changelog
+- [ ] `peerup upgrade` — download binary from manifest (GitHub → GitLab → IPFS fallback), verify Ed25519 checksum, replace binary, restart. Manual confirmation required.
 - [ ] `peerup upgrade --auto` — automatic upgrade via systemd timer or cron. Downloads, verifies, applies with commit-confirmed safety:
   1. Rename current binary to `peerup.rollback`
   2. Install new binary, start with `--confirm-timeout 120`
@@ -897,12 +955,20 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - `peerup invite --headless` outputs JSON; `peerup join --from-env` reads env vars
 
 **Phase 4E Success**:
+- `peerup.dev` serves a Hugo documentation site with landing page, guides, and install instructions
+- Site auto-deploys on push to `main` via GitHub Actions
+- `curl get.peerup.dev | sh` installs the correct binary for the user's OS/arch
+- `peerup.dev/releases/latest.json` manifest is the single source of truth for all upgrade/install consumers
+- Binary and install script try GitHub → GitLab → IPFS in order (three-tier fallback)
+- Source code, releases, and site mirrored to GitLab (push hook + GoReleaser + GitLab Pages)
+- Release binaries pinned on IPFS (Filebase); DNSLink pre-configured for emergency failover
+- Failover runbook documented: which DNS records to change for each failure scenario
 - GoReleaser builds binaries for 9+ targets (linux/mac/windows × amd64/arm64 + linux/mipsle + linux/arm/v7)
 - Embedded builds ≤10MB (UPX compressed), default builds ≤25MB (stripped)
 - Homebrew tap works: `brew install satindergrewal/tap/peerup`
 - Docker image available
 - Install-to-running in under 30 seconds
-- `peerup upgrade` downloads, verifies signature, and replaces binary safely
+- `peerup upgrade` fetches manifest from `peerup.dev`, downloads with fallback, verifies checksum
 - `peerup upgrade --auto` with commit-confirmed rollback — impossible to brick remote nodes
 - Relay announces version to peers; version mismatch triggers upgrade warning
 - GPU inference use-case guide published
@@ -936,6 +1002,6 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-15
-**Current Phase**: 4C In Progress (Batch A: Reliability complete; Batch B: Code Quality complete)
+**Current Phase**: 4C In Progress (Batch A: Reliability ✅; Batch B: Code Quality ✅; Batch C: Self-Healing ✅)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch C (Self-Healing) — config validation, archive, rollback, commit-confirmed, systemd watchdog
+**Next Milestone**: Phase 4C Batch D (libp2p Features) — AutoNAT v2, smart dialing, QUIC preferred, version in Identify
