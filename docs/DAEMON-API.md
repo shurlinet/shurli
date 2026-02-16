@@ -82,16 +82,14 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 ### Example
 
 ```bash
-# Read the cookie token
-TOKEN=$(cat ~/.config/peerup/.daemon-cookie)
-
-# Make an authenticated request
-curl -H "Authorization: Bearer $TOKEN" \
+curl -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/status
 ```
 
 The CLI client (`peerup daemon status`, etc.) reads the cookie file automatically — no manual auth needed.
+
+> **Tip**: All curl examples in this document use inline `$(cat ~/.config/peerup/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable — see [Integration Examples](#integration-examples).
 
 ### Unauthorized Response
 
@@ -185,7 +183,7 @@ relay_addresses: 1
 **curl**:
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" \
+curl -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/status
 ```
@@ -322,7 +320,7 @@ Removes a peer from `authorized_keys` and hot-reloads the connection gater. Acce
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $TOKEN" \
+     -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/auth/12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6
 ```
@@ -528,7 +526,7 @@ Tears down an active proxy by ID.
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $TOKEN" \
+     -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/connect/proxy-1
 ```

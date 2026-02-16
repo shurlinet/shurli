@@ -101,7 +101,7 @@ P2P `traceroute` — shows the network path to a peer with per-hop latency.
 peerup traceroute <peer> [--json] [--config path]
 
 # Via daemon API
-curl -X POST -H "Authorization: Bearer $TOKEN" \
+curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      -d '{"peer":"home-server"}' \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/traceroute
@@ -157,7 +157,7 @@ P2P `nslookup` — resolves peer names to peer IDs.
 peerup resolve <name> [--json] [--config path]
 
 # Via daemon API
-curl -X POST -H "Authorization: Bearer $TOKEN" \
+curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      -d '{"name":"home-server"}' \
      --unix-socket ~/.config/peerup/peerup.sock \
      http://localhost/v1/resolve
