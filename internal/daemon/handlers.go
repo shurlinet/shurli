@@ -69,6 +69,11 @@ func respondText(w http.ResponseWriter, status int, text string) {
 	fmt.Fprint(w, text)
 }
 
+// isPeerupAgent returns true if the agent version string identifies a peerup or relay-server peer.
+func isPeerupAgent(agent string) bool {
+	return strings.HasPrefix(agent, "peerup/") || strings.HasPrefix(agent, "relay-server/")
+}
+
 // --- Handlers ---
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -150,22 +155,28 @@ func (s *Server) handleServiceList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 	h := s.runtime.Network().Host()
 	peerIDs := h.Network().Peers()
+	showAll := r.URL.Query().Get("all") == "true"
 
 	peers := make([]PeerInfo, 0, len(peerIDs))
 	for _, pid := range peerIDs {
 		info := PeerInfo{ID: pid.String()}
-
-		// Get addresses
-		addrs := h.Peerstore().Addrs(pid)
-		for _, a := range addrs {
-			info.Addresses = append(info.Addresses, a.String())
-		}
 
 		// Get agent version from peerstore
 		if av, err := h.Peerstore().Get(pid, "AgentVersion"); err == nil {
 			if agent, ok := av.(string); ok {
 				info.AgentVersion = agent
 			}
+		}
+
+		// By default, only show peerup and relay-server peers
+		if !showAll && !isPeerupAgent(info.AgentVersion) {
+			continue
+		}
+
+		// Get addresses
+		addrs := h.Peerstore().Addrs(pid)
+		for _, a := range addrs {
+			info.Addresses = append(info.Addresses, a.String())
 		}
 
 		peers = append(peers, info)

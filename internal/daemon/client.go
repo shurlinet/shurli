@@ -154,18 +154,26 @@ func (c *Client) ServicesText() (string, error) {
 	return c.doText("GET", "/v1/services", nil)
 }
 
-// Peers returns the list of connected peers.
-func (c *Client) Peers() ([]PeerInfo, error) {
+// Peers returns the list of connected peers. If all is true, includes non-peerup DHT peers.
+func (c *Client) Peers(all bool) ([]PeerInfo, error) {
+	path := "/v1/peers"
+	if all {
+		path += "?all=true"
+	}
 	var resp []PeerInfo
-	if err := c.doJSON("GET", "/v1/peers", nil, &resp); err != nil {
+	if err := c.doJSON("GET", path, nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-// PeersText returns peers as plain text.
-func (c *Client) PeersText() (string, error) {
-	return c.doText("GET", "/v1/peers", nil)
+// PeersText returns peers as plain text. If all is true, includes non-peerup DHT peers.
+func (c *Client) PeersText(all bool) (string, error) {
+	path := "/v1/peers"
+	if all {
+		path += "?all=true"
+	}
+	return c.doText("GET", path, nil)
 }
 
 // AuthList returns the authorized peers.

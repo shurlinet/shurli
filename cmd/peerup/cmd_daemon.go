@@ -299,12 +299,13 @@ func runDaemonServices(args []string) {
 func runDaemonPeers(args []string) {
 	fs := flag.NewFlagSet("daemon peers", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
+	allFlag := fs.Bool("all", false, "show all connected peers (including DHT/IPFS neighbors)")
 	fs.Parse(args)
 
 	c := daemonClient()
 
 	if *jsonFlag {
-		resp, err := c.Peers()
+		resp, err := c.Peers(*allFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -313,7 +314,7 @@ func runDaemonPeers(args []string) {
 		enc.SetIndent("", "  ")
 		enc.Encode(resp)
 	} else {
-		text, err := c.PeersText()
+		text, err := c.PeersText(*allFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

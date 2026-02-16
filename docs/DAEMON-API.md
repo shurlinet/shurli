@@ -228,6 +228,22 @@ ollama	localhost:11434	/peerup/ollama/1.0.0	enabled
 
 Lists connected peers with their addresses and software version.
 
+**By default, only peerup and relay-server peers are shown.** Because peerup uses the public Kademlia DHT (the same one IPFS uses) for peer discovery, your node will naturally connect to many non-peerup peers — IPFS/Kubo nodes, Gala Games nodes, Harmony blockchain nodes, and other libp2p software. These DHT neighbors are harmless (the ConnectionGater blocks them from accessing your services) and actually *help* your node discover peers faster by improving DHT routing. However, they create noise in the peer list.
+
+To see all connected peers (including DHT neighbors), add `?all=true`:
+
+```
+GET /v1/peers           → only peerup/relay-server peers
+GET /v1/peers?all=true  → all connected peers (including DHT/IPFS neighbors)
+```
+
+**CLI**:
+
+```bash
+peerup daemon peers          # only peerup peers
+peerup daemon peers --all    # all peers including DHT neighbors
+```
+
 **Response (JSON)**:
 
 ```json
