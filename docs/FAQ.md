@@ -86,6 +86,14 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ### Adjacent Projects
 
+#### Hyperswarm / Holepunch — DHT-assisted hole punching
+
+- **Stack**: Node.js / C, HyperDHT, UTP + TCP
+- **What it does**: P2P networking library powering [Keet](https://keet.io/) (encrypted P2P video/chat). DHT nodes actively assist with hole punching coordination.
+- **Key features**: HyperDHT for discovery and relay-assisted hole punching, Noise protocol encryption, Hypercore for data replication
+- **Difference**: Smaller ecosystem, fewer transports (no QUIC, no WebSocket), no anti-censorship story. Tightly coupled to the Hypercore/Dat ecosystem. Node.js-native (not Go). Hole punching may have higher success rates in some NAT scenarios because DHT nodes actively broker the handshake.
+- **Link**: https://github.com/holepunchto/hyperswarm
+
 #### Iroh — Library competitor to libp2p itself
 
 - **Stack**: Rust, QUIC, custom relay protocol
@@ -112,6 +120,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 |---------|-------|-------|---------------|-------------|------------|----------------|
 | **peer-up** | Go + libp2p | TCP service proxy | Yes (circuit relay v2) | Yes | `init` wizard + invite/join | Yes |
 | **Hyprspace** | Go + libp2p | IP layer (TUN) | Yes (circuit relay) | Yes | Manual config | Yes |
+| **Hyperswarm** | Node.js + HyperDHT | Library | Yes (DHT-assisted) | Yes | API only | Yes |
 | **connet** | Go + QUIC | TCP proxy | Yes (control server) | Partial | Manual config | Yes |
 | **tunnel** | Bash + HTTP | TCP/UDP proxy | Yes (HTTP relay) | Yes | CLI flags | Yes |
 | **Iroh** | Rust + QUIC | Library | Yes (home relay) | Yes | API only | No (uses Iroh's relays) |
@@ -119,6 +128,18 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | **Tailscale** | Go + WireGuard | IP layer (TUN) | Yes (DERP) | Yes | SSO sign-in | No |
 | **Headscale** | Go + WireGuard | IP layer (TUN) | Yes (DERP) | Yes | SSO sign-in | Partial (self-hosted control) |
 | **NetBird** | Go + WireGuard | IP layer (TUN) | Yes | Yes | Dashboard | Partial (self-hosted control) |
+
+### Blockchain P2P Networks
+
+These are not competitors but useful reference points — their P2P stacks solve different problems (block propagation, consensus) but share underlying technology with peer-up:
+
+| Network | P2P Stack | Discovery | NAT Traversal | Encryption | Key Insight |
+|---------|-----------|-----------|---------------|------------|-------------|
+| **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023 — was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
+| **Ethereum (execution)** | devp2p / RLPx | discv5 (UDP) | None (public IPs expected) | ECIES | Legacy layer, pre-Merge |
+| **Ethereum (consensus)** | **libp2p** (same as peer-up) | discv5 (chose over Kademlia) | Minimal | Noise protocol | Validates libp2p for critical infrastructure |
+| **Filecoin** | libp2p | Kademlia DHT | Circuit relay | Noise / TLS 1.3 | Largest libp2p deployment by data volume |
+| **Polkadot** | libp2p (Rust) | Kademlia DHT | Circuit relay | Noise | Multi-chain P2P; validates rust-libp2p |
 
 ---
 
@@ -416,6 +437,72 @@ Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting b
 
 ---
 
+## How does Ethereum's P2P network compare to peer-up's?
+
+Ethereum is the most relevant comparison because **its consensus layer uses the same libp2p stack** that peer-up is built on. Ethereum actually runs two separate P2P networks:
+
+### Ethereum's two P2P layers
+
+**Execution layer (devp2p/RLPx)** — the original Ethereum networking, predating The Merge:
+
+| | **devp2p (Execution)** | **peer-up (libp2p)** |
+|---|---|---|
+| **Transport** | TCP only | QUIC + TCP + WebSocket |
+| **Encryption** | ECIES (ECDH + AES) | Noise / TLS 1.3 |
+| **Multiplexing** | Capability-based sub-protocols (eth, snap) | Yamux (any number of streams) |
+| **Discovery** | discv5 (UDP-based DHT) | Kademlia DHT |
+| **NAT traversal** | None — validators expected to have public IPs | AutoNAT v2 + circuit relay + DCUtR hole punching |
+| **Identity** | ENR (Ethereum Node Records) | PeerID (Ed25519 multihash) |
+
+**Consensus layer (libp2p)** — adopted for the Beacon Chain (post-Merge):
+
+| | **Ethereum Consensus** | **peer-up** |
+|---|---|---|
+| **Stack** | libp2p (Go and Rust implementations) | libp2p (Go) |
+| **libp2p version** | ~v0.30.x era | v0.47.0 (newer) |
+| **Transports** | TCP primarily | QUIC → TCP → WebSocket |
+| **Primary pattern** | gossipsub (topic-based pub/sub for blocks/attestations) | Point-to-point streams (service proxy) |
+| **Discovery** | discv5 (custom, not libp2p Kademlia) | Kademlia DHT + relay bootstrap |
+| **NAT traversal** | Minimal (validators run on servers) | Full: AutoNAT v2 + relay + hole punch |
+| **Encryption** | Noise protocol | Noise / TLS 1.3 |
+
+### Why Ethereum chose libp2p for consensus
+
+When Ethereum needed a P2P networking stack for the Beacon Chain — the system securing hundreds of billions of dollars — they evaluated their options and chose libp2p. The reasons:
+
+1. **Modularity** — swap transports, security, multiplexers independently
+2. **Multi-language support** — Go (Prysm), Rust (Lighthouse), Java (Teku), .NET (Nethermind) all have libp2p implementations
+3. **Stream multiplexing** — essential for gossipsub topic subscriptions
+4. **Noise protocol** — mutual authentication during handshake
+
+### Why Ethereum chose discv5 over libp2p's Kademlia for discovery
+
+Ethereum's consensus layer uses libp2p for transport and encryption but **not** for peer discovery. They built discv5 instead:
+
+| | **libp2p Kademlia DHT** | **Ethereum discv5** |
+|---|---|---|
+| **Protocol** | TCP-based | UDP-based |
+| **Bandwidth** | Higher (DHT maintenance traffic) | Lower (lightweight probes) |
+| **Topic advertisement** | Not built-in | Native topic-based discovery |
+| **NAT handling** | Relies on relay/AutoNAT | Built-in PING/PONG with endpoint proof |
+| **Purpose** | General content/peer routing | Pure peer discovery (minimal scope) |
+
+The key reason: Kademlia DHT maintains routing tables and handles both content routing and peer discovery, which generates more background traffic than needed for pure discovery. discv5 does one thing — find peers — and does it with less bandwidth overhead.
+
+**For peer-up**: Kademlia DHT is the right choice today because peer-up uses it for both peer discovery and rendezvous coordination, and the bandwidth overhead is negligible at current network sizes. The discv5 approach becomes interesting at larger scales where DHT maintenance traffic is measurable.
+
+### What this means for peer-up
+
+peer-up's libp2p foundation is **validated by Ethereum's consensus layer** — the same networking stack secures one of the largest decentralized networks in existence. peer-up also benefits from improvements driven by Ethereum's scale: gossipsub optimizations, Noise protocol hardening, and transport upgrades all flow back to the shared libp2p codebase.
+
+Where peer-up goes further than Ethereum's usage:
+- **Full NAT traversal** (AutoNAT v2, circuit relay, DCUtR) — Ethereum validators don't need this
+- **QUIC as preferred transport** — Ethereum consensus still primarily uses TCP
+- **WebSocket for anti-censorship** — Ethereum has no DPI evasion story
+- **Point-to-point service proxy** — different use pattern than gossipsub broadcast
+
+---
+
 ## What emerging technologies could benefit peer-up?
 
 ### Protocols to watch
@@ -576,4 +663,4 @@ No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum
 
 ---
 
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-02-16

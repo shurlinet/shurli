@@ -920,6 +920,8 @@ Validated at four points:
 - QUIC transport (preferred — 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
 
+**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot — networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](FAQ.md#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
+
 **Optional**:
 - Ethereum (blockchain naming)
 - IPFS (distributed storage)
