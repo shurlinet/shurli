@@ -136,6 +136,26 @@ func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, proto
 	return &serviceStream{stream: s}, nil
 }
 
+// UnregisterService removes a service and its stream handler.
+func (r *ServiceRegistry) UnregisterService(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	svc, exists := r.services[name]
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrServiceNotFound, name)
+	}
+
+	// Remove stream handler
+	r.host.RemoveStreamHandler(protocol.ID(svc.Protocol))
+
+	// Remove from registry
+	delete(r.services, name)
+
+	slog.Info("unregistered service", "service", name, "protocol", svc.Protocol)
+	return nil
+}
+
 // GetService retrieves a registered service by name
 func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 	r.mu.RLock()

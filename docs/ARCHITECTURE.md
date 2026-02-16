@@ -14,7 +14,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 ---
 
-## Current Architecture (Phase 4C Batch E Complete)
+## Current Architecture (Phase 4C Batch F Complete)
 
 ### Component Overview
 
@@ -22,12 +22,17 @@ This document describes the technical architecture of peer-up, from current impl
 peer-up/
 ├── cmd/
 │   ├── peerup/              # Single binary with subcommands
-│   │   ├── main.go          # Command dispatch (init, serve, proxy, ping, whoami,
-│   │   │                    #   auth, relay, config, service, invite, join, status)
+│   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
+│   │   │                    #   proxy, whoami, auth, relay, config, service,
+│   │   │                    #   invite, join, status, init, version)
+│   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
+│   │   ├── cmd_serve.go     # Alias for daemon (backward compat)
+│   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) — used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
-│   │   ├── cmd_serve.go     # Server mode (expose services, watchdog, config archive)
 │   │   ├── cmd_proxy.go     # TCP proxy client
-│   │   ├── cmd_ping.go      # Connectivity test
+│   │   ├── cmd_ping.go      # Standalone P2P ping (continuous, stats)
+│   │   ├── cmd_traceroute.go # Standalone P2P traceroute
+│   │   ├── cmd_resolve.go   # Standalone name resolution
 │   │   ├── cmd_whoami.go    # Show own peer ID
 │   │   ├── cmd_auth.go      # Auth add/list/remove/validate subcommands
 │   │   ├── cmd_relay.go     # Relay add/list/remove subcommands
@@ -43,10 +48,13 @@ peer-up/
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
-│   ├── service.go           # Service registry (delegates validation to internal/validate)
+│   ├── service.go           # Service registry (register/unregister, expose/unexpose)
 │   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close
 │   ├── naming.go            # Local name resolution (name → peer ID)
-│   └── identity.go          # Identity helpers (delegates to internal/identity)
+│   ├── identity.go          # Identity helpers (delegates to internal/identity)
+│   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
+│   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   └── errors.go            # Sentinel errors
 │
 ├── internal/
 │   ├── config/              # YAML configuration loading + self-healing
@@ -58,7 +66,15 @@ peer-up/
 │   ├── auth/                # SSH-style authentication
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
 │   │   ├── gater.go            # ConnectionGater implementation
-│   │   └── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI commands)
+│   │   ├── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI commands)
+│   │   └── errors.go           # Sentinel errors
+│   ├── daemon/              # Daemon API server + client
+│   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
+│   │   ├── server.go           # Unix socket HTTP server, cookie auth, proxy tracking
+│   │   ├── handlers.go         # HTTP handlers, format negotiation (JSON + text)
+│   │   ├── client.go           # Client library for CLI → daemon communication
+│   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
+│   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
 │   ├── identity/            # Ed25519 identity management (shared by peerup + relay-server)
 │   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   ├── invite/              # Invite code encoding/decoding
@@ -82,6 +98,10 @@ peer-up/
 │   ├── relay-server.service # systemd unit file
 │   └── relay-server.sample.yaml
 │
+├── deploy/                  # Service management files
+│   ├── peerup-daemon.service   # systemd unit for daemon (Linux)
+│   └── com.peerup.daemon.plist # launchd plist for daemon (macOS)
+│
 ├── configs/                 # Sample configuration files
 │   ├── peerup.sample.yaml
 │   ├── relay-server.sample.yaml
@@ -89,6 +109,8 @@ peer-up/
 │
 ├── docs/                    # Project documentation
 │   ├── ARCHITECTURE.md      # This file
+│   ├── DAEMON-API.md        # Daemon API reference
+│   ├── NETWORK-TOOLS.md     # Network diagnostic tools guide
 │   ├── FAQ.md
 │   ├── ROADMAP.md
 │   └── TESTING.md
@@ -205,8 +227,9 @@ Building on the current structure, future phases will add:
 ```
 peer-up/
 ├── cmd/
-│   ├── peerup/              # ✅ Single binary (init, serve, proxy, ping, whoami,
-│   │                        #   auth, relay, service, invite, join, status)
+│   ├── peerup/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
+│   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
+│   │                        #   status, init, version)
 │   ├── relay-server/        # ✅ Circuit relay v2 source
 │   └── gateway/             # 🆕 Phase 4F: Multi-mode daemon (SOCKS, DNS, TUN)
 │
@@ -381,6 +404,83 @@ peer-up/
 
 ---
 
+## Daemon Architecture
+
+### serve → daemon (Zero Duplication)
+
+`peerup daemon` replaces `peerup serve`. The serve command is a one-line alias:
+
+```go
+func runServe(args []string) {
+    runDaemon(args) // serve is now an alias for daemon
+}
+```
+
+Anyone who typed `peerup serve` from docs still works. The daemon always starts the control socket (zero overhead if unused — it's just a Unix listener).
+
+### Shared P2P Runtime
+
+To avoid code duplication, the P2P lifecycle is extracted into `serve_common.go`:
+
+```go
+// serveRuntime holds the shared P2P lifecycle state.
+type serveRuntime struct {
+    network    *p2pnet.Network
+    config     *config.HomeNodeConfig
+    configFile string
+    gater      *auth.AuthorizedPeerGater  // nil if gating disabled
+    authKeys   string                      // path to authorized_keys
+    ctx        context.Context
+    cancel     context.CancelFunc
+    version    string
+    startTime  time.Time
+}
+```
+
+Methods: `newServeRuntime()`, `Bootstrap()`, `ExposeConfiguredServices()`, `SetupPingPong()`, `StartWatchdog()`, `StartStatusPrinter()`, `Shutdown()`.
+
+### Daemon Server
+
+The daemon server (`internal/daemon/`) is decoupled from the CLI via the `RuntimeInfo` interface:
+
+```go
+type RuntimeInfo interface {
+    Network() *p2pnet.Network
+    ConfigFile() string
+    AuthKeysPath() string
+    GaterForHotReload() GaterReloader  // nil if gating disabled
+    Version() string
+    StartTime() time.Time
+    PingProtocolID() string
+}
+```
+
+The `serveRuntime` struct implements this interface in `cmd_daemon.go`, keeping the daemon package importable without depending on CLI code.
+
+### Cookie-Based Authentication
+
+Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/peerup/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern — no plaintext passwords in config, token rotates on restart, same-user access only.
+
+### Stale Socket Detection
+
+No PID files. On startup, the daemon dials the existing socket:
+- Connection succeeds → another daemon is alive → return error
+- Connection fails → stale socket from a crash → remove and proceed
+
+### Unix Socket API
+
+14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [DAEMON-API.md](DAEMON-API.md).
+
+### Dynamic Proxy Management
+
+The daemon tracks active TCP proxies in memory. Scripts can create proxies via `POST /v1/connect` and tear them down via `DELETE /v1/connect/{id}`. All proxies are cleaned up on daemon shutdown.
+
+### Auth Hot-Reload
+
+`POST /v1/auth` and `DELETE /v1/auth/{peer_id}` modify the `authorized_keys` file and immediately reload the connection gater via the `GaterReloader` interface. Access grants and revocations take effect without restart.
+
+---
+
 ## Concurrency Model
 
 Background goroutines follow a consistent pattern for lifecycle management:
@@ -408,9 +508,9 @@ This ensures goroutines exit cleanly when the parent context is cancelled (e.g.,
 
 ### Watchdog + sd_notify
 
-Both `serve` and `relay-server` run a watchdog goroutine (`internal/watchdog`) that performs health checks every 30 seconds:
+Both `daemon` and `relay-server` run a watchdog goroutine (`internal/watchdog`) that performs health checks every 30 seconds:
 
-- **peerup serve**: Checks host has listen addresses and relay reservation is active
+- **peerup daemon**: Checks host has listen addresses, relay reservation is active, and Unix socket is responsive
 - **relay-server**: Checks host has listen addresses and protocols are registered
 
 On success, sends `WATCHDOG=1` to systemd via the `NOTIFY_SOCKET` unix datagram socket (pure Go, no CGo). On non-systemd systems (macOS), all sd_notify calls are no-ops. `READY=1` is sent after startup completes; `STOPPING=1` on shutdown.
@@ -435,7 +535,7 @@ When a commit-confirmed is active (`peerup config apply --confirm-timeout`), `se
 
 ### Graceful Shutdown
 
-Long-running commands (`serve`, `proxy`, `relay-server`) handle `SIGINT`/`SIGTERM` by calling `cancel()` on their root context, which propagates to all background goroutines. Deferred cleanup (`net.Close()`, `listener.Close()`) runs after goroutines stop.
+Long-running commands (`daemon`, `proxy`, `relay-server`) handle `SIGINT`/`SIGTERM` by calling `cancel()` on their root context, which propagates to all background goroutines. The daemon also accepts shutdown requests via the API (`POST /v1/shutdown`). Deferred cleanup (`net.Close()`, `listener.Close()`, socket/cookie removal) runs after goroutines stop.
 
 ### Atomic Counters
 
@@ -930,4 +1030,4 @@ Validated at four points:
 ---
 
 **Last Updated**: 2026-02-16
-**Architecture Version**: 2.7 (Service CLI — peerup service add/remove/list)
+**Architecture Version**: 2.8 (Daemon Mode — Unix socket API, cookie auth, network tools)

@@ -74,9 +74,10 @@ type Network struct {
 // Config for creating a new P2P network
 type Config struct {
 	KeyFile         string
-	AuthorizedKeys  string
+	AuthorizedKeys  string                       // Path to authorized_keys file (auto-creates gater if Gater is nil)
+	Gater           *auth.AuthorizedPeerGater     // Pre-created gater (for hot-reload support). Takes precedence over AuthorizedKeys.
 	Config          *config.Config
-	UserAgent       string            // libp2p Identify user agent (e.g. "peerup/0.1.0")
+	UserAgent       string                        // libp2p Identify user agent (e.g. "peerup/0.1.0")
 
 	// Relay configuration (optional)
 	EnableRelay         bool              // Enable relay support (AutoRelay + hole punching)
@@ -147,8 +148,12 @@ func New(cfg *Config) (*Network, error) {
 		}
 	}
 
-	// Add connection gater if authorized_keys provided
-	if cfg.AuthorizedKeys != "" {
+	// Add connection gater: use pre-created Gater if provided (enables hot-reload),
+	// otherwise auto-create from AuthorizedKeys file path (simpler for commands that
+	// don't need runtime auth management).
+	if cfg.Gater != nil {
+		hostOpts = append(hostOpts, libp2p.ConnectionGater(cfg.Gater))
+	} else if cfg.AuthorizedKeys != "" {
 		authorizedPeers, err := auth.LoadAuthorizedKeys(cfg.AuthorizedKeys)
 		if err != nil {
 			cancel()
@@ -199,6 +204,19 @@ func (n *Network) ExposeService(name, localAddress string) error {
 		LocalAddress: localAddress,
 		Enabled:      true,
 	})
+}
+
+// UnexposeService removes a previously exposed service from the P2P network.
+func (n *Network) UnexposeService(name string) error {
+	if err := ValidateServiceName(name); err != nil {
+		return err
+	}
+	return n.serviceRegistry.UnregisterService(name)
+}
+
+// ListServices returns all registered services.
+func (n *Network) ListServices() []*Service {
+	return n.serviceRegistry.ListServices()
 }
 
 // ConnectToService connects to a remote peer's service with a default 30s timeout.

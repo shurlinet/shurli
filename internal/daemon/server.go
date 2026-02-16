@@ -1,0 +1,209 @@
+package daemon
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+)
+
+// RuntimeInfo provides the daemon server with access to the P2P runtime.
+// This interface decouples the daemon package from the cmd/peerup serveRuntime struct.
+type RuntimeInfo interface {
+	Network() *p2pnet.Network
+	ConfigFile() string
+	AuthKeysPath() string
+	GaterForHotReload() GaterReloader // nil if gating disabled
+	Version() string
+	StartTime() time.Time
+	PingProtocolID() string
+}
+
+// GaterReloader allows hot-reloading the authorized peers list.
+type GaterReloader interface {
+	ReloadFromFile() error // reload authorized_keys and update the gater
+}
+
+// activeProxy tracks a dynamically created TCP proxy.
+type activeProxy struct {
+	ID       string
+	Peer     string
+	Service  string
+	Listen   string
+	listener *p2pnet.TCPListener
+	cancel   context.CancelFunc
+	done     chan struct{} // closed when the proxy goroutine exits
+}
+
+// Server is the daemon's Unix socket HTTP API server.
+type Server struct {
+	runtime    RuntimeInfo
+	httpServer *http.Server
+	listener   net.Listener
+	socketPath string
+	cookiePath string
+	authToken  string
+	version    string
+	shutdownCh chan struct{} // closed to signal shutdown to the daemon main loop
+
+	mu      sync.Mutex
+	proxies map[string]*activeProxy
+	nextID  int
+}
+
+// NewServer creates a new daemon API server.
+func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Server {
+	return &Server{
+		runtime:    runtime,
+		socketPath: socketPath,
+		cookiePath: cookiePath,
+		version:    version,
+		shutdownCh: make(chan struct{}),
+		proxies:    make(map[string]*activeProxy),
+	}
+}
+
+// ShutdownCh returns a channel that is closed when a shutdown is requested
+// via the API (POST /v1/shutdown).
+func (s *Server) ShutdownCh() <-chan struct{} {
+	return s.shutdownCh
+}
+
+// Start creates the cookie file, binds the Unix socket, and starts serving.
+// It returns immediately — the server runs in a background goroutine.
+func (s *Server) Start() error {
+	// Generate auth cookie
+	token, err := generateCookie()
+	if err != nil {
+		return fmt.Errorf("failed to generate auth cookie: %w", err)
+	}
+	s.authToken = token
+
+	if err := os.WriteFile(s.cookiePath, []byte(token), 0600); err != nil {
+		return fmt.Errorf("failed to write cookie file: %w", err)
+	}
+	slog.Info("daemon cookie written", "path", s.cookiePath)
+
+	// Check for stale socket
+	if err := s.checkStaleSocket(); err != nil {
+		os.Remove(s.cookiePath)
+		return err
+	}
+
+	// Bind Unix socket
+	listener, err := net.Listen("unix", s.socketPath)
+	if err != nil {
+		os.Remove(s.cookiePath)
+		return fmt.Errorf("failed to listen on socket: %w", err)
+	}
+
+	// Set socket permissions to owner-only
+	if err := os.Chmod(s.socketPath, 0600); err != nil {
+		listener.Close()
+		os.Remove(s.cookiePath)
+		return fmt.Errorf("failed to set socket permissions: %w", err)
+	}
+
+	s.listener = listener
+
+	// Set up HTTP routes
+	mux := http.NewServeMux()
+	s.registerRoutes(mux)
+
+	s.httpServer = &http.Server{
+		Handler:      s.authMiddleware(mux),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second, // longer for streaming ping
+	}
+
+	go func() {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			slog.Error("daemon server error", "error", err)
+		}
+	}()
+
+	slog.Info("daemon API listening", "socket", s.socketPath)
+	return nil
+}
+
+// Stop gracefully shuts down the HTTP server, closes all proxies,
+// and cleans up the socket and cookie files.
+func (s *Server) Stop() {
+	slog.Info("daemon server shutting down")
+
+	// Shutdown HTTP server
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	s.httpServer.Shutdown(ctx)
+
+	// Close all active proxies
+	s.mu.Lock()
+	for id, proxy := range s.proxies {
+		slog.Info("closing proxy", "id", id)
+		proxy.cancel()
+		if proxy.listener != nil {
+			proxy.listener.Close()
+		}
+		<-proxy.done // wait for goroutine to exit
+	}
+	s.proxies = make(map[string]*activeProxy)
+	s.mu.Unlock()
+
+	// Clean up files
+	os.Remove(s.socketPath)
+	os.Remove(s.cookiePath)
+	slog.Info("daemon server stopped")
+}
+
+// checkStaleSocket checks if a daemon is already running on the socket.
+// If the socket exists but no daemon is listening, it removes the stale socket.
+func (s *Server) checkStaleSocket() error {
+	if _, err := os.Stat(s.socketPath); os.IsNotExist(err) {
+		return nil // no socket, good to go
+	}
+
+	// Socket file exists — try connecting to it
+	conn, err := net.DialTimeout("unix", s.socketPath, 2*time.Second)
+	if err != nil {
+		// Can't connect — stale socket, remove it
+		slog.Info("removing stale daemon socket", "path", s.socketPath)
+		os.Remove(s.socketPath)
+		return nil
+	}
+
+	// Connection succeeded — another daemon is alive
+	conn.Close()
+	return fmt.Errorf("%w: socket %s is already in use", ErrDaemonAlreadyRunning, s.socketPath)
+}
+
+// generateCookie creates a 32-byte random hex token.
+func generateCookie() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// authMiddleware checks the Authorization: Bearer <token> header on every request.
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		expected := "Bearer " + s.authToken
+
+		if auth != expected {
+			respondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}

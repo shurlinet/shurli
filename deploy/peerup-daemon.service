@@ -1,0 +1,30 @@
+[Unit]
+Description=peer-up daemon — P2P network service
+Documentation=https://peerup.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/peerup daemon
+Restart=on-failure
+RestartSec=5
+WatchdogSec=90
+User=peerup
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/peerup/.config/peerup
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,484 @@
+package daemon
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+)
+
+// --- Mock runtime ---
+
+type mockRuntime struct {
+	version   string
+	startTime time.Time
+	pingProto string
+}
+
+func (m *mockRuntime) Network() *p2pnet.Network       { return nil }
+func (m *mockRuntime) ConfigFile() string              { return "/mock/config.yaml" }
+func (m *mockRuntime) AuthKeysPath() string            { return "" }
+func (m *mockRuntime) GaterForHotReload() GaterReloader { return nil }
+func (m *mockRuntime) Version() string                 { return m.version }
+func (m *mockRuntime) StartTime() time.Time            { return m.startTime }
+func (m *mockRuntime) PingProtocolID() string          { return m.pingProto }
+
+func newMockRuntime() *mockRuntime {
+	return &mockRuntime{
+		version:   "test-0.1.0",
+		startTime: time.Now().Add(-60 * time.Second),
+		pingProto: "/peerup/ping/1.0.0",
+	}
+}
+
+// --- Helper to create a test server ---
+
+func newTestServer(t *testing.T) (*Server, string) {
+	t.Helper()
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "test.sock")
+	cookiePath := filepath.Join(dir, ".test-cookie")
+
+	rt := newMockRuntime()
+	srv := NewServer(rt, socketPath, cookiePath, "test-0.1.0")
+	return srv, dir
+}
+
+// --- Tests ---
+
+func TestGenerateCookie(t *testing.T) {
+	token, err := generateCookie()
+	if err != nil {
+		t.Fatalf("generateCookie failed: %v", err)
+	}
+	if len(token) != 64 { // 32 bytes = 64 hex chars
+		t.Errorf("expected 64-char hex token, got %d chars", len(token))
+	}
+
+	// Generate another — should be different
+	token2, err := generateCookie()
+	if err != nil {
+		t.Fatalf("second generateCookie failed: %v", err)
+	}
+	if token == token2 {
+		t.Error("two generated cookies should not be identical")
+	}
+}
+
+func TestAuthMiddleware_ValidToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.authToken = "test-secret-token"
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	handler := srv.authMiddleware(inner)
+
+	req := httptest.NewRequest("GET", "/v1/status", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-token")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_MissingToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.authToken = "test-secret-token"
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("inner handler should not be called")
+	})
+
+	handler := srv.authMiddleware(inner)
+
+	req := httptest.NewRequest("GET", "/v1/status", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+
+	var errResp ErrorResponse
+	json.NewDecoder(rec.Body).Decode(&errResp)
+	if errResp.Error == "" {
+		t.Error("expected error message in response")
+	}
+}
+
+func TestAuthMiddleware_WrongToken(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.authToken = "test-secret-token"
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("inner handler should not be called")
+	})
+
+	handler := srv.authMiddleware(inner)
+
+	req := httptest.NewRequest("GET", "/v1/status", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestRespondJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	respondJSON(rec, http.StatusOK, map[string]string{"hello": "world"})
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %s", ct)
+	}
+
+	var envelope DataResponse
+	var data map[string]string
+	body := rec.Body.Bytes()
+	json.Unmarshal(body, &envelope)
+	// Re-marshal the Data field to get it as map
+	dataBytes, _ := json.Marshal(envelope.Data)
+	json.Unmarshal(dataBytes, &data)
+	if data["hello"] != "world" {
+		t.Errorf("expected data.hello=world, got %v", data)
+	}
+}
+
+func TestRespondText(t *testing.T) {
+	rec := httptest.NewRecorder()
+	respondText(rec, http.StatusOK, "hello world\n")
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("expected text/plain, got %s", ct)
+	}
+	if body := rec.Body.String(); body != "hello world\n" {
+		t.Errorf("expected 'hello world\\n', got %q", body)
+	}
+}
+
+func TestRespondError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	respondError(rec, http.StatusBadRequest, "something went wrong")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+
+	var errResp ErrorResponse
+	json.NewDecoder(rec.Body).Decode(&errResp)
+	if errResp.Error != "something went wrong" {
+		t.Errorf("expected error 'something went wrong', got %q", errResp.Error)
+	}
+}
+
+func TestWantsText_QueryParam(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/status?format=text", nil)
+	if !wantsText(req) {
+		t.Error("expected wantsText=true for ?format=text")
+	}
+}
+
+func TestWantsText_AcceptHeader(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/status", nil)
+	req.Header.Set("Accept", "text/plain")
+	if !wantsText(req) {
+		t.Error("expected wantsText=true for Accept: text/plain")
+	}
+}
+
+func TestWantsText_Default(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/status", nil)
+	if wantsText(req) {
+		t.Error("expected wantsText=false for default request")
+	}
+}
+
+func TestServerStartStop(t *testing.T) {
+	srv, dir := newTestServer(t)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Check cookie file exists
+	cookiePath := filepath.Join(dir, ".test-cookie")
+	if _, err := os.Stat(cookiePath); os.IsNotExist(err) {
+		t.Error("cookie file should exist after Start")
+	}
+
+	// Check socket file exists
+	socketPath := filepath.Join(dir, "test.sock")
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		t.Error("socket file should exist after Start")
+	}
+
+	// Verify auth token was set
+	if srv.authToken == "" {
+		t.Error("auth token should be set after Start")
+	}
+
+	// Stop
+	srv.Stop()
+
+	// Check files cleaned up
+	if _, err := os.Stat(cookiePath); !os.IsNotExist(err) {
+		t.Error("cookie file should be removed after Stop")
+	}
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("socket file should be removed after Stop")
+	}
+}
+
+func TestServerStaleSocketDetection(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "test.sock")
+	cookiePath := filepath.Join(dir, ".test-cookie")
+
+	// Create a stale socket file (no listener behind it)
+	os.WriteFile(socketPath, []byte{}, 0600)
+
+	rt := newMockRuntime()
+	srv := NewServer(rt, socketPath, cookiePath, "test")
+
+	// Should succeed — stale socket is detected and removed
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start with stale socket should succeed: %v", err)
+	}
+	srv.Stop()
+}
+
+func TestServerDaemonAlreadyRunning(t *testing.T) {
+	srv1, dir := newTestServer(t)
+
+	if err := srv1.Start(); err != nil {
+		t.Fatalf("First Start failed: %v", err)
+	}
+	defer srv1.Stop()
+
+	// Try starting a second server on the same socket
+	socketPath := filepath.Join(dir, "test.sock")
+	cookiePath := filepath.Join(dir, ".test-cookie2")
+	rt := newMockRuntime()
+	srv2 := NewServer(rt, socketPath, cookiePath, "test")
+
+	err := srv2.Start()
+	if err == nil {
+		srv2.Stop()
+		t.Fatal("Second Start should fail with ErrDaemonAlreadyRunning")
+	}
+	if !strings.Contains(err.Error(), "already running") {
+		t.Errorf("expected 'already running' error, got: %v", err)
+	}
+}
+
+func TestServerShutdownChannel(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// ShutdownCh should not be closed initially
+	select {
+	case <-srv.ShutdownCh():
+		t.Fatal("ShutdownCh should not be closed before shutdown request")
+	default:
+		// Good
+	}
+
+	// Clean up
+	srv.Stop()
+}
+
+func TestClientNewClient_SocketNotFound(t *testing.T) {
+	_, err := NewClient("/nonexistent/socket", "/nonexistent/cookie")
+	if err == nil {
+		t.Fatal("expected error for nonexistent socket")
+	}
+	if !strings.Contains(err.Error(), "not running") {
+		t.Errorf("expected 'not running' error, got: %v", err)
+	}
+}
+
+func TestClientNewClient_CookieNotFound(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "test.sock")
+	os.WriteFile(socketPath, []byte{}, 0600) // Create socket file
+
+	_, err := NewClient(socketPath, filepath.Join(dir, "nonexistent-cookie"))
+	if err == nil {
+		t.Fatal("expected error for missing cookie")
+	}
+	if !strings.Contains(err.Error(), "cookie") {
+		t.Errorf("expected cookie-related error, got: %v", err)
+	}
+}
+
+func TestClientIntegration(t *testing.T) {
+	// This test creates a real server + client and tests end-to-end
+	// communication. The mock runtime doesn't have a real P2P network,
+	// so we can only test endpoints that don't require one.
+
+	srv, dir := newTestServer(t)
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	socketPath := filepath.Join(dir, "test.sock")
+	cookiePath := filepath.Join(dir, ".test-cookie")
+
+	client, err := NewClient(socketPath, cookiePath)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// Test: status endpoint returns nil Network, so it will panic.
+	// We'll test the shutdown endpoint instead which doesn't need Network.
+
+	// Test shutdown via client
+	err = client.Shutdown()
+	if err != nil {
+		t.Fatalf("Shutdown request failed: %v", err)
+	}
+
+	// ShutdownCh should be closed shortly
+	select {
+	case <-srv.ShutdownCh():
+		// Good — shutdown was signaled
+	case <-time.After(2 * time.Second):
+		t.Fatal("ShutdownCh was not closed after shutdown request")
+	}
+}
+
+func TestHandlerShutdown_Response(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.authToken = "test-token"
+
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	req := httptest.NewRequest("POST", "/v1/shutdown", nil)
+	rec := httptest.NewRecorder()
+
+	// Call handler directly (skip auth for unit test)
+	srv.handleShutdown(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+
+	body, _ := io.ReadAll(rec.Body)
+	var envelope DataResponse
+	json.Unmarshal(body, &envelope)
+	dataMap, ok := envelope.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data to be a map, got %T", envelope.Data)
+	}
+	if dataMap["status"] != "shutting down" {
+		t.Errorf("expected status='shutting down', got %v", dataMap["status"])
+	}
+}
+
+func TestComputePingStats_Empty(t *testing.T) {
+	stats := p2pnet.ComputePingStats(nil)
+	if stats.Sent != 0 || stats.Received != 0 || stats.Lost != 0 {
+		t.Errorf("empty stats should be all zeros, got %+v", stats)
+	}
+}
+
+func TestComputePingStats_AllSuccess(t *testing.T) {
+	results := []p2pnet.PingResult{
+		{Seq: 1, RttMs: 10.0, Path: "DIRECT"},
+		{Seq: 2, RttMs: 20.0, Path: "DIRECT"},
+		{Seq: 3, RttMs: 30.0, Path: "RELAYED"},
+	}
+
+	stats := p2pnet.ComputePingStats(results)
+	if stats.Sent != 3 {
+		t.Errorf("expected Sent=3, got %d", stats.Sent)
+	}
+	if stats.Received != 3 {
+		t.Errorf("expected Received=3, got %d", stats.Received)
+	}
+	if stats.Lost != 0 {
+		t.Errorf("expected Lost=0, got %d", stats.Lost)
+	}
+	if stats.LossPct != 0.0 {
+		t.Errorf("expected LossPct=0, got %f", stats.LossPct)
+	}
+	if stats.MinMs != 10.0 {
+		t.Errorf("expected MinMs=10.0, got %f", stats.MinMs)
+	}
+	if stats.MaxMs != 30.0 {
+		t.Errorf("expected MaxMs=30.0, got %f", stats.MaxMs)
+	}
+	if stats.AvgMs != 20.0 {
+		t.Errorf("expected AvgMs=20.0, got %f", stats.AvgMs)
+	}
+}
+
+func TestComputePingStats_WithErrors(t *testing.T) {
+	results := []p2pnet.PingResult{
+		{Seq: 1, RttMs: 10.0, Path: "DIRECT"},
+		{Seq: 2, Error: "timeout"},
+		{Seq: 3, RttMs: 30.0, Path: "RELAYED"},
+	}
+
+	stats := p2pnet.ComputePingStats(results)
+	if stats.Sent != 3 {
+		t.Errorf("expected Sent=3, got %d", stats.Sent)
+	}
+	if stats.Received != 2 {
+		t.Errorf("expected Received=2, got %d", stats.Received)
+	}
+	if stats.Lost != 1 {
+		t.Errorf("expected Lost=1, got %d", stats.Lost)
+	}
+	// 1/3 = 33.33...%
+	if stats.LossPct < 33.0 || stats.LossPct > 34.0 {
+		t.Errorf("expected LossPct ~33.3%%, got %f", stats.LossPct)
+	}
+}
+
+func TestComputePingStats_AllErrors(t *testing.T) {
+	results := []p2pnet.PingResult{
+		{Seq: 1, Error: "timeout"},
+		{Seq: 2, Error: "connection refused"},
+	}
+
+	stats := p2pnet.ComputePingStats(results)
+	if stats.Received != 0 {
+		t.Errorf("expected Received=0, got %d", stats.Received)
+	}
+	if stats.LossPct != 100.0 {
+		t.Errorf("expected LossPct=100, got %f", stats.LossPct)
+	}
+	if stats.MinMs != 0.0 || stats.MaxMs != 0.0 || stats.AvgMs != 0.0 {
+		t.Errorf("expected all RTT stats to be 0, got min=%f avg=%f max=%f", stats.MinMs, stats.AvgMs, stats.MaxMs)
+	}
+}

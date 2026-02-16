@@ -206,7 +206,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | C | **Self-Healing** | Config validation/archive/rollback, commit-confirmed, systemd watchdog |
 | D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | ✅ DONE |
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
-| F | **Daemon Mode** | `peerup daemon`, Unix socket API, JSON control protocol, programmatic access | **Next** |
+| F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
 
 **Deliverables**:
@@ -246,7 +246,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] **Protocol versioning policy** — document compatibility guarantees: wire protocols (`/peerup/proxy/1.0.0`) are backwards-compatible within major version. Breaking changes increment major version. Old versions supported for 1 release cycle.
 
 **Automation & Integration**:
-- [ ] **Daemon mode** — `peerup daemon` runs in background, exposes Unix socket API (`~/.config/peerup/peerup.sock`) for programmatic control. Enables scripting, automation, and third-party integration without spawning CLI subprocesses. JSON-based request/response. Operations: status, list-peers, list-services, connect, expose, authorize. *(Batch F)*
+- [x] **Daemon mode** — `peerup daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/peerup/peerup.sock`) with cookie-based auth. JSON + plain text responses. 14 endpoints: status, peers, services, auth (add/remove/hot-reload), ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown. `peerup serve` is now an alias. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** — `peerup invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `peerup join --non-interactive` reads invite code from CLI arg, `PEERUP_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:
@@ -302,6 +302,25 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] `peerup invite --non-interactive` — bare invite code to stdout, progress to stderr, skip QR
 - [x] `peerup join --non-interactive` — reads code from CLI arg, `PEERUP_INVITE_CODE` env var, or stdin
 - [x] UserAgent fix — added `peerup/<version>` UserAgent to invite/join hosts (was missing from Batch D)
+
+**Batch F — Daemon Mode** (completed):
+- [x] `peerup daemon` — long-running P2P host with Unix socket HTTP API
+- [x] Cookie-based authentication (32-byte random hex, `0600` permissions, rotated per restart)
+- [x] 14 API endpoints with JSON + plain text format negotiation (`?format=text` / `Accept: text/plain`)
+- [x] `serve_common.go` — extracted shared P2P runtime (zero duplication between serve and daemon)
+- [x] `peerup serve` is now an alias for `peerup daemon`
+- [x] Auth hot-reload — `POST /v1/auth` and `DELETE /v1/auth/{peer_id}` take effect immediately
+- [x] Dynamic proxy management — create/destroy TCP proxies at runtime via API
+- [x] P2P ping — standalone (`peerup ping`) + daemon API, continuous/single-shot, stats summary
+- [x] P2P traceroute — standalone (`peerup traceroute`) + daemon API, DIRECT vs RELAYED path analysis
+- [x] P2P resolve — standalone (`peerup resolve`) + daemon API, name → peer ID
+- [x] Stale socket detection (dial test, no PID files)
+- [x] Daemon client library (`internal/daemon/client.go`) with auto cookie reading
+- [x] CLI client commands: `peerup daemon status/stop/ping/services/peers/connect/disconnect`
+- [x] Service files: `deploy/peerup-daemon.service` (systemd) + `deploy/com.peerup.daemon.plist` (launchd)
+- [x] Watchdog extended with Unix socket health check
+- [x] Tests: auth middleware, handlers, lifecycle, stale socket, integration, ping stats
+- [x] Documentation: `docs/DAEMON-API.md` (full API reference), `docs/NETWORK-TOOLS.md` (diagnostic commands)
 
 **Service CLI** (completed — completes the CLI config management pattern):
 - [x] `peerup service add <name> <address>` — add a service (enabled by default), optional `--protocol` flag
@@ -390,7 +409,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [ ] Service tags in config: `tags: [gpu, inference]` — categorize services for discovery
 
 **Python SDK** (`peerup-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API
+- [ ] Thin wrapper around daemon Unix socket API (14 endpoints already implemented in Batch F)
 - [ ] `pip install peerup-sdk`
 - [ ] Core operations: connect, expose_service, discover_services, proxy, status
 - [ ] Async support (asyncio) for integration with event-driven applications
@@ -1028,6 +1047,6 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-16
-**Current Phase**: 4C In Progress (Batch A ✅; Batch B ✅; Batch C ✅; Batch D ✅; Batch E ✅)
+**Current Phase**: 4C In Progress (Batch A ✅; Batch B ✅; Batch C ✅; Batch D ✅; Batch E ✅; Batch F ✅)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch F (Daemon Mode) — `peerup daemon`, Unix socket API, JSON control protocol, programmatic access
+**Next Milestone**: Phase 4C Batch G (Observability) — OpenTelemetry, metrics, audit logging, trace IDs
