@@ -207,7 +207,8 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | ✅ DONE |
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
-| G | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
+| G | **Test Coverage** | Expand tests to >60% coverage, Docker integration tests, CLI tests |
+| H | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
 
 **Deliverables**:
 
@@ -321,6 +322,18 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Watchdog extended with Unix socket health check
 - [x] Tests: auth middleware, handlers, lifecycle, stale socket, integration, ping stats
 - [x] Documentation: `docs/DAEMON-API.md` (full API reference), `docs/NETWORK-TOOLS.md` (diagnostic commands)
+
+**Batch G — Test Coverage** (planned):
+
+Priority areas (by gap severity):
+- [ ] **cmd/relay-server** (0% → target 50%+) — health endpoint handler, resource limit validation, startup/shutdown lifecycle
+- [ ] **cmd/peerup** (4% → target 40%+) — CLI command parsing, flag handling, config template rendering, daemon start/stop lifecycle, error paths in init/invite/join
+- [ ] **internal/daemon** (12% → target 70%+) — all 14 API handlers (status, ping, traceroute, resolve, connect/disconnect, auth CRUD, services, shutdown), format negotiation, cookie auth edge cases, proxy lifecycle, client library
+- [ ] **pkg/p2pnet** (23% → target 60%+) — naming resolution, service registry (register/unregister/list), proxy half-close semantics, relay address parsing, identity management
+- [ ] **internal/config** (48% → target 75%+) — archive/rollback, commit-confirmed timer, edge cases in loader
+- [ ] **internal/auth** (50% → target 75%+) — hot-reload, concurrent access, malformed input
+- [ ] **Docker integration tests** — multi-container test environment for realistic daemon-to-daemon scenarios (invite/join, ping, proxy, relay traversal)
+- [ ] **CI coverage reporting** — add coverage threshold to GitHub Actions (`go test -coverprofile`, fail if below target)
 
 **Service CLI** (completed — completes the CLI config management pattern):
 - [x] `peerup service add <name> <address>` — add a service (enabled by default), optional `--protocol` flag
@@ -962,7 +975,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Phase 4C Success**:
 - CI pipeline runs on every push (build + vet + test with `-race`)
 - Config versioning enables safe schema migration across deployments
-- `go test -race ./...` passes with >60% coverage on auth, config, naming, proxy
+- `go test -race ./...` passes with >60% overall coverage; >70% on daemon, auth, config; >40% on CLI commands
 - Relay has explicit resource limits (not infinite)
 - `authorized_keys` changes take effect without restart
 - Proxy command attempts DCUtR direct connection before falling back to relay
@@ -1046,7 +1059,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-17
 **Current Phase**: 4C In Progress (Batch A ✅; Batch B ✅; Batch C ✅; Batch D ✅; Batch E ✅; Batch F ✅)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch G (Observability) — OpenTelemetry, metrics, audit logging, trace IDs
+**Next Milestone**: Phase 4C Batch G (Test Coverage) — expand tests to >60% coverage, Docker integration, CI coverage gates
