@@ -13,6 +13,12 @@ A libp2p-based peer-to-peer network platform that enables secure connections acr
 - Flexible naming - Local names, network-scoped domains, optional blockchain anchoring
 - Reusable library - Import `pkg/p2pnet` in your own Go projects
 
+## Engineering Philosophy
+
+This is not a weekend hobby project. peer-up is built as critical infrastructure — the kind where failure has real consequences for real people: financial, psychological, and potentially physical. Every line of code, every deployment decision, and every security choice is made with that weight in mind.
+
+Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here.
+
 ## Current Status
 
 - **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`, `invite`, `join`, `whoami`, `auth`, `relay`, `config`, `version`
