@@ -80,7 +80,7 @@ func printUsage() {
 	fmt.Println("  daemon stop                              Graceful shutdown")
 	fmt.Println("  daemon ping <target> [-c N] [--json]     Ping via daemon")
 	fmt.Println("  daemon services [--json]                 List services via daemon")
-	fmt.Println("  daemon peers [--json]                    List connected peers via daemon")
+	fmt.Println("  daemon peers [--all] [--json]            List connected peers via daemon")
 	fmt.Println("  daemon connect --peer <p> --service <s> --listen <addr>")
 	fmt.Println("  daemon disconnect <id>                   Tear down proxy")
 	fmt.Println("  serve                                    Alias for daemon")
