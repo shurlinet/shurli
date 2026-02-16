@@ -799,8 +799,16 @@ if ! command -v go &> /dev/null; then
 else
     CURRENT_GO=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?')
     if ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
-        echo "[1/8] Go ${CURRENT_GO} is below minimum go${GO_MIN_VERSION} — upgrading..."
-        INSTALL_GO=true
+        echo "[1/8] Go ${CURRENT_GO} found, but go.mod requires go${GO_MIN_VERSION} or newer."
+        echo
+        echo "  This will replace /usr/local/go with go${GO_MIN_VERSION}."
+        echo "  Proceed? [y/N] "
+        read -r REPLY
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            INSTALL_GO=true
+        else
+            echo "  Skipped — build may fail if Go ${CURRENT_GO} cannot compile this project."
+        fi
     else
         echo "[1/8] Go already installed: go${CURRENT_GO} (minimum: go${GO_MIN_VERSION})"
     fi
