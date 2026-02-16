@@ -207,7 +207,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | ✅ DONE |
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
-| G | **Test Coverage** | Expand tests to >60% coverage, Docker integration tests, CLI tests |
+| G | **Test Coverage & Documentation** | Expand tests to >60% coverage, Docker integration tests, CLI tests, engineering journal |
 | H | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
 
 **Deliverables**:
@@ -323,7 +323,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Tests: auth middleware, handlers, lifecycle, stale socket, integration, ping stats
 - [x] Documentation: `docs/DAEMON-API.md` (full API reference), `docs/NETWORK-TOOLS.md` (diagnostic commands)
 
-**Batch G — Test Coverage** (planned):
+**Batch G — Test Coverage & Documentation** (planned):
 
 Priority areas (by gap severity):
 - [ ] **cmd/relay-server** (0% → target 50%+) — health endpoint handler, resource limit validation, startup/shutdown lifecycle
@@ -334,6 +334,7 @@ Priority areas (by gap severity):
 - [ ] **internal/auth** (50% → target 75%+) — hot-reload, concurrent access, malformed input
 - [ ] **Docker integration tests** — multi-container test environment for realistic daemon-to-daemon scenarios (invite/join, ping, proxy, relay traversal)
 - [ ] **CI coverage reporting** — add coverage threshold to GitHub Actions (`go test -coverprofile`, fail if below target)
+- [ ] **Engineering journal** (`docs/ENGINEERING-LOG.md`) — comprehensive documentation of every phase and batch from project inception through Batch F. Not a changelog — plan-level detail: what changed, why, what alternatives were considered, what was rejected, architecture decisions, implementation details, key code paths, lessons learned, security reasoning. Organized by phase/batch. Detailed enough that a new developer can understand not just *what* was built but *why every decision was made*. **Must not reference private research files.**
 
 **Service CLI** (completed — completes the CLI config management pattern):
 - [x] `peerup service add <name> <address>` — add a service (enabled by default), optional `--protocol` flag
@@ -1062,4 +1063,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Last Updated**: 2026-02-17
 **Current Phase**: 4C In Progress (Batch A ✅; Batch B ✅; Batch C ✅; Batch D ✅; Batch E ✅; Batch F ✅)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch G (Test Coverage) — expand tests to >60% coverage, Docker integration, CI coverage gates
+**Next Milestone**: Phase 4C Batch G (Test Coverage & Documentation) — expand tests to >60% coverage, Docker integration, CI coverage gates, engineering journal
