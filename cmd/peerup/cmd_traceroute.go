@@ -127,7 +127,10 @@ func runTraceroute(args []string) {
 // Shared by traceroute and enhanced ping.
 func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeConfig, targetPeerID peer.ID, p2pNetwork *p2pnet.Network) error {
 	// Bootstrap DHT
-	kdht, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kdht, err := dht.New(ctx, h,
+		dht.Mode(dht.ModeClient),
+		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)
 	}
@@ -146,7 +149,14 @@ func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeC
 			bootstrapPeers = append(bootstrapPeers, maddr)
 		}
 	} else {
-		bootstrapPeers = dht.DefaultBootstrapPeers
+		// Use relay addresses as DHT bootstrap peers.
+		for _, addr := range cfg.Relay.Addresses {
+			maddr, err := ma.NewMultiaddr(addr)
+			if err != nil {
+				continue
+			}
+			bootstrapPeers = append(bootstrapPeers, maddr)
+		}
 	}
 
 	var wg sync.WaitGroup

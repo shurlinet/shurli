@@ -201,7 +201,10 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Bootstrap the DHT
 	fmt.Println("Bootstrapping into the DHT...")
-	kdht, err := dht.New(rt.ctx, h, dht.Mode(dht.ModeAutoServer))
+	kdht, err := dht.New(rt.ctx, h,
+		dht.Mode(dht.ModeAutoServer),
+		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)
 	}
@@ -222,7 +225,16 @@ func (rt *serveRuntime) Bootstrap() error {
 			bootstrapPeers = append(bootstrapPeers, maddr)
 		}
 	} else {
-		bootstrapPeers = dht.DefaultBootstrapPeers
+		// Use relay addresses as DHT bootstrap peers.
+		// The relay server runs the peerup DHT — IPFS Amino peers don't speak /peerup/kad/1.0.0.
+		for _, addr := range cfg.Relay.Addresses {
+			maddr, err := ma.NewMultiaddr(addr)
+			if err != nil {
+				fmt.Printf("Invalid relay bootstrap addr %s: %v\n", addr, err)
+				continue
+			}
+			bootstrapPeers = append(bootstrapPeers, maddr)
+		}
 	}
 
 	var wg sync.WaitGroup

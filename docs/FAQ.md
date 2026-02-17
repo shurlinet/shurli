@@ -714,9 +714,8 @@ This concern has two parts:
 
 **Part 1: Visible to peers you explicitly authorized.** Yes — when a peer connects directly (via hole punch or IPv6), they see your IP. But you already authorized them in `authorized_keys`. They already know where you are conceptually. And your IP is visible in any direct TCP/QUIC connection regardless of whether relay service is enabled.
 
-**Part 2: Visible on the public DHT.** This depends on configuration. If your node advertises relay addresses on the public DHT, then yes — your relay address (which includes your IP) is discoverable. But this is configurable:
-- **Private DHT namespace**: Don't advertise on the public IPFS DHT at all
-- **Relay-only advertising**: Advertise only your relay VPS address publicly; your home IP only visible after authentication
+**Part 2: Visible on the public DHT.** No — peer-up uses a **private Kademlia DHT** (`/peerup/kad/1.0.0`), completely isolated from the public IPFS Amino DHT. Your node only talks to other peer-up nodes for discovery, not the broader IPFS network. Your addresses are only discoverable by peers running peer-up software. Additional mitigations:
+- **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
 The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS — and arguably less, since the VPS has no auth requirement for relay service.

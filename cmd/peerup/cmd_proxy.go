@@ -108,7 +108,10 @@ func runProxy(args []string) {
 	// This runs in the background — if it finds the target peer's direct
 	// addresses, libp2p will prefer them over the relay circuit.
 	fmt.Println("Bootstrapping DHT for direct connection discovery...")
-	kdht, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kdht, err := dht.New(ctx, h,
+		dht.Mode(dht.ModeClient),
+		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+	)
 	if err != nil {
 		log.Printf("DHT init failed (relay-only mode): %v", err)
 	} else {
@@ -126,7 +129,14 @@ func runProxy(args []string) {
 					bootstrapPeers = append(bootstrapPeers, maddr)
 				}
 			} else {
-				bootstrapPeers = dht.DefaultBootstrapPeers
+				// Use relay addresses as DHT bootstrap peers.
+				for _, addr := range cfg.Relay.Addresses {
+					maddr, err := ma.NewMultiaddr(addr)
+					if err != nil {
+						continue
+					}
+					bootstrapPeers = append(bootstrapPeers, maddr)
+				}
 			}
 
 			var wg sync.WaitGroup

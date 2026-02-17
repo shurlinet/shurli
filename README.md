@@ -29,7 +29,7 @@ Think of it like a bubble in outer space. If it breaks, the people inside don't 
 - **SSH-Style Authentication** - `authorized_keys` file for peer access control
 - **NAT Traversal** - Works through Starlink CGNAT using relay + hole-punching
 - **Persistent Identity** - Ed25519 keypairs saved to files
-- **DHT Discovery** - Find peers using rendezvous on Kademlia DHT
+- **DHT Discovery** - Private Kademlia DHT (`/peerup/kad/1.0.0`) for peer discovery — isolated from public IPFS network
 - **Direct Connection Upgrade** - DCUtR attempts hole-punching for direct P2P
 - **CLI Auth & Relay Management** - `peerup auth` and `peerup relay` for managing peers and relays without editing files
 - **Service Exposure** - Expose any TCP service (SSH, XRDP, HTTP, etc.) via P2P
@@ -533,7 +533,9 @@ After relay connection is established, libp2p attempts **Direct Connection Upgra
 - If successful: subsequent data flows directly (no relay bandwidth)
 - If failed (symmetric NAT): continues using relay
 
-### Peer Discovery (Kademlia DHT)
+### Peer Discovery (Private Kademlia DHT)
+
+Peer-up runs its own Kademlia DHT on protocol `/peerup/kad/1.0.0`, completely isolated from the public IPFS Amino network. The relay server acts as the bootstrap peer.
 
 Server **advertises** on DHT using rendezvous string.
 Client **searches** DHT for the rendezvous string to find the server's peer ID and addresses.

@@ -21,6 +21,11 @@ import (
 	"github.com/satindergrewal/peer-up/internal/config"
 )
 
+// DHTProtocolPrefix is the protocol prefix for the private peerup Kademlia DHT.
+// This isolates peerup from the public IPFS Amino DHT (/ipfs/kad/1.0.0),
+// giving us our own routing table at /peerup/kad/1.0.0.
+const DHTProtocolPrefix = "/peerup"
+
 // holePunchTracer logs DCUtR hole-punching events.
 type holePunchTracer struct{}
 
