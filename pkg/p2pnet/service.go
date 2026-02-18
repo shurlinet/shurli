@@ -124,8 +124,13 @@ func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, proto
 
 	slog.Info("dialing service", "peer", peerID.String()[:16]+"...", "protocol", protocolID)
 
+	// Allow limited (relay circuit) connections — without this, NewStream
+	// refuses to use relay circuits and only tries direct dials, which fail
+	// when hole punching isn't possible (e.g., carrier-grade NAT on 5G).
+	relayCtx := network.WithAllowLimitedConn(ctx, protocolID)
+
 	// Open stream to remote peer
-	s, err := r.host.NewStream(ctx, peerID, pid)
+	s, err := r.host.NewStream(relayCtx, peerID, pid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open stream: %w", err)
 	}

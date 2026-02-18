@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -171,7 +172,8 @@ func measurePeerRTT(ctx context.Context, h host.Host, peerID peer.ID) (float64, 
 	// Try to open a stream with a probe protocol — the peer will either
 	// accept (unlikely) or reject it quickly. Either way, the round-trip
 	// gives us RTT.
-	s, err := h.NewStream(measureCtx, peerID, "/peerup/rtt-probe/1.0.0")
+	probeCtx := network.WithAllowLimitedConn(measureCtx, "/peerup/rtt-probe/1.0.0")
+	s, err := h.NewStream(probeCtx, peerID, "/peerup/rtt-probe/1.0.0")
 	rtt := time.Since(start)
 
 	if err != nil {

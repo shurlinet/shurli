@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -134,9 +135,10 @@ func runJoin(args []string) {
 	}
 	h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, peerstore.PermanentAddrTTL)
 
-	// Open invite protocol stream to inviter
+	// Open invite protocol stream to inviter (allow relay circuit connections)
 	outln("Connecting to inviter...")
-	s, err := h.NewStream(ctx, data.PeerID, protocol.ID(inviteProtocol))
+	joinCtx := network.WithAllowLimitedConn(ctx, inviteProtocol)
+	s, err := h.NewStream(joinCtx, data.PeerID, protocol.ID(inviteProtocol))
 	if err != nil {
 		log.Fatalf("Failed to connect to inviter: %v\n(Is the invite still active?)", err)
 	}

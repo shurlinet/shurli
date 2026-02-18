@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
@@ -83,11 +84,12 @@ func doPing(ctx context.Context, h host.Host, peerID peer.ID, protocolID string,
 		PeerID: peerID.String(),
 	}
 
-	// Open stream with timeout
+	// Open stream with timeout, allowing relay circuit connections
 	streamCtx, streamCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer streamCancel()
+	relayCtx := network.WithAllowLimitedConn(streamCtx, protocolID)
 
-	s, err := h.NewStream(streamCtx, peerID, protocol.ID(protocolID))
+	s, err := h.NewStream(relayCtx, peerID, protocol.ID(protocolID))
 	if err != nil {
 		result.Error = fmt.Sprintf("stream: %s", truncateError(err.Error()))
 		return result
