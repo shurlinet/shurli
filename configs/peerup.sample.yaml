@@ -1,6 +1,6 @@
 # peer-up Unified Configuration
 #
-# This config works for all peerup modes (serve, proxy, ping).
+# This config works for all peerup modes (daemon, proxy, ping).
 # Run "peerup init" to generate this file interactively.
 #
 # Config search order:

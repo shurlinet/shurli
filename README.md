@@ -1,46 +1,109 @@
-# peer-up: Decentralized P2P Network Infrastructure
+# peer-up
 
-A libp2p-based peer-to-peer network platform that enables secure connections across CGNAT networks with SSH-style authentication, service exposure, and local-first naming.
+Access your home server from anywhere. Share services with friends. No cloud, no account, no SaaS dependency.
 
-## Vision
+**peer-up** connects your devices through firewalls and CGNAT using encrypted P2P tunnels with SSH-style authentication. One binary, zero configuration servers, works behind any NAT.
 
-**peer-up** is evolving from a simple NAT traversal tool into a comprehensive **decentralized P2P network infrastructure** that:
+## News
 
-- Connects your devices across CGNAT/firewall barriers (Starlink, mobile networks)
-- Exposes local services (SSH, XRDP, HTTP, SMB, custom protocols) through P2P connections
-- Federates networks - Connect your network to friends' networks
-- Works on mobile - iOS/Android apps with VPN-like functionality
-- Flexible naming - Local names, network-scoped domains, optional blockchain anchoring
-- Reusable library - Import `pkg/p2pnet` in your own Go projects
+| Date | What's New |
+|------|-----------|
+| 2026-02-18 | **Private DHT** — Peer discovery now runs on `/peerup/kad/1.0.0`, fully isolated from the public IPFS network |
+| 2026-02-17 | **Daemon mode** — Background service with Unix socket API, cookie auth, and 14 REST endpoints |
+| 2026-02-17 | **Network tools** — P2P ping, traceroute, and name resolution (standalone or via daemon) |
+| 2026-02-16 | **Service management** — `peerup service add/remove/enable/disable` from the CLI |
+| 2026-02-16 | **Config self-healing** — Archive, rollback, and commit-confirmed pattern for safe remote changes |
+| 2026-02-16 | **AutoNAT v2** — Per-address reachability detection with nonce verification |
+| 2026-02-16 | **Headless pairing** — `--non-interactive` flag for scripted invite/join workflows |
+| 2026-02-15 | **Structured logging** — `log/slog` throughout, sentinel errors, build version embedding |
 
-## Engineering Philosophy
+## What Can I Do With peer-up?
 
-This is not a weekend hobby project. peer-up is built as critical infrastructure — the kind where failure has real consequences for real people: financial, psychological, and potentially physical. Every line of code, every deployment decision, and every security choice is made with that weight in mind.
+| Use Case | Command |
+|----------|---------|
+| SSH to your home machine behind CGNAT | `peerup proxy home ssh 2222` → `ssh -p 2222 localhost` |
+| Remote desktop through NAT | `peerup proxy home xrdp 13389` → connect to `localhost:13389` |
+| Share Jellyfin with a friend | `peerup invite` on your side, `peerup join <code>` on theirs |
+| AI inference on a friend's GPU | `peerup proxy friend ollama 11434` → `curl localhost:11434` |
+| Any TCP service, zero port forwarding | `peerup proxy <peer> <service> <local-port>` |
+| Check connectivity | `peerup ping home` or `peerup traceroute home` |
 
-Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here.
+peer-up works with **two machines and zero network effect** — useful from day one.
 
-## Current Status
+## Quick Start
 
-- **Single Binary** - One `peerup` binary with subcommands: `init`, `serve`, `proxy`, `ping`, `invite`, `join`, `whoami`, `auth`, `relay`, `config`, `version`
-- **60-Second Onboarding** - `peerup invite` + `peerup join` pairs two machines with zero manual config
-- **Easy Setup** - `peerup init` interactive wizard generates config, keys, and authorized_keys
-- **Standard Config** - Auto-discovers config from `./peerup.yaml` or `~/.config/peerup/config.yaml`
-- **Configuration-Based** - YAML config files, no hardcoded values
-- **SSH-Style Authentication** - `authorized_keys` file for peer access control
-- **NAT Traversal** - Works through Starlink CGNAT using relay + hole-punching
-- **Persistent Identity** - Ed25519 keypairs saved to files
-- **DHT Discovery** - Private Kademlia DHT (`/peerup/kad/1.0.0`) for peer discovery — isolated from public IPFS network
-- **Direct Connection Upgrade** - DCUtR attempts hole-punching for direct P2P
-- **CLI Auth & Relay Management** - `peerup auth` and `peerup relay` for managing peers and relays without editing files
-- **Service Exposure** - Expose any TCP service (SSH, XRDP, HTTP, etc.) via P2P
-- **Reusable Library** - `pkg/p2pnet` package for building P2P applications
-- **Name Resolution** - Map friendly names to peer IDs in config
+### Path A: Joining someone's network
+
+If someone shared an invite code with you:
+
+```bash
+# Install (or build from source: go build -o peerup ./cmd/peerup)
+peerup join <invite-code> --name laptop
+```
+
+That's it. You're connected and mutually authorized.
+
+### Path B: Setting up your own network
+
+**1. Set up both machines:**
+```bash
+go build -o peerup ./cmd/peerup
+peerup init
+```
+
+**2. Pair them (on the first machine):**
+```bash
+peerup invite --name home
+# Shows invite code + QR code, waits for the other side...
+```
+
+**3. Join (on the second machine):**
+```bash
+peerup join <invite-code> --name laptop
+```
+
+**4. Use it:**
+```bash
+# On the server — start the daemon with services exposed
+peerup daemon
+
+# On the client — connect to a service
+peerup proxy home ssh 2222
+ssh -p 2222 user@localhost
+```
+
+> **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. A shared relay is used by default during development.
 
 ## The Problem
 
-Starlink uses Carrier-Grade NAT (CGNAT) on IPv4, and blocks inbound IPv6 connections via router firewall. This makes direct peer-to-peer connections impossible without a relay.
+Your devices are behind firewalls and NAT that block inbound connections. This affects:
 
-## The Solution
+- **Satellite ISPs** with Carrier-Grade NAT (CGNAT)
+- **Mobile networks** (4G/5G) — almost universally behind CGNAT
+- **Many broadband providers** worldwide applying CGNAT to conserve IPv4 addresses
+- **University and corporate networks** with strict firewalls
+- **Double-NAT setups** — router behind router
+
+Traditional solutions require either port forwarding (impossible with CGNAT), a VPN service (another dependency), or a cloud intermediary (defeats self-hosting). peer-up solves this with a lightweight relay that both sides connect to **outbound**, then upgrades to a direct connection when possible.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **NAT Traversal** | Circuit relay v2 + DCUtR hole-punching. Works behind CGNAT, symmetric NAT, double-NAT |
+| **SSH-Style Auth** | `authorized_keys` peer allowlist — only explicitly trusted peers can connect |
+| **60-Second Pairing** | `peerup invite` + `peerup join` — exchanges keys, adds auth, maps names automatically |
+| **TCP Service Proxy** | Forward any TCP port through P2P tunnels (SSH, XRDP, HTTP, databases, AI inference) |
+| **Daemon Mode** | Background service with Unix socket API, cookie auth, hot-reload of auth keys |
+| **Config Self-Healing** | Last-known-good archive, rollback, and commit-confirmed pattern for safe remote changes |
+| **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` — isolated from public networks |
+| **Friendly Names** | Map names to peer IDs in config — `home`, `laptop`, `gpu-server` instead of raw peer IDs |
+| **Reusable Library** | `pkg/p2pnet` — import into your own Go projects for P2P networking |
+| **Single Binary** | One `peerup` binary with 15 subcommands. No runtime dependencies |
+| **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
+| **systemd + launchd** | Service files included for both Linux and macOS |
+
+## How It Works
 
 ```
 ┌──────────┐         ┌──────────────┐         ┌──────────────┐
@@ -49,351 +112,110 @@ Starlink uses Carrier-Grade NAT (CGNAT) on IPv4, and blocks inbound IPv6 connect
 └──────────┘         └──────────────┘         └──────────────┘
                            │
                      Both connect OUTBOUND
-                     Authentication enforced
+                     Relay bridges the connection
+                     DCUtR upgrades to direct P2P
 ```
 
-1. **Relay Server** (VPS) - Circuit relay with optional authentication via `authorized_keys`
-2. **Server** (`peerup daemon`) - Exposes local services, accepts only authorized peers
-3. **Client** (`peerup proxy`) - Connects to server's services through the relay
+1. **Server** runs `peerup daemon` behind CGNAT — connects outbound to a relay and reserves a slot
+2. **Client** runs `peerup proxy` — connects outbound to the same relay and reaches the server through a circuit address
+3. **DCUtR** (Direct Connection Upgrade through Relay) attempts hole-punching. If successful, traffic flows directly without the relay
 
-## Quick Start
+Peer discovery uses a **private Kademlia DHT** — the relay server acts as bootstrap peer. Authentication is enforced at both the connection level (ConnectionGater) and the protocol level.
 
-### 1. Deploy Relay Server (VPS)
-
-```bash
-cd relay-server
-
-# Create config from sample
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults are fine)
-
-# Build and run (from project root)
-cd ..
-go build -o relay-server/relay-server ./cmd/relay-server
-./relay-server/relay-server
-```
-
-Copy the **Relay Peer ID** from the output - you'll need it for the next steps.
-
-### 2. Set Up a Node
-
-Run the setup wizard on each machine (server and client):
-
-```bash
-# Build
-go build -o peerup ./cmd/peerup
-
-# Run the setup wizard
-./peerup init
-```
-
-The wizard will:
-1. Create `~/.config/peerup/` directory
-2. Ask for your relay server address
-3. Generate an Ed25519 identity key
-4. Display your **Peer ID** (share this with peers who need to authorize you)
-5. Write `config.yaml`, `identity.key`, and `authorized_keys`
-
-### 3. Pair Machines (invite/join)
-
-The fastest way to connect two machines — handles authorization and naming automatically:
-
-**On the server (home machine):**
-```bash
-./peerup invite --name home
-# Displays an invite code + QR code
-# Waits for the other machine to join...
-```
-
-**On the client (laptop):**
-```bash
-./peerup join <invite-code> --name laptop
-# Automatically: connects, exchanges keys, adds authorized_keys, adds name mapping
-```
-
-Both machines are now mutually authorized and can use friendly names.
-
-**Alternative: Manual authorization**
-
-If you prefer manual control, use the `auth` CLI commands:
-```bash
-# On each machine, add the other's peer ID:
-peerup auth add 12D3KooW... --comment "home-server"
-peerup auth list
-peerup auth remove 12D3KooW...
-```
-
-### 4. Configure the Server
-
-Edit `~/.config/peerup/config.yaml` on the server machine:
-
-```yaml
-network:
-  force_private_reachability: true  # Required for CGNAT (Starlink, etc.)
-
-# Uncomment and enable services you want to expose:
-services:
-  ssh:
-    enabled: true
-    local_address: "localhost:22"
-  xrdp:
-    enabled: true
-    local_address: "localhost:3389"
-```
-
-### 5. Run
-
-**On the server:**
-```bash
-peerup daemon
-```
-
-**On the client:**
-```bash
-# SSH
-peerup proxy home ssh 2222
-# Then: ssh -p 2222 user@localhost
-
-# Remote desktop (XRDP)
-peerup proxy home xrdp 13389
-# Then: xfreerdp /v:localhost:13389 /u:user
-
-# Any TCP service
-peerup proxy home web 8080
-# Then: http://localhost:8080
-
-# Test connectivity
-peerup ping home
-```
-
-## Project Structure
-
-```
-├── cmd/
-│   ├── peerup/                 # Single binary with subcommands
-│   │   ├── main.go             # Command dispatch
-│   │   ├── cmd_init.go         # Interactive setup wizard
-│   │   ├── cmd_serve.go        # Server mode (expose services)
-│   │   ├── cmd_proxy.go        # TCP proxy client
-│   │   ├── cmd_ping.go         # Connectivity test
-│   │   ├── cmd_whoami.go       # Show own peer ID
-│   │   ├── cmd_auth.go         # Auth add/list/remove/validate subcommands
-│   │   ├── cmd_relay.go        # Relay add/list/remove subcommands
-│   │   ├── cmd_config.go       # Config validate/show/rollback/apply/confirm
-│   │   ├── cmd_invite.go       # Generate invite code + QR + P2P handshake
-│   │   ├── cmd_join.go         # Decode invite, connect, auto-configure
-│   │   └── relay_input.go      # Flexible relay address parsing
-│   └── relay-server/           # Circuit relay v2 source
-│       └── main.go
-├── pkg/p2pnet/                 # Reusable P2P networking library
-│   ├── network.go              # Core network setup, relay helpers, name resolution
-│   ├── service.go              # Service registry (delegates to internal/validate)
-│   ├── proxy.go                # Bidirectional TCP↔Stream proxy with half-close
-│   ├── naming.go               # Local name resolution (name → peer ID)
-│   └── identity.go             # Identity helpers (delegates to internal/identity)
-├── internal/
-│   ├── config/                 # YAML configuration loading + self-healing
-│   │   ├── config.go
-│   │   ├── loader.go
-│   │   ├── archive.go          # Last-known-good config archive/rollback
-│   │   └── confirm.go          # Commit-confirmed pattern (safe remote changes)
-│   ├── auth/                   # Authentication system
-│   │   ├── authorized_keys.go
-│   │   ├── gater.go
-│   │   └── manage.go           # AddPeer/RemovePeer/ListPeers
-│   ├── identity/               # Ed25519 identity management (shared)
-│   │   └── identity.go         # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
-│   ├── invite/                 # Invite code encoding/decoding
-│   │   └── code.go             # Binary → base32 with dash grouping
-│   ├── validate/               # Input validation helpers
-│   │   └── validate.go         # ServiceName() — DNS-label format
-│   └── watchdog/               # Health monitoring + systemd sd_notify
-│       └── watchdog.go         # Health check loop, Ready/Watchdog/Stopping
-├── relay-server/               # Deployment artifacts (setup, configs, systemd)
-│   ├── setup.sh                # Deploy/verify/uninstall (builds from cmd/relay-server)
-│   ├── relay-server.service
-│   └── README.md               # Full VPS deployment guide
-├── configs/                    # Sample configuration files
-│   ├── peerup.sample.yaml
-│   ├── relay-server.sample.yaml
-│   └── authorized_keys.sample
-├── examples/                   # Example implementations
-│   └── basic-service/
-├── docs/                       # Project documentation
-│   ├── ARCHITECTURE.md
-│   ├── FAQ.md
-│   ├── ROADMAP.md
-│   └── TESTING.md
-├── go.mod                      # Single module (all packages under one module)
-```
-
-## Building
-
-```bash
-# Build peerup (single binary for everything)
-go build -o peerup ./cmd/peerup
-
-# Build with version info (recommended for deployments)
-go build -ldflags "-X main.version=0.1.0 -X main.commit=$(git rev-parse --short HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o peerup ./cmd/peerup
-
-# Build relay server (into relay-server/ deployment directory)
-go build -o relay-server/relay-server ./cmd/relay-server
-
-# Cross-compile for Linux (e.g., deploy to a Linux server)
-GOOS=linux GOARCH=amd64 go build -o peerup ./cmd/peerup
-
-# Check version
-./peerup version
-
-# Run all tests
-go test -race -count=1 ./...
-```
+For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Commands
 
-### `peerup init` - Interactive setup wizard
+### Daemon
 
-```
-Usage: peerup init [--dir <path>]
+| Command | Description |
+|---------|-------------|
+| `peerup daemon` | Start the daemon (P2P host + Unix socket control API) |
+| `peerup daemon status [--json]` | Query running daemon status |
+| `peerup daemon stop` | Graceful shutdown |
+| `peerup daemon ping <target> [-c N] [--json]` | Ping a peer via daemon |
+| `peerup daemon services [--json]` | List exposed services via daemon |
+| `peerup daemon peers [--all] [--json]` | List connected peers (peerup-only by default) |
+| `peerup daemon connect --peer <p> --service <s> --listen <addr>` | Create a TCP proxy via daemon |
+| `peerup daemon disconnect <id>` | Tear down a proxy |
 
-Creates config directory with config.yaml, identity.key, and authorized_keys.
-Default directory: ~/.config/peerup/
-```
+### Network Tools (standalone, no daemon required)
 
-### `peerup daemon` - Run as server
+| Command | Description |
+|---------|-------------|
+| `peerup ping <target> [-c N] [--interval 1s] [--json]` | P2P ping with stats |
+| `peerup traceroute <target> [--json]` | P2P traceroute through relay hops |
+| `peerup resolve <name> [--json]` | Resolve a name to peer ID and addresses |
+| `peerup proxy <target> <service> <local-port>` | Forward a local TCP port to a remote service |
 
-```
-Usage: peerup daemon [--config <path>]
+### Identity & Access
 
-Starts the server node, exposing configured services.
-Connects to relay, bootstraps DHT, and accepts authorized connections.
-```
+| Command | Description |
+|---------|-------------|
+| `peerup whoami` | Show your peer ID |
+| `peerup auth add <peer-id> [--comment "..."]` | Authorize a peer |
+| `peerup auth list` | List authorized peers |
+| `peerup auth remove <peer-id>` | Revoke a peer |
+| `peerup auth validate` | Validate authorized_keys format |
 
-### `peerup proxy` - Forward TCP to remote service
+### Configuration & Setup
 
-```
-Usage: peerup proxy [--config <path>] <target> <service> <local-port>
+| Command | Description |
+|---------|-------------|
+| `peerup init` | Interactive setup wizard (config, keys, authorized_keys) |
+| `peerup config validate` | Validate config file |
+| `peerup config show` | Show resolved configuration |
+| `peerup config rollback` | Restore last-known-good config |
+| `peerup config apply <file> [--confirm-timeout 5m]` | Apply config with auto-revert safety net |
+| `peerup config confirm` | Confirm applied config (cancels auto-revert) |
+| `peerup relay add/list/remove` | Manage relay server addresses |
+| `peerup service add/remove/enable/disable/list` | Manage exposed services |
 
-Arguments:
-  target       Peer ID or name from config (e.g., "home")
-  service      Service name as defined in server config (e.g., "ssh", "xrdp")
-  local-port   Local TCP port to listen on
+### Pairing
 
-Examples:
-  peerup proxy home ssh 2222
-  peerup proxy home xrdp 13389
-  peerup proxy 12D3KooW... ssh 2222
-```
+| Command | Description |
+|---------|-------------|
+| `peerup invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
+| `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite, auto-configure both sides |
+| `peerup status` | Show local config, identity, authorized peers, services |
+| `peerup version` | Show version, commit, build date, Go version |
 
-### `peerup ping` - Test connectivity
+The `<target>` in network commands accepts either a peer ID or a name from the `names:` section of your config. All commands support `--config <path>`.
 
-```
-Usage: peerup ping [--config <path>] <target>
+## Daemon Mode
 
-Arguments:
-  target    Peer ID or name from config
+The daemon runs `peerup daemon` as a long-lived background process. It starts the full P2P host, exposes configured services, and opens a Unix socket API for management.
 
-Examples:
-  peerup ping home
-  peerup ping 12D3KooW...
-```
+**Key features:**
+- Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
+- Cookie-based auth (`~/.config/peerup/.daemon-cookie`) — 32-byte random token, rotated per restart
+- Hot-reload of authorized_keys via `daemon` auth endpoints
+- 14 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve
 
-### `peerup invite` - Generate invite code for pairing
-
-```
-Usage: peerup invite [--config <path>] [--name "home"] [--ttl 10m]
-
-Generates a one-time invite code (+ QR code) and waits for a peer to join.
-Both sides are mutually authorized on successful join.
-
-Options:
-  --name    Friendly name for this peer (shared with joiner)
-  --ttl     Invite code expiry duration (default: 10m)
-```
-
-### `peerup join` - Accept invite and auto-configure
-
-```
-Usage: peerup join [--config <path>] <invite-code> [--name "laptop"]
-
-Decodes the invite code, connects to the inviter through the relay,
-exchanges peer IDs, and auto-configures both sides (authorized_keys + names).
-
-If no config exists, creates one automatically at ~/.config/peerup/.
-
-Options:
-  --name    Friendly name for this peer (shared with inviter)
-```
-
-### `peerup whoami` - Show your peer ID
-
-```
-Usage: peerup whoami [--config <path>]
-
-Displays your peer ID derived from the identity key file.
-```
-
-### `peerup auth` - Manage authorized peers
-
-```
-Usage:
-  peerup auth add <peer-id> [--comment "label"]   Add a peer to authorized_keys
-  peerup auth list                                 List authorized peers
-  peerup auth remove <peer-id>                     Remove a peer
-  peerup auth validate                             Validate authorized_keys file format
-```
-
-### `peerup relay` - Manage relay addresses
-
-```
-Usage:
-  peerup relay add <address> [--peer-id <ID>]      Add a relay server
-  peerup relay list                                 List configured relays
-  peerup relay remove <multiaddr>                   Remove a relay
-
-The <address> accepts flexible formats:
-  /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...   Full multiaddr
-  1.2.3.4:7777                              IP:port (prompts for peer ID)
-  1.2.3.4                                   Bare IP (default port 7777)
-```
-
-### `peerup config` - Config management & self-healing
-
-```
-Usage:
-  peerup config validate [--config path]                                   Validate config
-  peerup config show     [--config path]                                   Show resolved config
-  peerup config rollback [--config path]                                   Restore last-known-good
-  peerup config apply    <new-config> [--config path] [--confirm-timeout]  Apply with safety net
-  peerup config confirm  [--config path]                                   Confirm applied config
-```
-
-**Config archive**: On each successful `peerup daemon` startup, the validated config is archived as last-known-good. If a bad edit prevents startup, `peerup config rollback` restores it.
-
-**Commit-confirmed** (for safe remote config changes):
+**Example:**
 ```bash
-# On the remote machine:
-peerup config apply new-config.yaml --confirm-timeout 5m
-sudo systemctl restart peerup
+# Start the daemon
+peerup daemon
 
-# Test connectivity, then confirm:
-peerup config confirm
+# In another terminal — query status
+peerup daemon status
 
-# If you don't confirm within 5 minutes, the config auto-reverts
-# and systemd restarts with the previous known-good config.
+# Create a proxy through the daemon
+peerup daemon connect --peer home --service ssh --listen localhost:2222
 ```
+
+For the full API reference: [docs/DAEMON-API.md](docs/DAEMON-API.md)
 
 ## Configuration
 
 ### Config Search Order
 
-All commands support `--config <path>` to specify a config file explicitly. Without it, peerup searches:
+1. `--config <path>` flag (explicit)
+2. `./peerup.yaml` (current directory)
+3. `~/.config/peerup/config.yaml` (standard location, created by `peerup init`)
+4. `/etc/peerup/config.yaml` (system-wide)
 
-1. `./peerup.yaml` (current directory)
-2. `~/.config/peerup/config.yaml` (standard location, created by `peerup init`)
-3. `/etc/peerup/config.yaml` (system-wide)
-
-### Unified Config (`peerup.yaml`)
+### Essential Config
 
 ```yaml
 identity:
@@ -403,61 +225,84 @@ network:
   listen_addresses:
     - "/ip4/0.0.0.0/tcp/0"
     - "/ip4/0.0.0.0/udp/0/quic-v1"
-  force_private_reachability: false  # Set true for server behind CGNAT
+  force_private_reachability: false  # true for servers behind CGNAT
 
 relay:
   addresses:
     - "/ip4/YOUR_VPS_IP/tcp/7777/p2p/YOUR_RELAY_PEER_ID"
-  reservation_interval: "2m"
-
-discovery:
-  rendezvous: "peerup-default-network"
-  bootstrap_peers: []
 
 security:
   authorized_keys_file: "authorized_keys"
   enable_connection_gating: true
 
-protocols:
-  ping_pong:
-    enabled: true
-    id: "/pingpong/1.0.0"
-
-# Services to expose (server only, uncomment as needed):
-# services:
+# services:       # Uncomment to expose services (server only)
 #   ssh:
 #     enabled: true
 #     local_address: "localhost:22"
-#   xrdp:
-#     enabled: true
-#     local_address: "localhost:3389"
 
-# Map friendly names to peer IDs:
-names: {}
+names: {}         # Map friendly names to peer IDs
 #  home: "12D3KooW..."
 ```
 
-### Authorized Keys Format
+Full sample configs: [configs/](configs/)
+
+## Running as a Service
+
+### Linux (systemd)
+
+A service file is provided at [deploy/peerup-daemon.service](deploy/peerup-daemon.service):
 
 ```bash
-# File: authorized_keys
-# Format: <peer_id> # optional comment
-12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL  # my-laptop
-12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYUXCUVwbj7QbA  # my-phone
+sudo cp deploy/peerup-daemon.service /etc/systemd/system/peerup.service
+# Edit ExecStart path and --config as needed
+sudo systemctl daemon-reload
+sudo systemctl enable --now peerup
+```
+
+Both `peerup daemon` and `relay-server` send `sd_notify` signals (`READY=1`, `WATCHDOG=1`, `STOPPING=1`).
+
+### macOS (launchd)
+
+A plist is provided at [deploy/com.peerup.daemon.plist](deploy/com.peerup.daemon.plist).
+
+### Relay Server
+
+See [relay-server/README.md](relay-server/README.md) for the full VPS deployment guide (user creation, SSH hardening, firewall, systemd, health checks).
+
+## Building
+
+```bash
+# Build peerup
+go build -o peerup ./cmd/peerup
+
+# Build with version info
+go build -ldflags "-X main.version=0.1.0 \
+  -X main.commit=$(git rev-parse --short HEAD) \
+  -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o peerup ./cmd/peerup
+
+# Build relay server
+go build -o relay-server/relay-server ./cmd/relay-server
+
+# Cross-compile for Linux
+GOOS=linux GOARCH=amd64 go build -o peerup ./cmd/peerup
+
+# Run tests
+go test -race -count=1 ./...
 ```
 
 ## Library (`pkg/p2pnet`)
 
-The `pkg/p2pnet` package can be imported into your own Go projects:
+The `pkg/p2pnet` package is an importable Go library for building P2P applications:
 
 ```go
 import "github.com/satindergrewal/peer-up/pkg/p2pnet"
 
 // Create a P2P network
 net, _ := p2pnet.New(&p2pnet.Config{
-    KeyFile:      "myapp.key",
-    EnableRelay:  true,
-    RelayAddrs:   []string{"/ip4/.../tcp/7777/p2p/..."},
+    KeyFile:     "myapp.key",
+    EnableRelay: true,
+    RelayAddrs:  []string{"/ip4/.../tcp/7777/p2p/..."},
 })
 
 // Expose a local service
@@ -469,164 +314,173 @@ conn, _ := net.ConnectToService(peerID, "api")
 // Name resolution
 net.LoadNames(map[string]string{"home": "12D3KooW..."})
 peerID, _ := net.ResolveName("home")
-
-// Add relay addresses for a remote peer
-net.AddRelayAddressesForPeer(relayAddrs, peerID)
-
-// Create a TCP listener that proxies to a remote service
-listener, _ := p2pnet.NewTCPListener("localhost:8080", func() (p2pnet.ServiceConn, error) {
-    return net.ConnectToService(peerID, "api")
-})
-listener.Serve()
 ```
 
-## Authentication System
+## Project Structure
 
-Two layers of defense:
+```
+cmd/
+├── peerup/                    # Single binary with subcommands
+│   ├── main.go                # Command dispatch (15 subcommands)
+│   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
+│   ├── cmd_proxy.go           # TCP proxy client
+│   ├── cmd_ping.go            # Standalone P2P ping
+│   ├── cmd_traceroute.go      # P2P traceroute
+│   ├── cmd_resolve.go         # Name resolution
+│   ├── cmd_init.go            # Interactive setup wizard
+│   ├── cmd_invite.go          # Generate invite code + QR + P2P handshake
+│   ├── cmd_join.go            # Accept invite, auto-configure
+│   ├── cmd_auth.go            # Auth add/list/remove/validate
+│   ├── cmd_relay.go           # Relay add/list/remove
+│   ├── cmd_config.go          # Config validate/show/rollback/apply/confirm
+│   ├── cmd_service.go         # Service add/remove/enable/disable/list
+│   ├── cmd_status.go          # Local status display
+│   ├── cmd_whoami.go          # Show peer ID
+│   ├── serve_common.go        # Shared P2P runtime (used by daemon + standalone tools)
+│   ├── config_template.go     # Config YAML template
+│   ├── flag_helpers.go        # CLI flag reordering for natural usage
+│   └── relay_input.go         # Flexible relay address parsing
+└── relay-server/              # Circuit relay v2 server
+    └── main.go
+pkg/p2pnet/                    # Importable P2P networking library
+├── network.go                 # Core: host setup, relay, DHT, name resolution
+├── service.go                 # Service registry
+├── proxy.go                   # Bidirectional TCP↔Stream proxy with half-close
+├── naming.go                  # Local name resolution (name → peer ID)
+├── identity.go                # Identity helpers
+├── ping.go                    # PingPeer() with streaming results
+├── traceroute.go              # P2P traceroute
+└── errors.go                  # Sentinel errors
+internal/
+├── config/                    # YAML configuration + self-healing
+│   ├── config.go              # Config structs
+│   ├── loader.go              # Auto-discovery, path resolution, validation
+│   ├── archive.go             # Last-known-good archive/rollback
+│   ├── confirm.go             # Commit-confirmed pattern
+│   └── errors.go
+├── auth/                      # Connection gating + authorized_keys
+│   ├── gater.go               # ConnectionGater (blocks unauthorized at network level)
+│   ├── authorized_keys.go     # File parser
+│   ├── manage.go              # AddPeer/RemovePeer/ListPeers
+│   └── errors.go
+├── daemon/                    # Daemon API server + client library
+│   ├── server.go              # Unix socket HTTP server with cookie auth
+│   ├── handlers.go            # 14 REST endpoint handlers
+│   ├── client.go              # Go client (auto-reads cookie, Unix transport)
+│   ├── types.go               # Request/response types
+│   └── errors.go
+├── identity/                  # Ed25519 identity management
+├── invite/                    # Invite code encoding (binary → base32 + dash groups)
+├── validate/                  # Input validation (service names, DNS-label format)
+├── watchdog/                  # Health monitoring + systemd sd_notify (pure Go)
+├── qr/                        # QR code generation (zero dependencies)
+└── termcolor/                 # Terminal color output
+relay-server/                  # Deployment artifacts
+├── setup.sh                   # Full VPS setup (build, permissions, systemd, health)
+├── relay-server.service       # systemd unit file
+└── README.md                  # VPS deployment guide
+deploy/                        # Client service files
+├── peerup-daemon.service      # systemd unit for peerup daemon
+└── com.peerup.daemon.plist    # launchd plist for macOS
+configs/                       # Sample configuration files
+├── peerup.sample.yaml
+├── relay-server.sample.yaml
+└── authorized_keys.sample
+docs/                          # Documentation
+├── ARCHITECTURE.md            # Full architecture deep dive
+├── DAEMON-API.md              # Daemon REST API reference
+├── FAQ.md                     # Frequently asked questions
+├── NETWORK-TOOLS.md           # Ping, traceroute, resolve guide
+├── ROADMAP.md                 # Multi-phase implementation plan
+└── TESTING.md                 # Test strategy and coverage
+```
 
-1. **ConnectionGater** (network level) - Blocks unauthorized peers during connection handshake
-2. **Protocol handler validation** (application level) - Double-checks authorization before processing requests
+## Security
 
-### How It Works
+**Two layers of defense:**
 
-1. Server loads `authorized_keys` at startup
-2. When a peer attempts to connect, `InterceptSecured()` checks the peer ID
-3. If not authorized, connection is **DENIED** at network level
-4. If authorized, connection is allowed and protocol handler performs secondary check
+1. **ConnectionGater** (network level) — Blocks unauthorized peers during the connection handshake, before any data is exchanged
+2. **Protocol handler** (application level) — Secondary authorization check before processing requests
 
-### Fail-Safe Defaults
+**Fail-safe defaults:**
+- Connection gating enabled + no authorized_keys file → **refuses to start**
+- Empty authorized_keys → **warns loudly** (allows for initial setup)
+- All outbound connections allowed (required for DHT and relay)
+- All unauthorized inbound connections blocked
 
-- If `enable_connection_gating: true` but no `authorized_keys` file: **refuses to start**
-- If `authorized_keys` is empty: **warns loudly** but allows (for initial setup)
-- Server: **allows all outbound** connections (for DHT, relay, etc.)
-- Server: **blocks all unauthorized inbound** connections
-
-## Security Notes
-
-### File Permissions
-
-```bash
+**File permissions:**
+```
 chmod 600 *.key              # Private keys: owner read/write only
-chmod 600 authorized_keys    # SSH-style: owner read/write only
-chmod 644 *.yaml             # Configs: readable by all
+chmod 600 authorized_keys    # Peer allowlist: owner read/write only
+chmod 644 *.yaml             # Configs: readable
 ```
 
-### Relay Server Security
-
-The relay server supports `authorized_keys` to restrict who can make reservations. Enable authentication in production to protect your VPS bandwidth.
-
-## Architecture
-
-### Relay Circuit (Circuit Relay v2)
-
-1. Server connects outbound to relay and makes a **reservation**
-2. Client connects outbound to relay
-3. Client dials server via circuit address:
-   ```
-   /ip4/<RELAY_IP>/tcp/7777/p2p/<RELAY_PEER_ID>/p2p-circuit/p2p/<SERVER_PEER_ID>
-   ```
-4. Relay bridges the connection - both sides only made outbound connections
-
-### Hole-Punching (DCUtR)
-
-After relay connection is established, libp2p attempts **Direct Connection Upgrade through Relay**:
-- If successful: subsequent data flows directly (no relay bandwidth)
-- If failed (symmetric NAT): continues using relay
-
-### Peer Discovery (Private Kademlia DHT)
-
-Peer-up runs its own Kademlia DHT on protocol `/peerup/kad/1.0.0`, completely isolated from the public IPFS Amino network. The relay server acts as the bootstrap peer.
-
-Server **advertises** on DHT using rendezvous string.
-Client **searches** DHT for the rendezvous string to find the server's peer ID and addresses.
-
-### Bidirectional Proxy
-
-The TCP proxy uses the half-close pattern (inspired by Go stdlib's `httputil.ReverseProxy`):
-- When one direction finishes sending, it signals `CloseWrite` instead of closing the connection
-- The other direction can continue sending until it also finishes
-- This prevents premature connection closure and works correctly with protocols like SSH and XRDP
-
-## Running as a Service (systemd)
-
-### Relay Server
-
-See [relay-server/README.md](relay-server/README.md) for the full VPS setup guide (user creation, SSH hardening, firewall, systemd).
-
-Quick version if already configured:
-```bash
-cd relay-server
-bash setup.sh        # Full setup (build, permissions, systemd, health check)
-bash setup.sh --check  # Health check only
-```
-
-### peerup daemon
-
-Create `/etc/systemd/system/peerup.service`:
-```ini
-[Unit]
-Description=peer-up Server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=notify
-WatchdogSec=90
-ExecStart=/usr/local/bin/peerup daemon --config /etc/peerup/config.yaml
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Both `peerup daemon` and `relay-server` send `sd_notify` signals to systemd: `READY=1` after startup, `WATCHDOG=1` every 30s while healthy, `STOPPING=1` on shutdown. On non-systemd systems (macOS), these are no-ops.
+For security details, relay hardening, and threat model: [docs/FAQ.md](docs/FAQ.md)
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| `Config error: no config file found` | Run `peerup init` or use `--config <path>` |
-| `Cannot resolve target` | Add name mapping to `names:` section in config |
-| `DENIED inbound connection` | Add peer ID to `authorized_keys` and restart server |
-| `Invalid invite code` | Ensure the full invite code is pasted as one argument (quote it if it contains spaces) |
-| `Failed to connect to inviter` | Ensure `peerup invite` is still running on the other machine |
-| Server shows no `/p2p-circuit` addresses | Check `force_private_reachability: true` and relay address |
-| `protocols not supported` | Relay service not running |
-| XRDP window manager crashes | Ensure no conflicting physical desktop session for the same user |
-| `failed to sufficiently increase receive buffer size` | QUIC works but with smaller buffers. Fix: see UDP buffer tuning below |
-| Bad config edit broke startup | `peerup config rollback` restores last-known-good config |
-| Need to test config changes on remote node | Use `peerup config apply new.yaml --confirm-timeout 5m`, then `peerup config confirm` |
-| `commit-confirmed timeout` in logs | Config auto-reverted because `peerup config confirm` wasn't run in time |
+| `no config file found` | Run `peerup init` or use `--config <path>` |
+| `Cannot resolve target` | Add name mapping to `names:` in config |
+| `DENIED inbound connection` | Add peer ID to `authorized_keys`, restart daemon |
+| `Invalid invite code` | Paste the full code as one argument (quote if spaces) |
+| `Failed to connect to inviter` | Ensure `peerup invite` is still running |
+| No `/p2p-circuit` addresses | Check `force_private_reachability: true` and relay address |
+| `protocols not supported` | Relay server not running or unreachable |
+| Bad config edit broke startup | `peerup config rollback` restores last-known-good |
+| Remote config change went wrong | `peerup config apply new.yaml --confirm-timeout 5m`, then `config confirm` |
+| `failed to sufficiently increase receive buffer size` | QUIC works but suboptimal — see UDP buffer tuning below |
+| Daemon won't start (socket exists) | Stale socket from crash — daemon auto-detects and cleans up |
 
 ### UDP Buffer Tuning (QUIC)
 
-The `failed to sufficiently increase receive buffer size` message means the kernel's UDP buffer cap is too low for optimal QUIC performance. QUIC still works, just with smaller buffers. The relay server's `setup.sh` handles this automatically, but home nodes need it applied manually.
+QUIC works with default buffers but performs better with increased limits:
 
-**Temporary** (until reboot):
 ```bash
-sudo sysctl -w net.core.rmem_max=7500000
-sudo sysctl -w net.core.wmem_max=7500000
-```
-
-**Persistent** (survives reboot):
-```bash
+# Linux (persistent)
 echo "net.core.rmem_max=7500000" | sudo tee -a /etc/sysctl.d/99-quic.conf
 echo "net.core.wmem_max=7500000" | sudo tee -a /etc/sysctl.d/99-quic.conf
 sudo sysctl --system
 ```
 
-Restart `peerup daemon` after applying — the message will be gone.
+## Engineering Philosophy
 
-## Bandwidth Considerations
+This is not a weekend hobby project. peer-up is built as critical infrastructure — the kind where failure has real consequences for real people: financial, psychological, and potentially physical.
 
-- **Relay-based connection**: Limited by relay VPS bandwidth (~1TB/month on $5 Linode)
-- **After DCUtR upgrade**: Direct P2P connection, no relay bandwidth used
-- **Starlink symmetric NAT**: DCUtR often fails, relay remains in use
+Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here — from code quality to deployment to security decisions.
 
-## Roadmap
+## Development
 
-See [ROADMAP.md](docs/ROADMAP.md) for detailed multi-phase implementation plan.
+### AI-Assisted Development
+
+peer-up is developed with significant AI assistance (Claude). All AI-generated code is reviewed, tested, and committed by a human maintainer. The architecture, vision, and engineering decisions are human-directed.
+
+### No Cryptocurrency / No Token
+
+peer-up is a networking tool. It has no token, no coin, no blockchain dependency, and no plans to add one. If someone tells you otherwise, they're not affiliated with this project.
+
+### Contributing
+
+Issues and PRs are welcome.
+
+**Testing checklist:**
+- [ ] `go build ./...` succeeds
+- [ ] `go vet ./...` passes
+- [ ] `go test -race -count=1 ./...` passes
+- [ ] Unauthorized peer is denied, authorized peer connects
+- [ ] Service proxy works end-to-end
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (14 endpoints) |
+| [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
+| [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
+| [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
+| [TESTING.md](docs/TESTING.md) | Test strategy, coverage, integration tests |
 
 ## Dependencies
 
@@ -638,20 +492,3 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed multi-phase implementation plan.
 ## License
 
 MIT
-
-## Contributing
-
-This is a personal project, but issues and PRs are welcome!
-
-**Testing checklist for PRs:**
-- [ ] `go build ./...` succeeds
-- [ ] `go vet ./...` passes
-- [ ] `go test -race -count=1 ./...` passes
-- [ ] Config files load without errors
-- [ ] Unauthorized peer is denied
-- [ ] Authorized peer connects successfully
-- [ ] Service proxy works (SSH, XRDP, or other TCP)
-
----
-
-**Built with libp2p** - Peer-to-peer networking that just works.
