@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -73,6 +74,26 @@ func newTestNetwork(t *testing.T) *p2pnet.Network {
 	})
 	if err != nil {
 		t.Fatalf("create test network: %v", err)
+	}
+	t.Cleanup(func() { net.Close() })
+	return net
+}
+
+// newListeningTestNetwork creates a p2pnet.Network that listens on localhost TCP.
+// This allows two test networks to connect to each other directly.
+func newListeningTestNetwork(t *testing.T) *p2pnet.Network {
+	t.Helper()
+	dir := t.TempDir()
+	net, err := p2pnet.New(&p2pnet.Config{
+		KeyFile: filepath.Join(dir, "test.key"),
+		Config: &config.Config{
+			Network: config.NetworkConfig{
+				ListenAddresses: []string{"/ip4/127.0.0.1/tcp/0"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create listening test network: %v", err)
 	}
 	t.Cleanup(func() { net.Close() })
 	return net
