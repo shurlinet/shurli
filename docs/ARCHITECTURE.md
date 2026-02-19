@@ -4,8 +4,8 @@ This document describes the technical architecture of peer-up, from current impl
 
 ## Table of Contents
 
-- [Current Architecture (Phase 4B Complete)](#current-architecture-phase-4b-complete)
-- [Target Architecture (Phase 4C+)](#target-architecture-phase-4c)
+- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete)
+- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d)
 - [Core Concepts](#core-concepts)
 - [Security Model](#security-model)
 - [Naming System](#naming-system)
@@ -14,7 +14,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 ---
 
-## Current Architecture (Phase 4C Batch F Complete)
+## Current Architecture (Phase 4C Complete)
 
 ### Component Overview
 
@@ -26,7 +26,6 @@ peer-up/
 │   │   │                    #   proxy, whoami, auth, relay, config, service,
 │   │   │                    #   invite, join, status, init, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
-│   │   ├── cmd_serve.go     # Alias for daemon (backward compat)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) — used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
 │   │   ├── cmd_proxy.go     # TCP proxy client
@@ -217,7 +216,7 @@ echo "12D3KooW... # home-server" >> ~/.config/peerup/authorized_keys
 
 ---
 
-## Target Architecture (Phase 4C+)
+## Target Architecture (Phase 4D+)
 
 ### Planned Additions
 
