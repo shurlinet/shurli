@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // writeTestConfigDir creates a full test config directory with a valid
@@ -397,6 +398,127 @@ func TestDoWhoami(t *testing.T) {
 			out := stdout.String()
 			if tt.wantOutput != "" && !strings.Contains(out, tt.wantOutput) {
 				t.Errorf("output should contain %q, got:\n%s", tt.wantOutput, out)
+			}
+		})
+	}
+}
+
+// ----- extractTCPPort tests -----
+
+func TestExtractTCPPort(t *testing.T) {
+	tests := []struct {
+		name   string
+		addrs  []string
+		want   string
+	}{
+		{
+			name:  "finds TCP port",
+			addrs: []string{"/ip4/0.0.0.0/tcp/7777"},
+			want:  "7777",
+		},
+		{
+			name:  "finds first TCP port from multiple",
+			addrs: []string{"/ip4/0.0.0.0/udp/9999/quic-v1", "/ip4/0.0.0.0/tcp/8888"},
+			want:  "8888",
+		},
+		{
+			name:  "no TCP returns default 7777",
+			addrs: []string{"/ip4/0.0.0.0/udp/9999/quic-v1"},
+			want:  "7777",
+		},
+		{
+			name:  "empty list returns default 7777",
+			addrs: nil,
+			want:  "7777",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractTCPPort(tt.addrs)
+			if got != tt.want {
+				t.Errorf("extractTCPPort(%v) = %q, want %q", tt.addrs, got, tt.want)
+			}
+		})
+	}
+}
+
+// ----- buildPublicMultiaddrs tests -----
+
+func TestBuildPublicMultiaddrs(t *testing.T) {
+	// Generate a test peer ID
+	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		listen     []string
+		publicIPs  []string
+		wantCount  int
+		wantSubstr []string
+	}{
+		{
+			name:       "IPv4 listen with IPv4 public IP",
+			listen:     []string{"/ip4/0.0.0.0/tcp/7777"},
+			publicIPs:  []string{"203.0.113.5"},
+			wantCount:  1,
+			wantSubstr: []string{"/ip4/203.0.113.5/tcp/7777/p2p/"},
+		},
+		{
+			name:       "IPv6 listen with IPv6 public IP",
+			listen:     []string{"/ip6/::/tcp/7777"},
+			publicIPs:  []string{"2001:db8::1"},
+			wantCount:  1,
+			wantSubstr: []string{"/ip6/2001:db8::1/tcp/7777/p2p/"},
+		},
+		{
+			name:      "IPv4 listen skips IPv6 IP",
+			listen:    []string{"/ip4/0.0.0.0/tcp/7777"},
+			publicIPs: []string{"2001:db8::1"},
+			wantCount: 0,
+		},
+		{
+			name:      "IPv6 listen skips IPv4 IP",
+			listen:    []string{"/ip6/::/tcp/7777"},
+			publicIPs: []string{"203.0.113.5"},
+			wantCount: 0,
+		},
+		{
+			name:       "multiple listen with multiple IPs",
+			listen:     []string{"/ip4/0.0.0.0/tcp/7777", "/ip6/::/tcp/7777"},
+			publicIPs:  []string{"203.0.113.5", "2001:db8::1"},
+			wantCount:  2,
+			wantSubstr: []string{"/ip4/203.0.113.5/", "/ip6/2001:db8::1/"},
+		},
+		{
+			name:      "empty IPs",
+			listen:    []string{"/ip4/0.0.0.0/tcp/7777"},
+			publicIPs: nil,
+			wantCount: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildPublicMultiaddrs(tt.listen, tt.publicIPs, pid)
+			if len(got) != tt.wantCount {
+				t.Errorf("got %d addrs, want %d: %v", len(got), tt.wantCount, got)
+			}
+			for _, sub := range tt.wantSubstr {
+				found := false
+				for _, addr := range got {
+					if strings.Contains(addr, sub) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("no addr contains %q in %v", sub, got)
+				}
 			}
 		})
 	}
