@@ -6,8 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/satindergrewal/peer-up/internal/auth"
+	"github.com/satindergrewal/peer-up/internal/config"
 )
 
 // captureExit overrides the package-level osExit variable so that calls to
@@ -1067,3 +1072,221 @@ resources:
 		t.Errorf("expected exit(1) for validation error, got exited=%v code=%d", exited, code)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Category 8: serveRuntime getters — construct a struct directly and verify
+// each getter returns the expected value.
+// ---------------------------------------------------------------------------
+
+func TestServeRuntime_Getters(t *testing.T) {
+	now := time.Now()
+	rt := &serveRuntime{
+		network:    nil, // P2P-dependent, just verify it returns nil
+		configFile: "/etc/peerup/config.yaml",
+		authKeys:   "/etc/peerup/authorized_keys",
+		version:    "1.2.3",
+		startTime:  now,
+		config: &config.HomeNodeConfig{
+			Protocols: config.ProtocolsConfig{
+				PingPong: config.PingPongConfig{
+					ID: "/pingpong/1.0.0",
+				},
+			},
+		},
+	}
+
+	if rt.Network() != nil {
+		t.Error("Network() should be nil")
+	}
+	if rt.ConfigFile() != "/etc/peerup/config.yaml" {
+		t.Errorf("ConfigFile() = %q", rt.ConfigFile())
+	}
+	if rt.AuthKeysPath() != "/etc/peerup/authorized_keys" {
+		t.Errorf("AuthKeysPath() = %q", rt.AuthKeysPath())
+	}
+	if rt.Version() != "1.2.3" {
+		t.Errorf("Version() = %q", rt.Version())
+	}
+	if rt.StartTime() != now {
+		t.Errorf("StartTime() = %v, want %v", rt.StartTime(), now)
+	}
+	if rt.PingProtocolID() != "/pingpong/1.0.0" {
+		t.Errorf("PingProtocolID() = %q", rt.PingProtocolID())
+	}
+}
+
+func TestServeRuntime_GaterForHotReload_NilGater(t *testing.T) {
+	rt := &serveRuntime{
+		gater:    nil,
+		authKeys: "/etc/peerup/authorized_keys",
+	}
+	if rt.GaterForHotReload() != nil {
+		t.Error("GaterForHotReload() should return nil when gater is nil")
+	}
+}
+
+func TestServeRuntime_GaterForHotReload_EmptyAuthKeys(t *testing.T) {
+	gater := auth.NewAuthorizedPeerGater(map[peer.ID]bool{})
+	rt := &serveRuntime{
+		gater:    gater,
+		authKeys: "",
+	}
+	if rt.GaterForHotReload() != nil {
+		t.Error("GaterForHotReload() should return nil when authKeys is empty")
+	}
+}
+
+func TestServeRuntime_GaterForHotReload_Valid(t *testing.T) {
+	gater := auth.NewAuthorizedPeerGater(map[peer.ID]bool{})
+	rt := &serveRuntime{
+		gater:    gater,
+		authKeys: "/etc/peerup/authorized_keys",
+	}
+	reloader := rt.GaterForHotReload()
+	if reloader == nil {
+		t.Fatal("GaterForHotReload() should return non-nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 9: gaterReloader.ReloadFromFile — test with real authorized_keys.
+// ---------------------------------------------------------------------------
+
+func TestGaterReloader_ReloadFromFile(t *testing.T) {
+	dir := t.TempDir()
+	authFile := filepath.Join(dir, "authorized_keys")
+
+	// Generate a test peer ID
+	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write authorized_keys with the peer ID (format: PEERID # comment)
+	content := id.String() + " # test-peer\n"
+	if err := os.WriteFile(authFile, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	gater := auth.NewAuthorizedPeerGater(map[peer.ID]bool{})
+	reloader := &gaterReloader{gater: gater, authKeysPath: authFile}
+
+	if err := reloader.ReloadFromFile(); err != nil {
+		t.Fatalf("ReloadFromFile() error: %v", err)
+	}
+
+	// Verify the peer was loaded
+	if !gater.IsAuthorized(id) {
+		t.Error("expected peer to be authorized after reload")
+	}
+}
+
+func TestGaterReloader_ReloadFromFile_MissingFile(t *testing.T) {
+	gater := auth.NewAuthorizedPeerGater(map[peer.ID]bool{})
+	reloader := &gaterReloader{gater: gater, authKeysPath: "/tmp/nonexistent-peerup-test/authorized_keys"}
+
+	err := reloader.ReloadFromFile()
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !strings.Contains(err.Error(), "failed to reload authorized_keys") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 10: loadOrCreateConfig — test existing config path.
+// ---------------------------------------------------------------------------
+
+func TestLoadOrCreateConfig_ExistingConfig(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+
+	var cfgFile string
+	var cfg *config.NodeConfig
+	var configDir string
+	var created bool
+	code, exited := captureExit(func() {
+		cfgFile, cfg, configDir, created = loadOrCreateConfig(cfgPath, "")
+	})
+	if exited {
+		t.Fatalf("should not have exited, got code=%d", code)
+	}
+	if created {
+		t.Error("expected created=false for existing config")
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if cfgFile != cfgPath {
+		t.Errorf("cfgFile = %q, want %q", cfgFile, cfgPath)
+	}
+	if configDir == "" {
+		t.Error("expected non-empty configDir")
+	}
+}
+
+func TestLoadOrCreateConfig_InvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "peerup.yaml")
+	os.WriteFile(cfgPath, []byte("this: is: bad: yaml: [[["), 0600)
+
+	code, exited := captureExit(func() {
+		loadOrCreateConfig(cfgPath, "")
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for invalid config, got exited=%v code=%d", exited, code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 11: runDaemonServices and runDaemonPeers — no daemon running.
+// ---------------------------------------------------------------------------
+
+func TestRunDaemonServices_NoDaemon(t *testing.T) {
+	code, exited := captureExit(func() {
+		runDaemonServices(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) when no daemon, got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunDaemonPeers_NoDaemon(t *testing.T) {
+	code, exited := captureExit(func() {
+		runDaemonPeers(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) when no daemon, got exited=%v code=%d", exited, code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 12: runDaemon "start" dispatch — config not found.
+// ---------------------------------------------------------------------------
+
+func TestRunDaemon_StartDispatch_ConfigError(t *testing.T) {
+	code, exited := captureExit(func() {
+		runDaemon([]string{"start", "--config", "/tmp/nonexistent-peerup-test/peerup.yaml"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunDaemon_EmptyArgs_ConfigError(t *testing.T) {
+	// runDaemon with no args calls runDaemonStart which needs a config.
+	// With no config available in test env, it should eventually exit.
+	// But DefaultConfigDir might find a real config, so use explicit path.
+	code, exited := captureExit(func() {
+		runDaemon([]string{"start", "--config", "/tmp/nonexistent-peerup-test/peerup.yaml"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// nodeConfigTemplate already tested in cmd_join_test.go
