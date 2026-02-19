@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,10 @@ import (
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
+
+// maxRequestBodySize limits the size of JSON request bodies to prevent
+// unbounded memory consumption from oversized or malicious payloads.
+const maxRequestBodySize = 1 << 20 // 1 MB
 
 // registerRoutes sets up all HTTP routes on the mux.
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -237,7 +242,7 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 	var req AuthAddRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -307,7 +312,7 @@ func (s *Server) reloadGater() error {
 
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	var req PingRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -377,7 +382,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 	var req TraceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -434,7 +439,7 @@ func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	var req ResolveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -475,7 +480,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var req ConnectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -583,7 +588,7 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExpose(w http.ResponseWriter, r *http.Request) {
 	var req ExposeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

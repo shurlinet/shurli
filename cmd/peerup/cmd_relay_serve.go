@@ -213,20 +213,26 @@ func runRelayServe(args []string) {
 		},
 	})
 
-	// Start /healthz HTTP endpoint if enabled
+	// Start /healthz HTTP endpoint if enabled.
+	// Security: only exposes operational status (no peer IDs, versions, or protocol lists).
+	// Default listen address is 127.0.0.1:9090 (localhost-only), but if configured to
+	// bind externally, we validate that the source IP is loopback to prevent information leakage.
 	var healthServer *http.Server
 	if cfg.Health.Enabled {
 		startTime := time.Now()
 		mux := http.NewServeMux()
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			// Reject non-loopback sources when bound to a non-loopback address
+			host, _, _ := net.SplitHostPort(r.RemoteAddr)
+			if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":          "ok",
-				"peer_id":         h.ID().String(),
-				"version":         version,
 				"uptime_seconds":  int(time.Since(startTime).Seconds()),
 				"connected_peers": len(h.Network().Peers()),
-				"protocols":       len(h.Mux().Protocols()),
 			})
 		})
 		healthServer = &http.Server{

@@ -69,8 +69,8 @@ func TestMain(m *testing.M) {
 	relayPeerID = pid
 	relayMultiaddr = fmt.Sprintf("/ip4/172.28.0.10/tcp/7777/p2p/%s", relayPeerID)
 
-	fmt.Printf("Relay Peer ID: %s\n", relayPeerID)
-	fmt.Printf("Relay Multiaddr: %s\n", relayMultiaddr)
+	fmt.Printf("Relay Peer ID: %s...\n", relayPeerID[:16])
+	fmt.Printf("Relay Multiaddr: (redacted for CI logs)\n")
 
 	// Run tests.
 	code := m.Run()

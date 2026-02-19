@@ -278,12 +278,17 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 
 // sanitizeYAMLName strips characters unsafe for use as a bare YAML key.
 // Only allows alphanumeric, hyphen, underscore, and dot.
+// Names are capped at 64 characters to prevent abuse from remote peers.
 func sanitizeYAMLName(s string) string {
+	const maxNameLen = 64
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
 			b.WriteRune(r)
+			if b.Len() >= maxNameLen {
+				break
+			}
 		}
 	}
 	return b.String()

@@ -13,8 +13,27 @@ import (
 	"github.com/satindergrewal/peer-up/internal/validate"
 )
 
+// checkConfigFilePermissions warns if a config file has overly permissive
+// permissions (group/world readable). Config files may contain sensitive
+// paths and network topology. Returns an error on multi-user systems
+// where the file is world-readable.
+func checkConfigFilePermissions(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil // file access errors are handled by the caller
+	}
+	mode := info.Mode().Perm()
+	if mode&0077 != 0 {
+		return fmt.Errorf("config file %s has overly permissive mode %04o; expected 0600 — fix with: chmod 600 %s", path, mode, path)
+	}
+	return nil
+}
+
 // LoadHomeNodeConfig loads home node configuration from a YAML file
 func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
+	if err := checkConfigFilePermissions(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
@@ -75,6 +94,9 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 
 // LoadClientNodeConfig loads client node configuration from a YAML file
 func LoadClientNodeConfig(path string) (*ClientNodeConfig, error) {
+	if err := checkConfigFilePermissions(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
@@ -122,6 +144,9 @@ func LoadClientNodeConfig(path string) (*ClientNodeConfig, error) {
 
 // LoadRelayServerConfig loads relay server configuration from a YAML file
 func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
+	if err := checkConfigFilePermissions(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)

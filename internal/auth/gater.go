@@ -54,7 +54,7 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 	if dir == network.DirInbound {
 		authorized := g.authorizedPeers[p]
 		if !authorized {
-			slog.Warn("inbound connection denied", "peer", p.String()[:16]+"...", "remote_addr", addr.RemoteMultiaddr())
+			slog.Warn("inbound connection denied", "peer", p.String()[:16]+"...")
 			return false
 		}
 		slog.Info("inbound connection allowed", "peer", p.String()[:16]+"...")

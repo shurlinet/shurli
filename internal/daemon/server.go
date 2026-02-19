@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -80,7 +81,7 @@ func (s *Server) ShutdownCh() <-chan struct{} {
 	return s.shutdownCh
 }
 
-// Start creates the cookie file, binds the Unix socket, and starts serving.
+// Start creates the Unix socket, writes the cookie file, and starts serving.
 // It returns immediately — the server runs in a background goroutine.
 func (s *Server) Start() error {
 	// Generate auth cookie
@@ -90,30 +91,29 @@ func (s *Server) Start() error {
 	}
 	s.authToken = token
 
-	if err := os.WriteFile(s.cookiePath, []byte(token), 0600); err != nil {
-		return fmt.Errorf("failed to write cookie file: %w", err)
-	}
-	slog.Info("daemon cookie written", "path", s.cookiePath)
-
 	// Check for stale socket
 	if err := s.checkStaleSocket(); err != nil {
-		os.Remove(s.cookiePath)
 		return err
 	}
 
-	// Bind Unix socket
+	// Bind Unix socket with restrictive umask to avoid TOCTOU race.
+	// Setting umask(0077) ensures the socket is created with 0600 permissions
+	// atomically, eliminating the window between Listen() and Chmod().
+	oldUmask := syscall.Umask(0077)
 	listener, err := net.Listen("unix", s.socketPath)
+	syscall.Umask(oldUmask)
 	if err != nil {
-		os.Remove(s.cookiePath)
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 
-	// Set socket permissions to owner-only
-	if err := os.Chmod(s.socketPath, 0600); err != nil {
+	// Write cookie AFTER socket is secured — prevents clients from reading
+	// the cookie before the socket is ready to accept authenticated connections.
+	if err := os.WriteFile(s.cookiePath, []byte(token), 0600); err != nil {
 		listener.Close()
-		os.Remove(s.cookiePath)
-		return fmt.Errorf("failed to set socket permissions: %w", err)
+		os.Remove(s.socketPath)
+		return fmt.Errorf("failed to write cookie file: %w", err)
 	}
+	slog.Info("daemon cookie written", "path", s.cookiePath)
 
 	s.listener = listener
 
