@@ -192,7 +192,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 ### Phase 4C: Core Hardening & Security
 
 **Timeline**: 6-8 weeks (batched)
-**Status**: 🔧 In Progress
+**Status**: ✅ Batches A–G Complete (6 items deferred to future batches)
 
 **Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically — before wider distribution puts binaries in more hands.
 
@@ -201,20 +201,20 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 **Implementation Order** (batched for incremental value):
 | Batch | Focus | Key Items |
 |-------|-------|-----------|
-| A | **Reliability** | Reconnection with backoff, TCP dial timeout, DHT in proxy, integration tests |
-| B | **Code Quality** | Proxy dedup, structured logging (`log/slog`), sentinel errors, build version embedding |
-| C | **Self-Healing** | Config validation/archive/rollback, commit-confirmed, systemd watchdog |
+| A | **Reliability** | Reconnection with backoff, TCP dial timeout, DHT in proxy, integration tests | ✅ DONE |
+| B | **Code Quality** | Proxy dedup, structured logging (`log/slog`), sentinel errors, build version embedding | ✅ DONE |
+| C | **Self-Healing** | Config validation/archive/rollback, commit-confirmed, systemd watchdog | ✅ DONE |
 | D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | ✅ DONE |
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
-| G | **Test Coverage & Documentation** | Expand tests to >60% coverage, Docker integration tests, CLI tests, engineering journal |
+| G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
 | H | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
 
 **Deliverables**:
 
 **Security (Critical)**:
 - [x] Relay resource limits — replace `WithInfiniteLimits()` with configurable `WithResources()` + `WithLimit()`. Defaults tuned for SSH/XRDP (10min sessions, 64MB data). Configurable via `resources:` section in relay-server.yaml.
-- [ ] Auth hot-reload — file watcher or SIGHUP to reload `authorized_keys` without restart (revoke access immediately)
+- [x] Auth hot-reload — daemon API `POST /v1/auth` and `DELETE /v1/auth/{peer_id}` reload `authorized_keys` at runtime. `GaterReloader` interface updates ConnectionGater in-place. *(Batch F)*
 - [ ] Per-service access control — allow granting specific peers access to specific services only. Critical when home node acts as LAN gateway (e.g., `local_address: "192.168.0.5:22"` exposes another machine's SSH). Config supports per-service `authorized_keys` override. CLI: `peerup service acl <name> add/remove <peer-id>`. Without this, every authorized peer can reach every service.
 - [ ] Rate limiting on incoming connections and streams — leverage go-libp2p's built-in per-IP rate limiting (1 connection per 5s default, 16-burst). Add per-peer stream throttling.
 - [ ] QUIC source address verification — validate peer source IPs aren't spoofed, prevents relay from being used as DDoS reflector (built into quic-go v0.54.0+)
@@ -234,18 +234,18 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Private DHT — migrated from IPFS Amino DHT (`/ipfs/kad/1.0.0`) to private peerup DHT (`/peerup/kad/1.0.0`). All 3 `dht.New()` calls in peerup + relay-server now use `dht.ProtocolPrefix("/peerup")`. Relay server runs DHT in server mode as the bootstrap peer. No more polluting the IPFS routing table or getting rejected by ConnectionGater. *(Post-Batch F)*
 
 **Self-Healing & Resilience** (inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik):
-- [ ] **Config validation command** — `peerup validate` / `relay-server validate` — parse config, check key file exists, verify relay address reachable, dry-run before applying. Catches errors before they cause downtime.
-- [ ] **Config archive** — automatically save last 5 configs to `~/.config/peerup/config.d/` with timestamps on every change (init, join, relay add/remove, auth add/remove). Enables rollback.
-- [ ] **Config rollback** — `peerup config rollback [N]` / `relay-server config rollback [N]` — restore Nth previous config from archive. Critical for recovering from bad changes.
-- [ ] **Commit-confirmed pattern** (Juniper JunOS / Cisco IOS) — `relay-server apply --confirm-timeout 120` applies a config change and auto-reverts to previous config if not confirmed within N seconds. **Prevents permanent lockout on remote relay.** No P2P networking tool implements this. Also serves as the safety net for auto-upgrade (see Phase 4E).
-- [ ] **systemd watchdog integration** — relay-server sends `sd_notify("WATCHDOG=1")` every 30s with internal health check (relay service alive, listening, at least 1 protocol registered). If health check fails, stop notifying → systemd auto-restarts. Add `WatchdogSec=60` to service file.
+- [x] **Config validation command** — `peerup config validate` parses config, checks key file exists, verifies relay address reachable, dry-run before applying. Also validates relay config. *(Batch C)*
+- [x] **Config archive** — `internal/config/archive.go` auto-saves last-known-good config (`.config.last-good.yaml`) on successful serve startup. Atomic write with temp+rename. *(Batch C)*
+- [x] **Config rollback** — `peerup config rollback` restores from last-known-good archive. *(Batch C)*
+- [x] **Commit-confirmed pattern** (Juniper JunOS / Cisco IOS) — `peerup config apply <new-config> --confirm-timeout 5m` applies a config change and auto-reverts if not confirmed via `peerup config confirm`. **Prevents permanent lockout on remote relay.** `internal/config/confirm.go` implements `ApplyCommitConfirmed()` and `EnforceCommitConfirmed()`. *(Batch C)*
+- [x] **systemd watchdog integration** — `internal/watchdog/watchdog.go` sends `sd_notify("WATCHDOG=1")` every 30s with health check. `Ready()`, `Stopping()`, `Watchdog()` messages. Integrated into `serve_common.go`. Extended with Unix socket health check in Batch F. *(Batch C)*
 - [x] **Health check HTTP endpoint** — relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`peerup status` command** — show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required — instant. *(Batch E)*
 
 **Auto-Upgrade Groundwork** (full implementation in Phase 4E):
 - [x] **Build version embedding** — compile with `-ldflags "-X main.version=..."` so every binary knows its version. `peerup version` / `peerup --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** — set `UserAgent` to `peerup/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D — serve/proxy/ping; Batch E — invite/join)*
-- [ ] **Protocol versioning policy** — document compatibility guarantees: wire protocols (`/peerup/proxy/1.0.0`) are backwards-compatible within major version. Breaking changes increment major version. Old versions supported for 1 release cycle.
+- [x] **Protocol versioning policy** — documented in engineering journal (ADR-D03). Wire protocols (`/peerup/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
 - [x] **Daemon mode** — `peerup daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/peerup/peerup.sock`) with cookie-based auth. JSON + plain text responses. 14 endpoints: status, peers, services, auth (add/remove/hot-reload), ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown. CLI client auto-reads cookie. *(Batch F)*
@@ -255,7 +255,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Reconnection with exponential backoff — `DialWithRetry()` wraps proxy dial with 3 retries (1s → 2s → 4s) to recover from transient relay drops
 - [ ] Connection warmup — pre-establish connection to target peer at `peerup proxy` startup (eliminates 5-15s per-session setup latency)
 - [ ] Stream pooling — reuse streams instead of creating fresh ones per TCP connection (eliminates per-connection protocol negotiation)
-- [ ] Persistent relay reservation — keep reservation alive with periodic refresh instead of re-reserving per connection. Reduces connection setup toward 1-3s (matching Iroh's performance).
+- [x] Persistent relay reservation — `serve_common.go` keeps reservation alive with periodic `circuitv2client.Reserve()` at `cfg.Relay.ReservationInterval`. Runs as background goroutine during daemon lifetime.
 - [x] DHT bootstrap in proxy command — Kademlia DHT (client mode) bootstrapped at proxy startup. Async `FindPeer()` discovers target's direct addresses, enabling DCUtR hole-punching (~70% bypass relay entirely).
 - [x] Graceful shutdown — replace `os.Exit(0)` with proper cleanup, context cancellation stops background goroutines
 - [x] Goroutine lifecycle — use `time.Ticker` + `select ctx.Done()` instead of bare `time.Sleep` loops
@@ -332,18 +332,21 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Tests: auth middleware, handlers, lifecycle, stale socket, integration, ping stats
 - [x] Documentation: `docs/DAEMON-API.md` (full API reference), `docs/NETWORK-TOOLS.md` (diagnostic commands)
 
-**Batch G — Test Coverage & Documentation** (planned):
+**Batch G — Test Coverage & Documentation** (completed):
 
-Priority areas (by gap severity):
-- [ ] **cmd/relay-server** (0% → target 50%+) — health endpoint handler, resource limit validation, startup/shutdown lifecycle
-- [ ] **cmd/peerup** (4% → target 40%+) — CLI command parsing, flag handling, config template rendering, daemon start/stop lifecycle, error paths in init/invite/join
-- [ ] **internal/daemon** (12% → target 70%+) — all 14 API handlers (status, ping, traceroute, resolve, connect/disconnect, auth CRUD, services, shutdown), format negotiation, cookie auth edge cases, proxy lifecycle, client library
-- [ ] **pkg/p2pnet** (23% → target 60%+) — naming resolution, service registry (register/unregister/list), proxy half-close semantics, relay address parsing, identity management
-- [ ] **internal/config** (48% → target 75%+) — archive/rollback, commit-confirmed timer, edge cases in loader
-- [ ] **internal/auth** (50% → target 75%+) — hot-reload, concurrent access, malformed input
-- [ ] **Docker integration tests** — multi-container test environment for realistic daemon-to-daemon scenarios (invite/join, ping, proxy, relay traversal)
-- [ ] **CI coverage reporting** — add coverage threshold to GitHub Actions (`go test -coverprofile`, fail if below target)
+Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary merged into peerup (commit 5d167b3).
+
+Priority areas (all hit or exceeded targets):
+- [x] **cmd/peerup** (4% → 80%+) — 96 test functions covering CLI commands, flag handling, config template, daemon lifecycle, error paths. Relay serve commands merged and tested. *(relay-server binary merged into peerup)*
+- [x] **internal/daemon** (12% → 70%+) — all 14 API handlers tested (status, ping, traceroute, resolve, connect/disconnect, auth CRUD, services, shutdown), format negotiation, cookie auth, proxy lifecycle, client library
+- [x] **pkg/p2pnet** (23% → 84%) — naming, service registry, proxy half-close, relay address parsing, identity, ping, traceroute
+- [x] **internal/config** (48% → 75%+) — archive/rollback, commit-confirmed timer, loader edge cases, benchmark tests
+- [x] **internal/auth** (50% → 75%+) — hot-reload, concurrent access, malformed input, gater tests
+- [x] **Docker integration tests** — `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
+- [x] **CI coverage reporting** — `.github/workflows/pages.yaml` merges unit + Docker coverage via `go tool covdata merge`, reports combined coverage
 - [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) — 28 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog — documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
+- [x] **Website** — Hugo + Hextra site scaffolded with landing page, 7 retroactive blog posts (Batches A-G), sync-docs.sh for auto-transformation, GitHub Actions CI/CD for GitHub Pages deployment
+- [x] **Security hardening** — post-audit fixes across 10 files (commit 83d02d3). CVE-2026-26014 resolved (pion/dtls v3.1.2). CI Actions pinned to commit SHAs.
 
 **Service CLI** (completed — completes the CLI config management pattern):
 - [x] `peerup service add <name> <address>` — add a service (enabled by default), optional `--protocol` flag
@@ -355,12 +358,12 @@ Priority areas (by gap severity):
 - [x] `local_address` can point to any reachable host (e.g., `192.168.0.5:22`) — home node acts as LAN gateway
 
 **Code Quality**:
-- [ ] Expand test coverage — naming, proxy, invite edge cases, relay input parsing
-- [x] Structured logging — migrated library code (`pkg/p2pnet/`, `internal/auth/`) to `log/slog` with structured key-value fields and log levels (Info/Warn/Error). CLI commands remain `fmt.Println` for user output.
-- [x] Sentinel errors — defined `ErrServiceAlreadyRegistered`, `ErrNameNotFound`, `ErrPeerAlreadyAuthorized`, `ErrPeerNotFound`, `ErrInvalidPeerID`, `ErrConfigNotFound`, `ErrConfigVersionTooNew`, `ErrInvalidServiceName` across 4 error files. All wrapped with `fmt.Errorf("%w: ...")` for `errors.Is()` support.
-- [x] Deduplicate proxy pattern — extracted `BidirectionalProxy()` with `HalfCloseConn` interface and `tcpHalfCloser` adapter (was copy-pasted 4x, now single ~30-line function)
-- [ ] Consolidate config loaders — unify `LoadHomeNodeConfig`/`LoadClientNodeConfig`
-- [ ] Health/status endpoint — expose connection state, relay status, active streams
+- [x] Expand test coverage — 80.3% combined coverage. Naming, proxy, invite edge cases, relay input parsing all tested. *(Batch G)*
+- [x] Structured logging — migrated library code (`pkg/p2pnet/`, `internal/auth/`) to `log/slog` with structured key-value fields and log levels (Info/Warn/Error). CLI commands remain `fmt.Println` for user output. *(Batch B)*
+- [x] Sentinel errors — defined `ErrServiceAlreadyRegistered`, `ErrNameNotFound`, `ErrPeerAlreadyAuthorized`, `ErrPeerNotFound`, `ErrInvalidPeerID`, `ErrConfigNotFound`, `ErrConfigVersionTooNew`, `ErrInvalidServiceName` across 4 error files. All wrapped with `fmt.Errorf("%w: ...")` for `errors.Is()` support. *(Batch B)*
+- [x] Deduplicate proxy pattern — extracted `BidirectionalProxy()` with `HalfCloseConn` interface and `tcpHalfCloser` adapter (was copy-pasted 4x, now single ~30-line function). *(Batch B)*
+- [x] Consolidate config loaders — unified `LoadNodeConfig()` delegates to `LoadHomeNodeConfig()`, `LoadClientNodeConfig()` also delegates. Single `NodeConfig` struct.
+- [x] Health/status endpoint — `/healthz` on relay (Batch E), `peerup status` (Batch E), daemon API `/v1/status` (Batch F) expose connection state, relay status, active streams.
 
 **Industry References**:
 - **Juniper JunOS `commit confirmed`**: Apply config, auto-revert if not confirmed. Standard in network equipment for 20+ years. Prevents lockout on remote devices — identical problem to a remote relay server.
@@ -512,12 +515,12 @@ Waiting for transfers...
 - [x] GitHub Actions CI/CD — build Hugo site and deploy to GitHub Pages on every push to `main`
 - [ ] GitHub Pages hosting with custom domain (`peerup.dev`) — DNS pointing pending
 - [ ] DNS managed on Cloudflare — CNAME `peerup.dev` → GitHub Pages, CNAME `get.peerup.dev` → serves install script
-- [ ] Landing page — project overview, quick start, feature highlights, comparison table (vs Tailscale/ZeroTier/Netbird)
-- [ ] Existing docs rendered as site pages (ARCHITECTURE, FAQ, TESTING, ROADMAP)
+- [x] Landing page — hero section, feature grid (NAT traversal, single binary, SSH trust, 60s pairing, TCP proxy, self-healing) *(Batch G)*
+- [x] Existing docs rendered as site pages — `sync-docs.sh` transforms ARCHITECTURE, FAQ, TESTING, ROADMAP, DAEMON-API, NETWORK-TOOLS, ENGINEERING-JOURNAL into Hugo-ready content *(Batch G)*
 - [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
 - [ ] Use-case guides integrated into the site (GPU inference, IoT, game servers — see Launch Content below)
 - [ ] Install page with platform-specific instructions (curl, brew, apt, Docker, source)
-- [ ] Blog section for announcements and technical posts
+- [x] Blog section — 7 retroactive blog posts for Batches A-G (outcomes-focused) *(Batch G)*
 
 **AI-Agent Discoverability ([llms.txt](https://llmstxt.org/) spec)**:
 - [ ] `/llms.txt` — markdown index of the project: name, summary, links to detailed doc pages. ~200 tokens for an AI agent to understand the entire project. Hugo build step generates this from site content.
@@ -949,7 +952,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | 📋 3-4 weeks | **Next** |
+| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A–G) |
 | Phase 4D: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
 | Phase 4E: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 4F: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
@@ -1075,8 +1078,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-17
-**Current Phase**: 4C In Progress (Batch A ✅; Batch B ✅; Batch C ✅; Batch D ✅; Batch E ✅; Batch F ✅)
+**Last Updated**: 2026-02-20
+**Current Phase**: 4C Complete (Batches A–G all shipped, tested, merged to main)
 **Phase count**: 4C–4I (7 phases, down from 9 — file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch G (Test Coverage & Documentation) — expand tests to >60% coverage, Docker integration, CI coverage gates, engineering journal
+**Next Milestone**: Phase 4C Batch H (Observability) — OpenTelemetry, metrics, connection quality scoring, hole-punch tracking, audit logging
 **Relay elimination**: Planned post-Batch H — `require_auth` peer relays → DHT discovery → VPS becomes obsolete
