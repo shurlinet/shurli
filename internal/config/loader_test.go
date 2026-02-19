@@ -643,7 +643,7 @@ func TestLoadClientNodeConfigMissing(t *testing.T) {
 }
 
 func TestValidateHomeNodeConfig(t *testing.T) {
-	valid := &HomeNodeConfig{
+	base := HomeNodeConfig{
 		Identity:  IdentityConfig{KeyFile: "key"},
 		Network:   NetworkConfig{ListenAddresses: []string{"/ip4/0.0.0.0/tcp/0"}},
 		Relay:     RelayConfig{Addresses: []string{"/ip4/1.2.3.4/tcp/7777/p2p/X"}},
@@ -652,20 +652,40 @@ func TestValidateHomeNodeConfig(t *testing.T) {
 		Protocols: ProtocolsConfig{PingPong: PingPongConfig{ID: "/pingpong/1.0.0"}},
 	}
 
-	if err := ValidateHomeNodeConfig(valid); err != nil {
-		t.Errorf("valid config rejected: %v", err)
+	t.Run("valid", func(t *testing.T) {
+		cfg := base
+		if err := ValidateHomeNodeConfig(&cfg); err != nil {
+			t.Errorf("valid config rejected: %v", err)
+		}
+	})
+
+	tests := []struct {
+		name   string
+		mutate func(*HomeNodeConfig)
+	}{
+		{"no key_file", func(c *HomeNodeConfig) { c.Identity.KeyFile = "" }},
+		{"no listen_addresses", func(c *HomeNodeConfig) { c.Network.ListenAddresses = nil }},
+		{"no relay_addresses", func(c *HomeNodeConfig) { c.Relay.Addresses = nil }},
+		{"no rendezvous", func(c *HomeNodeConfig) { c.Discovery.Rendezvous = "" }},
+		{"no pingpong_id", func(c *HomeNodeConfig) { c.Protocols.PingPong.ID = "" }},
+		{"gating without auth_keys", func(c *HomeNodeConfig) {
+			c.Security = SecurityConfig{EnableConnectionGating: true, AuthorizedKeysFile: ""}
+		}},
 	}
 
-	// Missing key_file
-	invalid := *valid
-	invalid.Identity.KeyFile = ""
-	if err := ValidateHomeNodeConfig(&invalid); err == nil {
-		t.Error("expected error for missing key_file")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			tt.mutate(&cfg)
+			if err := ValidateHomeNodeConfig(&cfg); err == nil {
+				t.Error("expected validation error")
+			}
+		})
 	}
 }
 
 func TestValidateClientNodeConfig(t *testing.T) {
-	valid := &ClientNodeConfig{
+	base := ClientNodeConfig{
 		Network:   NetworkConfig{ListenAddresses: []string{"/ip4/0.0.0.0/tcp/0"}},
 		Relay:     RelayConfig{Addresses: []string{"/ip4/1.2.3.4/tcp/7777/p2p/X"}},
 		Discovery: DiscoveryConfig{Rendezvous: "test"},
@@ -673,21 +693,33 @@ func TestValidateClientNodeConfig(t *testing.T) {
 		Protocols: ProtocolsConfig{PingPong: PingPongConfig{ID: "/pingpong/1.0.0"}},
 	}
 
-	if err := ValidateClientNodeConfig(valid); err != nil {
-		t.Errorf("valid config rejected: %v", err)
+	t.Run("valid", func(t *testing.T) {
+		cfg := base
+		if err := ValidateClientNodeConfig(&cfg); err != nil {
+			t.Errorf("valid config rejected: %v", err)
+		}
+	})
+
+	tests := []struct {
+		name   string
+		mutate func(*ClientNodeConfig)
+	}{
+		{"no listen_addresses", func(c *ClientNodeConfig) { c.Network.ListenAddresses = nil }},
+		{"no relay_addresses", func(c *ClientNodeConfig) { c.Relay.Addresses = nil }},
+		{"no rendezvous", func(c *ClientNodeConfig) { c.Discovery.Rendezvous = "" }},
+		{"no pingpong_id", func(c *ClientNodeConfig) { c.Protocols.PingPong.ID = "" }},
+		{"gating without auth_keys", func(c *ClientNodeConfig) {
+			c.Security = SecurityConfig{EnableConnectionGating: true, AuthorizedKeysFile: ""}
+		}},
 	}
 
-	// Missing listen_addresses
-	invalid := *valid
-	invalid.Network.ListenAddresses = nil
-	if err := ValidateClientNodeConfig(&invalid); err == nil {
-		t.Error("expected error for missing listen_addresses")
-	}
-
-	// Gating without auth_keys
-	invalid2 := *valid
-	invalid2.Security = SecurityConfig{EnableConnectionGating: true, AuthorizedKeysFile: ""}
-	if err := ValidateClientNodeConfig(&invalid2); err == nil {
-		t.Error("expected error for gating without auth_keys")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			tt.mutate(&cfg)
+			if err := ValidateClientNodeConfig(&cfg); err == nil {
+				t.Error("expected validation error")
+			}
+		})
 	}
 }

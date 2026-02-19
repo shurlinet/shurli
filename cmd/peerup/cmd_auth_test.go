@@ -408,6 +408,84 @@ func TestDoAuthValidate(t *testing.T) {
 	}
 }
 
+// ----- Auth commands via --config (exercises resolveAuthKeysPathErr) -----
+
+func TestDoAuthList_ViaConfig(t *testing.T) {
+	// Tests the resolveAuthKeysPathErr path through config resolution
+	// instead of the --file shortcut.
+	cfgPath := writeTestConfigDir(t)
+	dir := filepath.Dir(cfgPath)
+
+	// Write a peer into authorized_keys
+	pid := generateTestPeerID(t)
+	writeAuthKeysFile(t, dir, pid+"  # via-config-test\n")
+
+	var stdout bytes.Buffer
+	err := doAuthList([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doAuthList via config: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Authorized peers (1)") {
+		t.Errorf("output should contain 'Authorized peers (1)', got:\n%s", out)
+	}
+	if !strings.Contains(out, "via-config-test") {
+		t.Errorf("output should contain comment 'via-config-test', got:\n%s", out)
+	}
+}
+
+func TestDoAuthAdd_ViaConfig(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+	pid := generateTestPeerID(t)
+
+	var stdout bytes.Buffer
+	err := doAuthAdd([]string{pid, "--config", cfgPath, "--comment", "config-path-test"}, &stdout)
+	if err != nil {
+		t.Fatalf("doAuthAdd via config: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Comment: config-path-test") {
+		t.Errorf("output should contain comment, got:\n%s", out)
+	}
+}
+
+func TestDoAuthRemove_ViaConfig(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+	dir := filepath.Dir(cfgPath)
+	pid1 := generateTestPeerID(t)
+	pid2 := generateTestPeerID(t)
+	writeAuthKeysFile(t, dir, pid1+"\n"+pid2+"\n")
+
+	var stdout bytes.Buffer
+	err := doAuthRemove([]string{pid1, "--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doAuthRemove via config: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "File:") {
+		t.Errorf("output should contain 'File:', got:\n%s", out)
+	}
+}
+
+func TestDoAuthValidate_ViaConfig(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+	dir := filepath.Dir(cfgPath)
+	pid := generateTestPeerID(t)
+	writeAuthKeysFile(t, dir, pid+"\n")
+
+	var stdout bytes.Buffer
+	err := doAuthValidate([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doAuthValidate via config: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Valid peer IDs: 1") {
+		t.Errorf("output should contain 'Valid peer IDs: 1', got:\n%s", stdout.String())
+	}
+}
+
 func TestDoAuthValidate_ErrorLinesInOutput(t *testing.T) {
 	// When validation fails, the error details should be written to stdout.
 	dir := t.TempDir()

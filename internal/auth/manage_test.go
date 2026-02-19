@@ -167,6 +167,36 @@ func TestListPeersPreservesComments(t *testing.T) {
 	}
 }
 
+func TestRemovePeerPreservesInvalidLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "authorized_keys")
+
+	pid1 := genPeerIDStr(t)
+	// File contains a valid peer and an invalid line
+	content := "not-a-valid-peer-id\n" + pid1 + "  # target\n"
+	os.WriteFile(path, []byte(content), 0600)
+
+	if err := RemovePeer(path, pid1); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "not-a-valid-peer-id") {
+		t.Error("invalid peer ID line should be preserved")
+	}
+	if strings.Contains(string(data), "target") {
+		t.Error("removed peer should not be in file")
+	}
+}
+
+func TestRemovePeerMissingFile(t *testing.T) {
+	pid := genPeerIDStr(t)
+	err := RemovePeer("/nonexistent/authorized_keys", pid)
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
 func TestRemovePeerPreservesFileComments(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "authorized_keys")

@@ -409,6 +409,83 @@ names: {}
 	}
 }
 
+// ----- doConfigShow commit-confirmed pending path -----
+
+func TestDoConfigShow_WithPendingCommitConfirmed(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	// Create a valid new config and apply it to create pending state
+	newDir := filepath.Join(dir, "new")
+	os.MkdirAll(newDir, 0755)
+	newYAML := strings.Replace(validConfigYAML(), "test-network", "pending-net", 1)
+	newCfgPath := filepath.Join(newDir, "new-config.yaml")
+	os.WriteFile(newCfgPath, []byte(newYAML), 0600)
+	writeTestIdentityKey(t, newDir)
+	os.WriteFile(filepath.Join(newDir, "authorized_keys"), []byte(""), 0600)
+
+	var applyOut, applyErr bytes.Buffer
+	if err := doConfigApply(
+		[]string{"--config", cfgPath, newCfgPath},
+		&applyOut, &applyErr,
+	); err != nil {
+		t.Fatalf("apply setup failed: %v", err)
+	}
+
+	// Now show should mention commit-confirmed pending
+	var stdout bytes.Buffer
+	err := doConfigShow([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doConfigShow: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Commit-confirmed pending") && !strings.Contains(out, "commit-confirmed") {
+		t.Errorf("output should mention commit-confirmed pending, got:\n%s", out)
+	}
+}
+
+func TestDoConfigShow_WithValidationWarning(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create config with empty relay addresses (will trigger validation warning)
+	yaml := `version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+relay:
+  addresses: []
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "test-network"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+protocols:
+  ping_pong:
+    enabled: true
+    id: "/pingpong/1.0.0"
+names: {}
+`
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(yaml), 0600)
+	writeTestIdentityKey(t, dir)
+	os.WriteFile(filepath.Join(dir, "authorized_keys"), []byte(""), 0600)
+
+	var stdout bytes.Buffer
+	err := doConfigShow([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doConfigShow: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "WARNING") {
+		t.Errorf("output should contain validation WARNING, got:\n%s", out)
+	}
+}
+
 // ----- doConfigConfirm tests -----
 
 func TestDoConfigConfirm(t *testing.T) {

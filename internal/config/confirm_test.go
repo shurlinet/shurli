@@ -278,6 +278,113 @@ func TestEnforceCommitConfirmedCancelled(t *testing.T) {
 	}
 }
 
+func TestApplyCommitConfirmedMissingNewConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	original := []byte("version: 1\noriginal: true\n")
+
+	if err := os.WriteFile(cfgPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Apply with non-existent new config
+	err := ApplyCommitConfirmed(cfgPath, filepath.Join(dir, "nonexistent.yaml"), 5*time.Minute)
+	if err == nil {
+		t.Fatal("expected error for missing new config")
+	}
+	if !strings.Contains(err.Error(), "read new config") {
+		t.Errorf("error = %v, want 'read new config'", err)
+	}
+
+	// Original config should be unchanged
+	data, _ := os.ReadFile(cfgPath)
+	if string(data) != string(original) {
+		t.Errorf("config = %q, want %q (should be unchanged)", data, original)
+	}
+
+	// Pending marker and backup should be cleaned up
+	if _, err := os.Stat(PendingPath(cfgPath)); !os.IsNotExist(err) {
+		t.Error("pending marker should be cleaned up after failure")
+	}
+	if _, err := os.Stat(backupPath(cfgPath)); !os.IsNotExist(err) {
+		t.Error("backup should be cleaned up after failure")
+	}
+}
+
+func TestApplyCommitConfirmedDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	newPath := filepath.Join(dir, "new-config.yaml")
+
+	if err := os.WriteFile(cfgPath, []byte("original\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// First apply succeeds
+	if err := ApplyCommitConfirmed(cfgPath, newPath, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second apply should fail (pending already exists)
+	err := ApplyCommitConfirmed(cfgPath, newPath, 5*time.Minute)
+	if err == nil {
+		t.Fatal("expected error on duplicate apply")
+	}
+	if !errors.Is(err, ErrCommitConfirmedPending) {
+		t.Errorf("error = %v, want ErrCommitConfirmedPending", err)
+	}
+}
+
+func TestEnforceCommitConfirmedWriterShortTimer(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	original := []byte("original\n")
+
+	if err := os.WriteFile(cfgPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := BeginCommitConfirmed(cfgPath, 50*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("modified\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	var exitCode atomic.Int32
+	exitCode.Store(-1)
+	exitFunc := func(code int) { exitCode.Store(int32(code)) }
+
+	// Short but future deadline — exercises the timer path (not the already-passed path)
+	deadline := time.Now().Add(50 * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		EnforceCommitConfirmedWriter(context.Background(), &buf, cfgPath, deadline, exitFunc)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("EnforceCommitConfirmedWriter did not return within timeout")
+	}
+
+	if exitCode.Load() != 1 {
+		t.Errorf("exit code = %d, want 1", exitCode.Load())
+	}
+	output := buf.String()
+	if !strings.Contains(output, "timeout") {
+		t.Errorf("output = %q, want it to contain 'timeout'", output)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if string(data) != string(original) {
+		t.Errorf("config = %q, want %q", data, original)
+	}
+}
+
 func TestEnforceCommitConfirmedWriterTimeout(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")

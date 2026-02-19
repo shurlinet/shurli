@@ -587,6 +587,133 @@ func TestDoStatus(t *testing.T) {
 	}
 }
 
+// ----- doStatus extended tests (branch coverage) -----
+
+func TestDoStatus_WithServicesAndNames(t *testing.T) {
+	cfgPath := writeTestConfigWithNames(t, map[string]string{"home": generateTestPeerID(t)})
+
+	// Add a service to the config
+	data, _ := os.ReadFile(cfgPath)
+	content := strings.Replace(string(data), "services: {}", `services:
+  ssh:
+    enabled: true
+    local_address: "localhost:22"
+  web:
+    enabled: false
+    local_address: "localhost:8080"`, 1)
+	os.WriteFile(cfgPath, []byte(content), 0600)
+
+	var stdout bytes.Buffer
+	err := doStatus([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doStatus: %v", err)
+	}
+
+	out := stdout.String()
+	// Check services section with entries
+	if !strings.Contains(out, "ssh") {
+		t.Error("output should contain 'ssh' service")
+	}
+	if !strings.Contains(out, "web") {
+		t.Error("output should contain 'web' service")
+	}
+	if !strings.Contains(out, "enabled") {
+		t.Error("output should show enabled state")
+	}
+	if !strings.Contains(out, "disabled") {
+		t.Error("output should show disabled state")
+	}
+	// Check names section with entries
+	if !strings.Contains(out, "Names:") {
+		t.Error("output should contain 'Names:' section")
+	}
+	if !strings.Contains(out, "home") {
+		t.Error("output should contain name 'home'")
+	}
+}
+
+func TestDoStatus_WithAuthorizedPeers(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+	dir := filepath.Dir(cfgPath)
+
+	// Add authorized peers
+	pid1 := generateTestPeerID(t)
+	pid2 := generateTestPeerID(t)
+	akContent := pid1 + "  # my laptop\n" + pid2 + "\n"
+	os.WriteFile(filepath.Join(dir, "authorized_keys"), []byte(akContent), 0600)
+
+	var stdout bytes.Buffer
+	err := doStatus([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doStatus: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Authorized peers (2)") {
+		t.Errorf("output should contain 'Authorized peers (2)', got:\n%s", out)
+	}
+	if !strings.Contains(out, "my laptop") {
+		t.Error("output should contain peer comment")
+	}
+}
+
+func TestDoStatus_EmptyAuthorizedKeys(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+
+	var stdout bytes.Buffer
+	err := doStatus([]string{"--config", cfgPath}, &stdout)
+	if err != nil {
+		t.Fatalf("doStatus: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "(none)") {
+		t.Errorf("output should indicate no authorized peers, got:\n%s", out)
+	}
+}
+
+// ----- resolveAuthKeysPathErr via config -----
+
+func TestResolveAuthKeysPathErr_ViaConfig(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+
+	path, err := resolveAuthKeysPathErr("", cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path == "" {
+		t.Fatal("path should not be empty")
+	}
+	if !strings.Contains(path, "authorized_keys") {
+		t.Errorf("path should contain 'authorized_keys', got: %s", path)
+	}
+}
+
+func TestResolveAuthKeysPathErr_FileFlagPriority(t *testing.T) {
+	dir := t.TempDir()
+	akPath := filepath.Join(dir, "my_custom_keys")
+	os.WriteFile(akPath, nil, 0600)
+
+	// --file should take priority over --config
+	path, err := resolveAuthKeysPathErr(akPath, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != akPath {
+		t.Errorf("path = %q, want %q", path, akPath)
+	}
+}
+
+func TestResolveAuthKeysPathErr_MissingConfig(t *testing.T) {
+	_, err := resolveAuthKeysPathErr("", "/tmp/nonexistent-peerup-config/peerup.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing config")
+	}
+	if !strings.Contains(err.Error(), "config error") {
+		t.Errorf("error should contain 'config error': %v", err)
+	}
+}
+
 // ----- doRelayAdd success path tests -----
 
 func TestDoRelayAddSuccess(t *testing.T) {
