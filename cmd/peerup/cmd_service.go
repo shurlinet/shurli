@@ -59,7 +59,7 @@ func printServiceUsage() {
 }
 
 func runServiceAdd(args []string) {
-	args = reorderFlagsFirst(args)
+	args = reorderArgs(args, nil)
 
 	fs := flag.NewFlagSet("service add", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
@@ -179,7 +179,7 @@ func runServiceAdd(args []string) {
 func runServiceList(args []string) {
 	fs := flag.NewFlagSet("service list", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	cfgFile, cfg := resolveConfigFile(*configFlag)
 
@@ -205,7 +205,7 @@ func runServiceList(args []string) {
 }
 
 func runServiceSetEnabled(args []string, enabled bool) {
-	args = reorderFlagsFirst(args)
+	args = reorderArgs(args, nil)
 
 	fs := flag.NewFlagSet("service enable/disable", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
@@ -317,7 +317,7 @@ func runServiceSetEnabled(args []string, enabled bool) {
 }
 
 func runServiceRemove(args []string) {
-	args = reorderFlagsFirst(args)
+	args = reorderArgs(args, nil)
 
 	fs := flag.NewFlagSet("service remove", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")

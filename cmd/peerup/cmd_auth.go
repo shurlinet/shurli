@@ -15,28 +15,6 @@ import (
 	"github.com/satindergrewal/peer-up/internal/termcolor"
 )
 
-// reorderFlagsFirst moves flag arguments (--foo val) before positional args,
-// so Go's flag package can parse them regardless of argument order.
-// Every flag in peerup auth commands takes a value, so any --flag is followed
-// by exactly one value argument (regardless of what that value looks like).
-func reorderFlagsFirst(args []string) []string {
-	var flags, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") {
-			flags = append(flags, args[i])
-			// All our flags (--config, --file, --comment) take a value.
-			// Always consume the next argument as the value.
-			if i+1 < len(args) {
-				flags = append(flags, args[i+1])
-				i++
-			}
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	return append(flags, positional...)
-}
-
 func runAuth(args []string) {
 	if len(args) < 1 {
 		printAuthUsage()
@@ -100,7 +78,7 @@ func runAuthAdd(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
 	commentFlag := fs.String("comment", "", "optional comment for this peer")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	if fs.NArg() != 1 {
 		fmt.Println("Usage: peerup auth add <peer-id> [--comment \"label\"]")
@@ -125,7 +103,7 @@ func runAuthList(args []string) {
 	fs := flag.NewFlagSet("auth list", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	authKeysPath := resolveAuthKeysPath(*fileFlag, *configFlag)
 
@@ -157,7 +135,7 @@ func runAuthRemove(args []string) {
 	fs := flag.NewFlagSet("auth remove", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	if fs.NArg() != 1 {
 		fmt.Println("Usage: peerup auth remove <peer-id>")
@@ -179,7 +157,7 @@ func runAuthValidate(args []string) {
 	fs := flag.NewFlagSet("auth validate", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	// Accept positional arg or resolve from config
 	authKeysPath := ""

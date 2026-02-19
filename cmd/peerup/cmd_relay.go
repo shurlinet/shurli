@@ -68,7 +68,7 @@ func runRelayAdd(args []string) {
 	fs := flag.NewFlagSet("relay add", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	peerIDFlag := fs.String("peer-id", "", "relay server's peer ID (when using IP:PORT format)")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	if fs.NArg() < 1 {
 		fmt.Println("Usage: peerup relay add <address> [--peer-id <PEER_ID>]")
@@ -186,7 +186,7 @@ func runRelayAdd(args []string) {
 func runRelayList(args []string) {
 	fs := flag.NewFlagSet("relay list", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	cfgFile, cfg := resolveConfigFile(*configFlag)
 
@@ -205,7 +205,7 @@ func runRelayList(args []string) {
 func runRelayRemove(args []string) {
 	fs := flag.NewFlagSet("relay remove", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(reorderFlagsFirst(args))
+	fs.Parse(reorderArgs(args, nil))
 
 	if fs.NArg() != 1 {
 		fmt.Println("Usage: peerup relay remove <multiaddr>")

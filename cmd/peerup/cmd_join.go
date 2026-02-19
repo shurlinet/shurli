@@ -28,7 +28,7 @@ func runJoin(args []string) {
 	// Go's flag.Parse stops at the first non-flag argument, but users
 	// naturally write "peerup join <code> --name laptop". Without reordering,
 	// --name and laptop get joined into the invite code, corrupting it.
-	args = reorderFlagsFirst(args)
+	args = reorderArgs(args, map[string]bool{"non-interactive": true})
 
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
