@@ -33,6 +33,9 @@ go.work.sum
 # Testing and archived files
 archived/
 
+# Coverage data (unit + Docker integration merge)
+coverage/
+
 # Configuration files (keep only samples in repo)
 *.yaml
 !*.sample.yaml
