@@ -73,7 +73,7 @@ func runJoin(args []string) {
 	// Decode invite
 	data, err := invite.Decode(code)
 	if err != nil {
-		log.Fatalf("Invalid invite code: %v", err)
+		fatal("Invalid invite code: %v", err)
 	}
 
 	outln("=== peer-up join ===")
@@ -103,7 +103,7 @@ func runJoin(args []string) {
 		EnableHolePunching: true,
 	})
 	if err != nil {
-		log.Fatalf("P2P network error: %v", err)
+		fatal("P2P network error: %v", err)
 	}
 	defer p2pNetwork.Close()
 
@@ -118,11 +118,11 @@ func runJoin(args []string) {
 	outln("Connecting to relay...")
 	relayInfos, err := p2pnet.ParseRelayAddrs([]string{data.RelayAddr})
 	if err != nil {
-		log.Fatalf("Failed to parse relay address: %v", err)
+		fatal("Failed to parse relay address: %v", err)
 	}
 	for _, ai := range relayInfos {
 		if err := h.Connect(ctx, ai); err != nil {
-			log.Fatalf("Failed to connect to relay: %v", err)
+			fatal("Failed to connect to relay: %v", err)
 		}
 	}
 	outln("Connected to relay.")
@@ -131,7 +131,7 @@ func runJoin(args []string) {
 	circuitAddr := data.RelayAddr + "/p2p-circuit/p2p/" + data.PeerID.String()
 	addrInfo, err := peer.AddrInfoFromString(circuitAddr)
 	if err != nil {
-		log.Fatalf("Failed to parse circuit address: %v", err)
+		fatal("Failed to parse circuit address: %v", err)
 	}
 	h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, peerstore.PermanentAddrTTL)
 
@@ -140,7 +140,7 @@ func runJoin(args []string) {
 	joinCtx := network.WithAllowLimitedConn(ctx, inviteProtocol)
 	s, err := h.NewStream(joinCtx, data.PeerID, protocol.ID(inviteProtocol))
 	if err != nil {
-		log.Fatalf("Failed to connect to inviter: %v\n(Is the invite still active?)", err)
+		fatal("Failed to connect to inviter: %v\n(Is the invite still active?)", err)
 	}
 	defer s.Close()
 
@@ -159,18 +159,18 @@ func runJoin(args []string) {
 	if !scanner.Scan() {
 		err := scanner.Err()
 		if err != nil {
-			log.Fatalf("Failed to read response from inviter: %v", err)
+			fatal("Failed to read response from inviter: %v", err)
 		}
-		log.Fatalf("No response from inviter (connection closed)")
+		fatal("No response from inviter (connection closed)")
 	}
 	response := strings.TrimSpace(scanner.Text())
 
 	if strings.HasPrefix(response, "ERR") {
-		log.Fatalf("Invite rejected: %s", response)
+		fatal("Invite rejected: %s", response)
 	}
 
 	if !strings.HasPrefix(response, "OK") {
-		log.Fatalf("Unexpected response: %s", response)
+		fatal("Unexpected response: %s", response)
 	}
 
 	// Parse inviter name from "OK <name>"
@@ -221,7 +221,7 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 	if err == nil {
 		cfg, err := config.LoadNodeConfig(cfgFile)
 		if err != nil {
-			log.Fatalf("Config error: %v", err)
+			fatal("Config error: %v", err)
 		}
 		configDir := filepath.Dir(cfgFile)
 		config.ResolveConfigPaths(cfg, configDir)
@@ -234,18 +234,18 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 
 	configDir, err := config.DefaultConfigDir()
 	if err != nil {
-		log.Fatalf("Failed to determine config directory: %v", err)
+		fatal("Failed to determine config directory: %v", err)
 	}
 
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		log.Fatalf("Failed to create config directory: %v", err)
+		fatal("Failed to create config directory: %v", err)
 	}
 
 	// Generate identity
 	keyFile := filepath.Join(configDir, "identity.key")
 	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile)
 	if err != nil {
-		log.Fatalf("Failed to generate identity: %v", err)
+		fatal("Failed to generate identity: %v", err)
 	}
 	fmt.Printf("Generated identity: %s\n", peerID)
 
@@ -254,7 +254,7 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 	if _, err := os.Stat(authKeysFile); os.IsNotExist(err) {
 		content := "# authorized_keys - Peer ID allowlist (one per line)\n"
 		if err := os.WriteFile(authKeysFile, []byte(content), 0600); err != nil {
-			log.Fatalf("Failed to create authorized_keys: %v", err)
+			fatal("Failed to create authorized_keys: %v", err)
 		}
 	}
 
@@ -263,13 +263,13 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 	configContent := nodeConfigTemplate(relayAddr, "peerup join")
 
 	if err := os.WriteFile(cfgFile, []byte(configContent), 0600); err != nil {
-		log.Fatalf("Failed to write config: %v", err)
+		fatal("Failed to write config: %v", err)
 	}
 
 	// Load the config we just wrote
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Failed to load newly created config: %v", err)
+		fatal("Failed to load newly created config: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, configDir)
 

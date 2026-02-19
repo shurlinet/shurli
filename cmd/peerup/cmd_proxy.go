@@ -47,11 +47,11 @@ func runProxy(args []string) {
 	// Find and load config
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
@@ -72,7 +72,7 @@ func runProxy(args []string) {
 		EnableHolePunching: true,
 	})
 	if err != nil {
-		log.Fatalf("P2P network error: %v", err)
+		fatal("P2P network error: %v", err)
 	}
 	defer p2pNetwork.Close()
 
@@ -86,7 +86,7 @@ func runProxy(args []string) {
 	// Resolve target (name or peer ID)
 	homePeerID, err := p2pNetwork.ResolveName(target)
 	if err != nil {
-		log.Fatalf("Cannot resolve target %q: %v", target, err)
+		fatal("Cannot resolve target %q: %v", target, err)
 	}
 
 	h := p2pNetwork.Host()
@@ -101,7 +101,7 @@ func runProxy(args []string) {
 	// Add relay circuit addresses for the home peer
 	fmt.Println("Connecting to target peer via relay...")
 	if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, homePeerID); err != nil {
-		log.Fatalf("Failed to add relay addresses: %v", err)
+		fatal("Failed to add relay addresses: %v", err)
 	}
 
 	// Bootstrap DHT for direct connection discovery (DCUtR hole-punching).
@@ -186,7 +186,7 @@ func runProxy(args []string) {
 	}, 3)
 	listener, err := p2pnet.NewTCPListener(localAddr, dialFunc)
 	if err != nil {
-		log.Fatalf("Failed to create listener: %v", err)
+		fatal("Failed to create listener: %v", err)
 	}
 	defer listener.Close()
 

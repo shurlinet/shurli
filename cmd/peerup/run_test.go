@@ -3,8 +3,11 @@ package main
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
 // captureExit overrides the package-level osExit variable so that calls to
@@ -704,5 +707,363 @@ func TestRunRelay_Remove_Dispatches(t *testing.T) {
 	})
 	if !exited || code != 1 {
 		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Category 7: fatal() error paths — functions that used log.Fatalf are now
+// testable via captureExit. Test early error paths (config loading, flag
+// parsing) for all P2P functions.
+// ---------------------------------------------------------------------------
+
+// --- runInvite error paths ---
+
+func TestRunInvite_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runInvite([]string{"--config", "/tmp/nonexistent-peerup-test/peerup.yaml"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunInvite_NoRelayAddresses(t *testing.T) {
+	// Create a config with empty relay addresses
+	dir := t.TempDir()
+	priv, _, _ := crypto.GenerateKeyPair(crypto.Ed25519, 0)
+	data, _ := crypto.MarshalPrivateKey(priv)
+	os.WriteFile(filepath.Join(dir, "identity.key"), data, 0600)
+	os.WriteFile(filepath.Join(dir, "authorized_keys"), nil, 0600)
+
+	cfg := `version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+relay:
+  addresses: []
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "test-network"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+protocols:
+  ping_pong:
+    enabled: true
+    id: "/pingpong/1.0.0"
+services: {}
+names: {}
+`
+	cfgPath := filepath.Join(dir, "peerup.yaml")
+	os.WriteFile(cfgPath, []byte(cfg), 0600)
+
+	code, exited := captureExit(func() {
+		runInvite([]string{"--config", cfgPath})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for no relay addresses, got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runJoin error paths ---
+
+func TestRunJoin_NoArgs(t *testing.T) {
+	// runJoin with no invite code should print usage and exit
+	code, exited := captureExit(func() {
+		// Set empty env to ensure no PEERUP_INVITE_CODE
+		old := os.Getenv("PEERUP_INVITE_CODE")
+		os.Unsetenv("PEERUP_INVITE_CODE")
+		defer os.Setenv("PEERUP_INVITE_CODE", old)
+		runJoin(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunJoin_InvalidInviteCode(t *testing.T) {
+	code, exited := captureExit(func() {
+		runJoin([]string{"not-a-valid-invite-code"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runPing error paths ---
+
+func TestRunPing_NoArgs(t *testing.T) {
+	code, exited := captureExit(func() {
+		runPing(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunPing_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runPing([]string{"--config", "/tmp/nonexistent-peerup-test/peerup.yaml", "some-peer"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runTraceroute error paths ---
+
+func TestRunTraceroute_NoArgs(t *testing.T) {
+	code, exited := captureExit(func() {
+		runTraceroute(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunTraceroute_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runTraceroute([]string{"--config", "/tmp/nonexistent-peerup-test/peerup.yaml", "some-peer"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runProxy error paths ---
+
+func TestRunProxy_NoArgs(t *testing.T) {
+	code, exited := captureExit(func() {
+		runProxy(nil)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunProxy_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runProxy([]string{"--config", "/tmp/nonexistent-peerup-test/peerup.yaml", "peer", "ssh", "2222"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runRelayServe error paths ---
+
+func TestRunRelayServe_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runRelayServe([]string{"--config", "/tmp/nonexistent-peerup-test/relay-server.yaml"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunRelayServe_InvalidConfig(t *testing.T) {
+	// Create a config file with invalid YAML
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "relay-server.yaml")
+	os.WriteFile(cfgFile, []byte("this: is: not: valid: yaml: [[["), 0600)
+
+	code, exited := captureExit(func() {
+		runRelayServe([]string{"--config", cfgFile})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for invalid config, got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- runRelayInfo error paths ---
+
+func TestRunRelayInfo_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		runRelayInfo("/tmp/nonexistent-peerup-test/relay-server.yaml")
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunRelayInfo_MissingKeyFile(t *testing.T) {
+	// Create a config with a key file that doesn't exist
+	dir := t.TempDir()
+	cfg := `version: 1
+identity:
+  key_file: "/tmp/nonexistent-peerup-test/missing.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+resources:
+  max_reservations: 128
+  max_circuits: 16
+  buffer_size: 2048
+  max_reservations_per_ip: 8
+  max_reservations_per_asn: 32
+  reservation_ttl: "1h"
+  session_duration: "10m"
+  session_data_limit: "64MB"
+`
+	cfgFile := filepath.Join(dir, "relay-server.yaml")
+	os.WriteFile(cfgFile, []byte(cfg), 0600)
+
+	code, exited := captureExit(func() {
+		runRelayInfo(cfgFile)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for missing key, got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunRelayInfo_InvalidKeyFile(t *testing.T) {
+	dir := t.TempDir()
+	// Write garbage as key file
+	keyFile := filepath.Join(dir, "identity.key")
+	os.WriteFile(keyFile, []byte("not a valid key"), 0600)
+
+	cfg := `version: 1
+identity:
+  key_file: "` + keyFile + `"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+resources:
+  max_reservations: 128
+  max_circuits: 16
+  buffer_size: 2048
+  max_reservations_per_ip: 8
+  max_reservations_per_asn: 32
+  reservation_ttl: "1h"
+  session_duration: "10m"
+  session_data_limit: "64MB"
+`
+	cfgFile := filepath.Join(dir, "relay-server.yaml")
+	os.WriteFile(cfgFile, []byte(cfg), 0600)
+
+	code, exited := captureExit(func() {
+		runRelayInfo(cfgFile)
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for invalid key, got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestRunRelayInfo_Success(t *testing.T) {
+	cfgFile := writeRelayServerTestConfig(t)
+
+	code, exited := captureExit(func() {
+		runRelayInfo(cfgFile)
+	})
+	if exited {
+		t.Errorf("should not have exited, got code=%d", code)
+	}
+}
+
+// --- loadRelayAuthKeysPath (fatal wrapper) ---
+
+func TestLoadRelayAuthKeysPath_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		loadRelayAuthKeysPath("/tmp/nonexistent-peerup-test/relay-server.yaml")
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestLoadRelayAuthKeysPath_Success(t *testing.T) {
+	cfgFile := writeRelayServerTestConfig(t)
+
+	var path string
+	code, exited := captureExit(func() {
+		path = loadRelayAuthKeysPath(cfgFile)
+	})
+	if exited {
+		t.Errorf("should not have exited, got code=%d", code)
+	}
+	if path == "" {
+		t.Error("expected non-empty path")
+	}
+}
+
+// --- resolveConfigFile (fatal wrapper) ---
+
+func TestResolveConfigFile_ConfigNotFound(t *testing.T) {
+	code, exited := captureExit(func() {
+		resolveConfigFile("/tmp/nonexistent-peerup-test/peerup.yaml")
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+func TestResolveConfigFile_Success(t *testing.T) {
+	cfgPath := writeTestConfigDir(t)
+
+	var cfg interface{}
+	code, exited := captureExit(func() {
+		_, c := resolveConfigFile(cfgPath)
+		cfg = c
+	})
+	if exited {
+		t.Errorf("should not have exited, got code=%d", code)
+	}
+	if cfg == nil {
+		t.Error("expected non-nil config")
+	}
+}
+
+// --- runInit error path (invalid config flag) ---
+
+func TestRunInit_InvalidConfigPath(t *testing.T) {
+	// runInit with a non-writable directory should fail
+	code, exited := captureExit(func() {
+		runInit([]string{"--config", "/proc/nonexistent/peerup.yaml", "--non-interactive"})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)
+	}
+}
+
+// --- Relay serve validation error (valid YAML but missing required fields) ---
+
+func TestRunRelayServe_ValidationError(t *testing.T) {
+	dir := t.TempDir()
+	// Valid YAML but missing identity key_file
+	cfg := `version: 1
+identity:
+  key_file: ""
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  authorized_keys_file: "auth_keys"
+  enable_connection_gating: true
+resources:
+  max_reservations: 128
+  max_circuits: 16
+  buffer_size: 2048
+  max_reservations_per_ip: 8
+  max_reservations_per_asn: 32
+  reservation_ttl: "1h"
+  session_duration: "10m"
+  session_data_limit: "64MB"
+`
+	cfgFile := filepath.Join(dir, "relay-server.yaml")
+	os.WriteFile(cfgFile, []byte(cfg), 0600)
+
+	code, exited := captureExit(func() {
+		runRelayServe([]string{"--config", cfgFile})
+	})
+	if !exited || code != 1 {
+		t.Errorf("expected exit(1) for validation error, got exited=%v code=%d", exited, code)
 	}
 }

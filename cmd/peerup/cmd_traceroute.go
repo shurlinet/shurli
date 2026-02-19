@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -43,11 +42,11 @@ func runTraceroute(args []string) {
 	// Load configuration
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
@@ -63,7 +62,7 @@ func runTraceroute(args []string) {
 		EnableHolePunching: true,
 	})
 	if err != nil {
-		log.Fatalf("P2P network error: %v", err)
+		fatal("P2P network error: %v", err)
 	}
 	defer p2pNetwork.Close()
 
@@ -75,7 +74,7 @@ func runTraceroute(args []string) {
 	// Resolve target
 	targetPeerID, err := p2pNetwork.ResolveName(target)
 	if err != nil {
-		log.Fatalf("Cannot resolve target %q: %v", target, err)
+		fatal("Cannot resolve target %q: %v", target, err)
 	}
 
 	h := p2pNetwork.Host()
@@ -87,13 +86,13 @@ func runTraceroute(args []string) {
 
 	// Bootstrap and connect to target
 	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		fatal("Failed to connect: %v", err)
 	}
 
 	// Run traceroute
 	result, err := p2pnet.TracePeer(ctx, h, targetPeerID)
 	if err != nil {
-		log.Fatalf("Traceroute failed: %v", err)
+		fatal("Traceroute failed: %v", err)
 	}
 	result.Target = target
 

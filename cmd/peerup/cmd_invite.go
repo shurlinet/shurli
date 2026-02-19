@@ -45,22 +45,22 @@ func runInvite(args []string) {
 	// Load config
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v\nRun 'peerup init' first.", err)
+		fatal("Config error: %v\nRun 'peerup init' first.", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	if len(cfg.Relay.Addresses) == 0 {
-		log.Fatalf("No relay addresses in config. Cannot create invite.")
+		fatal("No relay addresses in config. Cannot create invite.")
 	}
 
 	// Generate token
 	token, err := invite.GenerateToken()
 	if err != nil {
-		log.Fatalf("Failed to generate token: %v", err)
+		fatal("Failed to generate token: %v", err)
 	}
 
 	// Create P2P network (no connection gating — we need the joiner to reach us)
@@ -75,7 +75,7 @@ func runInvite(args []string) {
 		EnableHolePunching: true,
 	})
 	if err != nil {
-		log.Fatalf("P2P network error: %v", err)
+		fatal("P2P network error: %v", err)
 	}
 	defer p2pNetwork.Close()
 
@@ -86,11 +86,11 @@ func runInvite(args []string) {
 	// Connect to relay
 	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
 	if err != nil {
-		log.Fatalf("Failed to parse relay addresses: %v", err)
+		fatal("Failed to parse relay addresses: %v", err)
 	}
 	for _, ai := range relayInfos {
 		if err := h.Connect(ctx, ai); err != nil {
-			log.Fatalf("Failed to connect to relay: %v", err)
+			fatal("Failed to connect to relay: %v", err)
 		}
 	}
 
@@ -110,7 +110,7 @@ func runInvite(args []string) {
 	}
 	code, err := invite.Encode(inviteData)
 	if err != nil {
-		log.Fatalf("Failed to encode invite: %v", err)
+		fatal("Failed to encode invite: %v", err)
 	}
 
 	if *nonInteractive {

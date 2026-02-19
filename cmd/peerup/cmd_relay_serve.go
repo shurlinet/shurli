@@ -60,12 +60,12 @@ func runRelayServe(args []string) {
 	// Load configuration
 	cfg, err := config.LoadRelayServerConfig(configFile)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v\n", err)
+		fatal("Failed to load config: %v\n", err)
 	}
 
 	// Validate configuration
 	if err := config.ValidateRelayServerConfig(cfg); err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
+		fatal("Invalid configuration: %v", err)
 	}
 
 	// Archive last-known-good config on successful validation
@@ -79,19 +79,19 @@ func runRelayServe(args []string) {
 
 	priv, err := identity.LoadOrCreateIdentity(cfg.Identity.KeyFile)
 	if err != nil {
-		log.Fatalf("Identity error: %v", err)
+		fatal("Identity error: %v", err)
 	}
 
 	// Load authorized keys if connection gating is enabled
 	var gater *auth.AuthorizedPeerGater
 	if cfg.Security.EnableConnectionGating {
 		if cfg.Security.AuthorizedKeysFile == "" {
-			log.Fatalf("Connection gating enabled but no authorized_keys_file specified")
+			fatal("Connection gating enabled but no authorized_keys_file specified")
 		}
 
 		authorizedPeers, err := auth.LoadAuthorizedKeys(cfg.Security.AuthorizedKeysFile)
 		if err != nil {
-			log.Fatalf("Failed to load authorized keys: %v", err)
+			fatal("Failed to load authorized keys: %v", err)
 		}
 
 		if len(authorizedPeers) == 0 {
@@ -128,7 +128,7 @@ func runRelayServe(args []string) {
 	// Create host — relay service is added separately below
 	h, err := libp2p.New(hostOpts...)
 	if err != nil {
-		log.Fatalf("Failed to create host: %v", err)
+		fatal("Failed to create host: %v", err)
 	}
 	defer h.Close()
 
@@ -136,7 +136,7 @@ func runRelayServe(args []string) {
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
 	_, err = relayv2.New(h, relayv2.WithResources(relayResources), relayv2.WithLimit(relayLimit))
 	if err != nil {
-		log.Fatalf("Failed to start relay service: %v", err)
+		fatal("Failed to start relay service: %v", err)
 	}
 	fmt.Printf("Relay limits: max_reservations=%d, max_circuits=%d, session=%s, data=%s/direction\n",
 		cfg.Resources.MaxReservations, cfg.Resources.MaxCircuits,
@@ -150,10 +150,10 @@ func runRelayServe(args []string) {
 		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
 	)
 	if err != nil {
-		log.Fatalf("DHT error: %v", err)
+		fatal("DHT error: %v", err)
 	}
 	if err := kdht.Bootstrap(ctx); err != nil {
-		log.Fatalf("DHT bootstrap error: %v", err)
+		fatal("DHT bootstrap error: %v", err)
 	}
 	defer kdht.Close()
 	fmt.Println("Private DHT active (protocol: /peerup/kad/1.0.0)")
@@ -304,7 +304,7 @@ func loadRelayAuthKeysPathErr(configFile string) (string, error) {
 func loadRelayAuthKeysPath(configFile string) string {
 	path, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
-		log.Fatal(err)
+		fatal("%v", err)
 	}
 	return path
 }
@@ -408,21 +408,21 @@ func runRelayListPeers(configFile string) {
 func runRelayInfo(configFile string) {
 	cfg, err := config.LoadRelayServerConfig(configFile)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		fatal("Failed to load config: %v", err)
 	}
 
 	// Read identity key (don't auto-create — info is read-only)
 	data, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
-		log.Fatalf("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)
+		fatal("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)
 	}
 	priv, err := crypto.UnmarshalPrivateKey(data)
 	if err != nil {
-		log.Fatalf("Invalid identity key: %v", err)
+		fatal("Invalid identity key: %v", err)
 	}
 	peerID, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
-		log.Fatalf("Failed to derive peer ID: %v", err)
+		fatal("Failed to derive peer ID: %v", err)
 	}
 
 	fmt.Printf("Peer ID: %s\n", peerID)

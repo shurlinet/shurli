@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,18 +69,18 @@ func runRelay(args []string) {
 func resolveConfigFile(configFlag string) (string, *config.NodeConfig) {
 	cfgFile, err := config.FindConfigFile(configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 	return cfgFile, cfg
 }
 
 // resolveConfigFileErr is the error-returning version of resolveConfigFile,
-// used by doXxx functions that cannot call log.Fatalf.
+// used by doXxx functions that return errors instead of calling fatal.
 func resolveConfigFileErr(configFlag string) (string, *config.NodeConfig, error) {
 	cfgFile, err := config.FindConfigFile(configFlag)
 	if err != nil {

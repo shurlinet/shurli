@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -46,7 +45,7 @@ func runPing(args []string) {
 
 	interval, err := time.ParseDuration(*intervalStr)
 	if err != nil {
-		log.Fatalf("Invalid interval %q: %v", *intervalStr, err)
+		fatal("Invalid interval %q: %v", *intervalStr, err)
 	}
 
 	// Set up context with Ctrl+C cancellation
@@ -63,11 +62,11 @@ func runPing(args []string) {
 	// Load configuration
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
@@ -83,7 +82,7 @@ func runPing(args []string) {
 		EnableHolePunching: true,
 	})
 	if err != nil {
-		log.Fatalf("P2P network error: %v", err)
+		fatal("P2P network error: %v", err)
 	}
 	defer p2pNetwork.Close()
 
@@ -95,7 +94,7 @@ func runPing(args []string) {
 	// Resolve target
 	targetPeerID, err := p2pNetwork.ResolveName(target)
 	if err != nil {
-		log.Fatalf("Cannot resolve target %q: %v", target, err)
+		fatal("Cannot resolve target %q: %v", target, err)
 	}
 
 	h := p2pNetwork.Host()
@@ -107,7 +106,7 @@ func runPing(args []string) {
 
 	// Bootstrap and connect
 	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		fatal("Failed to connect: %v", err)
 	}
 
 	if !*jsonFlag {

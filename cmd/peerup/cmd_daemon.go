@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -56,7 +55,7 @@ func (g *gaterReloader) ReloadFromFile() error {
 func daemonSocketPath() string {
 	dir, err := config.DefaultConfigDir()
 	if err != nil {
-		log.Fatalf("Cannot determine config directory: %v", err)
+		fatal("Cannot determine config directory: %v", err)
 	}
 	return filepath.Join(dir, "peerup.sock")
 }
@@ -64,7 +63,7 @@ func daemonSocketPath() string {
 func daemonCookiePath() string {
 	dir, err := config.DefaultConfigDir()
 	if err != nil {
-		log.Fatalf("Cannot determine config directory: %v", err)
+		fatal("Cannot determine config directory: %v", err)
 	}
 	return filepath.Join(dir, ".daemon-cookie")
 }
@@ -131,12 +130,12 @@ func runDaemonStart(args []string) {
 	rt, err := newServeRuntime(ctx, cancel, *configFlag, version)
 	if err != nil {
 		cancel()
-		log.Fatalf("Failed to start: %v", err)
+		fatal("Failed to start: %v", err)
 	}
 
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()
-		log.Fatalf("Bootstrap failed: %v", err)
+		fatal("Bootstrap failed: %v", err)
 	}
 
 	rt.ExposeConfiguredServices()
@@ -149,7 +148,7 @@ func runDaemonStart(args []string) {
 	srv := daemon.NewServer(rt, socketPath, cookiePath, version)
 	if err := srv.Start(); err != nil {
 		rt.Shutdown()
-		log.Fatalf("Daemon API failed to start: %v", err)
+		fatal("Daemon API failed to start: %v", err)
 	}
 
 	fmt.Printf("Daemon API: %s\n", socketPath)
