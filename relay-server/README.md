@@ -72,7 +72,7 @@ Add one peer ID per line to `relay_authorized_keys`:
 Then restart the service to pick up config changes:
 
 ```bash
-sudo systemctl restart relay-server
+sudo systemctl restart peerup-relay
 ```
 
 ---
@@ -90,8 +90,8 @@ You should see all `[OK]` items:
 
 ```
 Binary:
-  [OK]   relay-server binary exists
-  [OK]   relay-server is executable
+  [OK]   peerup binary exists
+  [OK]   peerup is executable
 
 Configuration:
   [OK]   relay-server.yaml exists
@@ -99,8 +99,8 @@ Configuration:
   ...
 
 Service:
-  [OK]   relay-server service is enabled (starts on boot)
-  [OK]   relay-server service is running
+  [OK]   peerup-relay service is enabled (starts on boot)
+  [OK]   peerup-relay service is running
   [OK]   Service runs as non-root user: peerup
   ...
 
@@ -137,15 +137,15 @@ rm -rf ~/peer-up  # Only if you want to remove everything
 
 ```bash
 # Service management
-sudo systemctl status relay-server
-sudo systemctl restart relay-server
-sudo systemctl stop relay-server
+sudo systemctl status peerup-relay
+sudo systemctl restart peerup-relay
+sudo systemctl stop peerup-relay
 
 # Follow logs
-sudo journalctl -u relay-server -f
+sudo journalctl -u peerup-relay -f
 
 # Recent logs (last 50 lines)
-sudo journalctl -u relay-server -n 50
+sudo journalctl -u peerup-relay -n 50
 
 # Check log disk usage
 sudo journalctl --disk-usage
@@ -153,9 +153,8 @@ sudo journalctl --disk-usage
 # Update relay server (after code changes)
 cd ~/peer-up
 git pull
-cd relay-server
-go build -o relay-server .
-sudo systemctl restart relay-server
+go build -ldflags="-s -w" -trimpath -o relay-server/peerup ./cmd/peerup
+sudo systemctl restart peerup-relay
 ```
 
 ---
@@ -184,15 +183,12 @@ After setup, your relay-server directory looks like:
 
 ```
 ~/peer-up/relay-server/
-├── relay-server              # Binary (built, gitignored)
+├── peerup                    # Binary (built from cmd/peerup, gitignored)
 ├── relay-server.yaml         # Config (gitignored)
 ├── relay-server.service      # Template service file (in git)
 ├── relay_node.key            # Identity key (auto-generated, gitignored)
 ├── relay_authorized_keys     # Allowed peer IDs (gitignored)
-├── setup.sh           # Setup + health check script
-├── main.go                   # Source code
-├── go.mod
-└── go.sum
+└── setup.sh                  # Setup + health check script
 ```
 
 ---
@@ -201,7 +197,7 @@ After setup, your relay-server directory looks like:
 
 | Issue | Solution |
 |-------|----------|
-| Service fails to start | `sudo journalctl -u relay-server -n 30` for error logs |
+| Service fails to start | `sudo journalctl -u peerup-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 relay_node.key` |
 | Peers can't connect | Check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |

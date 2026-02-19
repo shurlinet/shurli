@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,19 +17,29 @@ import (
 )
 
 func runInit(args []string) {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/peerup)")
-	fs.Parse(args)
+	if err := doInit(args, os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	fmt.Println("Welcome to peer-up!")
-	fmt.Println()
+func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/peerup)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(stdout, "Welcome to peer-up!")
+	fmt.Fprintln(stdout)
 
 	// Determine config directory
 	configDir := *dirFlag
 	if configDir == "" {
 		d, err := config.DefaultConfigDir()
 		if err != nil {
-			log.Fatalf("Error: %v", err)
+			return fmt.Errorf("cannot determine config directory: %w", err)
 		}
 		configDir = d
 	}
@@ -37,31 +47,29 @@ func runInit(args []string) {
 	// Check if config already exists
 	configFile := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(configFile); err == nil {
-		fmt.Printf("Config already exists: %s\n", configFile)
-		fmt.Println("Delete it first if you want to reinitialize.")
-		os.Exit(1)
+		return fmt.Errorf("config already exists: %s\nDelete it first if you want to reinitialize", configFile)
 	}
 
 	// Create config directory
-	fmt.Printf("Creating config directory: %s\n", configDir)
+	fmt.Fprintf(stdout, "Creating config directory: %s\n", configDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		log.Fatalf("Failed to create directory: %v", err)
+		return fmt.Errorf("failed to create directory: %w", err)
 	}
-	fmt.Println()
+	fmt.Fprintln(stdout)
 
 	// Prompt for relay address
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Enter relay server address")
-	fmt.Println("  Full multiaddr:  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>")
-	fmt.Println("  Or just:         <IP>:<PORT>  or  <IP>  (default port: 7777)")
-	fmt.Print("> ")
+	reader := bufio.NewReader(stdin)
+	fmt.Fprintln(stdout, "Enter relay server address")
+	fmt.Fprintln(stdout, "  Full multiaddr:  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>")
+	fmt.Fprintln(stdout, "  Or just:         <IP>:<PORT>  or  <IP>  (default port: 7777)")
+	fmt.Fprint(stdout, "> ")
 	relayInput, err := reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("Failed to read input: %v", err)
+		return fmt.Errorf("failed to read input: %w", err)
 	}
 	relayInput = strings.TrimSpace(relayInput)
 	if relayInput == "" {
-		log.Fatal("Relay address is required")
+		return fmt.Errorf("relay address is required")
 	}
 
 	var relayAddr string
@@ -69,51 +77,51 @@ func runInit(args []string) {
 		// Validate the multiaddr before embedding in config YAML.
 		// A malformed string with quotes or newlines would corrupt the config.
 		if _, err := ma.NewMultiaddr(relayInput); err != nil {
-			log.Fatalf("Invalid multiaddr: %v", err)
+			return fmt.Errorf("invalid multiaddr: %w", err)
 		}
 		relayAddr = relayInput
 	} else {
 		ip, port, err := parseRelayHostPort(relayInput)
 		if err != nil {
-			log.Fatalf("Invalid relay address: %v", err)
+			return fmt.Errorf("invalid relay address: %w", err)
 		}
-		fmt.Println()
-		fmt.Println("Enter the relay server's Peer ID")
-		fmt.Println("  (shown in the relay server's setup output)")
-		fmt.Print("> ")
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Enter the relay server's Peer ID")
+		fmt.Fprintln(stdout, "  (shown in the relay server's setup output)")
+		fmt.Fprint(stdout, "> ")
 		peerIDStr, err := reader.ReadString('\n')
 		if err != nil {
-			log.Fatalf("Failed to read input: %v", err)
+			return fmt.Errorf("failed to read input: %w", err)
 		}
 		peerIDStr = strings.TrimSpace(peerIDStr)
 		if peerIDStr == "" {
-			log.Fatal("Relay Peer ID is required")
+			return fmt.Errorf("relay Peer ID is required")
 		}
 		if err := validatePeerID(peerIDStr); err != nil {
-			log.Fatalf("Invalid Peer ID: %v", err)
+			return fmt.Errorf("invalid Peer ID: %w", err)
 		}
 		relayAddr = buildRelayMultiaddr(ip, port, peerIDStr)
-		fmt.Printf("Relay: %s\n", relayAddr)
+		fmt.Fprintf(stdout, "Relay: %s\n", relayAddr)
 	}
-	fmt.Println()
+	fmt.Fprintln(stdout)
 
 	// Generate identity
 	keyFile := filepath.Join(configDir, "identity.key")
-	fmt.Println("Generating identity...")
+	fmt.Fprintln(stdout, "Generating identity...")
 	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile)
 	if err != nil {
-		log.Fatalf("Failed to generate identity: %v", err)
+		return fmt.Errorf("failed to generate identity: %w", err)
 	}
-	fmt.Printf("Your Peer ID: %s\n", peerID)
-	fmt.Println("(Share this with peers who need to authorize you)")
-	fmt.Println()
+	fmt.Fprintf(stdout, "Your Peer ID: %s\n", peerID)
+	fmt.Fprintln(stdout, "(Share this with peers who need to authorize you)")
+	fmt.Fprintln(stdout)
 
 	// Create authorized_keys file
 	authKeysFile := filepath.Join(configDir, "authorized_keys")
 	if _, err := os.Stat(authKeysFile); os.IsNotExist(err) {
 		authContent := "# authorized_keys - Add peer IDs here (one per line)\n# Format: <peer_id> # optional comment\n"
 		if err := os.WriteFile(authKeysFile, []byte(authContent), 0600); err != nil {
-			log.Fatalf("Failed to create authorized_keys: %v", err)
+			return fmt.Errorf("failed to create authorized_keys: %w", err)
 		}
 	}
 
@@ -121,22 +129,23 @@ func runInit(args []string) {
 	configContent := nodeConfigTemplate(relayAddr, "peerup init")
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
-		log.Fatalf("Failed to write config: %v", err)
+		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	fmt.Printf("Config written to:  %s\n", configFile)
-	fmt.Printf("Identity saved to:  %s\n", keyFile)
-	fmt.Println()
+	fmt.Fprintf(stdout, "Config written to:  %s\n", configFile)
+	fmt.Fprintf(stdout, "Identity saved to:  %s\n", keyFile)
+	fmt.Fprintln(stdout)
 
 	// Show peer ID as QR for easy sharing
-	fmt.Println("Your Peer ID (scan to share):")
-	fmt.Println()
+	fmt.Fprintln(stdout, "Your Peer ID (scan to share):")
+	fmt.Fprintln(stdout)
 	if q, err := qr.New(peerID.String(), qr.Medium); err == nil {
-		fmt.Print(q.ToSmallString(false))
+		fmt.Fprint(stdout, q.ToSmallString(false))
 	}
 
-	fmt.Println("Next steps:")
-	fmt.Println("  1. Run as server:  peerup daemon")
-	fmt.Println("  2. Invite a peer:  peerup invite --name home")
-	fmt.Println("  3. Or connect:     peerup proxy <target> <service> <port>")
+	fmt.Fprintln(stdout, "Next steps:")
+	fmt.Fprintln(stdout, "  1. Run as server:  peerup daemon")
+	fmt.Fprintln(stdout, "  2. Invite a peer:  peerup invite --name home")
+	fmt.Fprintln(stdout, "  3. Or connect:     peerup proxy <target> <service> <port>")
+	return nil
 }

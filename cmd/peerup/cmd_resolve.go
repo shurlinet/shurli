@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -15,17 +15,26 @@ import (
 )
 
 func runResolve(args []string) {
+	if err := doResolve(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func doResolve(args []string, stdout io.Writer) error {
 	args = reorderArgs(args, map[string]bool{"json": true})
 
-	fs := flag.NewFlagSet("resolve", flag.ExitOnError)
+	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: peerup resolve [--config <path>] [--json] <name>")
-		os.Exit(1)
+		return fmt.Errorf("usage: peerup resolve [--config <path>] [--json] <name>")
 	}
 
 	name := remaining[0]
@@ -33,11 +42,11 @@ func runResolve(args []string) {
 	// Load configuration
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		return fmt.Errorf("config error: %w", err)
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		return fmt.Errorf("config error: %w", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
@@ -45,7 +54,7 @@ func runResolve(args []string) {
 	resolver := p2pnet.NewNameResolver()
 	if cfg.Names != nil {
 		if err := resolver.LoadFromMap(cfg.Names); err != nil {
-			log.Fatalf("Failed to load names: %v", err)
+			return fmt.Errorf("failed to load names: %w", err)
 		}
 	}
 
@@ -53,7 +62,7 @@ func runResolve(args []string) {
 	peerID, err := resolver.Resolve(name)
 	source := "local_config"
 	if err != nil {
-		log.Fatalf("Cannot resolve %q: %v", name, err)
+		return fmt.Errorf("cannot resolve %q: %w", name, err)
 	}
 
 	// Check if input was already a peer ID
@@ -71,11 +80,12 @@ func runResolve(args []string) {
 			PeerID: peerID.String(),
 			Source:  source,
 		}
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		enc.Encode(resp)
-		return
+		return nil
 	}
 
-	fmt.Printf("%s → %s\n", name, peerID.String())
+	fmt.Fprintf(stdout, "%s → %s\n", name, peerID.String())
+	return nil
 }

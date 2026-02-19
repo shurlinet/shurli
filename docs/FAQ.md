@@ -322,7 +322,7 @@ The improvements come from upgrading everything *around* the relay — see the n
 
 ## What libp2p improvements should peer-up adopt?
 
-peer-up currently uses go-libp2p v0.47.0 (relay-server uses v0.38.2). Several improvements have shipped since then that would meaningfully improve performance, security, and reliability.
+peer-up uses go-libp2p v0.47.0. Several improvements have shipped since then that would meaningfully improve performance, security, and reliability.
 
 ### AutoNAT v2 (go-libp2p v0.41.1+)
 
