@@ -131,6 +131,12 @@ sync_quickstart() {
     fi
   done < "$readme"
 
+  # Rewrite relative repo links to GitHub URLs
+  # README links are root-relative: (relay-server/...), (docs/...), (configs/...), (deploy/...)
+  for dir_prefix in relay-server/ docs/ configs/ deploy/ cmd/ pkg/ internal/ test/; do
+    content="$(echo "$content" | sed "s|(${dir_prefix}|(${GITHUB_BASE}/${dir_prefix}|g")"
+  done
+
   cat > "$dst_path" << FRONTMATTER
 ---
 title: "Quick Start"

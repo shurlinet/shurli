@@ -45,6 +45,4 @@ peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```
 
-> **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
-
-
+> **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](https://github.com/satindergrewal/peer-up/blob/main/relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
