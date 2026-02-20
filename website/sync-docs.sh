@@ -32,14 +32,15 @@ GITHUB_BASE="https://github.com/satindergrewal/peer-up/blob/main"
 #   Use it → Explore it → Understand it → Automate it → Deep dive → Vision → Contribute → History
 declare -A DOC_MAP
 DOC_MAP=(
-  ["NETWORK-TOOLS.md"]="network-tools.md:1:Network Tools"
-  ["FAQ.md"]="faq.md:2:FAQ"
-  # weight 3 = Trust & Security (standalone page, not synced from docs/)
-  ["DAEMON-API.md"]="daemon-api.md:4:Daemon API"
-  ["ARCHITECTURE.md"]="architecture.md:5:Architecture"
-  ["ROADMAP.md"]="roadmap.md:6:Roadmap"
-  ["TESTING.md"]="testing.md:7:Testing"
-  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:8:Engineering Journal"
+  # weight 1 = Quick Start (synced separately via sync_quickstart)
+  ["NETWORK-TOOLS.md"]="network-tools.md:2:Network Tools"
+  ["FAQ.md"]="faq.md:3:FAQ"
+  # weight 4 = Trust & Security (standalone page, not synced from docs/)
+  ["DAEMON-API.md"]="daemon-api.md:5:Daemon API"
+  ["ARCHITECTURE.md"]="architecture.md:6:Architecture"
+  ["ROADMAP.md"]="roadmap.md:7:Roadmap"
+  ["TESTING.md"]="testing.md:8:Testing"
+  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:9:Engineering Journal"
 )
 
 sync_doc() {
@@ -133,7 +134,7 @@ sync_quickstart() {
   cat > "$dst_path" << FRONTMATTER
 ---
 title: "Quick Start"
-weight: 0
+weight: 1
 ---
 <!-- Auto-synced from README.md by sync-docs.sh — do not edit directly -->
 

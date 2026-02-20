@@ -1,6 +1,6 @@
 ---
 title: "Roadmap"
-weight: 6
+weight: 7
 ---
 <!-- Auto-synced from docs/ROADMAP.md by sync-docs.sh — do not edit directly -->
 

@@ -1,6 +1,6 @@
 ---
 title: "Engineering Journal"
-weight: 8
+weight: 9
 ---
 <!-- Auto-synced from docs/ENGINEERING-JOURNAL.md by sync-docs.sh — do not edit directly -->
 
