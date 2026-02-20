@@ -29,18 +29,19 @@ GITHUB_BASE="https://github.com/satindergrewal/peer-up/blob/main"
 
 # Map: source filename -> output filename:weight:title
 # Order follows the user journey (Jobs/Musk/Satinder principles):
-#   Use it → Explore it → Understand it → Automate it → Deep dive → Vision → Contribute → History
+#   Use it → Explore it → Understand it → Trust it → Self-host → Automate it → Deep dive → Vision → Contribute → History
 declare -A DOC_MAP
 DOC_MAP=(
   # weight 1 = Quick Start (synced separately via sync_quickstart)
   ["NETWORK-TOOLS.md"]="network-tools.md:2:Network Tools"
   ["FAQ.md"]="faq.md:3:FAQ"
   # weight 4 = Trust & Security (standalone page, not synced from docs/)
-  ["DAEMON-API.md"]="daemon-api.md:5:Daemon API"
-  ["ARCHITECTURE.md"]="architecture.md:6:Architecture"
-  ["ROADMAP.md"]="roadmap.md:7:Roadmap"
-  ["TESTING.md"]="testing.md:8:Testing"
-  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:9:Engineering Journal"
+  # weight 5 = Relay Setup (synced separately via sync_relay_setup)
+  ["DAEMON-API.md"]="daemon-api.md:6:Daemon API"
+  ["ARCHITECTURE.md"]="architecture.md:7:Architecture"
+  ["ROADMAP.md"]="roadmap.md:8:Roadmap"
+  ["TESTING.md"]="testing.md:9:Testing"
+  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:10:Engineering Journal"
 )
 
 sync_doc() {
@@ -81,7 +82,10 @@ sync_doc() {
   # Rewrite image paths for Hugo: images/foo.svg -> /images/docs/foo.svg
   body="$(echo "$body" | sed 's|](images/|](/images/docs/|g')"
 
-  # Rewrite relative source file references to GitHub URLs
+  # Rewrite relay-server/README.md to website docs page with friendly link text
+  body="$(echo "$body" | sed 's|\[relay-server/README.md\](../relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
+
+  # Rewrite remaining relative source file references to GitHub URLs
   # e.g., (../cmd/peerup/...) -> (https://github.com/.../cmd/peerup/...)
   body="$(echo "$body" | sed "s|(\.\./\(cmd/\)|($GITHUB_BASE/\1|g")"
   body="$(echo "$body" | sed "s|(\.\./\(pkg/\)|($GITHUB_BASE/\1|g")"
@@ -131,7 +135,10 @@ sync_quickstart() {
     fi
   done < "$readme"
 
-  # Rewrite relative repo links to GitHub URLs
+  # Rewrite relay-server/README.md to website docs page with friendly link text
+  content="$(echo "$content" | sed 's|\[relay-server/README.md\](relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
+
+  # Rewrite remaining relative repo links to GitHub URLs
   # README links are root-relative: (relay-server/...), (docs/...), (configs/...), (deploy/...)
   for dir_prefix in relay-server/ docs/ configs/ deploy/ cmd/ pkg/ internal/ test/; do
     content="$(echo "$content" | sed "s|(${dir_prefix}|(${GITHUB_BASE}/${dir_prefix}|g")"
@@ -161,6 +168,37 @@ done
 # Sync quick-start from README
 sync_quickstart
 
+# Relay setup page from relay-server/README.md
+sync_relay_setup() {
+  local src_path="$(dirname "$SCRIPT_DIR")/relay-server/README.md"
+  local dst_path="$OUT_DIR/relay-setup.md"
+
+  if [[ ! -f "$src_path" ]]; then
+    echo "  SKIP relay-setup (relay-server/README.md not found)"
+    return
+  fi
+
+  local content
+  content="$(cat "$src_path")"
+
+  # Remove the first line if it starts with "# " (the title heading)
+  local body
+  body="$(echo "$content" | sed '1{/^# /d;}')"
+
+  cat > "$dst_path" << FRONTMATTER
+---
+title: "Relay Setup"
+weight: 5
+---
+<!-- Auto-synced from relay-server/README.md by sync-docs.sh — do not edit directly -->
+
+${body}
+FRONTMATTER
+
+  echo "  SYNC relay-server/README.md -> relay-setup.md"
+}
+sync_relay_setup
+
 # Generate llms-full.txt — single-file concatenation of all docs for AI agents.
 # Follows the llmstxt.org spec: one fetch gets everything.
 # Order: README (overview) → docs in user-journey order.
@@ -178,6 +216,7 @@ generate_llms_full() {
     "TESTING.md"
     "ENGINEERING-JOURNAL.md"
   )
+  local relay_readme="$(dirname "$SCRIPT_DIR")/relay-server/README.md"
 
   {
     # Start with README as the overview
@@ -194,6 +233,12 @@ generate_llms_full() {
         printf '\n\n---\n\n'
       fi
     done
+
+    # Append relay setup guide
+    if [[ -f "$relay_readme" ]]; then
+      cat "$relay_readme"
+      printf '\n\n---\n\n'
+    fi
   } > "$llms_full"
 
   echo "  SYNC llms-full.txt ($(wc -c < "$llms_full" | tr -d ' ') bytes)"

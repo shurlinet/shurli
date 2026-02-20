@@ -1,6 +1,6 @@
 ---
 title: "Testing"
-weight: 8
+weight: 9
 ---
 <!-- Auto-synced from docs/TESTING.md by sync-docs.sh — do not edit directly -->
 
@@ -48,7 +48,7 @@ go build -o peerup ./cmd/peerup
 
 ## Step 1: Deploy Relay Server
 
-See [relay-server/README.md](https://github.com/satindergrewal/peer-up/blob/main/relay-server/README.md) for the full VPS setup guide.
+See [Relay Setup guide](../relay-setup/) for the full VPS setup guide.
 
 Quick version:
 
