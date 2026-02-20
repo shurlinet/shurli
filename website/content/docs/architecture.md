@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-weight: 6
+weight: 7
 ---
 <!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs.sh — do not edit directly -->
 
