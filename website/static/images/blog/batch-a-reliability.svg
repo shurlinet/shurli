@@ -10,10 +10,10 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgA)"/>
-  <!-- Connection line that dips and recovers — representing resilient reconnection -->
+  <!-- Connection line that dips and recovers - representing resilient reconnection -->
   <path d="M 0 200 Q 150 200 200 200 L 300 200 Q 350 200 370 280 Q 390 360 410 280 Q 430 200 450 200 L 600 200 Q 650 200 670 300 Q 690 400 710 300 Q 730 200 750 200 L 900 200 Q 920 200 930 250 Q 940 300 950 250 Q 960 200 980 200 L 1200 200"
         fill="none" stroke="url(#lineA)" stroke-width="3" stroke-linecap="round"/>
-  <!-- Recovery nodes — circles at each recovery point -->
+  <!-- Recovery nodes - circles at each recovery point -->
   <circle cx="450" cy="200" r="8" fill="#9ece6a" opacity="0.9"/>
   <circle cx="750" cy="200" r="8" fill="#9ece6a" opacity="0.9"/>
   <circle cx="980" cy="200" r="8" fill="#9ece6a" opacity="0.9"/>

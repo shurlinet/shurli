@@ -6,7 +6,7 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgB)"/>
-  <!-- Abstract code structure — clean blocks representing deduplicated, well-structured code -->
+  <!-- Abstract code structure - clean blocks representing deduplicated, well-structured code -->
   <!-- Before: scattered blocks (left side) -->
   <rect x="80" y="60" width="180" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
   <rect x="80" y="92" width="140" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
@@ -32,7 +32,7 @@
   <rect x="600" y="196" width="200" height="20" rx="3" fill="#9ece6a" opacity="0.2"/>
   <rect x="600" y="224" width="140" height="20" rx="3" fill="#9ece6a" opacity="0.15"/>
   <text x="700" y="310" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a" text-anchor="middle" opacity="0.5">BidirectionalProxy()</text>
-  <!-- Error categorization — sentinel errors as labeled nodes -->
+  <!-- Error categorization - sentinel errors as labeled nodes -->
   <circle cx="960" cy="100" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>
   <text x="960" y="105" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">ErrNotFound</text>
   <circle cx="1060" cy="140" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>

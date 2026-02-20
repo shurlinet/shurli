@@ -35,7 +35,7 @@ sudo systemctl start sshd
 ### 3. Build peerup
 
 ```bash
-# Build peerup (single binary — handles both client and relay server)
+# Build peerup (single binary - handles both client and relay server)
 go build -o peerup ./cmd/peerup
 ```
 
@@ -143,7 +143,7 @@ Loaded configuration from ~/.config/peerup/config.yaml
 
 ### Authorize peers
 
-**Option A: Invite/Join flow (recommended — handles both sides automatically)**
+**Option A: Invite/Join flow (recommended - handles both sides automatically)**
 
 On the home server:
 ```bash
@@ -165,7 +165,7 @@ On the client, add the home server's peer ID:
 ./peerup auth add 12D3KooWHOME...ABC --comment "home-server"
 ```
 
-Do the same on the home server — add the client's peer ID:
+Do the same on the home server - add the client's peer ID:
 ```bash
 ./peerup auth add 12D3KooWCLIENT...XYZ --comment "laptop"
 ```
@@ -480,10 +480,10 @@ This captures code paths that unit tests cannot reach: `runRelayServe`, `runDaem
 
 GitHub Actions runs on every push to `main` and `dev/next-iteration`. All commands run from the project root against the single Go module:
 
-1. **Build** — all packages compile (`go build ./...`)
-2. **Vet** — static analysis (`go vet ./...`)
-3. **Test** — all tests with race detection (`go test -race -count=1 ./...`)
-4. **Coverage** — unit + Docker integration coverage merged and reported
+1. **Build** - all packages compile (`go build ./...`)
+2. **Vet** - static analysis (`go vet ./...`)
+3. **Test** - all tests with race detection (`go test -race -count=1 ./...`)
+4. **Coverage** - unit + Docker integration coverage merged and reported
 
 Config: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
@@ -493,7 +493,7 @@ Config: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 Library code uses `log/slog` for structured logging. In tests, slog output goes to stderr by default, which `go test` captures and only shows on failure. No special test configuration is needed.
 
-For benchmarks that previously used `log.New(io.Discard, ...)` to suppress logging, slog's default handler is used instead — the small overhead is part of the realistic benchmark measurement.
+For benchmarks that previously used `log.New(io.Discard, ...)` to suppress logging, slog's default handler is used instead - the small overhead is part of the realistic benchmark measurement.
 
 ---
 

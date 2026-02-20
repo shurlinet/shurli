@@ -21,7 +21,7 @@ network:
 
     # Anti-censorship: WebSocket transport
     # Looks like regular HTTPS/WebSocket traffic to ISP deep packet inspection.
-    # ISPs almost never block port 443 — it would break all web browsing.
+    # ISPs almost never block port 443  - it would break all web browsing.
     #
     # IMPORTANT: Port 443 is often used by web servers (nginx, Apache, Caddy).
     # Check first: ss -tlnp | grep :443
@@ -40,12 +40,12 @@ security:
   # Add one peer ID per line (home-node and client-node peer IDs)
   authorized_keys_file: "relay_authorized_keys"
 
-  # Enable connection gating — STRONGLY RECOMMENDED for production
+  # Enable connection gating  - STRONGLY RECOMMENDED for production
   # When true, only peers in authorized_keys can use this relay
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
-# Relay resource limits (defaults shown — uncomment to customize)
+# Relay resource limits (defaults shown  - uncomment to customize)
 # These control how much relay capacity each peer and session can consume.
 # Tuned for private relays serving 2-10 peers with SSH/XRDP workloads.
 # resources:
@@ -59,7 +59,7 @@ security:
 #   session_data_limit: "64MB"   # Max data per session per direction
 
 # Health check endpoint for monitoring (Prometheus, UptimeKuma, etc.)
-# Disabled by default. Binds to localhost only — not exposed to the internet.
+# Disabled by default. Binds to localhost only  - not exposed to the internet.
 # To expose externally, use a reverse proxy or change listen_address.
 # health:
 #   enabled: true

@@ -6,7 +6,7 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgE)"/>
-  <!-- peerup status — terminal card -->
+  <!-- peerup status - terminal card -->
   <rect x="60" y="40" width="380" height="320" rx="10" fill="#16161e" stroke="#24283b" stroke-width="1"/>
   <rect x="60" y="40" width="380" height="32" rx="10" fill="#1a1b26"/>
   <rect x="60" y="62" width="380" height="10" fill="#1a1b26"/>
@@ -28,7 +28,7 @@
   <text x="200" y="228" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">ssh, xrdp</text>
   <text x="80" y="260" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">Names:</text>
   <text x="200" y="260" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">home, laptop, phone</text>
-  <!-- /healthz endpoint — JSON response -->
+  <!-- /healthz endpoint - JSON response -->
   <rect x="500" y="60" width="300" height="200" rx="10" fill="#16161e" stroke="#24283b" stroke-width="1"/>
   <text x="510" y="88" font-family="SF Mono, monospace" font-size="11" fill="#565f89">GET /healthz</text>
   <text x="510" y="114" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">{</text>
@@ -37,13 +37,13 @@
   <text x="530" y="168" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"peers"</text><text x="612" y="168" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: 5,</text>
   <text x="530" y="186" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"version"</text><text x="624" y="186" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "1.0.0"</text>
   <text x="510" y="204" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">}</text>
-  <!-- Headless pairing — pipe visualization -->
+  <!-- Headless pairing - pipe visualization -->
   <rect x="500" y="290" width="300" height="60" rx="8" fill="none" stroke="#e0af68" stroke-width="1.5" opacity="0.5"/>
   <text x="650" y="316" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">peerup invite --non-interactive |</text>
   <text x="650" y="334" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">PEERUP_INVITE_CODE=$(cat) peerup join</text>
   <!-- Connection arrows -->
   <path d="M 860 160 L 900 160" stroke="#565f89" stroke-width="1.5" opacity="0.4"/>
-  <!-- Automation icon — gear -->
+  <!-- Automation icon - gear -->
   <circle cx="960" cy="160" r="40" fill="none" stroke="#7aa2f7" stroke-width="1.5" opacity="0.3"/>
   <circle cx="960" cy="160" r="15" fill="none" stroke="#7aa2f7" stroke-width="2" opacity="0.5"/>
   <!-- Gear teeth -->

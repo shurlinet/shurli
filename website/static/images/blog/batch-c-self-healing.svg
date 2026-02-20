@@ -6,7 +6,7 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgC)"/>
-  <!-- Config archive timeline — versioned configs flowing left to right -->
+  <!-- Config archive timeline - versioned configs flowing left to right -->
   <!-- Config v1 (archived) -->
   <rect x="80" y="150" width="140" height="100" rx="8" fill="none" stroke="#565f89" stroke-width="1.5" opacity="0.5"/>
   <text x="150" y="180" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle" opacity="0.7">config.v1</text>
@@ -19,7 +19,7 @@
   <rect x="300" y="195" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
   <rect x="300" y="207" width="80" height="6" rx="2" fill="#565f89" opacity="0.2"/>
   <rect x="300" y="219" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <!-- Config v3 (bad — red) -->
+  <!-- Config v3 (bad - red) -->
   <rect x="480" y="150" width="140" height="100" rx="8" fill="none" stroke="#f7768e" stroke-width="2" opacity="0.7"/>
   <text x="550" y="180" font-family="SF Mono, monospace" font-size="11" fill="#f7768e" text-anchor="middle">config.v3</text>
   <rect x="500" y="195" width="100" height="6" rx="2" fill="#f7768e" opacity="0.3"/>
@@ -30,7 +30,7 @@
   <path d="M 500 290 Q 400 320 320 290" fill="none" stroke="#e0af68" stroke-width="2" stroke-dasharray="6,4"/>
   <path d="M 325 285 L 320 290 L 327 294" fill="none" stroke="#e0af68" stroke-width="2"/>
   <text x="410" y="340" font-family="SF Mono, monospace" font-size="11" fill="#e0af68" text-anchor="middle" opacity="0.7">rollback</text>
-  <!-- Watchdog — heartbeat pulse -->
+  <!-- Watchdog - heartbeat pulse -->
   <circle cx="800" cy="200" r="40" fill="none" stroke="#9ece6a" stroke-width="2" opacity="0.4"/>
   <circle cx="800" cy="200" r="60" fill="none" stroke="#9ece6a" stroke-width="1" opacity="0.2"/>
   <circle cx="800" cy="200" r="80" fill="none" stroke="#9ece6a" stroke-width="0.5" opacity="0.1"/>

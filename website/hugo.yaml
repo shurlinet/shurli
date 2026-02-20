@@ -16,7 +16,7 @@ markup:
 
 enableRobotsTXT: true
 
-# Disable RSS — Hextra's RSS template uses deprecated .Site.Author (Hugo 0.156+)
+# Disable RSS  - Hextra's RSS template uses deprecated .Site.Author (Hugo 0.156+)
 disableKinds:
   - RSS
 
@@ -43,6 +43,9 @@ menu:
 
 params:
   description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls.
+
+  images:
+    - /images/og-card.png
 
   navbar:
     displayTitle: true

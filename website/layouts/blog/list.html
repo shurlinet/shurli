@@ -8,10 +8,51 @@
         <br class="hx:mt-1.5 hx:text-sm" />
         {{ if .Title }}<h1 class="hx:text-center hx:mt-2 hx:text-4xl hx:font-bold hx:tracking-tight hx:text-slate-900 hx:dark:text-slate-100">{{ .Title }}</h1>{{ end }}
         <div class="content">{{ .Content }}</div>
-        {{- $pages := partial "utils/sort-pages" (dict "page" . "by" site.Params.blog.list.sortBy "order" site.Params.blog.list.sortOrder) -}}
-        {{- $pagerSize := site.Params.blog.list.pagerSize | default 10 -}}
-        {{- $paginator := .Paginate $pages $pagerSize -}}
+        {{- $allPages := partial "utils/sort-pages" (dict "page" . "by" site.Params.blog.list.sortBy "order" site.Params.blog.list.sortOrder) -}}
         {{- $basePath := site.Home.RelPermalink -}}
+
+        {{/* Render pinned posts first (only on first page) */}}
+        {{- $pinned := where $allPages ".Params.pinned" true -}}
+        {{- $unpinned := where $allPages ".Params.pinned" "!=" true -}}
+        {{- $pagerSize := site.Params.blog.list.pagerSize | default 10 -}}
+        {{- $paginator := .Paginate $unpinned $pagerSize -}}
+
+        {{- if and (gt (len $pinned) 0) (eq $paginator.PageNumber 1) }}
+          {{- range $pinned }}
+            {{- $postTitle := .Title -}}
+            <a href="{{ .RelPermalink }}" class="peerup-blog-card peerup-blog-card-pinned">
+              {{- with .Params.image }}
+                {{- $imgSrc := printf "%s%s" $basePath (strings.TrimPrefix "/" .) -}}
+                <div class="peerup-blog-card-image-wrap">
+                  <img src="{{ $imgSrc }}" alt="{{ $postTitle }}" class="peerup-blog-card-image" loading="lazy" />
+                  <div class="peerup-blog-card-overlay">
+                    <h3 class="peerup-blog-card-title">{{ $postTitle }}</h3>
+                  </div>
+                  <span class="peerup-pinned-badge">Pinned</span>
+                </div>
+              {{- else }}
+                <div class="peerup-blog-card-noimage">
+                  <h3 class="peerup-blog-card-title">{{ $postTitle }}</h3>
+                  <span class="peerup-pinned-badge">Pinned</span>
+                </div>
+              {{- end }}
+              <div class="peerup-blog-card-body">
+                {{ if site.Params.blog.list.displayTags }}
+                  <div class="hx:text-sm hx:leading-7">
+                    {{ partial "tags.html" (dict "context" .) }}
+                  </div>
+                {{ end }}
+                <p class="peerup-blog-card-desc">{{- partial "utils/page-description" . -}}</p>
+                <div class="peerup-blog-card-footer">
+                  <span class="peerup-blog-card-date">{{ partial "utils/format-date" .Date }}</span>
+                  <span class="peerup-blog-card-readmore">{{ $readMore }}</span>
+                </div>
+              </div>
+            </a>
+          {{ end -}}
+        {{- end }}
+
+        {{/* Render remaining posts with pagination */}}
         {{- range $paginator.Pages }}
           {{- $postTitle := .Title -}}
           <a href="{{ .RelPermalink }}" class="peerup-blog-card">

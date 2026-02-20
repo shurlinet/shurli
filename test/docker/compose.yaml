@@ -1,9 +1,9 @@
 # Docker Compose topology for peer-up integration tests.
 #
 # Three containers on a single bridge network:
-#   relay  (172.28.0.10) — circuit relay server, gating disabled for tests
-#   node-a (172.28.0.11) — first peer (inviter / daemon host)
-#   node-b (172.28.0.12) — second peer (joiner / ping client)
+#   relay  (172.28.0.10)  - circuit relay server, gating disabled for tests
+#   node-a (172.28.0.11)  - first peer (inviter / daemon host)
+#   node-b (172.28.0.12)  - second peer (joiner / ping client)
 #
 # All containers start with "sleep infinity" and are fully orchestrated
 # by the Go test via "docker exec". The test writes configs, starts

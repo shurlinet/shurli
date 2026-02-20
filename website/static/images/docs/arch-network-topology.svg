@@ -32,11 +32,11 @@
   <line x1="400" y1="60" x2="400" y2="110" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
   <line x1="160" y1="60" x2="160" y2="170" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
 
-  <!-- Relay connections (solid blue — always works) -->
+  <!-- Relay connections (solid blue - always works) -->
   <line x1="185" y1="225" x2="345" y2="160" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
   <line x1="455" y1="160" x2="605" y2="225" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
 
-  <!-- Direct connection (dashed green — when hole-punch succeeds) -->
+  <!-- Direct connection (dashed green - when hole-punch succeeds) -->
   <line x1="185" y1="240" x2="605" y2="240" stroke="#9ece6a" stroke-width="2" stroke-dasharray="8,6" opacity="0.5"/>
 
   <!-- DCUtR upgrade label -->

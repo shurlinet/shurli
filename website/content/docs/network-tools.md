@@ -2,7 +2,7 @@
 title: "Network Tools"
 weight: 2
 ---
-<!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs.sh - do not edit directly -->
 
 
 peer-up provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
@@ -18,7 +18,7 @@ peer-up provides P2P network diagnostic commands that mirror familiar system uti
 
 ## ping
 
-P2P `ping` — measures round-trip time and connection path to a peer.
+P2P `ping` - measures round-trip time and connection path to a peer.
 
 ### Usage
 
@@ -26,7 +26,7 @@ P2P `ping` — measures round-trip time and connection path to a peer.
 # Standalone (creates temp host, pings, exits)
 peerup ping <peer> [-c N] [--interval 1s] [--json] [--config path]
 
-# Via daemon (reuses existing host — faster)
+# Via daemon (reuses existing host - faster)
 peerup daemon ping <peer> [-c N] [--interval 1s] [--json]
 ```
 
@@ -83,7 +83,7 @@ protocols:
     enabled: false   # silently drop ping requests
 ```
 
-When disabled, the peer doesn't register the ping-pong stream handler. Pings will time out — same behavior as a firewall dropping ICMP.
+When disabled, the peer doesn't register the ping-pong stream handler. Pings will time out, same behavior as a firewall dropping ICMP.
 
 ### How It Works
 
@@ -97,7 +97,7 @@ When disabled, the peer doesn't register the ping-pong stream handler. Pings wil
 
 ## traceroute
 
-P2P `traceroute` — shows the network path to a peer with per-hop latency.
+P2P `traceroute` - shows the network path to a peer with per-hop latency.
 
 ### Usage
 
@@ -157,7 +157,7 @@ This gives the real diagnostic information needed: **where is my traffic going, 
 
 ## resolve
 
-P2P `nslookup` — resolves peer names to peer IDs.
+P2P `nslookup` - resolves peer names to peer IDs.
 
 ### Usage
 
@@ -199,7 +199,7 @@ home-server → 12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt (source: lo
 
 ### No Network Required
 
-`resolve` reads from local config only — it doesn't contact the network or start a P2P host. Resolution is instant.
+`resolve` reads from local config only - it doesn't contact the network or start a P2P host. Resolution is instant.
 
 Names are configured in `config.yaml`:
 
@@ -237,9 +237,9 @@ This takes 5-15 seconds for initial setup. The daemon mode skips all of this.
 ### Shared Logic
 
 Both modes use the same underlying functions:
-- `p2pnet.PingPeer()` — streaming ping with configurable count and interval
-- `p2pnet.ComputePingStats()` — min/avg/max/loss statistics
-- `p2pnet.TracePeer()` — connection path analysis
+- `p2pnet.PingPeer()` - streaming ping with configurable count and interval
+- `p2pnet.ComputePingStats()` - min/avg/max/loss statistics
+- `p2pnet.TracePeer()` - connection path analysis
 
 ---
 

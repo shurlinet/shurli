@@ -11,7 +11,7 @@
   <rect width="800" height="380" rx="12" fill="#0f1117"/>
   <!-- Title -->
   <text x="400" y="36" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Docker Integration Test Topology</text>
-  <text x="400" y="56" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Real binaries in real containers — tests the full invite/join/ping flow</text>
+  <text x="400" y="56" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Real binaries in real containers - tests the full invite/join/ping flow</text>
   <!-- Docker Compose boundary -->
   <rect x="40" y="70" width="720" height="210" rx="10" fill="none" stroke="#565f89" stroke-width="1" stroke-dasharray="6,4"/>
   <text x="60" y="90" fill="#565f89" font-family="monospace" font-size="11">docker-compose.test.yaml</text>

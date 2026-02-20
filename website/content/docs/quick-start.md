@@ -2,7 +2,7 @@
 title: "Quick Start"
 weight: 1
 ---
-<!-- Auto-synced from README.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from README.md by sync-docs.sh - do not edit directly -->
 
 
 ### Path A: Joining someone's network
@@ -37,10 +37,10 @@ peerup join <invite-code> --name laptop
 
 **4. Use it:**
 ```bash
-# On the server — start the daemon with services exposed
+# On the server - start the daemon with services exposed
 peerup daemon
 
-# On the client — connect to a service
+# On the client - connect to a service
 peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```

@@ -2,10 +2,10 @@
 title: "FAQ"
 weight: 3
 ---
-<!-- Auto-synced from docs/FAQ.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from docs/FAQ.md by sync-docs.sh - do not edit directly -->
 
 
-> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves — details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
+> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves, and details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
 
 ## How does peer-up compare to Tailscale?
 
@@ -19,15 +19,15 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 | **Topology** | Client → Relay → Server (with DCUtR upgrade to direct) | Full mesh, point-to-point |
 | **NAT Traversal** | Circuit relay + hole-punching (DCUtR) | DERP relay servers + STUN/hole-punching |
 | **Encryption** | libp2p Noise protocol (Ed25519) | WireGuard (Curve25519) |
-| **Control Plane** | None — fully decentralized (DHT + config files) | Centralized coordination server |
+| **Control Plane** | None - fully decentralized (DHT + config files) | Centralized coordination server |
 
 ### Privacy & Sovereignty
 
 | | **peer-up** | **Tailscale** |
 |---|---|---|
-| **Accounts** | None — no email, no OAuth | Required (Google, GitHub, etc.) |
-| **Telemetry** | Zero — no data leaves your network | Coordination server sees device graph |
-| **Control plane** | None — relay only forwards bytes | Centralized coordination server |
+| **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
+| **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
+| **Control plane** | None - relay only forwards bytes | Centralized coordination server |
 | **Key custody** | You generate, you store, you control | Keys managed via their control plane |
 | **Source** | Fully open, self-hosted | Open source client, proprietary control plane |
 
@@ -47,20 +47,20 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ### Where peer-up wins
 
-- **No central authority** — No account, no coordination server, no vendor dependency
-- **Importable library** — `pkg/p2pnet` can be embedded into any Go application
-- **CGNAT/Starlink proven** — Relay-based architecture works through symmetric NAT
-- **Self-hosted relay** — You run your own relay on a $5 VPS
-- **GPU inference use case** — Purpose-built for exposing Ollama/vLLM through CGNAT
+- **No central authority** - No account, no coordination server, no vendor dependency
+- **Importable library** - `pkg/p2pnet` can be embedded into any Go application
+- **CGNAT/Starlink proven** - Relay-based architecture works through symmetric NAT
+- **Self-hosted relay** - You run your own relay on a $5 VPS
+- **GPU inference use case** - Purpose-built for exposing Ollama/vLLM through CGNAT
 
 ### Where Tailscale wins
 
-- **IP-layer VPN** — Virtual network interface; any protocol works transparently
-- **Mature ecosystem** — Mobile apps, web dashboard, ACLs, SSO, subnet routing, Funnel
-- **Performance** — WireGuard is kernel-level and extremely fast
-- **Scale** — Handles thousands of devices in an organization
-- **Zero config** — "Install and sign in" onboarding
-- **Platform coverage** — Runs everywhere including iOS, Android, containers
+- **IP-layer VPN** - Virtual network interface; any protocol works transparently
+- **Mature ecosystem** - Mobile apps, web dashboard, ACLs, SSO, subnet routing, Funnel
+- **Performance** - WireGuard is kernel-level and extremely fast
+- **Scale** - Handles thousands of devices in an organization
+- **Zero config** - "Install and sign in" onboarding
+- **Platform coverage** - Runs everywhere including iOS, Android, containers
 
 ---
 
@@ -68,7 +68,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ### Direct Competitors
 
-#### Hyprspace — Most similar in the libp2p ecosystem
+#### Hyprspace - Most similar in the libp2p ecosystem
 
 - **Stack**: Go + libp2p + IPFS DHT (same as peer-up)
 - **What it does**: Lightweight VPN that creates TUN interfaces, uses DHT for discovery, NAT hole-punching via libp2p
@@ -76,7 +76,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - **Difference**: Hyprspace operates at the IP layer (TUN/TAP VPN), not TCP service proxy. No invite/onboarding flow, no relay-first architecture.
 - **Link**: https://github.com/hyprspace/hyprspace
 
-#### connet — Similar concept, different stack
+#### connet - Similar concept, different stack
 
 - **Stack**: Go + QUIC (not libp2p)
 - **What it does**: P2P reverse proxy with NAT traversal, inspired by frp/ngrok/rathole
@@ -84,7 +84,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - **Difference**: Uses QUIC directly instead of libp2p. No DHT discovery, no friendly naming, no init wizard.
 - **Link**: https://github.com/connet-dev/connet
 
-#### SomajitDey/tunnel — Simpler alternative
+#### SomajitDey/tunnel - Simpler alternative
 
 - **Stack**: Bash scripts + HTTP relay (piping-server)
 - **What it does**: P2P TCP/UDP port forwarding through an HTTP relay
@@ -93,7 +93,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ### Adjacent Projects
 
-#### Hyperswarm / Holepunch — DHT-assisted hole punching
+#### Hyperswarm / Holepunch - DHT-assisted hole punching
 
 - **Stack**: Node.js / C, HyperDHT, UTP + TCP
 - **What it does**: P2P networking library powering [Keet](https://keet.io/) (encrypted P2P video/chat). DHT nodes actively assist with hole punching coordination.
@@ -101,25 +101,25 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - **Difference**: Smaller ecosystem, fewer transports (no QUIC, no WebSocket), no anti-censorship story. Tightly coupled to the Hypercore/Dat ecosystem. Node.js-native (not Go). Hole punching may have higher success rates in some NAT scenarios because DHT nodes actively broker the handshake.
 - **Link**: https://github.com/holepunchto/hyperswarm
 
-#### Iroh — Library competitor to libp2p itself
+#### Iroh - Library competitor to libp2p itself
 
 - **Stack**: Rust, QUIC, custom relay protocol
-- **What it does**: "Dial by public key" — P2P connectivity library with higher NAT traversal success rate than libp2p (~90%+ vs ~70%)
+- **What it does**: "Dial by public key" - P2P connectivity library with higher NAT traversal success rate than libp2p (~90%+ vs ~70%)
 - **Difference**: A library, not an end-user tool. There's a `libp2p-iroh` transport adapter for using Iroh's NAT traversal within libp2p.
 - **Link**: https://github.com/n0-computer/iroh
 
-#### Nebula — Different stack, same goal
+#### Nebula - Different stack, same goal
 
 - **Stack**: Go, custom protocol (not WireGuard, not libp2p)
 - **What it does**: P2P overlay network from Slack, full mesh with lighthouse nodes
-- **Difference**: Certificate-authority model. **No relay fallback** — if hole-punching fails (e.g., CGNAT/Starlink), the connection simply doesn't work.
+- **Difference**: Certificate-authority model. **No relay fallback** - if hole-punching fails (e.g., CGNAT/Starlink), the connection simply doesn't work.
 - **Link**: https://github.com/slackhq/nebula
 
-#### Headscale / NetBird — Self-hosted Tailscale alternatives
+#### Headscale / NetBird - Self-hosted Tailscale alternatives
 
-- **Headscale**: Open source Tailscale control server — uses official Tailscale clients
+- **Headscale**: Open source Tailscale control server - uses official Tailscale clients
 - **NetBird**: Full self-hosted mesh with WireGuard, management service, signal server, relay
-- **Difference**: Both are WireGuard-based, not libp2p. Different philosophy — they replicate Tailscale's architecture, peer-up builds something different.
+- **Difference**: Both are WireGuard-based, not libp2p. Different philosophy - they replicate Tailscale's architecture, peer-up builds something different.
 
 ### Comparison Table
 
@@ -138,11 +138,11 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ### Blockchain P2P Networks
 
-These are not competitors but useful reference points — their P2P stacks solve different problems (block propagation, consensus) but share underlying technology with peer-up:
+These are not competitors but useful reference points - their P2P stacks solve different problems (block propagation, consensus) but share underlying technology with peer-up:
 
 | Network | P2P Stack | Discovery | NAT Traversal | Encryption | Key Insight |
 |---------|-----------|-----------|---------------|------------|-------------|
-| **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023 — was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
+| **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023, was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
 | **Ethereum (execution)** | devp2p / RLPx | discv5 (UDP) | None (public IPs expected) | ECIES | Legacy layer, pre-Merge |
 | **Ethereum (consensus)** | **libp2p** (same as peer-up) | discv5 (chose over Kademlia) | Minimal | Noise protocol | Validates libp2p for critical infrastructure |
 | **Filecoin** | libp2p | Kademlia DHT | Circuit relay | Noise / TLS 1.3 | Largest libp2p deployment by data volume |
@@ -172,7 +172,7 @@ These are not competitors but useful reference points — their P2P stacks solve
 | **Latency** | Your VPS location | Nearest Iroh relay | Nearest DERP node |
 | **Protocol overhead** | Minimal (libp2p framing) | Minimal (UDP-over-HTTP) | Minimal (DERP framing) |
 | **Encryption** | Noise protocol (libp2p) | QUIC TLS | WireGuard (ChaCha20) |
-| **You control limits** | Yes — unlimited duration/data | No | No |
+| **You control limits** | Yes - unlimited duration/data | No | No |
 | **Relay sees content** | No (end-to-end encrypted) | No (end-to-end encrypted) | No (end-to-end encrypted) |
 
 All three are roughly equivalent in relay quality. The relay is a dumb pipe forwarding encrypted bytes. Performance depends on infrastructure, not protocol.
@@ -191,7 +191,7 @@ Circuit Relay v2 is slower because it involves a reservation step and DHT lookup
 
 ## Can I use public IPFS relay servers instead of my own?
 
-Yes, public IPFS relays exist — thousands of them. Since Circuit Relay v2, every public IPFS node runs a relay by default. libp2p's AutoRelay can discover and use them automatically.
+Yes, public IPFS relays exist - thousands of them. Since Circuit Relay v2, every public IPFS node runs a relay by default. libp2p's AutoRelay can discover and use them automatically.
 
 **But there's a catch.** Public relays have strict resource limits:
 
@@ -204,25 +204,25 @@ Yes, public IPFS relays exist — thousands of them. Since Circuit Relay v2, eve
 | **Uptime** | Random node, could disappear | Your VPS, 99.9% uptime |
 | **SSH session** | Drops after 2 min or 128 KB | Works indefinitely |
 
-Public relays are designed as a **trampoline** — they help two peers find each other, attempt a hole-punch, and then drop off. They were never meant for sustained traffic like SSH sessions, XRDP, or LLM inference.
+Public relays are designed as a **trampoline** - they help two peers find each other, attempt a hole-punch, and then drop off. They were never meant for sustained traffic like SSH sessions, XRDP, or LLM inference.
 
 ---
 
 ## Are Iroh's public relays the same as IPFS's public relays?
 
-Conceptually yes — both are "someone else's relay you use for free." But the implementation differs significantly:
+Conceptually yes - both are "someone else's relay you use for free." But the implementation differs significantly:
 
 | | **IPFS public relays** | **Iroh's relays** |
 |---|---|---|
 | **Operator** | Thousands of random IPFS peers | n0 team (Iroh's company) |
-| **Architecture** | Decentralized — any public node can be a relay | Centralized — Iroh runs them |
+| **Architecture** | Decentralized - any public node can be a relay | Centralized - Iroh runs them |
 | **Data limit** | 128 KB per session | No hard cap |
 | **Time limit** | 2 minutes | Persistent connection |
 | **Purpose** | Trampoline for hole-punch coordination | Actual traffic fallback (like Tailscale's DERP) |
 | **Reliability** | Random node could vanish anytime | Operated infrastructure |
 | **Protocol** | libp2p Circuit Relay v2 | Custom protocol (UDP-over-HTTP) |
 
-Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem** — meant to carry real traffic when hole-punching fails. IPFS's public relays are just for the initial handshake.
+Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem** - meant to carry real traffic when hole-punching fails. IPFS's public relays are just for the initial handshake.
 
 ---
 
@@ -230,10 +230,10 @@ Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem*
 
 For Starlink/CGNAT (symmetric NAT) users, hole-punching **always fails**. Traffic must stay on the relay for the entire session. This means:
 
-1. **Public IPFS relays** — Connection drops after 2 minutes or 128 KB. Unusable.
-2. **Iroh's relays** — Would work, but you depend on Iroh's infrastructure and lose sovereignty.
-3. **Tailscale's DERP** — Would work, but requires a Tailscale account and their control plane.
-4. **Your own relay** — Works indefinitely, unlimited data, you control everything.
+1. **Public IPFS relays** - Connection drops after 2 minutes or 128 KB. Unusable.
+2. **Iroh's relays** - Would work, but you depend on Iroh's infrastructure and lose sovereignty.
+3. **Tailscale's DERP** - Would work, but requires a Tailscale account and their control plane.
+4. **Your own relay** - Works indefinitely, unlimited data, you control everything.
 
 peer-up's self-hosted relay ($5/month VPS) is the only option that provides **both** unlimited traffic **and** full sovereignty.
 
@@ -255,16 +255,16 @@ The port the lighthouse tells Peer B to use was allocated for the lighthouse con
 
 ## Why Circuit Relay v2 is the right choice for peer-up
 
-1. **Symmetric NAT** — Hole-punch success rates are irrelevant (all protocols fail against symmetric NAT, all fall back to relay)
-2. **Self-hosted relay** — You control limits, so the 128KB/2min public relay caps don't apply
-3. **No vendor dependency** — Matches the self-sovereign philosophy
-4. **Native to libp2p** — No additional dependencies in the Go codebase
-5. **Battle-tested** — Millions of IPFS nodes use it daily
-6. **Configurable** — When you run your own relay, you set your own resource limits
+1. **Symmetric NAT** - Hole-punch success rates are irrelevant (all protocols fail against symmetric NAT, all fall back to relay)
+2. **Self-hosted relay** - You control limits, so the 128KB/2min public relay caps don't apply
+3. **No vendor dependency** - Matches the self-sovereign philosophy
+4. **Native to libp2p** - No additional dependencies in the Go codebase
+5. **Battle-tested** - Millions of IPFS nodes use it daily
+6. **Configurable** - When you run your own relay, you set your own resource limits
 
 The only area where alternatives genuinely outperform Circuit Relay v2:
 - **Connection speed**: Iroh (1-3s) and Tailscale (<1s) are faster than Circuit Relay v2 (5-15s) due to persistent relay connections
-- **Hole-punch success for regular NAT**: Iroh (~90%) and Tailscale (~92%) beat DCUtR (~70%) — but this doesn't matter for symmetric NAT
+- **Hole-punch success for regular NAT**: Iroh (~90%) and Tailscale (~92%) beat DCUtR (~70%), but this doesn't matter for symmetric NAT
 
 For Starlink CGNAT with a self-hosted relay, Circuit Relay v2 is **functionally equivalent** to Iroh and Tailscale in relay quality.
 
@@ -279,12 +279,12 @@ Circuit Relay v2 is libp2p's protocol for routing traffic through an intermediar
 ![Circuit Relay v2 sequence: Peer A reserves slot on Relay, Peer B connects through Relay, streams bridged bidirectionally](/images/docs/faq-circuit-relay-sequence.svg)
 
 The protocol splits into two sub-protocols:
-- **Hop** (`/libp2p/circuit/relay/0.2.0/hop`) — client ↔ relay (reserve, connect)
-- **Stop** (`/libp2p/circuit/relay/0.2.0/stop`) — relay ↔ target peer (deliver connection)
+- **Hop** (`/libp2p/circuit/relay/0.2.0/hop`) - client ↔ relay (reserve, connect)
+- **Stop** (`/libp2p/circuit/relay/0.2.0/stop`) - relay ↔ target peer (deliver connection)
 
 ### Why v1 was replaced
 
-v1 had no resource reservation — relays got overloaded with no way to limit usage. v2 introduced explicit reservations with configurable limits (duration, data caps, bandwidth), making it cheap to run "an army of relays for extreme horizontal scaling." Relays can reject connections with status codes like `RESOURCE_LIMIT_EXCEEDED` or `RESERVATION_REFUSED`.
+v1 had no resource reservation - relays got overloaded with no way to limit usage. v2 introduced explicit reservations with configurable limits (duration, data caps, bandwidth), making it cheap to run "an army of relays for extreme horizontal scaling." Relays can reject connections with status codes like `RESOURCE_LIMIT_EXCEEDED` or `RESERVATION_REFUSED`.
 
 ### Known limitations
 
@@ -300,7 +300,7 @@ v1 had no resource reservation — relays got overloaded with no way to limit us
 
 **No.** No v3 exists or is planned. libp2p's strategy is to reduce *dependence* on relays through better hole punching ([DCUtR](https://github.com/libp2p/specs/blob/master/relay/DCUtR.md) improvements, [AutoNAT v2](https://github.com/libp2p/specs/blob/master/autonat/autonat-v2.md)), not to replace the relay protocol itself.
 
-The improvements come from upgrading everything *around* the relay — see the next FAQ entry.
+The improvements come from upgrading everything *around* the relay - see the next FAQ entry.
 
 **Source**: [Circuit Relay v2 Specification](https://github.com/libp2p/specs/blob/master/relay/circuit-v2.md)
 
@@ -383,12 +383,12 @@ Bitcoin's P2P protocol has **less overhead per message**, but it can't do what p
 | **Per-message overhead** | 24 bytes (fixed header) | 12 bytes (Yamux) + encryption framing |
 | **Encryption** | None | TLS 1.3 or Noise (mandatory) |
 | **Multiplexing** | None (1 connection = 1 stream) | Yes (many streams per connection) |
-| **NAT/CGNAT traversal** | No — requires port forwarding | Yes — relay, hole punching, AutoNAT |
+| **NAT/CGNAT traversal** | No - requires port forwarding | Yes - relay, hole punching, AutoNAT |
 | **Bulk data transfer** | Fast (minimal overhead) | Comparable once connected |
 
 ### Why Bitcoin P2P is "faster"
 
-It's simpler — not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It's lean because it *trusts nothing* at the network layer — blocks are verified cryptographically after receipt anyway.
+It's simpler, not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It's lean because it *trusts nothing* at the network layer - blocks are verified cryptographically after receipt anyway.
 
 ### Why it doesn't matter for peer-up
 
@@ -410,16 +410,16 @@ Once the connection is established, **bulk throughput is comparable**. The overh
 
 These optimizations are planned in Phase 4C (Core Hardening):
 
-1. **QUIC transport** — saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
-2. **Connection warmup** — pre-establish connection at `peerup proxy` startup
-3. **Stream pooling** — reuse streams instead of fresh ones per TCP connection
-4. **DCUtR hole punching** — bypass relay entirely for direct peer-to-peer (approaches Bitcoin-like raw TCP speed)
+1. **QUIC transport** - saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
+2. **Connection warmup** - pre-establish connection at `peerup proxy` startup
+3. **Stream pooling** - reuse streams instead of fresh ones per TCP connection
+4. **DCUtR hole punching** - bypass relay entirely for direct peer-to-peer (approaches Bitcoin-like raw TCP speed)
 
-Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame — very close to Bitcoin's raw TCP speed but with encryption and NAT traversal.
+Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal.
 
 ### Bottom line
 
-Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption — and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
+Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption, and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
 
 ---
 
@@ -429,7 +429,7 @@ Ethereum is the most relevant comparison because **its consensus layer uses the 
 
 ### Ethereum's two P2P layers
 
-**Execution layer (devp2p/RLPx)** — the original Ethereum networking, predating The Merge:
+**Execution layer (devp2p/RLPx)** - the original Ethereum networking, predating The Merge:
 
 | | **devp2p (Execution)** | **peer-up (libp2p)** |
 |---|---|---|
@@ -437,10 +437,10 @@ Ethereum is the most relevant comparison because **its consensus layer uses the 
 | **Encryption** | ECIES (ECDH + AES) | Noise / TLS 1.3 |
 | **Multiplexing** | Capability-based sub-protocols (eth, snap) | Yamux (any number of streams) |
 | **Discovery** | discv5 (UDP-based DHT) | Kademlia DHT |
-| **NAT traversal** | None — validators expected to have public IPs | AutoNAT v2 + circuit relay + DCUtR hole punching |
+| **NAT traversal** | None - validators expected to have public IPs | AutoNAT v2 + circuit relay + DCUtR hole punching |
 | **Identity** | ENR (Ethereum Node Records) | PeerID (Ed25519 multihash) |
 
-**Consensus layer (libp2p)** — adopted for the Beacon Chain (post-Merge):
+**Consensus layer (libp2p)** - adopted for the Beacon Chain (post-Merge):
 
 | | **Ethereum Consensus** | **peer-up** |
 |---|---|---|
@@ -454,12 +454,12 @@ Ethereum is the most relevant comparison because **its consensus layer uses the 
 
 ### Why Ethereum chose libp2p for consensus
 
-When Ethereum needed a P2P networking stack for the Beacon Chain — the system securing hundreds of billions of dollars — they evaluated their options and chose libp2p. The reasons:
+When Ethereum needed a P2P networking stack for the Beacon Chain - the system securing hundreds of billions of dollars - they evaluated their options and chose libp2p. The reasons:
 
-1. **Modularity** — swap transports, security, multiplexers independently
-2. **Multi-language support** — Go (Prysm), Rust (Lighthouse), Java (Teku), .NET (Nethermind) all have libp2p implementations
-3. **Stream multiplexing** — essential for gossipsub topic subscriptions
-4. **Noise protocol** — mutual authentication during handshake
+1. **Modularity** - swap transports, security, multiplexers independently
+2. **Multi-language support** - Go (Prysm), Rust (Lighthouse), Java (Teku), .NET (Nethermind) all have libp2p implementations
+3. **Stream multiplexing** - essential for gossipsub topic subscriptions
+4. **Noise protocol** - mutual authentication during handshake
 
 ### Why Ethereum chose discv5 over libp2p's Kademlia for discovery
 
@@ -473,19 +473,19 @@ Ethereum's consensus layer uses libp2p for transport and encryption but **not** 
 | **NAT handling** | Relies on relay/AutoNAT | Built-in PING/PONG with endpoint proof |
 | **Purpose** | General content/peer routing | Pure peer discovery (minimal scope) |
 
-The key reason: Kademlia DHT maintains routing tables and handles both content routing and peer discovery, which generates more background traffic than needed for pure discovery. discv5 does one thing — find peers — and does it with less bandwidth overhead.
+The key reason: Kademlia DHT maintains routing tables and handles both content routing and peer discovery, which generates more background traffic than needed for pure discovery. discv5 does one thing - find peers - and does it with less bandwidth overhead.
 
 **For peer-up**: Kademlia DHT is the right choice today because peer-up uses it for both peer discovery and rendezvous coordination, and the bandwidth overhead is negligible at current network sizes. The discv5 approach becomes interesting at larger scales where DHT maintenance traffic is measurable.
 
 ### What this means for peer-up
 
-peer-up's libp2p foundation is **validated by Ethereum's consensus layer** — the same networking stack secures one of the largest decentralized networks in existence. peer-up also benefits from improvements driven by Ethereum's scale: gossipsub optimizations, Noise protocol hardening, and transport upgrades all flow back to the shared libp2p codebase.
+peer-up's libp2p foundation is **validated by Ethereum's consensus layer** - the same networking stack secures one of the largest decentralized networks in existence. peer-up also benefits from improvements driven by Ethereum's scale: gossipsub optimizations, Noise protocol hardening, and transport upgrades all flow back to the shared libp2p codebase.
 
 Where peer-up goes further than Ethereum's usage:
-- **Full NAT traversal** (AutoNAT v2, circuit relay, DCUtR) — Ethereum validators don't need this
-- **QUIC as preferred transport** — Ethereum consensus still primarily uses TCP
-- **WebSocket for anti-censorship** — Ethereum has no DPI evasion story
-- **Point-to-point service proxy** — different use pattern than gossipsub broadcast
+- **Full NAT traversal** (AutoNAT v2, circuit relay, DCUtR) - Ethereum validators don't need this
+- **QUIC as preferred transport** - Ethereum consensus still primarily uses TCP
+- **WebSocket for anti-censorship** - Ethereum has no DPI evasion story
+- **Point-to-point service proxy** - different use pattern than gossipsub broadcast
 
 ---
 
@@ -497,9 +497,9 @@ Where peer-up goes further than Ethereum's usage:
 |----------|----------------------|---------------|-------|
 | **MASQUE** ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) | HTTP/3 relay that looks like HTTPS to deep packet inspection. 0-RTT session resumption for instant reconnection after network switch. | Production (Cloudflare deploys across 330+ datacenters) | Future |
 | **Post-quantum Noise** (ML-KEM / FIPS 203) | Quantum-resistant handshakes. Regulatory mandates expected 2026-2028. | AWS KMS, Windows 11 shipping ML-KEM. libp2p not yet adopted. | Future |
-| **QUIC v2** ([RFC 9369](https://datatracker.ietf.org/doc/rfc9369/)) | Anti-ossification — randomized version field prevents middleboxes from special-casing QUIC v1. | Finalized | 4C |
+| **QUIC v2** ([RFC 9369](https://datatracker.ietf.org/doc/rfc9369/)) | Anti-ossification - randomized version field prevents middleboxes from special-casing QUIC v1. | Finalized | 4C |
 | **WebTransport** | Browser-native QUIC transport (replaces WebSocket for anti-censorship). Lower overhead, native datagrams. | Chrome/Firefox production, Safari flag-only | Future |
-| **W3C DID v1.1** | Decentralized Identifiers — peer IDs in a standard, interoperable format (`did:key`, `did:peer`). | [First Public Draft 2025](https://www.w3.org/TR/did-1.1/) | Future |
+| **W3C DID v1.1** | Decentralized Identifiers - peer IDs in a standard, interoperable format (`did:key`, `did:peer`). | [First Public Draft 2025](https://www.w3.org/TR/did-1.1/) | Future |
 | **eBPF / XDP** | Kernel-bypass packet filtering at millions of packets/sec. DDoS mitigation without userspace overhead. | Production (Cloudflare, Meta, Netflix) | 4C/Future |
 
 ### MASQUE: The next-generation relay transport
@@ -509,13 +509,13 @@ Where peer-up goes further than Ethereum's usage:
 | | **Circuit Relay v2** | **MASQUE** |
 |---|---|---|
 | **Looks like** | Custom libp2p protocol | Standard HTTPS traffic |
-| **DPI evasion** | Requires WebSocket wrapping | Native — it IS HTTP/3 |
+| **DPI evasion** | Requires WebSocket wrapping | Native - it IS HTTP/3 |
 | **Session resume** | New reservation per connection | 0-RTT resume (TLS 1.3 tickets) |
 | **Multiplexing** | Via Yamux (12-byte frames) | Native QUIC streams |
 | **Infrastructure** | Self-hosted relay | Self-hosted or Cloudflare's global network |
 | **Browser support** | No (requires native client) | Yes (WebTransport API) |
 
-peer-up could offer MASQUE as an alternative relay transport alongside Circuit Relay v2 — giving users the choice between libp2p-native P2P and HTTP/3-based relay for environments where traffic must look like standard HTTPS.
+peer-up could offer MASQUE as an alternative relay transport alongside Circuit Relay v2 - giving users the choice between libp2p-native P2P and HTTP/3-based relay for environments where traffic must look like standard HTTPS.
 
 ### Post-quantum cryptography: The coming mandate
 
@@ -538,7 +538,7 @@ For peer-up, the path is:
 
 [eBPF](https://ebpf.io/) (extended Berkeley Packet Filter) allows running sandboxed programs in the Linux kernel without modifying kernel source. For peer-up's relay server:
 
-- **XDP (eXpress Data Path)**: Process packets before they reach the network stack — millions of packets/sec DDoS mitigation
+- **XDP (eXpress Data Path)**: Process packets before they reach the network stack - millions of packets/sec DDoS mitigation
 - **Rate limiting**: Per-IP connection throttling at kernel level (faster than iptables)
 - **Runtime monitoring**: Detect exploitation attempts on the relay via syscall tracing (Falco, Tetragon)
 - **Profiling**: Trace packet processing bottlenecks without instrumentation overhead
@@ -549,12 +549,12 @@ This complements the userspace hardening (Resource Manager, per-peer limits) wit
 
 **The problem**: When a laptop switches from WiFi to cellular (or WiFi flickers), all TCP connections through the proxy drop. The user must wait for reconnection (5-15 seconds with Circuit Relay v2).
 
-**The solution**: QUIC 0-RTT session resumption. The client caches a session ticket from the previous connection. On reconnect, it sends encrypted data in the very first packet — before the server even processes the handshake.
+**The solution**: QUIC 0-RTT session resumption. The client caches a session ticket from the previous connection. On reconnect, it sends encrypted data in the very first packet, before the server even processes the handshake.
 
 **Who has this**: Cloudflare's MASQUE relays, QUIC-native applications.
 **Who doesn't**: WireGuard (stateless, reconnects fast but not 0-RTT), all current P2P tunnel tools.
 
-This is a future optimization for peer-up's QUIC transport — particularly valuable for mobile clients (Phase 4G).
+This is a future optimization for peer-up's QUIC transport - particularly valuable for mobile clients (Phase 4G).
 
 ---
 
@@ -564,8 +564,8 @@ This is a future optimization for peer-up's QUIC transport — particularly valu
 
 | Factor | **Go** | **Rust** |
 |--------|--------|----------|
-| Development speed | Fast — the reason peer-up exists today | 2-3x slower initial development |
-| GC pauses at scale | 10s pauses observed at 600K connections | None — no garbage collector |
+| Development speed | Fast - the reason peer-up exists today | 2-3x slower initial development |
+| GC pauses at scale | 10s pauses observed at 600K connections | None - no garbage collector |
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
 | libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, Iroh) |
 | Formal verification | Limited | Strong (s2n-quic has 300+ Kani harnesses) |
@@ -579,7 +579,7 @@ Go's simplicity enabled rapid iteration through 7 phases of development. The lib
 
 ### When Rust becomes worth it
 
-At scale — when a relay server handles thousands of concurrent circuits, or when the proxy loop becomes CPU-bound. The hot paths (packet forwarding in the relay, bidirectional proxy loop, SOCKS5 gateway) are candidates for selective Rust rewrite via FFI, not a full project rewrite.
+At scale - when a relay server handles thousands of concurrent circuits, or when the proxy loop becomes CPU-bound. The hot paths (packet forwarding in the relay, bidirectional proxy loop, SOCKS5 gateway) are candidates for selective Rust rewrite via FFI, not a full project rewrite.
 
 ### Rust libraries to watch
 
@@ -607,7 +607,7 @@ These are genuine gaps in every P2P/VPN/tunnel tool available today:
 
 ### 1. Zero-RTT proxy connection resume
 
-When your network flickers (WiFi→cellular, WiFi dropout), every existing tool drops connections and requires a full reconnection handshake. QUIC 0-RTT session tickets could make reconnection instant — send encrypted data before the server processes the handshake.
+When your network flickers (WiFi→cellular, WiFi dropout), every existing tool drops connections and requires a full reconnection handshake. QUIC 0-RTT session tickets could make reconnection instant - send encrypted data before the server processes the handshake.
 
 **Who has it**: Nobody in the P2P tunnel space.
 **Difficulty**: Medium (requires QUIC transport + session ticket caching).
@@ -621,7 +621,7 @@ No P2P tool stores peer private keys in TPM 2.0 (Linux servers) or Secure Enclav
 
 ### 3. Kernel-bypass relay forwarding
 
-Every relay server processes packets through the kernel network stack (syscalls per packet). eBPF/XDP or DPDK could forward relayed packets at line rate — benchmarks show [DPDK achieves 51% better throughput](https://talawah.io/blog/linux-kernel-vs-dpdk-http-performance-showdown/) than kernel stack, VPP uses 1/9th the CPUs.
+Every relay server processes packets through the kernel network stack (syscalls per packet). eBPF/XDP or DPDK could forward relayed packets at line rate - benchmarks show [DPDK achieves 51% better throughput](https://talawah.io/blog/linux-kernel-vs-dpdk-http-performance-showdown/) than kernel stack, VPP uses 1/9th the CPUs.
 
 **Who has it**: Nobody (Cloudflare uses XDP for DDoS, not for relay forwarding).
 **Difficulty**: High (Linux-only, requires privileged access).
@@ -653,11 +653,11 @@ No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum
 
 This is the most important security question for peer-up's future. The short answer: **yes, with Circuit Relay v2's built-in protections, a home node can safely relay traffic for authorized peers without increasing its attack surface.**
 
-Here's the full breakdown — because "trust us" is not a security argument.
+Here's the full breakdown, because "trust us" is not a security argument.
 
 ### What "acting as a relay" actually means
 
-When your home node enables relay service, it does one thing: accept a reservation from a peer (identified by their peer ID), then forward encrypted bytes between that peer and whoever connects to them through you. Your node never sees the content — it's end-to-end encrypted with Noise protocol. Your node never authenticates the remote peer's connections — that's the target peer's job.
+When your home node enables relay service, it does one thing: accept a reservation from a peer (identified by their peer ID), then forward encrypted bytes between that peer and whoever connects to them through you. Your node never sees the content - it's end-to-end encrypted with Noise protocol. Your node never authenticates the remote peer's connections - that's the target peer's job.
 
 Think of it as holding two tin cans connected by a string. You're the string. You can feel vibrations but not hear words.
 
@@ -677,7 +677,7 @@ Circuit Relay v2 was specifically redesigned (from v1) because v1 relays had no 
 
 When any limit is hit, the relay returns `RESOURCE_LIMIT_EXCEEDED` and the connection is refused. No crash, no OOM, no degradation. The peer simply can't connect.
 
-### `require_auth: true` — only relay for people you chose
+### `require_auth: true` - only relay for people you chose
 
 This is peer-up's critical addition: **relay service restricted to peers in your `authorized_keys` file.** An anonymous internet scanner hitting your relay's port gets rejected at the ConnectionGater before any relay protocol runs. The reservation request never reaches the relay service logic.
 
@@ -692,34 +692,34 @@ relay_service:
     session_data_limit: "128MB"
 ```
 
-With `require_auth: true`, the attack surface increase from enabling relay is **zero** for unauthenticated peers — they're rejected at the same layer they'd be rejected at today.
+With `require_auth: true`, the attack surface increase from enabling relay is **zero** for unauthenticated peers - they're rejected at the same layer they'd be rejected at today.
 
 ### "But my IP address becomes visible"
 
 This concern has two parts:
 
-**Part 1: Visible to peers you explicitly authorized.** Yes — when a peer connects directly (via hole punch or IPv6), they see your IP. But you already authorized them in `authorized_keys`. They already know where you are conceptually. And your IP is visible in any direct TCP/QUIC connection regardless of whether relay service is enabled.
+**Part 1: Visible to peers you explicitly authorized.** Yes - when a peer connects directly (via hole punch or IPv6), they see your IP. But you already authorized them in `authorized_keys`. They already know where you are conceptually. And your IP is visible in any direct TCP/QUIC connection regardless of whether relay service is enabled.
 
-**Part 2: Visible on the public DHT.** No — peer-up uses a **private Kademlia DHT** (`/peerup/kad/1.0.0`), completely isolated from the public IPFS Amino DHT. Your node only talks to other peer-up nodes for discovery, not the broader IPFS network. Your addresses are only discoverable by peers running peer-up software. Additional mitigations:
+**Part 2: Visible on the public DHT.** No - peer-up uses a **private Kademlia DHT** (`/peerup/kad/1.0.0`), completely isolated from the public IPFS Amino DHT. Your node only talks to other peer-up nodes for discovery, not the broader IPFS network. Your addresses are only discoverable by peers running peer-up software. Additional mitigations:
 - **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
-The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS — and arguably less, since the VPS has no auth requirement for relay service.
+The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS, and arguably less, since the VPS has no auth requirement for relay service.
 
 ### What your relay CANNOT be used for
 
 | Attack | Why it fails |
 |--------|-------------|
-| **Traffic sniffing** | End-to-end Noise encryption — relay sees ciphertext only |
+| **Traffic sniffing** | End-to-end Noise encryption - relay sees ciphertext only |
 | **Connection injection** | Both peers authenticate each other via peer ID (Ed25519) |
 | **DDoS amplification** | QUIC source address verification; per-IP reservation limits |
 | **Resource exhaustion** | Hard limits on reservations, circuits, duration, data |
-| **Open relay abuse** | `require_auth: true` — only authorized peers can reserve |
+| **Open relay abuse** | `require_auth: true` - only authorized peers can reserve |
 | **Pivot to your LAN** | Relay forwards bytes, doesn't parse them. No routing to your network. |
 
 ### Why this is different from running an open service
 
-Self-hosters know the pattern: expose a service on a home server, and within hours the port scanners find it. Firewall logs light up with probes from around the world. This happens because the service accepts connections from anyone — every participant on the network can reach it.
+Self-hosters know the pattern: expose a service on a home server, and within hours the port scanners find it. Firewall logs light up with probes from around the world. This happens because the service accepts connections from anyone - every participant on the network can reach it.
 
 A peer-up relay with `require_auth` is fundamentally different:
 
@@ -727,10 +727,10 @@ A peer-up relay with `require_auth` is fundamentally different:
 |---|---|---|
 | **Who can connect** | Anyone who finds the port | Only peers in your `authorized_keys` |
 | **What they can do** | Full protocol interaction | Forward encrypted bytes (nothing else) |
-| **Discovery** | Port scanning, Shodan, service-specific gossip | Private — only authorized peers know about it |
+| **Discovery** | Port scanning, Shodan, service-specific gossip | Private - only authorized peers know about it |
 | **Attack surface** | Full protocol parser (HTTP, SSH, etc.) | ConnectionGater rejection (zero protocol parsing for unauthorized) |
 
-An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key — and even then, it only passes sealed envelopes.
+An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key, and even then, it only passes sealed envelopes.
 
 ### Comparison with other relay architectures
 
@@ -756,7 +756,7 @@ This follows the same decentralization path as Bitcoin: hardcoded seeds → DNS 
 
 **Sources**:
 - [Circuit Relay v2 Specification](https://github.com/libp2p/specs/blob/master/relay/circuit-v2.md)
-- [IPFS Hole Punching Blog — Relay as Last Resort](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
+- [IPFS Hole Punching Blog - Relay as Last Resort](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 - [libp2p Resource Manager](https://github.com/libp2p/go-libp2p/tree/master/p2p/host/resource-manager)
 
 ---
@@ -767,17 +767,17 @@ Yes. NAT traversal success depends heavily on what the NAT device does, and rout
 
 ### FreeBSD PF: Endpoint-Independent Mapping (Sep 2024)
 
-FreeBSD's packet filter (PF) now has an `endpoint-independent` NAT option for UDP. This makes the NAT behave as "full cone" — the mapped port stays the same regardless of destination. Full-cone NATs have near-100% hole-punch success because both peers can predict each other's mapped ports.
+FreeBSD's packet filter (PF) now has an `endpoint-independent` NAT option for UDP. This makes the NAT behave as "full cone" - the mapped port stays the same regardless of destination. Full-cone NATs have near-100% hole-punch success because both peers can predict each other's mapped ports.
 
-**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior — and peer-up's DCUtR success rate improves automatically without any code changes.
+**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior, and peer-up's DCUtR success rate improves automatically without any code changes.
 
 **What to watch**: OPNsense releases, pfSense updates, and any Linux `nftables` equivalent. If this pattern spreads to consumer routers, the percentage of "hard NAT" cases (endpoint-dependent mapping) shrinks organically.
 
-**Source**: [FreeBSD Status Report — Endpoint-Independent Mapping NAT](https://www.freebsd.org/status/report-2024-07-2024-09/eim-nat/)
+**Source**: [FreeBSD Status Report - Endpoint-Independent Mapping NAT](https://www.freebsd.org/status/report-2024-07-2024-09/eim-nat/)
 
 ### IPv6 eliminates NAT entirely
 
-Many ISPs now provide globally routable public IPv6 addresses. IPv6 has no NAT — every device gets a public address. When two peers both have IPv6, they connect directly with zero NAT traversal, zero hole punching, zero relay dependency.
+Many ISPs now provide globally routable public IPv6 addresses. IPv6 has no NAT - every device gets a public address. When two peers both have IPv6, they connect directly with zero NAT traversal, zero hole punching, zero relay dependency.
 
 peer-up already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests IPv4 and IPv6 reachability independently, so a node behind IPv4 CGNAT but with public IPv6 will correctly identify that its IPv6 addresses are directly reachable.
 

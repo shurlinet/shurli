@@ -2,20 +2,20 @@
 title: "Architecture"
 weight: 7
 ---
-<!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs.sh - do not edit directly -->
 
 
 This document describes the technical architecture of peer-up, from current implementation to future vision.
 
 ## Table of Contents
 
-- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) — what's built and working
-- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) — planned additions
-- [Core Concepts](#core-concepts) — implemented patterns
-- [Security Model](#security-model) — implemented + planned extensions
-- [Naming System](#naming-system) — local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) — planned (Phase 4H)
-- [Mobile Architecture](#mobile-architecture) — planned (Phase 4G)
+- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
+- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Core Concepts](#core-concepts) - implemented patterns
+- [Security Model](#security-model) - implemented + planned extensions
+- [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
+- [Federation Model](#federation-model) - planned (Phase 4H)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 4G)
 
 ---
 
@@ -31,7 +31,7 @@ peer-up/
 │   │   │                    #   proxy, whoami, auth, relay, config, service,
 │   │   │                    #   invite, join, status, init, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
-│   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) — used by daemon
+│   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime), used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
 │   │   ├── cmd_proxy.go     # TCP proxy client
 │   │   ├── cmd_ping.go      # Standalone P2P ping (continuous, stats)
@@ -90,9 +90,9 @@ peer-up/
 │   │   ├── gf.go            # GF(2^8) arithmetic + Reed-Solomon encoding
 │   │   └── bitset.go        # Append-only bit array operations
 │   ├── termcolor/           # Minimal ANSI terminal colors (replaces fatih/color)
-│   │   └── color.go         # Green, Red, Yellow, Faint — respects NO_COLOR
+│   │   └── color.go         # Green, Red, Yellow, Faint - respects NO_COLOR
 │   ├── validate/            # Input validation helpers
-│   │   └── validate.go      # ServiceName() — DNS-label format for protocol IDs
+│   │   └── validate.go      # ServiceName() - DNS-label format for protocol IDs
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
@@ -134,21 +134,21 @@ peer-up/
 
 There are three ways to authorize peers:
 
-**1. CLI — `peerup auth`**
+**1. CLI - `peerup auth`**
 ```bash
 peerup auth add <peer-id> --comment "label"
 peerup auth list
 peerup auth remove <peer-id>
 ```
 
-**2. Invite/Join flow — zero-touch mutual authorization**
+**2. Invite/Join flow - zero-touch mutual authorization**
 ```
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
 The invite protocol uses a one-time token (16 random bytes, HMAC-verified) over a P2P stream. Both peers add each other to `authorized_keys` and `names` config automatically.
 
-**3. Manual — edit `authorized_keys` file directly**
+**3. Manual - edit `authorized_keys` file directly**
 ```bash
 echo "12D3KooW... # home-server" >> ~/.config/peerup/authorized_keys
 ```
@@ -196,7 +196,7 @@ peer-up/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 4F)** — not yet implemented. See [Roadmap Phase 4F]../roadmap/ for details.
+> **Status: Planned (Phase 4F)** - not yet implemented. See [Roadmap Phase 4F]../roadmap/ for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -206,7 +206,7 @@ peer-up/
 
 ### Daemon Architecture
 
-`peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused — it's just a listener).
+`peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
 ### Shared P2P Runtime
 
@@ -249,13 +249,13 @@ The `serveRuntime` struct implements this interface in `cmd_daemon.go`, keeping 
 
 ### Cookie-Based Authentication
 
-Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/peerup/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern — no plaintext passwords in config, token rotates on restart, same-user access only.
+Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/peerup/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern: no plaintext passwords in config, token rotates on restart, same-user access only.
 
 ### Stale Socket Detection
 
 No PID files. On startup, the daemon dials the existing socket:
-- Connection succeeds → another daemon is alive → return error
-- Connection fails → stale socket from a crash → remove and proceed
+- Connection succeeds -> another daemon is alive -> return error
+- Connection fails -> stale socket from a crash -> remove and proceed
 
 ### Unix Socket API
 
@@ -317,7 +317,7 @@ health:
   listen_address: "127.0.0.1:9090"
 ```
 
-The endpoint returns JSON with: `status`, `peer_id`, `version`, `uptime_seconds`, `connected_peers`, `protocols`. Bound to localhost by default — not exposed to the internet. The HTTP server starts after the relay service is up and shuts down gracefully on SIGTERM.
+The endpoint returns JSON with: `status`, `peer_id`, `version`, `uptime_seconds`, `connected_peers`, `protocols`. Bound to localhost by default, not exposed to the internet. The HTTP server starts after the relay service is up and shuts down gracefully on SIGTERM.
 
 ### Commit-Confirmed Enforcement
 
@@ -441,7 +441,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 
 ### Per-Service Authorization
 
-> **Status: Planned** — not yet implemented. Currently, all authorized peers can access all exposed services. Per-service access control is a deferred Phase 4C item. See [Roadmap]../roadmap/.
+> **Status: Planned** - not yet implemented. Currently, all authorized peers can access all exposed services. Per-service access control is a deferred Phase 4C item. See [Roadmap]../roadmap/.
 
 ```yaml
 # home-node.yaml (planned config format)
@@ -462,7 +462,7 @@ services:
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 4H)** — not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H]../roadmap/.
+> **Status: Planned (Phase 4H)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H]../roadmap/.
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -483,13 +483,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) — friendly names configured via `peerup invite`/`join` or manual YAML — and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
+> **What works today**: Tier 1 (Local Override), friendly names configured via `peerup invite`/`join` or manual YAML, and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](/images/docs/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 4F/4I)** — not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 4F/4I)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -505,19 +505,19 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 4H)** — not yet implemented. See [Roadmap Phase 4H]../roadmap/.
+> **Status: Planned (Phase 4H)** - not yet implemented. See [Roadmap Phase 4H]../roadmap/.
 
 ### Relay Peering
 
-![Federation model: three networks (A, B, C) with relay peering — cross-network connections routed through federated relays](/images/docs/arch-federation.svg)
+![Federation model: three networks (A, B, C) with relay peering - cross-network connections routed through federated relays](/images/docs/arch-federation.svg)
 
 ---
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 4G)** — not yet implemented. See [Roadmap Phase 4G]../roadmap/.
+> **Status: Planned (Phase 4G)** - not yet implemented. See [Roadmap Phase 4G]../roadmap/.
 
-![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService — both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
+![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
 ---
 
@@ -527,9 +527,9 @@ home.grewal.local       # mDNS compatible
 
 Both `peerup daemon` and `peerup relay serve` register transports in this order:
 
-1. **QUIC** (preferred) — 3 RTTs to establish, native multiplexing, better for hole-punching. libp2p's smart dialing (built into v0.47.0) ranks QUIC addresses higher than TCP.
-2. **TCP** — 4 RTTs, universal fallback for networks that block UDP.
-3. **WebSocket** — Anti-censorship transport that looks like HTTPS to deep packet inspection (DPI). Commented out by default in sample configs.
+1. **QUIC** (preferred) - 3 RTTs to establish, native multiplexing, better for hole-punching. libp2p's smart dialing (built into v0.47.0) ranks QUIC addresses higher than TCP.
+2. **TCP** - 4 RTTs, universal fallback for networks that block UDP.
+3. **WebSocket** - Anti-censorship transport that looks like HTTPS to deep packet inspection (DPI). Commented out by default in sample configs.
 
 ### AutoNAT v2
 
@@ -603,7 +603,7 @@ The config system provides three layers of protection against bad configuration:
 
 ### Service Name Validation
 
-Service names are validated before use in protocol IDs to prevent injection attacks. Names flow into `fmt.Sprintf("/peerup/%s/1.0.0", name)` — without validation, a name like `ssh/../../evil` or `foo\nbar` creates ambiguous or invalid protocol IDs.
+Service names are validated before use in protocol IDs to prevent injection attacks. Names flow into `fmt.Sprintf("/peerup/%s/1.0.0", name)` - without validation, a name like `ssh/../../evil` or `foo\nbar` creates ambiguous or invalid protocol IDs.
 
 The validation logic lives in `internal/validate/validate.go` (`validate.ServiceName()`), shared by all callers.
 
@@ -614,10 +614,10 @@ The validation logic lives in `internal/validate/validate.go` (`validate.Service
 - Regex: `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
 
 Validated at four points:
-1. `peerup service add` — rejects bad names at CLI entry
-2. `ValidateNodeConfig()` — rejects bad names in config before startup
-3. `ExposeService()` — rejects bad names at service registration time
-4. `ConnectToService()` — rejects bad names at connection time
+1. `peerup service add` - rejects bad names at CLI entry
+2. `ValidateNodeConfig()` - rejects bad names in config before startup
+3. `ExposeService()` - rejects bad names at service registration time
+4. `ConnectToService()` - rejects bad names at connection time
 
 ---
 
@@ -686,12 +686,12 @@ Validated at four points:
 **Core**:
 - Go 1.25+
 - libp2p v0.47.0 (networking)
-- Private Kademlia DHT (`/peerup/kad/1.0.0` — isolated from IPFS Amino)
+- Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino)
 - Noise protocol (encryption)
-- QUIC transport (preferred — 3 RTTs vs 4 for TCP)
+- QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
 
-**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot — networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](FAQ.md#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
+**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](FAQ.md#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
 
 **Optional**:
 - Ethereum (blockchain naming)

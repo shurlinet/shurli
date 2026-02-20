@@ -8,14 +8,14 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 
 | Date | What's New |
 |------|-----------|
-| 2026-02-18 | **Private DHT** — Peer discovery now runs on `/peerup/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-17 | **Daemon mode** — Background service with Unix socket API, cookie auth, and 14 REST endpoints |
-| 2026-02-17 | **Network tools** — P2P ping, traceroute, and name resolution (standalone or via daemon) |
-| 2026-02-16 | **Service management** — `peerup service add/remove/enable/disable` from the CLI |
-| 2026-02-16 | **Config self-healing** — Archive, rollback, and commit-confirmed pattern for safe remote changes |
-| 2026-02-16 | **AutoNAT v2** — Per-address reachability detection with nonce verification |
-| 2026-02-16 | **Headless pairing** — `--non-interactive` flag for scripted invite/join workflows |
-| 2026-02-15 | **Structured logging** — `log/slog` throughout, sentinel errors, build version embedding |
+| 2026-02-18 | **Private DHT** - Peer discovery now runs on `/peerup/kad/1.0.0`, fully isolated from the public IPFS network |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 14 REST endpoints |
+| 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
+| 2026-02-16 | **Service management** - `peerup service add/remove/enable/disable` from the CLI |
+| 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
+| 2026-02-16 | **AutoNAT v2** - Per-address reachability detection with nonce verification |
+| 2026-02-16 | **Headless pairing** - `--non-interactive` flag for scripted invite/join workflows |
+| 2026-02-15 | **Structured logging** - `log/slog` throughout, sentinel errors, build version embedding |
 
 ## What Can I Do With peer-up?
 
@@ -28,7 +28,7 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Any TCP service, zero port forwarding | `peerup proxy <peer> <service> <local-port>` |
 | Check connectivity | `peerup ping home` or `peerup traceroute home` |
 
-peer-up works with **two machines and zero network effect** — useful from day one.
+peer-up works with **two machines and zero network effect** - useful from day one.
 
 ## Quick Start
 
@@ -64,10 +64,10 @@ peerup join <invite-code> --name laptop
 
 **4. Use it:**
 ```bash
-# On the server — start the daemon with services exposed
+# On the server - start the daemon with services exposed
 peerup daemon
 
-# On the client — connect to a service
+# On the client - connect to a service
 peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```
@@ -79,10 +79,10 @@ ssh -p 2222 user@localhost
 Your devices are behind firewalls and NAT that block inbound connections. This affects:
 
 - **Satellite ISPs** with Carrier-Grade NAT (CGNAT)
-- **Mobile networks** (4G/5G) — almost universally behind CGNAT
+- **Mobile networks** (4G/5G), almost universally behind CGNAT
 - **Many broadband providers** worldwide applying CGNAT to conserve IPv4 addresses
 - **University and corporate networks** with strict firewalls
-- **Double-NAT setups** — router behind router
+- **Double-NAT setups** - router behind router
 
 Traditional solutions require either port forwarding (impossible with CGNAT), a VPN service (another dependency), or a cloud intermediary (defeats self-hosting). peer-up solves this with a lightweight relay that both sides connect to **outbound**, then upgrades to a direct connection when possible.
 
@@ -91,14 +91,14 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | Feature | Description |
 |---------|-------------|
 | **NAT Traversal** | Circuit relay v2 + DCUtR hole-punching. Works behind CGNAT, symmetric NAT, double-NAT |
-| **SSH-Style Auth** | `authorized_keys` peer allowlist — only explicitly trusted peers can connect |
-| **60-Second Pairing** | `peerup invite` + `peerup join` — exchanges keys, adds auth, maps names automatically |
+| **SSH-Style Auth** | `authorized_keys` peer allowlist - only explicitly trusted peers can connect |
+| **60-Second Pairing** | `peerup invite` + `peerup join` - exchanges keys, adds auth, maps names automatically |
 | **TCP Service Proxy** | Forward any TCP port through P2P tunnels (SSH, XRDP, HTTP, databases, AI inference) |
 | **Daemon Mode** | Background service with Unix socket API, cookie auth, hot-reload of auth keys |
 | **Config Self-Healing** | Last-known-good archive, rollback, and commit-confirmed pattern for safe remote changes |
-| **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` — isolated from public networks |
-| **Friendly Names** | Map names to peer IDs in config — `home`, `laptop`, `gpu-server` instead of raw peer IDs |
-| **Reusable Library** | `pkg/p2pnet` — import into your own Go projects for P2P networking |
+| **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` - isolated from public networks |
+| **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
+| **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
 | **Single Binary** | One `peerup` binary with 15 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
@@ -116,11 +116,11 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
                      DCUtR upgrades to direct P2P
 ```
 
-1. **Server** runs `peerup daemon` behind CGNAT — connects outbound to a relay and reserves a slot
-2. **Client** runs `peerup proxy` — connects outbound to the same relay and reaches the server through a circuit address
+1. **Server** runs `peerup daemon` behind CGNAT, connects outbound to a relay and reserves a slot
+2. **Client** runs `peerup proxy`, connects outbound to the same relay and reaches the server through a circuit address
 3. **DCUtR** (Direct Connection Upgrade through Relay) attempts hole-punching. If successful, traffic flows directly without the relay
 
-Peer discovery uses a **private Kademlia DHT** — the relay server acts as bootstrap peer. Authentication is enforced at both the connection level (ConnectionGater) and the protocol level.
+Peer discovery uses a **private Kademlia DHT** - the relay server acts as bootstrap peer. Authentication is enforced at both the connection level (ConnectionGater) and the protocol level.
 
 For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -188,7 +188,7 @@ The daemon runs `peerup daemon` as a long-lived background process. It starts th
 
 **Key features:**
 - Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
-- Cookie-based auth (`~/.config/peerup/.daemon-cookie`) — 32-byte random token, rotated per restart
+- Cookie-based auth (`~/.config/peerup/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
 - 14 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve
 
@@ -197,7 +197,7 @@ The daemon runs `peerup daemon` as a long-lived background process. It starts th
 # Start the daemon
 peerup daemon
 
-# In another terminal — query status
+# In another terminal - query status
 peerup daemon status
 
 # Create a proxy through the daemon
@@ -396,8 +396,8 @@ docs/                          # Documentation
 
 **Two layers of defense:**
 
-1. **ConnectionGater** (network level) — Blocks unauthorized peers during the connection handshake, before any data is exchanged
-2. **Protocol handler** (application level) — Secondary authorization check before processing requests
+1. **ConnectionGater** (network level) - Blocks unauthorized peers during the connection handshake, before any data is exchanged
+2. **Protocol handler** (application level) - Secondary authorization check before processing requests
 
 **Fail-safe defaults:**
 - Connection gating enabled + no authorized_keys file → **refuses to start**
@@ -427,8 +427,8 @@ For security details, relay hardening, and threat model: [docs/FAQ.md](docs/FAQ.
 | `protocols not supported` | Relay server not running or unreachable |
 | Bad config edit broke startup | `peerup config rollback` restores last-known-good |
 | Remote config change went wrong | `peerup config apply new.yaml --confirm-timeout 5m`, then `config confirm` |
-| `failed to sufficiently increase receive buffer size` | QUIC works but suboptimal — see UDP buffer tuning below |
-| Daemon won't start (socket exists) | Stale socket from crash — daemon auto-detects and cleans up |
+| `failed to sufficiently increase receive buffer size` | QUIC works but suboptimal - see UDP buffer tuning below |
+| Daemon won't start (socket exists) | Stale socket from crash - daemon auto-detects and cleans up |
 
 ### UDP Buffer Tuning (QUIC)
 
@@ -443,9 +443,9 @@ sudo sysctl --system
 
 ## Engineering Philosophy
 
-This is not a weekend hobby project. peer-up is built as critical infrastructure — the kind where failure has real consequences for real people: financial, psychological, and potentially physical.
+This is not a weekend hobby project. peer-up is built as critical infrastructure, the kind where failure has real consequences for real people: financial, psychological, and potentially physical.
 
-Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here — from code quality to deployment to security decisions.
+Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here - from code quality to deployment to security decisions.
 
 ## Development
 

@@ -5,7 +5,7 @@ weight: 4
 
 ## Security Program
 
-peer-up is infrastructure software that people depend on for remote access to their machines. A security compromise doesn't just leak data — it could give an attacker SSH access to your home server. We take this seriously.
+peer-up is infrastructure software that people depend on for remote access to their machines. A security compromise doesn't just leak data - it could give an attacker SSH access to your home server. We take this seriously.
 
 This page documents our security posture, threat model, vulnerability reporting process, and response commitments. We believe transparency is the strongest security signal we can provide.
 
@@ -17,12 +17,12 @@ peer-up ships with these security defaults:
 |---------|-------------|
 | **ConnectionGater** | Peer ID allowlist (`authorized_keys`). Unauthorized peers are rejected at the network layer before any protocol runs. |
 | **Ed25519 identities** | Cryptographic peer identity. Keys generated locally, never transmitted. |
-| **Key file permissions** | Identity keys require `0600` — loader refuses keys with wider permissions. |
+| **Key file permissions** | Identity keys require `0600` - loader refuses keys with wider permissions. |
 | **Config file permissions** | Config files written with `0600`. |
 | **Input validation** | Service names: DNS-label format enforced. Relay addresses: parsed as multiaddr before writing. Comments: newline injection sanitized. |
 | **Stream read limits** | Invite/join streams capped at 512 bytes to prevent OOM. |
-| **Relay resource limits** | Circuit relay v2 with configurable `WithResources()` — session duration, data caps, per-peer limits. |
-| **Private DHT** | Kademlia DHT uses `/peerup/kad/1.0.0` protocol prefix — isolated from public IPFS routing. |
+| **Relay resource limits** | Circuit relay v2 with configurable `WithResources()` - session duration, data caps, per-peer limits. |
+| **Private DHT** | Kademlia DHT uses `/peerup/kad/1.0.0` protocol prefix - isolated from public IPFS routing. |
 | **Cookie auth** | Daemon API uses 32-byte random hex cookie, `0600` permissions, rotated every restart. |
 | **Config rollback** | Commit-confirmed pattern auto-reverts bad configs on remote nodes. |
 
@@ -32,12 +32,12 @@ peer-up's threat surface includes:
 
 ### Relay Server (Public-Facing VPS)
 
-The relay is the most exposed component — it's a public-facing server that accepts connections from the internet.
+The relay is the most exposed component - it's a public-facing server that accepts connections from the internet.
 
 | Threat | Mitigation | Status |
 |--------|-----------|--------|
 | **Resource exhaustion** | Circuit relay v2 resource limits (session duration, data caps) | Implemented |
-| **Log injection** | Structured logging via `log/slog` — no string interpolation in log messages | Implemented |
+| **Log injection** | Structured logging via `log/slog` - no string interpolation in log messages | Implemented |
 | **YAML injection** | Peer names sanitized before writing to config | Implemented |
 | **Path traversal** | Config paths resolved and validated, no user-controlled path components | Implemented |
 | **Peer ID spoofing** | ConnectionGater validates against `authorized_keys` at network layer | Implemented |
@@ -75,7 +75,7 @@ The relay is the most exposed component — it's a public-facing server that acc
 
 If you find a security vulnerability in peer-up, please report it responsibly:
 
-**Email**: security@peerup.dev *(not yet active — use GitHub Security Advisories until domain is configured)*
+**Email**: security@peerup.dev *(not yet active - use GitHub Security Advisories until domain is configured)*
 
 **GitHub Security Advisories**: [Report a vulnerability](https://github.com/satindergrewal/peer-up/security/advisories/new)
 
@@ -97,7 +97,7 @@ If you find a security vulnerability in peer-up, please report it responsibly:
 | **Medium** (limited impact, defense-in-depth) | 14 days | 30 days | 90 days |
 | **Low** (hardening, best practice) | 30 days | 60 days | Best effort |
 
-These are targets, not guarantees — peer-up is maintained by a small team. But we take every report seriously and will communicate transparently about our progress.
+These are targets, not guarantees. peer-up is maintained by a small team. But we take every report seriously and will communicate transparently about our progress.
 
 ## Security Audit History
 
@@ -107,7 +107,7 @@ These are targets, not guarantees — peer-up is maintained by a small team. But
 
 ## Contributing to Security
 
-We welcome security contributions. The threat model above is a living document — if you see a gap, please:
+We welcome security contributions. The threat model above is a living document - if you see a gap, please:
 
 1. **Open a GitHub issue** for non-sensitive improvements
 2. **Use Security Advisories** for actual vulnerabilities
@@ -123,6 +123,6 @@ peer-up's security model is deliberately simple:
 
 No accounts. No tokens. No OAuth. No SAML. No OIDC. No JWTs. No API keys. No central authority.
 
-This is the same model that has secured SSH for 30 years. It's not perfect — but it's well-understood, auditable, and entirely under your control. When something goes wrong, there's exactly one place to look: the `authorized_keys` file on your machine.
+This is the same model that has secured SSH for 30 years. It's not perfect, but it's well-understood, auditable, and entirely under your control. When something goes wrong, there's exactly one place to look: the `authorized_keys` file on your machine.
 
 Future phases will add optional layers (per-service ACLs, pluggable auth backends), but the base model will always be this simple.

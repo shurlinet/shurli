@@ -36,7 +36,7 @@ bash setup.sh
 It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
-3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config — offers to fix any issues
+3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
 4. Continues with the full setup: builds binary, installs systemd service (running as the selected user), configures firewall, tunes QUIC buffers, and transfers file ownership
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
@@ -55,7 +55,7 @@ cd peer-up/relay-server
 # Create config from sample
 cp ../configs/relay-server.sample.yaml relay-server.yaml
 
-# Edit if needed (defaults are good — port 7777, gating enabled)
+# Edit if needed (defaults are good - port 7777, gating enabled)
 nano relay-server.yaml
 
 # Create authorized_keys with your home-node and client-node peer IDs

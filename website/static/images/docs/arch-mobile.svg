@@ -32,7 +32,7 @@
   <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Mobile Architecture</text>
   <!-- Planned badge -->
   <rect x="645" y="10" width="142" height="22" rx="11" fill="#e0af68" opacity="0.15" stroke="#e0af68" stroke-width="1"/>
-  <text x="716" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED — Phase 4G</text>
+  <text x="716" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 4G</text>
 
   <!-- Column divider -->
   <line x1="400" y1="45" x2="400" y2="370" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.2"/>

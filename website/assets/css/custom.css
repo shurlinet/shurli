@@ -1,7 +1,7 @@
 /* peer-up brand customizations */
 
 /* ============================================================ */
-/* Documentation diagrams — consistent SVG image presentation    */
+/* Documentation diagrams  - consistent SVG image presentation    */
 /* ============================================================ */
 
 .hx-content img[src*="/images/docs/"],
@@ -42,7 +42,7 @@
 }
 
 /* ============================================================ */
-/* Hero logo — globe above the badge                              */
+/* Hero logo  - globe above the badge                              */
 /* ============================================================ */
 
 .peerup-hero-logo {
@@ -62,7 +62,7 @@
 }
 
 /* ============================================================ */
-/* Hero hook — problem-first line above headline                 */
+/* Hero hook  - problem-first line above headline                 */
 /* ============================================================ */
 
 .peerup-hero-hook {
@@ -117,7 +117,7 @@
 }
 
 /* ============================================================ */
-/* Section layout — shared by all new sections                   */
+/* Section layout  - shared by all new sections                   */
 /* ============================================================ */
 
 .peerup-section {
@@ -197,7 +197,7 @@
 }
 
 /* ============================================================ */
-/* How It Works — 3-step grid                                    */
+/* How It Works  - 3-step grid                                    */
 /* ============================================================ */
 
 .peerup-steps-grid {
@@ -426,7 +426,7 @@
 }
 
 /* ============================================================ */
-/* Blog listing — image cards with title overlay                 */
+/* Blog listing  - image cards with title overlay                 */
 /* ============================================================ */
 
 .peerup-blog-card {
@@ -521,4 +521,36 @@
 
 :is(.dark .peerup-blog-card-readmore) {
   color: #7aa2f7;
+}
+
+/* Pinned blog post */
+
+.peerup-pinned-badge {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.25rem;
+  z-index: 2;
+}
+
+:is(.dark .peerup-pinned-badge) {
+  background: #7aa2f7;
+  color: #0f172a;
+}
+
+.peerup-blog-card-noimage .peerup-pinned-badge {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+}
+
+.peerup-blog-card-noimage {
+  position: relative;
 }

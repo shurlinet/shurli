@@ -5,7 +5,7 @@
   <rect width="800" height="360" rx="12" fill="#0f1117"/>
   <!-- Title -->
   <text x="400" y="36" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Transport Negotiation Priority</text>
-  <text x="400" y="56" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">First transport to succeed wins — tried in parallel, ranked by preference</text>
+  <text x="400" y="56" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">First transport to succeed wins - tried in parallel, ranked by preference</text>
   <!-- Priority 1: QUIC -->
   <rect x="100" y="80" width="600" height="70" rx="8" fill="#1a1b26" stroke="#9ece6a" stroke-width="2"/>
   <rect x="100" y="80" width="40" height="70" rx="8" fill="#9ece6a" fill-opacity="0.15"/>
@@ -14,7 +14,7 @@
   <text x="170" y="105" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="15" font-weight="700">QUIC</text>
   <text x="240" y="105" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">(preferred)</text>
   <text x="170" y="125" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">0-RTT connection establishment • Native multiplexing • Built-in encryption</text>
-  <text x="170" y="143" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">UDP-based — may be blocked by some corporate firewalls</text>
+  <text x="170" y="143" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">UDP-based - may be blocked by some corporate firewalls</text>
   <!-- Priority 2: TCP -->
   <rect x="100" y="165" width="600" height="70" rx="8" fill="#1a1b26" stroke="#7aa2f7" stroke-width="2"/>
   <rect x="100" y="165" width="40" height="70" rx="8" fill="#7aa2f7" fill-opacity="0.15"/>
@@ -23,7 +23,7 @@
   <text x="170" y="190" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="15" font-weight="700">TCP</text>
   <text x="215" y="190" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">(universal fallback)</text>
   <text x="170" y="210" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">Works everywhere • Reliable delivery • Noise protocol for encryption + muxing</text>
-  <text x="170" y="228" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Higher latency (3-way handshake) — but passes through virtually any network</text>
+  <text x="170" y="228" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Higher latency (3-way handshake) - but passes through virtually any network</text>
   <!-- Priority 3: WebSocket -->
   <rect x="100" y="250" width="600" height="70" rx="8" fill="#1a1b26" stroke="#bb9af7" stroke-width="2"/>
   <rect x="100" y="250" width="40" height="70" rx="8" fill="#bb9af7" fill-opacity="0.15"/>
@@ -32,7 +32,7 @@
   <text x="170" y="275" fill="#bb9af7" font-family="system-ui,sans-serif" font-size="15" font-weight="700">WebSocket</text>
   <text x="270" y="275" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">(anti-censorship)</text>
   <text x="170" y="295" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">HTTP upgrade handshake • Passes through HTTP proxies • Browser-compatible</text>
-  <text x="170" y="313" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Highest overhead — but works even when TCP and UDP are filtered</text>
+  <text x="170" y="313" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Highest overhead - but works even when TCP and UDP are filtered</text>
   <!-- Bottom note -->
   <text x="400" y="348" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">libp2p tries all transports in parallel • First successful connection wins • Relay addresses always in peerstore</text>
 </svg>

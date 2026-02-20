@@ -21,7 +21,7 @@
   <rect width="800" height="350" rx="12" fill="#0f1117"/>
 
   <!-- Title -->
-  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Traceroute — Relayed vs Direct Path</text>
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Traceroute - Relayed vs Direct Path</text>
 
   <!-- Divider line -->
   <line x1="400" y1="45" x2="400" y2="310" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.3"/>

@@ -15,4 +15,5 @@ Everything you need to know about peer-up, from getting started to deep architec
   {{< card link="roadmap" title="Roadmap" subtitle="Multi-phase implementation plan" icon="map" >}}
   {{< card link="testing" title="Testing" subtitle="Test strategy and coverage" icon="check-circle" >}}
   {{< card link="engineering-journal" title="Engineering Journal" subtitle="Why every decision was made" icon="book-open" >}}
+  {{< card link="development-philosophy" title="Development Philosophy" subtitle="Principles, inspirations, and how we build" icon="light-bulb" >}}
 {{< /cards >}}

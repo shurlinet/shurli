@@ -2,7 +2,7 @@
 title: "Daemon API"
 weight: 6
 ---
-<!-- Auto-synced from docs/DAEMON-API.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from docs/DAEMON-API.md by sync-docs.sh - do not edit directly -->
 
 
 The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.
@@ -55,7 +55,7 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 1. On startup, the daemon generates a 32-byte random hex token
 2. Token is written to `~/.config/peerup/.daemon-cookie` with `0600` permissions
 3. Every API request must include `Authorization: Bearer <token>` header
-4. Token is validated on every request — `401 Unauthorized` if missing or wrong
+4. Token is validated on every request - `401 Unauthorized` if missing or wrong
 5. Cookie file is deleted on clean shutdown
 6. Token rotates on every daemon restart (limits exposure window)
 
@@ -74,9 +74,9 @@ curl -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      http://localhost/v1/status
 ```
 
-The CLI client (`peerup daemon status`, etc.) reads the cookie file automatically — no manual auth needed.
+The CLI client (`peerup daemon status`, etc.) reads the cookie file automatically - no manual auth needed.
 
-> **Tip**: All curl examples in this document use inline `$(cat ~/.config/peerup/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable — see [Integration Examples](#integration-examples).
+> **Tip**: All curl examples in this document use inline `$(cat ~/.config/peerup/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable - see [Integration Examples](#integration-examples).
 
 ### Unauthorized Response
 
@@ -282,7 +282,7 @@ Lists authorized peers from the `authorized_keys` file.
 
 ### POST /v1/auth
 
-Adds a peer to `authorized_keys` and hot-reloads the connection gater. Takes effect immediately — no restart needed.
+Adds a peer to `authorized_keys` and hot-reloads the connection gater. Takes effect immediately - no restart needed.
 
 **Request Body**:
 
@@ -742,9 +742,9 @@ print(f"Peers: {data['data']['connected_peers']}")
 
 1. Generate 32-byte random hex token
 2. Write token to `~/.config/peerup/.daemon-cookie` (`0600`)
-3. Check for stale socket — dial the existing socket:
-   - Connection succeeds → another daemon is alive → return `ErrDaemonAlreadyRunning`
-   - Connection fails → stale socket → remove it and proceed
+3. Check for stale socket - dial the existing socket:
+   - Connection succeeds -> another daemon is alive -> return `ErrDaemonAlreadyRunning`
+   - Connection fails -> stale socket -> remove it and proceed
 4. Create Unix socket at `~/.config/peerup/peerup.sock`
 5. Set socket permissions to `0600`
 6. Start HTTP server on the socket
@@ -753,8 +753,8 @@ print(f"Peers: {data['data']['connected_peers']}")
 
 No PID files. The daemon dials the existing socket to determine if a daemon is alive:
 
-- If the dial succeeds, another daemon is running — refuse to start.
-- If the dial fails, the socket is stale (leftover from a crash) — remove it and start fresh.
+- If the dial succeeds, another daemon is running - refuse to start.
+- If the dial fails, the socket is stale (leftover from a crash) - remove it and start fresh.
 
 This is more reliable than PID files, which can be stale themselves.
 

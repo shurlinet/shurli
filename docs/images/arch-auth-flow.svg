@@ -83,7 +83,7 @@
   <rect x="135" y="410" width="430" height="70" rx="10" fill="url(#nodeFill)" stroke="#565f89" stroke-width="1.2"/>
   <text x="350" y="432" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Protocol Handler (defense-in-depth)</text>
   <text x="350" y="452" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">if !authorizer.IsAuthorized(remotePeer): close stream</text>
-  <text x="350" y="468" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Second check at stream level — prevents bypass if gater is misconfigured</text>
+  <text x="350" y="468" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Second check at stream level - prevents bypass if gater is misconfigured</text>
 
   <!-- Arrow from Authorized box to defense-in-depth -->
   <line x1="80" y1="391" x2="80" y2="445" stroke="#9ece6a" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>

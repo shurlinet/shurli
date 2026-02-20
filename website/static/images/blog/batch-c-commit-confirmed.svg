@@ -50,11 +50,11 @@
   <text x="60" y="248" fill="#7aa2f7" font-family="monospace" font-size="11">1.</text>
   <text x="80" y="248" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">You SSH into your home server and change the relay address</text>
   <text x="60" y="270" fill="#e0af68" font-family="monospace" font-size="11">2.</text>
-  <text x="80" y="270" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">The new relay address is wrong — you lose connectivity</text>
+  <text x="80" y="270" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">The new relay address is wrong - you lose connectivity</text>
   <text x="60" y="292" fill="#9ece6a" font-family="monospace" font-size="11">3.</text>
   <text x="80" y="292" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="12">After 5 minutes, peer-up reverts to the working config and restarts</text>
   <text x="60" y="312" fill="#9ece6a" font-family="monospace" font-size="11">4.</text>
-  <text x="80" y="312" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="12">You can SSH in again — no physical access needed</text>
+  <text x="80" y="312" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="12">You can SSH in again - no physical access needed</text>
   <!-- Bottom note -->
-  <text x="400" y="350" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Inspired by network engineering's "commit confirmed" — a decades-proven pattern for safe remote config changes</text>
+  <text x="400" y="350" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Inspired by network engineering's "commit confirmed" - a decades-proven pattern for safe remote config changes</text>
 </svg>

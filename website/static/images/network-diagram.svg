@@ -21,11 +21,11 @@
   <!-- Background -->
   <rect width="800" height="400" rx="12" fill="#0f1117"/>
 
-  <!-- Direct connection (dashed — future/preferred path) -->
+  <!-- Direct connection (dashed - future/preferred path) -->
   <line x1="160" y1="200" x2="640" y2="200" stroke="#9ece6a" stroke-width="2" stroke-dasharray="8,6" opacity="0.5"/>
   <text x="400" y="185" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" opacity="0.7">direct path (when possible)</text>
 
-  <!-- Relay connections (solid — always works) -->
+  <!-- Relay connections (solid - always works) -->
   <line x1="160" y1="200" x2="400" y2="110" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
   <line x1="400" y1="110" x2="640" y2="200" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
   <text x="400" y="145" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle">relayed path (always works)</text>

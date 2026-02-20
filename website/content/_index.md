@@ -1,5 +1,6 @@
 ---
 title: peer-up
+description: "Connect your devices directly - no accounts, no cloud, no subscriptions. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
@@ -25,7 +26,7 @@ layout: hextra-home
 
 <div class="hx:mb-8">
 {{< hextra/hero-subtitle >}}
-  Connect your devices directly — no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
+  Connect your devices directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
 {{< /hextra/hero-subtitle >}}
 </div>
 
@@ -64,13 +65,13 @@ layout: hextra-home
       <div class="peerup-step-number">1</div>
       <img src="/images/how-it-works-1-init.svg" alt="Step 1: Initialize peer-up on your server" class="peerup-step-image" loading="lazy" />
       <h3 class="peerup-step-title">Initialize</h3>
-      <p class="peerup-step-desc">Run <code>peerup init</code> on your server. It creates a unique identity and comes online — ready to accept connections.</p>
+      <p class="peerup-step-desc">Run <code>peerup init</code> on your server. It creates a unique identity and comes online, ready to accept connections.</p>
     </div>
     <div class="peerup-step">
       <div class="peerup-step-number">2</div>
       <img src="/images/how-it-works-2-invite.svg" alt="Step 2: Create and share invite code" class="peerup-step-image" loading="lazy" />
       <h3 class="peerup-step-title">Invite</h3>
-      <p class="peerup-step-desc">Run <code>peerup invite</code> to get a one-time code. Send it however you like — text, email, Signal, carrier pigeon.</p>
+      <p class="peerup-step-desc">Run <code>peerup invite</code> to get a one-time code. Send it however you like - text, email, Signal, carrier pigeon.</p>
     </div>
     <div class="peerup-step">
       <div class="peerup-step-number">3</div>
@@ -89,7 +90,7 @@ layout: hextra-home
   {{< hextra/feature-card
     title="Works Through Anything"
     icon="globe-alt"
-    subtitle="5G, hotel WiFi, corporate networks, double NAT — if your device has internet, peer-up finds a way through. Tested on the networks that block everything."
+    subtitle="5G, hotel WiFi, corporate networks, double NAT - if your device has internet, peer-up finds a way through. Tested on the networks that block everything."
     style="background: radial-gradient(ellipse at 50% 80%,rgba(59,130,246,0.15),hsla(0,0%,100%,0));"
   >}}
   {{< hextra/feature-card
@@ -113,7 +114,7 @@ layout: hextra-home
   {{< hextra/feature-card
     title="Access Any Service"
     icon="server"
-    subtitle="Remote desktop, file servers, databases, web apps — anything running on your home network, accessible from anywhere as if you were on the same WiFi."
+    subtitle="Remote desktop, file servers, databases, web apps - anything running on your home network, accessible from anywhere as if you were on the same WiFi."
     style="background: radial-gradient(ellipse at 50% 80%,rgba(236,72,153,0.15),hsla(0,0%,100%,0));"
   >}}
   {{< hextra/feature-card
@@ -131,7 +132,7 @@ layout: hextra-home
 <div class="peerup-section">
   <div class="peerup-section-icon">{{< icon name="switch-horizontal" attributes="height=28" >}}</div>
   <h2 class="peerup-section-title">Direct when possible, relayed when necessary</h2>
-  <p class="peerup-section-subtitle">peer-up tries to connect your devices directly. When the network won't allow it, traffic flows through an encrypted relay — which never sees your data.</p>
+  <p class="peerup-section-subtitle">peer-up tries to connect your devices directly. When the network won't allow it, traffic flows through an encrypted relay, which never sees your data.</p>
   <div class="peerup-diagram-container">
     <img src="/images/network-diagram.svg" alt="Network diagram showing peer-to-peer connections through NAT with relay fallback" class="peerup-diagram-image" loading="lazy" />
   </div>
