@@ -33,25 +33,7 @@ The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix doma
 
 The daemon runs the full P2P lifecycle (relay connection, DHT bootstrap, service exposure, watchdog) plus an HTTP server on a Unix socket.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  peerup daemon                                           │
-│                                                          │
-│  ┌──────────────────┐    ┌────────────────────────────┐  │
-│  │  P2P Runtime     │    │  Unix Socket API           │  │
-│  │  (serveRuntime)  │◄──►│  ~/.config/peerup/         │  │
-│  │                  │    │    peerup.sock              │  │
-│  │  • Relay         │    │                            │  │
-│  │  • DHT           │    │  HTTP/1.1 over Unix socket │  │
-│  │  • Services      │    │  Cookie-based auth         │  │
-│  │  • Watchdog      │    │  JSON + plain text output  │  │
-│  └──────────────────┘    └────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
-         ▲                           ▲
-         │                           │
-   P2P Network               CLI / Scripts
-   (libp2p)                  (peerup daemon status)
-```
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 **Default paths**:
 - Socket: `~/.config/peerup/peerup.sock` (permissions `0600`)
@@ -780,4 +762,4 @@ This is more reliable than PID files, which can be stale themselves.
 
 ---
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-20
