@@ -111,11 +111,12 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		Gater:              rt.gater,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "peerup/" + ver,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
+		EnableRelay:           true,
+		RelayAddrs:            cfg.Relay.Addresses,
+		ForcePrivate:          cfg.Network.ForcePrivateReachability,
+		EnableNATPortMap:      true,
+		EnableHolePunching:    true,
+		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
 	}
 
 	net, err := p2pnet.New(netCfg)

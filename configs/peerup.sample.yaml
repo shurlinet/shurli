@@ -32,6 +32,10 @@ network:
   # Set to false for clients
   force_private_reachability: false
 
+  # Enable libp2p resource manager (bounds connections, streams, memory).
+  # Recommended for long-running daemons. Auto-scales based on system resources.
+  # resource_limits_enabled: false
+
 relay:
   # Addresses of relay servers for NAT traversal
   # Format: /ip4/<IP>/tcp/<PORT>/p2p/<RELAY_PEER_ID>

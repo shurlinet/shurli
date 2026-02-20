@@ -57,6 +57,7 @@ type IdentityConfig struct {
 type NetworkConfig struct {
 	ListenAddresses          []string `yaml:"listen_addresses"`
 	ForcePrivateReachability bool     `yaml:"force_private_reachability"`
+	ResourceLimitsEnabled    bool     `yaml:"resource_limits_enabled"`
 }
 
 // RelayNetworkConfig holds relay server network configuration

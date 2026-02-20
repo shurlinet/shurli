@@ -21,6 +21,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -120,12 +121,25 @@ func runRelayServe(args []string) {
 		libp2p.UserAgent(fmt.Sprintf("relay-server/%s", version)),
 	}
 
+	// Resource manager (always enabled on relay - public-facing service)
+	{
+		limits := rcmgr.DefaultLimits
+		libp2p.SetDefaultServiceLimits(&limits)
+		scaled := limits.AutoScale()
+		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(scaled))
+		if err != nil {
+			fatal("Failed to create resource manager: %v", err)
+		}
+		hostOpts = append(hostOpts, libp2p.ResourceManager(rm))
+		slog.Info("resource manager enabled", "limits", "auto-scaled")
+	}
+
 	// Add connection gater if enabled
 	if gater != nil {
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(gater))
 	}
 
-	// Create host  - relay service is added separately below
+	// Create host - relay service is added separately below
 	h, err := libp2p.New(hostOpts...)
 	if err != nil {
 		fatal("Failed to create host: %v", err)
