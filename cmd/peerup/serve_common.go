@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,6 +41,11 @@ type serveRuntime struct {
 	version    string
 	startTime  time.Time
 	kdht       *dht.IpfsDHT // stored for peer discovery from daemon API
+
+	// Observability (nil when telemetry disabled)
+	metrics       *p2pnet.Metrics
+	audit         *p2pnet.AuditLogger
+	metricsServer *http.Server
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -105,12 +113,35 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	}
 	fmt.Println()
 
+	// Initialize observability (opt-in)
+	if cfg.Telemetry.Metrics.Enabled {
+		rt.metrics = p2pnet.NewMetrics(ver, runtime.Version())
+		fmt.Printf("Telemetry: metrics enabled on %s\n", cfg.Telemetry.Metrics.ListenAddress)
+	}
+	if cfg.Telemetry.Audit.Enabled {
+		rt.audit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		fmt.Println("Telemetry: audit logging enabled")
+	}
+
+	// Wire auth decision callback (metrics + audit)
+	if rt.gater != nil && (rt.metrics != nil || rt.audit != nil) {
+		rt.gater.SetDecisionCallback(func(peerID, result string) {
+			if rt.metrics != nil {
+				rt.metrics.AuthDecisionsTotal.WithLabelValues(result).Inc()
+			}
+			if rt.audit != nil {
+				rt.audit.AuthDecision(peerID, "inbound", result)
+			}
+		})
+	}
+
 	// Create P2P network
 	netCfg := &p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		Gater:              rt.gater,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "peerup/" + ver,
+		Metrics:            rt.metrics,
 		EnableRelay:           true,
 		RelayAddrs:            cfg.Relay.Addresses,
 		ForcePrivate:          cfg.Network.ForcePrivateReachability,
@@ -462,8 +493,39 @@ func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error
 	return err
 }
 
-// Shutdown cancels the context and closes the P2P network.
+// StartMetricsServer starts the /metrics HTTP endpoint if metrics are enabled.
+// Returns immediately; the server runs in a background goroutine.
+func (rt *serveRuntime) StartMetricsServer() {
+	if rt.metrics == nil {
+		return
+	}
+
+	addr := rt.config.Telemetry.Metrics.ListenAddress
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", rt.metrics.Handler())
+
+	rt.metricsServer = &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		slog.Info("metrics endpoint started", "addr", addr)
+		if err := rt.metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics endpoint error", "err", err)
+		}
+	}()
+}
+
+// Shutdown cancels the context, stops the metrics server, and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	if rt.metricsServer != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		rt.metricsServer.Shutdown(shutdownCtx)
+		shutdownCancel()
+	}
 	rt.cancel()
 	rt.network.Close()
 }

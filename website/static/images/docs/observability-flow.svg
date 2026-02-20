@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 480" width="760" height="480">
+  <defs>
+    <linearGradient id="metricsFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="auditFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sourceFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="endpointFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a3520;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#362818;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="760" height="480" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Observability Architecture (Batch H)</text>
+  <text x="380" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">All features opt-in, disabled by default. Zero overhead when off.</text>
+
+  <!-- Metric Sources (left column) -->
+  <text x="30" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" font-weight="600">METRIC SOURCES</text>
+
+  <!-- Source: Proxy -->
+  <rect x="20" y="90" width="200" height="56" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
+  <text x="120" y="108" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Proxy (proxy.go)</text>
+  <text x="120" y="122" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">bytes_total, connections</text>
+  <text x="120" y="134" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">active_conns, duration</text>
+
+  <!-- Source: Auth -->
+  <rect x="20" y="156" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
+  <text x="120" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Auth Gater (gater.go)</text>
+  <text x="120" y="188" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">auth_decisions_total{allow,deny}</text>
+
+  <!-- Source: Hole Punch -->
+  <rect x="20" y="210" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
+  <text x="120" y="228" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Hole Punch (network.go)</text>
+  <text x="120" y="242" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">holepunch_total, duration</text>
+
+  <!-- Source: Daemon API -->
+  <rect x="20" y="264" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
+  <text x="120" y="282" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Daemon API (middleware.go)</text>
+  <text x="120" y="296" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">requests_total, duration</text>
+
+  <!-- Source: libp2p built-in -->
+  <rect x="20" y="318" width="200" height="56" rx="6" fill="url(#sourceFill)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="120" y="336" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">libp2p Built-in (free)</text>
+  <text x="120" y="350" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">swarm, autonat, rcmgr</text>
+  <text x="120" y="362" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">identify, relaysvc</text>
+
+  <!-- Central: Prometheus Registry -->
+  <rect x="280" y="130" width="200" height="80" rx="8" fill="url(#metricsFill)" stroke="#73daca" stroke-width="1.5"/>
+  <text x="380" y="156" font-family="system-ui, sans-serif" font-size="12" fill="#73daca" text-anchor="middle" font-weight="700">prometheus.Registry</text>
+  <text x="380" y="172" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle">Isolated (not global default)</text>
+  <text x="380" y="186" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/p2pnet/metrics.go</text>
+  <text x="380" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">+ Go runtime + process collectors</text>
+
+  <!-- Central: Audit Logger -->
+  <rect x="280" y="240" width="200" height="64" rx="8" fill="url(#auditFill)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="380" y="262" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="700">AuditLogger</text>
+  <text x="380" y="278" font-family="system-ui, sans-serif" font-size="9" fill="#9d7cd8" text-anchor="middle">Structured JSON via slog</text>
+  <text x="380" y="292" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/p2pnet/audit.go</text>
+
+  <!-- Arrows: Sources to Registry -->
+  <line x1="220" y1="118" x2="280" y2="155" stroke="#3d59a1" stroke-width="1" marker-end="url(#arrowBlue)"/>
+  <line x1="220" y1="178" x2="280" y2="168" stroke="#3d59a1" stroke-width="1" marker-end="url(#arrowBlue)"/>
+  <line x1="220" y1="232" x2="280" y2="180" stroke="#3d59a1" stroke-width="1" marker-end="url(#arrowBlue)"/>
+  <line x1="220" y1="286" x2="280" y2="190" stroke="#3d59a1" stroke-width="1" marker-end="url(#arrowBlue)"/>
+  <line x1="220" y1="346" x2="280" y2="195" stroke="#565f89" stroke-width="1" stroke-dasharray="4,2"/>
+
+  <!-- Arrow: Auth to Audit -->
+  <line x1="220" y1="186" x2="280" y2="260" stroke="#9d7cd8" stroke-width="1" marker-end="url(#arrowPurple)"/>
+  <line x1="220" y1="294" x2="280" y2="275" stroke="#9d7cd8" stroke-width="1" marker-end="url(#arrowPurple)"/>
+
+  <!-- Output: /metrics endpoint -->
+  <rect x="540" y="130" width="200" height="80" rx="8" fill="url(#endpointFill)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="640" y="152" font-family="system-ui, sans-serif" font-size="12" fill="#e0af68" text-anchor="middle" font-weight="700">/metrics</text>
+  <text x="640" y="168" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">HTTP on 127.0.0.1:9091</text>
+  <text x="640" y="182" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Prometheus text format</text>
+  <text x="640" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Scrape with any Prometheus tool</text>
+
+  <!-- Output: stderr audit -->
+  <rect x="540" y="240" width="200" height="64" rx="8" fill="url(#endpointFill)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="640" y="262" font-family="system-ui, sans-serif" font-size="12" fill="#e0af68" text-anchor="middle" font-weight="700">stderr (JSON)</text>
+  <text x="640" y="278" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">Structured audit events</text>
+  <text x="640" y="292" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">journalctl / log aggregator</text>
+
+  <!-- Arrows: Central to Output -->
+  <line x1="480" y1="170" x2="540" y2="170" stroke="#73daca" stroke-width="1.5"/>
+  <polygon points="537,166 543,170 537,174" fill="#73daca"/>
+  <line x1="480" y1="272" x2="540" y2="272" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="537,268 543,272 537,276" fill="#bb9af7"/>
+
+  <!-- Callback pattern label -->
+  <rect x="230" y="385" width="300" height="75" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1"/>
+  <text x="380" y="404" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Callback Pattern (no circular imports)</text>
+  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/peerup --(closure)--> pkg/p2pnet</text>
+  <text x="380" y="436" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">AuthDecisionFunc(peerID, result) feeds both metrics + audit</text>
+  <text x="380" y="450" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Wired in serve_common.go before network creation</text>
+
+  <!-- Legend -->
+  <rect x="20" y="400" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
+  <text x="38" y="410" font-family="system-ui, sans-serif" font-size="9" fill="#7dcfff">Custom peerup metrics</text>
+  <rect x="20" y="418" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="38" y="428" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Free from libp2p (no extra code)</text>
+  <line x1="20" y1="444" x2="32" y2="444" stroke="#73daca" stroke-width="1.5"/>
+  <text x="38" y="448" font-family="system-ui, sans-serif" font-size="9" fill="#73daca">Metrics flow</text>
+  <line x1="20" y1="460" x2="32" y2="460" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="38" y="464" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7">Audit flow</text>
+</svg>

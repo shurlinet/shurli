@@ -3,7 +3,7 @@ title: "Testing"
 weight: 9
 description: "Test strategy for peer-up: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
 ---
-<!-- Auto-synced from docs/TESTING.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/TESTING.md by sync-docs.sh  - do not edit directly -->
 
 
 This guide walks through testing the complete peer-up system with SSH service exposure.
@@ -491,7 +491,7 @@ GitHub Actions runs on every push to `main` and `dev/next-iteration`. All comman
 3. **Test** - all tests with race detection (`go test -race -count=1 ./...`)
 4. **Coverage** - unit + Docker integration coverage merged and reported
 
-Config: [`.github/workflows/ci.yml`](https://github.com/satindergrewal/peer-up/blob/main/.github/workflows/ci.yml)
+Config: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 ---
 

@@ -11,10 +11,16 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+// AuthDecisionFunc is called on every inbound auth decision with the peer ID
+// (truncated) and result ("allow" or "deny"). Used for metrics and audit logging
+// without creating a circular dependency on pkg/p2pnet.
+type AuthDecisionFunc func(peerID, result string)
+
 // AuthorizedPeerGater implements the ConnectionGater interface
 // It blocks connections from peers that are not in the authorized list
 type AuthorizedPeerGater struct {
 	authorizedPeers map[peer.ID]bool
+	onDecision      AuthDecisionFunc // nil-safe
 	mu              sync.RWMutex
 }
 
@@ -52,12 +58,19 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 
 	// Only check authorization for inbound connections
 	if dir == network.DirInbound {
+		short := p.String()[:16] + "..."
 		authorized := g.authorizedPeers[p]
 		if !authorized {
-			slog.Warn("inbound connection denied", "peer", p.String()[:16]+"...")
+			slog.Warn("inbound connection denied", "peer", short)
+			if g.onDecision != nil {
+				g.onDecision(short, "deny")
+			}
 			return false
 		}
-		slog.Info("inbound connection allowed", "peer", p.String()[:16]+"...")
+		slog.Info("inbound connection allowed", "peer", short)
+		if g.onDecision != nil {
+			g.onDecision(short, "allow")
+		}
 	}
 
 	// Always allow outbound connections
@@ -90,6 +103,15 @@ func (g *AuthorizedPeerGater) IsAuthorized(p peer.ID) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.authorizedPeers[p]
+}
+
+// SetDecisionCallback sets a callback invoked on every inbound auth decision.
+// This is used by the observability layer to record metrics and audit events
+// without creating a circular import from internal/auth to pkg/p2pnet.
+func (g *AuthorizedPeerGater) SetDecisionCallback(fn AuthDecisionFunc) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.onDecision = fn
 }
 
 // PrintAuthorizedPeers prints the list of authorized peers (for debugging)

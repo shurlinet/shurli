@@ -3,7 +3,7 @@ title: "Architecture"
 weight: 7
 description: "Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
 ---
-<!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs.sh  - do not edit directly -->
 
 
 This document describes the technical architecture of peer-up, from current implementation to future vision.
@@ -12,6 +12,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
 - [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
@@ -32,7 +33,7 @@ peer-up/
 │   │   │                    #   proxy, whoami, auth, relay, config, service,
 │   │   │                    #   invite, join, status, init, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
-│   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime), used by daemon
+│   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
 │   │   ├── cmd_proxy.go     # TCP proxy client
 │   │   ├── cmd_ping.go      # Standalone P2P ping (continuous, stats)
@@ -53,11 +54,13 @@ peer-up/
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
-│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close
+│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close + byte counting
 │   ├── naming.go            # Local name resolution (name → peer ID)
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── metrics.go           # Prometheus metrics (custom registry, all peerup collectors)
+│   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
 │
 ├── internal/
@@ -76,6 +79,7 @@ peer-up/
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
 │   │   ├── server.go           # Unix socket HTTP server, cookie auth, proxy tracking
 │   │   ├── handlers.go         # HTTP handlers, format negotiation (JSON + text)
+│   │   ├── middleware.go       # HTTP instrumentation (request timing, path sanitization)
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
@@ -250,13 +254,13 @@ The `serveRuntime` struct implements this interface in `cmd_daemon.go`, keeping 
 
 ### Cookie-Based Authentication
 
-Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/peerup/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern: no plaintext passwords in config, token rotates on restart, same-user access only.
+Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/peerup/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern - no plaintext passwords in config, token rotates on restart, same-user access only.
 
 ### Stale Socket Detection
 
 No PID files. On startup, the daemon dials the existing socket:
-- Connection succeeds -> another daemon is alive -> return error
-- Connection fails -> stale socket from a crash -> remove and proceed
+- Connection succeeds → another daemon is alive → return error
+- Connection fails → stale socket from a crash → remove and proceed
 
 ### Unix Socket API
 
@@ -318,7 +322,7 @@ health:
   listen_address: "127.0.0.1:9090"
 ```
 
-The endpoint returns JSON with: `status`, `peer_id`, `version`, `uptime_seconds`, `connected_peers`, `protocols`. Bound to localhost by default, not exposed to the internet. The HTTP server starts after the relay service is up and shuts down gracefully on SIGTERM.
+The endpoint returns JSON with: `status`, `peer_id`, `version`, `uptime_seconds`, `connected_peers`, `protocols`. Bound to localhost by default - not exposed to the internet. The HTTP server starts after the relay service is up and shuts down gracefully on SIGTERM.
 
 ### Commit-Confirmed Enforcement
 
@@ -331,6 +335,47 @@ Long-running commands (`daemon`, `proxy`, `relay serve`) handle `SIGINT`/`SIGTER
 ### Atomic Counters
 
 Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) use `atomic.Int32` instead of bare `int` to prevent data races.
+
+### Observability (Batch H)
+
+> **Status: Implemented** - opt-in Prometheus metrics + structured audit logging.
+
+All observability features are disabled by default and opt-in via config:
+
+```yaml
+telemetry:
+  metrics:
+    enabled: true
+    listen_address: "127.0.0.1:9091"
+  audit:
+    enabled: true
+```
+
+**Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom peerup metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
+
+Custom peerup metrics:
+- `peerup_proxy_bytes_total{direction, service}` - bytes transferred through proxy
+- `peerup_proxy_connections_total{service}` - proxy connections established
+- `peerup_proxy_active_connections{service}` - currently active proxy sessions
+- `peerup_proxy_duration_seconds{service}` - proxy session duration
+- `peerup_auth_decisions_total{decision}` - auth allow/deny counts
+- `peerup_holepunch_total{result}` - hole punch success/failure
+- `peerup_holepunch_duration_seconds{result}` - hole punch timing
+- `peerup_daemon_requests_total{method, path, status}` - API request counts
+- `peerup_daemon_request_duration_seconds{method, path, status}` - API latency
+- `peerup_info{version, go_version}` - build information
+
+**Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
+
+**Daemon Middleware** (`internal/daemon/middleware.go`): Wraps the HTTP handler chain (outside auth middleware) to capture request timing and status codes. Path parameters are sanitized (e.g., `/v1/auth/12D3KooW...` becomes `/v1/auth/:id`) to prevent high cardinality in metrics labels.
+
+**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/p2pnet`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
+
+**Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
+
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+
+**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
 
 ---
 
@@ -442,24 +487,24 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 
 ### Per-Service Authorization
 
-> **Status: Planned** - not yet implemented. Currently, all authorized peers can access all exposed services. Per-service access control is a deferred Phase 4C item. See [Roadmap]../roadmap/.
+> **Status: Implemented** (Pre-Batch H)
+
+Each service can optionally restrict access to specific peer IDs via `allowed_peers`. When set, only listed peers can connect to that service. When omitted (nil), all globally authorized peers can access it.
 
 ```yaml
-# home-node.yaml (planned config format)
-security:
-  authorized_keys_file: "authorized_keys"  # Global default
-
 services:
   ssh:
     enabled: true
     local_address: "localhost:22"
-    authorized_keys: "ssh_authorized_keys"  # Override (planned)
+    allowed_peers: ["12D3KooW..."]  # Only these peers can access SSH
 
   web:
     enabled: true
     local_address: "localhost:80"
-    # Uses global authorized_keys
+    # No allowed_peers = all authorized peers can access
 ```
+
+The ACL check runs in the stream handler before dialing the local TCP service, so rejected peers never trigger a connection to the backend.
 
 ### Federation Trust Model
 
@@ -484,7 +529,7 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override), friendly names configured via `peerup invite`/`join` or manual YAML, and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `peerup invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](/images/docs/arch-naming-system.svg)
 
@@ -639,11 +684,15 @@ Validated at four points:
 - ✅ OOM via unbounded stream reads (512-byte buffer limits)
 - ✅ Symlink attacks on temp files (os.CreateTemp with random suffix)
 - ✅ Multiaddr injection in config (validated before writing)
+- ✅ Per-service access control (AllowedPeers ACL on each service)
+- ✅ Host resource exhaustion (libp2p ResourceManager with auto-scaled limits)
+- ✅ SYN/UDP flood on relay (iptables rate limiting, SYN cookies, conntrack tuning)
+- ✅ IP spoofing on relay (reverse path filtering via rp_filter)
+- ✅ Runaway relay process (systemd cgroup limits: memory, CPU, tasks)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
 - ❌ Peer key compromise (users must secure private keys)
-- ❌ DoS attacks (rate limiting planned for future)
 
 ### Best Practices
 

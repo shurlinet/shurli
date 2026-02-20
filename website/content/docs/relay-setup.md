@@ -3,7 +3,7 @@ title: "Relay Setup"
 weight: 5
 description: "Complete guide to deploying your own peer-up relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."
 ---
-<!-- Auto-synced from relay-server/README.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from relay-server/README.md by sync-docs.sh  - do not edit directly -->
 
 
 Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.04).
@@ -42,7 +42,7 @@ bash setup.sh
 It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
-3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config - offers to fix any issues
+3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
 4. Continues with the full setup: builds binary, installs systemd service (running as the selected user), configures firewall, tunes QUIC buffers, and transfers file ownership
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:

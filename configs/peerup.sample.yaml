@@ -78,3 +78,11 @@ protocols:
 # Map friendly names to peer IDs (used by proxy and ping)
 names: {}
 #  home: "12D3KooW..."
+
+# Observability (disabled by default, opt-in)
+# telemetry:
+#   metrics:
+#     enabled: true
+#     listen_address: "127.0.0.1:9091"  # Prometheus /metrics endpoint
+#   audit:
+#     enabled: true  # Structured JSON audit events to stderr

@@ -58,6 +58,10 @@ type Server struct {
 	version    string
 	shutdownCh chan struct{} // closed to signal shutdown to the daemon main loop
 
+	// Optional observability (nil when telemetry disabled)
+	metrics *p2pnet.Metrics
+	audit   *p2pnet.AuditLogger
+
 	mu      sync.Mutex
 	proxies map[string]*activeProxy
 	nextID  int
@@ -73,6 +77,13 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 		shutdownCh: make(chan struct{}),
 		proxies:    make(map[string]*activeProxy),
 	}
+}
+
+// SetInstrumentation configures optional metrics and audit logging.
+// Must be called before Start(). Both parameters are nil-safe.
+func (s *Server) SetInstrumentation(metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) {
+	s.metrics = metrics
+	s.audit = audit
 }
 
 // ShutdownCh returns a channel that is closed when a shutdown is requested
@@ -122,7 +133,7 @@ func (s *Server) Start() error {
 	s.registerRoutes(mux)
 
 	s.httpServer = &http.Server{
-		Handler:      s.authMiddleware(mux),
+		Handler:      InstrumentHandler(s.authMiddleware(mux), s.metrics, s.audit),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second, // longer for streaming ping
 	}

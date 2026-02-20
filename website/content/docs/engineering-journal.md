@@ -3,7 +3,7 @@ title: "Engineering Journal"
 weight: 10
 description: "Architecture Decision Records for peer-up. The why behind every significant design choice, from transport selection to config schema evolution."
 ---
-<!-- Auto-synced from docs/ENGINEERING-JOURNAL.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/ENGINEERING-JOURNAL.md by sync-docs.sh  - do not edit directly -->
 
 
 This document captures the **why** behind every significant architecture decision in peer-up. Each entry follows a lightweight ADR (Architecture Decision Record) format: what problem we faced, what options we considered, what we chose, and what trade-offs we accepted.
@@ -99,7 +99,7 @@ New developers, contributors, and future-us should be able to read this and unde
 
 **Decision**: `authorized_keys` file containing one peer ID per line, checked by `auth.AuthorizedPeerGater` in `InterceptSecured()`. Only inbound connections are gated; outbound (to relay, DHT) are always allowed.
 
-**Consequences**: Simple file-based auth that users already understand from SSH. Hot-reloadable at runtime. Scales to hundreds of peers. Does not support per-peer permissions (all-or-nothing access), which is acceptable for current scope.
+**Consequences**: Simple file-based auth that users already understand from SSH. Hot-reloadable at runtime. Scales to hundreds of peers. Does not support per-peer permissions (all-or-nothing access) - acceptable for current scope.
 
 **Reference**: `internal/auth/gater.go`, `internal/auth/keys.go`
 
@@ -413,7 +413,7 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Decision**: HTTP `/healthz` endpoint on configurable address (default `127.0.0.1:9090`). Returns JSON with `status`, `uptime_seconds`, and `connected_peers`. Restricted to loopback by default - reverse proxy or SSH tunnel for remote access.
 
-**Consequences**: Minimal information exposure (no peer IDs, no version, no protocol list in the health response, hardened in the post-phase audit). Loopback-only prevents information disclosure to the public internet.
+**Consequences**: Minimal information exposure (no peer IDs, no version, no protocol list in the health response - hardened in the post-phase audit). Loopback-only prevents information disclosure to the public internet.
 
 **Reference**: `cmd/peerup/cmd_relay_serve.go`
 
@@ -563,8 +563,60 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Decision**: Mandatory 6-category audit after every phase: source code audit, bad code scan, bug hunting, QA testing, security audit, and relay hardening review. Each category has specific checklists. Findings are compiled into a report, and fixes require explicit approval before implementation.
 
-The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cookie ordering, body size limits, CI SHA pinning, etc.), all fixed in commit `83d02d3`.
+The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cookie ordering, body size limits, CI SHA pinning, etc.) - all fixed in commit `83d02d3`.
 
 **Consequences**: Adds time between batches, but catches real issues. The audit that found the pion/dtls nonce-reuse CVE justified the entire protocol - that vulnerability could have compromised encrypted relay traffic.
 
 **Reference**: Audit findings tracked in project memory, fixes in commit `83d02d3`
+
+---
+
+## Batch H: Observability
+
+### ADR-H01: Prometheus over OpenTelemetry
+
+**Context**: Batch H adds metrics and audit logging. The original roadmap said "OpenTelemetry integration." Research revealed that libp2p v0.47.0 emits metrics natively via `prometheus/client_golang`, not OpenTelemetry.
+
+**Alternatives considered**:
+- **OpenTelemetry SDK** - Industry standard, supports traces + metrics + logs. Rejected because: +4MB binary size, 35% CPU overhead from span management on every stream, and libp2p already speaks Prometheus natively. Adding OTel would require a translation layer (Prometheus -> OTel) for zero benefit.
+- **OpenTelemetry bridge only** (`go.opentelemetry.io/contrib/bridges/prometheus`) - Forward Prometheus metrics to OTel backends. Deferred to a future release when users request it. The bridge can be added later without changing any instrumentation code.
+- **StatsD/Graphite** - Simpler push model. Rejected because Prometheus is already in our dependency tree as an indirect dep of libp2p.
+
+**Decision**: Use `prometheus/client_golang` directly with an isolated `prometheus.Registry`. When metrics enabled, pass the registry to libp2p via `libp2p.PrometheusRegisterer(reg)` to get all built-in libp2p metrics for free. When disabled, call `libp2p.DisableMetrics()` for zero overhead.
+
+**Consequences**: No distributed tracing (deferred). No OTLP export (can be added via bridge later). Binary size increase: ~1MB (28MB total). Any Prometheus-compatible tool (Grafana, Datadog, etc.) works out of the box.
+
+**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/network.go`
+
+---
+
+### ADR-H02: Nil-Safe Observability Pattern
+
+**Context**: Metrics and audit logging are opt-in. Every call site that records a metric or audit event needs to work correctly when observability is disabled.
+
+**Alternatives considered**:
+- **Feature flags with conditional compilation** - Build tags to exclude metrics code entirely. Rejected because it creates two binaries with different behavior, complicating testing.
+- **No-op implementations** (interface-based) - Create `NullMetrics` / `NullAuditLogger` implementations. More idiomatic but adds interface overhead and boilerplate.
+- **Global singleton with init check** - Single global metrics instance. Rejected to maintain testability (isolated registries per test).
+
+**Decision**: Nil pointer checks at every call site. `*Metrics` and `*AuditLogger` are nil when disabled. All methods on `AuditLogger` check `if a == nil { return }`. Metrics call sites check `if metrics != nil` before recording. The `InstrumentHandler` middleware returns the handler unchanged when both are nil.
+
+**Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
+
+**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`
+
+---
+
+### ADR-H03: Auth Decision Callback (Avoiding Circular Imports)
+
+**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/p2pnet/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/p2pnet`.
+
+**Alternatives considered**:
+- **Move gater to pkg/p2pnet** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
+- **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
+
+**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/peerup/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
+
+**Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
+
+**Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/peerup/serve_common.go`

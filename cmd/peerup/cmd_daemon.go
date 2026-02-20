@@ -146,10 +146,14 @@ func runDaemonStart(args []string) {
 	cookiePath := daemonCookiePath()
 
 	srv := daemon.NewServer(rt, socketPath, cookiePath, version)
+	srv.SetInstrumentation(rt.metrics, rt.audit)
 	if err := srv.Start(); err != nil {
 		rt.Shutdown()
 		fatal("Daemon API failed to start: %v", err)
 	}
+
+	// Start metrics endpoint (no-op if telemetry disabled)
+	rt.StartMetricsServer()
 
 	fmt.Printf("Daemon API: %s\n", socketPath)
 	fmt.Println()
