@@ -515,13 +515,16 @@ Waiting for transfers...
 **Website & Documentation (peerup.dev)**:
 - [x] Static documentation site built with [Hugo](https://gohugo.io/) + [Hextra](https://imfing.github.io/hextra/) theme — Go-based SSG, fast builds, matches the project toolchain, built-in search and dark mode
 - [x] Automated docs sync (`website/sync-docs.sh`) — transforms `docs/*.md` into Hugo-ready content with front matter and link rewriting
-- [x] Elegant landing page with hero section and feature grid
+- [x] Elegant landing page with visual storytelling — hero with problem-first hook, terminal demo section, 3-step "How It Works" grid, network diagram, tabbed install commands (macOS/Linux/source), bottom CTA grid *(enhanced post-Batch G)*
 - [x] Seven retroactive blog posts for Batches A-G (outcomes-focused)
 - [x] GitHub Actions CI/CD — build Hugo site and deploy to GitHub Pages on every push to `main`
 - [ ] GitHub Pages hosting with custom domain (`peerup.dev`) — DNS pointing pending
 - [ ] DNS managed on Cloudflare — CNAME `peerup.dev` → GitHub Pages, CNAME `get.peerup.dev` → serves install script
 - [x] Landing page — hero section, feature grid (NAT traversal, single binary, SSH trust, 60s pairing, TCP proxy, self-healing) *(Batch G)*
 - [x] Existing docs rendered as site pages — `sync-docs.sh` transforms ARCHITECTURE, FAQ, TESTING, ROADMAP, DAEMON-API, NETWORK-TOOLS, ENGINEERING-JOURNAL into Hugo-ready content *(Batch G)*
+- [x] Custom blog listing template — image cards with title overlay, gradient, responsive grid *(post-Batch G)*
+- [x] Dark theme default + theme toggle in navbar *(post-Batch G)*
+- [x] SVG placeholder images for terminal demo, how-it-works steps, network diagram — ready for real screenshots *(post-Batch G)*
 - [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
 - [ ] Use-case guides integrated into the site (GPU inference, IoT, game servers — see Launch Content below)
 - [ ] Install page with platform-specific instructions (curl, brew, apt, Docker, source)
