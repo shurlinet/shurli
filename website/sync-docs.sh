@@ -82,8 +82,8 @@ sync_doc() {
   # Rewrite image paths for Hugo: images/foo.svg -> /images/docs/foo.svg
   body="$(echo "$body" | sed 's|](images/|](/images/docs/|g')"
 
-  # Rewrite relay-server/README.md to website docs page (BEFORE generic GitHub rewrite)
-  body="$(echo "$body" | sed 's|(../relay-server/README.md)|(../relay-setup/)|g')"
+  # Rewrite relay-server/README.md to website docs page with friendly link text
+  body="$(echo "$body" | sed 's|\[relay-server/README.md\](../relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
 
   # Rewrite remaining relative source file references to GitHub URLs
   # e.g., (../cmd/peerup/...) -> (https://github.com/.../cmd/peerup/...)
@@ -135,8 +135,8 @@ sync_quickstart() {
     fi
   done < "$readme"
 
-  # Rewrite relay-server/README.md to website docs page (BEFORE generic GitHub rewrite)
-  content="$(echo "$content" | sed 's|(relay-server/README.md)|(../relay-setup/)|g')"
+  # Rewrite relay-server/README.md to website docs page with friendly link text
+  content="$(echo "$content" | sed 's|\[relay-server/README.md\](relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
 
   # Rewrite remaining relative repo links to GitHub URLs
   # README links are root-relative: (relay-server/...), (docs/...), (configs/...), (deploy/...)

@@ -48,7 +48,7 @@ go build -o peerup ./cmd/peerup
 
 ## Step 1: Deploy Relay Server
 
-See [relay-server/README.md](../relay-setup/) for the full VPS setup guide.
+See [Relay Setup guide](../relay-setup/) for the full VPS setup guide.
 
 Quick version:
 
