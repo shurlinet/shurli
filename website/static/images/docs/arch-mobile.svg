@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <defs>
+    <linearGradient id="appFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="osFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="vpnFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="libp2pFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="400" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Mobile Architecture (Phase 4G)</text>
+
+  <!-- Column divider -->
+  <line x1="400" y1="45" x2="400" y2="370" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.2"/>
+
+  <!-- ====== iOS (left) ====== -->
+  <text x="200" y="55" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" text-anchor="middle" font-weight="600">iOS</text>
+
+  <!-- iOS App Layer -->
+  <rect x="40" y="72" width="320" height="50" rx="8" fill="url(#appFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="200" y="92" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">iOS Application Layer</text>
+  <text x="200" y="108" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">SSH · Safari · Plex · any app</text>
+
+  <!-- Arrow + label -->
+  <line x1="200" y1="122" x2="200" y2="147" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="196,144 204,144 200,151" fill="#7aa2f7"/>
+  <text x="285" y="140" font-family="SF Mono, monospace" font-size="8" fill="#565f89">IP packets to 10.64.x.x</text>
+
+  <!-- iOS Network Stack -->
+  <rect x="70" y="154" width="260" height="35" rx="8" fill="url(#osFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="200" y="176" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">iOS Network Stack</text>
+
+  <!-- Arrow -->
+  <line x1="200" y1="189" x2="200" y2="209" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="196,206 204,206 200,213" fill="#bb9af7"/>
+
+  <!-- NEPacketTunnelProvider -->
+  <rect x="40" y="216" width="320" height="85" rx="8" fill="url(#vpnFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="200" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">NEPacketTunnelProvider</text>
+  <text x="200" y="252" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">peer-up VPN extension</text>
+  <text x="200" y="272" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">1. Capture packets  2. Extract dest IP</text>
+  <text x="200" y="287" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">3. Map to peer ID   4. Route via P2P</text>
+
+  <!-- Arrow -->
+  <line x1="200" y1="301" x2="200" y2="326" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="196,323 204,323 200,330" fill="#9ece6a"/>
+
+  <!-- libp2p-go -->
+  <rect x="70" y="333" width="260" height="40" rx="8" fill="url(#libp2pFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="200" y="357" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">libp2p-go (gomobile)</text>
+
+  <!-- ====== Android (right) ====== -->
+  <text x="600" y="55" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" text-anchor="middle" font-weight="600">Android</text>
+
+  <!-- Android App Layer -->
+  <rect x="440" y="72" width="320" height="50" rx="8" fill="url(#appFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="600" y="92" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Android Application Layer</text>
+  <text x="600" y="108" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">SSH · Chrome · any app</text>
+
+  <!-- Arrow + label -->
+  <line x1="600" y1="122" x2="600" y2="147" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="596,144 604,144 600,151" fill="#7aa2f7"/>
+  <text x="685" y="140" font-family="SF Mono, monospace" font-size="8" fill="#565f89">IP packets to 10.64.x.x</text>
+
+  <!-- Android Network Stack -->
+  <rect x="470" y="154" width="260" height="35" rx="8" fill="url(#osFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="600" y="176" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Android Network Stack</text>
+
+  <!-- Arrow -->
+  <line x1="600" y1="189" x2="600" y2="209" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="596,206 604,206 600,213" fill="#bb9af7"/>
+
+  <!-- VPNService -->
+  <rect x="440" y="216" width="320" height="85" rx="8" fill="url(#vpnFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="600" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">VPNService</text>
+  <text x="600" y="252" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">peer-up VPN app</text>
+  <text x="600" y="272" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">1. Create TUN interface</text>
+  <text x="600" y="287" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">2. Route 10.64.0.0/16 through app</text>
+
+  <!-- Arrow -->
+  <line x1="600" y1="301" x2="600" y2="326" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="596,323 604,323 600,330" fill="#9ece6a"/>
+
+  <!-- libp2p-go -->
+  <rect x="470" y="333" width="260" height="40" rx="8" fill="url(#libp2pFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="600" y="357" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">libp2p-go (gomobile)</text>
+
+  <!-- Shared bottom note -->
+  <text x="400" y="393" font-family="system-ui, sans-serif" font-size="10" fill="#a9b1d6" text-anchor="middle">Both platforms use gomobile to embed libp2p-go. Android has full VPNService API access (easier than iOS).</text>
+</svg>
