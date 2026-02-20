@@ -21,7 +21,7 @@ const defaultRelayPort = 7777
 //   - "[2600:3c00::1]"       → IPv6 with default port (brackets stripped)
 //   - "2600:3c00::1"         → IPv6 with default port (bare)
 //
-// Hostnames are rejected — only IP addresses are accepted (no DNS resolution).
+// Hostnames are rejected  - only IP addresses are accepted (no DNS resolution).
 func parseRelayHostPort(input string) (ip string, port int, err error) {
 	// Try host:port (handles both IPv4 "1.2.3.4:7777" and IPv6 "[::1]:7777")
 	host, portStr, splitErr := net.SplitHostPort(input)

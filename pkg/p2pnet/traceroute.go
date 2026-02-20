@@ -34,7 +34,7 @@ type TraceResult struct {
 // libp2p doesn't support TTL-based tracing, so this determines the path
 // by inspecting connection metadata: is the connection direct or relayed?
 // If relayed, it measures RTT to the relay and to the target separately
-// to show per-hop latency — the information that actually matters for debugging.
+// to show per-hop latency  - the information that actually matters for debugging.
 func TracePeer(ctx context.Context, h host.Host, targetPeerID peer.ID) (*TraceResult, error) {
 	result := &TraceResult{
 		TargetID: targetPeerID.String(),
@@ -169,7 +169,7 @@ func measurePeerRTT(ctx context.Context, h host.Host, peerID peer.ID) (float64, 
 
 	start := time.Now()
 
-	// Try to open a stream with a probe protocol — the peer will either
+	// Try to open a stream with a probe protocol  - the peer will either
 	// accept (unlikely) or reject it quickly. Either way, the round-trip
 	// gives us RTT.
 	probeCtx := network.WithAllowLimitedConn(measureCtx, "/peerup/rtt-probe/1.0.0")
@@ -187,7 +187,7 @@ func measurePeerRTT(ctx context.Context, h host.Host, peerID peer.ID) (float64, 
 		return 0, fmt.Errorf("cannot reach peer: %s", truncateError(errStr))
 	}
 
-	// Stream opened somehow — close it and use the RTT
+	// Stream opened somehow  - close it and use the RTT
 	s.Close()
 	return float64(rtt.Microseconds()) / 1000.0, nil
 }

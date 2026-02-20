@@ -1,5 +1,5 @@
 #!/bin/bash
-# coverage.sh — Run unit + Docker integration tests and merge coverage data.
+# coverage.sh - Run unit + Docker integration tests and merge coverage data.
 #
 # Usage:
 #   ./test/docker/coverage.sh          # Full run: unit + Docker + merge
@@ -8,7 +8,7 @@
 # Requires: Docker running, go 1.20+
 #
 # Output:
-#   coverage/combined.out  — merged coverage profile (text format)
+#   coverage/combined.out  - merged coverage profile (text format)
 #   Final line: total coverage percentage
 
 set -euo pipefail

@@ -82,7 +82,7 @@ func runJoin(args []string) {
 	out("Inviter: %s\n", data.PeerID.String()[:16]+"...")
 	outln()
 
-	// Resolve config — create one if it doesn't exist
+	// Resolve config  - create one if it doesn't exist
 	cfgFile, cfg, configDir, created := loadOrCreateConfig(*configFlag, data.RelayAddr)
 	if created {
 		out("Created new config: %s\n", cfgFile)
@@ -228,7 +228,7 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 		return cfgFile, cfg, configDir, false
 	}
 
-	// No config found — create one
+	// No config found  - create one
 	fmt.Println("No existing config found. Creating new configuration...")
 	fmt.Println()
 
@@ -297,7 +297,7 @@ func sanitizeYAMLName(s string) string {
 // updateConfigNames appends a name mapping to the config file.
 // This does a simple text append to preserve formatting and comments.
 func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
-	// Sanitize name to prevent YAML injection — the name comes from a remote peer
+	// Sanitize name to prevent YAML injection  - the name comes from a remote peer
 	name = sanitizeYAMLName(name)
 	if name == "" {
 		log.Printf("Warning: peer name was empty after sanitization, skipping names update")
@@ -317,7 +317,7 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 		replacement := fmt.Sprintf("names:\n  %s: \"%s\"", name, peerIDStr)
 		content = strings.Replace(content, "names: {}", replacement, 1)
 	} else if strings.Contains(content, "names:") {
-		// Append under existing names section — find the line and add after it
+		// Append under existing names section  - find the line and add after it
 		lines := strings.Split(content, "\n")
 		var result []string
 		added := false

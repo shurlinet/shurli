@@ -3,6 +3,10 @@ title: "Smarter Connections Under the Hood"
 date: 2026-02-14
 tags: [release, batch-d]
 image: /images/blog/batch-d-libp2p.svg
+description: "AutoNAT v2 for per-address reachability, QUIC-first transport ordering, and UserAgent identification between peers."
+authors:
+  - name: Satinder Grewal
+    link: https://github.com/satindergrewal
 ---
 
 ![Smarter Connections Under the Hood](/images/blog/batch-d-libp2p.svg)

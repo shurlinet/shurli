@@ -1,5 +1,6 @@
 ---
 title: About
+description: "peer-up is an open-source P2P networking tool for self-sovereign device connectivity. No accounts, no cloud, no subscriptions."
 ---
 
 ## What is peer-up?

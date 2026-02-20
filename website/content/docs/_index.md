@@ -1,5 +1,6 @@
 ---
 title: Documentation
+description: "Everything you need to know about peer-up: quick start guide, architecture, daemon API, security model, and network tools."
 ---
 
 Everything you need to know about peer-up, from getting started to deep architecture details.

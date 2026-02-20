@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-docs.sh — Transforms docs/*.md into website/content/docs/ with Hugo front matter.
+# sync-docs.sh  - Transforms docs/*.md into website/content/docs/ with Hugo front matter.
 #
 # This script is idempotent: running it twice produces identical output.
 # It runs before every Hugo build (locally and in CI).
@@ -29,7 +29,7 @@ GITHUB_BASE="https://github.com/satindergrewal/peer-up/blob/main"
 
 # Map: source filename -> output filename:weight:title
 # Order follows the user journey (Jobs/Musk/Satinder principles):
-#   Use it → Explore it → Understand it → Trust it → Self-host → Automate it → Deep dive → Vision → Contribute → History
+#   Use it -> Explore it -> Understand it -> Trust it -> Self-host -> Automate it -> Deep dive -> Vision -> Contribute -> History
 declare -A DOC_MAP
 DOC_MAP=(
   # weight 1 = Quick Start (synced separately via sync_quickstart)
@@ -44,11 +44,24 @@ DOC_MAP=(
   ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:10:Engineering Journal"
 )
 
+# SEO descriptions for each synced page
+declare -A DESC_MAP
+DESC_MAP=(
+  ["NETWORK-TOOLS.md"]="P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
+  ["FAQ.md"]="How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."
+  ["DAEMON-API.md"]="REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
+  ["ARCHITECTURE.md"]="Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
+  ["ROADMAP.md"]="Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."
+  ["TESTING.md"]="Test strategy for peer-up: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
+  ["ENGINEERING-JOURNAL.md"]="Architecture Decision Records for peer-up. The why behind every significant design choice, from transport selection to config schema evolution."
+)
+
 sync_doc() {
   local src_file="$1"
   local out_file="$2"
   local weight="$3"
   local title="$4"
+  local description="${DESC_MAP[$src_file]:-}"
   local src_basename
   src_basename="$(basename "$src_file")"
 
@@ -95,15 +108,18 @@ sync_doc() {
   body="$(echo "$body" | sed "s|(\.\./\(test/\)|($GITHUB_BASE/\1|g")"
 
   # Write output with Hugo front matter
-  cat > "$dst_path" << FRONTMATTER
----
-title: "${title}"
-weight: ${weight}
----
-<!-- Auto-synced from docs/${src_basename} by sync-docs.sh — do not edit directly -->
-
-${body}
-FRONTMATTER
+  {
+    echo "---"
+    echo "title: \"${title}\""
+    echo "weight: ${weight}"
+    if [[ -n "$description" ]]; then
+      echo "description: \"${description}\""
+    fi
+    echo "---"
+    echo "<!-- Auto-synced from docs/${src_basename} by sync-docs.sh  - do not edit directly -->"
+    echo ""
+    echo "${body}"
+  } > "$dst_path"
 
   echo "  SYNC $src_file -> $out_file"
 }
@@ -135,6 +151,9 @@ sync_quickstart() {
     fi
   done < "$readme"
 
+  # Promote ### headings to ## (since the extracted section lost its parent ## heading)
+  content="$(echo "$content" | sed 's/^### /## /')"
+
   # Rewrite relay-server/README.md to website docs page with friendly link text
   content="$(echo "$content" | sed 's|\[relay-server/README.md\](relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
 
@@ -144,15 +163,16 @@ sync_quickstart() {
     content="$(echo "$content" | sed "s|(${dir_prefix}|(${GITHUB_BASE}/${dir_prefix}|g")"
   done
 
-  cat > "$dst_path" << FRONTMATTER
----
-title: "Quick Start"
-weight: 1
----
-<!-- Auto-synced from README.md by sync-docs.sh — do not edit directly -->
-
-${content}
-FRONTMATTER
+  {
+    echo "---"
+    echo 'title: "Quick Start"'
+    echo "weight: 1"
+    echo 'description: "Get two devices connected with peer-up in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."'
+    echo "---"
+    echo "<!-- Auto-synced from README.md by sync-docs.sh  - do not edit directly -->"
+    echo ""
+    echo "${content}"
+  } > "$dst_path"
 
   echo "  SYNC README.md -> quick-start.md"
 }
@@ -185,21 +205,22 @@ sync_relay_setup() {
   local body
   body="$(echo "$content" | sed '1{/^# /d;}')"
 
-  cat > "$dst_path" << FRONTMATTER
----
-title: "Relay Setup"
-weight: 5
----
-<!-- Auto-synced from relay-server/README.md by sync-docs.sh — do not edit directly -->
-
-${body}
-FRONTMATTER
+  {
+    echo "---"
+    echo 'title: "Relay Setup"'
+    echo "weight: 5"
+    echo 'description: "Complete guide to deploying your own peer-up relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."'
+    echo "---"
+    echo "<!-- Auto-synced from relay-server/README.md by sync-docs.sh  - do not edit directly -->"
+    echo ""
+    echo "${body}"
+  } > "$dst_path"
 
   echo "  SYNC relay-server/README.md -> relay-setup.md"
 }
 sync_relay_setup
 
-# Generate llms-full.txt — single-file concatenation of all docs for AI agents.
+# Generate llms-full.txt  - single-file concatenation of all docs for AI agents.
 # Follows the llmstxt.org spec: one fetch gets everything.
 # Order: README (overview) → docs in user-journey order.
 generate_llms_full() {

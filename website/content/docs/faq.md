@@ -1,6 +1,7 @@
 ---
 title: "FAQ"
 weight: 3
+description: "How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."
 ---
 <!-- Auto-synced from docs/FAQ.md by sync-docs.sh - do not edit directly -->
 

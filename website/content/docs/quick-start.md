@@ -1,11 +1,12 @@
 ---
 title: "Quick Start"
 weight: 1
+description: "Get two devices connected with peer-up in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."
 ---
 <!-- Auto-synced from README.md by sync-docs.sh - do not edit directly -->
 
 
-### Path A: Joining someone's network
+## Path A: Joining someone's network
 
 If someone shared an invite code with you:
 
@@ -16,7 +17,7 @@ peerup join <invite-code> --name laptop
 
 That's it. You're connected and mutually authorized.
 
-### Path B: Setting up your own network
+## Path B: Setting up your own network
 
 **1. Set up both machines:**
 ```bash

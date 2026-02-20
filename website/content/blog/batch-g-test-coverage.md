@@ -3,6 +3,10 @@ title: "80% Coverage and a Security Audit"
 date: 2026-02-19
 tags: [release, batch-g]
 image: /images/blog/batch-g-coverage.svg
+description: "80.3% combined test coverage with Docker integration tests and a post-phase security audit that caught 10 issues."
+authors:
+  - name: Satinder Grewal
+    link: https://github.com/satindergrewal
 ---
 
 ![80% Coverage and a Security Audit](/images/blog/batch-g-coverage.svg)

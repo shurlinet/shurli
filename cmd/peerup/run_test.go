@@ -19,8 +19,8 @@ import (
 // osExit inside fn are intercepted.  It returns the exit code and a boolean
 // indicating whether osExit was actually called.
 //
-// How it works: the replacement panics with an exitSentinel value — the same
-// type defined in exit.go — which immediately unwinds the call stack (just
+// How it works: the replacement panics with an exitSentinel value  - the same
+// type defined in exit.go  - which immediately unwinds the call stack (just
 // like a real os.Exit would halt the process).  A deferred recover catches
 // the sentinel and stores the code.  Any other panic is re-raised.
 func captureExit(fn func()) (code int, exited bool) {
@@ -303,7 +303,7 @@ func TestRunRelayServerConfigRollback_Error(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Category 1 SUCCESS paths: thin wrappers that should NOT call osExit.
-// We only test a few representative ones — the doXxx functions themselves
+// We only test a few representative ones  - the doXxx functions themselves
 // are exhaustively tested in their own test files.
 // ---------------------------------------------------------------------------
 
@@ -397,7 +397,7 @@ func TestRunConfigConfirm_Success_NoPending(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 2: Dispatchers — test unknown subcommand → osExit(1) and
+// Category 2: Dispatchers  - test unknown subcommand → osExit(1) and
 // empty args → osExit(1).
 // ---------------------------------------------------------------------------
 
@@ -531,7 +531,7 @@ func TestRunRelayServerConfig_UnknownSubcommand(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 3: printXxxUsage functions — just verify they don't panic.
+// Category 3: printXxxUsage functions  - just verify they don't panic.
 // ---------------------------------------------------------------------------
 
 func TestPrintUsage(t *testing.T) {
@@ -592,7 +592,7 @@ func TestPrintRelayServeUsage(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 4: runRelayServerVersion — pure output, no exit.
+// Category 4: runRelayServerVersion  - pure output, no exit.
 // ---------------------------------------------------------------------------
 
 func TestRunRelayServerVersion(t *testing.T) {
@@ -609,7 +609,7 @@ func TestRunRelayServerVersion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 5: Daemon client commands — these call daemonClient() which will
+// Category 5: Daemon client commands  - these call daemonClient() which will
 // fail because no daemon is running.  Verify they osExit(1).
 // ---------------------------------------------------------------------------
 
@@ -716,7 +716,7 @@ func TestRunRelay_Remove_Dispatches(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 7: fatal() error paths — functions that used log.Fatalf are now
+// Category 7: fatal() error paths  - functions that used log.Fatalf are now
 // testable via captureExit. Test early error paths (config loading, flag
 // parsing) for all P2P functions.
 // ---------------------------------------------------------------------------
@@ -1074,7 +1074,7 @@ resources:
 }
 
 // ---------------------------------------------------------------------------
-// Category 8: serveRuntime getters — construct a struct directly and verify
+// Category 8: serveRuntime getters  - construct a struct directly and verify
 // each getter returns the expected value.
 // ---------------------------------------------------------------------------
 
@@ -1149,7 +1149,7 @@ func TestServeRuntime_GaterForHotReload_Valid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 9: gaterReloader.ReloadFromFile — test with real authorized_keys.
+// Category 9: gaterReloader.ReloadFromFile  - test with real authorized_keys.
 // ---------------------------------------------------------------------------
 
 func TestGaterReloader_ReloadFromFile(t *testing.T) {
@@ -1199,7 +1199,7 @@ func TestGaterReloader_ReloadFromFile_MissingFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 10: loadOrCreateConfig — test existing config path.
+// Category 10: loadOrCreateConfig  - test existing config path.
 // ---------------------------------------------------------------------------
 
 func TestLoadOrCreateConfig_ExistingConfig(t *testing.T) {
@@ -1251,7 +1251,7 @@ func TestLoadOrCreateConfig_InvalidConfig(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 11: runDaemonServices and runDaemonPeers — no daemon running.
+// Category 11: runDaemonServices and runDaemonPeers  - no daemon running.
 // ---------------------------------------------------------------------------
 
 func TestRunDaemonServices_NoDaemon(t *testing.T) {
@@ -1273,7 +1273,7 @@ func TestRunDaemonPeers_NoDaemon(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 12: runDaemon "start" dispatch — config not found.
+// Category 12: runDaemon "start" dispatch  - config not found.
 // ---------------------------------------------------------------------------
 
 func TestRunDaemon_StartDispatch_ConfigError(t *testing.T) {

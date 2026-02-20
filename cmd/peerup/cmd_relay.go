@@ -119,7 +119,7 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Resolve addresses — handle both full multiaddr and IP:PORT + --peer-id
+	// Resolve addresses  - handle both full multiaddr and IP:PORT + --peer-id
 	var resolvedAddrs []string
 	for _, arg := range fs.Args() {
 		if isFullMultiaddr(arg) {
@@ -129,7 +129,7 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 			}
 			resolvedAddrs = append(resolvedAddrs, arg)
 		} else {
-			// Short format — needs --peer-id
+			// Short format  - needs --peer-id
 			if *peerIDFlag == "" {
 				return fmt.Errorf("short address format requires --peer-id flag.\n  Example: peerup relay add %s --peer-id 12D3KooW...", arg)
 			}

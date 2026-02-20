@@ -4,6 +4,10 @@ date: 2026-02-20
 tags: [philosophy, engineering]
 image: /images/blog/philosophy-three-layers.svg
 pinned: true
+description: "How peer-up's engineering principles emerged from real development conversations. The OpenClaw origin story, privacy as infrastructure, and lessons from SuperMesh."
+authors:
+  - name: Satinder Grewal
+    link: https://github.com/satindergrewal
 ---
 
 ![How peer-up's Engineering Philosophy Evolved](/images/blog/philosophy-three-layers.svg)

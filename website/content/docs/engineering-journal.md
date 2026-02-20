@@ -1,6 +1,7 @@
 ---
 title: "Engineering Journal"
 weight: 10
+description: "Architecture Decision Records for peer-up. The why behind every significant design choice, from transport selection to config schema evolution."
 ---
 <!-- Auto-synced from docs/ENGINEERING-JOURNAL.md by sync-docs.sh - do not edit directly -->
 

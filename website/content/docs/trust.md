@@ -1,6 +1,7 @@
 ---
 title: Trust & Security
 weight: 4
+description: "peer-up's security program: threat model, vulnerability reporting process, response commitments, and audit history."
 ---
 
 ## Security Program

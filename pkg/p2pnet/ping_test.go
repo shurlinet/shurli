@@ -109,7 +109,7 @@ func TestPingPeer_ContextCancelled(t *testing.T) {
 	netB := newListeningNetwork(t)
 	connectNetworks(t, netA, netB)
 
-	// Cancel immediately — PingPeer should return quickly
+	// Cancel immediately  - PingPeer should return quickly
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -131,7 +131,7 @@ func TestPingPeer_CountedPings(t *testing.T) {
 	netB := newListeningNetwork(t)
 	connectNetworks(t, netA, netB)
 
-	// No ping handler on B, so all pings will error — but we still test the flow
+	// No ping handler on B, so all pings will error  - but we still test the flow
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

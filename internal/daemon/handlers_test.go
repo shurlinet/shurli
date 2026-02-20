@@ -934,7 +934,7 @@ func TestHandleAuthRemove_GaterReloadFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.handleAuthRemove(rec, req)
 
-	// Remove succeeds even if gater reload fails — the peer is still removed
+	// Remove succeeds even if gater reload fails - the peer is still removed
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (gater reload failure is logged, not returned)", rec.Code)
 	}

@@ -3,6 +3,10 @@ title: "The Daemon: A Full Control Plane"
 date: 2026-02-16
 tags: [release, batch-f]
 image: /images/blog/batch-f-daemon.svg
+description: "Long-running daemon with REST API over Unix socket. Manage proxies, peers, and services programmatically."
+authors:
+  - name: Satinder Grewal
+    link: https://github.com/satindergrewal
 ---
 
 ![The Daemon: A Full Control Plane](/images/blog/batch-f-daemon.svg)

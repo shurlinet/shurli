@@ -4,7 +4,7 @@
 //
 // These tests verify the actual compiled binaries work end-to-end in separate
 // containers communicating through a relay server. They are NOT run by
-// regular "go test ./..." — use "go test -tags integration ./test/docker/".
+// regular "go test ./..." - use "go test -tags integration ./test/docker/".
 //
 // Prerequisites:
 //   - Docker and Docker Compose installed
@@ -136,7 +136,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 3: Run invite on node-a (background) ──
 	t.Log("Starting invite on node-a...")
 	// Run invite in background, capturing stdout (the invite code) to a file.
-	// No nohup needed — container runs "sleep infinity" so no SIGHUP risk.
+	// No nohup needed - container runs "sleep infinity" so no SIGHUP risk.
 	_, _, err = dockerExec("node-a", "sh", "-c",
 		"peerup invite --non-interactive --name home --config /root/.config/peerup/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
 	if err != nil {
@@ -170,7 +170,7 @@ func TestInviteJoinFlow(t *testing.T) {
 
 	// ── Step 5: Run join on node-b ──
 	t.Log("Running join on node-b...")
-	// Use PEERUP_INVITE_CODE env var — clean approach for scripted usage.
+	// Use PEERUP_INVITE_CODE env var - clean approach for scripted usage.
 	joinCmd := fmt.Sprintf("PEERUP_INVITE_CODE='%s' peerup join --non-interactive --name laptop", inviteCode)
 	out, stderr, err := dockerExecWithTimeout("node-b", 60*time.Second, "sh", "-c", joinCmd)
 	if err != nil {

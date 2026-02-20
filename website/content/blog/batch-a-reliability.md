@@ -3,6 +3,10 @@ title: "Connections That Don't Give Up"
 date: 2026-02-10
 tags: [release, batch-a]
 image: /images/blog/batch-a-reliability.svg
+description: "peer-up connections now retry automatically with exponential backoff. Network drops recover without intervention."
+authors:
+  - name: Satinder Grewal
+    link: https://github.com/satindergrewal
 ---
 
 ![Connections That Don't Give Up](/images/blog/batch-a-reliability.svg)

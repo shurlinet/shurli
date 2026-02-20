@@ -1,6 +1,7 @@
 ---
 title: "Development Philosophy"
 weight: 11
+description: "The principles, inspirations, and decision-making framework behind peer-up. How the project started, why self-sovereignty matters, and lessons from SuperMesh."
 ---
 
 The principles, inspirations, and decision-making framework behind peer-up's development.

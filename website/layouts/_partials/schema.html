@@ -1,0 +1,53 @@
+{{- if .IsPage -}}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "{{ if eq .Section "blog" }}Article{{ else }}TechArticle{{ end }}",
+  "headline": "{{ .Title }}",
+  "description": "{{ with .Description }}{{ . }}{{ else }}{{ .Summary | plainify | truncate 200 }}{{ end }}",
+  {{- with .PublishDate }}
+  "datePublished": "{{ .Format "2006-01-02" }}",
+  {{- end }}
+  {{- with .Lastmod }}
+  "dateModified": "{{ .Format "2006-01-02" }}",
+  {{- end }}
+  "author": {
+    "@type": "Person",
+    "name": "Satinder Grewal",
+    "url": "https://github.com/satindergrewal"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "peer-up",
+    "url": "https://peerup.dev/"
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "{{ .Permalink }}"
+  }
+}
+</script>
+{{- else if .IsHome -}}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "peer-up",
+  "description": "{{ .Site.Params.description }}",
+  "url": "{{ .Site.BaseURL }}",
+  "applicationCategory": "NetworkApplication",
+  "operatingSystem": "macOS, Linux",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": {
+    "@type": "Person",
+    "name": "Satinder Grewal",
+    "url": "https://github.com/satindergrewal"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+{{- end -}}

@@ -546,7 +546,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			// Check if this was an intentional shutdown
 			select {
 			case <-ctx.Done():
-				// Expected — proxy was disconnected
+				// Expected - proxy was disconnected
 			default:
 				slog.Error("proxy listener stopped", "id", id, "error", err)
 			}

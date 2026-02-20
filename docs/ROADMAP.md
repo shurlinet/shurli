@@ -929,6 +929,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 **Status**: 📋 Conceptual
 
 **Potential Features**:
+- [ ] Multi-lingual website and documentation (Hugo i18n). Priority languages: Spanish, Chinese (Simplified), Hindi, Portuguese, Japanese, French, German. Community-contributed translations welcome.
 - [ ] Web-based dashboard for network management
 - [ ] Protocol marketplace (community-contributed service templates)
 - [ ] Performance monitoring and analytics (Prometheus metrics)

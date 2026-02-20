@@ -141,7 +141,7 @@ func TestUpdateConfigNames(t *testing.T) {
 
 		data, _ := os.ReadFile(cfgFile)
 		got := string(data)
-		// The key "evil:" with colon should NOT appear — sanitized to "evilinjecttrue"
+		// The key "evil:" with colon should NOT appear  - sanitized to "evilinjecttrue"
 		if strings.Contains(got, "evil:") && strings.Contains(got, "inject:") {
 			t.Errorf("YAML injection should be sanitized, got:\n%s", got)
 		}
@@ -154,7 +154,7 @@ func TestUpdateConfigNames(t *testing.T) {
 		dir := t.TempDir()
 		cfgFile := dir + "/nonexistent.yaml"
 
-		// Should not panic — just log a warning
+		// Should not panic  - just log a warning
 		updateConfigNames(cfgFile, dir, "test", "12D3KooWTest")
 	})
 }

@@ -16,9 +16,11 @@ markup:
 
 enableRobotsTXT: true
 
-# Disable RSS  - Hextra's RSS template uses deprecated .Site.Author (Hugo 0.156+)
-disableKinds:
-  - RSS
+taxonomies:
+  tag: tags
+
+sitemap:
+  filename: sitemap.xml
 
 menu:
   main:
@@ -42,7 +44,8 @@ menu:
         type: theme-toggle
 
 params:
-  description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls.
+  title: peer-up
+  description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls. No accounts, no cloud, no subscriptions.
 
   images:
     - /images/og-card.png
@@ -68,7 +71,7 @@ params:
     base: https://github.com/satindergrewal/peer-up/edit/main/website/content
 
   theme:
-    default: dark
+    default: system
 
   search:
     enable: true

@@ -189,7 +189,7 @@ func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeC
 	pi, err := kdht.FindPeer(findCtx, targetPeerID)
 	findCancel()
 	if err != nil {
-		// Peer not in DHT — try connecting via relay
+		// Peer not in DHT  - try connecting via relay
 		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
 			return fmt.Errorf("failed to add relay addresses: %w", err)
 		}

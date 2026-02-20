@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=notify
 WatchdogSec=90
 
-# Run as the user who owns the repo — NEVER as root
+# Run as the user who owns the repo - NEVER as root
 # Change this to your username:
 User=YOUR_USERNAME
 Group=YOUR_USERNAME
@@ -16,7 +16,7 @@ Group=YOUR_USERNAME
 # Change this to your actual path:
 WorkingDirectory=/home/YOUR_USERNAME/peer-up/relay-server
 
-# Single binary — relay mode
+# Single binary - relay mode
 ExecStart=/home/YOUR_USERNAME/peer-up/relay-server/peerup relay serve
 
 Restart=always
@@ -29,7 +29,7 @@ LimitNOFILE=65536
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
-# Security hardening — restrict what the service can do
+# Security hardening - restrict what the service can do
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only

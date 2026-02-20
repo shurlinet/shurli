@@ -105,7 +105,7 @@ func runProxy(args []string) {
 	}
 
 	// Bootstrap DHT for direct connection discovery (DCUtR hole-punching).
-	// This runs in the background — if it finds the target peer's direct
+	// This runs in the background  - if it finds the target peer's direct
 	// addresses, libp2p will prefer them over the relay circuit.
 	fmt.Println("Bootstrapping DHT for direct connection discovery...")
 	kdht, err := dht.New(ctx, h,
@@ -159,7 +159,7 @@ func runProxy(args []string) {
 			wg.Wait()
 			fmt.Printf("Connected to %d bootstrap peers\n", connected.Load())
 
-			// Try to find target peer's addresses via DHT (async — doesn't block proxy startup)
+			// Try to find target peer's addresses via DHT (async  - doesn't block proxy startup)
 			go func() {
 				findCtx, findCancel := context.WithTimeout(ctx, 30*time.Second)
 				defer findCancel()
@@ -168,7 +168,7 @@ func runProxy(args []string) {
 					log.Printf("DHT peer discovery: target not found (using relay)")
 					return
 				}
-				log.Printf("DHT found target peer with %d addresses — direct connection possible", len(pi.Addrs))
+				log.Printf("DHT found target peer with %d addresses  - direct connection possible", len(pi.Addrs))
 				// Add discovered addresses to peerstore so libp2p can try direct connection
 				h.Peerstore().AddAddrs(pi.ID, pi.Addrs, time.Hour)
 			}()
@@ -213,7 +213,7 @@ func runProxy(args []string) {
 	if err := listener.Serve(); err != nil {
 		select {
 		case <-shutdownCh:
-			// Intentional shutdown — don't log the accept error
+			// Intentional shutdown  - don't log the accept error
 		default:
 			log.Printf("Listener stopped: %v", err)
 		}

@@ -214,10 +214,10 @@ func EnforceCommitConfirmed(ctx context.Context, configPath string, deadline tim
 
 	select {
 	case <-ctx.Done():
-		// Context cancelled (shutdown or confirm called) — nothing to do
+		// Context cancelled (shutdown or confirm called) - nothing to do
 		return
 	case <-timer.C:
-		slog.Warn("commit-confirmed timeout — reverting config",
+		slog.Warn("commit-confirmed timeout - reverting config",
 			"config", configPath,
 			"deadline", deadline.Format(time.RFC3339))
 		if err := revertPending(configPath); err != nil {

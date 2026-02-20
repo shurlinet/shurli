@@ -358,7 +358,7 @@ func TestEnforceCommitConfirmedWriterShortTimer(t *testing.T) {
 	exitCode.Store(-1)
 	exitFunc := func(code int) { exitCode.Store(int32(code)) }
 
-	// Short but future deadline — exercises the timer path (not the already-passed path)
+	// Short but future deadline - exercises the timer path (not the already-passed path)
 	deadline := time.Now().Add(50 * time.Millisecond)
 	done := make(chan struct{})
 	go func() {

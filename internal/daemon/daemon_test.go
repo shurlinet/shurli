@@ -68,7 +68,7 @@ func TestGenerateCookie(t *testing.T) {
 		t.Errorf("expected 64-char hex token, got %d chars", len(token))
 	}
 
-	// Generate another — should be different
+	// Generate another - should be different
 	token2, err := generateCookie()
 	if err != nil {
 		t.Fatalf("second generateCookie failed: %v", err)
@@ -269,7 +269,7 @@ func TestServerStaleSocketDetection(t *testing.T) {
 	rt := newMockRuntime()
 	srv := NewServer(rt, socketPath, cookiePath, "test")
 
-	// Should succeed — stale socket is detected and removed
+	// Should succeed - stale socket is detected and removed
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start with stale socket should succeed: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestClientIntegration(t *testing.T) {
 	// ShutdownCh should be closed shortly
 	select {
 	case <-srv.ShutdownCh():
-		// Good — shutdown was signaled
+		// Good - shutdown was signaled
 	case <-time.After(2 * time.Second):
 		t.Fatal("ShutdownCh was not closed after shutdown request")
 	}
@@ -686,7 +686,7 @@ func TestNetworkClientIntegration(t *testing.T) {
 		}
 	})
 
-	// --- Shutdown (last — signals stop) ---
+	// --- Shutdown (last - signals stop) ---
 	t.Run("Shutdown", func(t *testing.T) {
 		if err := client.Shutdown(); err != nil {
 			t.Fatalf("Shutdown: %v", err)

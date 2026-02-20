@@ -103,12 +103,12 @@ audit_user() {
     case "$PASS_STATUS" in
         P)  echo "  [OK]   Password is set (can use sudo)" ;;
         L)
-            echo "  [FIX]  Password is locked — cannot use sudo"
+            echo "  [FIX]  Password is locked  - cannot use sudo"
             echo "         Set a password now:"
             passwd "$TARGET"
             ;;
         NP)
-            echo "  [FIX]  No password set — cannot use sudo"
+            echo "  [FIX]  No password set  - cannot use sudo"
             echo "         Set a password now:"
             passwd "$TARGET"
             ;;
@@ -245,11 +245,11 @@ create_secure_user() {
     # SSH daemon hardening
     echo
     echo "  SSH daemon hardening:"
-    echo "    PasswordAuthentication no  — key-only SSH login"
-    echo "    PermitRootLogin no         — block root SSH access"
+    echo "    PasswordAuthentication no   - key-only SSH login"
+    echo "    PermitRootLogin no          - block root SSH access"
     echo
     if [ "$HAS_SSH_KEYS" = true ]; then
-        echo "  SSH keys are in place — safe to harden."
+        echo "  SSH keys are in place  - safe to harden."
         read -p "  Apply SSH hardening? [Y/n] " RESP
         RESP=${RESP:-Y}
     else
@@ -270,7 +270,7 @@ create_secure_user() {
         echo "  *** CRITICAL: Test SSH in a NEW terminal before closing this session! ***"
         echo "  ssh $NEW_USER@${VPS_IP:-YOUR_VPS_IP}"
     else
-        echo "  Skipped — apply manually later in /etc/ssh/sshd_config"
+        echo "  Skipped  - apply manually later in /etc/ssh/sshd_config"
     fi
 
     echo
@@ -279,14 +279,14 @@ create_secure_user() {
 }
 
 # ============================================================
-# Root handler — create/select service user or allow --check/--uninstall
+# Root handler  - create/select service user or allow --check/--uninstall
 # ============================================================
 if [ "$CURRENT_USER" = "root" ]; then
     # --check and --uninstall are safe to run as root
     if [ "$1" = "--check" ] || [ "$1" = "--uninstall" ]; then
         : # fall through to handlers below
     else
-        echo "=== Running as root — service user setup ==="
+        echo "=== Running as root  - service user setup ==="
         echo
         echo "The relay server must NOT run as root."
         echo "Let's set up a proper service user first."
@@ -358,7 +358,7 @@ if [ "$CURRENT_USER" = "root" ]; then
 fi
 
 # ============================================================
-# Health check function — verifies everything is correct
+# Health check function  - verifies everything is correct
 # ============================================================
 run_check() {
     echo "=== peer-up Relay Server Health Check ==="
@@ -385,13 +385,13 @@ run_check() {
     if [ -f "$RELAY_DIR/peerup" ]; then
         check_pass "peerup binary exists"
     else
-        check_fail "peerup binary not found — run: go build -o relay-server/peerup ./cmd/peerup"
+        check_fail "peerup binary not found  - run: go build -o relay-server/peerup ./cmd/peerup"
     fi
 
     if [ -x "$RELAY_DIR/peerup" ]; then
         check_pass "peerup is executable"
     elif [ -f "$RELAY_DIR/peerup" ]; then
-        check_fail "peerup is not executable — run: chmod 700 peerup"
+        check_fail "peerup is not executable  - run: chmod 700 peerup"
     fi
     echo
 
@@ -405,7 +405,7 @@ run_check() {
             if echo "$RELAY_INFO" | grep -q 'Connection gating: enabled'; then
                 check_pass "Connection gating is ENABLED"
             else
-                check_fail "Connection gating is DISABLED — any peer can use your relay!"
+                check_fail "Connection gating is DISABLED  - any peer can use your relay!"
                 echo "         Fix: set enable_connection_gating: true in relay-server.yaml"
             fi
         else
@@ -420,7 +420,7 @@ run_check() {
             check_warn "relay-server.yaml permissions: $PERMS (expected 600)"
         fi
     else
-        check_fail "relay-server.yaml not found — copy from configs/relay-server.sample.yaml"
+        check_fail "relay-server.yaml not found  - copy from configs/relay-server.sample.yaml"
     fi
     echo
 
@@ -453,7 +453,7 @@ run_check() {
         if [ "$PEER_COUNT" -gt 0 ] 2>/dev/null; then
             check_pass "$PEER_COUNT authorized peer(s) configured"
         else
-            check_warn "relay_authorized_keys is empty — no peers can connect"
+            check_warn "relay_authorized_keys is empty  - no peers can connect"
         fi
 
         PERMS=$(stat -c '%a' "$RELAY_DIR/relay_authorized_keys" 2>/dev/null || stat -f '%Lp' "$RELAY_DIR/relay_authorized_keys" 2>/dev/null)
@@ -496,7 +496,7 @@ run_check() {
     if [ -n "$SVC_USER" ] && [ "$SVC_USER" != "root" ]; then
         check_pass "Service runs as non-root user: $SVC_USER"
     elif [ "$SVC_USER" = "root" ]; then
-        check_fail "Service runs as root — update the service file"
+        check_fail "Service runs as root  - update the service file"
     fi
     echo
 
@@ -518,7 +518,7 @@ run_check() {
         if [ "$WS_PORT_OWNER" = "peerup" ]; then
             check_pass "Port $WS_PORT TCP is listening (WebSocket anti-censorship)"
         elif [ -n "$WS_PORT_OWNER" ]; then
-            check_fail "Port $WS_PORT is used by '$WS_PORT_OWNER' — conflicts with WebSocket transport"
+            check_fail "Port $WS_PORT is used by '$WS_PORT_OWNER'  - conflicts with WebSocket transport"
             ALT_PORT=$(find_available_port 8443 9443 8080 8444 8445 9090)
             echo "         Options:"
             echo "           a) Stop $WS_PORT_OWNER: sudo systemctl stop $WS_PORT_OWNER"
@@ -566,7 +566,7 @@ run_check() {
             echo "         Consider: sudo ufw enable"
         fi
     else
-        check_warn "UFW not installed — verify firewall manually"
+        check_warn "UFW not installed  - verify firewall manually"
     fi
     echo
 
@@ -610,7 +610,7 @@ run_check() {
     fi
     echo
 
-    # --- Connection Info (from Go binary — derived from key, not parsed from logs) ---
+    # --- Connection Info (from Go binary  - derived from key, not parsed from logs) ---
     echo "Connection info:"
     if [ -n "$RELAY_INFO" ]; then
         PEER_ID=$(echo "$RELAY_INFO" | grep '^Peer ID:' | cut -d' ' -f3)
@@ -719,7 +719,7 @@ if [ "$1" = "--uninstall" ]; then
             run_sudo ufw delete allow "${WS_CLEANUP_PORT}/tcp" > /dev/null 2>&1 && echo "  Removed ${WS_CLEANUP_PORT}/tcp rule (WebSocket)" || true
         done
     else
-        echo "  UFW not found — remove port 7777 rules from your firewall manually"
+        echo "  UFW not found  - remove port 7777 rules from your firewall manually"
     fi
     echo
 
@@ -794,7 +794,7 @@ version_ge() {
 }
 
 if ! command -v go &> /dev/null; then
-    echo "[1/8] Go not found — installing go${GO_MIN_VERSION}..."
+    echo "[1/8] Go not found  - installing go${GO_MIN_VERSION}..."
     INSTALL_GO=true
 else
     CURRENT_GO=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?')
@@ -807,7 +807,7 @@ else
         if [[ "$REPLY" =~ ^[Yy]$ ]]; then
             INSTALL_GO=true
         else
-            echo "  Skipped — build may fail if Go ${CURRENT_GO} cannot compile this project."
+            echo "  Skipped  - build may fail if Go ${CURRENT_GO} cannot compile this project."
         fi
     else
         echo "[1/8] Go already installed: go${CURRENT_GO} (minimum: go${GO_MIN_VERSION})"
@@ -903,11 +903,11 @@ if command -v ufw &> /dev/null; then
                 # Find an available alternative port dynamically
                 ALT_PORT=$(find_available_port 8443 9443 8080 8444 8445 9090)
                 if [ -t 0 ]; then
-                    # Interactive — let the user choose
+                    # Interactive  - let the user choose
                     echo "  Options:"
                     echo "    1) Keep port $WS_PORT (you plan to stop $WS_PORT_OWNER yourself)"
                     if [ -n "$ALT_PORT" ]; then
-                        echo "    2) Switch to port $ALT_PORT (available now — updates relay-server.yaml)"
+                        echo "    2) Switch to port $ALT_PORT (available now  - updates relay-server.yaml)"
                     fi
                     echo "    3) Skip WebSocket setup for now"
                     echo
@@ -934,10 +934,10 @@ if command -v ufw &> /dev/null; then
                             ;;
                     esac
                 else
-                    # Non-interactive (piped/scripted) — open the configured port and warn
+                    # Non-interactive (piped/scripted)  - open the configured port and warn
                     run_sudo ufw allow "${WS_PORT}/tcp" comment 'peer-up relay WebSocket' > /dev/null 2>&1 || true
                     echo "  UFW: port $WS_PORT TCP open (WebSocket)"
-                    echo "  [WARN] Port $WS_PORT is held by $WS_PORT_OWNER — peerup relay won't bind until it's freed"
+                    echo "  [WARN] Port $WS_PORT is held by $WS_PORT_OWNER  - peerup relay won't bind until it's freed"
                     if [ -n "$ALT_PORT" ]; then
                         echo "         Alternative: change tcp/$WS_PORT/ws to tcp/$ALT_PORT/ws in relay-server.yaml"
                     fi
@@ -949,7 +949,7 @@ if command -v ufw &> /dev/null; then
         fi
     fi
 else
-    echo "  UFW not found — manually open port 7777 TCP+UDP in your firewall"
+    echo "  UFW not found  - manually open port 7777 TCP+UDP in your firewall"
 fi
 echo
 
@@ -976,7 +976,7 @@ if ! go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COM
             go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COMMIT -X main.buildDate=$BUILD_DATE" -o "$RELAY_DIR/peerup" ./cmd/peerup
             echo "  Built: $RELAY_DIR/peerup ($BUILD_VERSION)"
         else
-            echo "  Aborting — cannot continue without a successful build."
+            echo "  Aborting  - cannot continue without a successful build."
             exit 1
         fi
     else
@@ -996,7 +996,7 @@ if ! go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COM
             go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COMMIT -X main.buildDate=$BUILD_DATE" -o "$RELAY_DIR/peerup" ./cmd/peerup
             echo "  Built: $RELAY_DIR/peerup ($BUILD_VERSION)"
         else
-            echo "  Aborting — cannot continue without a successful build."
+            echo "  Aborting  - cannot continue without a successful build."
             exit 1
         fi
     fi
@@ -1028,7 +1028,7 @@ echo
 # --- 7. Install systemd service ---
 echo "[8/8] Installing systemd service..."
 
-# Generate service file from the template — single source of truth.
+# Generate service file from the template  - single source of truth.
 # The template uses YOUR_USERNAME and /home/YOUR_USERNAME/... placeholders.
 # Order matters: replace full paths first (they contain YOUR_USERNAME),
 # then replace the remaining YOUR_USERNAME in User=/Group= lines.
