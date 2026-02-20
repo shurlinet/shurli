@@ -6,6 +6,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
 - [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
@@ -47,11 +48,13 @@ peer-up/
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
-│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close
+│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close + byte counting
 │   ├── naming.go            # Local name resolution (name → peer ID)
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── metrics.go           # Prometheus metrics (custom registry, all peerup collectors)
+│   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
 │
 ├── internal/
@@ -70,6 +73,7 @@ peer-up/
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
 │   │   ├── server.go           # Unix socket HTTP server, cookie auth, proxy tracking
 │   │   ├── handlers.go         # HTTP handlers, format negotiation (JSON + text)
+│   │   ├── middleware.go       # HTTP instrumentation (request timing, path sanitization)
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
@@ -325,6 +329,47 @@ Long-running commands (`daemon`, `proxy`, `relay serve`) handle `SIGINT`/`SIGTER
 ### Atomic Counters
 
 Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) use `atomic.Int32` instead of bare `int` to prevent data races.
+
+### Observability (Batch H)
+
+> **Status: Implemented** - opt-in Prometheus metrics + structured audit logging.
+
+All observability features are disabled by default and opt-in via config:
+
+```yaml
+telemetry:
+  metrics:
+    enabled: true
+    listen_address: "127.0.0.1:9091"
+  audit:
+    enabled: true
+```
+
+**Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom peerup metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
+
+Custom peerup metrics:
+- `peerup_proxy_bytes_total{direction, service}` - bytes transferred through proxy
+- `peerup_proxy_connections_total{service}` - proxy connections established
+- `peerup_proxy_active_connections{service}` - currently active proxy sessions
+- `peerup_proxy_duration_seconds{service}` - proxy session duration
+- `peerup_auth_decisions_total{decision}` - auth allow/deny counts
+- `peerup_holepunch_total{result}` - hole punch success/failure
+- `peerup_holepunch_duration_seconds{result}` - hole punch timing
+- `peerup_daemon_requests_total{method, path, status}` - API request counts
+- `peerup_daemon_request_duration_seconds{method, path, status}` - API latency
+- `peerup_info{version, go_version}` - build information
+
+**Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
+
+**Daemon Middleware** (`internal/daemon/middleware.go`): Wraps the HTTP handler chain (outside auth middleware) to capture request timing and status codes. Path parameters are sanitized (e.g., `/v1/auth/12D3KooW...` becomes `/v1/auth/:id`) to prevent high cardinality in metrics labels.
+
+**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/p2pnet`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
+
+**Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
+
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+
+**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
 
 ---
 

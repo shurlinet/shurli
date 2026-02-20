@@ -3,7 +3,7 @@ title: "Quick Start"
 weight: 1
 description: "Get two devices connected with peer-up in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."
 ---
-<!-- Auto-synced from README.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from README.md by sync-docs.sh  - do not edit directly -->
 
 
 ## Path A: Joining someone's network

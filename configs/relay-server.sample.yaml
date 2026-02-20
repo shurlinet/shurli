@@ -64,3 +64,13 @@ security:
 # health:
 #   enabled: true
 #   listen_address: "127.0.0.1:9090"
+
+# Observability (disabled by default, opt-in)
+# When both health and metrics are enabled, /metrics shares the health endpoint.
+# When only metrics is enabled, it starts its own HTTP server.
+# telemetry:
+#   metrics:
+#     enabled: true
+#     listen_address: "127.0.0.1:9091"  # Prometheus /metrics endpoint
+#   audit:
+#     enabled: true  # Structured JSON audit events to stderr

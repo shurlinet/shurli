@@ -61,6 +61,52 @@ func BidirectionalProxy(a, b HalfCloseConn, logPrefix string) {
 	b.Close()
 }
 
+// countingConn wraps a HalfCloseConn to count bytes transferred via Prometheus metrics.
+type countingConn struct {
+	HalfCloseConn
+	metrics   *Metrics
+	service   string
+	direction string // "rx" or "tx"
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.HalfCloseConn.Read(p)
+	if n > 0 {
+		c.metrics.ProxyBytesTotal.WithLabelValues(c.direction, c.service).Add(float64(n))
+	}
+	return n, err
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.HalfCloseConn.Write(p)
+	if n > 0 {
+		c.metrics.ProxyBytesTotal.WithLabelValues(c.direction, c.service).Add(float64(n))
+	}
+	return n, err
+}
+
+// InstrumentedBidirectionalProxy wraps BidirectionalProxy with metrics.
+// When metrics is nil, it delegates directly to BidirectionalProxy.
+func InstrumentedBidirectionalProxy(a, b HalfCloseConn, service string, metrics *Metrics) {
+	if metrics == nil {
+		BidirectionalProxy(a, b, service)
+		return
+	}
+
+	metrics.ProxyConnectionsTotal.WithLabelValues(service).Inc()
+	metrics.ProxyActiveConns.WithLabelValues(service).Inc()
+	start := time.Now()
+
+	defer func() {
+		metrics.ProxyActiveConns.WithLabelValues(service).Dec()
+		metrics.ProxyDurationSeconds.WithLabelValues(service).Observe(time.Since(start).Seconds())
+	}()
+
+	ca := &countingConn{HalfCloseConn: a, metrics: metrics, service: service, direction: "rx"}
+	cb := &countingConn{HalfCloseConn: b, metrics: metrics, service: service, direction: "tx"}
+	BidirectionalProxy(ca, cb, service)
+}
+
 // ProxyStreamToTCP creates a bidirectional proxy between a libp2p stream and a local TCP service.
 func ProxyStreamToTCP(stream network.Stream, tcpAddr string) error {
 	tcpConn, err := net.DialTimeout("tcp", tcpAddr, 10*time.Second)

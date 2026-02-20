@@ -3,7 +3,7 @@ title: "Network Tools"
 weight: 2
 description: "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
 ---
-<!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs.sh  - do not edit directly -->
 
 
 peer-up provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
@@ -84,7 +84,7 @@ protocols:
     enabled: false   # silently drop ping requests
 ```
 
-When disabled, the peer doesn't register the ping-pong stream handler. Pings will time out, same behavior as a firewall dropping ICMP.
+When disabled, the peer doesn't register the ping-pong stream handler. Pings will time out - same behavior as a firewall dropping ICMP.
 
 ### How It Works
 

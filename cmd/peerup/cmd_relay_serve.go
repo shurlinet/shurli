@@ -227,38 +227,76 @@ func runRelayServe(args []string) {
 		},
 	})
 
+	// Initialize relay observability (opt-in)
+	var relayMetrics *p2pnet.Metrics
+	if cfg.Telemetry.Metrics.Enabled {
+		relayMetrics = p2pnet.NewMetrics(version, runtime.Version())
+		slog.Info("telemetry: metrics enabled", "addr", cfg.Telemetry.Metrics.ListenAddress)
+	}
+	var relayAudit *p2pnet.AuditLogger
+	if cfg.Telemetry.Audit.Enabled {
+		relayAudit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		slog.Info("telemetry: audit logging enabled")
+	}
+
+	// Wire auth decision callback on relay gater
+	if gater != nil && (relayMetrics != nil || relayAudit != nil) {
+		gater.SetDecisionCallback(func(peerID, result string) {
+			if relayMetrics != nil {
+				relayMetrics.AuthDecisionsTotal.WithLabelValues(result).Inc()
+			}
+			if relayAudit != nil {
+				relayAudit.AuthDecision(peerID, "inbound", result)
+			}
+		})
+	}
+
 	// Start /healthz HTTP endpoint if enabled.
 	// Security: only exposes operational status (no peer IDs, versions, or protocol lists).
 	// Default listen address is 127.0.0.1:9090 (localhost-only), but if configured to
 	// bind externally, we validate that the source IP is loopback to prevent information leakage.
 	var healthServer *http.Server
-	if cfg.Health.Enabled {
+	if cfg.Health.Enabled || relayMetrics != nil {
 		startTime := time.Now()
 		mux := http.NewServeMux()
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-			// Reject non-loopback sources when bound to a non-loopback address
-			host, _, _ := net.SplitHostPort(r.RemoteAddr)
-			if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"status":          "ok",
-				"uptime_seconds":  int(time.Since(startTime).Seconds()),
-				"connected_peers": len(h.Network().Peers()),
+
+		if cfg.Health.Enabled {
+			mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+				// Reject non-loopback sources when bound to a non-loopback address
+				host, _, _ := net.SplitHostPort(r.RemoteAddr)
+				if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":          "ok",
+					"uptime_seconds":  int(time.Since(startTime).Seconds()),
+					"connected_peers": len(h.Network().Peers()),
+				})
 			})
-		})
+		}
+
+		if relayMetrics != nil {
+			mux.Handle("/metrics", relayMetrics.Handler())
+		}
+
+		// Use metrics listen address when health is not enabled
+		listenAddr := cfg.Health.ListenAddress
+		if !cfg.Health.Enabled && relayMetrics != nil {
+			listenAddr = cfg.Telemetry.Metrics.ListenAddress
+		}
+
 		healthServer = &http.Server{
-			Addr:         cfg.Health.ListenAddress,
+			Addr:         listenAddr,
 			Handler:      mux,
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 5 * time.Second,
 		}
 		go func() {
-			slog.Info("health endpoint started", "addr", cfg.Health.ListenAddress)
+			slog.Info("HTTP endpoint started", "addr", listenAddr)
 			if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				slog.Error("health endpoint error", "err", err)
+				slog.Error("HTTP endpoint error", "err", err)
 			}
 		}()
 	}

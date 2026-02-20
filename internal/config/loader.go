@@ -53,6 +53,7 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Protocols ProtocolsConfig `yaml:"protocols"`
 		Services  ServicesConfig  `yaml:"services,omitempty"`
 		Names     NamesConfig     `yaml:"names,omitempty"`
+		Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	}
 
 	if err := yaml.Unmarshal(data, &rawConfig); err != nil {
@@ -83,11 +84,14 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Protocols: rawConfig.Protocols,
 		Services:  rawConfig.Services,
 		Names:     rawConfig.Names,
+		Telemetry: rawConfig.Telemetry,
 		Relay: RelayConfig{
 			Addresses:           rawConfig.Relay.Addresses,
 			ReservationInterval: reservationInterval,
 		},
 	}
+
+	applyTelemetryDefaults(&config.Telemetry)
 
 	return config, nil
 }
@@ -172,6 +176,8 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 	if config.Health.Enabled && config.Health.ListenAddress == "" {
 		config.Health.ListenAddress = "127.0.0.1:9090"
 	}
+
+	applyTelemetryDefaults(&config.Telemetry)
 
 	return &config, nil
 }
@@ -376,6 +382,13 @@ func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
 	}
 	if rc.SessionDataLimit == "" {
 		rc.SessionDataLimit = defaults.SessionDataLimit
+	}
+}
+
+// applyTelemetryDefaults fills default values for telemetry config when enabled.
+func applyTelemetryDefaults(tc *TelemetryConfig) {
+	if tc.Metrics.Enabled && tc.Metrics.ListenAddress == "" {
+		tc.Metrics.ListenAddress = "127.0.0.1:9091"
 	}
 }
 

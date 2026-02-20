@@ -11,6 +11,7 @@ Everything you need to know about peer-up, from getting started to deep architec
   {{< card link="faq" title="FAQ" subtitle="Security, comparisons, troubleshooting" icon="question-mark-circle" >}}
   {{< card link="trust" title="Trust & Security" subtitle="Threat model, vuln reporting, audit history" icon="shield-check" >}}
   {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay server" icon="server" >}}
+  {{< card link="monitoring" title="Monitoring" subtitle="Prometheus, Grafana, and audit logging" icon="chart-bar" >}}
   {{< card link="daemon-api" title="Daemon API" subtitle="REST API reference for the daemon" icon="terminal" >}}
   {{< card link="architecture" title="Architecture" subtitle="How peer-up works under the hood" icon="cube" >}}
   {{< card link="roadmap" title="Roadmap" subtitle="Multi-phase implementation plan" icon="map" >}}

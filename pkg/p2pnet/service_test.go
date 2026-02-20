@@ -14,7 +14,7 @@ func newTestHost(t *testing.T) *ServiceRegistry {
 		t.Fatalf("create host: %v", err)
 	}
 	t.Cleanup(func() { h.Close() })
-	return NewServiceRegistry(h)
+	return NewServiceRegistry(h, nil)
 }
 
 func TestNewServiceRegistry(t *testing.T) {

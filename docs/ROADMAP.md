@@ -208,7 +208,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
-| H | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
+| H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
 
 **Deliverables**:
 
@@ -262,13 +262,22 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] TCP dial timeout - `net.DialTimeout("tcp", addr, 10s)` for local service connections (serve side and proxy side). `ConnectToService()` uses 30s context timeout for P2P stream dial.
 - [x] Fix data race in bootstrap peer counter (`atomic.Int32`)
 
-**Observability** (Batch H):
-- [ ] OpenTelemetry integration - instrument key paths with traces and metrics (invite/join flow, proxy setup, relay connection). Users pick their backend (Jaeger, Honeycomb, Prometheus, etc.)
-- [ ] Metrics export - peer count, proxy throughput, relay latency, connection counts, stream utilization
-- [ ] Connection quality scoring - per-path metrics (latency, jitter, throughput, stability) for direct, relayed, and multi-relay paths. Exposed via `peerup status --health` and daemon API
-- [ ] Hole-punch success tracking - record success/failure/elapsed for every DCUtR attempt. Aggregate into `peerup status` summary (success rate, average RTT, failure reasons). Feeds connection quality scoring
-- [ ] Audit logging - every peer auth decision logged with peer ID, action, timestamp, result (structured JSON for SIEM integration)
-- [ ] Trace correlation IDs - propagate through relay path for debugging multi-hop connections
+**Observability** (Batch H): ✅ DONE
+
+Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, zero new dependencies, ~zero binary size impact):
+- [x] Prometheus `/metrics` endpoint - opt-in via `telemetry.metrics.enabled` config, disabled by default. Daemon: separate TCP listener (`127.0.0.1:9091`). Relay: added to existing `/healthz` mux. `libp2p.DisableMetrics()` called when off to save CPU
+- [x] libp2p built-in metrics exposed - swarm connections, hole-punch success/failure, autorelay reservations, AutoNAT reachability, Identify exchanges, resource manager limits, relay service stats. Free from libp2p, just needs `/metrics` endpoint
+- [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
+- [x] Custom peerup metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
+- [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
+- [x] Grafana dashboard - pre-built JSON dashboard with 12 panels covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+
+Deferred from original Batch H scope (with reasoning):
+- ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
+- ~~Connection quality scoring~~ - Moved to Batch I (Adaptive Path Selection). Needs the metrics data Batch H provides before path intelligence can be built
+- ~~Trace correlation IDs~~ - Deferred to future. 35% CPU overhead from distributed tracing span management not justified for P2P tool where network is the bottleneck. Revisit when OTel Go SDK has zero-cost path
+- ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
+- ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -1096,8 +1105,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-20
-**Current Phase**: 4C Complete (Batches A–G all shipped, tested, merged to main)
-**Phase count**: 4C–4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch H (Observability) - OpenTelemetry, metrics, connection quality scoring, hole-punch tracking, audit logging
+**Last Updated**: 2026-02-21
+**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main)
+**Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
+**Next Milestone**: Phase 4C Batch I (Adaptive Path Selection) - multi-interface probing, IPv6, relay elimination
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete

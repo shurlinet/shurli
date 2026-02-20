@@ -37,11 +37,12 @@ DOC_MAP=(
   ["FAQ.md"]="faq.md:3:FAQ"
   # weight 4 = Trust & Security (standalone page, not synced from docs/)
   # weight 5 = Relay Setup (synced separately via sync_relay_setup)
-  ["DAEMON-API.md"]="daemon-api.md:6:Daemon API"
-  ["ARCHITECTURE.md"]="architecture.md:7:Architecture"
-  ["ROADMAP.md"]="roadmap.md:8:Roadmap"
-  ["TESTING.md"]="testing.md:9:Testing"
-  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:10:Engineering Journal"
+  ["MONITORING.md"]="monitoring.md:6:Monitoring"
+  ["DAEMON-API.md"]="daemon-api.md:7:Daemon API"
+  ["ARCHITECTURE.md"]="architecture.md:8:Architecture"
+  ["ROADMAP.md"]="roadmap.md:9:Roadmap"
+  ["TESTING.md"]="testing.md:10:Testing"
+  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:11:Engineering Journal"
 )
 
 # SEO descriptions for each synced page
@@ -49,6 +50,7 @@ declare -A DESC_MAP
 DESC_MAP=(
   ["NETWORK-TOOLS.md"]="P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
   ["FAQ.md"]="How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."
+  ["MONITORING.md"]="Set up Prometheus and Grafana to visualize peer-up metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
   ["DAEMON-API.md"]="REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
   ["ARCHITECTURE.md"]="Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
   ["ROADMAP.md"]="Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."
@@ -231,6 +233,7 @@ generate_llms_full() {
   local -a doc_order=(
     "NETWORK-TOOLS.md"
     "FAQ.md"
+    "MONITORING.md"
     "DAEMON-API.md"
     "ARCHITECTURE.md"
     "ROADMAP.md"

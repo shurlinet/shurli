@@ -3,10 +3,10 @@ title: "FAQ"
 weight: 3
 description: "How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."
 ---
-<!-- Auto-synced from docs/FAQ.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/FAQ.md by sync-docs.sh  - do not edit directly -->
 
 
-> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves, and details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
+> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
 
 ## How does peer-up compare to Tailscale?
 
@@ -143,7 +143,7 @@ These are not competitors but useful reference points - their P2P stacks solve d
 
 | Network | P2P Stack | Discovery | NAT Traversal | Encryption | Key Insight |
 |---------|-----------|-----------|---------------|------------|-------------|
-| **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023, was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
+| **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023 - was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
 | **Ethereum (execution)** | devp2p / RLPx | discv5 (UDP) | None (public IPs expected) | ECIES | Legacy layer, pre-Merge |
 | **Ethereum (consensus)** | **libp2p** (same as peer-up) | discv5 (chose over Kademlia) | Minimal | Noise protocol | Validates libp2p for critical infrastructure |
 | **Filecoin** | libp2p | Kademlia DHT | Circuit relay | Noise / TLS 1.3 | Largest libp2p deployment by data volume |
@@ -265,7 +265,7 @@ The port the lighthouse tells Peer B to use was allocated for the lighthouse con
 
 The only area where alternatives genuinely outperform Circuit Relay v2:
 - **Connection speed**: Iroh (1-3s) and Tailscale (<1s) are faster than Circuit Relay v2 (5-15s) due to persistent relay connections
-- **Hole-punch success for regular NAT**: Iroh (~90%) and Tailscale (~92%) beat DCUtR (~70%), but this doesn't matter for symmetric NAT
+- **Hole-punch success for regular NAT**: Iroh (~90%) and Tailscale (~92%) beat DCUtR (~70%) - but this doesn't matter for symmetric NAT
 
 For Starlink CGNAT with a self-hosted relay, Circuit Relay v2 is **functionally equivalent** to Iroh and Tailscale in relay quality.
 
@@ -389,7 +389,7 @@ Bitcoin's P2P protocol has **less overhead per message**, but it can't do what p
 
 ### Why Bitcoin P2P is "faster"
 
-It's simpler, not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It's lean because it *trusts nothing* at the network layer - blocks are verified cryptographically after receipt anyway.
+It's simpler - not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It's lean because it *trusts nothing* at the network layer - blocks are verified cryptographically after receipt anyway.
 
 ### Why it doesn't matter for peer-up
 
@@ -420,7 +420,7 @@ Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 b
 
 ### Bottom line
 
-Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption, and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
+Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption - and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
 
 ---
 
@@ -550,7 +550,7 @@ This complements the userspace hardening (Resource Manager, per-peer limits) wit
 
 **The problem**: When a laptop switches from WiFi to cellular (or WiFi flickers), all TCP connections through the proxy drop. The user must wait for reconnection (5-15 seconds with Circuit Relay v2).
 
-**The solution**: QUIC 0-RTT session resumption. The client caches a session ticket from the previous connection. On reconnect, it sends encrypted data in the very first packet, before the server even processes the handshake.
+**The solution**: QUIC 0-RTT session resumption. The client caches a session ticket from the previous connection. On reconnect, it sends encrypted data in the very first packet - before the server even processes the handshake.
 
 **Who has this**: Cloudflare's MASQUE relays, QUIC-native applications.
 **Who doesn't**: WireGuard (stateless, reconnects fast but not 0-RTT), all current P2P tunnel tools.
@@ -654,7 +654,7 @@ No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum
 
 This is the most important security question for peer-up's future. The short answer: **yes, with Circuit Relay v2's built-in protections, a home node can safely relay traffic for authorized peers without increasing its attack surface.**
 
-Here's the full breakdown, because "trust us" is not a security argument.
+Here's the full breakdown - because "trust us" is not a security argument.
 
 ### What "acting as a relay" actually means
 
@@ -705,7 +705,7 @@ This concern has two parts:
 - **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
-The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS, and arguably less, since the VPS has no auth requirement for relay service.
+The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS - and arguably less, since the VPS has no auth requirement for relay service.
 
 ### What your relay CANNOT be used for
 
@@ -731,7 +731,7 @@ A peer-up relay with `require_auth` is fundamentally different:
 | **Discovery** | Port scanning, Shodan, service-specific gossip | Private - only authorized peers know about it |
 | **Attack surface** | Full protocol parser (HTTP, SSH, etc.) | ConnectionGater rejection (zero protocol parsing for unauthorized) |
 
-An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key, and even then, it only passes sealed envelopes.
+An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key - and even then, it only passes sealed envelopes.
 
 ### Comparison with other relay architectures
 
@@ -770,7 +770,7 @@ Yes. NAT traversal success depends heavily on what the NAT device does, and rout
 
 FreeBSD's packet filter (PF) now has an `endpoint-independent` NAT option for UDP. This makes the NAT behave as "full cone" - the mapped port stays the same regardless of destination. Full-cone NATs have near-100% hole-punch success because both peers can predict each other's mapped ports.
 
-**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior, and peer-up's DCUtR success rate improves automatically without any code changes.
+**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior - and peer-up's DCUtR success rate improves automatically without any code changes.
 
 **What to watch**: OPNsense releases, pfSense updates, and any Linux `nftables` equivalent. If this pattern spreads to consumer routers, the percentage of "hard NAT" cases (endpoint-dependent mapping) shrinks organically.
 

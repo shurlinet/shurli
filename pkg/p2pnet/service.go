@@ -51,14 +51,17 @@ type ServiceConn interface {
 type ServiceRegistry struct {
 	host     host.Host
 	services map[string]*Service
+	metrics  *Metrics // nil when metrics disabled
 	mu       sync.RWMutex
 }
 
-// NewServiceRegistry creates a new service registry
-func NewServiceRegistry(h host.Host) *ServiceRegistry {
+// NewServiceRegistry creates a new service registry.
+// Pass nil for metrics to disable instrumentation.
+func NewServiceRegistry(h host.Host, metrics *Metrics) *ServiceRegistry {
 	return &ServiceRegistry{
 		host:     h,
 		services: make(map[string]*Service),
+		metrics:  metrics,
 	}
 }
 
@@ -121,8 +124,8 @@ func (r *ServiceRegistry) handleServiceStream(svc *Service) func(network.Stream)
 			return
 		}
 
-		// Bidirectional proxy with half-close propagation
-		BidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name)
+		// Bidirectional proxy with half-close propagation and optional metrics
+		InstrumentedBidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name, r.metrics)
 
 		slog.Info("closed connection", "service", svc.Name, "peer", short)
 	}

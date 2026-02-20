@@ -1,0 +1,152 @@
+package p2pnet
+
+import (
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Metrics holds all custom peerup Prometheus metrics.
+// Uses an isolated prometheus.Registry so peerup metrics don't collide
+// with the global default registry. Each test gets its own Metrics instance.
+type Metrics struct {
+	Registry *prometheus.Registry
+
+	// Proxy metrics
+	ProxyBytesTotal       *prometheus.CounterVec
+	ProxyConnectionsTotal *prometheus.CounterVec
+	ProxyActiveConns      *prometheus.GaugeVec
+	ProxyDurationSeconds  *prometheus.HistogramVec
+
+	// Auth metrics
+	AuthDecisionsTotal *prometheus.CounterVec
+
+	// Hole punch metrics (enhanced from existing holePunchTracer)
+	HolePunchTotal           *prometheus.CounterVec
+	HolePunchDurationSeconds *prometheus.HistogramVec
+
+	// Daemon API metrics
+	DaemonRequestsTotal          *prometheus.CounterVec
+	DaemonRequestDurationSeconds *prometheus.HistogramVec
+
+	// Build info
+	BuildInfo *prometheus.GaugeVec
+}
+
+// NewMetrics creates a new Metrics instance with all collectors registered
+// on an isolated registry. The version and goVersion are recorded as labels
+// on the peerup_info gauge.
+func NewMetrics(version, goVersion string) *Metrics {
+	reg := prometheus.NewRegistry()
+
+	// Standard Go runtime + process metrics
+	reg.MustRegister(prometheus.NewGoCollector())
+	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+
+	m := &Metrics{
+		Registry: reg,
+
+		ProxyBytesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_proxy_bytes_total",
+				Help: "Total bytes transferred through proxy connections.",
+			},
+			[]string{"direction", "service"},
+		),
+		ProxyConnectionsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_proxy_connections_total",
+				Help: "Total number of proxy connections established.",
+			},
+			[]string{"service"},
+		),
+		ProxyActiveConns: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_proxy_active_connections",
+				Help: "Number of currently active proxy connections.",
+			},
+			[]string{"service"},
+		),
+		ProxyDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "peerup_proxy_duration_seconds",
+				Help:    "Duration of proxy connections in seconds.",
+				Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1s to ~1h
+			},
+			[]string{"service"},
+		),
+
+		AuthDecisionsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_auth_decisions_total",
+				Help: "Total number of authentication decisions.",
+			},
+			[]string{"decision"},
+		),
+
+		HolePunchTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_holepunch_total",
+				Help: "Total number of hole punch attempts.",
+			},
+			[]string{"result"},
+		),
+		HolePunchDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "peerup_holepunch_duration_seconds",
+				Help:    "Duration of hole punch attempts in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.01, 2, 10), // 10ms to ~10s
+			},
+			[]string{"result"},
+		),
+
+		DaemonRequestsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_daemon_requests_total",
+				Help: "Total number of daemon API requests.",
+			},
+			[]string{"method", "path", "status"},
+		),
+		DaemonRequestDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "peerup_daemon_request_duration_seconds",
+				Help:    "Duration of daemon API requests in seconds.",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"method", "path", "status"},
+		),
+
+		BuildInfo: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_info",
+				Help: "Build information for the running peerup instance.",
+			},
+			[]string{"version", "go_version"},
+		),
+	}
+
+	// Register all collectors
+	reg.MustRegister(
+		m.ProxyBytesTotal,
+		m.ProxyConnectionsTotal,
+		m.ProxyActiveConns,
+		m.ProxyDurationSeconds,
+		m.AuthDecisionsTotal,
+		m.HolePunchTotal,
+		m.HolePunchDurationSeconds,
+		m.DaemonRequestsTotal,
+		m.DaemonRequestDurationSeconds,
+		m.BuildInfo,
+	)
+
+	// Set build info gauge (always 1, labels carry the data)
+	m.BuildInfo.WithLabelValues(version, goVersion).Set(1)
+
+	return m
+}
+
+// Handler returns an http.Handler that serves the Prometheus metrics endpoint.
+func (m *Metrics) Handler() http.Handler {
+	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{})
+}

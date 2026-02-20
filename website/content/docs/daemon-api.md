@@ -1,9 +1,9 @@
 ---
 title: "Daemon API"
-weight: 6
+weight: 7
 description: "REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
 ---
-<!-- Auto-synced from docs/DAEMON-API.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/DAEMON-API.md by sync-docs.sh  - do not edit directly -->
 
 
 The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.
@@ -744,8 +744,8 @@ print(f"Peers: {data['data']['connected_peers']}")
 1. Generate 32-byte random hex token
 2. Write token to `~/.config/peerup/.daemon-cookie` (`0600`)
 3. Check for stale socket - dial the existing socket:
-   - Connection succeeds -> another daemon is alive -> return `ErrDaemonAlreadyRunning`
-   - Connection fails -> stale socket -> remove it and proceed
+   - Connection succeeds → another daemon is alive → return `ErrDaemonAlreadyRunning`
+   - Connection fails → stale socket → remove it and proceed
 4. Create Unix socket at `~/.config/peerup/peerup.sock`
 5. Set socket permissions to `0600`
 6. Start HTTP server on the socket

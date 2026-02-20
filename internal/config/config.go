@@ -19,6 +19,7 @@ type HomeNodeConfig struct {
 	Protocols ProtocolsConfig `yaml:"protocols"`
 	Services  ServicesConfig  `yaml:"services,omitempty"`
 	Names     NamesConfig     `yaml:"names,omitempty"`
+	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 }
 
 // ClientNodeConfig represents configuration for the client node
@@ -40,6 +41,25 @@ type RelayServerConfig struct {
 	Security  RelaySecurityConfig  `yaml:"security"`
 	Resources RelayResourcesConfig `yaml:"resources,omitempty"`
 	Health    HealthConfig         `yaml:"health,omitempty"`
+	Telemetry TelemetryConfig      `yaml:"telemetry,omitempty"`
+}
+
+// TelemetryConfig holds observability settings.
+// All features are disabled by default (opt-in).
+type TelemetryConfig struct {
+	Metrics MetricsConfig `yaml:"metrics,omitempty"`
+	Audit   AuditConfig   `yaml:"audit,omitempty"`
+}
+
+// MetricsConfig controls Prometheus metrics exposure.
+type MetricsConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	ListenAddress string `yaml:"listen_address"` // default: "127.0.0.1:9091"
+}
+
+// AuditConfig controls structured audit logging.
+type AuditConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // HealthConfig holds HTTP health check endpoint configuration.

@@ -1538,6 +1538,352 @@ peer-up already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests
 
 ---
 
+# Monitoring with Prometheus and Grafana
+
+This guide walks you through setting up Prometheus and Grafana to visualize peer-up metrics. By the end, you'll have a live dashboard showing proxy throughput, auth decisions, hole punch stats, API latency, and system health.
+
+![Monitoring stack - peer-up nodes scraped by Prometheus, visualized in Grafana](images/monitoring-stack.svg)
+
+## Prerequisites
+
+- peer-up running with telemetry enabled
+- Docker (recommended) or local Prometheus + Grafana installs
+
+## Step 1: Enable telemetry in peer-up
+
+Add this to your `peerup.yaml` (or relay config):
+
+```yaml
+telemetry:
+  metrics:
+    enabled: true
+    listen_address: "127.0.0.1:9091"
+  audit:
+    enabled: true
+```
+
+Restart the daemon. Verify metrics are being served:
+
+```bash
+curl http://127.0.0.1:9091/metrics
+```
+
+You should see output starting with `# HELP` and `# TYPE` lines, followed by metric values. Both custom `peerup_*` metrics and libp2p built-in metrics (`libp2p_*`) will appear.
+
+> **Relay server**: When both `health.enabled` and `telemetry.metrics.enabled` are set, the relay adds `/metrics` to its existing `/healthz` HTTP mux. No extra port needed.
+
+## Step 2: Set up Prometheus
+
+### Option A: Docker (recommended)
+
+Create a `prometheus.yml` config file:
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'peerup'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+        labels:
+          instance: 'home-node'
+```
+
+> Replace `host.docker.internal` with the actual IP if not running on the same machine. Use `172.17.0.1` on Linux.
+
+Run Prometheus:
+
+```bash
+docker run -d \
+  --name prometheus \
+  -p 9090:9090 \
+  -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
+  prom/prometheus
+```
+
+Verify at `http://localhost:9090/targets` - the peerup target should show as **UP**.
+
+### Option B: Local install
+
+Download from [prometheus.io/download](https://prometheus.io/download/), add the same `prometheus.yml` config, and run `./prometheus --config.file=prometheus.yml`.
+
+### Scraping multiple nodes
+
+Add each peer-up instance as a separate target:
+
+```yaml
+scrape_configs:
+  - job_name: 'peerup'
+    static_configs:
+      - targets: ['10.0.1.50:9091']
+        labels:
+          instance: 'home-node'
+      - targets: ['10.0.1.51:9091']
+        labels:
+          instance: 'client-node'
+  - job_name: 'peerup-relay'
+    static_configs:
+      - targets: ['relay.example.com:9091']
+        labels:
+          instance: 'relay'
+```
+
+## Step 3: Set up Grafana
+
+### Docker
+
+```bash
+docker run -d \
+  --name grafana \
+  -p 3000:3000 \
+  grafana/grafana
+```
+
+Open `http://localhost:3000` (default login: `admin` / `admin`).
+
+### Add Prometheus as a data source
+
+1. Go to **Connections > Data sources > Add data source**
+2. Select **Prometheus**
+3. Set URL to `http://host.docker.internal:9090` (or `http://172.17.0.1:9090` on Linux)
+4. Click **Save & test**
+
+## Step 4: Import the peer-up dashboard
+
+1. Go to **Dashboards > Import**
+2. Click **Upload dashboard JSON file**
+3. Select `grafana/peerup-dashboard.json` from the peer-up repository
+4. Select your Prometheus data source when prompted
+5. Click **Import**
+
+You'll immediately see the dashboard with 16 panels across 5 sections.
+
+## Dashboard sections
+
+![Observability data flow - from metric sources through Prometheus registry to /metrics endpoint](images/observability-flow.svg)
+
+### Overview
+
+Six stat panels showing the essentials at a glance:
+
+- **Version** - which peer-up version is running
+- **Uptime** - how long the daemon has been running
+- **Active Proxy Connections** - current session count
+- **Total Connections** - lifetime connection count
+- **Total Bytes Transferred** - all proxy traffic
+- **Auth Allow / Deny** - cumulative auth decisions
+
+### Proxy Throughput
+
+Track how your services are performing:
+
+- **Throughput (bytes/sec)** - ingress and egress per service (ssh, xrdp, ollama, etc.)
+- **Active Connections** - live gauge per service
+- **Connection Rate** - new connections per second
+- **Connection Duration** - p50, p95, p99 percentiles per service
+
+### Security
+
+Monitor access control:
+
+- **Auth Decisions Rate** - allow/deny per second (deny spikes = something probing your node)
+- **Auth Decisions (Cumulative)** - total allow vs deny count
+
+### Hole Punch (NAT Traversal)
+
+Understand your NAT traversal success:
+
+- **Hole Punch Attempts** - success vs failure count over time
+- **Success Rate** - gauge showing what percentage of hole punches succeed (green > 70%, orange > 50%, red < 50%)
+- **Hole Punch Duration** - p50 and p95 timing (tells you how long direct connection setup takes)
+
+### Daemon API
+
+API health and latency:
+
+- **Request Rate** - requests per second by endpoint path
+- **Request Latency** - p50 and p95 response times by path
+- **Requests by Status Code** - 200/404/500 breakdown (4xx in orange, 5xx in red)
+
+### System
+
+Go runtime health:
+
+- **Memory Usage** - heap in-use, system allocated, RSS
+- **Goroutines** - should be stable (a leak shows as continuous growth)
+- **GC Rate** - garbage collection cycles per second
+- **Open File Descriptors** - current vs max (hitting max = connection failures)
+- **CPU Usage** - process CPU utilization
+
+## Available metrics reference
+
+### Custom peerup metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `peerup_proxy_bytes_total` | Counter | direction, service | Bytes transferred through proxy |
+| `peerup_proxy_connections_total` | Counter | service | Connections established |
+| `peerup_proxy_active_connections` | Gauge | service | Currently active connections |
+| `peerup_proxy_duration_seconds` | Histogram | service | Connection session duration |
+| `peerup_auth_decisions_total` | Counter | decision | Auth allow/deny counts |
+| `peerup_holepunch_total` | Counter | result | Hole punch success/failure |
+| `peerup_holepunch_duration_seconds` | Histogram | result | Hole punch attempt duration |
+| `peerup_daemon_requests_total` | Counter | method, path, status | API request counts |
+| `peerup_daemon_request_duration_seconds` | Histogram | method, path, status | API request latency |
+| `peerup_info` | Gauge | version, go_version | Build information |
+
+### libp2p built-in metrics (free, no extra code)
+
+When metrics are enabled, all libp2p instrumentation appears automatically:
+
+- `libp2p_swarm_connections_*` - connections by transport and direction
+- `libp2p_holepunch_*` - hole punch protocol events
+- `libp2p_autorelay_*` - relay reservation status
+- `libp2p_autonat_*` - NAT reachability detection
+- `libp2p_autonatv2_*` - per-address reachability (v2)
+- `libp2p_identify_*` - peer identification events
+- `libp2p_rcmgr_*` - resource manager limits and usage
+- `libp2p_relaysvc_*` - relay service stats (relay server only)
+
+### Go runtime metrics
+
+Standard Go collectors are registered automatically:
+
+- `go_goroutines` - current goroutine count
+- `go_memstats_alloc_bytes` - heap allocation
+- `go_gc_duration_seconds` - GC pause times
+- `process_cpu_seconds_total` - CPU usage
+- `process_open_fds` / `process_max_fds` - file descriptors
+- `process_resident_memory_bytes` - RSS
+
+## Audit logging
+
+When `telemetry.audit.enabled` is set, security events are logged as structured JSON to stderr:
+
+```json
+{"time":"2026-02-21T10:30:00Z","level":"WARN","msg":"auth_decision","audit":{"peer":"12D3KooW...","direction":"inbound","result":"deny"}}
+{"time":"2026-02-21T10:30:01Z","level":"INFO","msg":"daemon_api_access","audit":{"method":"GET","path":"/v1/status","status":200}}
+```
+
+### Event types
+
+| Event | Level | Fields | When |
+|-------|-------|--------|------|
+| `auth_decision` | INFO/WARN | peer, direction, result | Every inbound connection (WARN for deny) |
+| `service_acl_deny` | WARN | peer, service | Peer authorized but blocked by per-service ACL |
+| `daemon_api_access` | INFO | method, path, status | Every daemon API request |
+| `auth_change` | INFO | action, peer | Peer added or removed via API |
+
+### Sending audit logs to a log aggregator
+
+Since audit events go to stderr, you can pipe them to any log collector:
+
+**systemd journal** (default when running as a service):
+```bash
+journalctl -u peerup-daemon -o json | jq 'select(.MESSAGE | contains("audit"))'
+```
+
+**File output**:
+```bash
+peerup daemon 2> /var/log/peerup-audit.json
+```
+
+**Loki / Promtail**: Point Promtail at the journal or log file, filter on `audit` field presence.
+
+## Docker Compose (all-in-one)
+
+For a quick local stack with Prometheus + Grafana + peer-up metrics:
+
+```yaml
+services:
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:
+```
+
+Start with `docker compose up -d`, then import the dashboard at `http://localhost:3000`.
+
+## Useful PromQL queries
+
+**Proxy throughput over last hour:**
+```promql
+sum(rate(peerup_proxy_bytes_total[1h])) by (service, direction)
+```
+
+**Hole punch success rate (last 24h):**
+```promql
+sum(peerup_holepunch_total{result="success"}) / sum(peerup_holepunch_total)
+```
+
+**Top API endpoints by latency (p95):**
+```promql
+histogram_quantile(0.95, sum by (le, path) (rate(peerup_daemon_request_duration_seconds_bucket[5m])))
+```
+
+**Auth deny rate (should be near zero for a healthy node):**
+```promql
+rate(peerup_auth_decisions_total{decision="deny"}[5m])
+```
+
+**Memory trend:**
+```promql
+process_resident_memory_bytes
+```
+
+## Alerting examples
+
+If you use Grafana alerting or Alertmanager, here are useful alert rules:
+
+```yaml
+# Too many auth denials (possible scanning/attack)
+- alert: HighAuthDenyRate
+  expr: rate(peerup_auth_decisions_total{decision="deny"}[5m]) > 1
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "High auth denial rate on {{ $labels.instance }}"
+
+# Hole punch success rate dropping
+- alert: LowHolePunchSuccess
+  expr: sum(peerup_holepunch_total{result="success"}) / sum(peerup_holepunch_total) < 0.5
+  for: 15m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Hole punch success rate below 50% on {{ $labels.instance }}"
+
+# File descriptor exhaustion approaching
+- alert: FileDescriptorHigh
+  expr: process_open_fds / process_max_fds > 0.8
+  for: 5m
+  labels:
+    severity: critical
+  annotations:
+    summary: "File descriptors at {{ $value | humanizePercentage }} on {{ $labels.instance }}"
+```
+
+
+---
+
 # Daemon API Reference
 
 The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.
@@ -2315,6 +2661,7 @@ This document describes the technical architecture of peer-up, from current impl
 
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
 - [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
@@ -2356,11 +2703,13 @@ peer-up/
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
-│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close
+│   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close + byte counting
 │   ├── naming.go            # Local name resolution (name → peer ID)
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── metrics.go           # Prometheus metrics (custom registry, all peerup collectors)
+│   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
 │
 ├── internal/
@@ -2379,6 +2728,7 @@ peer-up/
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
 │   │   ├── server.go           # Unix socket HTTP server, cookie auth, proxy tracking
 │   │   ├── handlers.go         # HTTP handlers, format negotiation (JSON + text)
+│   │   ├── middleware.go       # HTTP instrumentation (request timing, path sanitization)
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
@@ -2635,6 +2985,47 @@ Long-running commands (`daemon`, `proxy`, `relay serve`) handle `SIGINT`/`SIGTER
 
 Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) use `atomic.Int32` instead of bare `int` to prevent data races.
 
+### Observability (Batch H)
+
+> **Status: Implemented** - opt-in Prometheus metrics + structured audit logging.
+
+All observability features are disabled by default and opt-in via config:
+
+```yaml
+telemetry:
+  metrics:
+    enabled: true
+    listen_address: "127.0.0.1:9091"
+  audit:
+    enabled: true
+```
+
+**Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom peerup metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
+
+Custom peerup metrics:
+- `peerup_proxy_bytes_total{direction, service}` - bytes transferred through proxy
+- `peerup_proxy_connections_total{service}` - proxy connections established
+- `peerup_proxy_active_connections{service}` - currently active proxy sessions
+- `peerup_proxy_duration_seconds{service}` - proxy session duration
+- `peerup_auth_decisions_total{decision}` - auth allow/deny counts
+- `peerup_holepunch_total{result}` - hole punch success/failure
+- `peerup_holepunch_duration_seconds{result}` - hole punch timing
+- `peerup_daemon_requests_total{method, path, status}` - API request counts
+- `peerup_daemon_request_duration_seconds{method, path, status}` - API latency
+- `peerup_info{version, go_version}` - build information
+
+**Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
+
+**Daemon Middleware** (`internal/daemon/middleware.go`): Wraps the HTTP handler chain (outside auth middleware) to capture request timing and status codes. Path parameters are sanitized (e.g., `/v1/auth/12D3KooW...` becomes `/v1/auth/:id`) to prevent high cardinality in metrics labels.
+
+**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/p2pnet`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
+
+**Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
+
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+
+**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
+
 ---
 
 ## Core Concepts
@@ -2745,24 +3136,24 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 
 ### Per-Service Authorization
 
-> **Status: Planned** - not yet implemented. Currently, all authorized peers can access all exposed services. Per-service access control is a deferred Phase 4C item. See [Roadmap](ROADMAP.md).
+> **Status: Implemented** (Pre-Batch H)
+
+Each service can optionally restrict access to specific peer IDs via `allowed_peers`. When set, only listed peers can connect to that service. When omitted (nil), all globally authorized peers can access it.
 
 ```yaml
-# home-node.yaml (planned config format)
-security:
-  authorized_keys_file: "authorized_keys"  # Global default
-
 services:
   ssh:
     enabled: true
     local_address: "localhost:22"
-    authorized_keys: "ssh_authorized_keys"  # Override (planned)
+    allowed_peers: ["12D3KooW..."]  # Only these peers can access SSH
 
   web:
     enabled: true
     local_address: "localhost:80"
-    # Uses global authorized_keys
+    # No allowed_peers = all authorized peers can access
 ```
+
+The ACL check runs in the stream handler before dialing the local TCP service, so rejected peers never trigger a connection to the backend.
 
 ### Federation Trust Model
 
@@ -2942,11 +3333,15 @@ Validated at four points:
 - ✅ OOM via unbounded stream reads (512-byte buffer limits)
 - ✅ Symlink attacks on temp files (os.CreateTemp with random suffix)
 - ✅ Multiaddr injection in config (validated before writing)
+- ✅ Per-service access control (AllowedPeers ACL on each service)
+- ✅ Host resource exhaustion (libp2p ResourceManager with auto-scaled limits)
+- ✅ SYN/UDP flood on relay (iptables rate limiting, SYN cookies, conntrack tuning)
+- ✅ IP spoofing on relay (reverse path filtering via rp_filter)
+- ✅ Runaway relay process (systemd cgroup limits: memory, CPU, tasks)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
 - ❌ Peer key compromise (users must secure private keys)
-- ❌ DoS attacks (rate limiting planned for future)
 
 ### Best Practices
 
@@ -3204,7 +3599,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 ### Phase 4C: Core Hardening & Security
 
 **Timeline**: 6-8 weeks (batched)
-**Status**: ✅ Batches A–G Complete (6 items deferred to future batches)
+**Status**: ✅ Batches A–G Complete, Pre-Batch H security hardening shipped (2 items deferred to future batches)
 
 **Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically - before wider distribution puts binaries in more hands.
 
@@ -3220,17 +3615,17 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | ✅ DONE |
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
-| H | **Observability** | OpenTelemetry, metrics, audit logging, trace IDs |
+| H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
 
 **Deliverables**:
 
 **Security (Critical)**:
 - [x] Relay resource limits - replace `WithInfiniteLimits()` with configurable `WithResources()` + `WithLimit()`. Defaults tuned for SSH/XRDP (10min sessions, 64MB data). Configurable via `resources:` section in relay-server.yaml.
 - [x] Auth hot-reload - daemon API `POST /v1/auth` and `DELETE /v1/auth/{peer_id}` reload `authorized_keys` at runtime. `GaterReloader` interface updates ConnectionGater in-place. *(Batch F)*
-- [ ] Per-service access control - allow granting specific peers access to specific services only. Critical when home node acts as LAN gateway (e.g., `local_address: "192.168.0.5:22"` exposes another machine's SSH). Config supports per-service `authorized_keys` override. CLI: `peerup service acl <name> add/remove <peer-id>`. Without this, every authorized peer can reach every service.
-- [ ] Rate limiting on incoming connections and streams - leverage go-libp2p's built-in per-IP rate limiting (1 connection per 5s default, 16-burst). Add per-peer stream throttling.
-- [ ] QUIC source address verification - validate peer source IPs aren't spoofed, prevents relay from being used as DDoS reflector (built into quic-go v0.54.0+)
-- [ ] OS-level rate limiting - iptables/nftables rules in `setup.sh` (SYN flood protection, `--connlimit-above` per source IP)
+- [x] Per-service access control - `AllowedPeers` field on each service restricts which peers can connect. Config supports per-service `allowed_peers` list. nil = all authorized peers allowed (backward compatible). ACL check runs before TCP dial. *(Pre-Batch H)*
+- [x] Rate limiting on incoming connections and streams - libp2p ResourceManager enabled (auto-scaled connection/stream/memory limits). Always-on for relay server; opt-in for home/client nodes via `resource_limits_enabled`. OS-level: iptables SYN flood protection (50/s) and UDP rate limiting (200/s) in setup.sh. *(Pre-Batch H)*
+- [x] QUIC source address verification - reverse path filtering (rp_filter=1) enabled in setup.sh, SYN cookies for TCP flood protection. *(Pre-Batch H)*
+- [x] OS-level rate limiting - iptables rules in `setup.sh` (TCP SYN 50/s burst 100, UDP 200/s burst 500), conntrack tuning (131072 max, tw_reuse, fin_timeout=30s), systemd cgroup limits (MemoryMax=512M, CPUQuota=200%, TasksMax=4096). *(Pre-Batch H)*
 - [x] Config file permissions - write with 0600 (not 0644) *(done in Phase 4B)*
 - [x] Key file permission check on load - refuse to load keys with permissions wider than 0600 (actionable error message with `chmod` fix)
 - [x] Service name validation - DNS-label format enforced (1-63 lowercase alphanumeric + hyphens), prevents protocol ID injection
@@ -3274,13 +3669,22 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] TCP dial timeout - `net.DialTimeout("tcp", addr, 10s)` for local service connections (serve side and proxy side). `ConnectToService()` uses 30s context timeout for P2P stream dial.
 - [x] Fix data race in bootstrap peer counter (`atomic.Int32`)
 
-**Observability** (Batch H):
-- [ ] OpenTelemetry integration - instrument key paths with traces and metrics (invite/join flow, proxy setup, relay connection). Users pick their backend (Jaeger, Honeycomb, Prometheus, etc.)
-- [ ] Metrics export - peer count, proxy throughput, relay latency, connection counts, stream utilization
-- [ ] Connection quality scoring - per-path metrics (latency, jitter, throughput, stability) for direct, relayed, and multi-relay paths. Exposed via `peerup status --health` and daemon API
-- [ ] Hole-punch success tracking - record success/failure/elapsed for every DCUtR attempt. Aggregate into `peerup status` summary (success rate, average RTT, failure reasons). Feeds connection quality scoring
-- [ ] Audit logging - every peer auth decision logged with peer ID, action, timestamp, result (structured JSON for SIEM integration)
-- [ ] Trace correlation IDs - propagate through relay path for debugging multi-hop connections
+**Observability** (Batch H): ✅ DONE
+
+Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, zero new dependencies, ~zero binary size impact):
+- [x] Prometheus `/metrics` endpoint - opt-in via `telemetry.metrics.enabled` config, disabled by default. Daemon: separate TCP listener (`127.0.0.1:9091`). Relay: added to existing `/healthz` mux. `libp2p.DisableMetrics()` called when off to save CPU
+- [x] libp2p built-in metrics exposed - swarm connections, hole-punch success/failure, autorelay reservations, AutoNAT reachability, Identify exchanges, resource manager limits, relay service stats. Free from libp2p, just needs `/metrics` endpoint
+- [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
+- [x] Custom peerup metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
+- [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
+- [x] Grafana dashboard - pre-built JSON dashboard with 12 panels covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+
+Deferred from original Batch H scope (with reasoning):
+- ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
+- ~~Connection quality scoring~~ - Moved to Batch I (Adaptive Path Selection). Needs the metrics data Batch H provides before path intelligence can be built
+- ~~Trace correlation IDs~~ - Deferred to future. 35% CPU overhead from distributed tracing span management not justified for P2P tool where network is the bottleneck. Revisit when OTel Go SDK has zero-cost path
+- ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
+- ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -3941,6 +4345,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 **Status**: 📋 Conceptual
 
 **Potential Features**:
+- [ ] Multi-lingual website and documentation (Hugo i18n). Priority languages: Spanish, Chinese (Simplified), Hindi, Portuguese, Japanese, French, German. Community-contributed translations welcome.
 - [ ] Web-based dashboard for network management
 - [ ] Protocol marketplace (community-contributed service templates)
 - [ ] Performance monitoring and analytics (Prometheus metrics)
@@ -4107,10 +4512,10 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-20
-**Current Phase**: 4C Complete (Batches A–G all shipped, tested, merged to main)
-**Phase count**: 4C–4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch H (Observability) - OpenTelemetry, metrics, connection quality scoring, hole-punch tracking, audit logging
+**Last Updated**: 2026-02-21
+**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main)
+**Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
+**Next Milestone**: Phase 4C Batch I (Adaptive Path Selection) - multi-interface probing, IPv6, relay elimination
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete
 
 
@@ -5184,6 +5589,58 @@ The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cook
 **Consequences**: Adds time between batches, but catches real issues. The audit that found the pion/dtls nonce-reuse CVE justified the entire protocol - that vulnerability could have compromised encrypted relay traffic.
 
 **Reference**: Audit findings tracked in project memory, fixes in commit `83d02d3`
+
+---
+
+## Batch H: Observability
+
+### ADR-H01: Prometheus over OpenTelemetry
+
+**Context**: Batch H adds metrics and audit logging. The original roadmap said "OpenTelemetry integration." Research revealed that libp2p v0.47.0 emits metrics natively via `prometheus/client_golang`, not OpenTelemetry.
+
+**Alternatives considered**:
+- **OpenTelemetry SDK** - Industry standard, supports traces + metrics + logs. Rejected because: +4MB binary size, 35% CPU overhead from span management on every stream, and libp2p already speaks Prometheus natively. Adding OTel would require a translation layer (Prometheus -> OTel) for zero benefit.
+- **OpenTelemetry bridge only** (`go.opentelemetry.io/contrib/bridges/prometheus`) - Forward Prometheus metrics to OTel backends. Deferred to a future release when users request it. The bridge can be added later without changing any instrumentation code.
+- **StatsD/Graphite** - Simpler push model. Rejected because Prometheus is already in our dependency tree as an indirect dep of libp2p.
+
+**Decision**: Use `prometheus/client_golang` directly with an isolated `prometheus.Registry`. When metrics enabled, pass the registry to libp2p via `libp2p.PrometheusRegisterer(reg)` to get all built-in libp2p metrics for free. When disabled, call `libp2p.DisableMetrics()` for zero overhead.
+
+**Consequences**: No distributed tracing (deferred). No OTLP export (can be added via bridge later). Binary size increase: ~1MB (28MB total). Any Prometheus-compatible tool (Grafana, Datadog, etc.) works out of the box.
+
+**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/network.go`
+
+---
+
+### ADR-H02: Nil-Safe Observability Pattern
+
+**Context**: Metrics and audit logging are opt-in. Every call site that records a metric or audit event needs to work correctly when observability is disabled.
+
+**Alternatives considered**:
+- **Feature flags with conditional compilation** - Build tags to exclude metrics code entirely. Rejected because it creates two binaries with different behavior, complicating testing.
+- **No-op implementations** (interface-based) - Create `NullMetrics` / `NullAuditLogger` implementations. More idiomatic but adds interface overhead and boilerplate.
+- **Global singleton with init check** - Single global metrics instance. Rejected to maintain testability (isolated registries per test).
+
+**Decision**: Nil pointer checks at every call site. `*Metrics` and `*AuditLogger` are nil when disabled. All methods on `AuditLogger` check `if a == nil { return }`. Metrics call sites check `if metrics != nil` before recording. The `InstrumentHandler` middleware returns the handler unchanged when both are nil.
+
+**Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
+
+**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`
+
+---
+
+### ADR-H03: Auth Decision Callback (Avoiding Circular Imports)
+
+**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/p2pnet/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/p2pnet`.
+
+**Alternatives considered**:
+- **Move gater to pkg/p2pnet** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
+- **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
+
+**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/peerup/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
+
+**Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
+
+**Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/peerup/serve_common.go`
 
 
 ---

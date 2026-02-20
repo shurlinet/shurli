@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340">
+  <defs>
+    <linearGradient id="peerupFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="promFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b2d1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a1f12;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grafFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="auditFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="760" height="340" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Monitoring Stack</text>
+  <text x="380" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">peer-up + Prometheus + Grafana</text>
+
+  <!-- peer-up nodes (left) -->
+  <text x="30" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" font-weight="600">PEER-UP NODES</text>
+
+  <rect x="20" y="90" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <text x="110" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Home Node (daemon)</text>
+  <text x="110" y="128" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
+
+  <rect x="20" y="152" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <text x="110" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Client Node (daemon)</text>
+  <text x="110" y="190" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
+
+  <rect x="20" y="214" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <text x="110" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Relay Server</text>
+  <text x="110" y="252" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
+
+  <!-- Audit logs (bottom left) -->
+  <rect x="20" y="280" width="180" height="40" rx="6" fill="url(#auditFill)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="110" y="298" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">Audit Logs (JSON)</text>
+  <text x="110" y="312" font-family="ui-monospace, monospace" font-size="8" fill="#9d7cd8" text-anchor="middle">stderr / journalctl</text>
+
+  <!-- Prometheus (center) -->
+  <rect x="270" y="115" width="200" height="100" rx="8" fill="url(#promFill)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="370" y="145" font-family="system-ui, sans-serif" font-size="13" fill="#e0af68" text-anchor="middle" font-weight="700">Prometheus</text>
+  <text x="370" y="163" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">Scrapes /metrics every 15s</text>
+  <text x="370" y="179" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">Stores time-series data</text>
+  <text x="370" y="195" font-family="ui-monospace, monospace" font-size="9" fill="#565f89" text-anchor="middle">localhost:9090</text>
+
+  <!-- Arrows: nodes to Prometheus -->
+  <line x1="200" y1="115" x2="270" y2="150" stroke="#e0af68" stroke-width="1.2"/>
+  <polygon points="267,147 273,150 267,153" fill="#e0af68"/>
+  <line x1="200" y1="177" x2="270" y2="165" stroke="#e0af68" stroke-width="1.2"/>
+  <polygon points="267,162 273,165 267,168" fill="#e0af68"/>
+  <line x1="200" y1="239" x2="270" y2="185" stroke="#e0af68" stroke-width="1.2"/>
+  <polygon points="267,182 273,185 267,188" fill="#e0af68"/>
+
+  <!-- "scrape" label -->
+  <text x="240" y="138" font-family="ui-monospace, monospace" font-size="7" fill="#e0af68" text-anchor="middle" transform="rotate(-12, 240, 138)">scrape</text>
+
+  <!-- Grafana (right) -->
+  <rect x="540" y="100" width="200" height="130" rx="8" fill="url(#grafFill)" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="640" y="128" font-family="system-ui, sans-serif" font-size="13" fill="#7aa2f7" text-anchor="middle" font-weight="700">Grafana</text>
+  <text x="640" y="146" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">Visualize metrics</text>
+  <text x="640" y="162" font-family="ui-monospace, monospace" font-size="9" fill="#565f89" text-anchor="middle">localhost:3000</text>
+
+  <!-- Dashboard sections list -->
+  <text x="555" y="182" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">Overview</text>
+  <text x="555" y="194" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">Proxy Throughput</text>
+  <text x="555" y="206" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">Security</text>
+  <text x="665" y="182" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">Hole Punch</text>
+  <text x="665" y="194" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">Daemon API</text>
+  <text x="665" y="206" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">System</text>
+
+  <!-- Arrow: Prometheus to Grafana -->
+  <line x1="470" y1="165" x2="540" y2="165" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="537,161 543,165 537,169" fill="#7aa2f7"/>
+
+  <!-- "query" label -->
+  <text x="505" y="158" font-family="ui-monospace, monospace" font-size="7" fill="#7aa2f7" text-anchor="middle">PromQL</text>
+
+  <!-- Optional: Loki path from audit logs -->
+  <rect x="270" y="265" width="200" height="50" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="370" y="287" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">Loki / Log Aggregator</text>
+  <text x="370" y="303" font-family="system-ui, sans-serif" font-size="8" fill="#414868" text-anchor="middle">(optional - for audit log search)</text>
+
+  <line x1="200" y1="300" x2="270" y2="290" stroke="#bb9af7" stroke-width="1" stroke-dasharray="4,2"/>
+  <line x1="470" y1="290" x2="540" y2="210" stroke="#414868" stroke-width="1" stroke-dasharray="4,2"/>
+
+  <!-- Legend -->
+  <line x1="555" y1="260" x2="567" y2="260" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="573" y="264" font-family="system-ui, sans-serif" font-size="8" fill="#e0af68">Prometheus scrape</text>
+  <line x1="555" y1="275" x2="567" y2="275" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="573" y="279" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7">Grafana query</text>
+  <line x1="555" y1="290" x2="567" y2="290" stroke="#bb9af7" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="573" y="294" font-family="system-ui, sans-serif" font-size="8" fill="#bb9af7">Audit log flow (optional)</text>
+</svg>

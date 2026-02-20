@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+  <defs>
+    <linearGradient id="boxFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="30" font-family="system-ui, sans-serif" font-size="16" fill="#c0caf5" text-anchor="middle" font-weight="700">Batch H: Observability</text>
+  <text x="350" y="50" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">Prometheus metrics + audit logging, opt-in, zero overhead when off</text>
+
+  <!-- Left column: What we instrument -->
+  <rect x="20" y="70" width="200" height="190" rx="8" fill="#1a1e36" stroke="#3d59a1" stroke-width="1"/>
+  <text x="120" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Instrumented</text>
+
+  <text x="35" y="115" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">proxy</text>
+  <text x="75" y="115" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">bytes, conns, duration</text>
+
+  <text x="35" y="135" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">auth</text>
+  <text x="75" y="135" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">allow/deny decisions</text>
+
+  <text x="35" y="155" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">holepunch</text>
+  <text x="105" y="155" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">success/fail, timing</text>
+
+  <text x="35" y="175" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">daemon API</text>
+  <text x="115" y="175" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">latency, status</text>
+
+  <text x="35" y="200" font-family="ui-monospace, monospace" font-size="9" fill="#565f89">libp2p</text>
+  <text x="80" y="200" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">swarm, rcmgr, autonat</text>
+  <text x="35" y="215" font-family="system-ui, sans-serif" font-size="8" fill="#414868">(free - no extra code needed)</text>
+
+  <text x="120" y="245" font-family="system-ui, sans-serif" font-size="11" fill="#e0af68" text-anchor="middle" font-weight="600">10 custom metrics</text>
+
+  <!-- Center: How it works -->
+  <rect x="250" y="70" width="200" height="190" rx="8" fill="url(#boxFill)" stroke="#73daca" stroke-width="1.5"/>
+  <text x="350" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" text-anchor="middle" font-weight="600">Architecture</text>
+
+  <text x="265" y="115" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Isolated prometheus.Registry</text>
+  <text x="265" y="135" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Nil-safe everywhere</text>
+  <text x="265" y="155" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Callback pattern for auth</text>
+  <text x="265" y="175" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Path sanitization on API</text>
+  <text x="265" y="195" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">slog JSON audit events</text>
+
+  <text x="350" y="225" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Binary: 27MB -> 28MB (+1MB)</text>
+  <text x="350" y="240" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">0 new direct dependencies</text>
+
+  <!-- Right: Output -->
+  <rect x="480" y="70" width="200" height="190" rx="8" fill="#1a1e36" stroke="#e0af68" stroke-width="1"/>
+  <text x="580" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#e0af68" text-anchor="middle" font-weight="600">Output</text>
+
+  <rect x="495" y="105" width="170" height="50" rx="4" fill="#1e2740" stroke="#3d59a1" stroke-width="0.5"/>
+  <text x="580" y="122" font-family="ui-monospace, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle">/metrics</text>
+  <text x="580" y="140" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">127.0.0.1:9091</text>
+  <text x="580" y="152" font-family="system-ui, sans-serif" font-size="8" fill="#414868" text-anchor="middle">Grafana, Datadog, etc.</text>
+
+  <rect x="495" y="165" width="170" height="50" rx="4" fill="#1e2740" stroke="#bb9af7" stroke-width="0.5"/>
+  <text x="580" y="182" font-family="ui-monospace, monospace" font-size="10" fill="#bb9af7" text-anchor="middle">stderr (JSON)</text>
+  <text x="580" y="200" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Audit events</text>
+  <text x="580" y="212" font-family="system-ui, sans-serif" font-size="8" fill="#414868" text-anchor="middle">journalctl, Loki, etc.</text>
+
+  <text x="580" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle">Standard Prometheus format</text>
+
+  <!-- Arrows -->
+  <line x1="220" y1="165" x2="250" y2="165" stroke="#3d59a1" stroke-width="1.5"/>
+  <polygon points="247,161 253,165 247,169" fill="#3d59a1"/>
+  <line x1="450" y1="145" x2="495" y2="130" stroke="#73daca" stroke-width="1.5"/>
+  <polygon points="492,126 498,130 492,134" fill="#73daca"/>
+  <line x1="450" y1="175" x2="495" y2="190" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="492,186 498,190 492,194" fill="#bb9af7"/>
+</svg>

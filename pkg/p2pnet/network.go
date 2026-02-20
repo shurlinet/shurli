@@ -27,8 +27,10 @@ import (
 // giving us our own routing table at /peerup/kad/1.0.0.
 const DHTProtocolPrefix = "/peerup"
 
-// holePunchTracer logs DCUtR hole-punching events.
-type holePunchTracer struct{}
+// holePunchTracer logs DCUtR hole-punching events and records metrics when available.
+type holePunchTracer struct {
+	metrics *Metrics // nil when metrics disabled
+}
 
 // truncateError returns the first line of an error string, capped at 200 chars.
 // libp2p dial errors can be enormous (20+ lines listing every address attempt).
@@ -57,6 +59,14 @@ func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 			slog.Info("hole punch succeeded", "peer", short, "elapsed", e.EllapsedTime)
 		} else {
 			slog.Warn("hole punch failed", "peer", short, "elapsed", e.EllapsedTime, "error", truncateError(e.Error))
+		}
+		if t.metrics != nil {
+			result := "failure"
+			if e.Success {
+				result = "success"
+			}
+			t.metrics.HolePunchTotal.WithLabelValues(result).Inc()
+			t.metrics.HolePunchDurationSeconds.WithLabelValues(result).Observe(e.EllapsedTime.Seconds())
 		}
 	case *holepunch.DirectDialEvt:
 		if e.Success {
@@ -94,6 +104,9 @@ type Config struct {
 
 	// Resource management
 	ResourceLimitsEnabled bool            // Enable libp2p resource manager (connection/stream/memory limits)
+
+	// Observability
+	Metrics *Metrics // Custom peerup metrics (nil = disabled). When non-nil, libp2p metrics are registered on Metrics.Registry.
 }
 
 // New creates a new P2P network instance
@@ -120,6 +133,15 @@ func New(cfg *Config) (*Network, error) {
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
+	}
+
+	// Metrics: when enabled, register libp2p's built-in Prometheus collectors
+	// on our isolated registry. When disabled, turn off libp2p's default metric
+	// collection to avoid CPU overhead from counters nobody reads.
+	if cfg.Metrics != nil {
+		hostOpts = append(hostOpts, libp2p.PrometheusRegisterer(cfg.Metrics.Registry))
+	} else {
+		hostOpts = append(hostOpts, libp2p.DisableMetrics())
 	}
 
 	if cfg.UserAgent != "" {
@@ -149,7 +171,7 @@ func New(cfg *Config) (*Network, error) {
 		}
 
 		if cfg.EnableHolePunching {
-			hostOpts = append(hostOpts, libp2p.EnableHolePunching(holepunch.WithTracer(&holePunchTracer{})))
+			hostOpts = append(hostOpts, libp2p.EnableHolePunching(holepunch.WithTracer(&holePunchTracer{metrics: cfg.Metrics})))
 		}
 
 		if cfg.ForcePrivate {
@@ -162,7 +184,20 @@ func New(cfg *Config) (*Network, error) {
 		limits := rcmgr.DefaultLimits
 		libp2p.SetDefaultServiceLimits(&limits)
 		scaled := limits.AutoScale()
-		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(scaled))
+
+		var rmOpts []rcmgr.Option
+		if cfg.Metrics != nil {
+			// Register rcmgr Prometheus collectors on our registry
+			rcmgr.MustRegisterWith(cfg.Metrics.Registry)
+			str, err := rcmgr.NewStatsTraceReporter()
+			if err != nil {
+				slog.Warn("failed to create rcmgr stats reporter", "error", err)
+			} else {
+				rmOpts = append(rmOpts, rcmgr.WithTraceReporter(str))
+			}
+		}
+
+		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(scaled), rmOpts...)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create resource manager: %w", err)
@@ -197,7 +232,7 @@ func New(cfg *Config) (*Network, error) {
 	net := &Network{
 		host:            h,
 		config:          cfg.Config,
-		serviceRegistry: NewServiceRegistry(h),
+		serviceRegistry: NewServiceRegistry(h, cfg.Metrics),
 		nameResolver:    NewNameResolver(),
 		ctx:             ctx,
 		cancel:          cancel,

@@ -57,5 +57,13 @@ protocols:
 # Map friendly names to peer IDs:
 names: {}
 #  home: "PEER_ID_HERE"
+
+# Observability (disabled by default, opt-in):
+# telemetry:
+#   metrics:
+#     enabled: true
+#     listen_address: "127.0.0.1:9091"
+#   audit:
+#     enabled: true
 `, generator, relayAddr)
 }
