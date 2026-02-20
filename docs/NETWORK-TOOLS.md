@@ -107,6 +107,10 @@ curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
      http://localhost/v1/traceroute
 ```
 
+### Path Visualization
+
+![Traceroute paths: relayed (2 hops via relay with latency) vs direct (1 hop, lower latency)](images/tools-traceroute-paths.svg)
+
 ### Output
 
 **Relayed connection**:

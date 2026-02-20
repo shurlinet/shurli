@@ -1,6 +1,30 @@
 /* peer-up brand customizations */
 
 /* ============================================================ */
+/* Documentation diagrams — consistent SVG image presentation    */
+/* ============================================================ */
+
+.hx-content img[src*="/images/docs/"],
+.hx-content img[src*="images/arch-"],
+.hx-content img[src*="images/faq-"],
+.hx-content img[src*="images/tools-"] {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.5rem auto;
+  border-radius: 12px;
+  border: 1px solid rgba(86, 95, 137, 0.3);
+}
+
+:is(.dark) .hx-content img[src*="/images/docs/"],
+:is(.dark) .hx-content img[src*="images/arch-"],
+:is(.dark) .hx-content img[src*="images/faq-"],
+:is(.dark) .hx-content img[src*="images/tools-"] {
+  border-color: rgba(86, 95, 137, 0.5);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================================ */
 /* Feature card hover effect (existing)                          */
 /* ============================================================ */
 
@@ -100,6 +124,18 @@
   width: 100%;
   margin-top: 4rem;
   margin-bottom: 2rem;
+}
+
+.peerup-section-icon {
+  text-align: center;
+  margin-bottom: 0.5rem;
+  color: #3b82f6;
+  opacity: 0.7;
+}
+
+:is(.dark .peerup-section-icon) {
+  color: #7aa2f7;
+  opacity: 0.8;
 }
 
 .peerup-section-title {

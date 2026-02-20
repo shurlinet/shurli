@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 350" width="800" height="350">
+  <defs>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="350" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Traceroute — Relayed vs Direct Path</text>
+
+  <!-- Divider line -->
+  <line x1="400" y1="45" x2="400" y2="310" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.3"/>
+
+  <!-- ====== LEFT SIDE: RELAYED ====== -->
+  <text x="200" y="55" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" text-anchor="middle" font-weight="600">RELAYED</text>
+  <text x="200" y="70" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">2 hops via relay server</text>
+
+  <!-- You (left) -->
+  <rect x="40" y="95" width="100" height="45" rx="8" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="90" y="117" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">You</text>
+  <text x="90" y="132" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">client node</text>
+
+  <!-- Hop 1 arrow -->
+  <line x1="140" y1="117" x2="185" y2="117" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="181,112 181,122 189,117" fill="#7aa2f7"/>
+
+  <!-- Relay (center-left) -->
+  <rect x="190" y="88" width="120" height="60" rx="8" fill="url(#relayFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="250" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">Hop 1: Relay</text>
+  <text x="250" y="126" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">23.0 ms</text>
+  <text x="250" y="140" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">203.0.113.50:7777</text>
+
+  <!-- Hop 2 arrow -->
+  <line x1="250" y1="148" x2="250" y2="180" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="245,176 255,176 250,184" fill="#7aa2f7"/>
+
+  <!-- Home (bottom-left) -->
+  <rect x="190" y="186" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="250" y="208" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Hop 2: Home</text>
+  <text x="250" y="222" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">45.0 ms</text>
+  <text x="250" y="236" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">via relay</text>
+
+  <!-- Path label -->
+  <rect x="135" y="265" width="230" height="28" rx="6" fill="#1a1e36" stroke="#7aa2f7" stroke-width="0.8" opacity="0.6"/>
+  <text x="250" y="283" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle">path: [RELAYED via relay-server/0.1.0]</text>
+
+  <!-- ====== RIGHT SIDE: DIRECT ====== -->
+  <text x="600" y="55" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle" font-weight="600">DIRECT</text>
+  <text x="600" y="70" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">1 hop (hole-punched or LAN)</text>
+
+  <!-- You (right) -->
+  <rect x="490" y="95" width="100" height="45" rx="8" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="540" y="117" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">You</text>
+  <text x="540" y="132" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">client node</text>
+
+  <!-- Direct arrow -->
+  <line x1="540" y1="140" x2="540" y2="180" stroke="#9ece6a" stroke-width="2.5" filter="url(#glow)"/>
+  <polygon points="535,176 545,176 540,184" fill="#9ece6a"/>
+  <text x="570" y="165" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">2.0 ms</text>
+
+  <!-- Home (right) -->
+  <rect x="490" y="186" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="550" y="208" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Hop 1: Home</text>
+  <text x="550" y="222" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">2.0 ms</text>
+  <text x="550" y="236" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">10.0.1.50:9000</text>
+
+  <!-- Path label -->
+  <rect x="485" y="265" width="170" height="28" rx="6" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8" opacity="0.6"/>
+  <text x="570" y="283" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">path: [DIRECT]</text>
+
+  <!-- Comparison note -->
+  <text x="400" y="325" font-family="system-ui, sans-serif" font-size="10" fill="#a9b1d6" text-anchor="middle">Direct connections have lower latency. If pings start RELAYED and switch to DIRECT, DCUtR hole-punching succeeded.</text>
+</svg>

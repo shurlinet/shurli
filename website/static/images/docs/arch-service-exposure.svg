@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 650 500" width="650" height="500">
+  <defs>
+    <linearGradient id="appFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="registryFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="proxyFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="networkFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="650" height="500" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="280" y="30" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Service Exposure Architecture</text>
+
+  <!-- Layer 1: Application Layer -->
+  <rect x="40" y="48" width="480" height="80" rx="10" fill="url(#appFill)" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="280" y="67" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Application Layer</text>
+
+  <!-- Service boxes -->
+  <rect x="60" y="78" width="90" height="38" rx="6" fill="#1a1e36" stroke="#565f89" stroke-width="1"/>
+  <text x="105" y="95" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">SSH</text>
+  <text x="105" y="109" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">:22</text>
+
+  <rect x="165" y="78" width="90" height="38" rx="6" fill="#1a1e36" stroke="#565f89" stroke-width="1"/>
+  <text x="210" y="95" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">HTTP</text>
+  <text x="210" y="109" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">:80</text>
+
+  <rect x="270" y="78" width="90" height="38" rx="6" fill="#1a1e36" stroke="#565f89" stroke-width="1"/>
+  <text x="315" y="95" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">SMB</text>
+  <text x="315" y="109" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">:445</text>
+
+  <rect x="375" y="78" width="130" height="38" rx="6" fill="#1a1e36" stroke="#565f89" stroke-width="1"/>
+  <text x="440" y="95" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Custom</text>
+  <text x="440" y="109" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">:9999</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="280" y1="128" x2="280" y2="163" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="275,160 285,160 280,168" fill="#7aa2f7"/>
+
+  <!-- Layer 2: Service Registry -->
+  <rect x="40" y="170" width="480" height="90" rx="10" fill="url(#registryFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="280" y="190" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Service Registry</text>
+  <text x="280" y="205" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">pkg/p2pnet/service.go</text>
+
+  <!-- Registry entries -->
+  <text x="100" y="228" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">"ssh"</text>
+  <text x="155" y="228" font-family="SF Mono, monospace" font-size="10" fill="#565f89">→ localhost:22</text>
+  <text x="290" y="228" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">"web"</text>
+  <text x="340" y="228" font-family="SF Mono, monospace" font-size="10" fill="#565f89">→ localhost:80</text>
+  <text x="100" y="248" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">"smb"</text>
+  <text x="155" y="248" font-family="SF Mono, monospace" font-size="10" fill="#565f89">→ localhost:445</text>
+  <text x="290" y="248" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">"custom"</text>
+  <text x="365" y="248" font-family="SF Mono, monospace" font-size="10" fill="#565f89">→ localhost:9999</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="280" y1="260" x2="280" y2="295" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="275,292 285,292 280,300" fill="#bb9af7"/>
+
+  <!-- Layer 3: TCP ↔ Stream Proxy -->
+  <rect x="40" y="302" width="480" height="70" rx="10" fill="url(#proxyFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="280" y="325" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">TCP ↔ Stream Proxy</text>
+  <text x="280" y="340" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">pkg/p2pnet/proxy.go</text>
+  <text x="280" y="360" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">Bidirectional: TCP socket ↔ libp2p stream</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="280" y1="372" x2="280" y2="407" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="275,404 285,404 280,412" fill="#9ece6a"/>
+
+  <!-- Layer 4: libp2p Network -->
+  <rect x="40" y="414" width="480" height="70" rx="10" fill="url(#networkFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="280" y="437" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="600">libp2p Network</text>
+  <text x="280" y="452" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">with authentication (ConnectionGater)</text>
+
+  <!-- Protocol IDs on right side -->
+  <rect x="540" y="170" width="100" height="145" rx="8" fill="#1a1e36" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
+  <text x="590" y="190" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">Protocols</text>
+  <text x="590" y="212" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/ssh/</text>
+  <text x="590" y="224" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
+  <text x="590" y="246" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/http/</text>
+  <text x="590" y="258" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
+  <text x="590" y="280" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/smb/</text>
+  <text x="590" y="292" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
+
+  <!-- Connecting line from protocols to registry -->
+  <line x1="540" y1="240" x2="520" y2="240" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>
+</svg>

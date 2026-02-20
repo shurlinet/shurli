@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 500" width="700" height="500">
+  <defs>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="successFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="denyFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="500" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="30" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Authentication Flow</text>
+
+  <!-- Step 1: Client Attempts Connection -->
+  <rect x="225" y="48" width="250" height="44" rx="10" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="350" y="67" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Client Attempts Connection</text>
+  <text x="350" y="82" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">to Home Node</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="350" y1="92" x2="350" y2="118" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="345,115 355,115 350,123" fill="#7aa2f7"/>
+
+  <!-- Step 2: Transport Handshake -->
+  <rect x="200" y="125" width="300" height="55" rx="10" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="350" y="148" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">libp2p Transport Handshake</text>
+  <text x="350" y="168" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle">Noise protocol · Ed25519 key exchange</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="350" y1="180" x2="350" y2="206" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="345,203 355,203 350,211" fill="#7aa2f7"/>
+
+  <!-- Step 3: ConnectionGater (decision diamond) -->
+  <polygon points="350,213 500,268 350,323 200,268" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="350" y="258" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">ConnectionGater</text>
+  <text x="350" y="274" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">InterceptSecured()</text>
+  <text x="350" y="290" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">peer ID in authorized_keys?</text>
+
+  <!-- Left arrow: Authorized -->
+  <line x1="200" y1="268" x2="110" y2="268" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="115,263 115,273 105,268" fill="#9ece6a"/>
+  <line x1="80" y1="268" x2="80" y2="340" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="75,337 85,337 80,345" fill="#9ece6a"/>
+
+  <!-- Right arrow: Unauthorized -->
+  <line x1="500" y1="268" x2="575" y2="268" stroke="#f7768e" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="570,263 570,273 580,268" fill="#f7768e"/>
+
+  <!-- Labels on decision arrows -->
+  <text x="153" y="258" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">YES</text>
+  <text x="540" y="258" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">NO</text>
+
+  <!-- Authorized box -->
+  <rect x="20" y="347" width="120" height="44" rx="10" fill="url(#successFill)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="80" y="367" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="600">Authorized</text>
+  <text x="80" y="382" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" opacity="0.8">Connection Allowed</text>
+
+  <!-- Denied box -->
+  <rect x="580" y="248" width="105" height="44" rx="10" fill="url(#denyFill)" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="632" y="268" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">Unauthorized</text>
+  <text x="632" y="283" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="middle" opacity="0.8">DENIED</text>
+
+  <!-- Arrow from Authorized → Defense in depth -->
+  <line x1="80" y1="391" x2="80" y2="410" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="75,407 85,407 80,415" fill="#9ece6a"/>
+
+  <!-- Step 4: Protocol Handler (defense-in-depth) -->
+  <rect x="135" y="410" width="430" height="70" rx="10" fill="url(#nodeFill)" stroke="#565f89" stroke-width="1.2"/>
+  <text x="350" y="432" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Protocol Handler (defense-in-depth)</text>
+  <text x="350" y="452" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">if !authorizer.IsAuthorized(remotePeer): close stream</text>
+  <text x="350" y="468" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Second check at stream level — prevents bypass if gater is misconfigured</text>
+
+  <!-- Arrow from Authorized box to defense-in-depth -->
+  <line x1="80" y1="391" x2="80" y2="445" stroke="#9ece6a" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>
+  <line x1="80" y1="445" x2="135" y2="445" stroke="#9ece6a" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>
+
+  <!-- Layer labels on right side -->
+  <text x="680" y="78" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end" opacity="0.5">Layer 0</text>
+  <text x="680" y="155" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end" opacity="0.5">Layer 1</text>
+  <text x="680" y="330" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end" opacity="0.5">Layer 2</text>
+  <text x="680" y="445" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end" opacity="0.5">Layer 3</text>
+</svg>

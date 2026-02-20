@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="netFillA" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:0.15" />
+    </linearGradient>
+    <linearGradient id="netFillB" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:0.15" />
+    </linearGradient>
+    <linearGradient id="netFillC" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:0.15" />
+    </linearGradient>
+    <linearGradient id="relayNode" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="peerNode" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="450" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Federation Model — Relay Peering</text>
+  <!-- Planned badge -->
+  <rect x="645" y="10" width="140" height="22" rx="11" fill="#e0af68" opacity="0.15" stroke="#e0af68" stroke-width="1"/>
+  <text x="715" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED — Phase 4H</text>
+
+  <!-- Network A bubble (left) -->
+  <ellipse cx="170" cy="180" rx="145" ry="120" fill="url(#netFillA)" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="6,3"/>
+  <text x="170" y="82" font-family="system-ui, sans-serif" font-size="12" fill="#3b82f6" text-anchor="middle" font-weight="600">Network A</text>
+
+  <!-- Network A relay -->
+  <rect x="130" y="130" width="80" height="40" rx="8" fill="url(#relayNode)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="170" y="155" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">relay-a</text>
+
+  <!-- Network A peers -->
+  <rect x="80" y="200" width="80" height="34" rx="6" fill="url(#peerNode)" stroke="#565f89" stroke-width="1"/>
+  <text x="120" y="221" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6" text-anchor="middle">laptop</text>
+  <rect x="180" y="215" width="80" height="34" rx="6" fill="url(#peerNode)" stroke="#565f89" stroke-width="1"/>
+  <text x="220" y="236" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6" text-anchor="middle">desktop</text>
+
+  <!-- Network B bubble (right) -->
+  <ellipse cx="630" cy="180" rx="145" ry="120" fill="url(#netFillB)" stroke="#bb9af7" stroke-width="1.2" stroke-dasharray="6,3"/>
+  <text x="630" y="82" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="600">Network B</text>
+
+  <!-- Network B relay -->
+  <rect x="590" y="130" width="80" height="40" rx="8" fill="url(#relayNode)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="630" y="155" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">relay-b</text>
+
+  <!-- Network B peers -->
+  <rect x="540" y="200" width="80" height="34" rx="6" fill="url(#peerNode)" stroke="#565f89" stroke-width="1"/>
+  <text x="580" y="221" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6" text-anchor="middle">server</text>
+  <rect x="640" y="215" width="80" height="34" rx="6" fill="url(#peerNode)" stroke="#565f89" stroke-width="1"/>
+  <text x="680" y="236" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6" text-anchor="middle">phone</text>
+
+  <!-- Network C bubble (bottom center) -->
+  <ellipse cx="400" cy="330" rx="130" ry="95" fill="url(#netFillC)" stroke="#9ece6a" stroke-width="1.2" stroke-dasharray="6,3"/>
+  <text x="400" y="260" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle" font-weight="600">Network C</text>
+
+  <!-- Network C relay -->
+  <rect x="360" y="285" width="80" height="40" rx="8" fill="url(#relayNode)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="400" y="310" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">relay-c</text>
+
+  <!-- Network C peers -->
+  <rect x="350" y="345" width="100" height="34" rx="6" fill="url(#peerNode)" stroke="#565f89" stroke-width="1"/>
+  <text x="400" y="366" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6" text-anchor="middle">home-server</text>
+
+  <!-- Federation arrows between relays -->
+  <!-- A ↔ B -->
+  <line x1="210" y1="150" x2="590" y2="150" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="585,145 585,155 594,150" fill="#7aa2f7"/>
+  <polygon points="215,145 215,155 206,150" fill="#7aa2f7"/>
+  <text x="400" y="143" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle">federation peering</text>
+
+  <!-- A ↔ C -->
+  <line x1="190" y1="170" x2="365" y2="290" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="360,285 370,291 362,296" fill="#7aa2f7"/>
+  <polygon points="196,175 185,170 192,164" fill="#7aa2f7"/>
+
+  <!-- B ↔ C -->
+  <line x1="610" y1="170" x2="435" y2="290" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="440,285 430,291 438,296" fill="#7aa2f7"/>
+  <polygon points="604,175 615,170 608,164" fill="#7aa2f7"/>
+
+  <!-- Cross-network connection example -->
+  <text x="400" y="422" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Cross-Network Connection Example</text>
+  <text x="400" y="440" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">
+    laptop.a → relay-a → relay-c (federation) → home-server.c
+  </text>
+</svg>

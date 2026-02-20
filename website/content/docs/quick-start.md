@@ -1,6 +1,6 @@
 ---
 title: "Quick Start"
-weight: 0
+weight: 1
 ---
 <!-- Auto-synced from README.md by sync-docs.sh — do not edit directly -->
 

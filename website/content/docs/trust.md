@@ -1,6 +1,6 @@
 ---
 title: Trust & Security
-weight: 9
+weight: 4
 ---
 
 ## Security Program

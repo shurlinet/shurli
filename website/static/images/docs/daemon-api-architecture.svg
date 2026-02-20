@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 340" width="700" height="340">
+  <defs>
+    <linearGradient id="runtimeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="apiFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="outerFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1e36;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#131626;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="340" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Daemon Architecture</text>
+
+  <!-- Outer daemon box -->
+  <rect x="50" y="44" width="600" height="200" rx="10" fill="url(#outerFill)" stroke="#565f89" stroke-width="1.2"/>
+  <text x="70" y="66" font-family="SF Mono, monospace" font-size="12" fill="#c0caf5" font-weight="600">peerup daemon</text>
+
+  <!-- P2P Runtime box (left) -->
+  <rect x="75" y="80" width="240" height="140" rx="8" fill="url(#runtimeFill)" stroke="#3b82f6" stroke-width="1.3"/>
+  <text x="195" y="102" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">P2P Runtime</text>
+  <text x="195" y="117" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">(serveRuntime)</text>
+  <line x1="95" y1="126" x2="295" y2="126" stroke="#565f89" stroke-width="0.5" opacity="0.3"/>
+  <text x="105" y="145" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">Relay</text>
+  <text x="200" y="145" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">DHT</text>
+  <text x="105" y="165" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">Services</text>
+  <text x="200" y="165" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">Watchdog</text>
+  <text x="105" y="185" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">Ping/Pong</text>
+  <text x="200" y="185" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">Traceroute</text>
+  <text x="105" y="205" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">AutoNAT v2</text>
+
+  <!-- Bidirectional arrow between boxes -->
+  <line x1="325" y1="150" x2="380" y2="150" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="376,145 376,155 384,150" fill="#9ece6a"/>
+  <polygon points="329,145 329,155 321,150" fill="#9ece6a"/>
+
+  <!-- Unix Socket API box (right) -->
+  <rect x="390" y="80" width="240" height="140" rx="8" fill="url(#apiFill)" stroke="#bb9af7" stroke-width="1.3"/>
+  <text x="510" y="102" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Unix Socket API</text>
+  <text x="510" y="117" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">~/.config/peerup/peerup.sock</text>
+  <line x1="410" y1="126" x2="610" y2="126" stroke="#565f89" stroke-width="0.5" opacity="0.3"/>
+  <text x="420" y="145" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">HTTP/1.1 over Unix socket</text>
+  <text x="420" y="165" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">Cookie-based auth (0600)</text>
+  <text x="420" y="185" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">JSON + plain text output</text>
+  <text x="420" y="205" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">14 REST endpoints</text>
+
+  <!-- Arrow down-left: P2P Network -->
+  <line x1="195" y1="244" x2="195" y2="280" stroke="#7aa2f7" stroke-width="1.5"/>
+  <polygon points="190,277 200,277 195,285" fill="#7aa2f7"/>
+
+  <!-- Arrow down-right: CLI / Scripts -->
+  <line x1="510" y1="244" x2="510" y2="280" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="505,277 515,277 510,285" fill="#bb9af7"/>
+  <!-- Upward arrow too (bidirectional) -->
+  <polygon points="505,250 515,250 510,244" fill="#bb9af7"/>
+
+  <!-- P2P Network label -->
+  <rect x="105" y="288" width="180" height="36" rx="8" fill="url(#runtimeFill)" stroke="#3b82f6" stroke-width="1"/>
+  <text x="195" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">P2P Network (libp2p)</text>
+
+  <!-- CLI / Scripts label -->
+  <rect x="400" y="288" width="220" height="36" rx="8" fill="url(#apiFill)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="510" y="304" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">CLI / Scripts</text>
+  <text x="510" y="318" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">peerup daemon status, curl, Python</text>
+</svg>

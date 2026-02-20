@@ -1,6 +1,6 @@
 ---
 title: "FAQ"
-weight: 4
+weight: 3
 ---
 <!-- Auto-synced from docs/FAQ.md by sync-docs.sh — do not edit directly -->
 
@@ -243,12 +243,9 @@ peer-up's self-hosted relay ($5/month VPS) is the only option that provides **bo
 
 Nebula uses **lighthouse nodes** (like STUN servers) to help peers discover each other's public IP:port. Then it attempts direct hole-punching.
 
-With symmetric NAT (Starlink CGNAT), the mapped port **changes for every destination**:
+With symmetric NAT (CGNAT), the mapped port **changes for every destination**:
 
-```
-Your machine → Lighthouse  =  public 100.64.x.x:5000
-Your machine → Peer B      =  public 100.64.x.x:7832  ← DIFFERENT port
-```
+![Why symmetric NAT breaks hole-punching: different mapped port per destination causes port mismatch](/images/docs/faq-symmetric-nat.svg)
 
 The port the lighthouse tells Peer B to use was allocated for the lighthouse connection, not Peer B. The hole-punch fails.
 
@@ -279,14 +276,7 @@ Circuit Relay v2 is libp2p's protocol for routing traffic through an intermediar
 
 ### How it works
 
-```
-1. Peer A → Relay: "RESERVE" (request a slot)
-2. Relay → A: "OK" + expiration + voucher (cryptographic proof)
-3. Peer B → Relay: "CONNECT to A"
-4. Relay → A: "B wants to connect"
-5. A → Relay: "OK"
-6. Relay bridges the two streams — data flows bidirectionally
-```
+![Circuit Relay v2 sequence: Peer A reserves slot on Relay, Peer B connects through Relay, streams bridged bidirectionally](/images/docs/faq-circuit-relay-sequence.svg)
 
 The protocol splits into two sub-protocols:
 - **Hop** (`/libp2p/circuit/relay/0.2.0/hop`) — client ↔ relay (reserve, connect)

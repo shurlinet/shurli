@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Repo hygiene: collapse website/ in GitHub diffs, exclude from language stats
+website/** linguist-documentation
+website/static/images/** binary
+website/assets/css/** linguist-generated
+
+# Doc images are binary (show "Binary file changed" instead of raw XML diffs)
+docs/images/** binary

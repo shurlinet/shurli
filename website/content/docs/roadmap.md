@@ -1,6 +1,6 @@
 ---
 title: "Roadmap"
-weight: 6
+weight: 7
 ---
 <!-- Auto-synced from docs/ROADMAP.md by sync-docs.sh — do not edit directly -->
 
@@ -911,6 +911,16 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
 4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
 5. **Comparisons**: Honest peer-up vs Tailscale / Zerotier / Netbird posts
+
+### Community Infrastructure (set up at or before launch)
+
+- [ ] **Discord server** — Real-time community channel for support, feedback, development discussion. Link from website nav bar and README
+- [ ] **Showcase page** (`/showcase`) — Curated gallery of real-world peer-up deployments. Static JSON data file, rendered as cards. Add when users start sharing their setups (post-launch)
+- [ ] **Shoutouts page** (`/shoutouts`) — Testimonials from users. Static JSON, rendered as quote cards with attribution. Add when genuine testimonials exist (post-launch)
+- [ ] **Trust & Security page** (`/docs/trust`) — ✅ Created. Threat model, security controls, vulnerability reporting with response SLAs, audit history. Living document, community PRs welcome
+- [ ] **Separate `peer-up-trust` repo** — Structured threat model in YAML format (MITRE ATLAS-based). Community can submit PRs to improve threat coverage. Rendered on the website. Fallback: if GitHub goes down, mirror to GitLab (same pattern as code distribution resilience)
+- [ ] **Binary verification** — Ed25519-signed checksums + cosign/Sigstore signing for Go binaries. Stronger trust signal than most P2P projects offer
+- [ ] **Integrations page** (`/integrations`) — Curated catalog of what works with peer-up: services (Ollama, Jellyfin, Home Assistant, Minecraft, Sunshine/Moonlight), platforms (Docker, systemd, launchd), clients (SSH, XRDP, any TCP). Each entry: name, category, one-liner, config snippet, "works out of the box" badge. Inspired by OpenClaw's integrations page. Add progressively as use-case guides ship.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "Testing"
-weight: 5
+weight: 8
 ---
 <!-- Auto-synced from docs/TESTING.md by sync-docs.sh — do not edit directly -->
 

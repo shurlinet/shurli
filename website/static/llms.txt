@@ -1,0 +1,30 @@
+# peer-up
+
+> peer-up connects devices through firewalls and CGNAT using encrypted P2P tunnels with SSH-style authentication. Single Go binary, zero cloud dependency, works behind any NAT. Built on libp2p (same stack as Ethereum, Filecoin, Polkadot). Currently at Phase 4C Complete — daemon mode, relay server, invite/join pairing, TCP proxy, private DHT, self-healing config, 80% test coverage.
+
+peer-up is a self-sovereign alternative to Tailscale/ZeroTier for people who want no accounts, no telemetry, and no coordination server. Every connection is end-to-end encrypted via the Noise protocol. The relay sees ciphertext only.
+
+Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pairing via invite codes, daemon mode with 14-endpoint REST API over Unix socket, P2P ping/traceroute/resolve, config self-healing with commit-confirmed pattern, systemd watchdog integration.
+
+## Docs
+
+- [Architecture](https://peerup.dev/docs/architecture/): Component overview, network topology, auth flow, service exposure, daemon architecture, security model, naming system (planned tiers), federation model (planned), mobile architecture (planned)
+- [Quick Start](https://peerup.dev/docs/quick-start/): Install, init, invite/join, proxy setup — get two machines connected in 60 seconds
+- [Daemon API](https://peerup.dev/docs/daemon-api/): 14 REST endpoints over Unix socket — status, peers, services, auth CRUD, ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose, shutdown
+- [Network Tools](https://peerup.dev/docs/network-tools/): P2P ping (continuous, stats), traceroute (hop analysis, DIRECT vs RELAYED), name resolution
+- [FAQ](https://peerup.dev/docs/faq/): How NAT traversal works, Circuit Relay v2, symmetric NAT, security model, comparison context
+- [Testing](https://peerup.dev/docs/testing/): Unit tests, Docker integration tests, coverage reporting
+- [Roadmap](https://peerup.dev/docs/roadmap/): Full multi-phase plan — Phase 4D (plugins/SDK), 4E (distribution), 4F (gateway daemon), 4G (mobile), 4H (federation), 4I (naming)
+
+## Code
+
+- [GitHub Repository](https://github.com/satindergrewal/peer-up): Single Go module, `go build ./cmd/peerup`
+- [pkg/p2pnet](https://github.com/satindergrewal/peer-up/tree/main/pkg/p2pnet): Importable P2P library — network setup, service registry, TCP-stream proxy, naming, ping, traceroute
+- [internal/daemon](https://github.com/satindergrewal/peer-up/tree/main/internal/daemon): Daemon server + client library — Unix socket HTTP API, cookie auth
+- [internal/config](https://github.com/satindergrewal/peer-up/tree/main/internal/config): YAML config loading, archive/rollback, commit-confirmed pattern
+- [internal/auth](https://github.com/satindergrewal/peer-up/tree/main/internal/auth): SSH-style ConnectionGater, authorized_keys parser, hot-reload
+
+## Optional
+
+- [Engineering Journal](https://peerup.dev/docs/engineering-journal/): 28 architecture decision records (ADRs) — why every design choice was made
+- [Blog](https://peerup.dev/blog/): Batch-by-batch development updates (Batches A through G)
