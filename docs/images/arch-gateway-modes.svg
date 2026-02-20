@@ -29,7 +29,10 @@
   <rect width="900" height="480" rx="12" fill="#0f1117"/>
 
   <!-- Title -->
-  <text x="450" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Gateway Daemon Modes (Phase 4F)</text>
+  <text x="450" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Gateway Daemon Modes</text>
+  <!-- Planned badge -->
+  <rect x="745" y="10" width="140" height="22" rx="11" fill="#e0af68" opacity="0.15" stroke="#e0af68" stroke-width="1"/>
+  <text x="815" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED — Phase 4F</text>
 
   <!-- Column dividers -->
   <line x1="300" y1="45" x2="300" y2="460" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.2"/>

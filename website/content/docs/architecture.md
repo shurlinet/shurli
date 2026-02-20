@@ -9,13 +9,13 @@ This document describes the technical architecture of peer-up, from current impl
 
 ## Table of Contents
 
-- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete)
-- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d)
-- [Core Concepts](#core-concepts)
-- [Security Model](#security-model)
-- [Naming System](#naming-system)
-- [Federation Model](#federation-model)
-- [Mobile Architecture](#mobile-architecture)
+- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) — what's built and working
+- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) — planned additions
+- [Core Concepts](#core-concepts) — implemented patterns
+- [Security Model](#security-model) — implemented + planned extensions
+- [Naming System](#naming-system) — local names implemented, network-scoped and blockchain planned
+- [Federation Model](#federation-model) — planned (Phase 4H)
+- [Mobile Architecture](#mobile-architecture) — planned (Phase 4G)
 
 ---
 
@@ -195,6 +195,8 @@ peer-up/
 ![Service exposure: 4-layer stack from Application (SSH/HTTP/SMB/Custom) through Service Registry and TCP-Stream Proxy to libp2p Network](/images/docs/arch-service-exposure.svg)
 
 ### Gateway Daemon Modes
+
+> **Status: Planned (Phase 4F)** — not yet implemented. See [Roadmap Phase 4F]../roadmap/ for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -404,11 +406,9 @@ func ProxyStreamToTCP(stream network.Stream, tcpAddr string) error {
 
 ### 3. Name Resolution
 
-```go
-type NameResolver interface {
-    Resolve(name string) (peer.ID, error)
-}
+**Currently implemented**: `LocalFileResolver` resolves friendly names (configured via `peerup invite`/`peerup join` or manual YAML) to peer IDs. Direct peer ID strings are always accepted as fallback.
 
+```go
 type LocalFileResolver struct {
     names map[string]peer.ID
 }
@@ -419,28 +419,9 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
     }
     return "", ErrNotFound
 }
-
-type DHTResolver struct {
-    dht *dht.IpfsDHT
-}
-
-func (r *DHTResolver) Resolve(name string) (peer.ID, error) {
-    // Query DHT for network's relay
-    // Ask relay for peer name → ID mapping
-    // Return peer ID
-}
-
-// Multi-tier resolution
-func Resolve(name string, resolvers []NameResolver) (peer.ID, error) {
-    for _, resolver := range resolvers {
-        if id, err := resolver.Resolve(name); err == nil {
-            return id, nil
-        }
-    }
-    // If no resolver works, try to parse as direct peer ID
-    return peer.Decode(name)
-}
 ```
+
+> **Planned (Phase 4D/4I)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 4I]../roadmap/.
 
 ---
 
@@ -460,8 +441,10 @@ func Resolve(name string, resolvers []NameResolver) (peer.ID, error) {
 
 ### Per-Service Authorization
 
+> **Status: Planned** — not yet implemented. Currently, all authorized peers can access all exposed services. Per-service access control is a deferred Phase 4C item. See [Roadmap]../roadmap/.
+
 ```yaml
-# home-node.yaml
+# home-node.yaml (planned config format)
 security:
   authorized_keys_file: "authorized_keys"  # Global default
 
@@ -469,7 +452,7 @@ services:
   ssh:
     enabled: true
     local_address: "localhost:22"
-    authorized_keys: "ssh_authorized_keys"  # Override
+    authorized_keys: "ssh_authorized_keys"  # Override (planned)
 
   web:
     enabled: true
@@ -479,8 +462,10 @@ services:
 
 ### Federation Trust Model
 
+> **Status: Planned (Phase 4H)** — not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H]../roadmap/.
+
 ```yaml
-# relay-server.yaml
+# relay-server.yaml (planned config format)
 federation:
   peers:
     - network_name: "alice"
@@ -498,14 +483,18 @@ federation:
 
 ### Multi-Tier Resolution
 
+> **What works today**: Tier 1 (Local Override) — friendly names configured via `peerup invite`/`join` or manual YAML — and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
+
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](/images/docs/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
+> **Status: Planned (Phase 4F/4I)** — not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+
 ```
 Format: <hostname>.<network>[.<tld>]
 
-Examples:
+Examples (planned):
 laptop.grewal           # Query grewal relay
 desktop.alice           # Query alice relay
 phone.bob.p2p           # Query bob relay (explicit .p2p TLD)
@@ -516,6 +505,8 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
+> **Status: Planned (Phase 4H)** — not yet implemented. See [Roadmap Phase 4H]../roadmap/.
+
 ### Relay Peering
 
 ![Federation model: three networks (A, B, C) with relay peering — cross-network connections routed through federated relays](/images/docs/arch-federation.svg)
@@ -523,6 +514,8 @@ home.grewal.local       # mDNS compatible
 ---
 
 ## Mobile Architecture
+
+> **Status: Planned (Phase 4G)** — not yet implemented. See [Roadmap Phase 4G]../roadmap/.
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService — both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -552,26 +545,21 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
 
 ### Connection Optimization
 
-1. **Relay vs Direct**:
+1. **Relay vs Direct** (implemented):
    - Always attempt DCUtR for direct connection
    - Fall back to relay if hole-punching fails
-   - Monitor connection quality and retry DCUtR periodically
 
-2. **Connection Pooling**:
+2. **Connection Pooling** (planned):
    - Reuse P2P streams for multiple requests
    - Multiplex services over single connection
    - Keep-alive mechanisms
 
-3. **Bandwidth Management**:
+3. **Bandwidth Management** (planned):
    - QoS for different service types
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-### Caching
-
-- DNS responses cached locally (TTL: 5 minutes)
-- Peer ID → multiaddr mapping cached
-- Federation routing table cached with periodic refresh
+> Items marked "planned" are tracked in the [Roadmap]../roadmap/ under Phase 4C deferred items and Phase 5+.
 
 ---
 
@@ -712,5 +700,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-16
-**Architecture Version**: 2.8 (Daemon Mode — Unix socket API, cookie auth, network tools)
+**Last Updated**: 2026-02-20
+**Architecture Version**: 2.9 (SVG diagrams, status labels for planned vs implemented sections)
