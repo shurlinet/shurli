@@ -209,6 +209,9 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
 | H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
+| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ⬜ PLANNED |
+| Pre-I-b | **PAKE-Secured Invite/Join** | SPAKE2/CPace handshake, relay-resistant pairing, documentation clarity | ⬜ PLANNED |
+| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ⬜ PLANNED |
 
 **Deliverables**:
 
@@ -278,6 +281,72 @@ Deferred from original Batch H scope (with reasoning):
 - ~~Trace correlation IDs~~ - Deferred to future. 35% CPU overhead from distributed tracing span management not justified for P2P tool where network is the bottleneck. Revisit when OTel Go SDK has zero-cost path
 - ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
 - ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
+
+**Pre-Batch I-a: Build & Deployment Tooling** ⬜ PLANNED
+
+Makefile + service management + generic local checks runner. Small standalone task, not part of any batch.
+
+- [ ] `make build` - optimized binary with `-ldflags="-s -w" -trimpath`
+- [ ] `make test` - `go test -race -count=1 ./...`
+- [ ] `make clean` - remove build artifacts
+- [ ] `make install` - build + copy binary to `/usr/local/bin` + install service
+- [ ] `make install-service` - detect OS (Linux systemd / macOS launchd), copy service file, enable
+- [ ] `make uninstall-service` - stop and remove service
+- [ ] `make uninstall` - remove service + binary
+- [ ] `make restart-service` - quick restart after rebuild
+- [ ] `make website` - Hugo build/serve for local preview
+- [ ] `make check` - generic local checks runner. Reads commands from `.checks` file (gitignored). Runs each command; fails if any returns non-zero. The Makefile target is entirely generic - no hint about what is being checked or why. Users create their own `.checks` with whatever patterns matter to them
+- [ ] `make push` - runs `make check && git push` (impossible to push without passing local checks)
+- [ ] Service install for Linux: copy `deploy/peerup-daemon.service` to systemd, `daemon-reload`, `enable`
+- [ ] Service install for macOS: copy `deploy/com.peerup.daemon.plist` to `~/Library/LaunchAgents/`, `launchctl load`
+- [ ] Clear messaging when elevated permissions required (no silent `sudo`)
+- [ ] `.checks` file documented in README (generic mechanism, user creates their own patterns)
+
+**Pre-Batch I-b: PAKE-Secured Invite/Join Handshake** ⬜ PLANNED
+
+Upgrade the invite/join token exchange from cleartext to a PAKE (Password-Authenticated Key Exchange) protocol, inspired by WPA3's SAE (Simultaneous Authentication of Equals). The current flow already auto-authorizes both sides, but the token travels as hex over the stream where the relay can observe it. PAKE ensures even a malicious relay learns nothing about the invite code.
+
+Current state: The invite/join protocol already works seamlessly (8-byte crypto token, single-use, 10min TTL, bidirectional auto-authorization). This batch upgrades security, not functionality.
+
+- [ ] Replace cleartext token exchange with PAKE (SPAKE2 or CPace) - both sides prove knowledge of the invite code without transmitting it
+- [ ] Evaluate Go PAKE libraries: `golang.org/x/crypto` (if available), `github.com/cretz/gopaque`, or implement SPAKE2 directly (well-specified, ~200 lines)
+- [ ] Derive session key from PAKE output - encrypt the peer ID exchange that follows
+- [ ] Backward compatibility: version byte in invite code (currently `0x01`) bumps to `0x02` for PAKE-enabled codes. Old versions rejected with clear upgrade message
+- [ ] Update invite code format: may need larger token (PAKE parameters vs 8-byte random)
+- [ ] Documentation: update website and docs to clearly explain that invite/join is fully automatic (no manual peer ID exchange needed). Current docs create confusion about this
+- [ ] Blog post: explain the WPA3/SAE inspiration and why PAKE matters for relay-mediated pairing
+- [ ] ADR documenting the PAKE protocol choice and threat model (relay-as-adversary)
+- [ ] Tests: PAKE handshake success, token mismatch rejection, replay resistance, relay-can't-learn-token verification
+
+Security model after upgrade:
+- Invite code = shared secret, never transmitted
+- PAKE proves mutual knowledge without revelation
+- Derived session key encrypts peer ID exchange
+- Relay sees encrypted bytes only - no token, no peer IDs
+- Single-use + TTL + transport-layer identity verification unchanged
+
+**Pre-Batch I-c: Private DHT Networks** ⬜ PLANNED
+
+Configurable DHT namespace so users can create completely isolated peer networks. A gaming group, family, or organization sets a network name and their nodes form a separate DHT, invisible to all other peer-up users.
+
+Current state: All peer-up nodes share one DHT with protocol prefix `/peerup/kad/1.0.0`. The authorized_keys gater controls who can communicate, but discovery is shared.
+
+After: DHT prefix becomes `/peerup/kad/<namespace>/1.0.0`. Nodes with different namespaces are not firewalled - they literally speak different protocols and cannot discover each other.
+
+- [ ] Config option: `network: "my-crew"` in config YAML (optional, default = global peerup DHT)
+- [ ] CLI flag: `peerup init --network "my-crew"`, `peerup daemon --network "my-crew"`
+- [ ] DHT protocol prefix derived from namespace: `/peerup/kad/<namespace>/1.0.0`
+- [ ] Default (no namespace set) remains `/peerup/kad/1.0.0` for backward compatibility
+- [ ] Relay must be configured with matching namespace to serve as bootstrap node for the private network
+- [ ] `peerup status` displays current network namespace
+- [ ] Invite codes work within the same namespace only (relay address + namespace must match)
+- [ ] Validation: namespace must be DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars)
+- [ ] Tests: nodes on different namespaces cannot discover each other, same namespace nodes can
+- [ ] Documentation: explain private networks, when to use them, relay requirements
+
+Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
+
+Foundation for Phase 4H (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -1106,7 +1175,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-21
-**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main)
+**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main). Pre-Batch I-a and I-b planned.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch I (Adaptive Path Selection) - multi-interface probing, IPv6, relay elimination
+**Next Milestone**: Pre-Batch I-a (Makefile + service install) → Pre-Batch I-b (PAKE invite/join) → Pre-Batch I-c (Private DHT networks) → Batch I (Adaptive Path Selection)
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete
