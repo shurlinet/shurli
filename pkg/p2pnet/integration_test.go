@@ -320,7 +320,7 @@ func TestUserAgentExchange(t *testing.T) {
 		t.Fatalf("connect error: %v", err)
 	}
 
-	// Identify runs asynchronously after connect — wait briefly
+	// Identify runs asynchronously after connect  - wait briefly
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify client sees server's UserAgent
@@ -432,14 +432,14 @@ func TestPingPeer_NotConnected_Fails(t *testing.T) {
 func TestPingPeer_AddressInPeerstore_AutoConnects(t *testing.T) {
 	// This test proves the fix: if the peer's addresses are in the peerstore
 	// (which ConnectToPeer ensures via DHT/relay), PingPeer succeeds even
-	// without a pre-existing connection — libp2p dials automatically.
+	// without a pre-existing connection  - libp2p dials automatically.
 	const pingProto = "/peerup/ping/1.0.0"
 
 	server := newTestHost(t)
 	client := newTestHost(t)
 	registerPingHandler(t, server, pingProto)
 
-	// NOT calling connectHosts — instead, just add server's addresses
+	// NOT calling connectHosts  - instead, just add server's addresses
 	// to client's peerstore (simulating what ConnectToPeer does)
 	client.Peerstore().AddAddrs(server.ID(), server.Addrs(), time.Hour)
 

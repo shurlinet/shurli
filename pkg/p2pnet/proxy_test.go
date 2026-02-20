@@ -141,7 +141,7 @@ func TestTcpHalfCloser_CloseWrite(t *testing.T) {
 }
 
 func TestTcpHalfCloser_NonTCP(t *testing.T) {
-	// net.Pipe returns non-TCP connections — CloseWrite should return nil
+	// net.Pipe returns non-TCP connections  - CloseWrite should return nil
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()
@@ -239,7 +239,7 @@ func TestTCPListenerServe(t *testing.T) {
 
 	select {
 	case err := <-serveErr:
-		// Serve returns when listener is closed — error is expected
+		// Serve returns when listener is closed  - error is expected
 		if err == nil {
 			t.Error("expected error from Serve after Close")
 		}
@@ -262,7 +262,7 @@ func TestTCPListenerHandleConnection_DialError(t *testing.T) {
 	go l.Serve()
 	defer l.Close()
 
-	// Connect — handleConnection will be called, dialFunc fails, connection closed
+	// Connect  - handleConnection will be called, dialFunc fails, connection closed
 	conn, err := net.DialTimeout("tcp", l.Addr().String(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)

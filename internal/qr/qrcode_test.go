@@ -61,7 +61,7 @@ func TestNewLongContent(t *testing.T) {
 }
 
 func TestNewEmptyContent(t *testing.T) {
-	// Empty content is expected to fail — no data to encode
+	// Empty content is expected to fail - no data to encode
 	_, err := New("", Medium)
 	if err == nil {
 		t.Error("expected error for empty content")

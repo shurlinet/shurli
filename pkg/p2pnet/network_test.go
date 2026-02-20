@@ -371,7 +371,7 @@ func TestConnectToService(t *testing.T) {
 	// Register an echo service on B (don't need real TCP, just the stream handler)
 	netB.ExposeService("echo", "localhost:1") // won't actually dial TCP in this test
 
-	// Connect from A to B's echo service — this tests DialService + serviceStream
+	// Connect from A to B's echo service  - this tests DialService + serviceStream
 	conn, err := netA.ConnectToServiceContext(context.Background(), netB.Host().ID(), "echo")
 	if err != nil {
 		t.Fatalf("ConnectToService: %v", err)
@@ -447,7 +447,7 @@ func TestPeerIDFromKeyFile(t *testing.T) {
 	t.Run("invalid path", func(t *testing.T) {
 		_, err := PeerIDFromKeyFile("/nonexistent/dir/test.key")
 		if err != nil {
-			// Expected — can't create key in nonexistent dir.
+			// Expected  - can't create key in nonexistent dir.
 			// On some systems this might succeed if the parent exists.
 			// Just verify it doesn't panic.
 		}
@@ -576,7 +576,7 @@ func TestHolePunchTracer(t *testing.T) {
 	tracer := &holePunchTracer{}
 	pid := genTestPeerID(t)
 
-	// Exercise all three event types — they just log, so we verify no panic
+	// Exercise all three event types  - they just log, so we verify no panic
 	tracer.Trace(&holepunch.Event{
 		Remote: pid,
 		Evt:    &holepunch.StartHolePunchEvt{RTT: time.Millisecond},

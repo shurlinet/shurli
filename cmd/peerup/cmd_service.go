@@ -153,7 +153,7 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 				}
 
 				if !nextIsServiceContent {
-					// Next line exits services section (or we're at end) — insert here
+					// Next line exits services section (or we're at end)  - insert here
 					result = append(result, block)
 					inserted = true
 					inServices = false
@@ -167,7 +167,7 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 		}
 		content = strings.Join(result, "\n")
 	} else {
-		// No services section at all — append at end
+		// No services section at all  - append at end
 		content += fmt.Sprintf("\nservices:\n%s\n", block)
 	}
 
@@ -415,15 +415,15 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 			// Stop skipping when we hit a line with 2-space indent (next service)
 			// or less indent (next top-level section) or empty line before next section.
 			if trimmed == "" {
-				// Empty line — could be between services or end of section.
+				// Empty line  - could be between services or end of section.
 				// Peek-skip: include it in removal to keep formatting clean.
 				continue
 			}
 			if strings.HasPrefix(line, "    ") {
-				// Child property line (4+ space indent) — skip
+				// Child property line (4+ space indent)  - skip
 				continue
 			}
-			// Not a child line — stop skipping
+			// Not a child line  - stop skipping
 			skipping = false
 			inServices = false
 		}
@@ -435,7 +435,7 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 		return fmt.Errorf("could not find service %q in config file.\nPlease remove manually from: %s", name, cfgFile)
 	}
 
-	// Check if services section is now empty — replace with "services: {}"
+	// Check if services section is now empty  - replace with "services: {}"
 	content := strings.Join(result, "\n")
 	remaining := 0
 	for n := range cfg.Services {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-docs.sh — Transforms docs/*.md into website/content/docs/ with Hugo front matter.
+# sync-docs.sh  - Transforms docs/*.md into website/content/docs/ with Hugo front matter.
 #
 # This script is idempotent: running it twice produces identical output.
 # It runs before every Hugo build (locally and in CI).
@@ -100,7 +100,7 @@ sync_doc() {
 title: "${title}"
 weight: ${weight}
 ---
-<!-- Auto-synced from docs/${src_basename} by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from docs/${src_basename} by sync-docs.sh  - do not edit directly -->
 
 ${body}
 FRONTMATTER
@@ -149,7 +149,7 @@ sync_quickstart() {
 title: "Quick Start"
 weight: 1
 ---
-<!-- Auto-synced from README.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from README.md by sync-docs.sh  - do not edit directly -->
 
 ${content}
 FRONTMATTER
@@ -190,7 +190,7 @@ sync_relay_setup() {
 title: "Relay Setup"
 weight: 5
 ---
-<!-- Auto-synced from relay-server/README.md by sync-docs.sh — do not edit directly -->
+<!-- Auto-synced from relay-server/README.md by sync-docs.sh  - do not edit directly -->
 
 ${body}
 FRONTMATTER
@@ -199,7 +199,7 @@ FRONTMATTER
 }
 sync_relay_setup
 
-# Generate llms-full.txt — single-file concatenation of all docs for AI agents.
+# Generate llms-full.txt  - single-file concatenation of all docs for AI agents.
 # Follows the llmstxt.org spec: one fetch gets everything.
 # Order: README (overview) → docs in user-journey order.
 generate_llms_full() {

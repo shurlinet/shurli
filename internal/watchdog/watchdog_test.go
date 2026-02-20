@@ -107,7 +107,7 @@ func TestRunDefaultInterval(t *testing.T) {
 	defer slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// Cancel immediately — we just want to verify it doesn't panic with zero config
+	// Cancel immediately - we just want to verify it doesn't panic with zero config
 	cancel()
 
 	Run(ctx, Config{}, nil) // zero interval = should use default 30s

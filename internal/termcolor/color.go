@@ -72,7 +72,7 @@ func Yellow(format string, a ...any) {
 	}
 }
 
-// Faint prints faint/dim text to stdout (no newline appended — Printf style).
+// Faint prints faint/dim text to stdout (no newline appended - Printf style).
 func Faint(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	if isColorEnabled() {

@@ -297,7 +297,7 @@ security:
 
 func TestConfigVersionDefaultsTo1(t *testing.T) {
 	dir := t.TempDir()
-	// Config without version field — should default to 1
+	// Config without version field - should default to 1
 	path := writeTestConfig(t, dir, testConfigYAML)
 
 	cfg, err := LoadNodeConfig(path)

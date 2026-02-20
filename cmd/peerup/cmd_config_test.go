@@ -319,7 +319,7 @@ func TestDoConfigApply(t *testing.T) {
 				// Current config.
 				cfgPath := writeValidConfig(t, dir)
 
-				// New config — valid, with a different rendezvous string.
+				// New config  - valid, with a different rendezvous string.
 				newDir := filepath.Join(dir, "new")
 				os.MkdirAll(newDir, 0755)
 				newYAML := strings.Replace(validConfigYAML(), "test-network", "updated-network", 1)
@@ -337,7 +337,7 @@ func TestDoConfigApply(t *testing.T) {
 			setup: func(t *testing.T, dir string) []string {
 				cfgPath := writeValidConfig(t, dir)
 
-				// New config missing relay addresses — will fail validation.
+				// New config missing relay addresses  - will fail validation.
 				invalidYAML := `version: 1
 identity:
   key_file: "identity.key"

@@ -50,7 +50,7 @@ func TestDoAuthAdd(t *testing.T) {
 			setup: func(t *testing.T, dir string) ([]string, string) {
 				peerID := generateTestPeerID(t)
 				akPath := filepath.Join(dir, "authorized_keys")
-				// File does not need to exist for add — AddPeer creates it.
+				// File does not need to exist for add  - AddPeer creates it.
 				return []string{peerID, "--file", akPath}, akPath
 			},
 			wantOutput: "File:",

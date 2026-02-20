@@ -226,7 +226,7 @@ func (rt *serveRuntime) Bootstrap() error {
 		}
 	} else {
 		// Use relay addresses as DHT bootstrap peers.
-		// The relay server runs the peerup DHT — IPFS Amino peers don't speak /peerup/kad/1.0.0.
+		// The relay server runs the peerup DHT  - IPFS Amino peers don't speak /peerup/kad/1.0.0.
 		for _, addr := range cfg.Relay.Addresses {
 			maddr, err := ma.NewMultiaddr(addr)
 			if err != nil {
@@ -415,7 +415,7 @@ func (rt *serveRuntime) StartStatusPrinter() {
 func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error {
 	h := rt.network.Host()
 
-	// Already connected — nothing to do
+	// Already connected  - nothing to do
 	if h.Network().Connectedness(peerID) == network.Connected {
 		return nil
 	}

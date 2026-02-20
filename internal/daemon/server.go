@@ -82,7 +82,7 @@ func (s *Server) ShutdownCh() <-chan struct{} {
 }
 
 // Start creates the Unix socket, writes the cookie file, and starts serving.
-// It returns immediately — the server runs in a background goroutine.
+// It returns immediately - the server runs in a background goroutine.
 func (s *Server) Start() error {
 	// Generate auth cookie
 	token, err := generateCookie()
@@ -106,7 +106,7 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 
-	// Write cookie AFTER socket is secured — prevents clients from reading
+	// Write cookie AFTER socket is secured - prevents clients from reading
 	// the cookie before the socket is ready to accept authenticated connections.
 	if err := os.WriteFile(s.cookiePath, []byte(token), 0600); err != nil {
 		listener.Close()
@@ -173,16 +173,16 @@ func (s *Server) checkStaleSocket() error {
 		return nil // no socket, good to go
 	}
 
-	// Socket file exists — try connecting to it
+	// Socket file exists - try connecting to it
 	conn, err := net.DialTimeout("unix", s.socketPath, 2*time.Second)
 	if err != nil {
-		// Can't connect — stale socket, remove it
+		// Can't connect - stale socket, remove it
 		slog.Info("removing stale daemon socket", "path", s.socketPath)
 		os.Remove(s.socketPath)
 		return nil
 	}
 
-	// Connection succeeded — another daemon is alive
+	// Connection succeeded - another daemon is alive
 	conn.Close()
 	return fmt.Errorf("%w: socket %s is already in use", ErrDaemonAlreadyRunning, s.socketPath)
 }

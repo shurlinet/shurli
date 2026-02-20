@@ -125,7 +125,7 @@ func runRelayServe(args []string) {
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(gater))
 	}
 
-	// Create host — relay service is added separately below
+	// Create host  - relay service is added separately below
 	h, err := libp2p.New(hostOpts...)
 	if err != nil {
 		fatal("Failed to create host: %v", err)
@@ -143,7 +143,7 @@ func runRelayServe(args []string) {
 		cfg.Resources.SessionDuration, cfg.Resources.SessionDataLimit)
 
 	// Bootstrap into the private peerup DHT as a server.
-	// The relay is the primary bootstrap peer — all peerup nodes connect here first
+	// The relay is the primary bootstrap peer  - all peerup nodes connect here first
 	// and use this DHT for peer discovery. Protocol: /peerup/kad/1.0.0
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeServer),
@@ -417,7 +417,7 @@ func runRelayInfo(configFile string) {
 		fatal("Failed to load config: %v", err)
 	}
 
-	// Read identity key (don't auto-create — info is read-only)
+	// Read identity key (don't auto-create  - info is read-only)
 	data, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
 		fatal("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)

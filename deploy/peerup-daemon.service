@@ -1,5 +1,5 @@
 [Unit]
-Description=peer-up daemon — P2P network service
+Description=peer-up daemon - P2P network service
 Documentation=https://peerup.dev
 After=network-online.target
 Wants=network-online.target

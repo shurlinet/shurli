@@ -124,7 +124,7 @@ func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, proto
 
 	slog.Info("dialing service", "peer", peerID.String()[:16]+"...", "protocol", protocolID)
 
-	// Allow limited (relay circuit) connections — without this, NewStream
+	// Allow limited (relay circuit) connections  - without this, NewStream
 	// refuses to use relay circuits and only tries direct dials, which fail
 	// when hole punching isn't possible (e.g., carrier-grade NAT on 5G).
 	relayCtx := network.WithAllowLimitedConn(ctx, protocolID)

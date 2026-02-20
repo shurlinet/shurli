@@ -68,7 +68,7 @@ func TestFaint(t *testing.T) {
 	// Faint does NOT append newline (Printf style)
 	if strings.HasSuffix(out, "\n") {
 		// When not a TTY (test env), Faint calls fmt.Print(msg) which doesn't add newline
-		// This is actually correct behavior — just verify the content is there
+		// This is actually correct behavior - just verify the content is there
 	}
 }
 
@@ -78,6 +78,6 @@ func TestIsColorEnabled(t *testing.T) {
 	result := isColorEnabled()
 	// In CI/test environment, this should be false (stdout is a pipe, not a TTY)
 	if result {
-		t.Log("isColorEnabled returned true — running in a terminal?")
+		t.Log("isColorEnabled returned true - running in a terminal?")
 	}
 }

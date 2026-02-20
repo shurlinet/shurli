@@ -63,7 +63,7 @@ func runInvite(args []string) {
 		fatal("Failed to generate token: %v", err)
 	}
 
-	// Create P2P network (no connection gating — we need the joiner to reach us)
+	// Create P2P network (no connection gating  - we need the joiner to reach us)
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		Config:             &config.Config{Network: cfg.Network},

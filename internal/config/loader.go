@@ -24,7 +24,7 @@ func checkConfigFilePermissions(path string) error {
 	}
 	mode := info.Mode().Perm()
 	if mode&0077 != 0 {
-		return fmt.Errorf("config file %s has overly permissive mode %04o; expected 0600 — fix with: chmod 600 %s", path, mode, path)
+		return fmt.Errorf("config file %s has overly permissive mode %04o; expected 0600 - fix with: chmod 600 %s", path, mode, path)
 	}
 	return nil
 }

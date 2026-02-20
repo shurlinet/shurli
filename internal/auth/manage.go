@@ -110,7 +110,7 @@ func RemovePeer(authKeysPath, peerIDStr string) error {
 
 		peerID, err := peer.Decode(peerPart)
 		if err != nil {
-			// Invalid peer ID line — keep it
+			// Invalid peer ID line - keep it
 			newLines = append(newLines, line)
 			continue
 		}
