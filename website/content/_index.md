@@ -42,6 +42,7 @@ layout: hextra-home
 <!-- ============================================================ -->
 
 <div class="peerup-section">
+  <div class="peerup-section-icon">{{< icon name="lightning-bolt" attributes="height=28" >}}</div>
   <h2 class="peerup-section-title">From zero to connected in 60 seconds</h2>
   <p class="peerup-section-subtitle">Two commands on each device. No accounts to create, no keys to exchange manually, no ports to forward.</p>
   <div class="peerup-demo-container">
@@ -54,6 +55,7 @@ layout: hextra-home
 <!-- ============================================================ -->
 
 <div class="peerup-section">
+  <div class="peerup-section-icon">{{< icon name="cog" attributes="height=28" >}}</div>
   <h2 class="peerup-section-title">How it works</h2>
   <p class="peerup-section-subtitle">Three steps. Both devices end up in each other's authorized_keys. That's it.</p>
 
@@ -127,6 +129,7 @@ layout: hextra-home
 <!-- ============================================================ -->
 
 <div class="peerup-section">
+  <div class="peerup-section-icon">{{< icon name="switch-horizontal" attributes="height=28" >}}</div>
   <h2 class="peerup-section-title">Direct when possible, relayed when necessary</h2>
   <p class="peerup-section-subtitle">peer-up tries to connect your devices directly. When the network won't allow it, traffic flows through an encrypted relay — which never sees your data.</p>
   <div class="peerup-diagram-container">
@@ -139,6 +142,7 @@ layout: hextra-home
 <!-- ============================================================ -->
 
 <div class="peerup-section">
+  <div class="peerup-section-icon">{{< icon name="download" attributes="height=28" >}}</div>
   <h2 class="peerup-section-title">Install</h2>
   <p class="peerup-section-subtitle">Single binary. No runtime dependencies. Build from source with Go.</p>
 
