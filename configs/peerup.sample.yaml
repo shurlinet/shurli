@@ -64,6 +64,7 @@ protocols:
 #   ssh:
 #     enabled: true
 #     local_address: "localhost:22"
+#     # allowed_peers: ["12D3KooW..."]  # restrict to specific peers (optional)
 #   xrdp:
 #     enabled: true
 #     local_address: "localhost:3389"

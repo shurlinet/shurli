@@ -61,7 +61,7 @@ func main() {
 	log.Printf("📍 Listening on: %v", net.Host().Addrs())
 
 	// Expose HTTP service via P2P
-	if err := net.ExposeService("http", "localhost:8080"); err != nil {
+	if err := net.ExposeService("http", "localhost:8080", nil); err != nil {
 		log.Fatalf("Failed to expose HTTP service: %v", err)
 	}
 

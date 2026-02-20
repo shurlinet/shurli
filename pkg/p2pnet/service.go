@@ -34,10 +34,11 @@ func ValidateServiceName(name string) error {
 
 // Service represents a service that can be exposed over the P2P network
 type Service struct {
-	Name         string // Service name (e.g., "ssh", "http")
-	Protocol     string // libp2p protocol ID (e.g., "/peerup/ssh/1.0.0")
-	LocalAddress string // Local TCP address (e.g., "localhost:22")
-	Enabled      bool   // Whether this service is enabled
+	Name         string              // Service name (e.g., "ssh", "http")
+	Protocol     string              // libp2p protocol ID (e.g., "/peerup/ssh/1.0.0")
+	LocalAddress string              // Local TCP address (e.g., "localhost:22")
+	Enabled      bool                // Whether this service is enabled
+	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed)
 }
 
 // ServiceConn represents a connection to a remote service
@@ -102,6 +103,15 @@ func (r *ServiceRegistry) handleServiceStream(svc *Service) func(network.Stream)
 		tag := connectionTag(s)
 		short := remotePeer.String()[:16] + "..."
 		slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
+
+		// Per-service access control
+		if svc.AllowedPeers != nil {
+			if _, ok := svc.AllowedPeers[remotePeer]; !ok {
+				slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
+				s.Reset()
+				return
+			}
+		}
 
 		// Connect to local service (with timeout to avoid hanging on unreachable services)
 		localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)

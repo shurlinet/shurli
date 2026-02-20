@@ -597,7 +597,7 @@ func (s *Server) handleExpose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.runtime.Network().ExposeService(req.Name, req.LocalAddress); err != nil {
+	if err := s.runtime.Network().ExposeService(req.Name, req.LocalAddress, nil); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

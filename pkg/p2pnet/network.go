@@ -216,8 +216,9 @@ func (n *Network) PeerID() peer.ID {
 	return n.host.ID()
 }
 
-// ExposeService exposes a local TCP service through the P2P network
-func (n *Network) ExposeService(name, localAddress string) error {
+// ExposeService exposes a local TCP service through the P2P network.
+// If allowedPeers is nil, all authorized peers can access the service.
+func (n *Network) ExposeService(name, localAddress string, allowedPeers map[peer.ID]struct{}) error {
 	if err := ValidateServiceName(name); err != nil {
 		return err
 	}
@@ -226,6 +227,7 @@ func (n *Network) ExposeService(name, localAddress string) error {
 		Protocol:     fmt.Sprintf("/peerup/%s/1.0.0", name),
 		LocalAddress: localAddress,
 		Enabled:      true,
+		AllowedPeers: allowedPeers,
 	})
 }
 

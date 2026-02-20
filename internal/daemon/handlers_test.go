@@ -228,7 +228,7 @@ func TestHandleServiceList_WithServices(t *testing.T) {
 	srv, rt := newNetworkServer(t)
 
 	// Expose a service via the network
-	if err := rt.net.ExposeService("ssh", "localhost:22"); err != nil {
+	if err := rt.net.ExposeService("ssh", "localhost:22", nil); err != nil {
 		t.Fatalf("ExposeService: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestHandleServiceList_WithServices(t *testing.T) {
 
 func TestHandleServiceList_Text(t *testing.T) {
 	srv, rt := newNetworkServer(t)
-	rt.net.ExposeService("ssh", "localhost:22")
+	rt.net.ExposeService("ssh", "localhost:22", nil)
 
 	req := httptest.NewRequest("GET", "/v1/services?format=text", nil)
 	rec := httptest.NewRecorder()
@@ -636,7 +636,7 @@ func TestHandleExpose_MissingFields(t *testing.T) {
 
 func TestHandleUnexpose_Success(t *testing.T) {
 	srv, rt := newNetworkServer(t)
-	rt.net.ExposeService("ssh", "localhost:22")
+	rt.net.ExposeService("ssh", "localhost:22", nil)
 
 	req := httptest.NewRequest("DELETE", "/v1/expose/ssh", nil)
 	req.SetPathValue("name", "ssh")
@@ -1020,7 +1020,7 @@ func TestHandleResolve_InvalidBody(t *testing.T) {
 
 func TestHandleServiceList_DisabledService(t *testing.T) {
 	srv, rt := newNetworkServer(t)
-	rt.net.ExposeService("ssh", "localhost:22")
+	rt.net.ExposeService("ssh", "localhost:22", nil)
 
 	// Text format should show "disabled" for disabled services
 	// (but ExposeService always sets enabled=true, so we test the text path)

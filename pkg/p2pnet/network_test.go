@@ -189,7 +189,7 @@ func TestNetworkServiceFacade(t *testing.T) {
 	net := newListeningNetwork(t)
 
 	// Expose
-	if err := net.ExposeService("ssh", "localhost:22"); err != nil {
+	if err := net.ExposeService("ssh", "localhost:22", nil); err != nil {
 		t.Fatalf("ExposeService: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestNetworkServiceFacade(t *testing.T) {
 	}
 
 	// Duplicate
-	err := net.ExposeService("ssh", "localhost:22")
+	err := net.ExposeService("ssh", "localhost:22", nil)
 	if err == nil {
 		t.Error("expected error for duplicate service")
 	}
@@ -369,7 +369,7 @@ func TestConnectToService(t *testing.T) {
 	connectNetworks(t, netA, netB)
 
 	// Register an echo service on B (don't need real TCP, just the stream handler)
-	netB.ExposeService("echo", "localhost:1") // won't actually dial TCP in this test
+	netB.ExposeService("echo", "localhost:1", nil) // won't actually dial TCP in this test
 
 	// Connect from A to B's echo service  - this tests DialService + serviceStream
 	conn, err := netA.ConnectToServiceContext(context.Background(), netB.Host().ID(), "echo")
@@ -534,7 +534,7 @@ func TestNetworkNew_WithBadAuthorizedKeysFile(t *testing.T) {
 
 func TestExposeService_InvalidName(t *testing.T) {
 	net := newListeningNetwork(t)
-	if err := net.ExposeService("INVALID", "localhost:22"); err == nil {
+	if err := net.ExposeService("INVALID", "localhost:22", nil); err == nil {
 		t.Error("expected error for invalid service name")
 	}
 }
@@ -553,7 +553,7 @@ func TestConnectToService_DefaultTimeout(t *testing.T) {
 	netB := newListeningNetwork(t)
 	connectNetworks(t, netA, netB)
 
-	netB.ExposeService("echo", "localhost:1")
+	netB.ExposeService("echo", "localhost:1", nil)
 
 	conn, err := netA.ConnectToService(netB.PeerID(), "echo")
 	if err != nil {

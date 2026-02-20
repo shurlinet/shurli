@@ -861,7 +861,7 @@ func TestP2PHandlerIntegration(t *testing.T) {
 	// --- Connect (creates TCP listener + proxy entry) ---
 	t.Run("Connect", func(t *testing.T) {
 		// Expose a service on B so the stream protocol is registered
-		netB.ExposeService("echo", "localhost:9999")
+		netB.ExposeService("echo", "localhost:9999", nil)
 		defer netB.UnexposeService("echo")
 
 		resp, err := client.Connect("remote", "echo", ":0")
