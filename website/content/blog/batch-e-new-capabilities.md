@@ -2,9 +2,10 @@
 title: "Status, Health Checks, and Scriptable Pairing"
 date: 2026-02-15
 tags: [release, batch-e]
+image: /images/blog/batch-e-capabilities.svg
 ---
 
-![Status, Health Checks, and Scriptable Pairing](/peer-up/images/blog/batch-e-capabilities.svg)
+![Status, Health Checks, and Scriptable Pairing](/images/blog/batch-e-capabilities.svg)
 
 ## What's new
 
@@ -16,7 +17,7 @@ A P2P tool that can't tell you its own status is a black box. Operators need hea
 
 ## Technical highlights
 
-![Headless pairing pipeline — from Docker environment variable to network member, zero human interaction](/peer-up/images/blog/batch-e-headless-pipeline.svg)
+![Headless pairing pipeline — from Docker environment variable to network member, zero human interaction](/images/blog/batch-e-headless-pipeline.svg)
 
 - **`peerup status`**: Shows local config, services, relay addresses, and peer ID in a clean summary. No daemon required — reads the config file directly
 - **`/healthz` endpoint**: HTTP health check on the relay server (default `127.0.0.1:9090`). Returns status, uptime, and connected peer count. Restricted to loopback for security

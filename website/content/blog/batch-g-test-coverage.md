@@ -2,9 +2,10 @@
 title: "80% Coverage and a Security Audit"
 date: 2026-02-19
 tags: [release, batch-g]
+image: /images/blog/batch-g-coverage.svg
 ---
 
-![80% Coverage and a Security Audit](/peer-up/images/blog/batch-g-coverage.svg)
+![80% Coverage and a Security Audit](/images/blog/batch-g-coverage.svg)
 
 ## What's new
 
@@ -16,7 +17,7 @@ For infrastructure software that handles network connectivity, untested code is 
 
 ## Technical highlights
 
-![Docker integration test topology — relay server, node A, and node B in a real container network](/peer-up/images/blog/batch-g-docker-topology.svg)
+![Docker integration test topology — relay server, node A, and node B in a real container network](/images/blog/batch-g-docker-topology.svg)
 
 - **80.3% combined coverage**: Unit tests (Go's testing framework) + Docker integration tests (real binaries in containers communicating through relay). Coverage profiles merged with `go tool covdata`
 - **Docker integration tests**: Compose environment with relay server, two nodes. Tests: relay startup, invite/join pairing, ping through circuit relay. Build tag `integration` keeps them separate from `go test ./...`

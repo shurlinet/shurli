@@ -36,6 +36,10 @@ menu:
       weight: 4
       params:
         icon: github
+    - name: Theme
+      weight: 5
+      params:
+        type: theme-toggle
 
 params:
   description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls.
@@ -61,7 +65,7 @@ params:
     base: https://github.com/satindergrewal/peer-up/edit/main/website/content
 
   theme:
-    default: system
+    default: dark
 
   search:
     enable: true

@@ -2,9 +2,10 @@
 title: "The Daemon: A Full Control Plane"
 date: 2026-02-16
 tags: [release, batch-f]
+image: /images/blog/batch-f-daemon.svg
 ---
 
-![The Daemon: A Full Control Plane](/peer-up/images/blog/batch-f-daemon.svg)
+![The Daemon: A Full Control Plane](/images/blog/batch-f-daemon.svg)
 
 ## What's new
 
@@ -18,7 +19,7 @@ More importantly, the daemon can manage multiple proxies simultaneously. Start a
 
 ## Technical highlights
 
-![Before vs after daemon mode — from 5-10 second startup per command to instant responses](/peer-up/images/blog/batch-f-before-after.svg)
+![Before vs after daemon mode — from 5-10 second startup per command to instant responses](/images/blog/batch-f-before-after.svg)
 
 - **Unix domain socket**: `~/.config/peerup/peerup.sock` with `umask(0077)` for atomic permissions. No TCP port conflicts, filesystem-level access control
 - **Cookie authentication**: 32-byte random hex token written to `.daemon-cookie` (mode `0600`). Rotated every daemon restart. Sent as `Authorization: Bearer <token>`

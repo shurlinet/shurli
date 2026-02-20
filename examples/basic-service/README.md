@@ -38,7 +38,7 @@ You'll see output like:
 ```
 🌐 Starting local HTTP server on localhost:8080
 🆔 Server Peer ID: 12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL
-📍 Listening on: [/ip4/127.0.0.1/tcp/9100 /ip4/192.168.1.100/tcp/9100]
+📍 Listening on: [/ip4/127.0.0.1/tcp/9100 /ip4/10.0.1.100/tcp/9100]
 ✅ Registered service: http (protocol: /peerup/http/1.0.0, local: localhost:8080)
 ✅ Server ready! Share this peer ID with clients:
    12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL

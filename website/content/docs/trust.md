@@ -113,7 +113,7 @@ We welcome security contributions. The threat model above is a living document â
 2. **Use Security Advisories** for actual vulnerabilities
 3. **Submit PRs** for hardening improvements
 
-The [Engineering Journal](/peer-up/docs/engineering-journal/) documents the reasoning behind every security design decision (28 ADRs and counting).
+The [Engineering Journal](/docs/engineering-journal/) documents the reasoning behind every security design decision (28 ADRs and counting).
 
 ## Trust Model Philosophy
 

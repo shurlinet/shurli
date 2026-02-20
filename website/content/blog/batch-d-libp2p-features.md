@@ -2,9 +2,10 @@
 title: "Smarter Connections Under the Hood"
 date: 2026-02-14
 tags: [release, batch-d]
+image: /images/blog/batch-d-libp2p.svg
 ---
 
-![Smarter Connections Under the Hood](/peer-up/images/blog/batch-d-libp2p.svg)
+![Smarter Connections Under the Hood](/images/blog/batch-d-libp2p.svg)
 
 ## What's new
 
@@ -16,7 +17,7 @@ Not every network is the same. Some have full IPv6, some are behind CGNAT, some 
 
 ## Technical highlights
 
-![Transport negotiation priority — QUIC first, TCP fallback, WebSocket for censorship resistance](/peer-up/images/blog/batch-d-transport-stack.svg)
+![Transport negotiation priority — QUIC first, TCP fallback, WebSocket for censorship resistance](/images/blog/batch-d-transport-stack.svg)
 
 - **AutoNAT v2**: More reliable NAT detection than v1. Peers probe each other to determine reachability, enabling smarter relay decisions
 - **QUIC-preferred transport ordering**: QUIC first (3 RTTs, native multiplexing), TCP second (universal fallback), WebSocket third (anti-censorship). First transport to succeed wins

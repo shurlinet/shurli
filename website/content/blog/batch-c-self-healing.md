@@ -2,9 +2,10 @@
 title: "Your Network Fixes Itself"
 date: 2026-02-13
 tags: [release, batch-c]
+image: /images/blog/batch-c-self-healing.svg
 ---
 
-![Your Network Fixes Itself](/peer-up/images/blog/batch-c-self-healing.svg)
+![Your Network Fixes Itself](/images/blog/batch-c-self-healing.svg)
 
 ## What's new
 
@@ -16,7 +17,7 @@ The nightmare scenario for any remote-access tool: you change the config on your
 
 ## Technical highlights
 
-![The commit-confirmed pattern — apply config, start timer, auto-rollback if not confirmed](/peer-up/images/blog/batch-c-commit-confirmed.svg)
+![The commit-confirmed pattern — apply config, start timer, auto-rollback if not confirmed](/images/blog/batch-c-commit-confirmed.svg)
 
 - **Config archive/rollback**: Before any config change, the current config is archived to `.config.last-good.yaml` with atomic writes (temp file + rename). `peerup config rollback` restores it instantly
 - **Commit-confirmed pattern**: `peerup config apply new.yaml --confirm-timeout 5m` applies the change and starts a timer. If you don't run `peerup config confirm` within 5 minutes, the config auto-reverts and the daemon restarts with the known-good version
