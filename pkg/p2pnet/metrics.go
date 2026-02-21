@@ -30,6 +30,9 @@ type Metrics struct {
 	DaemonRequestsTotal          *prometheus.CounterVec
 	DaemonRequestDurationSeconds *prometheus.HistogramVec
 
+	// Interface metrics
+	InterfaceCount *prometheus.GaugeVec
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -117,6 +120,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"method", "path", "status"},
 		),
 
+		InterfaceCount: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_interface_count",
+				Help: "Number of network interfaces with global unicast addresses.",
+			},
+			[]string{"ip_version"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "peerup_info",
@@ -137,6 +148,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.HolePunchDurationSeconds,
 		m.DaemonRequestsTotal,
 		m.DaemonRequestDurationSeconds,
+		m.InterfaceCount,
 		m.BuildInfo,
 	)
 

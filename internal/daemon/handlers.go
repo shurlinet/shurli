@@ -106,6 +106,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ServicesCount:  len(rt.Network().ListServices()),
 	}
 
+	// Populate interface discovery flags if available
+	if ifSummary := rt.Interfaces(); ifSummary != nil {
+		resp.HasGlobalIPv6 = ifSummary.HasGlobalIPv6
+		resp.HasGlobalIPv4 = ifSummary.HasGlobalIPv4
+	}
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -113,6 +119,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "uptime: %ds\n", resp.UptimeSeconds)
 		fmt.Fprintf(&sb, "connected_peers: %d\n", resp.ConnectedPeers)
 		fmt.Fprintf(&sb, "services: %d\n", resp.ServicesCount)
+		fmt.Fprintf(&sb, "global_ipv6: %v\n", resp.HasGlobalIPv6)
+		fmt.Fprintf(&sb, "global_ipv4: %v\n", resp.HasGlobalIPv4)
 		fmt.Fprintf(&sb, "listen_addresses: %d\n", len(resp.ListenAddrs))
 		for _, a := range resp.ListenAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)

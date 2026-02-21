@@ -42,6 +42,9 @@ type serveRuntime struct {
 	startTime  time.Time
 	kdht       *dht.IpfsDHT // stored for peer discovery from daemon API
 
+	// Interface discovery (populated at startup)
+	ifSummary *p2pnet.InterfaceSummary
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -174,6 +177,37 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 func (rt *serveRuntime) Bootstrap() error {
 	h := rt.network.Host()
 	cfg := rt.config
+
+	// Discover network interfaces and log IPv6/IPv4 availability
+	ifSummary, err := p2pnet.DiscoverInterfaces()
+	if err != nil {
+		fmt.Printf("Warning: interface discovery failed: %v\n", err)
+	} else {
+		rt.ifSummary = ifSummary
+		fmt.Printf("Network interfaces: %d with global addresses\n", len(ifSummary.Interfaces))
+		if ifSummary.HasGlobalIPv6 {
+			fmt.Printf("  Global IPv6: %d addresses (direct connections possible)\n", len(ifSummary.GlobalIPv6Addrs))
+		}
+		if ifSummary.HasGlobalIPv4 {
+			fmt.Printf("  Global IPv4: %d addresses\n", len(ifSummary.GlobalIPv4Addrs))
+		}
+		if !ifSummary.HasGlobalIPv6 && !ifSummary.HasGlobalIPv4 {
+			fmt.Println("  No global addresses detected - relay will be required")
+		}
+		fmt.Println()
+
+		// Record metrics
+		if rt.metrics != nil {
+			ipv4Count := 0
+			ipv6Count := 0
+			for _, iface := range ifSummary.Interfaces {
+				ipv4Count += len(iface.IPv4Addrs)
+				ipv6Count += len(iface.IPv6Addrs)
+			}
+			rt.metrics.InterfaceCount.WithLabelValues("ipv4").Set(float64(ipv4Count))
+			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
+		}
+	}
 
 	// Parse relay addresses for manual connection
 	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)

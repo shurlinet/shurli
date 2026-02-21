@@ -35,6 +35,7 @@ func (m *mockRuntime) Version() string                 { return m.version }
 func (m *mockRuntime) StartTime() time.Time            { return m.startTime }
 func (m *mockRuntime) PingProtocolID() string          { return m.pingProto }
 func (m *mockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error { return nil }
+func (m *mockRuntime) Interfaces() *p2pnet.InterfaceSummary             { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

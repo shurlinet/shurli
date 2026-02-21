@@ -29,6 +29,7 @@ type RuntimeInfo interface {
 	StartTime() time.Time
 	PingProtocolID() string
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
+	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

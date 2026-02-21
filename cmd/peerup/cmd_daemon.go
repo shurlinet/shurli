@@ -20,12 +20,13 @@ import (
 
 // --- RuntimeInfo adapter (implements daemon.RuntimeInfo on serveRuntime) ---
 
-func (rt *serveRuntime) Network() *p2pnet.Network    { return rt.network }
-func (rt *serveRuntime) ConfigFile() string           { return rt.configFile }
-func (rt *serveRuntime) AuthKeysPath() string         { return rt.authKeys }
-func (rt *serveRuntime) Version() string              { return rt.version }
-func (rt *serveRuntime) StartTime() time.Time         { return rt.startTime }
-func (rt *serveRuntime) PingProtocolID() string       { return rt.config.Protocols.PingPong.ID }
+func (rt *serveRuntime) Network() *p2pnet.Network            { return rt.network }
+func (rt *serveRuntime) ConfigFile() string                   { return rt.configFile }
+func (rt *serveRuntime) AuthKeysPath() string                 { return rt.authKeys }
+func (rt *serveRuntime) Version() string                      { return rt.version }
+func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
+func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
+func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
 
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
