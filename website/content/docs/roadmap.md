@@ -218,6 +218,10 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ✅ DONE |
 | Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | ✅ DONE |
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
+| I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | ✅ DONE |
+| Post-I | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, gossip discovery | Planned |
+| Post-I-b | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
+| J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
 
 **Deliverables**:
 
@@ -355,6 +359,19 @@ After: DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`. Nodes with different 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
 Foundation for Phase 4H (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+
+**Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
+
+Probes all available network interfaces at startup, tests each path to peers, picks the best, and continuously monitors for network changes. Path ranking: direct IPv6 > direct IPv4 > peer relay > VPS relay. Zero new dependencies.
+
+- [x] **I-a: Interface Discovery & IPv6 Awareness** - `DiscoverInterfaces()` enumerates all network interfaces with global unicast classification. IPv6/IPv4 flags on daemon status. Prometheus `interface_count` gauge.
+- [x] **I-b: Parallel Dial Racing** - `PathDialer.DialPeer()` replaces sequential 45s worst-case with parallel racing. Already-connected fast path, DHT + relay concurrent, first success wins. `PathType` classification (DIRECT/RELAYED). Old `ConnectToPeer()` preserved as fallback.
+- [x] **I-c: Path Quality Visibility** - `PathTracker` subscribes to libp2p event bus (`EvtPeerConnectednessChanged`). Per-peer path info: type, transport (quic/tcp), IP version, RTT. `GET /v1/paths` API endpoint. Prometheus `connected_peers` gauge with path_type/transport/ip_version labels.
+- [x] **I-d: Network Change Monitoring (Event-Driven)** - `NetworkMonitor` detects interface/address changes and fires callbacks. Triggers interface re-scan, PathDialer update, and status refresh on network change.
+- [x] **I-e: STUN-Assisted Hole-Punching** - Zero-dependency RFC 5389 STUN client. Concurrent multi-server probing, NAT type classification (none/full-cone/address-restricted/port-restricted/symmetric). `HolePunchable()` helper. Background non-blocking probe at startup + re-probe on network change. NAT type and external addresses exposed in daemon status.
+- [x] **I-f: Every-Peer-Is-A-Relay** - Any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Auto-detect on startup and network change. Leverages existing ConnectionGater for authorization. `is_relaying` flag in daemon status.
+
+New files: `interfaces.go`, `pathdialer.go`, `pathtracker.go`, `netmonitor.go`, `stunprober.go`, `peerrelay.go` (all in `pkg/p2pnet/` with matching `_test.go` files).
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -1030,6 +1047,17 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - [ ] Split tunneling (route only specific traffic through tunnel)
 - [ ] Decentralized analytics - on-device network intelligence using statistical anomaly detection (moving average, z-score). No centralized data collection. Each node monitors its own connection quality, predicts relay degradation, and auto-switches paths before failure. Data never leaves the node. Inspired by Nokia AVA's "bring code to where the data is" philosophy. Implementation: gonum for statistics, pure Go, no ML frameworks needed for initial phases
 
+**ZKP Privacy Layer** (Post-I-b - after PeerManager/AddrMan):
+
+Zero-knowledge proofs applied to peer-up's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
+
+- [ ] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key. ConnectionGater validates the proof, never learns which peer connected. Eliminates peer ID as a tracking vector.
+- [ ] **Anonymous relay authorization** - prove relay access rights without revealing identity to the relay. Relay validates membership proof, routes traffic, builds no connection graph.
+- [ ] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Post-I).
+- [ ] **Private DHT namespace membership** - prove "I belong to the same namespace as you" without revealing the namespace name to non-members. Narrowest use case (exposure only to directly-dialed peers), implemented last.
+- [ ] Evaluate `gnark` (ConsenSys) for Go ZKP circuits. Measure binary size impact.
+- [ ] Prototype: anonymous set membership proof for authorized_keys (Groth16 or PLONK)
+
 **Protocol & Security Evolution**:
 - [ ] MASQUE relay transport ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) - HTTP/3 relay alternative to Circuit Relay v2. Looks like standard HTTPS to DPI, supports 0-RTT session resumption for instant reconnection. Could coexist with Circuit Relay v2 as user-selectable relay transport.
 - [ ] Post-quantum cryptography - hybrid Noise + ML-KEM ([FIPS 203](https://csrc.nist.gov/pubs/fips/203/final)) handshakes for quantum-resistant key exchange. Implement when libp2p adopts PQC. Design cipher suite negotiation now (cryptographic agility).
@@ -1183,7 +1211,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-21
-**Current Phase**: 4C Complete (Batches A-H + all Pre-I items shipped). Pre-I-a (Makefile), Pre-I-b (PAKE), Pre-I-c (Private DHT) all done.
+**Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Batch I (Adaptive Path Selection)
-**Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete
+**Next Milestone**: Post-I (PeerManager / AddrMan)
+**Future milestones**: Post-I (PeerManager/AddrMan) → Post-I-b (ZKP Privacy Layer) → J (Visual Channel)
+**Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays → DHT discovery → VPS becomes obsolete
