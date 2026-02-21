@@ -13,6 +13,7 @@ This document describes the technical architecture of peer-up, from current impl
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
 - [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
+- [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
@@ -59,6 +60,12 @@ peer-up/
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── interfaces.go        # Interface discovery, IPv6/IPv4 classification
+│   ├── pathdialer.go        # Parallel dial racing (direct + relay, first wins)
+│   ├── pathtracker.go       # Per-peer path quality tracking (event-bus driven)
+│   ├── netmonitor.go        # Network change monitoring (event-driven)
+│   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
+│   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
 │   ├── metrics.go           # Prometheus metrics (custom registry, all peerup collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
@@ -209,7 +216,7 @@ peer-up/
 
 ## Daemon Architecture
 
-### Daemon Architecture
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
 
 `peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -340,6 +347,8 @@ Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) u
 
 > **Status: Implemented** - opt-in Prometheus metrics + structured audit logging.
 
+![Observability data flow - from metric sources through Prometheus registry to /metrics endpoint](/images/docs/observability-flow.svg)
+
 All observability features are disabled by default and opt-in via config:
 
 ```yaml
@@ -376,6 +385,32 @@ Custom peerup metrics:
 **Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
+
+### Adaptive Path Selection (Batch I)
+
+> **Status: Implemented** - interface discovery, parallel dial racing, path tracking, network change monitoring, STUN probing, every-peer-is-a-relay.
+
+![Adaptive Path Selection: 6 components (interface discovery, STUN probing, peer relay, parallel dial racing, path tracking, network monitoring) working together with path ranking from Direct IPv6 to VPS Relay](/images/docs/arch-adaptive-path.svg)
+
+Six components work together to find and maintain the best connection path to each peer:
+
+**Interface Discovery** (`pkg/p2pnet/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+
+**Parallel Dial Racing** (`pkg/p2pnet/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
+
+![Dial Racing Flow: entry point checks if already connected (instant return), otherwise launches DHT discovery and relay circuit in parallel, first success wins with path classification](/images/docs/arch-dial-racing.svg)
+
+**Path Quality Tracking** (`pkg/p2pnet/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
+
+**Network Change Monitoring** (`pkg/p2pnet/netmonitor.go`): `NetworkMonitor` watches for interface/address changes by polling `DiscoverInterfaces()` and diffing against the previous snapshot. On change, fires registered callbacks. Triggers: interface re-scan, STUN re-probe, peer relay auto-detect update.
+
+**STUN NAT Detection** (`pkg/p2pnet/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
+
+**Every-Peer-Is-A-Relay** (`pkg/p2pnet/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
+
+**Path Ranking**: direct IPv6 > direct IPv4 > peer relay > VPS relay. If all direct paths fail, the system falls back to relay and logs the reason honestly.
+
+**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `cmd/peerup/serve_common.go`
 
 ---
 
@@ -750,5 +785,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-20
-**Architecture Version**: 2.9 (SVG diagrams, status labels for planned vs implemented sections)
+**Last Updated**: 2026-02-21
+**Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)

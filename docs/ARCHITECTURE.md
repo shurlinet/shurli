@@ -210,7 +210,7 @@ peer-up/
 
 ## Daemon Architecture
 
-### Daemon Architecture
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -341,6 +341,8 @@ Shared counters accessed by concurrent goroutines (e.g., bootstrap peer count) u
 
 > **Status: Implemented** - opt-in Prometheus metrics + structured audit logging.
 
+![Observability data flow - from metric sources through Prometheus registry to /metrics endpoint](images/observability-flow.svg)
+
 All observability features are disabled by default and opt-in via config:
 
 ```yaml
@@ -382,11 +384,15 @@ Custom peerup metrics:
 
 > **Status: Implemented** - interface discovery, parallel dial racing, path tracking, network change monitoring, STUN probing, every-peer-is-a-relay.
 
+![Adaptive Path Selection: 6 components (interface discovery, STUN probing, peer relay, parallel dial racing, path tracking, network monitoring) working together with path ranking from Direct IPv6 to VPS Relay](images/arch-adaptive-path.svg)
+
 Six components work together to find and maintain the best connection path to each peer:
 
 **Interface Discovery** (`pkg/p2pnet/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
 **Parallel Dial Racing** (`pkg/p2pnet/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
+
+![Dial Racing Flow: entry point checks if already connected (instant return), otherwise launches DHT discovery and relay circuit in parallel, first success wins with path classification](images/arch-dial-racing.svg)
 
 **Path Quality Tracking** (`pkg/p2pnet/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
 
@@ -773,5 +779,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-20
-**Architecture Version**: 2.9 (SVG diagrams, status labels for planned vs implemented sections)
+**Last Updated**: 2026-02-21
+**Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)
