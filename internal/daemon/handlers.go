@@ -120,6 +120,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.STUNExternalAddrs = stunResult.ExternalAddrs
 	}
 
+	// Peer relay status
+	resp.IsRelaying = rt.IsRelaying()
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -129,6 +132,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "services: %d\n", resp.ServicesCount)
 		fmt.Fprintf(&sb, "global_ipv6: %v\n", resp.HasGlobalIPv6)
 		fmt.Fprintf(&sb, "global_ipv4: %v\n", resp.HasGlobalIPv4)
+		fmt.Fprintf(&sb, "is_relaying: %v\n", resp.IsRelaying)
 		if resp.NATType != "" {
 			fmt.Fprintf(&sb, "nat_type: %s\n", resp.NATType)
 		}

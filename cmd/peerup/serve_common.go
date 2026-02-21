@@ -54,6 +54,9 @@ type serveRuntime struct {
 	// STUN prober for NAT type detection and external address discovery
 	stunProber *p2pnet.STUNProber
 
+	// Peer relay (auto-enabled when public IP detected)
+	peerRelay *p2pnet.PeerRelay
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -383,6 +386,11 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
 		}
 
+		// Re-evaluate peer relay eligibility on network change
+		if rt.peerRelay != nil {
+			rt.peerRelay.AutoDetect(newSummary)
+		}
+
 		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
 			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
 
@@ -419,6 +427,13 @@ func (rt *serveRuntime) Bootstrap() error {
 		}
 		fmt.Println()
 	}()
+
+	// Initialize peer relay (auto-enables if this host has a public IP).
+	// The existing ConnectionGater restricts who can use this relay.
+	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics)
+	if rt.ifSummary != nil {
+		rt.peerRelay.AutoDetect(rt.ifSummary)
+	}
 
 	return nil
 }
@@ -611,8 +626,12 @@ func (rt *serveRuntime) StartMetricsServer() {
 	}()
 }
 
-// Shutdown cancels the context, stops the metrics server, and closes the P2P network.
+// Shutdown cancels the context, stops the metrics server, disables the peer relay,
+// and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	if rt.peerRelay != nil {
+		rt.peerRelay.Disable()
+	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)

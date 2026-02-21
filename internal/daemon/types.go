@@ -15,6 +15,7 @@ type StatusResponse struct {
 	HasGlobalIPv4     bool     `json:"has_global_ipv4"`
 	NATType           string   `json:"nat_type,omitempty"`
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
+	IsRelaying        bool     `json:"is_relaying"`
 }
 
 // ServiceInfo is returned by GET /v1/services.

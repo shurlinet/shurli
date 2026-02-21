@@ -32,6 +32,7 @@ type RuntimeInfo interface {
 	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
 	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
 	STUNResult() *p2pnet.STUNResult                          // nil before probe
+	IsRelaying() bool                                        // true if peer relay enabled
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

@@ -34,6 +34,12 @@ func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
 	}
 	return rt.stunProber.Result()
 }
+func (rt *serveRuntime) IsRelaying() bool {
+	if rt.peerRelay == nil {
+		return false
+	}
+	return rt.peerRelay.Enabled()
+}
 
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
