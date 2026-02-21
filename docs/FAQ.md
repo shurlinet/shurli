@@ -2,6 +2,16 @@
 
 > **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
 
+## Why no accounts or central servers?
+
+Most remote access tools require you to create an account on someone else's server. That server becomes a single point of failure and a single point of control. If the company changes pricing, shuts down, gets acquired, or suffers a breach, your access breaks and your connection metadata is exposed.
+
+peer-up eliminates that dependency entirely. Identity is an Ed25519 key pair generated locally on your machine. Authorization is a plain-text file listing which peer IDs are allowed to connect - the same model as SSH's `authorized_keys`. Configuration is one YAML file you can read, edit, back up, and version-control yourself.
+
+There is no registration step, no authentication token issued by a third party, and no renewal that can lapse. Two machines can find and authenticate each other using only their local keys and a shared relay for the initial connection. If you want full independence, run your own relay on any VPS - the entire system operates with zero external accounts.
+
+The result: your ability to reach your own machines depends on your infrastructure, not someone else's business decisions.
+
 ## How does peer-up compare to Tailscale?
 
 peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
