@@ -42,7 +42,7 @@ DOC_MAP=(
   ["ARCHITECTURE.md"]="architecture.md:8:Architecture"
   ["ROADMAP.md"]="roadmap.md:9:Roadmap"
   ["TESTING.md"]="testing.md:10:Testing"
-  ["ENGINEERING-JOURNAL.md"]="engineering-journal.md:11:Engineering Journal"
+  # Engineering Journal is synced separately (per-batch directory)
 )
 
 # SEO descriptions for each synced page
@@ -55,7 +55,6 @@ DESC_MAP=(
   ["ARCHITECTURE.md"]="Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
   ["ROADMAP.md"]="Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."
   ["TESTING.md"]="Test strategy for peer-up: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
-  ["ENGINEERING-JOURNAL.md"]="Architecture Decision Records for peer-up. The why behind every significant design choice, from transport selection to config schema evolution."
 )
 
 sync_doc() {
@@ -222,6 +221,79 @@ sync_relay_setup() {
 }
 sync_relay_setup
 
+# Engineering Journal - synced as a directory (per-batch files)
+sync_engineering_journal() {
+  local journal_dir="$DOCS_DIR/engineering-journal"
+  local out_journal_dir="$OUT_DIR/engineering-journal"
+
+  if [[ ! -d "$journal_dir" ]]; then
+    echo "  SKIP engineering-journal/ (not found)"
+    return
+  fi
+
+  mkdir -p "$out_journal_dir"
+
+  # Map: source filename -> weight:title:description
+  declare -A JOURNAL_MAP
+  JOURNAL_MAP=(
+    ["README.md"]="1:Engineering Journal:Architecture Decision Records for peer-up. The why behind every significant design choice."
+    ["core-architecture.md"]="2:Core Architecture:Foundational technology choices: Go, libp2p, private DHT, circuit relay v2, connection gating, single binary."
+    ["batch-a-reliability.md"]="3:Batch A - Reliability:Timeouts, retries, DHT in the proxy path, and in-process integration tests."
+    ["batch-b-code-quality.md"]="4:Batch B - Code Quality:Relay address deduplication, structured logging, sentinel errors, build version embedding."
+    ["batch-c-self-healing.md"]="5:Batch C - Self-Healing:Config archive and rollback, commit-confirmed pattern, watchdog with pure-Go sd_notify."
+    ["batch-d-libp2p-features.md"]="6:Batch D - libp2p Features:AutoNAT v2, QUIC transport ordering, Identify UserAgent, smart dialing."
+    ["batch-e-new-capabilities.md"]="7:Batch E - New Capabilities:Relay health endpoint and headless invite/join for scripting."
+    ["batch-f-daemon-mode.md"]="8:Batch F - Daemon Mode:Unix socket IPC, cookie authentication, RuntimeInfo interface, hot-reload authorized_keys."
+    ["batch-g-test-coverage.md"]="9:Batch G - Test Coverage:Coverage-instrumented Docker tests, relay binary, injectable exit, post-phase audit protocol."
+    ["batch-h-observability.md"]="10:Batch H - Observability:Prometheus metrics, nil-safe observability pattern, auth decision callback."
+    ["pre-batch-i.md"]="11:Pre-Batch I:Makefile and build tooling, PAKE-secured invite/join, private DHT namespace isolation."
+  )
+
+  for src_file in "${!JOURNAL_MAP[@]}"; do
+    IFS=':' read -r weight title description <<< "${JOURNAL_MAP[$src_file]}"
+    local src_path="$journal_dir/$src_file"
+    local dst_path="$out_journal_dir/$src_file"
+
+    if [[ ! -f "$src_path" ]]; then
+      echo "  SKIP engineering-journal/$src_file (not found)"
+      continue
+    fi
+
+    # Read source, strip first # heading
+    local body
+    body="$(sed '1{/^# /d;}' "$src_path")"
+
+    # Rewrite source code references to GitHub URLs
+    body="$(echo "$body" | sed "s|\`cmd/peerup/|\`$GITHUB_BASE/cmd/peerup/|g")"
+    body="$(echo "$body" | sed "s|\`pkg/p2pnet/|\`$GITHUB_BASE/pkg/p2pnet/|g")"
+    body="$(echo "$body" | sed "s|\`internal/|\`$GITHUB_BASE/internal/|g")"
+
+    # Determine if this is the _index.md (README.md) or a regular page
+    local out_name="$src_file"
+    if [[ "$src_file" == "README.md" ]]; then
+      out_name="_index.md"
+      dst_path="$out_journal_dir/_index.md"
+    fi
+
+    {
+      echo "---"
+      echo "title: \"${title}\""
+      echo "weight: ${weight}"
+      if [[ -n "$description" ]]; then
+        echo "description: \"${description}\""
+      fi
+      echo "---"
+      echo "<!-- Auto-synced from docs/engineering-journal/${src_file} by sync-docs.sh - do not edit directly -->"
+      echo ""
+      echo "${body}"
+    } > "$dst_path"
+
+    echo "  SYNC engineering-journal/$src_file -> engineering-journal/$out_name"
+  done
+}
+sync_engineering_journal
+
+
 # Generate llms-full.txt  - single-file concatenation of all docs for AI agents.
 # Follows the llmstxt.org spec: one fetch gets everything.
 # Order: README (overview) → docs in user-journey order.
@@ -238,8 +310,23 @@ generate_llms_full() {
     "ARCHITECTURE.md"
     "ROADMAP.md"
     "TESTING.md"
-    "ENGINEERING-JOURNAL.md"
   )
+
+  # Engineering Journal per-batch files in order
+  local -a journal_order=(
+    "engineering-journal/README.md"
+    "engineering-journal/core-architecture.md"
+    "engineering-journal/batch-a-reliability.md"
+    "engineering-journal/batch-b-code-quality.md"
+    "engineering-journal/batch-c-self-healing.md"
+    "engineering-journal/batch-d-libp2p-features.md"
+    "engineering-journal/batch-e-new-capabilities.md"
+    "engineering-journal/batch-f-daemon-mode.md"
+    "engineering-journal/batch-g-test-coverage.md"
+    "engineering-journal/batch-h-observability.md"
+    "engineering-journal/pre-batch-i.md"
+  )
+
   local relay_readme="$(dirname "$SCRIPT_DIR")/relay-server/README.md"
 
   {
@@ -258,6 +345,15 @@ generate_llms_full() {
       fi
     done
 
+    # Append engineering journal (all per-batch files)
+    for journal_file in "${journal_order[@]}"; do
+      local journal_path="$DOCS_DIR/$journal_file"
+      if [[ -f "$journal_path" ]]; then
+        cat "$journal_path"
+        printf '\n\n---\n\n'
+      fi
+    done
+
     # Append relay setup guide
     if [[ -f "$relay_readme" ]]; then
       cat "$relay_readme"
@@ -270,4 +366,4 @@ generate_llms_full() {
 
 generate_llms_full
 
-echo "Done. $(ls "$OUT_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ') files synced."
+echo "Done. $(find "$OUT_DIR" -name '*.md' 2>/dev/null | wc -l | tr -d ' ') files synced."

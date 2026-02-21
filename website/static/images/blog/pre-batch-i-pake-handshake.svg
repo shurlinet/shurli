@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="800" height="420">
+  <!-- Pre-I-b: PAKE Encrypted Handshake Sequence -->
+  <!-- Background -->
+  <rect width="800" height="420" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="32" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Encrypted Invite/Join Handshake</text>
+  <text x="400" y="52" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Relay sees opaque bytes - cannot observe tokens or names</text>
+
+  <!-- Column headers -->
+  <rect x="60" y="70" width="140" height="30" rx="6" fill="#1a2e1f" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="130" y="90" text-anchor="middle" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Joiner</text>
+
+  <rect x="330" y="70" width="140" height="30" rx="6" fill="#2a1a1a" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="400" y="90" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Relay</text>
+
+  <rect x="600" y="70" width="140" height="30" rx="6" fill="#1e2740" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="670" y="90" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Inviter</text>
+
+  <!-- Vertical lifelines -->
+  <line x1="130" y1="105" x2="130" y2="395" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="400" y1="105" x2="400" y2="395" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="670" y1="105" x2="670" y2="395" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Step 1: Version + X25519 pubkey -->
+  <text x="50" y="135" fill="#565f89" font-family="ui-monospace,monospace" font-size="10">1</text>
+  <line x1="130" y1="130" x2="670" y2="130" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="660,126 670,130 660,134" fill="#bb9af7"/>
+  <rect x="230" y="118" width="340" height="18" rx="3" fill="#0f1117"/>
+  <text x="400" y="131" text-anchor="middle" fill="#bb9af7" font-family="ui-monospace,monospace" font-size="10">[0x02] [32-byte X25519 pubkey]</text>
+
+  <!-- What relay sees: step 1 -->
+  <rect x="310" y="140" width="180" height="16" rx="3" fill="#2a1a1a"/>
+  <text x="400" y="152" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="8">sees: 33 bytes (version + pubkey)</text>
+
+  <!-- Step 2: Inviter's X25519 pubkey -->
+  <text x="50" y="180" fill="#565f89" font-family="ui-monospace,monospace" font-size="10">2</text>
+  <line x1="670" y1="175" x2="130" y2="175" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="140,171 130,175 140,179" fill="#bb9af7"/>
+  <rect x="280" y="163" width="240" height="18" rx="3" fill="#0f1117"/>
+  <text x="400" y="176" text-anchor="middle" fill="#bb9af7" font-family="ui-monospace,monospace" font-size="10">[32-byte X25519 pubkey]</text>
+
+  <!-- Key derivation box -->
+  <rect x="120" y="200" width="560" height="35" rx="6" fill="#1a1b26" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="400" y="215" text-anchor="middle" fill="#e0af68" font-family="system-ui,sans-serif" font-size="11" font-weight="600">Both derive: key = HKDF-SHA256(DH_shared || token, "peerup-invite-v2")</text>
+  <text x="400" y="229" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="9">Wrong token = wrong key = AEAD decryption fails silently</text>
+
+  <!-- Step 3: Encrypted joiner name -->
+  <text x="50" y="262" fill="#565f89" font-family="ui-monospace,monospace" font-size="10">3</text>
+  <line x1="130" y1="257" x2="670" y2="257" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="660,253 670,257 660,261" fill="#9ece6a"/>
+  <rect x="250" y="245" width="300" height="18" rx="3" fill="#0f1117"/>
+  <text x="400" y="258" text-anchor="middle" fill="#9ece6a" font-family="ui-monospace,monospace" font-size="10">AEAD encrypted: joiner name</text>
+
+  <!-- What relay sees: step 3 -->
+  <rect x="310" y="267" width="180" height="16" rx="3" fill="#2a1a1a"/>
+  <text x="400" y="279" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="8">sees: opaque encrypted bytes</text>
+
+  <!-- Step 4: Encrypted OK + inviter name -->
+  <text x="50" y="307" fill="#565f89" font-family="ui-monospace,monospace" font-size="10">4</text>
+  <line x1="670" y1="302" x2="130" y2="302" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="140,298 130,302 140,306" fill="#9ece6a"/>
+  <rect x="230" y="290" width="340" height="18" rx="3" fill="#0f1117"/>
+  <text x="400" y="303" text-anchor="middle" fill="#9ece6a" font-family="ui-monospace,monospace" font-size="10">AEAD encrypted: "OK" + inviter name</text>
+
+  <!-- What relay sees: step 4 -->
+  <rect x="310" y="312" width="180" height="16" rx="3" fill="#2a1a1a"/>
+  <text x="400" y="324" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="8">sees: opaque encrypted bytes</text>
+
+  <!-- Result: mutual auth -->
+  <rect x="120" y="345" width="560" height="30" rx="6" fill="#1a2e1f" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="400" y="365" text-anchor="middle" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="12" font-weight="600">Mutual authentication complete - peer IDs exchanged in authorized_keys</text>
+
+  <!-- Bottom: crypto primitives -->
+  <text x="200" y="400" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="10">X25519 (ECDH)</text>
+  <text x="400" y="400" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="10">HKDF-SHA256 (KDF)</text>
+  <text x="600" y="400" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="10">XChaCha20-Poly1305 (AEAD)</text>
+
+  <!-- Zero deps note -->
+  <text x="400" y="415" text-anchor="middle" fill="#414868" font-family="system-ui,sans-serif" font-size="9">All primitives already in dependency tree via libp2p - 0 new dependencies</text>
+</svg>
