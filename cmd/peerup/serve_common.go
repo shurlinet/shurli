@@ -358,6 +358,33 @@ func (rt *serveRuntime) Bootstrap() error {
 	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
 	go rt.pathTracker.Start(rt.ctx)
 
+	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
+	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
+		// Update interface summary
+		newSummary, err := p2pnet.DiscoverInterfaces()
+		if err != nil {
+			fmt.Printf("Warning: interface re-discovery failed: %v\n", err)
+			return
+		}
+		rt.ifSummary = newSummary
+
+		// Update metrics
+		if rt.metrics != nil {
+			ipv4Count := 0
+			ipv6Count := 0
+			for _, iface := range newSummary.Interfaces {
+				ipv4Count += len(iface.IPv4Addrs)
+				ipv6Count += len(iface.IPv6Addrs)
+			}
+			rt.metrics.InterfaceCount.WithLabelValues("ipv4").Set(float64(ipv4Count))
+			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
+		}
+
+		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
+			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
+	}, rt.metrics)
+	go netmon.Run(rt.ctx)
+
 	return nil
 }
 

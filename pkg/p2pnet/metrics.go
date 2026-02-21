@@ -37,6 +37,9 @@ type Metrics struct {
 	// Connected peers (tracked by PathTracker)
 	ConnectedPeers *prometheus.GaugeVec
 
+	// Network change events (tracked by NetworkMonitor)
+	NetworkChangeTotal *prometheus.CounterVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -151,6 +154,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"path_type", "transport", "ip_version"},
 		),
 
+		NetworkChangeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_network_change_total",
+				Help: "Total number of network interface changes detected.",
+			},
+			[]string{"change_type"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "peerup_interface_count",
@@ -180,6 +191,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.DaemonRequestsTotal,
 		m.DaemonRequestDurationSeconds,
 		m.ConnectedPeers,
+		m.NetworkChangeTotal,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)
