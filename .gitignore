@@ -46,5 +46,8 @@ relay_authorized_keys
 !website/hugo.yaml
 !.github/workflows/*.yaml
 
+# Local checks file (user-created, one command per line)
+.checks
+
 # Key files (private keys should never be committed)
 *.key

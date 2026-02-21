@@ -614,3 +614,36 @@ The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cook
 **Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
 
 **Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/peerup/serve_common.go`
+
+---
+
+## Pre-Batch I Decisions
+
+### ADR-Ia01: Makefile over Task Runner
+
+**Context**: peer-up's build command has non-trivial flags (`-ldflags="-s -w" -trimpath` with version/commit/date injection). Service installation differs by OS (systemd vs launchd). There was no single command to build, install, and manage the daemon.
+
+**Alternatives considered**:
+- **Shell script** (`build.sh`) - Portable, but no dependency tracking, no `.PHONY`, no `make -j` parallelism. Would duplicate what Make already provides.
+- **Mage / Task** - Go-based task runners. Adds a dependency and learning curve for contributors. Overkill for ~120 lines of targets.
+- **Just** - Modern command runner. Not installed by default anywhere. Make is ubiquitous.
+
+**Decision**: GNU Make. Present on every Unix system. Targets map directly to the operations developers need: `build`, `test`, `install`, `check`, `push`. OS detection via `uname -s` routes `install-service` to the correct init system.
+
+**Consequences**: Windows users need `make` installed (via WSL, MSYS2, or Chocolatey). Accepted because peer-up's primary targets are Linux servers and macOS desktops.
+
+**Reference**: `Makefile`
+
+### ADR-Ia02: Generic Checks Runner (Not Privacy-Specific)
+
+**Context**: The project needs a pre-push verification step. The specific checks include scanning for private data leaks (IPs, hostnames, peer IDs). But encoding these checks in the Makefile would expose the exact values being checked for in a public repository.
+
+**Alternatives considered**:
+- **Hardcoded privacy checks** - Embed `git grep` commands in Makefile. Would publicly document the private values being searched for. Rejected.
+- **Pre-push git hook** - Works but is per-clone, easily bypassed with `--no-verify`, and not part of the normal workflow.
+
+**Decision**: `make check` reads commands from a `.checks` file (gitignored, user-created, one command per line). The Makefile target is entirely generic: it runs each line and fails if any return non-zero. No words about what is being checked or why. `make push` gates on `make check`, making it impossible to push without passing.
+
+**Consequences**: Each developer creates their own `.checks` file. The mechanism is reusable for any project-specific validation. The Makefile reveals nothing about the nature of the checks.
+
+**Reference**: `Makefile:check`, `.gitignore`

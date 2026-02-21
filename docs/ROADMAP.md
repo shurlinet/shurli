@@ -209,7 +209,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
 | H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
-| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ⬜ PLANNED |
+| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ✅ DONE |
 | Pre-I-b | **PAKE-Secured Invite/Join** | SPAKE2/CPace handshake, relay-resistant pairing, documentation clarity | ⬜ PLANNED |
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ⬜ PLANNED |
 
@@ -282,25 +282,25 @@ Deferred from original Batch H scope (with reasoning):
 - ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
 - ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
 
-**Pre-Batch I-a: Build & Deployment Tooling** ⬜ PLANNED
+**Pre-Batch I-a: Build & Deployment Tooling** ✅ DONE
 
 Makefile + service management + generic local checks runner. Small standalone task, not part of any batch.
 
-- [ ] `make build` - optimized binary with `-ldflags="-s -w" -trimpath`
-- [ ] `make test` - `go test -race -count=1 ./...`
-- [ ] `make clean` - remove build artifacts
-- [ ] `make install` - build + copy binary to `/usr/local/bin` + install service
-- [ ] `make install-service` - detect OS (Linux systemd / macOS launchd), copy service file, enable
-- [ ] `make uninstall-service` - stop and remove service
-- [ ] `make uninstall` - remove service + binary
-- [ ] `make restart-service` - quick restart after rebuild
-- [ ] `make website` - Hugo build/serve for local preview
-- [ ] `make check` - generic local checks runner. Reads commands from `.checks` file (gitignored). Runs each command; fails if any returns non-zero. The Makefile target is entirely generic - no hint about what is being checked or why. Users create their own `.checks` with whatever patterns matter to them
-- [ ] `make push` - runs `make check && git push` (impossible to push without passing local checks)
-- [ ] Service install for Linux: copy `deploy/peerup-daemon.service` to systemd, `daemon-reload`, `enable`
-- [ ] Service install for macOS: copy `deploy/com.peerup.daemon.plist` to `~/Library/LaunchAgents/`, `launchctl load`
-- [ ] Clear messaging when elevated permissions required (no silent `sudo`)
-- [ ] `.checks` file documented in README (generic mechanism, user creates their own patterns)
+- [x] `make build` - optimized binary with `-ldflags="-s -w" -trimpath`
+- [x] `make test` - `go test -race -count=1 ./...`
+- [x] `make clean` - remove build artifacts
+- [x] `make install` - build + copy binary to `/usr/local/bin` + install service
+- [x] `make install-service` - detect OS (Linux systemd / macOS launchd), copy service file, enable
+- [x] `make uninstall-service` - stop and remove service
+- [x] `make uninstall` - remove service + binary
+- [x] `make restart-service` - quick restart after rebuild
+- [x] `make website` - Hugo build/serve for local preview
+- [x] `make check` - generic local checks runner. Reads commands from `.checks` file (gitignored). Runs each command; fails if any returns non-zero. The Makefile target is entirely generic - no hint about what is being checked or why. Users create their own `.checks` with whatever patterns matter to them
+- [x] `make push` - runs `make check && git push` (impossible to push without passing local checks)
+- [x] Service install for Linux: copy `deploy/peerup-daemon.service` to systemd, `daemon-reload`, `enable`
+- [x] Service install for macOS: copy `deploy/com.peerup.daemon.plist` to `~/Library/LaunchAgents/`, `launchctl load`
+- [x] Clear messaging when elevated permissions required (no silent `sudo`)
+- [x] `.checks` file documented in README (generic mechanism, user creates their own patterns)
 
 **Pre-Batch I-b: PAKE-Secured Invite/Join Handshake** ⬜ PLANNED
 

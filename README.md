@@ -271,6 +271,30 @@ See [relay-server/README.md](relay-server/README.md) for the full VPS deployment
 
 ## Building
 
+A Makefile is provided for common operations:
+
+```bash
+make build            # Build with version embedding and optimizations
+make test             # Run all tests with race detection
+make clean            # Remove build artifacts
+make install          # Build, install to /usr/local/bin, and set up system service
+make install-service  # Install and enable systemd (Linux) or launchd (macOS) service
+make restart-service  # Restart the service after a rebuild
+make uninstall        # Remove service and binary
+make website          # Start Hugo development server for peerup.dev
+make help             # Show all available targets
+```
+
+**Local checks**: `make check` runs commands from a `.checks` file (gitignored, one command per line). `make push` runs checks before pushing. Create your own `.checks` with any validation commands you need:
+
+```bash
+# Example .checks file
+echo "Running lint..."
+go vet ./...
+```
+
+You can also build directly with Go:
+
 ```bash
 # Build peerup
 go build -o peerup ./cmd/peerup
