@@ -12,6 +12,14 @@ There is no registration step, no authentication token issued by a third party, 
 
 The result: your ability to reach your own machines depends on your infrastructure, not someone else's business decisions.
 
+## Why peer-up avoids centralized identity
+
+When a remote access tool requires you to sign in with an identity provider, that provider becomes a silent dependency in your infrastructure. If the provider has an outage, you cannot authenticate. If they change their terms, your access is conditional on compliance. If they are breached, your device graph, connection history, and metadata are exposed alongside every other user on the platform.
+
+peer-up sidesteps this entirely. Identity is an Ed25519 key pair generated on your machine during `peerup init`. It never leaves your device, is never uploaded, and is never registered with any external service. Authentication happens directly between peers: each side checks the other's public key against a local `authorized_keys` file. No OAuth flow, no email verification, no session tokens issued by a third party.
+
+The practical result: your identity cannot be suspended, revoked, or invalidated by anyone other than you. If every server on the internet went offline except your two machines and a relay, peer-up would still authenticate and connect them.
+
 ## How does peer-up compare to Tailscale?
 
 peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
