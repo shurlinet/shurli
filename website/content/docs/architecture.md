@@ -736,7 +736,7 @@ Validated at four points:
 **Core**:
 - Go 1.25+
 - libp2p v0.47.0 (networking)
-- Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino)
+- Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino). Optional namespace isolation: `discovery.network: "my-crew"` produces `/peerup/my-crew/kad/1.0.0`, creating protocol-level separation between peer groups
 - Noise protocol (encryption)
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)

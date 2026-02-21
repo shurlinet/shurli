@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+  <defs>
+    <linearGradient id="makeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="pakeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2a1e3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1f1530;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="30" font-family="system-ui, sans-serif" font-size="16" fill="#c0caf5" text-anchor="middle" font-weight="700">Pre-Batch I: Foundations</text>
+  <text x="350" y="50" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">Three independent items clearing the path for Batch I</text>
+
+  <!-- Left: Makefile -->
+  <rect x="20" y="70" width="200" height="190" rx="8" fill="url(#makeGrad)" stroke="#73daca" stroke-width="1.5"/>
+  <text x="120" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" text-anchor="middle" font-weight="600">Pre-I-a: Makefile</text>
+
+  <text x="35" y="118" font-family="ui-monospace, monospace" font-size="9" fill="#9ece6a">make build</text>
+  <text x="115" y="118" font-family="system-ui, sans-serif" font-size="8" fill="#9aa5ce">optimized binary</text>
+
+  <text x="35" y="138" font-family="ui-monospace, monospace" font-size="9" fill="#9ece6a">make test</text>
+  <text x="110" y="138" font-family="system-ui, sans-serif" font-size="8" fill="#9aa5ce">race + count=1</text>
+
+  <text x="35" y="158" font-family="ui-monospace, monospace" font-size="9" fill="#9ece6a">make install</text>
+  <text x="120" y="158" font-family="system-ui, sans-serif" font-size="8" fill="#9aa5ce">binary + service</text>
+
+  <text x="35" y="178" font-family="ui-monospace, monospace" font-size="9" fill="#9ece6a">make check</text>
+  <text x="115" y="178" font-family="system-ui, sans-serif" font-size="8" fill="#9aa5ce">generic runner</text>
+
+  <text x="35" y="198" font-family="ui-monospace, monospace" font-size="9" fill="#e0af68">make push</text>
+  <text x="115" y="198" font-family="system-ui, sans-serif" font-size="8" fill="#9aa5ce">check then push</text>
+
+  <text x="120" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">OS detection: systemd / launchd</text>
+
+  <!-- Center: PAKE -->
+  <rect x="250" y="70" width="200" height="190" rx="8" fill="url(#pakeGrad)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="350" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">Pre-I-b: Encrypted Pairing</text>
+
+  <text x="265" y="118" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Joiner sends X25519 pubkey</text>
+  <text x="265" y="138" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Inviter sends X25519 pubkey</text>
+  <text x="265" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Both: HKDF(DH + token)</text>
+  <text x="265" y="178" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">AEAD encrypted exchange</text>
+
+  <text x="350" y="210" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" text-anchor="middle">Relay sees: opaque bytes</text>
+  <text x="350" y="230" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">XChaCha20-Poly1305</text>
+  <text x="350" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">0 new dependencies</text>
+
+  <!-- Right: Private DHT -->
+  <rect x="480" y="70" width="200" height="190" rx="8" fill="#1a1e36" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="580" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Pre-I-c: Private Networks</text>
+
+  <rect x="495" y="108" width="170" height="26" rx="4" fill="#1e2740" stroke="#3d59a1" stroke-width="0.5"/>
+  <text x="500" y="124" font-family="ui-monospace, monospace" font-size="8" fill="#73daca">/peerup/kad/1.0.0</text>
+  <text x="580" y="148" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">default (global)</text>
+
+  <rect x="495" y="162" width="170" height="26" rx="4" fill="#1e2740" stroke="#7aa2f7" stroke-width="0.5"/>
+  <text x="500" y="178" font-family="ui-monospace, monospace" font-size="8" fill="#7aa2f7">/peerup/my-crew/kad/1.0.0</text>
+  <text x="580" y="202" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">isolated namespace</text>
+
+  <text x="580" y="230" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle">Protocol-level isolation</text>
+  <text x="580" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Not a filter. Can't discover.</text>
+
+  <!-- Connecting lines (dashed, subtle) -->
+  <line x1="220" y1="165" x2="250" y2="165" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="450" y1="165" x2="480" y2="165" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+</svg>

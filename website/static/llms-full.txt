@@ -271,6 +271,30 @@ See [relay-server/README.md](relay-server/README.md) for the full VPS deployment
 
 ## Building
 
+A Makefile is provided for common operations:
+
+```bash
+make build            # Build with version embedding and optimizations
+make test             # Run all tests with race detection
+make clean            # Remove build artifacts
+make install          # Build, install to /usr/local/bin, and set up system service
+make install-service  # Install and enable systemd (Linux) or launchd (macOS) service
+make restart-service  # Restart the service after a rebuild
+make uninstall        # Remove service and binary
+make website          # Start Hugo development server for peerup.dev
+make help             # Show all available targets
+```
+
+**Local checks**: `make check` runs commands from a `.checks` file (gitignored, one command per line). `make push` runs checks before pushing. Create your own `.checks` with any validation commands you need:
+
+```bash
+# Example .checks file
+echo "Running lint..."
+go vet ./...
+```
+
+You can also build directly with Go:
+
 ```bash
 # Build peerup
 go build -o peerup ./cmd/peerup
@@ -3385,7 +3409,7 @@ Validated at four points:
 **Core**:
 - Go 1.25+
 - libp2p v0.47.0 (networking)
-- Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino)
+- Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino). Optional namespace isolation: `discovery.network: "my-crew"` produces `/peerup/my-crew/kad/1.0.0`, creating protocol-level separation between peer groups
 - Noise protocol (encryption)
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
@@ -3616,6 +3640,9 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
 | H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
+| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ✅ DONE |
+| Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | ✅ DONE |
+| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 
 **Deliverables**:
 
@@ -3685,6 +3712,74 @@ Deferred from original Batch H scope (with reasoning):
 - ~~Trace correlation IDs~~ - Deferred to future. 35% CPU overhead from distributed tracing span management not justified for P2P tool where network is the bottleneck. Revisit when OTel Go SDK has zero-cost path
 - ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
 - ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
+
+**Pre-Batch I-a: Build & Deployment Tooling** ✅ DONE
+
+Makefile + service management + generic local checks runner. Small standalone task, not part of any batch.
+
+- [x] `make build` - optimized binary with `-ldflags="-s -w" -trimpath`
+- [x] `make test` - `go test -race -count=1 ./...`
+- [x] `make clean` - remove build artifacts
+- [x] `make install` - build + copy binary to `/usr/local/bin` + install service
+- [x] `make install-service` - detect OS (Linux systemd / macOS launchd), copy service file, enable
+- [x] `make uninstall-service` - stop and remove service
+- [x] `make uninstall` - remove service + binary
+- [x] `make restart-service` - quick restart after rebuild
+- [x] `make website` - Hugo build/serve for local preview
+- [x] `make check` - generic local checks runner. Reads commands from `.checks` file (gitignored). Runs each command; fails if any returns non-zero. The Makefile target is entirely generic - no hint about what is being checked or why. Users create their own `.checks` with whatever patterns matter to them
+- [x] `make push` - runs `make check && git push` (impossible to push without passing local checks)
+- [x] Service install for Linux: copy `deploy/peerup-daemon.service` to systemd, `daemon-reload`, `enable`
+- [x] Service install for macOS: copy `deploy/com.peerup.daemon.plist` to `~/Library/LaunchAgents/`, `launchctl load`
+- [x] Clear messaging when elevated permissions required (no silent `sudo`)
+- [x] `.checks` file documented in README (generic mechanism, user creates their own patterns)
+
+**Pre-Batch I-b: PAKE-Secured Invite/Join Handshake** ✅ DONE
+
+Upgraded the invite/join token exchange from cleartext to an encrypted handshake inspired by WPA3's SAE. The relay now sees only opaque encrypted bytes during pairing. Zero new dependencies.
+
+Approach: Ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. All Go PAKE libraries evaluated were experimental/unmaintained; this approach uses only `crypto/ecdh` (stdlib), `golang.org/x/crypto/hkdf`, and `golang.org/x/crypto/chacha20poly1305` (already in dep tree).
+
+- [x] Replace cleartext token exchange with encrypted handshake: both sides prove knowledge of the invite code without transmitting it
+- [x] Ephemeral X25519 key exchange with token-bound HKDF key derivation
+- [x] XChaCha20-Poly1305 AEAD encryption for all messages after key exchange
+- [x] Backward compatibility: version byte 0x02 triggers PAKE handshake, 0x01 uses legacy cleartext. Stream handler auto-detects based on first byte
+- [x] v2 invite code format: includes namespace field for DHT network auto-inheritance
+- [x] Future version detection: v3+ codes rejected with "please upgrade peerup" message
+- [x] Joiner auto-inherits inviter's DHT namespace from v2 invite code
+- [x] ADR-Ib01 (DH + AEAD over formal PAKE) and ADR-Ib02 (invite code versioning)
+- [x] Tests: 19 PAKE tests (handshake, token mismatch, tampered ciphertext, oversized message, io.Pipe simulation, key confirmation MAC, EOF handling) + 11 invite code tests (v1/v2 round-trip, namespace, future version, trailing junk)
+
+Security model after upgrade:
+- Invite code = shared secret, never transmitted over the wire
+- Ephemeral DH + token binding proves mutual knowledge without revelation
+- Derived AEAD key encrypts all peer name exchange
+- Relay sees only ephemeral public keys + encrypted bytes: no token, no peer names
+- Single-use + TTL + transport-layer identity verification unchanged
+- If tokens differ, AEAD decryption fails with no protocol details leaked
+
+**Pre-Batch I-c: Private DHT Networks** ✅ DONE
+
+Configurable DHT namespace so users can create completely isolated peer networks. A gaming group, family, or organization sets a network name and their nodes form a separate DHT, invisible to all other peer-up users.
+
+Before: All peer-up nodes shared one DHT with protocol prefix `/peerup/kad/1.0.0`. The authorized_keys gater controlled who could communicate, but discovery was shared.
+
+After: DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`. Nodes with different namespaces are not firewalled - they literally speak different protocols and cannot discover each other.
+
+- [x] Config option: `discovery.network: "my-crew"` in config YAML (optional, default = global peerup DHT)
+- [x] CLI flag: `peerup init --network "my-crew"`
+- [x] DHT protocol prefix derived from namespace: `DHTProtocolPrefixForNamespace()` in `pkg/p2pnet/network.go`
+- [x] Default (no namespace set) remains `/peerup/kad/1.0.0` for backward compatibility
+- [x] Relay supports namespace via `discovery.network` in relay config
+- [x] `peerup status` displays current network namespace (or "global (default)")
+- [x] Validation: namespace must be DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars) via `validate.NetworkName()`
+- [x] All 4 DHT call sites updated (serve_common, relay_serve, traceroute, proxy)
+- [x] Tests: namespace validation, DHT prefix generation, config template with/without namespace
+- [x] ADR-Ic01 documenting protocol-level isolation decision
+- [ ] Invite codes carry namespace (deferred to Pre-I-b: v2 invite codes will encode namespace)
+
+Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
+
+Foundation for Phase 4H (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -4513,9 +4608,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-21
-**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main)
+**Current Phase**: 4C Complete (Batches A-H + all Pre-I items shipped). Pre-I-a (Makefile), Pre-I-b (PAKE), Pre-I-c (Private DHT) all done.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch I (Adaptive Path Selection) - multi-interface probing, IPv6, relay elimination
+**Next Milestone**: Batch I (Adaptive Path Selection)
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete
 
 
@@ -5038,9 +5133,29 @@ New developers, contributors, and future-us should be able to read this and unde
 - Each ADR is self-contained - read any entry independently
 - Entries link to source files and commits where relevant
 
+## Sections
+
+| Section | ADRs | Focus |
+|---------|------|-------|
+| [Core Architecture](core-architecture.md) | ADR-001 to ADR-008 | Foundational technology choices |
+| [Batch A: Reliability](batch-a-reliability.md) | ADR-A01 to ADR-A04 | Timeouts, retries, DHT, integration tests |
+| [Batch B: Code Quality](batch-b-code-quality.md) | ADR-B01 to ADR-B04 | Dedup, logging, errors, versioning |
+| [Batch C: Self-Healing](batch-c-self-healing.md) | ADR-C01 to ADR-C03 | Config backup, commit-confirmed, watchdog |
+| [Batch D: libp2p Features](batch-d-libp2p-features.md) | ADR-D01 to ADR-D04 | AutoNAT, QUIC, Identify, smart dialing |
+| [Batch E: New Capabilities](batch-e-new-capabilities.md) | ADR-E01 to ADR-E02 | Relay health, headless invite/join |
+| [Batch F: Daemon Mode](batch-f-daemon-mode.md) | ADR-F01 to ADR-F04 | Unix socket, cookie auth, hot-reload |
+| [Batch G: Test Coverage](batch-g-test-coverage.md) | ADR-G01 to ADR-G04 | Docker tests, relay binary, injectable exit, audit protocol |
+| [Batch H: Observability](batch-h-observability.md) | ADR-H01 to ADR-H03 | Prometheus, nil-safe pattern, auth callback |
+| [Pre-Batch I](pre-batch-i.md) | ADR-Ia01 to ADR-Ib02 | Makefile, PAKE invite, DHT namespaces |
+
+
 ---
 
-## Core Architecture Decisions
+# Core Architecture Decisions
+
+Foundational technology choices made before the batch system.
+
+---
 
 ### ADR-001: Why Go
 
@@ -5172,9 +5287,14 @@ New developers, contributors, and future-us should be able to read this and unde
 
 **Reference**: `go.mod` (4 direct dependencies)
 
+
 ---
 
-## Batch A: Reliability
+# Batch A: Reliability
+
+Timeouts, retries, DHT in the proxy path, and in-process integration tests.
+
+---
 
 ### ADR-A01: TCP Timeout Strategy
 
@@ -5238,9 +5358,14 @@ New developers, contributors, and future-us should be able to read this and unde
 
 **Reference**: `pkg/p2pnet/network_test.go`, `pkg/p2pnet/service_test.go`
 
+
 ---
 
-## Batch B: Code Quality
+# Batch B: Code Quality
+
+Relay address deduplication, structured logging, sentinel errors, and build version embedding.
+
+---
 
 ### ADR-B01: Proxy Deduplication
 
@@ -5304,9 +5429,14 @@ New developers, contributors, and future-us should be able to read this and unde
 
 **Reference**: `cmd/peerup/main.go:10-17`, `pkg/p2pnet/network.go:121-123`
 
+
 ---
 
-## Batch C: Self-Healing
+# Batch C: Self-Healing
+
+Config archive/rollback, commit-confirmed pattern, and watchdog with pure-Go sd_notify.
+
+---
 
 ### ADR-C01: Config Archive/Rollback (Juniper-Inspired)
 
@@ -5356,9 +5486,14 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Reference**: `internal/watchdog/watchdog.go`, `cmd/peerup/cmd_daemon.go:158-166`
 
+
 ---
 
-## Batch D: libp2p Features
+# Batch D: libp2p Features
+
+AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
+
+---
 
 ### ADR-D01: AutoNAT v2
 
@@ -5420,9 +5555,14 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Reference**: `pkg/p2pnet/network.go:260-270`
 
+
 ---
 
-## Batch E: New Capabilities
+# Batch E: New Capabilities
+
+Relay health endpoint and headless invite/join for scripting.
+
+---
 
 ### ADR-E01: `/healthz` on Relay
 
@@ -5454,9 +5594,14 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Reference**: `cmd/peerup/cmd_invite.go:34`, `cmd/peerup/cmd_join.go`
 
+
 ---
 
-## Batch F: Daemon Mode
+# Batch F: Daemon Mode
+
+Unix socket IPC, cookie authentication, RuntimeInfo interface, and hot-reload authorized_keys.
+
+---
 
 ### ADR-F01: Unix Socket (Not TCP)
 
@@ -5522,9 +5667,14 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Reference**: `cmd/peerup/cmd_daemon.go:37-51`, `internal/auth/gater.go:74-79`
 
+
 ---
 
-## Batch G: Test Coverage
+# Batch G: Test Coverage
+
+Coverage-instrumented Docker tests, relay binary, injectable exit, and post-phase audit protocol.
+
+---
 
 ### ADR-G01: Coverage-Instrumented Docker Tests
 
@@ -5552,7 +5702,7 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Decision**: Build `relay-server` binary alongside `peerup` binary for Docker tests. The compose file starts a relay container, and node containers use it for circuit relay.
 
-**Consequences**: Tests verify the actual deployment path (binary → container → relay → circuit). Takes longer to build but catches real integration issues.
+**Consequences**: Tests verify the actual deployment path (binary -> container -> relay -> circuit). Takes longer to build but catches real integration issues.
 
 **Reference**: `test/docker/compose.yaml`, `test/docker/Dockerfile`
 
@@ -5590,9 +5740,14 @@ The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cook
 
 **Reference**: Audit findings tracked in project memory, fixes in commit `83d02d3`
 
+
 ---
 
-## Batch H: Observability
+# Batch H: Observability
+
+Prometheus metrics, nil-safe observability pattern, and auth decision callback.
+
+---
 
 ### ADR-H01: Prometheus over OpenTelemetry
 
@@ -5641,6 +5796,108 @@ The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cook
 **Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
 
 **Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/peerup/serve_common.go`
+
+
+---
+
+# Pre-Batch I Decisions
+
+Makefile and build tooling, PAKE-secured invite/join, and private DHT namespace isolation.
+
+---
+
+### ADR-Ia01: Makefile over Task Runner
+
+**Context**: peer-up's build command has non-trivial flags (`-ldflags="-s -w" -trimpath` with version/commit/date injection). Service installation differs by OS (systemd vs launchd). There was no single command to build, install, and manage the daemon.
+
+**Alternatives considered**:
+- **Shell script** (`build.sh`) - Portable, but no dependency tracking, no `.PHONY`, no `make -j` parallelism. Would duplicate what Make already provides.
+- **Mage / Task** - Go-based task runners. Adds a dependency and learning curve for contributors. Overkill for ~120 lines of targets.
+- **Just** - Modern command runner. Not installed by default anywhere. Make is ubiquitous.
+
+**Decision**: GNU Make. Present on every Unix system. Targets map directly to the operations developers need: `build`, `test`, `install`, `check`, `push`. OS detection via `uname -s` routes `install-service` to the correct init system.
+
+**Consequences**: Windows users need `make` installed (via WSL, MSYS2, or Chocolatey). Accepted because peer-up's primary targets are Linux servers and macOS desktops.
+
+**Reference**: `Makefile`
+
+---
+
+### ADR-Ia02: Generic Checks Runner (Not Privacy-Specific)
+
+**Context**: The project needs a pre-push verification step. The specific checks include scanning for private data leaks (IPs, hostnames, peer IDs). But encoding these checks in the Makefile would expose the exact values being checked for in a public repository.
+
+**Alternatives considered**:
+- **Hardcoded privacy checks** - Embed `git grep` commands in Makefile. Would publicly document the private values being searched for. Rejected.
+- **Pre-push git hook** - Works but is per-clone, easily bypassed with `--no-verify`, and not part of the normal workflow.
+
+**Decision**: `make check` reads commands from a `.checks` file (gitignored, user-created, one command per line). The Makefile target is entirely generic: it runs each line and fails if any return non-zero. No words about what is being checked or why. `make push` gates on `make check`, making it impossible to push without passing.
+
+**Consequences**: Each developer creates their own `.checks` file. The mechanism is reusable for any project-specific validation. The Makefile reveals nothing about the nature of the checks.
+
+**Reference**: `Makefile:check`, `.gitignore`
+
+---
+
+### ADR-Ic01: Protocol-Level DHT Namespace Isolation
+
+**Context**: All peer-up nodes share a single DHT with protocol prefix `/peerup/kad/1.0.0`. While `authorized_keys` controls who can communicate, discovery is shared. A gaming group, family, or organization has no way to form a completely isolated peer network.
+
+**Alternatives considered**:
+- **Application-layer filtering** - Keep a shared DHT but filter results by namespace tag. Rejected because nodes still participate in routing for all namespaces, and filtering is a soft boundary (peers are discoverable, just ignored).
+- **Rendezvous string per network** - Different rendezvous points but same DHT. Rejected for the same reason: the DHT is shared, so cross-namespace discovery leaks metadata about who is online.
+- **Separate relay per namespace** - Run independent relay servers. Works but is operationally heavy. Not mutually exclusive with namespace isolation.
+
+**Decision**: Derive the DHT protocol prefix from an optional namespace: `/peerup/<namespace>/kad/1.0.0`. Empty namespace preserves the existing `/peerup/kad/1.0.0` prefix. Nodes on different namespaces speak entirely different DHT protocols and cannot discover each other. This is protocol-level isolation, not a filter.
+
+**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/p2pnet/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `peerup init --network` and `peerup status` expose the namespace in the CLI.
+
+**Consequences**: Each private network needs its own relay (or a relay configured with the matching namespace). This is intentional: isolation means isolation. Multi-namespace relay support is deferred. Zero backward compatibility impact (empty namespace = global DHT).
+
+**Reference**: `pkg/p2pnet/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`
+
+---
+
+### ADR-Ib01: Ephemeral DH + Token-Bound AEAD over Formal PAKE
+
+**Context**: The invite/join handshake transmits the invite token as cleartext hex over the stream. A malicious relay operator can observe the token and potentially replay it. The goal is to upgrade the handshake so the relay sees only opaque encrypted bytes.
+
+**Alternatives considered**:
+- **Formal PAKE (CPace/SPAKE2)** - `filippo.io/cpace` is a "weekend project", `github.com/bytemare/pake` hasn't been updated since 2020. No mature, maintained Go PAKE library exists. Implementing CPace from scratch would add complexity for marginal benefit given our high-entropy token (64-bit random).
+- **SRP** - Well-specified but complex, designed for password authentication with stored verifiers. Overkill for single-use tokens with 10-minute TTL.
+- **Pre-shared key TLS** - Would require a TLS layer on top of libp2p's existing Noise transport. Layering violation.
+
+**Decision**: Ephemeral X25519 Diffie-Hellman key exchange with token-bound HKDF key derivation and XChaCha20-Poly1305 AEAD encryption. Zero new dependencies: `crypto/ecdh` (Go stdlib), `golang.org/x/crypto/hkdf` and `golang.org/x/crypto/chacha20poly1305` (already in dependency tree via libp2p).
+
+Both sides generate ephemeral X25519 keypairs, exchange public keys, compute the shared secret, then derive the AEAD key via HKDF-SHA256 with the invite token mixed in. If tokens differ, HKDF produces different keys, AEAD decryption fails, and the inviter reports "invalid invite code" with no protocol details leaked.
+
+**Security properties**:
+- Passive relay: sees only ephemeral public keys + encrypted bytes. Cannot learn token or peer names.
+- Active MITM: prevented by libp2p Noise handshake (invite code contains inviter's peer ID, verified by transport layer).
+- Token brute force: 64-bit entropy = 2^64 attempts. Single-use + 10min TTL.
+- Offline dictionary: attacker needs an ephemeral private key (destroyed after exchange) to compute the DH shared secret.
+
+**Consequences**: Not formally a PAKE (a true PAKE protects even against private key compromise with low-entropy passwords). Since our token is 64-bit random and ephemeral keys are destroyed immediately, this distinction is academic. If formal PAKE is needed later, the wire format stays identical - just swap the DH for CPace.
+
+**Reference**: `internal/invite/pake.go`, `internal/invite/pake_test.go`
+
+---
+
+### ADR-Ib02: Invite Code Versioning (v1/v2 Coexistence)
+
+**Context**: The invite code format needs to evolve to include the DHT namespace and support the PAKE handshake. Existing v1 invite codes (generated by older peerup versions) should still work.
+
+**Alternatives considered**:
+- **Breaking change** - Only support v2 codes. Rejected because users may have old codes in scripts or documentation.
+- **Content negotiation** - Single format with feature flags. Adds complexity without clear benefit.
+
+**Decision**: Version byte in invite code (first byte of binary payload) determines format. v1 (0x01) = legacy format (no namespace, cleartext handshake). v2 (0x02) = new format (includes namespace length + bytes, PAKE handshake). Future versions (0x03+) are rejected with a "please upgrade peerup" message.
+
+On the wire, the inviter's stream handler peeks at the first byte: 0x02 triggers PAKE handshake, anything else (ASCII hex chars 0x30-0x66) triggers v1 cleartext protocol. Both sides are backward compatible.
+
+**Consequences**: v2 invite codes are slightly longer (1 extra byte for namespace length when global, more with a namespace). The inviter must handle both protocols in the stream handler, but the code paths are cleanly separated.
+
+**Reference**: `internal/invite/code.go`, `cmd/peerup/cmd_invite.go`, `cmd/peerup/cmd_join.go`
 
 
 ---

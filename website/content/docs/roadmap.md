@@ -215,6 +215,9 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | ✅ DONE |
 | G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | ✅ DONE |
 | H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
+| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ✅ DONE |
+| Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | ✅ DONE |
+| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 
 **Deliverables**:
 
@@ -284,6 +287,74 @@ Deferred from original Batch H scope (with reasoning):
 - ~~Trace correlation IDs~~ - Deferred to future. 35% CPU overhead from distributed tracing span management not justified for P2P tool where network is the bottleneck. Revisit when OTel Go SDK has zero-cost path
 - ~~Per-path latency/jitter metrics~~ - Moved to Batch I. Feeds into path selection intelligence
 - ~~OTLP export~~ - Deferred. Prometheus bridge can forward metrics to any OTel backend later without changing instrumentation code
+
+**Pre-Batch I-a: Build & Deployment Tooling** ✅ DONE
+
+Makefile + service management + generic local checks runner. Small standalone task, not part of any batch.
+
+- [x] `make build` - optimized binary with `-ldflags="-s -w" -trimpath`
+- [x] `make test` - `go test -race -count=1 ./...`
+- [x] `make clean` - remove build artifacts
+- [x] `make install` - build + copy binary to `/usr/local/bin` + install service
+- [x] `make install-service` - detect OS (Linux systemd / macOS launchd), copy service file, enable
+- [x] `make uninstall-service` - stop and remove service
+- [x] `make uninstall` - remove service + binary
+- [x] `make restart-service` - quick restart after rebuild
+- [x] `make website` - Hugo build/serve for local preview
+- [x] `make check` - generic local checks runner. Reads commands from `.checks` file (gitignored). Runs each command; fails if any returns non-zero. The Makefile target is entirely generic - no hint about what is being checked or why. Users create their own `.checks` with whatever patterns matter to them
+- [x] `make push` - runs `make check && git push` (impossible to push without passing local checks)
+- [x] Service install for Linux: copy `deploy/peerup-daemon.service` to systemd, `daemon-reload`, `enable`
+- [x] Service install for macOS: copy `deploy/com.peerup.daemon.plist` to `~/Library/LaunchAgents/`, `launchctl load`
+- [x] Clear messaging when elevated permissions required (no silent `sudo`)
+- [x] `.checks` file documented in README (generic mechanism, user creates their own patterns)
+
+**Pre-Batch I-b: PAKE-Secured Invite/Join Handshake** ✅ DONE
+
+Upgraded the invite/join token exchange from cleartext to an encrypted handshake inspired by WPA3's SAE. The relay now sees only opaque encrypted bytes during pairing. Zero new dependencies.
+
+Approach: Ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. All Go PAKE libraries evaluated were experimental/unmaintained; this approach uses only `crypto/ecdh` (stdlib), `golang.org/x/crypto/hkdf`, and `golang.org/x/crypto/chacha20poly1305` (already in dep tree).
+
+- [x] Replace cleartext token exchange with encrypted handshake: both sides prove knowledge of the invite code without transmitting it
+- [x] Ephemeral X25519 key exchange with token-bound HKDF key derivation
+- [x] XChaCha20-Poly1305 AEAD encryption for all messages after key exchange
+- [x] Backward compatibility: version byte 0x02 triggers PAKE handshake, 0x01 uses legacy cleartext. Stream handler auto-detects based on first byte
+- [x] v2 invite code format: includes namespace field for DHT network auto-inheritance
+- [x] Future version detection: v3+ codes rejected with "please upgrade peerup" message
+- [x] Joiner auto-inherits inviter's DHT namespace from v2 invite code
+- [x] ADR-Ib01 (DH + AEAD over formal PAKE) and ADR-Ib02 (invite code versioning)
+- [x] Tests: 19 PAKE tests (handshake, token mismatch, tampered ciphertext, oversized message, io.Pipe simulation, key confirmation MAC, EOF handling) + 11 invite code tests (v1/v2 round-trip, namespace, future version, trailing junk)
+
+Security model after upgrade:
+- Invite code = shared secret, never transmitted over the wire
+- Ephemeral DH + token binding proves mutual knowledge without revelation
+- Derived AEAD key encrypts all peer name exchange
+- Relay sees only ephemeral public keys + encrypted bytes: no token, no peer names
+- Single-use + TTL + transport-layer identity verification unchanged
+- If tokens differ, AEAD decryption fails with no protocol details leaked
+
+**Pre-Batch I-c: Private DHT Networks** ✅ DONE
+
+Configurable DHT namespace so users can create completely isolated peer networks. A gaming group, family, or organization sets a network name and their nodes form a separate DHT, invisible to all other peer-up users.
+
+Before: All peer-up nodes shared one DHT with protocol prefix `/peerup/kad/1.0.0`. The authorized_keys gater controlled who could communicate, but discovery was shared.
+
+After: DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`. Nodes with different namespaces are not firewalled - they literally speak different protocols and cannot discover each other.
+
+- [x] Config option: `discovery.network: "my-crew"` in config YAML (optional, default = global peerup DHT)
+- [x] CLI flag: `peerup init --network "my-crew"`
+- [x] DHT protocol prefix derived from namespace: `DHTProtocolPrefixForNamespace()` in `pkg/p2pnet/network.go`
+- [x] Default (no namespace set) remains `/peerup/kad/1.0.0` for backward compatibility
+- [x] Relay supports namespace via `discovery.network` in relay config
+- [x] `peerup status` displays current network namespace (or "global (default)")
+- [x] Validation: namespace must be DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars) via `validate.NetworkName()`
+- [x] All 4 DHT call sites updated (serve_common, relay_serve, traceroute, proxy)
+- [x] Tests: namespace validation, DHT prefix generation, config template with/without namespace
+- [x] ADR-Ic01 documenting protocol-level isolation decision
+- [ ] Invite codes carry namespace (deferred to Pre-I-b: v2 invite codes will encode namespace)
+
+Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
+
+Foundation for Phase 4H (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -359,7 +430,7 @@ Priority areas (all hit or exceeded targets):
 - [x] **internal/auth** (50% → 75%+) - hot-reload, concurrent access, malformed input, gater tests
 - [x] **Docker integration tests** - `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
 - [x] **CI coverage reporting** - `.github/workflows/pages.yaml` merges unit + Docker coverage via `go tool covdata merge`, reports combined coverage
-- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`]../engineering-journal/) - 28 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
+- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 28 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
 - [x] **Website** - Hugo + Hextra site scaffolded with landing page, 7 retroactive blog posts (Batches A-G), sync-docs.sh for auto-transformation, GitHub Actions CI/CD for GitHub Pages deployment
 - [x] **Security hardening** - post-audit fixes across 10 files (commit 83d02d3). CVE-2026-26014 resolved (pion/dtls v3.1.2). CI Actions pinned to commit SHAs.
 
@@ -1112,7 +1183,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-21
-**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main)
+**Current Phase**: 4C Complete (Batches A-H + all Pre-I items shipped). Pre-I-a (Makefile), Pre-I-b (PAKE), Pre-I-c (Private DHT) all done.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Phase 4C Batch I (Adaptive Path Selection) - multi-interface probing, IPv6, relay elimination
+**Next Milestone**: Batch I (Adaptive Path Selection)
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete
