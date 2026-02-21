@@ -38,6 +38,7 @@ type RelayServerConfig struct {
 	Version   int                  `yaml:"version,omitempty"`
 	Identity  IdentityConfig       `yaml:"identity"`
 	Network   RelayNetworkConfig   `yaml:"network"`
+	Discovery RelayDiscoveryConfig `yaml:"discovery,omitempty"`
 	Security  RelaySecurityConfig  `yaml:"security"`
 	Resources RelayResourcesConfig `yaml:"resources,omitempty"`
 	Health    HealthConfig         `yaml:"health,omitempty"`
@@ -94,7 +95,13 @@ type RelayConfig struct {
 // DiscoveryConfig holds DHT discovery configuration
 type DiscoveryConfig struct {
 	Rendezvous     string   `yaml:"rendezvous"`
+	Network        string   `yaml:"network,omitempty"`  // DHT namespace for private networks (empty = global)
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
+}
+
+// RelayDiscoveryConfig holds relay server discovery configuration
+type RelayDiscoveryConfig struct {
+	Network string `yaml:"network,omitempty"` // DHT namespace (must match connecting nodes)
 }
 
 // SecurityConfig holds security-related configuration

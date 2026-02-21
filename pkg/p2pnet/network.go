@@ -22,10 +22,23 @@ import (
 	"github.com/satindergrewal/peer-up/internal/config"
 )
 
-// DHTProtocolPrefix is the protocol prefix for the private peerup Kademlia DHT.
+// DHTProtocolPrefix is the default protocol prefix for the private peerup Kademlia DHT.
 // This isolates peerup from the public IPFS Amino DHT (/ipfs/kad/1.0.0),
 // giving us our own routing table at /peerup/kad/1.0.0.
+// For namespace-specific prefixes, use DHTProtocolPrefixForNamespace.
 const DHTProtocolPrefix = "/peerup"
+
+// DHTProtocolPrefixForNamespace returns the DHT protocol prefix for a given
+// network namespace. An empty namespace returns the default global prefix ("/peerup").
+// A non-empty namespace produces "/peerup/<namespace>" which results in the
+// full DHT protocol "/peerup/<namespace>/kad/1.0.0", completely isolated from
+// other namespaces at the protocol level.
+func DHTProtocolPrefixForNamespace(namespace string) string {
+	if namespace == "" {
+		return DHTProtocolPrefix
+	}
+	return DHTProtocolPrefix + "/" + namespace
+}
 
 // holePunchTracer logs DCUtR hole-punching events and records metrics when available.
 type holePunchTracer struct {

@@ -211,7 +211,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | ✅ DONE |
 | Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | ✅ DONE |
 | Pre-I-b | **PAKE-Secured Invite/Join** | SPAKE2/CPace handshake, relay-resistant pairing, documentation clarity | ⬜ PLANNED |
-| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ⬜ PLANNED |
+| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 
 **Deliverables**:
 
@@ -325,24 +325,25 @@ Security model after upgrade:
 - Relay sees encrypted bytes only - no token, no peer IDs
 - Single-use + TTL + transport-layer identity verification unchanged
 
-**Pre-Batch I-c: Private DHT Networks** ⬜ PLANNED
+**Pre-Batch I-c: Private DHT Networks** ✅ DONE
 
 Configurable DHT namespace so users can create completely isolated peer networks. A gaming group, family, or organization sets a network name and their nodes form a separate DHT, invisible to all other peer-up users.
 
-Current state: All peer-up nodes share one DHT with protocol prefix `/peerup/kad/1.0.0`. The authorized_keys gater controls who can communicate, but discovery is shared.
+Before: All peer-up nodes shared one DHT with protocol prefix `/peerup/kad/1.0.0`. The authorized_keys gater controlled who could communicate, but discovery was shared.
 
-After: DHT prefix becomes `/peerup/kad/<namespace>/1.0.0`. Nodes with different namespaces are not firewalled - they literally speak different protocols and cannot discover each other.
+After: DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`. Nodes with different namespaces are not firewalled - they literally speak different protocols and cannot discover each other.
 
-- [ ] Config option: `network: "my-crew"` in config YAML (optional, default = global peerup DHT)
-- [ ] CLI flag: `peerup init --network "my-crew"`, `peerup daemon --network "my-crew"`
-- [ ] DHT protocol prefix derived from namespace: `/peerup/kad/<namespace>/1.0.0`
-- [ ] Default (no namespace set) remains `/peerup/kad/1.0.0` for backward compatibility
-- [ ] Relay must be configured with matching namespace to serve as bootstrap node for the private network
-- [ ] `peerup status` displays current network namespace
-- [ ] Invite codes work within the same namespace only (relay address + namespace must match)
-- [ ] Validation: namespace must be DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars)
-- [ ] Tests: nodes on different namespaces cannot discover each other, same namespace nodes can
-- [ ] Documentation: explain private networks, when to use them, relay requirements
+- [x] Config option: `discovery.network: "my-crew"` in config YAML (optional, default = global peerup DHT)
+- [x] CLI flag: `peerup init --network "my-crew"`
+- [x] DHT protocol prefix derived from namespace: `DHTProtocolPrefixForNamespace()` in `pkg/p2pnet/network.go`
+- [x] Default (no namespace set) remains `/peerup/kad/1.0.0` for backward compatibility
+- [x] Relay supports namespace via `discovery.network` in relay config
+- [x] `peerup status` displays current network namespace (or "global (default)")
+- [x] Validation: namespace must be DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars) via `validate.NetworkName()`
+- [x] All 4 DHT call sites updated (serve_common, relay_serve, traceroute, proxy)
+- [x] Tests: namespace validation, DHT prefix generation, config template with/without namespace
+- [x] ADR-Ic01 documenting protocol-level isolation decision
+- [ ] Invite codes carry namespace (deferred to Pre-I-b: v2 invite codes will encode namespace)
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
@@ -1175,7 +1176,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-21
-**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped, tested, merged to main). Pre-Batch I-a and I-b planned.
+**Current Phase**: 4C Complete (Batches A-H + Pre-Batch H all shipped). Pre-I-a (Makefile) and Pre-I-c (Private DHT) done. Pre-I-b (PAKE) in progress.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Pre-Batch I-a (Makefile + service install) → Pre-Batch I-b (PAKE invite/join) → Pre-Batch I-c (Private DHT networks) → Batch I (Adaptive Path Selection)
+**Next Milestone**: Pre-Batch I-b (PAKE invite/join) → Batch I (Adaptive Path Selection)
 **Relay elimination**: Planned post-Batch H - `require_auth` peer relays → DHT discovery → VPS becomes obsolete

@@ -609,3 +609,29 @@ func TestHolePunchTracer(t *testing.T) {
 		Evt:    &holepunch.StartHolePunchEvt{},
 	})
 }
+
+func TestDHTProtocolPrefixForNamespace(t *testing.T) {
+	tests := []struct {
+		namespace string
+		want      string
+	}{
+		{"", "/peerup"},
+		{"my-crew", "/peerup/my-crew"},
+		{"gaming", "/peerup/gaming"},
+		{"org-internal", "/peerup/org-internal"},
+		{"a", "/peerup/a"},
+	}
+	for _, tt := range tests {
+		got := DHTProtocolPrefixForNamespace(tt.namespace)
+		if got != tt.want {
+			t.Errorf("DHTProtocolPrefixForNamespace(%q) = %q, want %q", tt.namespace, got, tt.want)
+		}
+	}
+}
+
+func TestDHTProtocolPrefixForNamespace_DefaultMatchesConstant(t *testing.T) {
+	got := DHTProtocolPrefixForNamespace("")
+	if got != DHTProtocolPrefix {
+		t.Errorf("empty namespace returned %q, want DHTProtocolPrefix %q", got, DHTProtocolPrefix)
+	}
+}

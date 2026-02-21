@@ -13,6 +13,7 @@ import (
 
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/internal/qr"
+	"github.com/satindergrewal/peer-up/internal/validate"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -27,8 +28,16 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/peerup)")
+	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// Validate network namespace if provided
+	if *networkFlag != "" {
+		if err := validate.NetworkName(*networkFlag); err != nil {
+			return fmt.Errorf("invalid --network value: %w", err)
+		}
 	}
 
 	fmt.Fprintln(stdout, "Welcome to peer-up!")
@@ -126,7 +135,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 
 	// Write config file
-	configContent := nodeConfigTemplate(relayAddr, "peerup init")
+	configContent := nodeConfigTemplate(relayAddr, "peerup init", *networkFlag)
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)

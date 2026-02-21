@@ -21,6 +21,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
@@ -157,11 +158,12 @@ func runRelayServe(args []string) {
 		cfg.Resources.SessionDuration, cfg.Resources.SessionDataLimit)
 
 	// Bootstrap into the private peerup DHT as a server.
-	// The relay is the primary bootstrap peer  - all peerup nodes connect here first
-	// and use this DHT for peer discovery. Protocol: /peerup/kad/1.0.0
+	// The relay is the primary bootstrap peer - all peerup nodes connect here first
+	// and use this DHT for peer discovery.
+	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeServer),
-		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
 	)
 	if err != nil {
 		fatal("DHT error: %v", err)
@@ -170,7 +172,11 @@ func runRelayServe(args []string) {
 		fatal("DHT bootstrap error: %v", err)
 	}
 	defer kdht.Close()
-	fmt.Println("Private DHT active (protocol: /peerup/kad/1.0.0)")
+	if cfg.Discovery.Network != "" {
+		fmt.Printf("Private DHT active: network %q (protocol: %s/kad/1.0.0)\n", cfg.Discovery.Network, dhtPrefix)
+	} else {
+		fmt.Printf("Private DHT active (protocol: %s/kad/1.0.0)\n", dhtPrefix)
+	}
 
 	fmt.Printf("Relay Peer ID: %s\n", h.ID())
 	fmt.Println()

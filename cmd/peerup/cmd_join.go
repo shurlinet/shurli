@@ -260,7 +260,7 @@ func loadOrCreateConfig(explicitConfig, relayAddr string) (string, *config.NodeC
 
 	// Write config
 	cfgFile = filepath.Join(configDir, "config.yaml")
-	configContent := nodeConfigTemplate(relayAddr, "peerup join")
+	configContent := nodeConfigTemplate(relayAddr, "peerup join", "")
 
 	if err := os.WriteFile(cfgFile, []byte(configContent), 0600); err != nil {
 		fatal("Failed to write config: %v", err)

@@ -647,3 +647,20 @@ The Batch G audit found 10 issues (CVE in pion/dtls, TOCTOU on Unix socket, cook
 **Consequences**: Each developer creates their own `.checks` file. The mechanism is reusable for any project-specific validation. The Makefile reveals nothing about the nature of the checks.
 
 **Reference**: `Makefile:check`, `.gitignore`
+
+### ADR-Ic01: Protocol-Level DHT Namespace Isolation
+
+**Context**: All peer-up nodes share a single DHT with protocol prefix `/peerup/kad/1.0.0`. While `authorized_keys` controls who can communicate, discovery is shared. A gaming group, family, or organization has no way to form a completely isolated peer network.
+
+**Alternatives considered**:
+- **Application-layer filtering** - Keep a shared DHT but filter results by namespace tag. Rejected because nodes still participate in routing for all namespaces, and filtering is a soft boundary (peers are discoverable, just ignored).
+- **Rendezvous string per network** - Different rendezvous points but same DHT. Rejected for the same reason: the DHT is shared, so cross-namespace discovery leaks metadata about who is online.
+- **Separate relay per namespace** - Run independent relay servers. Works but is operationally heavy. Not mutually exclusive with namespace isolation.
+
+**Decision**: Derive the DHT protocol prefix from an optional namespace: `/peerup/<namespace>/kad/1.0.0`. Empty namespace preserves the existing `/peerup/kad/1.0.0` prefix. Nodes on different namespaces speak entirely different DHT protocols and cannot discover each other. This is protocol-level isolation, not a filter.
+
+**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/p2pnet/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `peerup init --network` and `peerup status` expose the namespace in the CLI.
+
+**Consequences**: Each private network needs its own relay (or a relay configured with the matching namespace). This is intentional: isolation means isolation. Multi-namespace relay support is deferred. Zero backward compatibility impact (empty namespace = global DHT).
+
+**Reference**: `pkg/p2pnet/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`

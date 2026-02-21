@@ -12,7 +12,7 @@ func TestNodeConfigTemplate(t *testing.T) {
 	relayAddr := "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWTest"
 	generator := "peerup init"
 
-	output := nodeConfigTemplate(relayAddr, generator)
+	output := nodeConfigTemplate(relayAddr, generator, "")
 
 	checks := []struct {
 		name string
@@ -45,7 +45,7 @@ func TestNodeConfigTemplate(t *testing.T) {
 
 func TestNodeConfigTemplateDifferentInputs(t *testing.T) {
 	t.Run("different relay addr", func(t *testing.T) {
-		out := nodeConfigTemplate("/ip6/::1/tcp/9999/p2p/12D3KooWXYZ", "peerup join")
+		out := nodeConfigTemplate("/ip6/::1/tcp/9999/p2p/12D3KooWXYZ", "peerup join", "")
 		if !strings.Contains(out, "/ip6/::1/tcp/9999/p2p/12D3KooWXYZ") {
 			t.Error("template should contain the provided relay address")
 		}
@@ -55,9 +55,25 @@ func TestNodeConfigTemplateDifferentInputs(t *testing.T) {
 	})
 
 	t.Run("empty relay uses empty string", func(t *testing.T) {
-		out := nodeConfigTemplate("", "test")
+		out := nodeConfigTemplate("", "test", "")
 		if !strings.Contains(out, `- ""`) {
 			t.Error("template should contain empty relay address in list")
+		}
+	})
+
+	t.Run("network namespace included when set", func(t *testing.T) {
+		out := nodeConfigTemplate("/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWTest", "peerup init", "my-crew")
+		if !strings.Contains(out, `network: "my-crew"`) {
+			t.Error("template should contain network namespace")
+		}
+	})
+
+	t.Run("network namespace omitted when empty", func(t *testing.T) {
+		out := nodeConfigTemplate("/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWTest", "peerup init", "")
+		// Check specifically for the discovery network field (quoted value),
+		// not the top-level "network:" YAML section (listen_addresses).
+		if strings.Contains(out, `network: "`) {
+			t.Error("template should not contain network namespace field when empty")
 		}
 	})
 }

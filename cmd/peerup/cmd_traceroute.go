@@ -14,6 +14,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -126,9 +127,10 @@ func runTraceroute(args []string) {
 // Shared by traceroute and enhanced ping.
 func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeConfig, targetPeerID peer.ID, p2pNetwork *p2pnet.Network) error {
 	// Bootstrap DHT
+	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
-		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
 	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)

@@ -293,6 +293,12 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	if cfg.Security.EnableConnectionGating && cfg.Security.AuthorizedKeysFile == "" {
 		return fmt.Errorf("security.authorized_keys_file is required when connection gating is enabled")
 	}
+	// Validate network namespace if set
+	if cfg.Discovery.Network != "" {
+		if err := validate.NetworkName(cfg.Discovery.Network); err != nil {
+			return fmt.Errorf("discovery.network: %w", err)
+		}
+	}
 	// Validate service names (prevent protocol ID injection)
 	for name := range cfg.Services {
 		if err := validate.ServiceName(name); err != nil {
@@ -336,6 +342,12 @@ func ValidateRelayServerConfig(cfg *RelayServerConfig) error {
 	if cfg.Resources.SessionDataLimit != "" {
 		if _, err := ParseDataSize(cfg.Resources.SessionDataLimit); err != nil {
 			return fmt.Errorf("resources.session_data_limit: %w", err)
+		}
+	}
+	// Validate network namespace if set
+	if cfg.Discovery.Network != "" {
+		if err := validate.NetworkName(cfg.Discovery.Network); err != nil {
+			return fmt.Errorf("discovery.network: %w", err)
 		}
 	}
 	return nil

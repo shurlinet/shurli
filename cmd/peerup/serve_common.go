@@ -232,10 +232,16 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Bootstrap the DHT
+	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	if cfg.Discovery.Network != "" {
+		fmt.Printf("DHT network: %s (protocol: %s/kad/1.0.0)\n", cfg.Discovery.Network, dhtPrefix)
+	} else {
+		fmt.Println("DHT network: global (protocol: /peerup/kad/1.0.0)")
+	}
 	fmt.Println("Bootstrapping into the DHT...")
 	kdht, err := dht.New(rt.ctx, h,
 		dht.Mode(dht.ModeAutoServer),
-		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
 	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)

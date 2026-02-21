@@ -54,6 +54,11 @@ func doStatus(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Config:   %s\n", cfgFile)
 	fmt.Fprintf(stdout, "Key file: %s\n", cfg.Identity.KeyFile)
+	if cfg.Discovery.Network != "" {
+		fmt.Fprintf(stdout, "Network:  %s\n", cfg.Discovery.Network)
+	} else {
+		fmt.Fprintf(stdout, "Network:  global (default)\n")
+	}
 	fmt.Fprintln(stdout)
 
 	// Relay addresses

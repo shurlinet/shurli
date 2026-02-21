@@ -15,6 +15,7 @@ import (
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -108,9 +109,10 @@ func runProxy(args []string) {
 	// This runs in the background  - if it finds the target peer's direct
 	// addresses, libp2p will prefer them over the relay circuit.
 	fmt.Println("Bootstrapping DHT for direct connection discovery...")
+	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
-		dht.ProtocolPrefix(p2pnet.DHTProtocolPrefix),
+		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
 	)
 	if err != nil {
 		log.Printf("DHT init failed (relay-only mode): %v", err)
