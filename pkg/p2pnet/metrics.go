@@ -30,6 +30,10 @@ type Metrics struct {
 	DaemonRequestsTotal          *prometheus.CounterVec
 	DaemonRequestDurationSeconds *prometheus.HistogramVec
 
+	// Path dial metrics
+	PathDialTotal           *prometheus.CounterVec
+	PathDialDurationSeconds *prometheus.HistogramVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -118,6 +122,22 @@ func NewMetrics(version, goVersion string) *Metrics {
 				Buckets: prometheus.DefBuckets,
 			},
 			[]string{"method", "path", "status"},
+		),
+
+		PathDialTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_path_dial_total",
+				Help: "Total number of path dial attempts.",
+			},
+			[]string{"path_type", "result"},
+		),
+		PathDialDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "peerup_path_dial_duration_seconds",
+				Help:    "Duration of path dial attempts in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.1, 2, 10), // 100ms to ~50s
+			},
+			[]string{"path_type"},
 		),
 
 		InterfaceCount: prometheus.NewGaugeVec(
