@@ -48,6 +48,9 @@ type serveRuntime struct {
 	// Path dialer for parallel connection racing
 	pathDialer *p2pnet.PathDialer
 
+	// Path tracker for per-peer connection visibility
+	pathTracker *p2pnet.PathTracker
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -350,6 +353,10 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Initialize path dialer for parallel connection racing
 	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, rt.metrics)
+
+	// Initialize path tracker for per-peer connection visibility
+	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
+	go rt.pathTracker.Start(rt.ctx)
 
 	return nil
 }

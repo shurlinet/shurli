@@ -30,6 +30,17 @@ type PeerInfo struct {
 	AgentVersion string   `json:"agent_version,omitempty"`
 }
 
+// PathInfo is returned by GET /v1/paths. Mirrors p2pnet.PeerPathInfo JSON tags.
+type PathInfo struct {
+	PeerID      string `json:"peer_id"`
+	PathType    string `json:"path_type"`
+	Address     string `json:"address"`
+	ConnectedAt string `json:"connected_at"`
+	Transport   string `json:"transport"`
+	IPVersion   string `json:"ip_version"`
+	LastRTTMs   float64 `json:"last_rtt_ms,omitempty"`
+}
+
 // AuthEntry is returned by GET /v1/auth.
 type AuthEntry struct {
 	PeerID  string `json:"peer_id"`

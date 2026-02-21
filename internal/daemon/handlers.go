@@ -29,6 +29,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/peers", s.handlePeerList)
 	mux.HandleFunc("GET /v1/auth", s.handleAuthList)
 
+	mux.HandleFunc("GET /v1/paths", s.handlePaths)
+
 	// Mutations
 	mux.HandleFunc("POST /v1/auth", s.handleAuthAdd)
 	mux.HandleFunc("DELETE /v1/auth/{peer_id}", s.handleAuthRemove)
@@ -209,6 +211,36 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, peers)
+}
+
+func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
+	tracker := s.runtime.PathTracker()
+	if tracker == nil {
+		respondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
+		return
+	}
+
+	paths := tracker.ListPeerPaths()
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, p := range paths {
+			peerShort := p.PeerID
+			if len(peerShort) > 16 {
+				peerShort = peerShort[:16] + "..."
+			}
+			rttStr := "-"
+			if p.LastRTTMs > 0 {
+				rttStr = fmt.Sprintf("%.1fms", p.LastRTTMs)
+			}
+			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\trtt=%s\n",
+				peerShort, p.PathType, p.Transport, p.IPVersion, rttStr)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paths)
 }
 
 func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {

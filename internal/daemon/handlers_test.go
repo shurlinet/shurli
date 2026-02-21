@@ -42,6 +42,7 @@ func (m *networkMockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error {
 	return nil
 }
 func (m *networkMockRuntime) Interfaces() *p2pnet.InterfaceSummary { return nil }
+func (m *networkMockRuntime) PathTracker() *p2pnet.PathTracker     { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

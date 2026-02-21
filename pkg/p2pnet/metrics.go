@@ -34,6 +34,9 @@ type Metrics struct {
 	PathDialTotal           *prometheus.CounterVec
 	PathDialDurationSeconds *prometheus.HistogramVec
 
+	// Connected peers (tracked by PathTracker)
+	ConnectedPeers *prometheus.GaugeVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -140,6 +143,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"path_type"},
 		),
 
+		ConnectedPeers: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_connected_peers",
+				Help: "Number of connected peers by path type, transport, and IP version.",
+			},
+			[]string{"path_type", "transport", "ip_version"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "peerup_interface_count",
@@ -168,6 +179,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.HolePunchDurationSeconds,
 		m.DaemonRequestsTotal,
 		m.DaemonRequestDurationSeconds,
+		m.ConnectedPeers,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)
