@@ -45,6 +45,9 @@ type serveRuntime struct {
 	// Interface discovery (populated at startup)
 	ifSummary *p2pnet.InterfaceSummary
 
+	// Path dialer for parallel connection racing
+	pathDialer *p2pnet.PathDialer
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -345,6 +348,9 @@ func (rt *serveRuntime) Bootstrap() error {
 		}
 	}()
 
+	// Initialize path dialer for parallel connection racing
+	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, rt.metrics)
+
 	return nil
 }
 
@@ -496,41 +502,18 @@ func (rt *serveRuntime) StartStatusPrinter() {
 	}()
 }
 
-// ConnectToPeer ensures the host can reach the target peer. It checks if
-// already connected, tries DHT discovery, and falls back to relay circuit
-// addresses. This is used by daemon API handlers (ping, traceroute, connect)
-// where the caller needs the peer reachable before opening a stream.
+// ConnectToPeer ensures the host can reach the target peer using parallel
+// path racing. It launches DHT discovery and relay circuit attempts
+// concurrently, returning as soon as the first path succeeds.
+// This is used by daemon API handlers (ping, traceroute, connect).
 func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error {
-	h := rt.network.Host()
-
-	// Already connected  - nothing to do
-	if h.Network().Connectedness(peerID) == network.Connected {
-		return nil
+	result, err := rt.pathDialer.DialPeer(ctx, peerID)
+	if err != nil {
+		return err
 	}
-
-	// Try DHT peer lookup
-	if rt.kdht != nil {
-		findCtx, findCancel := context.WithTimeout(ctx, 15*time.Second)
-		pi, err := rt.kdht.FindPeer(findCtx, peerID)
-		findCancel()
-		if err == nil {
-			connectCtx, connectCancel := context.WithTimeout(ctx, 15*time.Second)
-			err = h.Connect(connectCtx, pi)
-			connectCancel()
-			if err == nil {
-				return nil
-			}
-		}
-	}
-
-	// Fallback: add relay circuit addresses and connect through relay
-	if err := rt.network.AddRelayAddressesForPeer(rt.config.Relay.Addresses, peerID); err != nil {
-		return fmt.Errorf("failed to add relay addresses: %w", err)
-	}
-	connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
-	err := h.Connect(connectCtx, peer.AddrInfo{ID: peerID})
-	connectCancel()
-	return err
+	fmt.Printf("Connected to %s [%s] via %s (%s)\n",
+		peerID.String()[:16], result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+	return nil
 }
 
 // StartMetricsServer starts the /metrics HTTP endpoint if metrics are enabled.
