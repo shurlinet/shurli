@@ -114,6 +114,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.HasGlobalIPv4 = ifSummary.HasGlobalIPv4
 	}
 
+	// Populate STUN results if available
+	if stunResult := rt.STUNResult(); stunResult != nil {
+		resp.NATType = string(stunResult.NATType)
+		resp.STUNExternalAddrs = stunResult.ExternalAddrs
+	}
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -123,6 +129,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "services: %d\n", resp.ServicesCount)
 		fmt.Fprintf(&sb, "global_ipv6: %v\n", resp.HasGlobalIPv6)
 		fmt.Fprintf(&sb, "global_ipv4: %v\n", resp.HasGlobalIPv4)
+		if resp.NATType != "" {
+			fmt.Fprintf(&sb, "nat_type: %s\n", resp.NATType)
+		}
+		if len(resp.STUNExternalAddrs) > 0 {
+			fmt.Fprintf(&sb, "stun_external_addrs: %d\n", len(resp.STUNExternalAddrs))
+			for _, a := range resp.STUNExternalAddrs {
+				fmt.Fprintf(&sb, "  %s\n", a)
+			}
+		}
 		fmt.Fprintf(&sb, "listen_addresses: %d\n", len(resp.ListenAddrs))
 		for _, a := range resp.ListenAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)

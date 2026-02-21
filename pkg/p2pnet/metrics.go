@@ -40,6 +40,9 @@ type Metrics struct {
 	// Network change events (tracked by NetworkMonitor)
 	NetworkChangeTotal *prometheus.CounterVec
 
+	// STUN probe metrics
+	STUNProbeTotal *prometheus.CounterVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -162,6 +165,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"change_type"},
 		),
 
+		STUNProbeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_stun_probe_total",
+				Help: "Total number of STUN probe attempts.",
+			},
+			[]string{"result"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "peerup_interface_count",
@@ -192,6 +203,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.DaemonRequestDurationSeconds,
 		m.ConnectedPeers,
 		m.NetworkChangeTotal,
+		m.STUNProbeTotal,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)

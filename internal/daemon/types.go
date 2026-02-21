@@ -11,8 +11,10 @@ type StatusResponse struct {
 	ListenAddrs    []string `json:"listen_addresses"`
 	RelayAddrs     []string `json:"relay_addresses"`
 	ServicesCount  int      `json:"services_count"`
-	HasGlobalIPv6  bool     `json:"has_global_ipv6"`
-	HasGlobalIPv4  bool     `json:"has_global_ipv4"`
+	HasGlobalIPv6     bool     `json:"has_global_ipv6"`
+	HasGlobalIPv4     bool     `json:"has_global_ipv4"`
+	NATType           string   `json:"nat_type,omitempty"`
+	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 }
 
 // ServiceInfo is returned by GET /v1/services.

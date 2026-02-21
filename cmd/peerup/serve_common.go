@@ -51,6 +51,9 @@ type serveRuntime struct {
 	// Path tracker for per-peer connection visibility
 	pathTracker *p2pnet.PathTracker
 
+	// STUN prober for NAT type detection and external address discovery
+	stunProber *p2pnet.STUNProber
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -382,8 +385,40 @@ func (rt *serveRuntime) Bootstrap() error {
 
 		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
 			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
+
+		// Re-probe STUN on network change (external address may have changed)
+		if rt.stunProber != nil {
+			go func() {
+				probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
+				defer probeCancel()
+				if _, err := rt.stunProber.Probe(probeCtx); err != nil {
+					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
+				}
+			}()
+		}
 	}, rt.metrics)
 	go netmon.Run(rt.ctx)
+
+	// STUN probe for NAT type detection and external address discovery.
+	// Run in background so it doesn't block startup.
+	rt.stunProber = p2pnet.NewSTUNProber(nil, rt.metrics) // default STUN servers
+	go func() {
+		probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
+		defer probeCancel()
+		result, err := rt.stunProber.Probe(probeCtx)
+		if err != nil {
+			fmt.Printf("Warning: STUN probe failed: %v\n", err)
+			return
+		}
+		fmt.Printf("NAT type: %s", result.NATType)
+		if len(result.ExternalAddrs) > 0 {
+			fmt.Printf(" (external: %s)", result.ExternalAddrs[0])
+		}
+		if result.NATType.HolePunchable() {
+			fmt.Print(" [hole-punchable]")
+		}
+		fmt.Println()
+	}()
 
 	return nil
 }

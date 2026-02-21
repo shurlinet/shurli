@@ -28,6 +28,12 @@ func (rt *serveRuntime) StartTime() time.Time                 { return rt.startT
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
 func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
 func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker     { return rt.pathTracker }
+func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
+	if rt.stunProber == nil {
+		return nil
+	}
+	return rt.stunProber.Result()
+}
 
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {

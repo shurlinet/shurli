@@ -31,6 +31,7 @@ type RuntimeInfo interface {
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
 	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
 	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
+	STUNResult() *p2pnet.STUNResult                          // nil before probe
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
