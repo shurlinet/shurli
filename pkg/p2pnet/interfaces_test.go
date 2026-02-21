@@ -79,7 +79,7 @@ func TestIsGlobalIPv6(t *testing.T) {
 		global bool
 	}{
 		{"2001:db8::1", true},         // documentation prefix, but IsGlobalUnicast returns true
-		{"2406:2d40::1", true},        // real global
+		{"2607:f8b0::1", true},        // global unicast
 		{"fd00::1", false},            // ULA
 		{"fc00::1", false},            // ULA
 		{"fe80::1", false},            // link-local (filtered by IsGlobalUnicast)
