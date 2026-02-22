@@ -17,6 +17,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	circuitv2client "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
@@ -95,12 +96,23 @@ func runInvite(args []string) {
 		}
 	}
 
-	// Wait for relay address
+	// Make explicit relay reservation (AutoRelay alone is unreliable for short-lived commands)
 	outln("Waiting for relay reservation...")
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
+	time.Sleep(2 * time.Second) // allow AutoRelay a chance first
+
+	hasRelay := false
+	for _, addr := range h.Addrs() {
+		if strings.Contains(addr.String(), "p2p-circuit") {
+			hasRelay = true
+			break
+		}
+	}
+	if !hasRelay {
+		for _, ai := range relayInfos {
+			if _, err := circuitv2client.Reserve(ctx, h, ai); err != nil {
+				fatal("Relay reservation failed: %v", err)
+			}
+		}
 	}
 
 	// Encode invite (v2 format with namespace)
