@@ -3,7 +3,7 @@ title: "Batch G - Test Coverage"
 weight: 9
 description: "Coverage-instrumented Docker tests, relay binary, injectable exit, post-phase audit protocol."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-g-test-coverage.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-g-test-coverage.md by sync-docs - do not edit directly -->
 
 
 Coverage-instrumented Docker tests, relay binary, injectable exit, and post-phase audit protocol.

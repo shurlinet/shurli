@@ -3,7 +3,7 @@ title: "Engineering Journal"
 weight: 12
 description: "Architecture Decision Records for peer-up. The why behind every significant design choice."
 ---
-<!-- Auto-synced from docs/engineering-journal/README.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/README.md by sync-docs - do not edit directly -->
 
 
 This document captures the **why** behind every significant architecture decision in peer-up. Each entry follows a lightweight ADR (Architecture Decision Record) format: what problem we faced, what options we considered, what we chose, and what trade-offs we accepted.

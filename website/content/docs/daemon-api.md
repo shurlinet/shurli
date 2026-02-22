@@ -3,7 +3,7 @@ title: "Daemon API"
 weight: 7
 description: "REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
 ---
-<!-- Auto-synced from docs/DAEMON-API.md by sync-docs.sh  - do not edit directly -->
+<!-- Auto-synced from docs/DAEMON-API.md by sync-docs - do not edit directly -->
 
 
 The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.

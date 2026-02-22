@@ -265,7 +265,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [DAEMON-API.md](DAEMON-API.md).
+14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 

@@ -3,7 +3,7 @@ title: "Batch I - Adaptive Path Selection"
 weight: 12
 description: "Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, every-peer-is-a-relay."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-i-adaptive-path.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-i-adaptive-path.md by sync-docs - do not edit directly -->
 
 
 Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, and every-peer-is-a-relay.

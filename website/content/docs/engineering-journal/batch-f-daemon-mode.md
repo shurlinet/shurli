@@ -3,7 +3,7 @@ title: "Batch F - Daemon Mode"
 weight: 8
 description: "Unix socket IPC, cookie authentication, RuntimeInfo interface, hot-reload authorized_keys."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-f-daemon-mode.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-f-daemon-mode.md by sync-docs - do not edit directly -->
 
 
 Unix socket IPC, cookie authentication, RuntimeInfo interface, and hot-reload authorized_keys.
