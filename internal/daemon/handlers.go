@@ -123,6 +123,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Peer relay status
 	resp.IsRelaying = rt.IsRelaying()
 
+	// Reachability grade
+	grade := p2pnet.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
+	resp.Reachability = &grade
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -133,6 +137,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "global_ipv6: %v\n", resp.HasGlobalIPv6)
 		fmt.Fprintf(&sb, "global_ipv4: %v\n", resp.HasGlobalIPv4)
 		fmt.Fprintf(&sb, "is_relaying: %v\n", resp.IsRelaying)
+		if resp.Reachability != nil {
+			fmt.Fprintf(&sb, "reachability: [%s] %s - %s\n", resp.Reachability.Grade, resp.Reachability.Label, resp.Reachability.Description)
+		}
 		if resp.NATType != "" {
 			fmt.Fprintf(&sb, "nat_type: %s\n", resp.NATType)
 		}
@@ -277,10 +284,15 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]AuthEntry, 0, len(peers))
 	for _, p := range peers {
-		entries = append(entries, AuthEntry{
-			PeerID:  p.PeerID.String(),
-			Comment: p.Comment,
-		})
+		e := AuthEntry{
+			PeerID:   p.PeerID.String(),
+			Comment:  p.Comment,
+			Verified: p.Verified,
+		}
+		if !p.ExpiresAt.IsZero() {
+			e.ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
+		}
+		entries = append(entries, e)
 	}
 
 	if wantsText(r) {

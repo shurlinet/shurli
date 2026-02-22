@@ -55,6 +55,8 @@ func runRelay(args []string) {
 		runRelayListPeers(serverConfigFile)
 	case "info":
 		runRelayInfo(serverConfigFile)
+	case "pair":
+		runRelayPair(args[1:], serverConfigFile)
 	case "config":
 		runRelayServerConfig(args[1:], serverConfigFile)
 	case "version":

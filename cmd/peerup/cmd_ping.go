@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/daemon"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -46,6 +47,12 @@ func runPing(args []string) {
 	interval, err := time.ParseDuration(*intervalStr)
 	if err != nil {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
+	}
+
+	// Try daemon first (faster, no bootstrap needed).
+	if client := tryDaemonClient(); client != nil {
+		runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+		return
 	}
 
 	// Set up context with Ctrl+C cancellation
@@ -143,5 +150,51 @@ func runPing(args []string) {
 		fmt.Printf("\n--- %s ping statistics ---\n", target)
 		fmt.Printf("%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
 			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
+	}
+}
+
+// runPingViaDaemon pings a peer through the running daemon.
+func runPingViaDaemon(client *daemon.Client, target string, count, intervalMs int, jsonOutput bool) {
+	// Show verification badge (OMEMO-style).
+	if !jsonOutput {
+		showVerificationBadge(client, target)
+	}
+
+	if jsonOutput {
+		resp, err := client.Ping(target, count, intervalMs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(resp)
+	} else {
+		text, err := client.PingText(target, count, intervalMs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		fmt.Print(text)
+	}
+}
+
+// showVerificationBadge queries the daemon for a peer's verification status
+// and prints a badge. Unverified peers get a persistent warning.
+func showVerificationBadge(client *daemon.Client, target string) {
+	entries, err := client.AuthList()
+	if err != nil {
+		return // non-fatal, skip badge
+	}
+
+	for _, e := range entries {
+		if e.Comment == target || e.PeerID == target {
+			if e.Verified != "" {
+				fmt.Printf("[VERIFIED] Peer %q verified (%s)\n", target, e.Verified)
+			} else {
+				fmt.Printf("[UNVERIFIED] Peer %q not verified. Run: peerup verify %s\n", target, target)
+			}
+			return
+		}
 	}
 }

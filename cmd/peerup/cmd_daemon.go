@@ -216,6 +216,16 @@ func daemonClient() *daemon.Client {
 	return c
 }
 
+// tryDaemonClient attempts to connect to a running daemon.
+// Returns nil if the daemon is not running or unreachable.
+func tryDaemonClient() *daemon.Client {
+	c, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
 // --- Client subcommands ---
 
 func runDaemonStatus(args []string) {

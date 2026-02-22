@@ -213,6 +213,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | ✅ DONE |
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 | I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | ✅ DONE |
+| Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | ✅ DONE |
 | Post-I | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, gossip discovery | Planned |
 | Post-I-b | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
 | J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
@@ -315,7 +316,7 @@ Approach: Ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha
 - [x] Replace cleartext token exchange with encrypted handshake: both sides prove knowledge of the invite code without transmitting it
 - [x] Ephemeral X25519 key exchange with token-bound HKDF key derivation
 - [x] XChaCha20-Poly1305 AEAD encryption for all messages after key exchange
-- [x] Backward compatibility: version byte 0x02 triggers PAKE handshake, 0x01 uses legacy cleartext. Stream handler auto-detects based on first byte
+- [x] Invite versioning: version byte 0x01 = PAKE-encrypted handshake, 0x02 = relay pairing code. Legacy v1 cleartext protocol deleted in Post-I-1 (zero downgrade surface)
 - [x] v2 invite code format: includes namespace field for DHT network auto-inheritance
 - [x] Future version detection: v3+ codes rejected with "please upgrade peerup" message
 - [x] Joiner auto-inherits inviter's DHT namespace from v2 invite code
@@ -366,6 +367,28 @@ Probes all available network interfaces at startup, tests each path to peers, pi
 - [x] **I-f: Every-Peer-Is-A-Relay** - Any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Auto-detect on startup and network change. Leverages existing ConnectionGater for authorization. `is_relaying` flag in daemon status.
 
 New files: `interfaces.go`, `pathdialer.go`, `pathtracker.go`, `netmonitor.go`, `stunprober.go`, `peerrelay.go` (all in `pkg/p2pnet/` with matching `_test.go` files).
+
+**Post-I-1: Frictionless Relay Pairing** ✅ DONE
+
+Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin generates pairing codes, each person joins with one command. Motivated by Batch I live testing revealing the relay setup UX barrier for non-technical users.
+
+- [x] **v1 cleartext deleted** - zero downgrade surface. PAKE renumbered to v1 (0x01), relay pairing is v2 (0x02)
+- [x] **Extended authorized_keys format** - key=value attributes: `expires=<RFC3339>`, `verified=sha256:<prefix>`. Backward compatible parsing. `ListPeers()` returns `PeerEntry` with all attributes. `SetPeerAttr()` for programmatic updates.
+- [x] **In-memory token store** (relay-side) - `internal/relay/tokens.go`. Parameterized code count (`--count N`, default 1). SHA-256 hashed tokens, constant-time comparison, per-group mutex, max 3 failed attempts before burn, uniform "pairing failed" error for all failure modes. 20 tests including concurrency races.
+- [x] **v2 invite code format** - 16-byte token (no inviter peer ID), relay address + namespace encoded. Shorter than v1 (126 vs 186 chars). `EncodeV2()`/`decodeV2()` with trailing junk detection.
+- [x] **Connection gater enrollment mode** - probationary peers (max 10, 15s timeout) admitted during active pairing. `PromotePeer()` moves to authorized. `CleanupProbation()` evicts with disconnect callback. Auto-disable when no active groups. Expiring peer support via `expires=` attribute checked on every `InterceptSecured` call.
+- [x] **SAS verification (OMEMO-style)** - `ComputeFingerprint()` produces 4-emoji + 6-digit numeric code from sorted peer ID pair hash. 256-entry emoji table. `peerup verify <peer>` command with interactive confirmation. Writes `verified=sha256:<prefix>` to authorized_keys. Persistent `[UNVERIFIED]` badge on ping, traceroute, and status until verified.
+- [x] **Relay pairing protocol** - `/peerup/relay-pair/1.0.0` stream protocol. Wire format: 16-byte token + name. Status codes: OK, ERR, PEER_ARRIVED, GROUP_COMPLETE, TIMEOUT. `PairingHandler` authorizes peers, promotes from probation, sets expiry. Token expiry and probation cleanup goroutines.
+- [x] **`peerup relay pair`** - generates pairing codes from relay config. `--count N`, `--ttl`, `--namespace`, `--expires`. `--list` and `--revoke` for management.
+- [x] **Join v2 pair-join** - detects v2 codes, connects to relay, sends pairing request, authorizes discovered peers with name conflict resolution (suffix -2, -3...), shows SAS verification fingerprints, auto-starts daemon via `exec.Command`.
+- [x] **Daemon-first commands** - `peerup ping` and `peerup traceroute` try daemon API first (fast, no bootstrap). Falls back to standalone if daemon not running. Verification badge shown before ping/traceroute output.
+- [x] **Reachability grade** - A (public IPv6), B (public IPv4 or hole-punchable NAT), C (port-restricted NAT), D (symmetric NAT/CGNAT), F (offline). Computed from interface discovery + STUN results. Exposed in daemon status response and text output. 12 tests.
+- [x] **AuthEntry extended** - daemon API `GET /v1/auth` now returns `verified` and `expires_at` fields
+- [x] **Status verification badges** - `peerup status` shows `[VERIFIED]` or `[UNVERIFIED]` per peer
+
+New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/peerup/cmd_verify.go`, `cmd/peerup/cmd_relay_pair.go` (all with matching `_test.go` files).
+
+Zero new dependencies. Binary size unchanged at 28MB.
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -1204,8 +1227,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-22
-**Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
+**Last Updated**: 2026-02-23
+**Current Phase**: Post-I-1 Complete (Frictionless Relay Pairing + Daemon-Centric + Reachability Grade).
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Post-I (PeerManager / AddrMan)
 **Future milestones**: Post-I (PeerManager/AddrMan) → Post-I-b (ZKP Privacy Layer) → J (Visual Channel)

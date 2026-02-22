@@ -505,7 +505,7 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (14 endpoints) |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
 | [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
