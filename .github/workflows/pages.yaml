@@ -7,6 +7,8 @@ on:
       - 'website/**'
       - 'docs/**'
       - 'README.md'
+      - 'relay-server/README.md'
+      - 'tools/sync-docs/**'
 
 # Allow one concurrent deployment
 concurrency:
@@ -39,8 +41,7 @@ jobs:
           sudo dpkg -i hugo.deb
 
       - name: Sync docs
-        working-directory: website
-        run: bash sync-docs.sh
+        run: go run ./tools/sync-docs
 
       - name: Build Hugo site
         working-directory: website

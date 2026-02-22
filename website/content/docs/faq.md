@@ -3,7 +3,7 @@ title: "FAQ"
 weight: 3
 description: "How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."
 ---
-<!-- Auto-synced from docs/FAQ.md by sync-docs.sh  - do not edit directly -->
+<!-- Auto-synced from docs/FAQ.md by sync-docs - do not edit directly -->
 
 
 > **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.

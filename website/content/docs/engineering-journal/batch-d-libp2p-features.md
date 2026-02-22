@@ -3,7 +3,7 @@ title: "Batch D - libp2p Features"
 weight: 6
 description: "AutoNAT v2, QUIC transport ordering, Identify UserAgent, smart dialing."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-d-libp2p-features.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-d-libp2p-features.md by sync-docs - do not edit directly -->
 
 
 AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.

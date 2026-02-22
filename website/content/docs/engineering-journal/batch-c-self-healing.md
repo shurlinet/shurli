@@ -3,7 +3,7 @@ title: "Batch C - Self-Healing"
 weight: 5
 description: "Config archive and rollback, commit-confirmed pattern, watchdog with pure-Go sd_notify."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-c-self-healing.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-c-self-healing.md by sync-docs - do not edit directly -->
 
 
 Config archive/rollback, commit-confirmed pattern, and watchdog with pure-Go sd_notify.

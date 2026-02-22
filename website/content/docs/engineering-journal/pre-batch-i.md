@@ -3,7 +3,7 @@ title: "Pre-Batch I"
 weight: 11
 description: "Makefile and build tooling, PAKE-secured invite/join, private DHT namespace isolation."
 ---
-<!-- Auto-synced from docs/engineering-journal/pre-batch-i.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/pre-batch-i.md by sync-docs - do not edit directly -->
 
 
 Makefile and build tooling, PAKE-secured invite/join, and private DHT namespace isolation.

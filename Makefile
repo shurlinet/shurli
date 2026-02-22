@@ -15,7 +15,7 @@ LAUNCHD_PLIST   := deploy/com.peerup.daemon.plist
 LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.peerup.daemon.plist
 LAUNCHD_LABEL   := com.peerup.daemon
 
-.PHONY: build test clean install install-service uninstall-service uninstall restart-service website check push help
+.PHONY: build test clean install install-service uninstall-service uninstall restart-service sync-docs website check push help
 
 ## Build the peerup binary with version embedding.
 build:
@@ -112,8 +112,12 @@ else
 	@echo "Unsupported OS: $(OS)"
 endif
 
-## Start the Hugo development server for the website.
-website:
+## Sync docs/ to website/ with Hugo front matter and link rewriting.
+sync-docs:
+	go run ./tools/sync-docs
+
+## Sync docs, then start the Hugo development server.
+website: sync-docs
 	cd website && hugo mod tidy && hugo server
 
 ## Run local checks from .checks file (one command per line).
@@ -158,7 +162,8 @@ help:
 	@echo "  uninstall-service Stop and remove system service"
 	@echo "  uninstall         Remove service and binary"
 	@echo "  restart-service   Restart the system service"
-	@echo "  website           Start Hugo development server"
+	@echo "  sync-docs         Sync docs/ to website/ content"
+	@echo "  website           Sync docs and start Hugo dev server"
 	@echo "  check             Run local checks from .checks file"
 	@echo "  push              Run checks, then git push"
 	@echo "  help              Show this help"
