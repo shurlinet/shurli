@@ -8,15 +8,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
@@ -99,83 +95,34 @@ func runProxy(args []string) {
 	}
 	fmt.Println()
 
-	// Add relay circuit addresses for the home peer
-	fmt.Println("Connecting to target peer via relay...")
-	if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, homePeerID); err != nil {
-		fatal("Failed to add relay addresses: %v", err)
-	}
-
-	// Bootstrap DHT for direct connection discovery (DCUtR hole-punching).
-	// This runs in the background  - if it finds the target peer's direct
-	// addresses, libp2p will prefer them over the relay circuit.
-	fmt.Println("Bootstrapping DHT for direct connection discovery...")
+	// Bootstrap DHT for peer discovery
+	fmt.Println("Bootstrapping DHT...")
 	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
-	kdht, err := dht.New(ctx, h,
+	var kdht *dht.IpfsDHT
+	kdht, err = dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
 	)
 	if err != nil {
 		log.Printf("DHT init failed (relay-only mode): %v", err)
+		kdht = nil
 	} else {
 		if err := kdht.Bootstrap(ctx); err != nil {
 			log.Printf("DHT bootstrap failed (relay-only mode): %v", err)
-		} else {
-			// Connect to bootstrap peers in background
-			var bootstrapPeers []ma.Multiaddr
-			if len(cfg.Discovery.BootstrapPeers) > 0 {
-				for _, addr := range cfg.Discovery.BootstrapPeers {
-					maddr, err := ma.NewMultiaddr(addr)
-					if err != nil {
-						continue
-					}
-					bootstrapPeers = append(bootstrapPeers, maddr)
-				}
-			} else {
-				// Use relay addresses as DHT bootstrap peers.
-				for _, addr := range cfg.Relay.Addresses {
-					maddr, err := ma.NewMultiaddr(addr)
-					if err != nil {
-						continue
-					}
-					bootstrapPeers = append(bootstrapPeers, maddr)
-				}
-			}
-
-			var wg sync.WaitGroup
-			var connected atomic.Int32
-			for _, pAddr := range bootstrapPeers {
-				pi, err := peer.AddrInfoFromP2pAddr(pAddr)
-				if err != nil {
-					continue
-				}
-				wg.Add(1)
-				go func(pi peer.AddrInfo) {
-					defer wg.Done()
-					connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
-					defer connectCancel()
-					if err := h.Connect(connectCtx, pi); err == nil {
-						connected.Add(1)
-					}
-				}(*pi)
-			}
-			wg.Wait()
-			fmt.Printf("Connected to %d bootstrap peers\n", connected.Load())
-
-			// Try to find target peer's addresses via DHT (async  - doesn't block proxy startup)
-			go func() {
-				findCtx, findCancel := context.WithTimeout(ctx, 30*time.Second)
-				defer findCancel()
-				pi, err := kdht.FindPeer(findCtx, homePeerID)
-				if err != nil {
-					log.Printf("DHT peer discovery: target not found (using relay)")
-					return
-				}
-				log.Printf("DHT found target peer with %d addresses  - direct connection possible", len(pi.Addrs))
-				// Add discovered addresses to peerstore so libp2p can try direct connection
-				h.Peerstore().AddAddrs(pi.ID, pi.Addrs, time.Hour)
-			}()
+			kdht = nil
 		}
 	}
+
+	// Connect to target using parallel path racing (DHT + relay simultaneously)
+	fmt.Println("Connecting to target peer...")
+	pd := p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, nil)
+	connectCtx, connectCancel := context.WithTimeout(ctx, 45*time.Second)
+	result, err := pd.DialPeer(connectCtx, homePeerID)
+	connectCancel()
+	if err != nil {
+		fatal("Failed to connect to target: %v", err)
+	}
+	fmt.Printf("Connected [%s] via %s (%s)\n", result.PathType, result.Address, result.Duration.Round(time.Millisecond))
 	fmt.Println()
 
 	// Create TCP listener with retry-enabled dial function.
