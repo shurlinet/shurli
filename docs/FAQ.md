@@ -20,6 +20,14 @@ peer-up sidesteps this entirely. Identity is an Ed25519 key pair generated on yo
 
 The practical result: your identity cannot be suspended, revoked, or invalidated by anyone other than you. If every server on the internet went offline except your two machines and a relay, peer-up would still authenticate and connect them.
 
+## Why peer-up rejects vendor lock-in
+
+Remote access platforms typically control three things: the relay infrastructure your traffic passes through, the identity system that proves who you are, and the transport protocol that carries your data. When a single vendor controls all three, switching costs compound. Your device configurations point to their relays, your identity exists only in their database, and your client software speaks a proprietary protocol that nothing else understands. If the vendor raises prices, changes terms, or shuts down, you rebuild from scratch.
+
+peer-up decouples all three layers. Relays are standard libp2p circuit relay v2 nodes - run your own on any VPS, or use someone else's, or run none if your peers have direct reachability. Identity is a local Ed25519 key pair with no external registration. Transport is QUIC and TCP through the libp2p stack, an open protocol with multiple independent implementations across languages. Nothing in the system is proprietary, vendor-specific, or non-replaceable.
+
+The design consequence: every component can be swapped, self-hosted, or eliminated without losing access to your network. There is no migration path to plan because there is nothing to migrate away from.
+
 ## How does peer-up compare to Tailscale?
 
 peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
