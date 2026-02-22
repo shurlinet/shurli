@@ -277,6 +277,9 @@ sync_engineering_journal() {
     if [[ "$src_file" == "README.md" ]]; then
       out_name="_index.md"
       dst_path="$out_journal_dir/_index.md"
+      # Rewrite internal .md links to Hugo directory-style paths
+      # e.g., (core-architecture.md) -> (core-architecture/)
+      body="$(echo "$body" | sed 's|(\([a-z][a-z0-9-]*\)\.md)|(\1/)|g')"
     fi
 
     {
