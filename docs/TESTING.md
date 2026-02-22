@@ -36,7 +36,7 @@ sudo systemctl start sshd
 
 ```bash
 # Build peerup (single binary - handles both client and relay server)
-go build -o peerup ./cmd/peerup
+go build -ldflags="-s -w" -trimpath -o peerup ./cmd/peerup
 ```
 
 ---
@@ -54,7 +54,7 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 
 # Build from project root
 cd ..
-go build -o relay-server/peerup ./cmd/peerup
+go build -ldflags="-s -w" -trimpath -o relay-server/peerup ./cmd/peerup
 cd relay-server && ./peerup relay serve
 ```
 
@@ -409,6 +409,12 @@ go test -race -v ./internal/auth/
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
 | `cmd/peerup` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
 | `pkg/p2pnet` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
+| `pkg/p2pnet` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
+| `pkg/p2pnet` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
+| `pkg/p2pnet` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
+| `pkg/p2pnet` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
+| `pkg/p2pnet` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
+| `pkg/p2pnet` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
 
 ---
 
@@ -497,4 +503,4 @@ For benchmarks that previously used `log.New(io.Discard, ...)` to suppress loggi
 
 ---
 
-**Last Updated**: 2026-02-19
+**Last Updated**: 2026-02-22

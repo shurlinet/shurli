@@ -25,3 +25,4 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Batch G: Test Coverage](batch-g-test-coverage.md) | ADR-G01 to ADR-G04 | Docker tests, relay binary, injectable exit, audit protocol |
 | [Batch H: Observability](batch-h-observability.md) | ADR-H01 to ADR-H03 | Prometheus, nil-safe pattern, auth callback |
 | [Pre-Batch I](pre-batch-i.md) | ADR-Ia01 to ADR-Ib02 | Makefile, PAKE invite, DHT namespaces |
+| [Batch I: Adaptive Path Selection](batch-i-adaptive-path.md) | ADR-I01 to ADR-I06 | Interface discovery, dial racing, path tracking, network monitoring, STUN, peer relay |

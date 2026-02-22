@@ -8,6 +8,32 @@ description: "How peer-up compares to Tailscale and ZeroTier, how NAT traversal 
 
 > **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
 
+## Why no accounts or central servers?
+
+Most remote access tools require you to create an account on someone else's server. That server becomes a single point of failure and a single point of control. If the company changes pricing, shuts down, gets acquired, or suffers a breach, your access breaks and your connection metadata is exposed.
+
+peer-up eliminates that dependency entirely. Identity is an Ed25519 key pair generated locally on your machine. Authorization is a plain-text file listing which peer IDs are allowed to connect - the same model as SSH's `authorized_keys`. Configuration is one YAML file you can read, edit, back up, and version-control yourself.
+
+There is no registration step, no authentication token issued by a third party, and no renewal that can lapse. Two machines can find and authenticate each other using only their local keys and a shared relay for the initial connection. If you want full independence, run your own relay on any VPS - the entire system operates with zero external accounts.
+
+The result: your ability to reach your own machines depends on your infrastructure, not someone else's business decisions.
+
+## Why peer-up avoids centralized identity
+
+When a remote access tool requires you to sign in with an identity provider, that provider becomes a silent dependency in your infrastructure. If the provider has an outage, you cannot authenticate. If they change their terms, your access is conditional on compliance. If they are breached, your device graph, connection history, and metadata are exposed alongside every other user on the platform.
+
+peer-up sidesteps this entirely. Identity is an Ed25519 key pair generated on your machine during `peerup init`. It never leaves your device, is never uploaded, and is never registered with any external service. Authentication happens directly between peers: each side checks the other's public key against a local `authorized_keys` file. No OAuth flow, no email verification, no session tokens issued by a third party.
+
+The practical result: your identity cannot be suspended, revoked, or invalidated by anyone other than you. If every server on the internet went offline except your two machines and a relay, peer-up would still authenticate and connect them.
+
+## Why peer-up rejects vendor lock-in
+
+Remote access platforms typically control three things: the relay infrastructure your traffic passes through, the identity system that proves who you are, and the transport protocol that carries your data. When a single vendor controls all three, switching costs compound. Your device configurations point to their relays, your identity exists only in their database, and your client software speaks a proprietary protocol that nothing else understands. If the vendor raises prices, changes terms, or shuts down, you rebuild from scratch.
+
+peer-up decouples all three layers. Relays are standard libp2p circuit relay v2 nodes - run your own on any VPS, or use someone else's, or run none if your peers have direct reachability. Identity is a local Ed25519 key pair with no external registration. Transport is QUIC and TCP through the libp2p stack, an open protocol with multiple independent implementations across languages. Nothing in the system is proprietary, vendor-specific, or non-replaceable.
+
+The design consequence: every component can be swapped, self-hosted, or eliminated without losing access to your network. There is no migration path to plan because there is nothing to migrate away from.
+
 ## How does peer-up compare to Tailscale?
 
 peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
@@ -355,19 +381,18 @@ No v2 of DCUtR, but continuous refinement:
 
 **Source**: [Large Scale NAT Traversal Measurement Study](https://arxiv.org/html/2510.27500v1), [libp2p Hole Punching blog](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 
-### What peer-up plans to do (Phase 4C)
+### What peer-up has done (Phase 4C - shipped)
 
-| Optimization | Impact | Effort |
-|-------------|--------|--------|
-| **Upgrade go-libp2p** to latest | Gains all of the above automatically | Low |
-| **Replace `WithInfiniteLimits()`** with Resource Manager scopes | Eliminates relay resource exhaustion vulnerability | Medium |
-| **Enable DCUtR** in proxy command | Bypasses relay entirely when hole punch succeeds | Low |
-| **Connection warmup** | Pre-establish relay connection at startup (eliminates 5-15s per-session setup) | Low |
-| **Stream pooling** | Reuse streams instead of fresh ones per TCP connection | Medium |
-| **Persistent relay reservation** | Keep reservation alive with periodic refresh instead of re-reserving per connection | Medium |
-| **QUIC as default transport** | 1 fewer RTT on connection setup (3 vs 4 for TCP) | Low |
+| Optimization | Status |
+|-------------|--------|
+| **Upgraded go-libp2p** to v0.47.0 | Done |
+| **Replaced `WithInfiniteLimits()`** with Resource Manager (auto-scaled limits) | Done |
+| **Enabled DCUtR** in proxy command | Done (+ parallel dial racing in Batch I) |
+| **Persistent relay reservation** | Done (periodic refresh in background goroutine) |
+| **QUIC as default transport** | Done (3 RTTs vs 4 for TCP) |
+| **Adaptive path selection** | Done (Batch I: interface discovery, STUN probing, every-peer-is-a-relay) |
 
-Together, these changes would bring connection setup from 5-15 seconds closer to 1-3 seconds, matching Iroh's performance while keeping the self-sovereign architecture.
+These changes brought connection setup closer to 1-3 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
 
 ---
 
@@ -409,14 +434,14 @@ Once the connection is established, **bulk throughput is comparable**. The overh
 
 ### What peer-up does to close the gap
 
-These optimizations are planned in Phase 4C (Core Hardening):
+These optimizations shipped in Phase 4C:
 
-1. **QUIC transport** - saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
-2. **Connection warmup** - pre-establish connection at `peerup proxy` startup
-3. **Stream pooling** - reuse streams instead of fresh ones per TCP connection
-4. **DCUtR hole punching** - bypass relay entirely for direct peer-to-peer (approaches Bitcoin-like raw TCP speed)
+1. **QUIC transport** (done) - saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
+2. **DCUtR hole punching** (done) - bypass relay entirely for direct peer-to-peer
+3. **Parallel dial racing** (done, Batch I) - race DHT and relay in parallel, first wins
+4. **STUN probing** (done, Batch I) - classify NAT type, predict hole-punch success
 
-Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal.
+Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal. Connection warmup and stream pooling remain as future optimizations.
 
 ### Bottom line
 
@@ -627,12 +652,12 @@ Every relay server processes packets through the kernel network stack (syscalls 
 **Who has it**: Nobody (Cloudflare uses XDP for DDoS, not for relay forwarding).
 **Difficulty**: High (Linux-only, requires privileged access).
 
-### 4. Built-in observability (OpenTelemetry)
+### 4. Built-in observability
 
-No P2P tunnel tool ships with metrics, traces, or structured audit logs. DevOps teams bolt on monitoring after the fact, poorly. [OpenTelemetry](https://opentelemetry.io/) is table stakes for production infrastructure.
+Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-**Who has it**: Nobody in the P2P space.
-**Difficulty**: Low (OpenTelemetry Go SDK, instrument key paths).
+**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 16 panels). No other P2P tunnel tool ships with this level of built-in observability.
+**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
 ### 5. Formally verified protocol state machine
 
@@ -786,4 +811,4 @@ peer-up already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests
 
 ---
 
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-02-22

@@ -13,3 +13,4 @@ This document has been split into per-batch files for easier navigation. See the
 - [Batch G: Test Coverage](engineering-journal/batch-g-test-coverage.md) - ADR-G01 to ADR-G04
 - [Batch H: Observability](engineering-journal/batch-h-observability.md) - ADR-H01 to ADR-H03
 - [Pre-Batch I](engineering-journal/pre-batch-i.md) - ADR-Ia01 to ADR-Ib02
+- [Batch I: Adaptive Path Selection](engineering-journal/batch-i-adaptive-path.md) - ADR-I01 to ADR-I06
