@@ -120,10 +120,23 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 
 	content := string(data)
 
-	if strings.Contains(content, "services: {}") {
+	// Check for an uncommented "services:" line (not "# services:" in comments).
+	// The config template has commented-out service examples that must not match.
+	hasUncommentedServices := false
+	hasEmptyServices := strings.Contains(content, "services: {}")
+	if !hasEmptyServices {
+		for _, line := range strings.Split(content, "\n") {
+			if strings.TrimSpace(line) == "services:" {
+				hasUncommentedServices = true
+				break
+			}
+		}
+	}
+
+	if hasEmptyServices {
 		// Replace empty services block
 		content = strings.Replace(content, "services: {}", "services:\n"+block, 1)
-	} else if strings.Contains(content, "services:") {
+	} else if hasUncommentedServices {
 		// Find the services section and append after the last service entry
 		lines := strings.Split(content, "\n")
 		var result []string
