@@ -3,7 +3,7 @@ title: "Batch B - Code Quality"
 weight: 4
 description: "Relay address deduplication, structured logging, sentinel errors, build version embedding."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-b-code-quality.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-b-code-quality.md by sync-docs - do not edit directly -->
 
 
 Relay address deduplication, structured logging, sentinel errors, and build version embedding.

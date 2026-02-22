@@ -3,7 +3,7 @@ title: "Testing"
 weight: 10
 description: "Test strategy for peer-up: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
 ---
-<!-- Auto-synced from docs/TESTING.md by sync-docs.sh  - do not edit directly -->
+<!-- Auto-synced from docs/TESTING.md by sync-docs - do not edit directly -->
 
 
 This guide walks through testing the complete peer-up system with SSH service exposure.

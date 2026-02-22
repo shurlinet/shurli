@@ -3,7 +3,7 @@ title: "Core Architecture"
 weight: 2
 description: "Foundational technology choices: Go, libp2p, private DHT, circuit relay v2, connection gating, single binary."
 ---
-<!-- Auto-synced from docs/engineering-journal/core-architecture.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/core-architecture.md by sync-docs - do not edit directly -->
 
 
 Foundational technology choices made before the batch system.

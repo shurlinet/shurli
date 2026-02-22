@@ -3,7 +3,7 @@ title: "Monitoring"
 weight: 6
 description: "Set up Prometheus and Grafana to visualize peer-up metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
 ---
-<!-- Auto-synced from docs/MONITORING.md by sync-docs.sh  - do not edit directly -->
+<!-- Auto-synced from docs/MONITORING.md by sync-docs - do not edit directly -->
 
 
 This guide walks you through setting up Prometheus and Grafana to visualize peer-up metrics. By the end, you'll have a live dashboard showing proxy throughput, auth decisions, hole punch stats, API latency, and system health.
