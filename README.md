@@ -74,6 +74,14 @@ ssh -p 2222 user@localhost
 
 > **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
 
+## Why peer-up exists
+
+peer-up was created to solve one problem: reaching a service on a home server from outside the network without depending on anyone else's infrastructure.
+
+Existing solutions require either a cloud account, a third-party VPN, or port forwarding - which CGNAT frequently makes impossible. They all share the same flaw: your connectivity depends on someone else's servers and their permission to keep it running.
+
+peer-up uses a different model. Devices connect outbound to a lightweight relay for initial setup, then upgrade to direct peer-to-peer when possible. No accounts, no central identity server, no revocable subscriptions. Your keys stay on your machine, configuration lives in one YAML file, and you can run your own relay for zero external dependency.
+
 ## The Problem
 
 Your devices are behind firewalls and NAT that block inbound connections. This affects:

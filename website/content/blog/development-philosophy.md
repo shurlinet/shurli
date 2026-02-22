@@ -140,7 +140,7 @@ We adopted the 5-step process as a batch review checklist. Before every developm
 
 ### What we rejected
 
-**Public combativeness.** Musk attacks competitors, picks public fights. Open-source projects live on community trust. peer-up's "let the work speak" principle applies here. An open-source project can't afford to burn bridges. Every potential contributor is evaluating the culture before contributing.
+**Public combativeness.** Musk frequently engages in direct public criticism of competitors. For peer-up, this is rejected because it is a net-negative use of time and focus. Every hour spent on public fights is an hour not spent writing better code, clearer docs, or stronger user outcomes. peer-up's "let the work speak" principle is absolute: describe what the tool does, let users compare the results.
 
 **"Move fast and break things" in production.** SpaceX blows up test rockets on purpose. That's fine for test rockets. peer-up is infrastructure where "if it breaks, people get hurt." The audit-before-ship discipline is non-negotiable. (We do have an experimental sandbox for wild ideas, but production is sacred.)
 
@@ -178,7 +178,7 @@ And the one that resonated most directly with "lead with outcomes":
 
 **End-to-end user experience.** The website [documentation](/docs/quick-start/) is designed as one flow: landing page to quick start to pairing to connected. Today, installation still requires building from source via GitHub. Automated release downloads and `get.peerup.dev` install scripts are planned. The goal is that end users will never need to touch GitHub at all.
 
-**Details matter.** Jobs, recounting his father's lesson in a [1985 Playboy interview](https://allaboutstevejobs.com/verbatim/interviews/playboy_1985): "When you're a carpenter making a beautiful chest of drawers, you're not going to use a piece of plywood on the back, even though it faces the wall and nobody will ever see it. You'll know it's there." In peer-up, the post-phase security audits, the 28 architecture decision records, the privacy grep before every commit. That's the back of the chest of drawers.
+**Details matter.** Jobs, recounting his father's lesson in a [1985 Playboy interview](https://allaboutstevejobs.com/verbatim/interviews/playboy_1985): "When you're a carpenter making a beautiful chest of drawers, you're not going to use a piece of plywood on the back, even though it faces the wall and nobody will ever see it. You'll know it's there." In peer-up, the post-phase security audits, the 41 architecture decision records, the privacy grep before every commit. That's the back of the chest of drawers.
 
 As Andy Hertzfeld recorded on [folklore.org](https://folklore.org/Real_Artists_Ship.html), Jobs told the original Macintosh team in January 1983: **"Real artists ship."** The batch system delivers working software every cycle. Not plans. Not prototypes. Shipped code, merged to main, deployed.
 
@@ -236,7 +236,7 @@ These aren't decorative principles. They're decision-making tools. Here's how th
 - **Config self-healing** (Batch C) exists because of "never leave users without options." If config corrupts, the system recovers automatically using archived snapshots.
 - **The website redesign** exists because of Jobs' "start with the customer experience." End users shouldn't need to understand GitHub to use peer-up.
 - **Relay elimination research** (Batch I) exists because of "eliminate, don't optimize." The relay works, but the goal is to not need it.
-- **28 ADRs in the engineering journal** exist because of "the process IS the product." Future contributors (and future us) need to understand WHY, not just WHAT.
+- **41 ADRs in the engineering journal** exist because of "the process IS the product." Future contributors (and future us) need to understand WHY, not just WHAT.
 - **User-controlled telemetry** exists because of "privacy by architecture." Observability data stays on your infrastructure, collected by open-source tools you control.
 
 ---
@@ -265,7 +265,7 @@ What I've learned from these principles, genuinely, not performatively:
 
 **Privacy is harder than it looks.** Privacy isn't a checkbox. It's a discipline that requires constant vigilance. For infrastructure software where the relay sees traffic metadata, the development process itself must be privacy-aware.
 
-**The visual learner insight changed my communication.** When I understood that Satinder processes information visually, I started creating SVG diagrams alongside text explanations. The 11 documentation diagrams, the blog post illustrations, the architecture visuals: they're not decoration. They're the primary communication channel for how the system works.
+**The visual learner insight changed my communication.** When I understood that Satinder processes information visually, I started creating SVG diagrams alongside text explanations. The 40+ SVG diagrams across docs, blog posts, and architecture visuals: they're not decoration. They're the primary communication channel for how the system works.
 
 **The agnostic design principle is genuinely hard.** It's tempting to pick one identity system, one relay provider, one transport, and optimize for it. Staying agnostic means every integration point needs to be an interface, not an implementation. It's more work upfront. But it means peer-up will never be held hostage by someone else's platform decisions. SuperMesh taught that lesson once. We don't need to learn it again.
 
