@@ -87,9 +87,8 @@ sync_doc() {
   for map_src in "${!DOC_MAP[@]}"; do
     IFS=':' read -r map_out _ _ <<< "${DOC_MAP[$map_src]}"
     local map_slug="${map_out%.md}"
-    # Replace (FILENAME.md) with (../slug/)
-    body="$(echo "$body" | sed "s|(\(${map_src}\))|../${map_slug}/|g")"
-    # Also handle [text](FILENAME.md) pattern
+    # Replace (FILENAME.md) and (FILENAME.md#anchor) with (../slug/) and (../slug/#anchor)
+    body="$(echo "$body" | sed "s|(${map_src}#\([^)]*\))|(../${map_slug}/#\1)|g")"
     body="$(echo "$body" | sed "s|(${map_src})|(../${map_slug}/)|g")"
   done
 
@@ -99,6 +98,9 @@ sync_doc() {
   # Rewrite relay-server/README.md to website docs page with friendly link text
   body="$(echo "$body" | sed 's|\[relay-server/README.md\](../relay-server/README.md)|[Relay Setup guide](../relay-setup/)|g')"
 
+  # Rewrite ENGINEERING-JOURNAL.md to website engineering-journal section
+  body="$(echo "$body" | sed 's|(ENGINEERING-JOURNAL.md)|(../engineering-journal/)|g')"
+
   # Rewrite remaining relative source file references to GitHub URLs
   # e.g., (../cmd/peerup/...) -> (https://github.com/.../cmd/peerup/...)
   body="$(echo "$body" | sed "s|(\.\./\(cmd/\)|($GITHUB_BASE/\1|g")"
@@ -107,6 +109,7 @@ sync_doc() {
   body="$(echo "$body" | sed "s|(\.\./\(relay-server/\)|($GITHUB_BASE/\1|g")"
   body="$(echo "$body" | sed "s|(\.\./\(deploy/\)|($GITHUB_BASE/\1|g")"
   body="$(echo "$body" | sed "s|(\.\./\(test/\)|($GITHUB_BASE/\1|g")"
+  body="$(echo "$body" | sed "s|(\.\./\(\.github/\)|($GITHUB_BASE/\1|g")"
 
   # Write output with Hugo front matter
   {
@@ -236,7 +239,7 @@ sync_engineering_journal() {
   # Map: source filename -> weight:title:description
   declare -A JOURNAL_MAP
   JOURNAL_MAP=(
-    ["README.md"]="1:Engineering Journal:Architecture Decision Records for peer-up. The why behind every significant design choice."
+    ["README.md"]="12:Engineering Journal:Architecture Decision Records for peer-up. The why behind every significant design choice."
     ["core-architecture.md"]="2:Core Architecture:Foundational technology choices: Go, libp2p, private DHT, circuit relay v2, connection gating, single binary."
     ["batch-a-reliability.md"]="3:Batch A - Reliability:Timeouts, retries, DHT in the proxy path, and in-process integration tests."
     ["batch-b-code-quality.md"]="4:Batch B - Code Quality:Relay address deduplication, structured logging, sentinel errors, build version embedding."
@@ -247,6 +250,7 @@ sync_engineering_journal() {
     ["batch-g-test-coverage.md"]="9:Batch G - Test Coverage:Coverage-instrumented Docker tests, relay binary, injectable exit, post-phase audit protocol."
     ["batch-h-observability.md"]="10:Batch H - Observability:Prometheus metrics, nil-safe observability pattern, auth decision callback."
     ["pre-batch-i.md"]="11:Pre-Batch I:Makefile and build tooling, PAKE-secured invite/join, private DHT namespace isolation."
+    ["batch-i-adaptive-path.md"]="12:Batch I - Adaptive Path Selection:Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, every-peer-is-a-relay."
   )
 
   for src_file in "${!JOURNAL_MAP[@]}"; do
@@ -325,6 +329,7 @@ generate_llms_full() {
     "engineering-journal/batch-g-test-coverage.md"
     "engineering-journal/batch-h-observability.md"
     "engineering-journal/pre-batch-i.md"
+    "engineering-journal/batch-i-adaptive-path.md"
   )
 
   local relay_readme="$(dirname "$SCRIPT_DIR")/relay-server/README.md"

@@ -1057,17 +1057,18 @@ else
 fi
 echo
 
-# --- 6. File permissions ---
+# --- 6.5. Initialize config files ---
+echo "[6.5/8] Initializing configuration..."
+"$RELAY_DIR/peerup" relay setup --dir "$RELAY_DIR"
+echo
+
+# --- 7. File permissions ---
 echo "[7/8] Setting file permissions..."
 chmod 700 "$RELAY_DIR/peerup"
+chmod 600 "$RELAY_DIR/relay-server.yaml"
+chmod 600 "$RELAY_DIR/relay_authorized_keys"
 if [ -f "$RELAY_DIR/relay_node.key" ]; then
     chmod 600 "$RELAY_DIR/relay_node.key"
-fi
-if [ -f "$RELAY_DIR/relay_authorized_keys" ]; then
-    chmod 600 "$RELAY_DIR/relay_authorized_keys"
-fi
-if [ -f "$RELAY_DIR/relay-server.yaml" ]; then
-    chmod 600 "$RELAY_DIR/relay-server.yaml"
 fi
 # When running as root for a different service user, transfer ownership
 if [ "$SERVICE_USER" != "$CURRENT_USER" ]; then
