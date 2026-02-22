@@ -42,6 +42,21 @@ type serveRuntime struct {
 	startTime  time.Time
 	kdht       *dht.IpfsDHT // stored for peer discovery from daemon API
 
+	// Interface discovery (populated at startup)
+	ifSummary *p2pnet.InterfaceSummary
+
+	// Path dialer for parallel connection racing
+	pathDialer *p2pnet.PathDialer
+
+	// Path tracker for per-peer connection visibility
+	pathTracker *p2pnet.PathTracker
+
+	// STUN prober for NAT type detection and external address discovery
+	stunProber *p2pnet.STUNProber
+
+	// Peer relay (auto-enabled when public IP detected)
+	peerRelay *p2pnet.PeerRelay
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
@@ -174,6 +189,37 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 func (rt *serveRuntime) Bootstrap() error {
 	h := rt.network.Host()
 	cfg := rt.config
+
+	// Discover network interfaces and log IPv6/IPv4 availability
+	ifSummary, err := p2pnet.DiscoverInterfaces()
+	if err != nil {
+		fmt.Printf("Warning: interface discovery failed: %v\n", err)
+	} else {
+		rt.ifSummary = ifSummary
+		fmt.Printf("Network interfaces: %d with global addresses\n", len(ifSummary.Interfaces))
+		if ifSummary.HasGlobalIPv6 {
+			fmt.Printf("  Global IPv6: %d addresses (direct connections possible)\n", len(ifSummary.GlobalIPv6Addrs))
+		}
+		if ifSummary.HasGlobalIPv4 {
+			fmt.Printf("  Global IPv4: %d addresses\n", len(ifSummary.GlobalIPv4Addrs))
+		}
+		if !ifSummary.HasGlobalIPv6 && !ifSummary.HasGlobalIPv4 {
+			fmt.Println("  No global addresses detected - relay will be required")
+		}
+		fmt.Println()
+
+		// Record metrics
+		if rt.metrics != nil {
+			ipv4Count := 0
+			ipv6Count := 0
+			for _, iface := range ifSummary.Interfaces {
+				ipv4Count += len(iface.IPv4Addrs)
+				ipv6Count += len(iface.IPv6Addrs)
+			}
+			rt.metrics.InterfaceCount.WithLabelValues("ipv4").Set(float64(ipv4Count))
+			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
+		}
+	}
 
 	// Parse relay addresses for manual connection
 	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
@@ -310,6 +356,84 @@ func (rt *serveRuntime) Bootstrap() error {
 			}
 		}
 	}()
+
+	// Initialize path dialer for parallel connection racing
+	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, rt.metrics)
+
+	// Initialize path tracker for per-peer connection visibility
+	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
+	go rt.pathTracker.Start(rt.ctx)
+
+	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
+	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
+		// Update interface summary
+		newSummary, err := p2pnet.DiscoverInterfaces()
+		if err != nil {
+			fmt.Printf("Warning: interface re-discovery failed: %v\n", err)
+			return
+		}
+		rt.ifSummary = newSummary
+
+		// Update metrics
+		if rt.metrics != nil {
+			ipv4Count := 0
+			ipv6Count := 0
+			for _, iface := range newSummary.Interfaces {
+				ipv4Count += len(iface.IPv4Addrs)
+				ipv6Count += len(iface.IPv6Addrs)
+			}
+			rt.metrics.InterfaceCount.WithLabelValues("ipv4").Set(float64(ipv4Count))
+			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
+		}
+
+		// Re-evaluate peer relay eligibility on network change
+		if rt.peerRelay != nil {
+			rt.peerRelay.AutoDetect(newSummary)
+		}
+
+		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
+			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
+
+		// Re-probe STUN on network change (external address may have changed)
+		if rt.stunProber != nil {
+			go func() {
+				probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
+				defer probeCancel()
+				if _, err := rt.stunProber.Probe(probeCtx); err != nil {
+					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
+				}
+			}()
+		}
+	}, rt.metrics)
+	go netmon.Run(rt.ctx)
+
+	// STUN probe for NAT type detection and external address discovery.
+	// Run in background so it doesn't block startup.
+	rt.stunProber = p2pnet.NewSTUNProber(nil, rt.metrics) // default STUN servers
+	go func() {
+		probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
+		defer probeCancel()
+		result, err := rt.stunProber.Probe(probeCtx)
+		if err != nil {
+			fmt.Printf("Warning: STUN probe failed: %v\n", err)
+			return
+		}
+		fmt.Printf("NAT type: %s", result.NATType)
+		if len(result.ExternalAddrs) > 0 {
+			fmt.Printf(" (external: %s)", result.ExternalAddrs[0])
+		}
+		if result.NATType.HolePunchable() {
+			fmt.Print(" [hole-punchable]")
+		}
+		fmt.Println()
+	}()
+
+	// Initialize peer relay (auto-enables if this host has a public IP).
+	// The existing ConnectionGater restricts who can use this relay.
+	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics)
+	if rt.ifSummary != nil {
+		rt.peerRelay.AutoDetect(rt.ifSummary)
+	}
 
 	return nil
 }
@@ -462,41 +586,18 @@ func (rt *serveRuntime) StartStatusPrinter() {
 	}()
 }
 
-// ConnectToPeer ensures the host can reach the target peer. It checks if
-// already connected, tries DHT discovery, and falls back to relay circuit
-// addresses. This is used by daemon API handlers (ping, traceroute, connect)
-// where the caller needs the peer reachable before opening a stream.
+// ConnectToPeer ensures the host can reach the target peer using parallel
+// path racing. It launches DHT discovery and relay circuit attempts
+// concurrently, returning as soon as the first path succeeds.
+// This is used by daemon API handlers (ping, traceroute, connect).
 func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error {
-	h := rt.network.Host()
-
-	// Already connected  - nothing to do
-	if h.Network().Connectedness(peerID) == network.Connected {
-		return nil
+	result, err := rt.pathDialer.DialPeer(ctx, peerID)
+	if err != nil {
+		return err
 	}
-
-	// Try DHT peer lookup
-	if rt.kdht != nil {
-		findCtx, findCancel := context.WithTimeout(ctx, 15*time.Second)
-		pi, err := rt.kdht.FindPeer(findCtx, peerID)
-		findCancel()
-		if err == nil {
-			connectCtx, connectCancel := context.WithTimeout(ctx, 15*time.Second)
-			err = h.Connect(connectCtx, pi)
-			connectCancel()
-			if err == nil {
-				return nil
-			}
-		}
-	}
-
-	// Fallback: add relay circuit addresses and connect through relay
-	if err := rt.network.AddRelayAddressesForPeer(rt.config.Relay.Addresses, peerID); err != nil {
-		return fmt.Errorf("failed to add relay addresses: %w", err)
-	}
-	connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
-	err := h.Connect(connectCtx, peer.AddrInfo{ID: peerID})
-	connectCancel()
-	return err
+	fmt.Printf("Connected to %s [%s] via %s (%s)\n",
+		peerID.String()[:16], result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+	return nil
 }
 
 // StartMetricsServer starts the /metrics HTTP endpoint if metrics are enabled.
@@ -525,8 +626,12 @@ func (rt *serveRuntime) StartMetricsServer() {
 	}()
 }
 
-// Shutdown cancels the context, stops the metrics server, and closes the P2P network.
+// Shutdown cancels the context, stops the metrics server, disables the peer relay,
+// and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	if rt.peerRelay != nil {
+		rt.peerRelay.Disable()
+	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)

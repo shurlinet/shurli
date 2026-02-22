@@ -190,6 +190,20 @@ func (c *Client) AuthListText() (string, error) {
 	return c.doText("GET", "/v1/auth", nil)
 }
 
+// Paths returns per-peer path information (type, transport, IP version, RTT).
+func (c *Client) Paths() ([]PathInfo, error) {
+	var resp []PathInfo
+	if err := c.doJSON("GET", "/v1/paths", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// PathsText returns per-peer path information as plain text.
+func (c *Client) PathsText() (string, error) {
+	return c.doText("GET", "/v1/paths", nil)
+}
+
 // --- Mutation methods ---
 
 // AuthAdd adds an authorized peer.

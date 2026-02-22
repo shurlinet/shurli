@@ -20,12 +20,26 @@ import (
 
 // --- RuntimeInfo adapter (implements daemon.RuntimeInfo on serveRuntime) ---
 
-func (rt *serveRuntime) Network() *p2pnet.Network    { return rt.network }
-func (rt *serveRuntime) ConfigFile() string           { return rt.configFile }
-func (rt *serveRuntime) AuthKeysPath() string         { return rt.authKeys }
-func (rt *serveRuntime) Version() string              { return rt.version }
-func (rt *serveRuntime) StartTime() time.Time         { return rt.startTime }
-func (rt *serveRuntime) PingProtocolID() string       { return rt.config.Protocols.PingPong.ID }
+func (rt *serveRuntime) Network() *p2pnet.Network            { return rt.network }
+func (rt *serveRuntime) ConfigFile() string                   { return rt.configFile }
+func (rt *serveRuntime) AuthKeysPath() string                 { return rt.authKeys }
+func (rt *serveRuntime) Version() string                      { return rt.version }
+func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
+func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
+func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
+func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker     { return rt.pathTracker }
+func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
+	if rt.stunProber == nil {
+		return nil
+	}
+	return rt.stunProber.Result()
+}
+func (rt *serveRuntime) IsRelaying() bool {
+	if rt.peerRelay == nil {
+		return false
+	}
+	return rt.peerRelay.Enabled()
+}
 
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
@@ -90,6 +104,8 @@ func runDaemon(args []string) {
 		runDaemonServices(args[1:])
 	case "peers":
 		runDaemonPeers(args[1:])
+	case "paths":
+		runDaemonPaths(args[1:])
 	case "connect":
 		runDaemonConnect(args[1:])
 	case "disconnect":
@@ -111,6 +127,7 @@ func printDaemonUsage() {
 	fmt.Println("  ping <peer> [-c N] [--interval 1s] [--json]")
 	fmt.Println("  services [--json]")
 	fmt.Println("  peers [--all] [--json]")
+	fmt.Println("  paths [--json]")
 	fmt.Println("  connect --peer <name> --service <svc> --listen <addr>")
 	fmt.Println("  disconnect <id>")
 }
@@ -318,6 +335,32 @@ func runDaemonPeers(args []string) {
 		enc.Encode(resp)
 	} else {
 		text, err := c.PeersText(*allFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		fmt.Print(text)
+	}
+}
+
+func runDaemonPaths(args []string) {
+	fs := flag.NewFlagSet("daemon paths", flag.ExitOnError)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	fs.Parse(args)
+
+	c := daemonClient()
+
+	if *jsonFlag {
+		resp, err := c.Paths()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(resp)
+	} else {
+		text, err := c.PathsText()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			osExit(1)

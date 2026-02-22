@@ -29,6 +29,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/peers", s.handlePeerList)
 	mux.HandleFunc("GET /v1/auth", s.handleAuthList)
 
+	mux.HandleFunc("GET /v1/paths", s.handlePaths)
+
 	// Mutations
 	mux.HandleFunc("POST /v1/auth", s.handleAuthAdd)
 	mux.HandleFunc("DELETE /v1/auth/{peer_id}", s.handleAuthRemove)
@@ -106,6 +108,21 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ServicesCount:  len(rt.Network().ListServices()),
 	}
 
+	// Populate interface discovery flags if available
+	if ifSummary := rt.Interfaces(); ifSummary != nil {
+		resp.HasGlobalIPv6 = ifSummary.HasGlobalIPv6
+		resp.HasGlobalIPv4 = ifSummary.HasGlobalIPv4
+	}
+
+	// Populate STUN results if available
+	if stunResult := rt.STUNResult(); stunResult != nil {
+		resp.NATType = string(stunResult.NATType)
+		resp.STUNExternalAddrs = stunResult.ExternalAddrs
+	}
+
+	// Peer relay status
+	resp.IsRelaying = rt.IsRelaying()
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -113,6 +130,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "uptime: %ds\n", resp.UptimeSeconds)
 		fmt.Fprintf(&sb, "connected_peers: %d\n", resp.ConnectedPeers)
 		fmt.Fprintf(&sb, "services: %d\n", resp.ServicesCount)
+		fmt.Fprintf(&sb, "global_ipv6: %v\n", resp.HasGlobalIPv6)
+		fmt.Fprintf(&sb, "global_ipv4: %v\n", resp.HasGlobalIPv4)
+		fmt.Fprintf(&sb, "is_relaying: %v\n", resp.IsRelaying)
+		if resp.NATType != "" {
+			fmt.Fprintf(&sb, "nat_type: %s\n", resp.NATType)
+		}
+		if len(resp.STUNExternalAddrs) > 0 {
+			fmt.Fprintf(&sb, "stun_external_addrs: %d\n", len(resp.STUNExternalAddrs))
+			for _, a := range resp.STUNExternalAddrs {
+				fmt.Fprintf(&sb, "  %s\n", a)
+			}
+		}
 		fmt.Fprintf(&sb, "listen_addresses: %d\n", len(resp.ListenAddrs))
 		for _, a := range resp.ListenAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)
@@ -201,6 +230,36 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, peers)
+}
+
+func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
+	tracker := s.runtime.PathTracker()
+	if tracker == nil {
+		respondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
+		return
+	}
+
+	paths := tracker.ListPeerPaths()
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, p := range paths {
+			peerShort := p.PeerID
+			if len(peerShort) > 16 {
+				peerShort = peerShort[:16] + "..."
+			}
+			rttStr := "-"
+			if p.LastRTTMs > 0 {
+				rttStr = fmt.Sprintf("%.1fms", p.LastRTTMs)
+			}
+			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\trtt=%s\n",
+				peerShort, p.PathType, p.Transport, p.IPVersion, rttStr)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, paths)
 }
 
 func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {

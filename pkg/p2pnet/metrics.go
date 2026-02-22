@@ -30,6 +30,22 @@ type Metrics struct {
 	DaemonRequestsTotal          *prometheus.CounterVec
 	DaemonRequestDurationSeconds *prometheus.HistogramVec
 
+	// Path dial metrics
+	PathDialTotal           *prometheus.CounterVec
+	PathDialDurationSeconds *prometheus.HistogramVec
+
+	// Connected peers (tracked by PathTracker)
+	ConnectedPeers *prometheus.GaugeVec
+
+	// Network change events (tracked by NetworkMonitor)
+	NetworkChangeTotal *prometheus.CounterVec
+
+	// STUN probe metrics
+	STUNProbeTotal *prometheus.CounterVec
+
+	// Interface metrics
+	InterfaceCount *prometheus.GaugeVec
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -117,6 +133,54 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"method", "path", "status"},
 		),
 
+		PathDialTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_path_dial_total",
+				Help: "Total number of path dial attempts.",
+			},
+			[]string{"path_type", "result"},
+		),
+		PathDialDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "peerup_path_dial_duration_seconds",
+				Help:    "Duration of path dial attempts in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.1, 2, 10), // 100ms to ~50s
+			},
+			[]string{"path_type"},
+		),
+
+		ConnectedPeers: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_connected_peers",
+				Help: "Number of connected peers by path type, transport, and IP version.",
+			},
+			[]string{"path_type", "transport", "ip_version"},
+		),
+
+		NetworkChangeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_network_change_total",
+				Help: "Total number of network interface changes detected.",
+			},
+			[]string{"change_type"},
+		),
+
+		STUNProbeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "peerup_stun_probe_total",
+				Help: "Total number of STUN probe attempts.",
+			},
+			[]string{"result"},
+		),
+
+		InterfaceCount: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "peerup_interface_count",
+				Help: "Number of network interfaces with global unicast addresses.",
+			},
+			[]string{"ip_version"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "peerup_info",
@@ -137,6 +201,10 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.HolePunchDurationSeconds,
 		m.DaemonRequestsTotal,
 		m.DaemonRequestDurationSeconds,
+		m.ConnectedPeers,
+		m.NetworkChangeTotal,
+		m.STUNProbeTotal,
+		m.InterfaceCount,
 		m.BuildInfo,
 	)
 
