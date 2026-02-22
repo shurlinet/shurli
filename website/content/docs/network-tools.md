@@ -45,7 +45,7 @@ peerup daemon ping <peer> [-c N] [--interval 1s] [--json]
 **Plain text (default)**:
 
 ```
-PING home-server (12D3KooWDRDM...):
+PING home-server (12D3KooWPrmh...):
 seq=1 rtt=45.2ms path=[RELAYED]
 seq=2 rtt=42.1ms path=[DIRECT]
 seq=3 rtt=43.0ms path=[DIRECT]
@@ -57,9 +57,9 @@ seq=3 rtt=43.0ms path=[DIRECT]
 **JSON (`--json`)**:
 
 ```json
-{"seq":1,"peer_id":"12D3KooWDRDM...","rtt_ms":45.2,"path":"RELAYED"}
-{"seq":2,"peer_id":"12D3KooWDRDM...","rtt_ms":42.1,"path":"DIRECT"}
-{"seq":3,"peer_id":"12D3KooWDRDM...","rtt_ms":43.0,"path":"DIRECT"}
+{"seq":1,"peer_id":"12D3KooWPrmh...","rtt_ms":45.2,"path":"RELAYED"}
+{"seq":2,"peer_id":"12D3KooWPrmh...","rtt_ms":42.1,"path":"DIRECT"}
+{"seq":3,"peer_id":"12D3KooWPrmh...","rtt_ms":43.0,"path":"DIRECT"}
 {"sent":3,"received":3,"lost":0,"loss_pct":0.0,"min_ms":42.1,"avg_ms":43.4,"max_ms":45.2}
 ```
 
@@ -122,17 +122,17 @@ curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
 **Relayed connection**:
 
 ```
-traceroute to home-server (12D3KooWDRDM...), max 3 hops:
+traceroute to home-server (12D3KooWPrmh...), max 3 hops:
  1  12D3KooWK... (relay)  203.0.113.50:7777  23.0ms
- 2  12D3KooWDRDM... (home-server)  via relay  45.0ms
+ 2  12D3KooWPrmh... (home-server)  via relay  45.0ms
 --- path: [RELAYED via relay-server/0.1.0] ---
 ```
 
 **Direct connection**:
 
 ```
-traceroute to home-server (12D3KooWDRDM...), max 3 hops:
- 1  12D3KooWDRDM... (home-server)  10.0.1.50:9000  2.0ms
+traceroute to home-server (12D3KooWPrmh...), max 3 hops:
+ 1  12D3KooWPrmh... (home-server)  10.0.1.50:9000  2.0ms
 --- path: [DIRECT] ---
 ```
 
@@ -256,4 +256,4 @@ Both modes use the same underlying functions:
 
 ---
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-22
