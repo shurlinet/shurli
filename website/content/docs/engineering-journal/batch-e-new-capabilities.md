@@ -3,7 +3,7 @@ title: "Batch E - New Capabilities"
 weight: 7
 description: "Relay health endpoint and headless invite/join for scripting."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-e-new-capabilities.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-e-new-capabilities.md by sync-docs - do not edit directly -->
 
 
 Relay health endpoint and headless invite/join for scripting.

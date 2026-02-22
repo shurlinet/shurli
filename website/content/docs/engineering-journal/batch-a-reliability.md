@@ -3,7 +3,7 @@ title: "Batch A - Reliability"
 weight: 3
 description: "Timeouts, retries, DHT in the proxy path, and in-process integration tests."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-a-reliability.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-a-reliability.md by sync-docs - do not edit directly -->
 
 
 Timeouts, retries, DHT in the proxy path, and in-process integration tests.

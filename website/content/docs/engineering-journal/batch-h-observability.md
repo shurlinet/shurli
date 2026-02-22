@@ -3,7 +3,7 @@ title: "Batch H - Observability"
 weight: 10
 description: "Prometheus metrics, nil-safe observability pattern, auth decision callback."
 ---
-<!-- Auto-synced from docs/engineering-journal/batch-h-observability.md by sync-docs.sh - do not edit directly -->
+<!-- Auto-synced from docs/engineering-journal/batch-h-observability.md by sync-docs - do not edit directly -->
 
 
 Prometheus metrics, nil-safe observability pattern, and auth decision callback.
