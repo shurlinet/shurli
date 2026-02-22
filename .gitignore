@@ -51,3 +51,6 @@ relay_authorized_keys
 
 # Key files (private keys should never be committed)
 *.key
+
+# Relay server backup snapshots
+**/backups/

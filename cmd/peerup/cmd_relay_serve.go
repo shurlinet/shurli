@@ -704,6 +704,7 @@ func printRelayServeUsage() {
 	fmt.Println("  remove <multiaddr>                  Remove a relay server address")
 	fmt.Println()
 	fmt.Println("Relay server management:")
+	fmt.Println("  setup                               Initialize relay config (backup/restore)")
 	fmt.Println("  serve                               Start the relay server")
 	fmt.Println("  info                                Show peer ID, multiaddrs, QR code")
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")

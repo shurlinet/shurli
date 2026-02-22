@@ -43,6 +43,8 @@ func runRelay(args []string) {
 		runRelayRemove(args[1:])
 
 	// Relay server management (manages relay-server.yaml)
+	case "setup":
+		runRelaySetup(args[1:])
 	case "serve":
 		runRelayServe(args[1:])
 	case "authorize":
