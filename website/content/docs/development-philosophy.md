@@ -89,7 +89,7 @@ After the core principles were established, we recognized strong alignment with 
 - **Mission-driven engineering** - "bubble in outer space" parallels "making life multiplanetary"
 
 ### Rejected from Musk
-- **Public combativeness** - open-source lives on community trust
+- **Public combativeness** - rejected as a net-negative use of time and focus. Every hour on public fights is an hour not spent writing better code
 - **"Break things" in production** - peer-up is infrastructure where failure hurts people
 - **Vendor-controlled telemetry** - observability yes, but user-controlled. Data stays on the user's infrastructure, never ours
 

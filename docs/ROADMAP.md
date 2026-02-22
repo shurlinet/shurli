@@ -192,7 +192,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 ### Phase 4C: Core Hardening & Security
 
 **Timeline**: 6-8 weeks (batched)
-**Status**: ✅ Batches A–G Complete, Pre-Batch H security hardening shipped (2 items deferred to future batches)
+**Status**: ✅ Complete (Batches A-I, all Pre-I items shipped)
 
 **Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically - before wider distribution puts binaries in more hands.
 
@@ -277,7 +277,7 @@ Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, ze
 - [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
 - [x] Custom peerup metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
 - [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
-- [x] Grafana dashboard - pre-built JSON dashboard with 12 panels covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+- [x] Grafana dashboard - pre-built JSON dashboard with 16 panels across 5 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
 
 Deferred from original Batch H scope (with reasoning):
 - ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
@@ -356,7 +356,7 @@ Foundation for Phase 4H (Federation): each private network becomes a federation 
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
-Probes all available network interfaces at startup, tests each path to peers, picks the best, and continuously monitors for network changes. Path ranking: direct IPv6 > direct IPv4 > peer relay > VPS relay. Zero new dependencies.
+Probes all available network interfaces at startup, tests each path to peers, picks the best, and continuously monitors for network changes. Path ranking: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. Zero new dependencies.
 
 - [x] **I-a: Interface Discovery & IPv6 Awareness** - `DiscoverInterfaces()` enumerates all network interfaces with global unicast classification. IPv6/IPv4 flags on daemon status. Prometheus `interface_count` gauge.
 - [x] **I-b: Parallel Dial Racing** - `PathDialer.DialPeer()` replaces sequential 45s worst-case with parallel racing. Already-connected fast path, DHT + relay concurrent, first success wins. `PathType` classification (DIRECT/RELAYED). Old `ConnectToPeer()` preserved as fallback.
@@ -441,7 +441,7 @@ Priority areas (all hit or exceeded targets):
 - [x] **internal/auth** (50% → 75%+) - hot-reload, concurrent access, malformed input, gater tests
 - [x] **Docker integration tests** - `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
 - [x] **CI coverage reporting** - `.github/workflows/pages.yaml` merges unit + Docker coverage via `go tool covdata merge`, reports combined coverage
-- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 28 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
+- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 41 architecture decision records (ADRs) covering core architecture (8) and all batches A-I plus Pre-I. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
 - [x] **Website** - Hugo + Hextra site scaffolded with landing page, 7 retroactive blog posts (Batches A-G), sync-docs.sh for auto-transformation, GitHub Actions CI/CD for GitHub Pages deployment
 - [x] **Security hardening** - post-audit fixes across 10 files (commit 83d02d3). CVE-2026-26014 resolved (pion/dtls v3.1.2). CI Actions pinned to commit SHAs.
 
@@ -618,7 +618,7 @@ Waiting for transfers...
 - [x] Custom blog listing template - image cards with title overlay, gradient, responsive grid *(post-Batch G)*
 - [x] Dark theme default + theme toggle in navbar *(post-Batch G)*
 - [x] SVG images for terminal demo, how-it-works steps, network diagram *(post-Batch G)*
-- [x] 11 SVG diagrams in documentation - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1) *(post-Batch G)*
+- [x] 40+ SVG diagrams across docs, blog posts, and architecture visuals - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1), plus blog post diagrams, philosophy visuals, and Batch I architecture diagrams *(post-Batch G, expanded through Batch I)*
 - [x] Feature card icons (Heroicons), section title icons, doc index icons, about page icons *(post-Batch G)*
 - [x] Doc sidebar reordered for user journey: Quick Start → Network Tools → FAQ → Trust & Security → Daemon API → Architecture → Roadmap → Testing → Engineering Journal *(post-Batch G)*
 - [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
@@ -1078,7 +1078,7 @@ Zero-knowledge proofs applied to peer-up's identity and authorization model. Pee
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A–G) |
+| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I) |
 | Phase 4D: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
 | Phase 4E: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 4F: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
@@ -1204,7 +1204,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22
 **Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Post-I (PeerManager / AddrMan)
