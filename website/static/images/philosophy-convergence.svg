@@ -84,7 +84,7 @@
   <text x="545" y="290" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Jobs: Extreme secrecy</text>
   <text x="545" y="307" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Musk: Selectively open</text>
   <text x="545" y="330" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">peer-up: Fully open</text>
-  <text x="545" y="343" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ 28 ADRs, AI disclosed</text>
+  <text x="545" y="343" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ 41 ADRs, AI disclosed</text>
 
   <!-- Footer -->
   <text x="400" y="380" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Green = adopted · Red dashed = deliberate divergence · Core principles came first, influences validated the approach</text>
