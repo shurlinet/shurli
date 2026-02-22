@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/satindergrewal/peer-up/internal/config"
 )
 
 // writeServiceTestConfig creates a full test config directory with a valid
@@ -208,6 +209,75 @@ func TestDoServiceAdd(t *testing.T) {
 				}
 				if !strings.Contains(content, `local_address: "localhost:8080"`) {
 					t.Error("config should contain local_address for web")
+				}
+			},
+		},
+		{
+			name: "add service with commented services in template",
+			// Empty servicesYAML means the test config has "services: {}", but
+			// we need the REAL template with "# services:" comments. Override
+			// the entire file content in checkFile setup.
+			args: func(cfgPath string) []string {
+				// Rewrite the config to use the real template format (commented services, no uncommented services section)
+				templateConfig := `version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+relay:
+  addresses:
+    - "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "test-network"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+protocols:
+  ping_pong:
+    enabled: true
+    id: "/pingpong/1.0.0"
+
+# Uncomment and configure services to expose (for peerup daemon):
+# services:
+#   ssh:
+#     enabled: true
+#     local_address: "localhost:22"
+
+names: {}
+`
+				os.WriteFile(cfgPath, []byte(templateConfig), 0600)
+				return []string{"--config", cfgPath, "ssh", "localhost:22"}
+			},
+			wantOutput: []string{"Config:", "Restart"},
+			checkFile: func(t *testing.T, cfgPath string) {
+				data, err := os.ReadFile(cfgPath)
+				if err != nil {
+					t.Fatalf("read config: %v", err)
+				}
+				content := string(data)
+				// Must have an uncommented "services:" parent key
+				hasParent := false
+				for _, line := range strings.Split(content, "\n") {
+					if strings.TrimSpace(line) == "services:" {
+						hasParent = true
+						break
+					}
+				}
+				if !hasParent {
+					t.Errorf("config must have uncommented 'services:' parent key, got:\n%s", content)
+				}
+				if !strings.Contains(content, `local_address: "localhost:22"`) {
+					t.Error("config should contain local_address for ssh")
+				}
+				// The resulting YAML must be parseable by the real config loader
+				cfg, err := config.LoadNodeConfig(cfgPath)
+				if err != nil {
+					t.Fatalf("config YAML is corrupted after service add: %v\nContent:\n%s", err, content)
+				}
+				if _, ok := cfg.Services["ssh"]; !ok {
+					t.Errorf("parsed config should have ssh service, got services=%v", cfg.Services)
 				}
 			},
 		},
