@@ -74,6 +74,14 @@ ssh -p 2222 user@localhost
 
 > **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
 
+## Why peer-up exists
+
+peer-up was created to solve one problem: reaching a service on a home server from outside the network without depending on anyone else's infrastructure.
+
+Existing solutions require either a cloud account, a third-party VPN, or port forwarding - which CGNAT frequently makes impossible. They all share the same flaw: your connectivity depends on someone else's servers and their permission to keep it running.
+
+peer-up uses a different model. Devices connect outbound to a lightweight relay for initial setup, then upgrade to direct peer-to-peer when possible. No accounts, no central identity server, no revocable subscriptions. Your keys stay on your machine, configuration lives in one YAML file, and you can run your own relay for zero external dependency.
+
 ## The Problem
 
 Your devices are behind firewalls and NAT that block inbound connections. This affects:
@@ -770,7 +778,7 @@ Both modes use the same underlying functions:
 
 ---
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-22
 
 
 ---
@@ -778,6 +786,32 @@ Both modes use the same underlying functions:
 # peer-up FAQ & Technical Comparison
 
 > **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
+
+## Why no accounts or central servers?
+
+Most remote access tools require you to create an account on someone else's server. That server becomes a single point of failure and a single point of control. If the company changes pricing, shuts down, gets acquired, or suffers a breach, your access breaks and your connection metadata is exposed.
+
+peer-up eliminates that dependency entirely. Identity is an Ed25519 key pair generated locally on your machine. Authorization is a plain-text file listing which peer IDs are allowed to connect - the same model as SSH's `authorized_keys`. Configuration is one YAML file you can read, edit, back up, and version-control yourself.
+
+There is no registration step, no authentication token issued by a third party, and no renewal that can lapse. Two machines can find and authenticate each other using only their local keys and a shared relay for the initial connection. If you want full independence, run your own relay on any VPS - the entire system operates with zero external accounts.
+
+The result: your ability to reach your own machines depends on your infrastructure, not someone else's business decisions.
+
+## Why peer-up avoids centralized identity
+
+When a remote access tool requires you to sign in with an identity provider, that provider becomes a silent dependency in your infrastructure. If the provider has an outage, you cannot authenticate. If they change their terms, your access is conditional on compliance. If they are breached, your device graph, connection history, and metadata are exposed alongside every other user on the platform.
+
+peer-up sidesteps this entirely. Identity is an Ed25519 key pair generated on your machine during `peerup init`. It never leaves your device, is never uploaded, and is never registered with any external service. Authentication happens directly between peers: each side checks the other's public key against a local `authorized_keys` file. No OAuth flow, no email verification, no session tokens issued by a third party.
+
+The practical result: your identity cannot be suspended, revoked, or invalidated by anyone other than you. If every server on the internet went offline except your two machines and a relay, peer-up would still authenticate and connect them.
+
+## Why peer-up rejects vendor lock-in
+
+Remote access platforms typically control three things: the relay infrastructure your traffic passes through, the identity system that proves who you are, and the transport protocol that carries your data. When a single vendor controls all three, switching costs compound. Your device configurations point to their relays, your identity exists only in their database, and your client software speaks a proprietary protocol that nothing else understands. If the vendor raises prices, changes terms, or shuts down, you rebuild from scratch.
+
+peer-up decouples all three layers. Relays are standard libp2p circuit relay v2 nodes - run your own on any VPS, or use someone else's, or run none if your peers have direct reachability. Identity is a local Ed25519 key pair with no external registration. Transport is QUIC and TCP through the libp2p stack, an open protocol with multiple independent implementations across languages. Nothing in the system is proprietary, vendor-specific, or non-replaceable.
+
+The design consequence: every component can be swapped, self-hosted, or eliminated without losing access to your network. There is no migration path to plan because there is nothing to migrate away from.
 
 ## How does peer-up compare to Tailscale?
 
@@ -1126,19 +1160,18 @@ No v2 of DCUtR, but continuous refinement:
 
 **Source**: [Large Scale NAT Traversal Measurement Study](https://arxiv.org/html/2510.27500v1), [libp2p Hole Punching blog](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 
-### What peer-up plans to do (Phase 4C)
+### What peer-up has done (Phase 4C - shipped)
 
-| Optimization | Impact | Effort |
-|-------------|--------|--------|
-| **Upgrade go-libp2p** to latest | Gains all of the above automatically | Low |
-| **Replace `WithInfiniteLimits()`** with Resource Manager scopes | Eliminates relay resource exhaustion vulnerability | Medium |
-| **Enable DCUtR** in proxy command | Bypasses relay entirely when hole punch succeeds | Low |
-| **Connection warmup** | Pre-establish relay connection at startup (eliminates 5-15s per-session setup) | Low |
-| **Stream pooling** | Reuse streams instead of fresh ones per TCP connection | Medium |
-| **Persistent relay reservation** | Keep reservation alive with periodic refresh instead of re-reserving per connection | Medium |
-| **QUIC as default transport** | 1 fewer RTT on connection setup (3 vs 4 for TCP) | Low |
+| Optimization | Status |
+|-------------|--------|
+| **Upgraded go-libp2p** to v0.47.0 | Done |
+| **Replaced `WithInfiniteLimits()`** with Resource Manager (auto-scaled limits) | Done |
+| **Enabled DCUtR** in proxy command | Done (+ parallel dial racing in Batch I) |
+| **Persistent relay reservation** | Done (periodic refresh in background goroutine) |
+| **QUIC as default transport** | Done (3 RTTs vs 4 for TCP) |
+| **Adaptive path selection** | Done (Batch I: interface discovery, STUN probing, every-peer-is-a-relay) |
 
-Together, these changes would bring connection setup from 5-15 seconds closer to 1-3 seconds, matching Iroh's performance while keeping the self-sovereign architecture.
+These changes brought connection setup closer to 1-3 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
 
 ---
 
@@ -1180,14 +1213,14 @@ Once the connection is established, **bulk throughput is comparable**. The overh
 
 ### What peer-up does to close the gap
 
-These optimizations are planned in Phase 4C (Core Hardening):
+These optimizations shipped in Phase 4C:
 
-1. **QUIC transport** - saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
-2. **Connection warmup** - pre-establish connection at `peerup proxy` startup
-3. **Stream pooling** - reuse streams instead of fresh ones per TCP connection
-4. **DCUtR hole punching** - bypass relay entirely for direct peer-to-peer (approaches Bitcoin-like raw TCP speed)
+1. **QUIC transport** (done) - saves 1 RTT on connection setup (3 RTTs vs 4 for TCP)
+2. **DCUtR hole punching** (done) - bypass relay entirely for direct peer-to-peer
+3. **Parallel dial racing** (done, Batch I) - race DHT and relay in parallel, first wins
+4. **STUN probing** (done, Batch I) - classify NAT type, predict hole-punch success
 
-Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal.
+Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal. Connection warmup and stream pooling remain as future optimizations.
 
 ### Bottom line
 
@@ -1398,12 +1431,12 @@ Every relay server processes packets through the kernel network stack (syscalls 
 **Who has it**: Nobody (Cloudflare uses XDP for DDoS, not for relay forwarding).
 **Difficulty**: High (Linux-only, requires privileged access).
 
-### 4. Built-in observability (OpenTelemetry)
+### 4. Built-in observability
 
-No P2P tunnel tool ships with metrics, traces, or structured audit logs. DevOps teams bolt on monitoring after the fact, poorly. [OpenTelemetry](https://opentelemetry.io/) is table stakes for production infrastructure.
+Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-**Who has it**: Nobody in the P2P space.
-**Difficulty**: Low (OpenTelemetry Go SDK, instrument key paths).
+**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 16 panels). No other P2P tunnel tool ships with this level of built-in observability.
+**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
 ### 5. Formally verified protocol state machine
 
@@ -1557,7 +1590,7 @@ peer-up already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests
 
 ---
 
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-02-22
 
 
 ---
@@ -2672,7 +2705,7 @@ This is more reliable than PID files, which can be stale themselves.
 
 ---
 
-**Last Updated**: 2026-02-20
+**Last Updated**: 2026-02-22
 
 
 ---
@@ -2831,7 +2864,7 @@ peerup auth remove <peer-id>
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
-The invite protocol uses a one-time token (16 random bytes, HMAC-verified) over a P2P stream. Both peers add each other to `authorized_keys` and `names` config automatically.
+The invite protocol uses PAKE-secured key exchange (v2): ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Legacy v1 cleartext exchange is supported for backward compatibility (auto-detected by version byte).
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
@@ -2856,7 +2889,7 @@ peer-up/
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces
+│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
 │   └── federation.go        # 🆕 Phase 4H: Network peering
 │
 ├── internal/
@@ -3081,7 +3114,7 @@ Six components work together to find and maintain the best connection path to ea
 
 **Every-Peer-Is-A-Relay** (`pkg/p2pnet/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
 
-**Path Ranking**: direct IPv6 > direct IPv4 > peer relay > VPS relay. If all direct paths fail, the system falls back to relay and logs the reason honestly.
+**Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
 **Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `cmd/peerup/serve_common.go`
 
@@ -3442,7 +3475,7 @@ Validated at four points:
 ## Technology Stack
 
 **Core**:
-- Go 1.25+
+- Go 1.26+
 - libp2p v0.47.0 (networking)
 - Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino). Optional namespace isolation: `discovery.network: "my-crew"` produces `/peerup/my-crew/kad/1.0.0`, creating protocol-level separation between peer groups
 - Noise protocol (encryption)
@@ -3458,7 +3491,7 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22
 **Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)
 
 
@@ -3658,7 +3691,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 ### Phase 4C: Core Hardening & Security
 
 **Timeline**: 6-8 weeks (batched)
-**Status**: ✅ Batches A–G Complete, Pre-Batch H security hardening shipped (2 items deferred to future batches)
+**Status**: ✅ Complete (Batches A-I, all Pre-I items shipped)
 
 **Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically - before wider distribution puts binaries in more hands.
 
@@ -3743,7 +3776,7 @@ Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, ze
 - [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
 - [x] Custom peerup metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
 - [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
-- [x] Grafana dashboard - pre-built JSON dashboard with 12 panels covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+- [x] Grafana dashboard - pre-built JSON dashboard with 16 panels across 5 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
 
 Deferred from original Batch H scope (with reasoning):
 - ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
@@ -3822,7 +3855,7 @@ Foundation for Phase 4H (Federation): each private network becomes a federation 
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
-Probes all available network interfaces at startup, tests each path to peers, picks the best, and continuously monitors for network changes. Path ranking: direct IPv6 > direct IPv4 > peer relay > VPS relay. Zero new dependencies.
+Probes all available network interfaces at startup, tests each path to peers, picks the best, and continuously monitors for network changes. Path ranking: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. Zero new dependencies.
 
 - [x] **I-a: Interface Discovery & IPv6 Awareness** - `DiscoverInterfaces()` enumerates all network interfaces with global unicast classification. IPv6/IPv4 flags on daemon status. Prometheus `interface_count` gauge.
 - [x] **I-b: Parallel Dial Racing** - `PathDialer.DialPeer()` replaces sequential 45s worst-case with parallel racing. Already-connected fast path, DHT + relay concurrent, first success wins. `PathType` classification (DIRECT/RELAYED). Old `ConnectToPeer()` preserved as fallback.
@@ -3907,7 +3940,7 @@ Priority areas (all hit or exceeded targets):
 - [x] **internal/auth** (50% → 75%+) - hot-reload, concurrent access, malformed input, gater tests
 - [x] **Docker integration tests** - `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
 - [x] **CI coverage reporting** - `.github/workflows/pages.yaml` merges unit + Docker coverage via `go tool covdata merge`, reports combined coverage
-- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 28 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
+- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 41 architecture decision records (ADRs) covering core architecture (8) and all batches A-I plus Pre-I. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
 - [x] **Website** - Hugo + Hextra site scaffolded with landing page, 7 retroactive blog posts (Batches A-G), sync-docs.sh for auto-transformation, GitHub Actions CI/CD for GitHub Pages deployment
 - [x] **Security hardening** - post-audit fixes across 10 files (commit 83d02d3). CVE-2026-26014 resolved (pion/dtls v3.1.2). CI Actions pinned to commit SHAs.
 
@@ -4084,7 +4117,7 @@ Waiting for transfers...
 - [x] Custom blog listing template - image cards with title overlay, gradient, responsive grid *(post-Batch G)*
 - [x] Dark theme default + theme toggle in navbar *(post-Batch G)*
 - [x] SVG images for terminal demo, how-it-works steps, network diagram *(post-Batch G)*
-- [x] 11 SVG diagrams in documentation - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1) *(post-Batch G)*
+- [x] 40+ SVG diagrams across docs, blog posts, and architecture visuals - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1), plus blog post diagrams, philosophy visuals, and Batch I architecture diagrams *(post-Batch G, expanded through Batch I)*
 - [x] Feature card icons (Heroicons), section title icons, doc index icons, about page icons *(post-Batch G)*
 - [x] Doc sidebar reordered for user journey: Quick Start → Network Tools → FAQ → Trust & Security → Daemon API → Architecture → Roadmap → Testing → Engineering Journal *(post-Batch G)*
 - [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
@@ -4544,7 +4577,7 @@ Zero-knowledge proofs applied to peer-up's identity and authorization model. Pee
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A–G) |
+| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I) |
 | Phase 4D: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
 | Phase 4E: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 4F: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
@@ -4670,7 +4703,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22
 **Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Post-I (PeerManager / AddrMan)
@@ -4718,7 +4751,7 @@ sudo systemctl start sshd
 
 ```bash
 # Build peerup (single binary - handles both client and relay server)
-go build -o peerup ./cmd/peerup
+go build -ldflags="-s -w" -trimpath -o peerup ./cmd/peerup
 ```
 
 ---
@@ -4736,7 +4769,7 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 
 # Build from project root
 cd ..
-go build -o relay-server/peerup ./cmd/peerup
+go build -ldflags="-s -w" -trimpath -o relay-server/peerup ./cmd/peerup
 cd relay-server && ./peerup relay serve
 ```
 
@@ -5091,6 +5124,12 @@ go test -race -v ./internal/auth/
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
 | `cmd/peerup` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
 | `pkg/p2pnet` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
+| `pkg/p2pnet` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
+| `pkg/p2pnet` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
+| `pkg/p2pnet` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
+| `pkg/p2pnet` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
+| `pkg/p2pnet` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
+| `pkg/p2pnet` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
 
 ---
 
@@ -5179,7 +5218,7 @@ For benchmarks that previously used `log.New(io.Discard, ...)` to suppress loggi
 
 ---
 
-**Last Updated**: 2026-02-19
+**Last Updated**: 2026-02-22
 
 
 ---
@@ -5211,6 +5250,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Batch G: Test Coverage](batch-g-test-coverage.md) | ADR-G01 to ADR-G04 | Docker tests, relay binary, injectable exit, audit protocol |
 | [Batch H: Observability](batch-h-observability.md) | ADR-H01 to ADR-H03 | Prometheus, nil-safe pattern, auth callback |
 | [Pre-Batch I](pre-batch-i.md) | ADR-Ia01 to ADR-Ib02 | Makefile, PAKE invite, DHT namespaces |
+| [Batch I: Adaptive Path Selection](batch-i-adaptive-path.md) | ADR-I01 to ADR-I06 | Interface discovery, dial racing, path tracking, network monitoring, STUN, peer relay |
 
 
 ---
@@ -5282,7 +5322,7 @@ Foundational technology choices made before the batch system.
 
 **Decision**: Circuit relay v2 via `libp2p.EnableAutoRelayWithStaticRelays()`. The relay server makes reservations for peers, enabling them to be reached through the relay.
 
-**Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant (see Batch I: relay elimination research).
+**Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant. Batch I shipped every-peer-is-a-relay (I-f), beginning the path to relay VPS elimination.
 
 **Reference**: `pkg/p2pnet/network.go:140`, `cmd/relay-server/`
 
@@ -5615,7 +5655,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Decision**: Let libp2p's default smart dialing handle address selection, but ensure relay circuit addresses are always in the peerstore via `AddRelayAddressesForPeer()`. This gives the dialer both direct and relay options, and it picks the fastest.
 
-**Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Future Batch I work will add explicit address ranking (direct IPv6 > direct IPv4 > peer relay > VPS relay).
+**Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Batch I added explicit address ranking via `PathDialer` (direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay) and parallel dial racing.
 
 **Reference**: `pkg/p2pnet/network.go:260-270`
 
@@ -5962,6 +6002,111 @@ On the wire, the inviter's stream handler peeks at the first byte: 0x02 triggers
 **Consequences**: v2 invite codes are slightly longer (1 extra byte for namespace length when global, more with a namespace). The inviter must handle both protocols in the stream handler, but the code paths are cleanly separated.
 
 **Reference**: `internal/invite/code.go`, `cmd/peerup/cmd_invite.go`, `cmd/peerup/cmd_join.go`
+
+
+---
+
+# Batch I: Adaptive Multi-Interface Path Selection
+
+Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, and every-peer-is-a-relay.
+
+---
+
+### ADR-I01: Interface Discovery with IPv6/IPv4 Classification
+
+**Context**: peer-up needs to know what network interfaces are available to make intelligent connection decisions. Without interface awareness, the system cannot distinguish between IPv4-only, IPv6-only, or dual-stack hosts.
+
+**Alternatives considered**:
+- **Rely on libp2p's address reporting** - libp2p reports listen addresses but doesn't classify them by interface or IP version. Insufficient for path ranking decisions.
+- **Platform-specific APIs** (macOS SCDynamicStore, Linux netlink) - More detailed but requires platform-specific code for a cross-platform tool.
+
+**Decision**: `DiscoverInterfaces()` in `pkg/p2pnet/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+
+**Consequences**: Cross-platform (Go stdlib). Slightly less detailed than platform-native APIs but sufficient for path ranking. Prometheus `interface_count` gauge tracks interface availability.
+
+**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/interfaces_test.go`
+
+---
+
+### ADR-I02: Parallel Dial Racing (Replace Sequential Connect)
+
+**Context**: The old `ConnectToPeer()` tried DHT discovery (15s timeout) then relay fallback (30s timeout) sequentially. Worst case: 45 seconds to connect. For a tool that needs to feel instant, this is unacceptable.
+
+**Alternatives considered**:
+- **Increase timeouts** - Makes the problem worse, not better.
+- **Always use relay** - Fast but defeats the purpose of direct connections.
+- **libp2p's built-in smart dialing only** - Handles address-level racing but doesn't race between discovery strategies (DHT vs relay).
+
+**Decision**: `PathDialer.DialPeer()` races DHT discovery and relay connection in parallel goroutines. If the peer is already connected, returns immediately (fast path). First successful connection wins; the loser is cancelled. The winning path is classified as `DIRECT` or `RELAYED` based on multiaddr inspection. Old `ConnectToPeer()` preserved as fallback.
+
+**Consequences**: Connection time drops from 45s worst-case to the faster of DHT or relay (typically 3-10s). Slightly more goroutines spawned per connection attempt, but context cancellation ensures clean cleanup.
+
+**Reference**: `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathdialer_test.go`
+
+---
+
+### ADR-I03: Event-Driven Path Quality Tracking
+
+**Context**: Once connected, peer-up needs to know the quality of each connection path (direct vs relayed, transport type, IP version) for monitoring and future path switching decisions.
+
+**Alternatives considered**:
+- **Periodic polling** - Poll connection state on a timer. Wasteful and misses transient changes.
+- **Wrap every connection call** - Track state manually in every connect/disconnect code path. Error-prone and duplicative.
+
+**Decision**: `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) to receive connect/disconnect events passively. Maintains per-peer path info (type, transport, IP version, connected time, last RTT). Exposed via `GET /v1/paths` daemon API endpoint. Prometheus labels: `path_type`, `transport`, `ip_version`.
+
+**Consequences**: Zero polling overhead. Event-driven means path info updates immediately on connection state changes. Adds a dependency on libp2p's event bus API stability.
+
+**Reference**: `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/pathtracker_test.go`
+
+---
+
+### ADR-I04: Network Change Monitoring (Polling with Diff)
+
+**Context**: When a user switches WiFi networks, gains/loses a cellular connection, or plugs in Ethernet, peer-up should detect the change and re-evaluate connection paths.
+
+**Alternatives considered**:
+- **macOS SCDynamicStore + Linux Netlink** - Platform-native, truly event-driven, zero polling. More code, platform-specific build tags, harder to test.
+- **libp2p event bus only** - libp2p fires address change events but not for all interface changes (e.g., gaining an interface with no libp2p listener).
+
+**Decision**: `NetworkMonitor` polls `DiscoverInterfaces()` at a configurable interval and diffs against the previous snapshot. On change, fires registered callbacks (interface re-scan, STUN re-probe, peer relay auto-detect update). Simple, cross-platform, testable.
+
+**Consequences**: Polling introduces a detection delay (up to the poll interval). Acceptable because network changes are rare events and the poll interval is configurable. Platform-native event-driven detection can be added later as an optimization without changing the callback API.
+
+**Reference**: `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/netmonitor_test.go`
+
+---
+
+### ADR-I05: Zero-Dependency STUN Client (RFC 5389)
+
+**Context**: To classify NAT type and discover external addresses for hole-punching, peer-up needs STUN probing. Existing Go STUN libraries (pion/stun) would add a new dependency.
+
+**Alternatives considered**:
+- **pion/stun** - Mature, widely used. Rejected because it pulls in the entire pion dependency tree (already have pion/dtls as a transitive dep of libp2p, but adding pion/stun directly increases attack surface and binary size).
+- **Skip STUN entirely** - Rely on AutoNAT v2 only. AutoNAT gives reachability but not NAT type classification (full-cone vs symmetric matters for hole-punch prediction).
+
+**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `pkg/p2pnet/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
+
+**Consequences**: Zero new dependencies. Binary size unchanged. The STUN client only implements Binding Request (the simplest STUN transaction). Does NOT implement TURN or ICE. Runs in background at startup (non-blocking) and re-probes on network change.
+
+**Reference**: `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/stunprober_test.go`
+
+---
+
+### ADR-I06: Every-Peer-Is-A-Relay (Auto-Enable with Public IP)
+
+**Context**: The relay VPS is a single point of failure. If every peer with a public IP could relay for its authorized peers, the VPS becomes redundant.
+
+**Alternatives considered**:
+- **Manual relay enable** - User explicitly enables relay in config. Safe but friction prevents adoption.
+- **Always enable relay** - Even on NATted nodes. Wasteful because NATted relays can't accept inbound connections.
+- **DHT-based relay advertisement** - Peers discover relays via DHT. Deferred to Post-I because it requires the PeerManager/AddrMan infrastructure.
+
+**Decision**: Any peer with a detected global IP (from `DiscoverInterfaces()`) auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
+
+**Consequences**: Peers behind NAT never become relays (correct). Peers with public IPs silently become relays for their authorized peers. The conservative limits prevent resource exhaustion on home machines. DHT-based relay discovery (so peers can find each other's relays) is deferred to Post-I.
+
+**Reference**: `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peerrelay_test.go`
 
 
 ---

@@ -66,6 +66,6 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Decision**: Let libp2p's default smart dialing handle address selection, but ensure relay circuit addresses are always in the peerstore via `AddRelayAddressesForPeer()`. This gives the dialer both direct and relay options, and it picks the fastest.
 
-**Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Future Batch I work will add explicit address ranking (direct IPv6 > direct IPv4 > peer relay > VPS relay).
+**Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Batch I added explicit address ranking via `PathDialer` (direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay) and parallel dial racing.
 
 **Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/network.go:260-270`

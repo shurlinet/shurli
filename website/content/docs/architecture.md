@@ -208,7 +208,7 @@ peer-up/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 4F)** - not yet implemented. See [Roadmap Phase 4F]../roadmap/ for details.
+> **Status: Planned (Phase 4F)** - not yet implemented. See [Roadmap Phase 4F](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -271,7 +271,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [DAEMON-API.md]../daemon-api/.
+14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [DAEMON-API.md](../daemon-api/).
 
 ### Dynamic Proxy Management
 
@@ -502,7 +502,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 4D/4I)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 4I]../roadmap/.
+> **Planned (Phase 4D/4I)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 4I](../roadmap/).
 
 ---
 
@@ -543,7 +543,7 @@ The ACL check runs in the stream handler before dialing the local TCP service, s
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H]../roadmap/.
+> **Status: Planned (Phase 4H)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -586,7 +586,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Roadmap Phase 4H]../roadmap/.
+> **Status: Planned (Phase 4H)** - not yet implemented. See [Roadmap Phase 4H](../roadmap/).
 
 ### Relay Peering
 
@@ -596,7 +596,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 4G)** - not yet implemented. See [Roadmap Phase 4G]../roadmap/.
+> **Status: Planned (Phase 4G)** - not yet implemented. See [Roadmap Phase 4G](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -640,7 +640,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap]../roadmap/ under Phase 4C deferred items and Phase 5+.
+> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 5+.
 
 ---
 
@@ -776,7 +776,7 @@ Validated at four points:
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
 
-**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](FAQ.md#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
+**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](../faq/#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
 
 **Optional**:
 - Ethereum (blockchain naming)
