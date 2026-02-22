@@ -16,6 +16,7 @@ type StatusResponse struct {
 	NATType           string   `json:"nat_type,omitempty"`
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 	IsRelaying        bool     `json:"is_relaying"`
+	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
 }
 
 // ServiceInfo is returned by GET /v1/services.
@@ -46,8 +47,10 @@ type PathInfo struct {
 
 // AuthEntry is returned by GET /v1/auth.
 type AuthEntry struct {
-	PeerID  string `json:"peer_id"`
-	Comment string `json:"comment,omitempty"`
+	PeerID    string `json:"peer_id"`
+	Comment   string `json:"comment,omitempty"`
+	Verified  string `json:"verified,omitempty"`   // e.g. "sha256:a1b2c3d4"
+	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, empty = never
 }
 
 // AuthAddRequest is the body for POST /v1/auth.

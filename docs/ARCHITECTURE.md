@@ -152,7 +152,7 @@ peerup auth remove <peer-id>
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
-The invite protocol uses PAKE-secured key exchange (v2): ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Legacy v1 cleartext exchange is supported for backward compatibility (auto-detected by version byte).
+The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Version byte: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Legacy cleartext protocol was deleted (zero downgrade surface).
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
@@ -210,7 +210,7 @@ peer-up/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -265,7 +265,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+15 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -779,5 +779,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-22
-**Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)
+**Last Updated**: 2026-02-23
+**Architecture Version**: 3.1 (Post-I-1 relay pairing, SAS verification, reachability grades, 15 endpoints)

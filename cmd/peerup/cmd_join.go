@@ -3,11 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/hex"
 	"flag"
+
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/internal/invite"
+	"github.com/satindergrewal/peer-up/internal/relay"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -74,6 +76,13 @@ func runJoin(args []string) {
 	data, err := invite.Decode(code)
 	if err != nil {
 		fatal("Invalid invite code: %v", err)
+	}
+
+	// Dispatch based on version.
+	switch data.Version {
+	case invite.VersionV2:
+		runPairJoin(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
+		return
 	}
 
 	outln("=== peer-up join ===")
@@ -150,13 +159,7 @@ func runJoin(args []string) {
 	defer s.Close()
 
 	joinerName := *nameFlag
-	var inviterName string
-
-	if data.Version == invite.VersionV2 {
-		inviterName = joinV2(s, data.Token, joinerName)
-	} else {
-		inviterName = joinV1(s, data.Token, joinerName)
-	}
+	inviterName := joinPAKE(s, data.Token, joinerName)
 
 	// Add inviter to our authorized_keys
 	authKeysPath := cfg.Security.AuthorizedKeysFile
@@ -193,17 +196,17 @@ func runJoin(args []string) {
 	}
 }
 
-// joinV2 performs the PAKE-secured handshake (v2 invite protocol).
+// joinPAKE performs the PAKE-secured handshake.
 // Returns the inviter's name.
-func joinV2(s network.Stream, token [8]byte, joinerName string) string {
+func joinPAKE(s network.Stream, token [8]byte, joinerName string) string {
 	// Create PAKE session
 	session, err := invite.NewPAKESession()
 	if err != nil {
 		fatal("PAKE session error: %v", err)
 	}
 
-	// Send: [0x02] [32-byte X25519 public key]
-	if _, err := s.Write([]byte{invite.VersionV2}); err != nil {
+	// Send: [0x01] [32-byte X25519 public key]
+	if _, err := s.Write([]byte{invite.VersionV1}); err != nil {
 		fatal("Failed to send version byte: %v", err)
 	}
 	if err := session.WritePublicKey(s); err != nil {
@@ -244,38 +247,176 @@ func joinV2(s network.Stream, token [8]byte, joinerName string) string {
 	return strings.TrimSpace(inviterName)
 }
 
-// joinV1 performs the original cleartext handshake (v1 invite protocol).
-// Returns the inviter's name.
-func joinV1(s network.Stream, token [8]byte, joinerName string) string {
-	// Send: <token_hex> <our_name>\n
-	tokenHex := hex.EncodeToString(token[:])
-	msg := tokenHex
-	if joinerName != "" {
-		msg += " " + joinerName
-	}
-	s.Write([]byte(msg + "\n"))
+// runPairJoin handles v2 relay pairing codes.
+func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
+	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
 
-	// Read response (limit to 512 bytes to prevent OOM from malicious inviter)
-	scanner := bufio.NewScanner(s)
-	scanner.Buffer(make([]byte, 512), 512)
-	if !scanner.Scan() {
-		err := scanner.Err()
-		if err != nil {
-			fatal("Failed to read response from inviter: %v", err)
+	outln("=== peer-up pair-join ===")
+	outln()
+	out("Relay:   %s\n", data.RelayAddr)
+	if data.Network != "" {
+		out("Network: %s\n", data.Network)
+	}
+	outln()
+
+	// Resolve config.
+	cfgFile, cfg, configDir, created := loadOrCreateConfig(configFlag, data.RelayAddr, data.Network)
+	if created {
+		out("Created new config: %s\n", cfgFile)
+	} else {
+		out("Using config: %s\n", cfgFile)
+	}
+	outln()
+
+	// Create P2P network (no connection gating for joining).
+	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
+		KeyFile:            cfg.Identity.KeyFile,
+		Config:             &config.Config{Network: cfg.Network},
+		UserAgent:          "peerup/" + version,
+		EnableRelay:        true,
+		RelayAddrs:         []string{data.RelayAddr},
+		ForcePrivate:       cfg.Network.ForcePrivateReachability,
+		EnableNATPortMap:   true,
+		EnableHolePunching: true,
+	})
+	if err != nil {
+		fatal("P2P network error: %v", err)
+	}
+	defer p2pNetwork.Close()
+
+	h := p2pNetwork.Host()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out("Your Peer ID: %s\n", h.ID())
+	outln()
+
+	// Connect to relay.
+	outln("Connecting to relay...")
+	relayInfos, err := p2pnet.ParseRelayAddrs([]string{data.RelayAddr})
+	if err != nil {
+		fatal("Failed to parse relay address: %v", err)
+	}
+	for _, ai := range relayInfos {
+		if err := h.Connect(ctx, ai); err != nil {
+			fatal("Failed to connect to relay: %v", err)
 		}
-		fatal("No response from inviter (connection closed)")
 	}
-	response := strings.TrimSpace(scanner.Text())
+	outln("Connected to relay.")
 
-	if strings.HasPrefix(response, "ERR") {
-		fatal("Invite rejected: %s", response)
+	// Open pairing protocol stream to relay.
+	outln("Sending pairing code...")
+	relayPeerID := relayInfos[0].ID
+	pairCtx := network.WithAllowLimitedConn(ctx, relay.PairingProtocol)
+	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.PairingProtocol))
+	if err != nil {
+		fatal("Failed to open pairing stream: %v", err)
 	}
-	if !strings.HasPrefix(response, "OK") {
-		fatal("Unexpected response: %s", response)
+	defer s.Close()
+
+	// Send token + name.
+	reqBytes := relay.EncodePairingRequest(data.TokenV2, nameFlag)
+	if _, err := s.Write(reqBytes); err != nil {
+		fatal("Failed to send pairing request: %v", err)
+	}
+	// Signal we're done writing so the relay can read.
+	s.CloseWrite()
+
+	// Read response.
+	status, peers, err := relay.ReadPairingResponse(s)
+	if err != nil {
+		fatal("Pairing failed: %v", err)
+	}
+	if status != relay.StatusOK {
+		fatal("Pairing failed (status 0x%02x)", status)
 	}
 
-	inviterName := strings.TrimPrefix(response, "OK")
-	return strings.TrimSpace(inviterName)
+	outln()
+	outln("=== Paired successfully! ===")
+	outln()
+
+	// Add discovered peers to authorized_keys and config names.
+	authKeysPath := cfg.Security.AuthorizedKeysFile
+
+	// Load existing names for conflict resolution.
+	existingNames := make(map[string]bool)
+	if cfg.Names != nil {
+		for n := range cfg.Names {
+			existingNames[n] = true
+		}
+	}
+
+	for _, p := range peers {
+		peerName := sanitizeYAMLName(p.Name)
+		if peerName == "" {
+			peerName = "peer-" + p.PeerID.String()[:8]
+		}
+
+		// Resolve name conflicts.
+		finalName := uniqueName(peerName, existingNames)
+		if finalName != peerName {
+			out("Name \"%s\" already in use. Registered as \"%s\".\n", peerName, finalName)
+			out("  Rename with: peerup config rename %s <newname>\n", finalName)
+		}
+		existingNames[finalName] = true
+
+		// Authorize peer.
+		if err := auth.AddPeer(authKeysPath, p.PeerID.String(), finalName); err != nil {
+			if !strings.Contains(err.Error(), "already authorized") {
+				log.Printf("Warning: failed to authorize peer: %v", err)
+			}
+		}
+
+		// Add to config names.
+		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
+
+		// Show verification fingerprint.
+		emoji, numeric := p2pnet.ComputeFingerprint(h.ID(), p.PeerID)
+		out("Peer \"%s\" authorized. [UNVERIFIED]\n", finalName)
+		out("  Verification code: %s  (%s)\n", emoji, numeric)
+		out("  Verify with: peerup verify %s\n", finalName)
+		outln()
+	}
+
+	if len(peers) == 0 {
+		outln("Authorized on relay. No other peers in this group yet.")
+		outln()
+	}
+
+	out("Config: %s\n", cfgFile)
+	out("Authorized keys: %s\n", authKeysPath)
+	outln()
+
+	// Auto-start daemon.
+	outln("Starting daemon...")
+	daemonCmd := exec.Command(os.Args[0], "daemon")
+	daemonCmd.Stdout = os.Stdout
+	daemonCmd.Stderr = os.Stderr
+	if err := daemonCmd.Start(); err != nil {
+		out("Could not auto-start daemon: %v\n", err)
+		out("Start manually with: peerup daemon\n")
+	} else {
+		outln("Daemon started.")
+		if !nonInteractive && len(peers) > 0 {
+			outln()
+			outln("Try:")
+			out("  peerup ping %s\n", sanitizeYAMLName(peers[0].Name))
+		}
+	}
+}
+
+// uniqueName appends a numeric suffix if name already exists in the set.
+func uniqueName(name string, existing map[string]bool) string {
+	if !existing[name] {
+		return name
+	}
+	for i := 2; i <= 100; i++ {
+		candidate := fmt.Sprintf("%s-%d", name, i)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
+	return fmt.Sprintf("%s-%d", name, time.Now().Unix())
 }
 
 // loadOrCreateConfig tries to load an existing config, or creates a minimal one

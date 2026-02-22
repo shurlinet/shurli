@@ -505,7 +505,7 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (14 endpoints) |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
 | [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
@@ -1955,6 +1955,7 @@ The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix doma
   - [GET /v1/services](#get-v1services)
   - [GET /v1/peers](#get-v1peers)
   - [GET /v1/auth](#get-v1auth)
+  - [GET /v1/paths](#get-v1paths)
   - [POST /v1/auth](#post-v1auth)
   - [DELETE /v1/auth/{peer_id}](#delete-v1authpeer_id)
   - [POST /v1/ping](#post-v1ping)
@@ -1976,7 +1977,7 @@ The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix doma
 
 The daemon runs the full P2P lifecycle (relay connection, DHT bootstrap, service exposure, watchdog) plus an HTTP server on a Unix socket.
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 **Default paths**:
 - Socket: `~/.config/peerup/peerup.sock` (permissions `0600`)
@@ -2067,7 +2068,7 @@ peerup daemon status --json   # raw JSON
 
 ### GET /v1/status
 
-Returns daemon status: peer ID, version, uptime, connected peers, addresses, services count.
+Returns daemon status: peer ID, version, uptime, connected peers, addresses, services count, network capabilities, and reachability grade.
 
 **Response (JSON)**:
 
@@ -2085,7 +2086,17 @@ Returns daemon status: peer ID, version, uptime, connected peers, addresses, ser
     "relay_addresses": [
       "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWK.../p2p-circuit"
     ],
-    "services_count": 2
+    "services_count": 2,
+    "has_global_ipv6": true,
+    "has_global_ipv4": false,
+    "nat_type": "port-restricted",
+    "stun_external_addrs": ["203.0.113.50:12345"],
+    "is_relaying": false,
+    "reachability": {
+      "grade": "A",
+      "label": "Excellent",
+      "description": "Public IPv6 detected"
+    }
   }
 }
 ```
@@ -2195,7 +2206,7 @@ peerup daemon peers --all    # all peers including DHT neighbors
 
 ### GET /v1/auth
 
-Lists authorized peers from the `authorized_keys` file.
+Lists authorized peers from the `authorized_keys` file. Includes verification status and expiry if set.
 
 **Response (JSON)**:
 
@@ -2204,16 +2215,71 @@ Lists authorized peers from the `authorized_keys` file.
   "data": [
     {
       "peer_id": "12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6",
-      "comment": "laptop"
+      "comment": "laptop",
+      "verified": "sha256:a1b2c3d4",
+      "expires_at": ""
+    },
+    {
+      "peer_id": "12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt",
+      "comment": "contractor-bob",
+      "verified": "",
+      "expires_at": "2026-03-15T00:00:00Z"
     }
   ]
 }
 ```
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_id` | string | The peer's libp2p ID |
+| `comment` | string | Human-readable label (from `# comment` in authorized_keys) |
+| `verified` | string | SAS verification fingerprint prefix, empty if unverified |
+| `expires_at` | string | RFC3339 expiry timestamp, empty if never expires |
+
 **Response (Text)**:
 
 ```
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6	# laptop
+```
+
+---
+
+### GET /v1/paths
+
+Lists active connection paths to all connected peers, including path type, transport, IP version, and latency.
+
+**Response (JSON)**:
+
+```json
+{
+  "data": [
+    {
+      "peer_id": "12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt",
+      "path_type": "DIRECT",
+      "address": "/ip6/2001:db8::1/udp/9000/quic-v1",
+      "connected_at": "2026-02-23T10:30:00Z",
+      "transport": "quic",
+      "ip_version": "IPv6",
+      "last_rtt_ms": 6.1
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_id` | string | The connected peer's ID |
+| `path_type` | string | `DIRECT` or `RELAYED` |
+| `address` | string | Multiaddr of the connection |
+| `connected_at` | string | RFC3339 timestamp of connection |
+| `transport` | string | `quic` or `tcp` |
+| `ip_version` | string | `IPv4` or `IPv6` |
+| `last_rtt_ms` | float | Last measured RTT in milliseconds (0 if unknown) |
+
+**Response (Text)**:
+
+```
+12D3KooWPrmh16...	DIRECT	quic	IPv6	rtt=6.1ms
 ```
 
 ---
@@ -2705,7 +2771,7 @@ This is more reliable than PID files, which can be stale themselves.
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-23
 
 
 ---
@@ -2864,7 +2930,7 @@ peerup auth remove <peer-id>
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
-The invite protocol uses PAKE-secured key exchange (v2): ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Legacy v1 cleartext exchange is supported for backward compatibility (auto-detected by version byte).
+The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Version byte: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Legacy cleartext protocol was deleted (zero downgrade surface).
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
@@ -2922,7 +2988,7 @@ peer-up/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -2977,7 +3043,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+15 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -3491,8 +3557,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-22
-**Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)
+**Last Updated**: 2026-02-23
+**Architecture Version**: 3.1 (Post-I-1 relay pairing, SAS verification, reachability grades, 15 endpoints)
 
 
 ---
@@ -3712,6 +3778,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | ✅ DONE |
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 | I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | ✅ DONE |
+| Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | ✅ DONE |
 | Post-I | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, gossip discovery | Planned |
 | Post-I-b | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
 | J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
@@ -3814,7 +3881,7 @@ Approach: Ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha
 - [x] Replace cleartext token exchange with encrypted handshake: both sides prove knowledge of the invite code without transmitting it
 - [x] Ephemeral X25519 key exchange with token-bound HKDF key derivation
 - [x] XChaCha20-Poly1305 AEAD encryption for all messages after key exchange
-- [x] Backward compatibility: version byte 0x02 triggers PAKE handshake, 0x01 uses legacy cleartext. Stream handler auto-detects based on first byte
+- [x] Invite versioning: version byte 0x01 = PAKE-encrypted handshake, 0x02 = relay pairing code. Legacy v1 cleartext protocol deleted in Post-I-1 (zero downgrade surface)
 - [x] v2 invite code format: includes namespace field for DHT network auto-inheritance
 - [x] Future version detection: v3+ codes rejected with "please upgrade peerup" message
 - [x] Joiner auto-inherits inviter's DHT namespace from v2 invite code
@@ -3865,6 +3932,28 @@ Probes all available network interfaces at startup, tests each path to peers, pi
 - [x] **I-f: Every-Peer-Is-A-Relay** - Any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Auto-detect on startup and network change. Leverages existing ConnectionGater for authorization. `is_relaying` flag in daemon status.
 
 New files: `interfaces.go`, `pathdialer.go`, `pathtracker.go`, `netmonitor.go`, `stunprober.go`, `peerrelay.go` (all in `pkg/p2pnet/` with matching `_test.go` files).
+
+**Post-I-1: Frictionless Relay Pairing** ✅ DONE
+
+Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin generates pairing codes, each person joins with one command. Motivated by Batch I live testing revealing the relay setup UX barrier for non-technical users.
+
+- [x] **v1 cleartext deleted** - zero downgrade surface. PAKE renumbered to v1 (0x01), relay pairing is v2 (0x02)
+- [x] **Extended authorized_keys format** - key=value attributes: `expires=<RFC3339>`, `verified=sha256:<prefix>`. Backward compatible parsing. `ListPeers()` returns `PeerEntry` with all attributes. `SetPeerAttr()` for programmatic updates.
+- [x] **In-memory token store** (relay-side) - `internal/relay/tokens.go`. Parameterized code count (`--count N`, default 1). SHA-256 hashed tokens, constant-time comparison, per-group mutex, max 3 failed attempts before burn, uniform "pairing failed" error for all failure modes. 20 tests including concurrency races.
+- [x] **v2 invite code format** - 16-byte token (no inviter peer ID), relay address + namespace encoded. Shorter than v1 (126 vs 186 chars). `EncodeV2()`/`decodeV2()` with trailing junk detection.
+- [x] **Connection gater enrollment mode** - probationary peers (max 10, 15s timeout) admitted during active pairing. `PromotePeer()` moves to authorized. `CleanupProbation()` evicts with disconnect callback. Auto-disable when no active groups. Expiring peer support via `expires=` attribute checked on every `InterceptSecured` call.
+- [x] **SAS verification (OMEMO-style)** - `ComputeFingerprint()` produces 4-emoji + 6-digit numeric code from sorted peer ID pair hash. 256-entry emoji table. `peerup verify <peer>` command with interactive confirmation. Writes `verified=sha256:<prefix>` to authorized_keys. Persistent `[UNVERIFIED]` badge on ping, traceroute, and status until verified.
+- [x] **Relay pairing protocol** - `/peerup/relay-pair/1.0.0` stream protocol. Wire format: 16-byte token + name. Status codes: OK, ERR, PEER_ARRIVED, GROUP_COMPLETE, TIMEOUT. `PairingHandler` authorizes peers, promotes from probation, sets expiry. Token expiry and probation cleanup goroutines.
+- [x] **`peerup relay pair`** - generates pairing codes from relay config. `--count N`, `--ttl`, `--namespace`, `--expires`. `--list` and `--revoke` for management.
+- [x] **Join v2 pair-join** - detects v2 codes, connects to relay, sends pairing request, authorizes discovered peers with name conflict resolution (suffix -2, -3...), shows SAS verification fingerprints, auto-starts daemon via `exec.Command`.
+- [x] **Daemon-first commands** - `peerup ping` and `peerup traceroute` try daemon API first (fast, no bootstrap). Falls back to standalone if daemon not running. Verification badge shown before ping/traceroute output.
+- [x] **Reachability grade** - A (public IPv6), B (public IPv4 or hole-punchable NAT), C (port-restricted NAT), D (symmetric NAT/CGNAT), F (offline). Computed from interface discovery + STUN results. Exposed in daemon status response and text output. 12 tests.
+- [x] **AuthEntry extended** - daemon API `GET /v1/auth` now returns `verified` and `expires_at` fields
+- [x] **Status verification badges** - `peerup status` shows `[VERIFIED]` or `[UNVERIFIED]` per peer
+
+New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/peerup/cmd_verify.go`, `cmd/peerup/cmd_relay_pair.go` (all with matching `_test.go` files).
+
+Zero new dependencies. Binary size unchanged at 28MB.
 
 **Relay Decentralization** (future - after Batch H observability provides the data needed):
 - [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
@@ -4703,8 +4792,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-22
-**Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
+**Last Updated**: 2026-02-23
+**Current Phase**: Post-I-1 Complete (Frictionless Relay Pairing + Daemon-Centric + Reachability Grade).
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Post-I (PeerManager / AddrMan)
 **Future milestones**: Post-I (PeerManager/AddrMan) → Post-I-b (ZKP Privacy Layer) → J (Visual Channel)
@@ -5996,9 +6085,9 @@ Both sides generate ephemeral X25519 keypairs, exchange public keys, compute the
 - **Breaking change** - Only support v2 codes. Rejected because users may have old codes in scripts or documentation.
 - **Content negotiation** - Single format with feature flags. Adds complexity without clear benefit.
 
-**Decision**: Version byte in invite code (first byte of binary payload) determines format. v1 (0x01) = legacy format (no namespace, cleartext handshake). v2 (0x02) = new format (includes namespace length + bytes, PAKE handshake). Future versions (0x03+) are rejected with a "please upgrade peerup" message.
+**Decision**: Version byte in invite code (first byte of binary payload) determines format. Originally: v1 (0x01) = legacy cleartext, v2 (0x02) = PAKE-encrypted with namespace. Post-I-1 deleted the cleartext protocol and renumbered: v1 (0x01) = PAKE-encrypted invite, v2 (0x02) = relay pairing code. Future versions (0x03+) are rejected with a "please upgrade peerup" message.
 
-On the wire, the inviter's stream handler peeks at the first byte: 0x02 triggers PAKE handshake, anything else (ASCII hex chars 0x30-0x66) triggers v1 cleartext protocol. Both sides are backward compatible.
+On the wire, the stream handler reads the version byte: 0x01 triggers PAKE handshake, 0x02 triggers relay pairing protocol.
 
 **Consequences**: v2 invite codes are slightly longer (1 extra byte for namespace length when global, more with a namespace). The inviter must handle both protocols in the stream handler, but the code paths are cleanly separated.
 

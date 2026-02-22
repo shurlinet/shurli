@@ -53,7 +53,7 @@ The invite/join pairing now uses an encrypted handshake. Before, the invite toke
 ### How it works
 
 ```
-1. Joiner -> Inviter:  [version 0x02] [32-byte X25519 public key]
+1. Joiner -> Inviter:  [version 0x01] [32-byte X25519 public key]
 2. Inviter -> Joiner:  [32-byte X25519 public key]
    -- Both derive: key = HKDF-SHA256(DH_shared || token, "peerup-invite-v2")
 3. Joiner -> Inviter:  [AEAD encrypted: joiner name]
@@ -76,7 +76,7 @@ Both sides compute an ephemeral X25519 Diffie-Hellman shared secret, mix it with
 
 ### Backward compatibility
 
-Invite code version byte determines the protocol: 0x01 = legacy cleartext (still supported), 0x02 = encrypted handshake. The inviter's stream handler auto-detects based on the first byte. Future versions (0x03+) are rejected with a "please upgrade peerup" message.
+Invite code version byte determines the protocol. Originally: 0x01 = legacy cleartext, 0x02 = encrypted handshake. Post-I-1 deleted the cleartext protocol and renumbered: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Future versions (0x03+) are rejected with a "please upgrade peerup" message.
 
 ### v2 invite codes carry the namespace
 
