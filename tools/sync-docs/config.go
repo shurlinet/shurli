@@ -44,6 +44,7 @@ var journalEntries = []journalEntry{
 	{"batch-h-observability.md", 10, "Batch H - Observability", "Prometheus metrics, nil-safe observability pattern, auth decision callback."},
 	{"pre-batch-i.md", 11, "Pre-Batch I", "Makefile and build tooling, PAKE-secured invite/join, private DHT namespace isolation."},
 	{"batch-i-adaptive-path.md", 12, "Batch I - Adaptive Path Selection", "Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, every-peer-is-a-relay."},
+	{"dev-tooling.md", 13, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).
