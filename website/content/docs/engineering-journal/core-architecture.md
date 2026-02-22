@@ -71,7 +71,7 @@ Foundational technology choices made before the batch system.
 
 **Decision**: Circuit relay v2 via `libp2p.EnableAutoRelayWithStaticRelays()`. The relay server makes reservations for peers, enabling them to be reached through the relay.
 
-**Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant (see Batch I: relay elimination research).
+**Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant. Batch I shipped every-peer-is-a-relay (I-f), beginning the path to relay VPS elimination.
 
 **Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/network.go:140`, `cmd/relay-server/`
 
