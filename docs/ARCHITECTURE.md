@@ -152,7 +152,7 @@ peerup auth remove <peer-id>
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
-The invite protocol uses a one-time token (16 random bytes, HMAC-verified) over a P2P stream. Both peers add each other to `authorized_keys` and `names` config automatically.
+The invite protocol uses PAKE-secured key exchange (v2): ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Legacy v1 cleartext exchange is supported for backward compatibility (auto-detected by version byte).
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
@@ -177,7 +177,7 @@ peer-up/
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces
+│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
 │   └── federation.go        # 🆕 Phase 4H: Network peering
 │
 ├── internal/
@@ -402,7 +402,7 @@ Six components work together to find and maintain the best connection path to ea
 
 **Every-Peer-Is-A-Relay** (`pkg/p2pnet/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
 
-**Path Ranking**: direct IPv6 > direct IPv4 > peer relay > VPS relay. If all direct paths fail, the system falls back to relay and logs the reason honestly.
+**Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
 **Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `cmd/peerup/serve_common.go`
 
@@ -763,7 +763,7 @@ Validated at four points:
 ## Technology Stack
 
 **Core**:
-- Go 1.25+
+- Go 1.26+
 - libp2p v0.47.0 (networking)
 - Private Kademlia DHT (`/peerup/kad/1.0.0` - isolated from IPFS Amino). Optional namespace isolation: `discovery.network: "my-crew"` produces `/peerup/my-crew/kad/1.0.0`, creating protocol-level separation between peer groups
 - Noise protocol (encryption)
@@ -779,5 +779,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22
 **Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)

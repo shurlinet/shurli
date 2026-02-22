@@ -251,7 +251,7 @@ peerup daemon peers --all    # all peers including DHT neighbors
 **Response (Text)**:
 
 ```
-12D3KooWHoy98z8...	peerup/0.1.0	3 addrs
+12D3KooWNq8c1fN...	peerup/0.1.0	3 addrs
 ```
 
 ---
@@ -357,10 +357,10 @@ Pings a peer using the P2P ping-pong protocol. Returns per-ping results and summ
 {
   "data": {
     "results": [
-      {"seq": 1, "peer_id": "12D3KooWDRDM...", "rtt_ms": 45.2, "path": "RELAYED"},
-      {"seq": 2, "peer_id": "12D3KooWDRDM...", "rtt_ms": 42.1, "path": "DIRECT"},
-      {"seq": 3, "peer_id": "12D3KooWDRDM...", "rtt_ms": 43.0, "path": "DIRECT"},
-      {"seq": 4, "peer_id": "12D3KooWDRDM...", "rtt_ms": 41.8, "path": "DIRECT"}
+      {"seq": 1, "peer_id": "12D3KooWPrmh...", "rtt_ms": 45.2, "path": "RELAYED"},
+      {"seq": 2, "peer_id": "12D3KooWPrmh...", "rtt_ms": 42.1, "path": "DIRECT"},
+      {"seq": 3, "peer_id": "12D3KooWPrmh...", "rtt_ms": 43.0, "path": "DIRECT"},
+      {"seq": 4, "peer_id": "12D3KooWPrmh...", "rtt_ms": 41.8, "path": "DIRECT"}
     ],
     "stats": {
       "sent": 4,
@@ -378,7 +378,7 @@ Pings a peer using the P2P ping-pong protocol. Returns per-ping results and summ
 **Response (Text)**:
 
 ```
-PING home-server (12D3KooWDRDMuwQV...):
+PING home-server (12D3KooWPrmh163s...):
 seq=1 rtt=45.2ms path=[RELAYED]
 seq=2 rtt=42.1ms path=[DIRECT]
 seq=3 rtt=43.0ms path=[DIRECT]
@@ -407,7 +407,7 @@ Traces the network path to a peer. Shows whether the connection is direct or rel
 {
   "data": {
     "target": "home-server",
-    "target_peer_id": "12D3KooWDRDM...",
+    "target_peer_id": "12D3KooWPrmh...",
     "path": "RELAYED via relay-server/0.1.0",
     "hops": [
       {
@@ -419,7 +419,7 @@ Traces the network path to a peer. Shows whether the connection is direct or rel
       },
       {
         "hop": 2,
-        "peer_id": "12D3KooWDRDM...",
+        "peer_id": "12D3KooWPrmh...",
         "name": "home-server",
         "address": "via relay",
         "rtt_ms": 45.0
@@ -432,9 +432,9 @@ Traces the network path to a peer. Shows whether the connection is direct or rel
 **Response (Text)**:
 
 ```
-traceroute to home-server (12D3KooWDRDMuwQV...):
+traceroute to home-server (12D3KooWPrmh163s...):
  1  12D3KooWK...  (relay)  203.0.113.50:7777  23.0ms
- 2  12D3KooWDRDM...  (home-server)  via relay  45.0ms
+ 2  12D3KooWPrmh...  (home-server)  via relay  45.0ms
 --- path: [RELAYED via relay-server/0.1.0] ---
 ```
 
@@ -768,4 +768,4 @@ This is more reliable than PID files, which can be stale themselves.
 
 ---
 
-**Last Updated**: 2026-02-20
+**Last Updated**: 2026-02-22

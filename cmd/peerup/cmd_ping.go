@@ -37,7 +37,7 @@ func runPing(args []string) {
 		fmt.Println("Examples:")
 		fmt.Println("  peerup ping home-server")
 		fmt.Println("  peerup ping home-server -c 5")
-		fmt.Println("  peerup ping 12D3KooWDRDM... -c 3 --json")
+		fmt.Println("  peerup ping 12D3KooWPrmh... -c 3 --json")
 		osExit(1)
 	}
 
