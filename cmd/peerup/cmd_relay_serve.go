@@ -20,6 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
@@ -31,6 +32,7 @@ import (
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/internal/identity"
+	"github.com/satindergrewal/peer-up/internal/relay"
 	"github.com/satindergrewal/peer-up/internal/watchdog"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
@@ -176,6 +178,58 @@ func runRelayServe(args []string) {
 		fmt.Printf("Private DHT active: network %q (protocol: %s/kad/1.0.0)\n", cfg.Discovery.Network, dhtPrefix)
 	} else {
 		fmt.Printf("Private DHT active (protocol: %s/kad/1.0.0)\n", dhtPrefix)
+	}
+
+	// Initialize token store and pairing protocol handler.
+	tokenStore := relay.NewTokenStore()
+	pairingHandler := &relay.PairingHandler{
+		Store:        tokenStore,
+		AuthKeysPath: cfg.Security.AuthorizedKeysFile,
+		Gater:        gater,
+	}
+	h.SetStreamHandler(protocol.ID(relay.PairingProtocol), func(s network.Stream) {
+		pairingHandler.HandleStream(s)
+	})
+	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
+
+	// Token expiry cleanup goroutine.
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if removed := tokenStore.CleanExpired(); removed > 0 {
+					slog.Info("cleaned expired pairing groups", "removed", removed)
+				}
+				// Auto-disable enrollment when no active groups.
+				if gater != nil && tokenStore.ActiveGroupCount() == 0 && gater.IsEnrollmentEnabled() {
+					gater.SetEnrollmentMode(false, 0, 0)
+				}
+			}
+		}
+	}()
+
+	// Probation cleanup goroutine (evict stale probation peers).
+	if gater != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					gater.CleanupProbation(func(p peer.ID) {
+						if err := h.Network().ClosePeer(p); err != nil {
+							slog.Warn("failed to disconnect probation peer", "peer", p.String()[:16]+"...", "err", err)
+						}
+					})
+				}
+			}
+		}()
 	}
 
 	fmt.Printf("Relay Peer ID: %s\n", h.ID())

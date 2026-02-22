@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// LoadAuthorizedKeys loads and parses an authorized_keys file
-// Format: one peer ID per line, with optional comments after #
+// LoadAuthorizedKeys loads and parses an authorized_keys file.
+// Returns a simple peer ID -> bool map for backward compatibility.
+// Format: <peer-id> [key=value attrs...] [# comment]
 func LoadAuthorizedKeys(path string) (map[peer.ID]bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -24,23 +24,11 @@ func LoadAuthorizedKeys(path string) (map[peer.ID]bool, error) {
 
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Extract peer ID (everything before # comment)
-		parts := strings.SplitN(line, "#", 2)
-		peerIDStr := strings.TrimSpace(parts[0])
-
-		// Skip if nothing before the comment
+		peerIDStr, _, _ := parseLine(scanner.Text())
 		if peerIDStr == "" {
 			continue
 		}
 
-		// Parse peer ID
 		peerID, err := peer.Decode(peerIDStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid peer ID at line %d: %s (error: %w)", lineNum, peerIDStr, err)
