@@ -447,7 +447,7 @@ Priority areas (all hit or exceeded targets):
 - [x] **internal/auth** (50% → 75%+) - hot-reload, concurrent access, malformed input, gater tests
 - [x] **Docker integration tests** - `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
 - [x] **CI coverage reporting** - `.github/workflows/pages.yaml` merges unit + Docker coverage via `go tool covdata merge`, reports combined coverage
-- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](ENGINEERING-JOURNAL.md)) - 41 architecture decision records (ADRs) covering core architecture (8) and all batches A-G. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
+- [x] **Engineering journal** ([`docs/ENGINEERING-JOURNAL.md`](../engineering-journal/)) - 41 architecture decision records (ADRs) covering core architecture (8) and all batches A-I plus Pre-I. Not a changelog - documents *why* every design choice was made, what alternatives were considered, and what trade-offs were accepted.
 - [x] **Website** - Hugo + Hextra site scaffolded with landing page, 7 retroactive blog posts (Batches A-G), sync-docs.sh for auto-transformation, GitHub Actions CI/CD for GitHub Pages deployment
 - [x] **Security hardening** - post-audit fixes across 10 files (commit 83d02d3). CVE-2026-26014 resolved (pion/dtls v3.1.2). CI Actions pinned to commit SHAs.
 
@@ -624,7 +624,7 @@ Waiting for transfers...
 - [x] Custom blog listing template - image cards with title overlay, gradient, responsive grid *(post-Batch G)*
 - [x] Dark theme default + theme toggle in navbar *(post-Batch G)*
 - [x] SVG images for terminal demo, how-it-works steps, network diagram *(post-Batch G)*
-- [x] 40+ SVG diagrams across docs, blog posts, and architecture visuals - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1) *(post-Batch G)*
+- [x] 40+ SVG diagrams across docs, blog posts, and architecture visuals - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1), plus blog post diagrams, philosophy visuals, and Batch I architecture diagrams *(post-Batch G, expanded through Batch I)*
 - [x] Feature card icons (Heroicons), section title icons, doc index icons, about page icons *(post-Batch G)*
 - [x] Doc sidebar reordered for user journey: Quick Start → Network Tools → FAQ → Trust & Security → Daemon API → Architecture → Roadmap → Testing → Engineering Journal *(post-Batch G)*
 - [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
@@ -1210,7 +1210,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22
 **Current Phase**: 4C Complete (Batches A-H + all Pre-I items + Batch I shipped). All path selection features implemented.
 **Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
 **Next Milestone**: Post-I (PeerManager / AddrMan)
