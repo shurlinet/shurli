@@ -190,7 +190,7 @@ Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary me
 - [x] libp2p built-in metrics exposed (swarm, hole-punch, AutoNAT, relay, rcmgr)
 - [x] Custom peerup metrics (proxy bytes/connections/duration, auth counters, hole-punch stats, API timing)
 - [x] Audit logging - structured JSON via slog for security events
-- [x] Grafana dashboard - 16 panels across 5 sections
+- [x] Grafana dashboard - 29 panels across 6 sections
 
 ### Pre-Batch I Items
 

@@ -120,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `peerup` binary with 15 subcommands. No runtime dependencies |
+| **Single Binary** | One `peerup` binary with 16 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -200,7 +200,7 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 | `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
 | `peerup relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
 | `peerup verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
-| `peerup status` | Show local config, identity, authorized peers, services, reachability grade |
+| `peerup status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `peerup version` | Show version, commit, build date, Go version |
 
 The `<target>` in network commands accepts either a peer ID or a name from the `names:` section of your config. All commands support `--config <path>`.
@@ -210,7 +210,7 @@ The `<target>` in network commands accepts either a peer ID or a name from the `
 The daemon runs `peerup daemon` as a long-lived background process. It starts the full P2P host, exposes configured services, and opens a Unix socket API for management.
 
 **Key features:**
-- Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
+- Unix socket at `~/.config/peerup/peerup.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/peerup/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
 - 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
@@ -365,7 +365,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── peerup/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (15 subcommands)
+│   ├── main.go                # Command dispatch (16 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping

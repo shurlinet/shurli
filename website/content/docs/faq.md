@@ -662,7 +662,7 @@ Every relay server processes packets through the kernel network stack (syscalls 
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 16 panels). No other P2P tunnel tool ships with this level of built-in observability.
+**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 29 panels). No other P2P tunnel tool ships with this level of built-in observability.
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
 ### 5. Formally verified protocol state machine
@@ -845,7 +845,7 @@ This is the same trust model as Signal's safety numbers or WhatsApp's security c
 
 ## What are reachability grades?
 
-`peerup status` and the daemon status API show a reachability grade from A to F:
+The daemon status API (`peerup daemon status`) shows a reachability grade from A to F:
 
 | Grade | Meaning | What it means for connections |
 |-------|---------|------------------------------|
