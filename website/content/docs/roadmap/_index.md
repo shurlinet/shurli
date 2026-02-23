@@ -22,31 +22,31 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 
 ## Batch Overview
 
-| Batch | Focus | Key Items | Status |
-|-------|-------|-----------|--------|
-| Phase 1 | **Configuration** | YAML config, sample files, refactored nodes | Done |
-| Phase 2 | **Authentication** | ConnectionGater, authorized_keys, defense-in-depth | Done |
-| Phase 3 | **keytool CLI** | Key management (superseded by peerup subcommands) | Done |
-| Phase 4A | **Core Library + UX** | `pkg/p2pnet/`, single binary, init wizard | Done |
-| Phase 4B | **Frictionless Onboarding** | invite/join, QR codes, auth CLI, relay CLI | Done |
-| A | **Reliability** | Reconnection with backoff, TCP dial timeout, DHT in proxy, integration tests | Done |
-| B | **Code Quality** | Proxy dedup, structured logging (`log/slog`), sentinel errors, build version embedding | Done |
-| C | **Self-Healing** | Config validation/archive/rollback, commit-confirmed, systemd watchdog | Done |
-| D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | Done |
-| E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | Done |
-| F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | Done |
-| G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | Done |
-| H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | Done |
-| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | Done |
-| Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | Done |
-| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | Done |
-| I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | Done |
-| Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | Done |
-| K | **mDNS Local Discovery** | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
-| L | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
-| M | **GossipSub Network Intelligence** | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
-| N | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
-| J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
+| Batch | Focus | What It Does | Status |
+|-------|-------|--------------|--------|
+| Phase&nbsp;1 | **Configuration** | YAML config, sample files | Done |
+| Phase&nbsp;2 | **Authentication** | ConnectionGater, authorized_keys | Done |
+| Phase&nbsp;3 | **keytool&nbsp;CLI** | Key management (now peerup subcommands) | Done |
+| Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/p2pnet/`, single binary, init wizard | Done |
+| Phase&nbsp;4B | **Onboarding** | invite/join, QR codes, auth + relay CLI | Done |
+| A | **Reliability** | Reconnection with backoff, dial timeout, DHT in proxy | Done |
+| B | **Code&nbsp;Quality** | Proxy dedup, `log/slog`, sentinel errors, version embedding | Done |
+| C | **Self-Healing** | Config archive/rollback, commit-confirmed, watchdog | Done |
+| D | **libp2p** | AutoNAT v2, QUIC preferred, Identify UserAgent | Done |
+| E | **Capabilities** | `peerup status`, `/healthz`, headless invite/join | Done |
+| F | **Daemon** | Unix socket API, cookie auth, ping/traceroute/resolve | Done |
+| G | **Testing** | 80.3% coverage, Docker tests, relay merge, website | Done |
+| H | **Observability** | Prometheus metrics, audit logging, Grafana dashboard | Done |
+| Pre-I-a | **Build&nbsp;Tooling** | Makefile, service install (systemd/launchd) | Done |
+| Pre-I-b | **PAKE&nbsp;Invite** | Encrypted handshake, token-bound AEAD | Done |
+| Pre-I-c | **Private&nbsp;DHT** | Namespace isolation for peer groups | Done |
+| I | **Adaptive&nbsp;Path** | Interface discovery, dial racing, STUN, every-peer-relay | Done |
+| Post-I-1 | **Relay&nbsp;Pairing** | Pairing codes, SAS verification, reachability grades | Done |
+| K | **mDNS** | Zero-config LAN peer discovery | Planned |
+| L | **PeerManager** | Bitcoin-inspired scoring, persistent peer table, PEX | Planned |
+| M | **GossipSub** | PubSub broadcast, address change announcements | Planned |
+| N | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Planned |
+| J | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Future |
 
 ---
 

@@ -258,7 +258,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/peerup/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
-- [x] **Daemon mode** - `peerup daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/peerup/peerup.sock`) with cookie-based auth. JSON + plain text responses. 14 endpoints: status, peers, services, auth (add/remove/hot-reload), ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown. CLI client auto-reads cookie. *(Batch F)*
+- [x] **Daemon mode** - `peerup daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/peerup/peerup.sock`) with cookie-based auth. JSON + plain text responses. 15 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** - `peerup invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `peerup join --non-interactive` reads invite code from CLI arg, `PEERUP_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:
@@ -571,7 +571,7 @@ Priority areas (all hit or exceeded targets):
 - [ ] Service tags in config: `tags: [gpu, inference]` - categorize services for discovery
 
 **Python SDK** (`peerup-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API (14 endpoints already implemented in Batch F)
+- [ ] Thin wrapper around daemon Unix socket API (15 endpoints already implemented)
 - [ ] `pip install peerup-sdk`
 - [ ] Core operations: connect, expose_service, discover_services, proxy, status
 - [ ] Async support (asyncio) for integration with event-driven applications
