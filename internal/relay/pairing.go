@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -50,7 +52,8 @@ type GaterInterface interface {
 
 // HandleStream processes an incoming pairing stream from a client.
 // Wire format: [16] token + [1] name length + [N] name bytes.
-func (ph *PairingHandler) HandleStream(s network.Stream) {
+// Returns the joined peer ID and group ID on success (for notification triggers).
+func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	defer s.Close()
 	remotePeer := s.Conn().RemotePeer()
 	short := remotePeer.String()[:16] + "..."
@@ -60,7 +63,7 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 	if _, err := io.ReadFull(s, token[:]); err != nil {
 		slog.Warn("pairing: failed to read token", "peer", short, "err", err)
 		writeError(s)
-		return
+		return "", ""
 	}
 
 	// Read name.
@@ -68,19 +71,19 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 	if _, err := io.ReadFull(s, nameLen[:]); err != nil {
 		slog.Warn("pairing: failed to read name length", "peer", short, "err", err)
 		writeError(s)
-		return
+		return "", ""
 	}
 	if nameLen[0] > maxNameLen {
 		slog.Warn("pairing: name too long", "peer", short, "len", nameLen[0])
 		writeError(s)
-		return
+		return "", ""
 	}
 	nameBytes := make([]byte, nameLen[0])
 	if nameLen[0] > 0 {
 		if _, err := io.ReadFull(s, nameBytes); err != nil {
 			slog.Warn("pairing: failed to read name", "peer", short, "err", err)
 			writeError(s)
-			return
+			return "", ""
 		}
 	}
 	name := string(nameBytes)
@@ -90,10 +93,17 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 	if err != nil {
 		slog.Warn("pairing: validation failed", "peer", short)
 		writeError(s)
-		return
+		return "", ""
 	}
 
 	slog.Info("pairing: peer joined", "peer", short, "name", name, "group", group.ID)
+
+	// Compute HMAC group commitment proof while we have the raw token.
+	// proof = HMAC-SHA256(token, groupID) - proves this peer held a valid token.
+	mac := hmac.New(sha256.New, token[:])
+	mac.Write([]byte(group.ID))
+	proof := mac.Sum(nil)
+	ph.Store.SetHMACProof(group.ID, idx, proof)
 
 	// Authorize the peer on the relay.
 	comment := name
@@ -104,9 +114,12 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 		if !strings.Contains(err.Error(), "already authorized") {
 			slog.Error("pairing: failed to authorize peer", "peer", short, "err", err)
 			writeError(s)
-			return
+			return "", ""
 		}
 	}
+
+	// Annotate peer with group ID for introduction delivery.
+	auth.SetPeerAttr(ph.AuthKeysPath, remotePeer.String(), "group", group.ID)
 
 	// Promote from probation in the gater.
 	if ph.Gater != nil {
@@ -123,9 +136,13 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 	complete := ph.Store.IsGroupComplete(group.ID)
 
 	// Write response.
-	// STATUS_OK + peer count + peer list.
+	// STATUS_OK + [1] group ID len + [N] group ID + [1] group size + [1] peer count + peer list.
+	groupIDBytes := []byte(group.ID)
 	var resp []byte
 	resp = append(resp, StatusOK)
+	resp = append(resp, byte(len(groupIDBytes)))
+	resp = append(resp, groupIDBytes...)
+	resp = append(resp, byte(len(group.codes)))
 
 	if complete || len(group.codes) == 1 {
 		// All joined or solo enrollment: send peers and close.
@@ -135,16 +152,17 @@ func (ph *PairingHandler) HandleStream(s network.Stream) {
 		}
 		s.Write(resp)
 		slog.Info("pairing: group complete", "group", group.ID, "peers", len(peers)+1)
-		return
+		return remotePeer, group.ID
 	}
 
-	// Waiting for more peers: write already-joined, then hold stream open.
-	// For now, write the joined peers and close. Full stream-hold is Phase 2.
+	// Waiting for more peers: write already-joined, then close.
+	// Peer-notify protocol delivers late joiners when they connect.
 	resp = append(resp, byte(len(peers)))
 	for _, p := range peers {
 		resp = append(resp, encodePeerInfo(p)...)
 	}
 	s.Write(resp)
+	return remotePeer, group.ID
 }
 
 // writeError sends a uniform error response.
@@ -216,11 +234,11 @@ func EncodePairingRequest(token []byte, name string) []byte {
 }
 
 // ReadPairingResponse reads and parses the relay's pairing response.
-// Returns status, peer list, and any error.
-func ReadPairingResponse(r io.Reader) (status byte, peers []PeerInfo, err error) {
+// Returns status, group ID, group size, peer list, and any error.
+func ReadPairingResponse(r io.Reader) (status byte, groupID string, groupSize int, peers []PeerInfo, err error) {
 	var statusByte [1]byte
 	if _, err := io.ReadFull(r, statusByte[:]); err != nil {
-		return 0, nil, fmt.Errorf("failed to read status: %w", err)
+		return 0, "", 0, nil, fmt.Errorf("failed to read status: %w", err)
 	}
 	status = statusByte[0]
 
@@ -228,38 +246,56 @@ func ReadPairingResponse(r io.Reader) (status byte, peers []PeerInfo, err error)
 		// Read error message length + message.
 		var msgLen [1]byte
 		if _, err := io.ReadFull(r, msgLen[:]); err != nil {
-			return status, nil, fmt.Errorf("pairing failed")
+			return status, "", 0, nil, fmt.Errorf("pairing failed")
 		}
 		msg := make([]byte, msgLen[0])
 		io.ReadFull(r, msg)
-		return status, nil, fmt.Errorf("%s", string(msg))
+		return status, "", 0, nil, fmt.Errorf("%s", string(msg))
 	}
 
 	if status != StatusOK {
-		return status, nil, fmt.Errorf("unexpected status: 0x%02x", status)
+		return status, "", 0, nil, fmt.Errorf("unexpected status: 0x%02x", status)
 	}
+
+	// Read group ID (length-prefixed).
+	var gidLen [1]byte
+	if _, err := io.ReadFull(r, gidLen[:]); err != nil {
+		return status, "", 0, nil, fmt.Errorf("failed to read group ID length: %w", err)
+	}
+	gidBytes := make([]byte, gidLen[0])
+	if _, err := io.ReadFull(r, gidBytes); err != nil {
+		return status, "", 0, nil, fmt.Errorf("failed to read group ID: %w", err)
+	}
+	groupID = string(gidBytes)
+
+	// Read group size.
+	var gsizeByte [1]byte
+	if _, err := io.ReadFull(r, gsizeByte[:]); err != nil {
+		return status, groupID, 0, nil, fmt.Errorf("failed to read group size: %w", err)
+	}
+	groupSize = int(gsizeByte[0])
 
 	// Read peer count.
 	var countByte [1]byte
 	if _, err := io.ReadFull(r, countByte[:]); err != nil {
-		return status, nil, fmt.Errorf("failed to read peer count: %w", err)
+		return status, groupID, groupSize, nil, fmt.Errorf("failed to read peer count: %w", err)
 	}
 	count := int(countByte[0])
 
 	if count == 0 {
-		return status, nil, nil
+		return status, groupID, groupSize, nil, nil
 	}
 
 	// Read all remaining bytes for peer data.
 	peerData, err := io.ReadAll(r)
 	if err != nil {
-		return status, nil, fmt.Errorf("failed to read peer data: %w", err)
+		return status, groupID, groupSize, nil, fmt.Errorf("failed to read peer data: %w", err)
 	}
 
 	peers, err = DecodePeerInfos(peerData, count)
 	if err != nil {
-		return status, nil, fmt.Errorf("failed to decode peers: %w", err)
+		return status, groupID, groupSize, nil, fmt.Errorf("failed to decode peers: %w", err)
 	}
 
-	return status, peers, nil
+	return status, groupID, groupSize, peers, nil
 }

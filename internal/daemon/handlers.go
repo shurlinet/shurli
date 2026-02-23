@@ -288,6 +288,7 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 			PeerID:   p.PeerID.String(),
 			Comment:  p.Comment,
 			Verified: p.Verified,
+			Group:    p.Group,
 		}
 		if !p.ExpiresAt.IsZero() {
 			e.ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
