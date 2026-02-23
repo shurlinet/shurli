@@ -26,7 +26,10 @@ var docEntries = []docEntry{
 	{"MONITORING.md", "monitoring.md", 6, "Monitoring", "Set up Prometheus and Grafana to visualize peer-up metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."},
 	{"DAEMON-API.md", "daemon-api.md", 7, "Daemon API", "REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."},
 	{"ARCHITECTURE.md", "architecture.md", 8, "Architecture", "Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."},
-	{"ROADMAP.md", "roadmap.md", 9, "Roadmap", "Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."},
+	// ROADMAP.md is excluded from auto-sync. The website splits it into 3 pages
+	// under website/content/docs/roadmap/ (overview, completed, planned) for better
+	// readability. The source docs/ROADMAP.md stays as one file for GitHub readers.
+	// When ROADMAP.md changes, update the website pages manually.
 	{"TESTING.md", "testing.md", 10, "Testing", "Test strategy for peer-up: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."},
 }
 
@@ -63,6 +66,13 @@ var relaySetupMeta = docEntry{
 	Weight:      5,
 	Title:       "Relay Setup",
 	Description: "Complete guide to deploying your own peer-up relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks.",
+}
+
+// linkOnlyEntries are docs excluded from auto-sync but still need link rewriting.
+// Other docs reference these files (e.g., ROADMAP.md), so cross-doc links like
+// (ROADMAP.md) must still resolve to (../roadmap/).
+var linkOnlyEntries = []docEntry{
+	{"ROADMAP.md", "roadmap", 0, "", ""},
 }
 
 // Directories whose relative links (../dir/) get rewritten to GitHub URLs.
