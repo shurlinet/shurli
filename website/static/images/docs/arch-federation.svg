@@ -36,7 +36,7 @@
   <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Federation Model - Relay Peering</text>
   <!-- Planned badge -->
   <rect x="645" y="10" width="140" height="22" rx="11" fill="#e0af68" opacity="0.15" stroke="#e0af68" stroke-width="1"/>
-  <text x="715" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 4H</text>
+  <text x="715" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 10</text>
 
   <!-- Network A bubble (left) -->
   <ellipse cx="170" cy="180" rx="145" ry="120" fill="url(#netFillA)" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="6,3"/>
