@@ -99,8 +99,8 @@
   <polygon points="465,122 465,130 458,126" fill="#7aa2f7"/>
 
   <!-- Federation label -->
-  <text x="270" y="118" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
-  <text x="530" y="118" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
+  <text x="270" y="48" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
+  <text x="530" y="48" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
 
   <!-- Cross-network example -->
   <rect x="130" y="295" width="540" height="60" rx="8" fill="#1a1b26" stroke="#565f89" stroke-width="1"/>
