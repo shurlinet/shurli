@@ -120,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `peerup` binary with 15 subcommands. No runtime dependencies |
+| **Single Binary** | One `peerup` binary with 16 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -200,7 +200,7 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 | `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
 | `peerup relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
 | `peerup verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
-| `peerup status` | Show local config, identity, authorized peers, services, reachability grade |
+| `peerup status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `peerup version` | Show version, commit, build date, Go version |
 
 The `<target>` in network commands accepts either a peer ID or a name from the `names:` section of your config. All commands support `--config <path>`.
@@ -210,7 +210,7 @@ The `<target>` in network commands accepts either a peer ID or a name from the `
 The daemon runs `peerup daemon` as a long-lived background process. It starts the full P2P host, exposes configured services, and opens a Unix socket API for management.
 
 **Key features:**
-- Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
+- Unix socket at `~/.config/peerup/peerup.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/peerup/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
 - 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
@@ -365,7 +365,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── peerup/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (15 subcommands)
+│   ├── main.go                # Command dispatch (16 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping
@@ -1456,7 +1456,7 @@ Every relay server processes packets through the kernel network stack (syscalls 
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 16 panels). No other P2P tunnel tool ships with this level of built-in observability.
+**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 29 panels). No other P2P tunnel tool ships with this level of built-in observability.
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
 ### 5. Formally verified protocol state machine
@@ -1639,7 +1639,7 @@ This is the same trust model as Signal's safety numbers or WhatsApp's security c
 
 ## What are reachability grades?
 
-`peerup status` and the daemon status API show a reachability grade from A to F:
+The daemon status API (`peerup daemon status`) shows a reachability grade from A to F:
 
 | Grade | Meaning | What it means for connections |
 |-------|---------|------------------------------|
@@ -1837,7 +1837,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 16 panels across 5 sections.
+You'll immediately see the dashboard with 29 panels across 6 sections.
 
 ## Dashboard sections
 
@@ -2943,9 +2943,14 @@ peer-up/
 │   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake (--non-interactive)
 │   │   ├── cmd_join.go      # Decode invite, connect, auto-configure (--non-interactive, env var)
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
+│   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
+│   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
+│   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
-│   │   └── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
-│   │   └── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── serve_common.go  # Shared P2P runtime (used by daemon + standalone tools)
+│   │   └── exit.go          # Testable os.Exit wrapper
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
@@ -2987,8 +2992,12 @@ peer-up/
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
 │   ├── identity/            # Ed25519 identity management (shared by peerup + relay-server)
 │   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
-│   ├── invite/              # Invite code encoding/decoding
-│   │   └── code.go          # Binary → base32 with dash grouping
+│   ├── invite/              # Invite code encoding + PAKE handshake
+│   │   ├── code.go          # Binary -> base32 with dash grouping
+│   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
+│   ├── relay/               # Relay pairing + token management
+│   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
+│   │   └── pairing.go       # Relay pairing protocol (/peerup/relay-pair/1.0.0)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
 │   │   ├── qrcode.go        # Public API: New(), Bitmap(), ToSmallString()
 │   │   ├── encoder.go       # Data encoding (numeric, alphanumeric, byte modes)
@@ -3277,7 +3286,7 @@ Custom peerup metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
 
@@ -5190,19 +5199,49 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 
 # Edit if needed (defaults are good - port 7777, gating enabled)
 nano relay-server.yaml
-
-# Create authorized_keys with your home-node and client-node peer IDs
-nano relay_authorized_keys
 ```
 
-Add one peer ID per line to `relay_authorized_keys`:
+Then restart the service to pick up config changes:
+
+```bash
+sudo systemctl restart peerup-relay
+```
+
+### Add peers to the relay
+
+**Option A: Pairing codes (recommended)**
+
+Generate pairing codes and share them with your peers:
+
+```bash
+# Generate 3 pairing codes (one per person)
+./peerup relay pair --count 3
+
+# Each person joins with one command on their machine:
+peerup join <pairing-code> --name laptop
+```
+
+Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `peerup verify <name>`.
+
+**Option B: Manual authorization**
+
+If you already know the peer IDs, add them directly:
+
+```bash
+# Using the CLI
+./peerup relay authorize <peer-id> --comment "home-node"
+./peerup relay authorize <peer-id> --comment "client-node"
+
+# Or edit the file directly (one peer ID per line)
+nano relay_authorized_keys
+```
 
 ```
 12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY  # home-node
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # client-node
 ```
 
-Then restart the service to pick up config changes:
+Restart the service after manual changes:
 
 ```bash
 sudo systemctl restart peerup-relay
@@ -5237,7 +5276,7 @@ Service:
   [OK]   Service runs as non-root user: peerup
   ...
 
-=== Summary: 15 passed, 0 warnings, 0 failures ===
+=== Summary: 25 passed, 0 warnings, 0 failures ===
 Everything looks great!
 ```
 
@@ -5332,7 +5371,7 @@ After setup, your relay-server directory looks like:
 |-------|----------|
 | Service fails to start | `sudo journalctl -u peerup-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 relay_node.key` |
-| Peers can't connect | Check `relay_authorized_keys` has their peer IDs |
+| Peers can't connect | Use `peerup relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |

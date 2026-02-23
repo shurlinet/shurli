@@ -48,9 +48,14 @@ peer-up/
 │   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake (--non-interactive)
 │   │   ├── cmd_join.go      # Decode invite, connect, auto-configure (--non-interactive, env var)
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
+│   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
+│   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
+│   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
-│   │   └── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
-│   │   └── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── serve_common.go  # Shared P2P runtime (used by daemon + standalone tools)
+│   │   └── exit.go          # Testable os.Exit wrapper
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
@@ -92,8 +97,12 @@ peer-up/
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
 │   ├── identity/            # Ed25519 identity management (shared by peerup + relay-server)
 │   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
-│   ├── invite/              # Invite code encoding/decoding
-│   │   └── code.go          # Binary → base32 with dash grouping
+│   ├── invite/              # Invite code encoding + PAKE handshake
+│   │   ├── code.go          # Binary -> base32 with dash grouping
+│   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
+│   ├── relay/               # Relay pairing + token management
+│   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
+│   │   └── pairing.go       # Relay pairing protocol (/peerup/relay-pair/1.0.0)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
 │   │   ├── qrcode.go        # Public API: New(), Bitmap(), ToSmallString()
 │   │   ├── encoder.go       # Data encoding (numeric, alphanumeric, byte modes)
@@ -382,7 +391,7 @@ Custom peerup metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
 
