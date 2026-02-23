@@ -52,6 +52,8 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 
 ## Timeline Summary
 
+<img src="/images/docs/roadmap-timeline.svg" alt="Development timeline showing completed phases (1-4C) and planned phases (K-5+)" loading="lazy" />
+
 | Phase | Duration | Status |
 |-------|----------|--------|
 | Phase 1: Configuration | 1 week | Complete |

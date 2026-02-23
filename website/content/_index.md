@@ -4,10 +4,6 @@ description: "Connect your devices directly - no accounts, no cloud, no subscrip
 layout: hextra-home
 ---
 
-{{< callout type="warning" >}}
-**Early-stage software.** peer-up is experimental and built with AI assistance. It will have bugs. Not recommended for production or safety-critical use. See the full [disclaimer](/docs/quick-start/#disclaimer) and [MIT License](https://github.com/satindergrewal/peer-up/blob/main/LICENSE).
-{{< /callout >}}
-
 <div class="peerup-hero-logo">
   <img src="/images/logo.png" alt="peer-up logo" width="96" height="96" />
 </div>
