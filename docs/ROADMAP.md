@@ -217,7 +217,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | K | **mDNS Local Discovery** | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
 | L | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
 | M | **GossipSub Network Intelligence** | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
-| N | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
+| N | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. Requires trustless ZKP in Go (Halo 2 or equivalent) - none exists yet. Active watch. | Watching |
 | J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
 
 **Deliverables**:
@@ -1103,17 +1103,44 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - VRF-based fair relay assignment (needed only with multiple competing relays)
 - Erlay / Minisketch set reconciliation (bandwidth savings only above 8+ peers)
 
-**Batch N: ZKP Privacy Layer** (after PeerManager/AddrMan):
+**Batch N: ZKP Privacy Layer** (after PeerManager/AddrMan) - STATUS: WATCHING
 
-Zero-knowledge proofs applied to peer-up's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity. Uses gnark (ConsenSys) PLONK backend with the Ethereum KZG ceremony SRS (141,416 participants - no peer-up user participates in any ceremony). Hash-based membership proofs (MiMC/Poseidon) avoid Ed25519 curve mismatch with SNARK-native fields.
+Zero-knowledge proofs applied to peer-up's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
+**Status: Active Watch (2026-02-23)**
+
+The four use cases are confirmed and the architecture is designed. Implementation is deferred until a trustless (no ceremony) ZKP proving system exists in Go. We will not compromise on the trust model by using systems that require a trusted setup ceremony, and we will not introduce FFI/CGo dependencies to call Rust libraries (violates single-binary sovereignty).
+
+**Why waiting**: Halo 2 (Zcash's IPA-based proving system) achieves true zero-trust ZKPs with no ceremony. But it exists only in Rust. No Go implementation, port, binding, or proposal exists. Nobody is working on one (verified 2026-02-23 across GitHub, gnark issues, Zcash forums, Ethereum grants, and PSE grants). The alternative (gnark PLONK + Ethereum KZG ceremony with 141,416 participants) is practically secure but still relies on a trust assumption. Halo 2 is mathematically superior: trust math only, not participants.
+
+**What we considered and rejected**:
+- **Ring signatures**: Equivalent to a complex card-shuffling game. Metadata analysis can narrow down the signer. zk-SNARKs provide mathematically absolute privacy (dark room - nobody can see anything). Ring signatures are not zero-knowledge.
+- **gnark PLONK + Ethereum KZG**: Production-ready in pure Go, 141K-participant ceremony. Practically secure but requires trusting that 1 of 141K participants was honest. Not mathematically zero-trust.
+- **Halo 2 via FFI (Rust CGo bindings)**: Technically possible but introduces Rust toolchain dependency, cross-compilation complexity, two-language audit surface, and loss of `go build` simplicity. Violates sovereignty principle.
+- **gnark Vortex**: ConsenSys's experimental lattice-based transparent setup. Not production-ready. Different cryptographic approach than IPA. Worth watching.
+
+**What we're watching** (checked after each phase completion):
+1. **gnark IPA/Halo 2 backend** - ConsenSys has no current plans, but Vortex (lattice-based transparent setup) is in development
+2. **Native Go Halo 2 implementation** - zero activity as of 2026-02-23
+3. **Rust halo2 CGo bindings** - zero activity as of 2026-02-23
+4. **Any new trustless ZKP library in Go**
+
+**The four use cases** (ready to implement when the right tool arrives):
 - [ ] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key. ConnectionGater validates the proof, never learns which peer connected. Eliminates peer ID as a tracking vector.
 - [ ] **Anonymous relay authorization** - prove relay access rights without revealing identity to the relay. Relay validates membership proof, routes traffic, builds no connection graph.
 - [ ] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Batch L).
 - [ ] **Private DHT namespace membership** - prove "I belong to the same namespace as you" without revealing the namespace name to non-members. Narrowest use case (exposure only to directly-dialed peers), implemented last.
-- [ ] gnark PLONK + Ethereum KZG ceremony SRS. Convert via `gnark-ptau`, bundle with binary. Measure binary size impact.
-- [ ] Prototype: hash-based anonymous set membership proof for authorized_keys (MiMC(ed25519_pubkey) as Merkle leaf)
-- [ ] Future: migrate to IPA/Halo 2 backend when a Go implementation exists (eliminates even the universal ceremony dependency)
+
+**Architecture decisions** (stable regardless of proving system):
+- Hash-based membership: MiMC/Poseidon(ed25519_pubkey) as Merkle leaf. Avoids Ed25519 curve mismatch with SNARK-native fields (~600x overhead if Ed25519 arithmetic done inside circuit).
+- Merkle tree of identity commitments = the authorized_keys set.
+- ZK circuit proves: "I know a value pk such that Hash(pk) is a leaf in the tree with root R." Verifier sees root + proof only.
+- For ~500 members: ~10K-50K constraints, ~100-500ms proof generation, ~500-1000 byte proofs, ~2-5ms verification.
+
+**Background: Zcash trusted setup evolution** (context for why we insist on trustless):
+- Sprout (2016): Groth16, 6 participants. Legitimate trust concern.
+- Sapling (2018): Powers of Tau, 90+ participants. 1-of-90 honest assumption.
+- Orchard/NU5 (2022): Halo 2 - NO trusted setup. IPA-based (Pedersen commitments). No toxic waste. Trust math only. This is the standard we're waiting for in Go.
 
 **RLN - Anonymous Relay Rate-Limiting** (Future - after ZKP Privacy Layer):
 
