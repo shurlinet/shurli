@@ -294,10 +294,6 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 		return fmt.Errorf("relay address not found in config: %s", truncateAddr(target))
 	}
 
-	if len(cfg.Relay.Addresses) == 1 {
-		return fmt.Errorf("cannot remove the last relay address. At least one relay is required")
-	}
-
 	// Remove from config file
 	data, err := os.ReadFile(cfgFile)
 	if err != nil {
