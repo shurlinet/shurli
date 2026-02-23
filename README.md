@@ -9,7 +9,8 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Date | What's New |
 |------|-----------|
 | 2026-02-18 | **Private DHT** - Peer discovery now runs on `/peerup/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 14 REST endpoints |
+| 2026-02-23 | **Relay pairing** - `peerup relay pair` generates pairing codes, `peerup join` accepts them. SAS verification, reachability grades (A-F) |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 15 REST endpoints |
 | 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
 | 2026-02-16 | **Service management** - `peerup service add/remove/enable/disable` from the CLI |
 | 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
@@ -72,7 +73,19 @@ peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```
 
-> **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
+### Path C: Relay-managed group setup
+
+If a relay admin shared a pairing code:
+
+```bash
+peerup join <pairing-code> --name laptop
+# Connects to relay, discovers other peers, auto-authorizes everyone
+# Shows SAS verification fingerprints for each peer
+```
+
+The relay admin generates codes with `peerup relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+
+> **Relay server**: All machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay.
 
 ## Why peer-up exists
 
@@ -184,8 +197,10 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 | Command | Description |
 |---------|-------------|
 | `peerup invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
-| `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite, auto-configure both sides |
-| `peerup status` | Show local config, identity, authorized peers, services |
+| `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
+| `peerup relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
+| `peerup verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
+| `peerup status` | Show local config, identity, authorized peers, services, reachability grade |
 | `peerup version` | Show version, commit, build date, Go version |
 
 The `<target>` in network commands accepts either a peer ID or a name from the `names:` section of your config. All commands support `--config <path>`.
@@ -198,7 +213,7 @@ The daemon runs `peerup daemon` as a long-lived background process. It starts th
 - Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/peerup/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 14 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve
+- 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
 
 **Example:**
 ```bash
@@ -393,7 +408,7 @@ internal/
 │   └── errors.go
 ├── daemon/                    # Daemon API server + client library
 │   ├── server.go              # Unix socket HTTP server with cookie auth
-│   ├── handlers.go            # 14 REST endpoint handlers
+│   ├── handlers.go            # 15 REST endpoint handlers
 │   ├── client.go              # Go client (auto-reads cookie, Unix transport)
 │   ├── types.go               # Request/response types
 │   └── errors.go

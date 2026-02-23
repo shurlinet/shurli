@@ -46,4 +46,16 @@ peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```
 
-> **Relay server**: Both machines connect through a relay for NAT traversal. See [Relay Setup guide](../relay-setup/) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
+## Path C: Relay-managed group setup
+
+If a relay admin shared a pairing code:
+
+```bash
+peerup join <pairing-code> --name laptop
+# Connects to relay, discovers other peers, auto-authorizes everyone
+# Shows SAS verification fingerprints for each peer
+```
+
+The relay admin generates codes with `peerup relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+
+> **Relay server**: All machines connect through a relay for NAT traversal. See [Relay Setup guide](../relay-setup/) for deploying your own. Run `peerup relay serve` to start a relay.
