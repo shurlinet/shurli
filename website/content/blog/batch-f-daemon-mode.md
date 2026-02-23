@@ -27,7 +27,7 @@ More importantly, the daemon can manage multiple proxies simultaneously. Start a
 
 - **Unix domain socket**: `~/.config/peerup/peerup.sock` with `umask(0077)` for atomic permissions. No TCP port conflicts, filesystem-level access control
 - **Cookie authentication**: 32-byte random hex token written to `.daemon-cookie` (mode `0600`). Rotated every daemon restart. Sent as `Authorization: Bearer <token>`
-- **14 REST endpoints**: status, services, peers, auth (add/remove/list), ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose services, shutdown
+- **15 REST endpoints**: status, services, peers, paths, auth (add/remove/list), ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose services, shutdown
 - **Hot-reload authorized_keys**: Add or remove peers via `peerup daemon auth add <peer-id>`. Takes effect immediately, no restart needed
 - **RuntimeInfo interface**: Clean decoupling between daemon package and cmd package. Easy to mock in tests
 - **Text and JSON output**: Every endpoint supports `Accept: text/plain` for human-readable output and `application/json` for scripting
