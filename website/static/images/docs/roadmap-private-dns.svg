@@ -58,7 +58,7 @@
   <text x="520" y="155" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">Private DNS Zone</text>
 
   <!-- P2P Network zone (bottom) -->
-  <rect x="30" y="210" width="740" height="185" rx="10" fill="url(#privateFill)" stroke="#9ece6a" stroke-width="1" stroke-dasharray="6,3"/>
+  <rect x="30" y="210" width="740" height="200" rx="10" fill="url(#privateFill)" stroke="#9ece6a" stroke-width="1" stroke-dasharray="6,3"/>
   <text x="60" y="232" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" font-weight="600">Inside P2P Network (via relay's private DNS)</text>
 
   <!-- Private DNS entries -->
@@ -90,8 +90,8 @@
   <!-- P2P stream arrow from relay to network -->
   <line x1="520" y1="175" x2="520" y2="243" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
   <polygon points="516,240 524,240 520,248" fill="#9ece6a"/>
-  <text x="540" y="215" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">P2P stream</text>
-  <text x="540" y="226" font-family="SF Mono, monospace" font-size="8" fill="#565f89">(not raw UDP)</text>
+  <text x="540" y="226" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">P2P stream</text>
+  <text x="540" y="237" font-family="SF Mono, monospace" font-size="8" fill="#565f89">(not raw UDP)</text>
 
   <!-- How it works summary -->
   <text x="400" y="365" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">How it works</text>
