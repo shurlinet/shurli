@@ -181,31 +181,61 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 	added := false
 
 	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Handle "addresses: []" inline empty array.
+		if !added && trimmedLine == "addresses: []" {
+			idx := strings.Index(line, "addresses:")
+			result = append(result, line[:idx]+"addresses:")
+			for _, addr := range toAdd {
+				result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+			}
+			added = true
+			for k := i + 1; k < len(lines); k++ {
+				result = append(result, lines[k])
+			}
+			break
+		}
+
 		result = append(result, line)
-		// Find the last `- "..."` line under relay.addresses and insert after it
-		if !added && strings.TrimSpace(line) == "addresses:" {
-			// Scan forward to find the last `- ` entry in this list
+
+		// Find relay.addresses and insert new entries.
+		if !added && trimmedLine == "addresses:" {
+			// Scan forward to find existing entries.
+			hasEntries := false
 			insertIdx := len(result) - 1
 			for j := i + 1; j < len(lines); j++ {
 				trimmed := strings.TrimSpace(lines[j])
 				if strings.HasPrefix(trimmed, "- ") {
 					insertIdx = len(result) + (j - i - 1)
+					hasEntries = true
 				} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 					break
 				}
 			}
-			// We'll mark where to insert; process remaining lines up to insertIdx
-			for k := i + 1; k < len(lines); k++ {
-				result = append(result, lines[k])
-				if len(result)-1 == insertIdx {
-					// Insert new addresses here
-					for _, addr := range toAdd {
-						result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+
+			if !hasEntries {
+				// Empty list: insert right after "addresses:" line.
+				for _, addr := range toAdd {
+					result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+				}
+				added = true
+				for k := i + 1; k < len(lines); k++ {
+					result = append(result, lines[k])
+				}
+			} else {
+				// Has entries: insert after the last entry.
+				for k := i + 1; k < len(lines); k++ {
+					result = append(result, lines[k])
+					if len(result)-1 == insertIdx {
+						for _, addr := range toAdd {
+							result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+						}
+						added = true
 					}
-					added = true
 				}
 			}
-			break // We've processed the rest of the file
+			break
 		}
 	}
 
