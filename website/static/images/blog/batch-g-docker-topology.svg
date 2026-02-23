@@ -31,10 +31,10 @@
   <!-- Connection lines -->
   <!-- Node A to Relay -->
   <line x1="200" y1="205" x2="320" y2="180" stroke="#7aa2f7" stroke-width="2"/>
-  <text x="240" y="178" fill="#7aa2f7" font-family="monospace" font-size="9">circuit relay</text>
+  <text x="240" y="194" fill="#7aa2f7" font-family="monospace" font-size="9">circuit relay</text>
   <!-- Node B to Relay -->
   <line x1="600" y1="205" x2="480" y2="180" stroke="#bb9af7" stroke-width="2"/>
-  <text x="555" y="178" fill="#bb9af7" font-family="monospace" font-size="9">circuit relay</text>
+  <text x="520" y="194" fill="#bb9af7" font-family="monospace" font-size="9">circuit relay</text>
   <!-- Bidirectional between nodes (through relay) -->
   <line x1="260" y1="237" x2="540" y2="237" stroke="url(#dtGrad)" stroke-width="2" stroke-dasharray="8,4"/>
   <text x="400" y="232" text-anchor="middle" fill="#9ece6a" font-family="monospace" font-size="10">ping through relay</text>
