@@ -207,6 +207,12 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 		return false
 	}
 
+	// Also extract the Disclaimer section and append it
+	disclaimer := extractSection(string(data), "Disclaimer")
+	if disclaimer != "" {
+		body += "\n## Disclaimer\n" + disclaimer
+	}
+
 	body = promoteHeadings(body)
 	body = rewriteQuickStartLinks(body)
 
