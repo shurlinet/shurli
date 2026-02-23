@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -191,6 +192,22 @@ func runRelayServe(args []string) {
 		pairingHandler.HandleStream(s)
 	})
 	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
+
+	// Start admin socket for relay pair CLI.
+	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
+	adminCookiePath := filepath.Join(filepath.Dir(configFile), ".relay-admin.cookie")
+	relayAddrStr, err := buildRelayAddrFromConfig(cfg)
+	if err != nil {
+		slog.Warn("admin socket: could not build relay addr for code encoding", "err", err)
+		relayAddrStr = "" // non-fatal: admin socket still works, code encoding will fail
+	}
+	adminSrv := relay.NewAdminServer(tokenStore, gater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
+	if err := adminSrv.Start(); err != nil {
+		slog.Error("failed to start admin socket", "err", err)
+		// Non-fatal: relay still functions, just no CLI pairing
+	} else {
+		defer adminSrv.Stop()
+	}
 
 	// Token expiry cleanup goroutine.
 	go func() {

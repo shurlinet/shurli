@@ -3,25 +3,25 @@ package main
 import (
 	"flag"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/satindergrewal/peer-up/internal/config"
 	"github.com/satindergrewal/peer-up/internal/identity"
-	"github.com/satindergrewal/peer-up/internal/invite"
 	"github.com/satindergrewal/peer-up/internal/relay"
 )
 
 func runRelayPair(args []string, serverConfigFile string) {
 	if len(args) > 0 && args[0] == "--list" {
-		runRelayPairList()
+		runRelayPairList(serverConfigFile)
 		return
 	}
 	if len(args) > 0 && args[0] == "--revoke" {
 		if len(args) < 2 {
 			fatal("Usage: peerup relay pair --revoke <group-id>")
 		}
-		runRelayPairRevoke(args[1])
+		runRelayPairRevoke(args[1], serverConfigFile)
 		return
 	}
 
@@ -36,50 +36,25 @@ func runRelayPairCreate(args []string, serverConfigFile string) {
 	nsFlag := fs.String("namespace", "", "DHT namespace (default: from config)")
 	fs.Parse(args)
 
-	// Load relay config.
-	cfg, err := config.LoadRelayServerConfig(serverConfigFile)
-	if err != nil {
-		fatal("Failed to load relay config: %v", err)
-	}
+	client := connectRelayAdmin(serverConfigFile)
 
-	// Build relay multiaddr from config.
-	relayAddr, err := buildRelayAddrFromConfig(cfg)
-	if err != nil {
-		fatal("%v", err)
-	}
+	ttlSec := int(ttlFlag.Seconds())
+	expiresSec := int(expiresFlag.Seconds())
 
-	// Create token store (ephemeral for this command).
-	store := relay.NewTokenStore()
-
-	ns := *nsFlag
-	if ns == "" {
-		ns = cfg.Discovery.Network
-	}
-
-	tokens, groupID, err := store.CreateGroup(*countFlag, *ttlFlag, ns, *expiresFlag)
+	resp, err := client.CreateGroup(*countFlag, ttlSec, expiresSec, *nsFlag)
 	if err != nil {
 		fatal("Failed to create pairing group: %v", err)
-	}
-
-	// Encode tokens into v2 invite codes.
-	codes := make([]string, len(tokens))
-	for i, tok := range tokens {
-		code, err := invite.EncodeV2(tok, relayAddr, ns)
-		if err != nil {
-			fatal("Failed to encode invite code: %v", err)
-		}
-		codes[i] = code
 	}
 
 	// Display.
 	fmt.Println()
 	if *countFlag == 1 {
 		fmt.Printf("Pairing code generated (expires in %s):\n\n", *ttlFlag)
-		fmt.Printf("  %s\n\n", codes[0])
+		fmt.Printf("  %s\n\n", resp.Codes[0])
 		fmt.Println("Share this code with the person joining your network.")
 	} else {
 		fmt.Printf("Pairing codes generated (expire in %s):\n\n", *ttlFlag)
-		for i, code := range codes {
+		for i, code := range resp.Codes {
 			fmt.Printf("  Code %d:  %s\n", i+1, code)
 		}
 		fmt.Println()
@@ -91,18 +66,54 @@ func runRelayPairCreate(args []string, serverConfigFile string) {
 		fmt.Printf("\nAuthorization expires after %s.\n", *expiresFlag)
 	}
 
-	fmt.Printf("\nGroup ID: %s\n", groupID)
+	fmt.Printf("\nGroup ID: %s\n", resp.GroupID)
 }
 
-func runRelayPairList() {
-	// Token store is in-memory within the relay serve process.
-	fmt.Println("Active pairing groups:")
-	fmt.Println("  (token store is in-memory; query the running relay daemon)")
+func runRelayPairList(serverConfigFile string) {
+	client := connectRelayAdmin(serverConfigFile)
+
+	groups, err := client.ListGroups()
+	if err != nil {
+		fatal("Failed to list pairing groups: %v", err)
+	}
+
+	if len(groups) == 0 {
+		fmt.Println("No active pairing groups.")
+		return
+	}
+
+	fmt.Printf("Active pairing groups (%d):\n\n", len(groups))
+	for _, g := range groups {
+		remaining := time.Until(g.ExpiresAt).Truncate(time.Second)
+		status := "active"
+		if remaining <= 0 {
+			status = "expired"
+			remaining = 0
+		}
+		fmt.Printf("  %s  %d/%d used  %s (%s remaining)\n", g.ID, g.Used, g.Total, status, remaining)
+	}
 }
 
-func runRelayPairRevoke(groupID string) {
-	fmt.Printf("Revoke group %s: requires running relay daemon.\n", groupID)
-	fmt.Println("  The relay serve process holds the token store in memory.")
+func runRelayPairRevoke(groupID, serverConfigFile string) {
+	client := connectRelayAdmin(serverConfigFile)
+
+	if err := client.RevokeGroup(groupID); err != nil {
+		fatal("Failed to revoke group: %v", err)
+	}
+
+	fmt.Printf("Pairing group %s revoked.\n", groupID)
+}
+
+// connectRelayAdmin creates an AdminClient connected to the running relay.
+func connectRelayAdmin(serverConfigFile string) *relay.AdminClient {
+	socketPath := filepath.Join(filepath.Dir(serverConfigFile), ".relay-admin.sock")
+	cookiePath := filepath.Join(filepath.Dir(serverConfigFile), ".relay-admin.cookie")
+
+	client, err := relay.NewAdminClient(socketPath, cookiePath)
+	if err != nil {
+		fatal("Relay is not running. Start with: peerup relay serve\n  (%v)", err)
+	}
+	return client
 }
 
 // buildRelayAddrFromConfig constructs a relay multiaddr from the relay server config.
