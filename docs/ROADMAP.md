@@ -214,9 +214,10 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 | I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | ✅ DONE |
 | Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | ✅ DONE |
-| K | **mDNS Local Discovery** | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
-| L | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
-| M | **GossipSub Network Intelligence** | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
+| **Phase 5** | **Network Intelligence** | |
+| 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
+| 5-L | PeerManager / AddrMan | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
+| 5-M | GossipSub | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
 | N | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. Requires trustless ZKP in Go (Halo 2 or equivalent) - none exists yet. Active watch. | Watching |
 | J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
 
@@ -252,7 +253,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`peerup status` command** - show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required - instant. *(Batch E)*
 
-**Auto-Upgrade Groundwork** (full implementation in Phase 4E):
+**Auto-Upgrade Groundwork** (full implementation in Phase 7):
 - [x] **Build version embedding** - compile with `-ldflags "-X main.version=..."` so every binary knows its version. `peerup version` / `peerup --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** - set `UserAgent` to `peerup/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D - serve/proxy/ping; Batch E - invite/join)*
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/peerup/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
@@ -355,7 +356,7 @@ After: DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 4H (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 10 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -391,27 +392,6 @@ Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin gener
 New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/peerup/cmd_verify.go`, `cmd/peerup/cmd_relay_pair.go` (all with matching `_test.go` files).
 
 Zero new dependencies. Binary size unchanged at 28MB.
-
-**Batch K: mDNS Local Discovery** (Planned)
-
-Zero-config peer discovery on the local network. When two peer-up nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
-
-- [ ] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
-- [ ] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
-- [ ] Combine with DHT discovery - mDNS for local, DHT for remote. Both feed into PathDialer
-- [ ] Config option: `discovery.mdns_enabled: true` (default: true, disable for server-only nodes)
-- [ ] Explicit DHT routing table refresh on network change events - trigger `RefreshRoutingTable()` from NetworkMonitor callbacks (currently runs on internal timer only, can go stale in small private networks)
-- [ ] Test: two hosts on same LAN discover each other via mDNS within 5 seconds without relay
-
-Quick win. One libp2p option on host construction + NetworkMonitor integration. Prerequisite: none. Zero new dependencies.
-
-**Relay Decentralization** (future - after Batch H observability provides the data needed):
-- [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
-- [ ] DHT-based relay discovery - authorized relays advertise on DHT under well-known CID. NATted nodes discover peer relays via AutoRelay. No central endpoint
-- [ ] Multi-relay failover - try multiple known relays in order; health-aware selection based on connection quality scores from observability data
-- [ ] Per-peer bandwidth tracking - expose libp2p's internal bandwidth counter per-peer and per-protocol. Feeds into relay quota warnings, PeerManager scoring, and smart relay selection. Critical for SSH/XRDP proxy where relay bandwidth consumption is operationally significant.
-- [ ] Bootstrap decentralization - hardcoded seed peers in binary (ultimate fallback) → DNS seeds at `peerup.dev` → DHT peer exchange → fully self-sustaining. Same pattern as Bitcoin
-- [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable peer-up node relays for its authorized peers. No special nodes, no central coordination
 
 **Module Consolidation** (completed - single Go module):
 - [x] Merged three Go modules (main, relay-server, cmd/keytool) into a single `go.mod`
@@ -517,7 +497,55 @@ Priority areas (all hit or exceeded targets):
 
 ---
 
-### Phase 4D: Plugin Architecture, SDK & First Plugins
+## Phase 5: Network Intelligence
+
+**Goal**: Smarter peer discovery, scoring, and communication. mDNS for instant LAN discovery, Bitcoin-inspired peer management for reliable connections, and PubSub broadcast for network-wide awareness. Includes relay decentralization groundwork.
+
+**Status**: 📋 Planned
+
+### 5-K: mDNS Local Discovery
+
+Zero-config peer discovery on the local network. When two peer-up nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
+
+- [ ] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
+- [ ] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
+- [ ] Combine with DHT discovery - mDNS for local, DHT for remote. Both feed into PathDialer
+- [ ] Config option: `discovery.mdns_enabled: true` (default: true, disable for server-only nodes)
+- [ ] Explicit DHT routing table refresh on network change events - trigger `RefreshRoutingTable()` from NetworkMonitor callbacks (currently runs on internal timer only, can go stale in small private networks)
+- [ ] Test: two hosts on same LAN discover each other via mDNS within 5 seconds without relay
+
+Quick win. One libp2p option on host construction + NetworkMonitor integration. Prerequisite: none. Zero new dependencies.
+
+### 5-L: PeerManager / AddrMan
+
+Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX). Top priority after mDNS. Motivated by the "no re-upgrade from relay to direct after network change" finding from Batch I live testing.
+
+### 5-M: GossipSub Network Intelligence
+
+libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all peer-up communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware design: direct PEX streams (L) at <10 peers, GossipSub transport at 10+ peers.
+
+- [ ] **GossipSub topic per namespace** - `/peerup/<namespace>/gossip/1.0.0`. Peers subscribe on connect. Only authorized peers can publish (ConnectionGater + GossipSub peer scoring).
+- [ ] **Address change broadcast** - when a peer's external address changes (detected by NetworkMonitor + STUN re-probe), it announces once via GossipSub. Every connected peer hears it immediately instead of waiting for DHT re-discovery. Directly addresses the "no re-upgrade from relay to direct after network change" finding.
+- [ ] **PEX transport upgrade** - PEX messages (L format) carried over GossipSub instead of direct streams. Reduces per-peer connection overhead for peer exchange in larger networks.
+- [ ] **PeerManager observation sharing** - peers share aggregated scoring observations. "Peer X has been bright-tier for 7 days" vs "Peer X has been dimming for 3 days." Enables network-level peer quality assessment.
+- [ ] **Scale-aware activation** - GossipSub mesh management (GRAFT, PRUNE, IHAVE, IWANT) has overhead that exceeds utility below 10 peers. Implementation includes an activation threshold: direct PEX below 10 connected peers, GossipSub at 10+.
+
+Dependency: Requires PeerManager (5-L) for Tried table data. Zero new dependencies (libp2p GossipSub is already in the module).
+
+### Relay Decentralization
+
+After Phase 5 observability and PeerManager provide the data:
+
+- [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
+- [ ] DHT-based relay discovery - authorized relays advertise on DHT under well-known CID. NATted nodes discover peer relays via AutoRelay. No central endpoint
+- [ ] Multi-relay failover - try multiple known relays in order; health-aware selection based on connection quality scores from observability data
+- [ ] Per-peer bandwidth tracking - expose libp2p's internal bandwidth counter per-peer and per-protocol. Feeds into relay quota warnings, PeerManager scoring, and smart relay selection. Critical for SSH/XRDP proxy where relay bandwidth consumption is operationally significant.
+- [ ] Bootstrap decentralization - hardcoded seed peers in binary (ultimate fallback) -> DNS seeds at `peerup.dev` -> DHT peer exchange -> fully self-sustaining. Same pattern as Bitcoin
+- [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable peer-up node relays for its authorized peers. No special nodes, no central coordination
+
+---
+
+### Phase 6: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -632,7 +660,7 @@ Waiting for transfers...
 
 ---
 
-### Phase 4E: Distribution & Launch
+### Phase 7: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
@@ -795,14 +823,14 @@ services:
 
 ---
 
-### Phase 4F: Desktop Gateway Daemon + Private DNS
+### Phase 8: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
-**Rationale**: Infrastructure-level features that make peer-up transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 4D.
+**Rationale**: Infrastructure-level features that make peer-up transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 6.
 
 **Deliverables**:
 
@@ -869,7 +897,7 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 4G: Mobile Applications
+### Phase 9: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -916,7 +944,7 @@ Once connected:
 
 ---
 
-### Phase 4H: Federation - Network Peering
+### Phase 10: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -975,12 +1003,12 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 4I: Advanced Naming Systems (Optional)
+### Phase 11: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 4D.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 6.
 
 **Deliverables**:
 - [ ] Built-in resolvers:
@@ -1070,7 +1098,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 ---
 
-## Phase 5+: Ecosystem & Polish
+## Phase 12+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1151,18 +1179,6 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 - [ ] Off-chain membership tree (relay operator maintains from authorized_keys, no blockchain)
 - [ ] Global spammer detection (nullifier exposure propagates across relays)
 
-**Batch M: GossipSub Network Intelligence** (after PeerManager provides the data to gossip):
-
-libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all peer-up communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware design: direct PEX streams (L-f) at <10 peers, GossipSub transport at 10+ peers.
-
-- [ ] **GossipSub topic per namespace** - `/peerup/<namespace>/gossip/1.0.0`. Peers subscribe on connect. Only authorized peers can publish (ConnectionGater + GossipSub peer scoring).
-- [ ] **Address change broadcast** - when a peer's external address changes (detected by NetworkMonitor + STUN re-probe), it announces once via GossipSub. Every connected peer hears it immediately instead of waiting for DHT re-discovery. Directly addresses the "no re-upgrade from relay to direct after network change" finding.
-- [ ] **PEX transport upgrade** - PEX messages (L-f format) carried over GossipSub instead of direct streams. Reduces per-peer connection overhead for peer exchange in larger networks.
-- [ ] **PeerManager observation sharing** - peers share aggregated scoring observations. "Peer X has been bright-tier for 7 days" vs "Peer X has been dimming for 3 days." Enables network-level peer quality assessment.
-- [ ] **Scale-aware activation** - GossipSub mesh management (GRAFT, PRUNE, IHAVE, IWANT) has overhead that exceeds utility below 10 peers. Implementation includes an activation threshold: direct PEX below 10 connected peers, GossipSub at 10+.
-
-Dependency: Requires PeerManager (Batch L) for Tried table data. Zero new dependencies (libp2p GossipSub is already in the module).
-
 **Protocol & Security Evolution**:
 - [ ] MASQUE relay transport ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) - HTTP/3 relay alternative to Circuit Relay v2. Looks like standard HTTPS to DPI, supports 0-RTT session resumption for instant reconnection. Could coexist with Circuit Relay v2 as user-selectable relay transport.
 - [ ] Post-quantum cryptography - hybrid Noise + ML-KEM ([FIPS 203](https://csrc.nist.gov/pubs/fips/203/final)) handshakes for quantum-resistant key exchange. Implement when libp2p adopts PQC. Design cipher suite negotiation now (cryptographic agility).
@@ -1190,20 +1206,16 @@ Dependency: Requires PeerManager (Batch L) for Tried table data. Zero new depend
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1) |
-| Batch K: mDNS Local Discovery | 📋 <1 week | Planned |
-| Batch L: PeerManager / AddrMan | 📋 2-3 weeks | Planned |
-| Batch M: GossipSub Network Intelligence | 📋 1-2 weeks | Planned |
-| Phase 4D: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
-| Phase 4E: Distribution & Launch | 📋 1-2 weeks | Planned |
-| Phase 4F: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 4G: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 4H: Federation | 📋 2-3 weeks | Planned |
-| Phase 4I: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 5+: Ecosystem | 📋 Ongoing | Conceptual |
+| **Phase 5: Network Intelligence** | 📋 4-6 weeks | Planned |
+| Phase 6: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 7: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 8: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 9: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 10: Federation | 📋 2-3 weeks | Planned |
+| Phase 11: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 12+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
-
-**Priority logic**: Onboarding first (remove friction) → harden the core (security, self-healing, reliability, tests) → make it extensible with real plugins (file sharing, service templates, WoL prove the architecture) → distribute with use-case content (GPU, IoT, gaming) → transparent access (gateway, DNS) → expand (mobile → federation → naming).
+**Priority logic**: Harden the core (done) -> network intelligence (mDNS, PeerManager, GossipSub) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -1257,7 +1269,13 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Protocol versioning policy documented (backwards-compatible within major version)
 - Integration tests verify real libp2p host-to-host connectivity in `go test`
 
-**Phase 4D Success**:
+**Phase 5 Success**:
+- mDNS discovers LAN peers within 5 seconds without relay
+- PeerManager tracks and scores peers, persists across restarts
+- Network change triggers re-upgrade from relay to direct (the Batch I finding)
+- GossipSub broadcasts address changes to all peers within seconds
+
+**Phase 6 Success**:
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
@@ -1270,7 +1288,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Python SDK works: `pip install peerup-sdk` → connect to remote service in <10 lines
 - `peerup invite --headless` outputs JSON; `peerup join --from-env` reads env vars
 
-**Phase 4E Success**:
+**Phase 7 Success**:
 - `peerup.dev` serves a Hugo documentation site with landing page, guides, and install instructions
 - Site auto-deploys on push to `main` via GitHub Actions
 - `peerup.dev/llms.txt` returns markdown index; `peerup.dev/llms-full.txt` returns full site content - AI agents can understand the project in ~200 tokens
@@ -1295,23 +1313,23 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Containerized deployment guide published with working Docker compose examples
 - Python SDK available on PyPI
 
-**Phase 4F Success**:
+**Phase 8 Success**:
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 4G Success**:
+**Phase 9 Success**:
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 4H Success**:
+**Phase 10 Success**:
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 4I Success**:
+**Phase 11 Success**:
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
@@ -1319,8 +1337,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-23
-**Current Phase**: Post-I-1 Complete (Frictionless Relay Pairing + Daemon-Centric + Reachability Grade).
-**Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Batch L (PeerManager / AddrMan)
-**Future milestones**: L (PeerManager) → N (ZKP Privacy) → J (Visual Channel)
-**Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays → DHT discovery → VPS becomes obsolete
+**Current Phase**: Phase 4C Complete. Phase 5 (Network Intelligence) next.
+**Phases**: 1-4C (complete), 5 (Network Intelligence), 6-11 (planned), 12+ (ecosystem)
+**Next Milestone**: Phase 5 - mDNS (5-K), PeerManager (5-L), GossipSub (5-M)
+**Future milestones**: Phase 5 (Network Intelligence) -> Phase 6 (Plugins) -> Phase 7 (Distribution)
+**Research**: N (ZKP Privacy - watching for trustless ZKP in Go) -> J (Visual Channel - future)
+**Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

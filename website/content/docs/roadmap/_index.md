@@ -42,17 +42,18 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 | Pre-I-c | **Private&nbsp;DHT** | Namespace isolation for peer groups | Done |
 | I | **Adaptive&nbsp;Path** | Interface discovery, dial racing, STUN, every-peer-relay | Done |
 | Post-I-1 | **Relay&nbsp;Pairing** | Pairing codes, SAS verification, reachability grades | Done |
-| K | **mDNS** | Zero-config LAN peer discovery | Planned |
-| L | **PeerManager** | Bitcoin-inspired scoring, persistent peer table, PEX | Planned |
-| M | **GossipSub** | PubSub broadcast, address change announcements | Planned |
-| N | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Planned |
+| **Phase&nbsp;5** | **Network&nbsp;Intelligence** | | |
+| 5-K | mDNS | Zero-config LAN peer discovery | Planned |
+| 5-L | PeerManager | Bitcoin-inspired scoring, persistent peer table, PEX | Planned |
+| 5-M | GossipSub | PubSub broadcast, address change announcements | Planned |
+| N | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Watching |
 | J | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Future |
 
 ---
 
 ## Timeline Summary
 
-<img src="/images/docs/roadmap-timeline.svg" alt="Development timeline showing completed phases (1-4C) and planned phases (K-5+)" loading="lazy" />
+<img src="/images/docs/roadmap-timeline.svg" alt="Development timeline showing completed phases (1-4C) and planned phases (5-12+)" loading="lazy" />
 
 | Phase | Duration | Status |
 |-------|----------|--------|
@@ -62,20 +63,16 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 | Phase 4A: Core Library + UX | 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | 6-8 weeks | Complete (Batches A-I, Post-I-1) |
-| Batch K: mDNS Local Discovery | <1 week | Planned |
-| Batch L: PeerManager / AddrMan | 2-3 weeks | Planned |
-| Batch M: GossipSub Network Intelligence | 1-2 weeks | Planned |
-| Phase 4D: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
-| Phase 4E: Distribution & Launch | 1-2 weeks | Planned |
-| Phase 4F: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
-| Phase 4G: Mobile Apps | 3-4 weeks | Planned |
-| Phase 4H: Federation | 2-3 weeks | Planned |
-| Phase 4I: Advanced Naming | 2-3 weeks | Planned (Optional) |
-| Phase 5+: Ecosystem | Ongoing | Conceptual |
+| **Phase 5: Network Intelligence** | 4-6 weeks | Planned |
+| Phase 6: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
+| Phase 7: Distribution & Launch | 1-2 weeks | Planned |
+| Phase 8: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
+| Phase 9: Mobile Apps | 3-4 weeks | Planned |
+| Phase 10: Federation | 2-3 weeks | Planned |
+| Phase 11: Advanced Naming | 2-3 weeks | Planned (Optional) |
+| Phase 12+: Ecosystem | Ongoing | Conceptual |
 
-**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
-
-**Priority logic**: Onboarding first (remove friction) -> harden the core (security, self-healing, reliability, tests) -> make it extensible with real plugins (file sharing, service templates, WoL prove the architecture) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (mDNS, PeerManager, GossipSub) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -92,8 +89,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-23
-**Current Phase**: Post-I-1 Complete (Frictionless Relay Pairing + Daemon-Centric + Reachability Grade).
-**Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
-**Next Milestone**: Batch L (PeerManager / AddrMan)
-**Future milestones**: L (PeerManager) -> N (ZKP Privacy) -> J (Visual Channel)
+**Current Phase**: Phase 4C Complete. Phase 5 (Network Intelligence) next.
+**Phases**: 1-4C (complete), 5 (Network Intelligence), 6-11 (planned), 12+ (ecosystem)
+**Next Milestone**: Phase 5 - mDNS (5-K), PeerManager (5-L), GossipSub (5-M)
+**Future milestones**: Phase 5 (Network Intelligence) -> Phase 6 (Plugins) -> Phase 7 (Distribution)
+**Research**: N (ZKP Privacy - watching for trustless ZKP in Go) -> J (Visual Channel - future)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

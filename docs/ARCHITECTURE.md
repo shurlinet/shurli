@@ -5,14 +5,14 @@ This document describes the technical architecture of peer-up, from current impl
 ## Table of Contents
 
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
-- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Target Architecture (Phase 6+)](#target-architecture-phase-6) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 4H)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 4G)
+- [Federation Model](#federation-model) - planned (Phase 10)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 9)
 
 ---
 
@@ -170,7 +170,7 @@ echo "12D3KooW... # home-server" >> ~/.config/peerup/authorized_keys
 
 ---
 
-## Target Architecture (Phase 4D+)
+## Target Architecture (Phase 6+)
 
 ### Planned Additions
 
@@ -182,12 +182,12 @@ peer-up/
 │   ├── peerup/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 4F: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 8: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 4H: Network peering
+│   ├── interfaces.go        # 🆕 Phase 6: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 10: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -195,10 +195,10 @@ peer-up/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 4D: File transfer plugin
-│   └── tun/                 # 🆕 Phase 4F: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 6: File transfer plugin
+│   └── tun/                 # 🆕 Phase 8: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 4G: Mobile apps
+├── mobile/                  # 🆕 Phase 9: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -211,7 +211,7 @@ peer-up/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 4F)** - not yet implemented. See [Roadmap Phase 4F](ROADMAP.md) for details.
+> **Status: Planned (Phase 8)** - not yet implemented. See [Roadmap Phase 8](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -505,7 +505,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 4D/4I)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 4I](ROADMAP.md).
+> **Planned (Phase 6/11)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 11](ROADMAP.md).
 
 ---
 
@@ -546,7 +546,7 @@ The ACL check runs in the stream handler before dialing the local TCP service, s
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H](ROADMAP.md).
+> **Status: Planned (Phase 10)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 10](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -567,13 +567,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `peerup invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `peerup invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 8/11.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](images/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 4F/4I)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 8/11)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -589,7 +589,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Roadmap Phase 4H](ROADMAP.md).
+> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](ROADMAP.md).
 
 ### Relay Peering
 
@@ -599,7 +599,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 4G)** - not yet implemented. See [Roadmap Phase 4G](ROADMAP.md).
+> **Status: Planned (Phase 9)** - not yet implemented. See [Roadmap Phase 9](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -643,7 +643,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 5+.
+> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 12+.
 
 ---
 

@@ -15,7 +15,7 @@ Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pai
 - [FAQ](https://peerup.dev/docs/faq/): How NAT traversal works, Circuit Relay v2, symmetric NAT, security model, comparison context
 - [Relay Setup](https://peerup.dev/docs/relay-setup/): Deploy your own relay server on a VPS - setup script, systemd service, security checklist, troubleshooting
 - [Testing](https://peerup.dev/docs/testing/): Unit tests, Docker integration tests, coverage reporting
-- [Roadmap](https://peerup.dev/docs/roadmap/): Full multi-phase plan - Phase 4D (plugins/SDK), 4E (distribution), 4F (gateway daemon), 4G (mobile), 4H (federation), 4I (naming)
+- [Roadmap](https://peerup.dev/docs/roadmap/): Full multi-phase plan - Phase 5 (network intelligence: mDNS, PeerManager, GossipSub), Phase 6 (plugins/SDK), Phase 7 (distribution), Phase 8 (gateway), Phase 9 (mobile), Phase 10 (federation), Phase 11 (naming)
 
 ## Code
 
