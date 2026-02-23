@@ -22,6 +22,7 @@ func runPing(args []string) {
 	fs := flag.NewFlagSet("ping", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	count := fs.Int("c", 0, "number of pings (0 = continuous until Ctrl+C)")
+	fs.IntVar(count, "n", 0, "alias for -c")
 	intervalStr := fs.String("interval", "1s", "interval between pings")
 	jsonFlag := fs.Bool("json", false, "output as JSON (one line per ping)")
 	fs.Parse(args)
@@ -31,7 +32,7 @@ func runPing(args []string) {
 		fmt.Println("Usage: peerup ping [--config <path>] [-c N] [--interval 1s] [--json] <target>")
 		fmt.Println()
 		fmt.Println("Options:")
-		fmt.Println("  -c N           Number of pings (0 = continuous, default)")
+		fmt.Println("  -c, -n N       Number of pings (0 = continuous, default)")
 		fmt.Println("  --interval 1s  Time between pings (default: 1s)")
 		fmt.Println("  --json         Output each ping as a JSON line")
 		fmt.Println()
@@ -50,9 +51,14 @@ func runPing(args []string) {
 	}
 
 	// Try daemon first (faster, no bootstrap needed).
-	if client := tryDaemonClient(); client != nil {
-		runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
-		return
+	// Skip daemon for continuous ping (count=0) because the daemon's HTTP
+	// API collects all results before responding. The direct P2P path below
+	// streams results via a channel and handles Ctrl+C correctly.
+	if *count != 0 {
+		if client := tryDaemonClient(); client != nil {
+			runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+			return
+		}
 	}
 
 	// Set up context with Ctrl+C cancellation
