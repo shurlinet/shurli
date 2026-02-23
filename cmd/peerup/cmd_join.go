@@ -268,6 +268,25 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	}
 	outln()
 
+	// Ensure relay address from invite code is in config.
+	// New configs include it via template, but existing configs
+	// may not have it (e.g., after "relay remove").
+	hasRelay := false
+	for _, a := range cfg.Relay.Addresses {
+		if a == data.RelayAddr {
+			hasRelay = true
+			break
+		}
+	}
+	if !hasRelay {
+		if err := addRelayToConfigFile(cfgFile, data.RelayAddr); err != nil {
+			log.Printf("Warning: could not add relay to config: %v", err)
+		} else {
+			cfg.Relay.Addresses = append(cfg.Relay.Addresses, data.RelayAddr)
+			out("Added relay address to config.\n")
+		}
+	}
+
 	// Create P2P network (no connection gating for joining).
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
@@ -500,6 +519,60 @@ func sanitizeYAMLName(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// addRelayToConfigFile adds a relay address to the config file's relay.addresses section.
+// Handles both "addresses:" (empty list) and "addresses: []" formats.
+func addRelayToConfigFile(cfgFile, relayAddr string) error {
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	added := false
+	entry := fmt.Sprintf("    - \"%s\"", relayAddr)
+
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+
+		// Handle "addresses: []" inline empty array.
+		if !added && trimmed == "addresses: []" {
+			idx := strings.Index(lines[i], "addresses:")
+			result = append(result, lines[i][:idx]+"addresses:")
+			result = append(result, entry)
+			added = true
+			for k := i + 1; k < len(lines); k++ {
+				result = append(result, lines[k])
+			}
+			break
+		}
+
+		result = append(result, lines[i])
+
+		// Handle "addresses:" multi-line format (empty or with entries).
+		if !added && trimmed == "addresses:" {
+			// Skip past any existing entries.
+			for i+1 < len(lines) {
+				next := strings.TrimSpace(lines[i+1])
+				if strings.HasPrefix(next, "- ") {
+					i++
+					result = append(result, lines[i])
+				} else {
+					break
+				}
+			}
+			result = append(result, entry)
+			added = true
+		}
+	}
+
+	if !added {
+		return fmt.Errorf("could not find relay.addresses section")
+	}
+
+	return os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600)
 }
 
 // updateConfigNames appends a name mapping to the config file.
