@@ -188,8 +188,12 @@ func runRelayServe(args []string) {
 		AuthKeysPath: cfg.Security.AuthorizedKeysFile,
 		Gater:        gater,
 	}
+	notifier := &relay.PeerNotifier{Host: h, AuthKeysPath: cfg.Security.AuthorizedKeysFile, Store: tokenStore}
 	h.SetStreamHandler(protocol.ID(relay.PairingProtocol), func(s network.Stream) {
-		pairingHandler.HandleStream(s)
+		joinedPeer, groupID := pairingHandler.HandleStream(s)
+		if joinedPeer != "" && groupID != "" {
+			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
+		}
 	})
 	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
 
@@ -208,6 +212,9 @@ func runRelayServe(args []string) {
 	} else {
 		defer adminSrv.Stop()
 	}
+
+	// Reconnect notifier: push peer introductions when authorized peers reconnect.
+	go relay.RunReconnectNotifier(ctx, h, notifier, cfg.Security.AuthorizedKeysFile)
 
 	// Token expiry cleanup goroutine.
 	go func() {

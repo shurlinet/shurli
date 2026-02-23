@@ -51,6 +51,7 @@ type AuthEntry struct {
 	Comment   string `json:"comment,omitempty"`
 	Verified  string `json:"verified,omitempty"`   // e.g. "sha256:a1b2c3d4"
 	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, empty = never
+	Group     string `json:"group,omitempty"`      // pairing group ID
 }
 
 // AuthAddRequest is the body for POST /v1/auth.

@@ -157,6 +157,8 @@ func runDaemonStart(args []string) {
 
 	rt.ExposeConfiguredServices()
 	rt.SetupPingPong()
+	rt.SetupPeerNotify()
+	rt.StartPeerHistorySaver()
 
 	// Start daemon API server
 	socketPath := daemonSocketPath()

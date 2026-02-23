@@ -17,6 +17,7 @@ type PeerEntry struct {
 	Comment   string
 	ExpiresAt time.Time // zero = never expires
 	Verified  string    // empty = unverified, otherwise fingerprint prefix
+	Group     string    // pairing group ID (empty = manually added or invited)
 }
 
 // sanitizeComment strips characters that could corrupt the authorized_keys
@@ -326,6 +327,9 @@ func ListPeers(authKeysPath string) ([]PeerEntry, error) {
 		}
 		if v, ok := attrs["verified"]; ok {
 			entry.Verified = v
+		}
+		if v, ok := attrs["group"]; ok {
+			entry.Group = v
 		}
 
 		entries = append(entries, entry)

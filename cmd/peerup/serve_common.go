@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"log/slog"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/relay"
+	"github.com/satindergrewal/peer-up/internal/reputation"
 	"github.com/satindergrewal/peer-up/internal/watchdog"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
@@ -61,6 +64,9 @@ type serveRuntime struct {
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
 	metricsServer *http.Server
+
+	// Sovereign per-peer interaction history
+	peerHistory *reputation.PeerHistory
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -180,6 +186,10 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 
 	fmt.Printf("Peer ID: %s\n", net.Host().ID())
 	fmt.Println()
+
+	// Initialize sovereign peer interaction history.
+	historyPath := filepath.Join(filepath.Dir(cfgFile), "peer_history.json")
+	rt.peerHistory = reputation.NewPeerHistory(historyPath)
 
 	return rt, nil
 }
@@ -508,6 +518,147 @@ func (rt *serveRuntime) SetupPingPong() {
 	})
 }
 
+// SetupPeerNotify registers the peer-notify stream handler so the daemon
+// can receive peer introductions from the relay. This is the "mailbox
+// receiver" - when the relay delivers an introduction, the daemon
+// processes it and updates authorized_keys.
+func (rt *serveRuntime) SetupPeerNotify() {
+	if rt.authKeys == "" {
+		return // no authorized_keys = no gating = nothing to update
+	}
+
+	h := rt.network.Host()
+	h.SetStreamHandler(protocol.ID(relay.PeerNotifyProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		// SECURITY Layer 2: Only accept from configured relay peer IDs.
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("peer-notify: rejected from non-relay",
+				"peer", remotePeer.String()[:16]+"...")
+			return
+		}
+
+		// Parse notification.
+		peers, groupID, groupSize, err := relay.ReadPeerNotify(s)
+		if err != nil {
+			slog.Warn("peer-notify: parse error", "err", err)
+			return
+		}
+
+		// SECURITY Layer 3: Group ID validation - only accept for groups we participated in.
+		if !rt.hasGroupMembership(groupID) {
+			slog.Warn("peer-notify: unknown group", "group", groupID)
+			return
+		}
+
+		// SECURITY Layer 1: Group size enforcement.
+		existing := rt.countGroupPeers(groupID)
+		if existing+len(peers) >= groupSize {
+			slog.Warn("peer-notify: group size exceeded",
+				"group", groupID,
+				"existing", existing,
+				"incoming", len(peers),
+				"max", groupSize)
+			return
+		}
+
+		// Add each introduced peer to authorized_keys.
+		added := 0
+		for _, p := range peers {
+			comment := p.Name
+			if comment == "" {
+				comment = "introduced-" + time.Now().Format("2006-01-02")
+			}
+			if err := auth.AddPeer(rt.authKeys, p.PeerID, comment); err != nil {
+				if !strings.Contains(err.Error(), "already authorized") {
+					slog.Error("peer-notify: add failed",
+						"peer", p.PeerID[:16]+"...", "err", err)
+				}
+				continue
+			}
+			auth.SetPeerAttr(rt.authKeys, p.PeerID, "group", groupID)
+
+			// Store HMAC commitment proof if present (Layer 4 data).
+			if len(p.HMACProof) == relay.HMACProofSize {
+				auth.SetPeerAttr(rt.authKeys, p.PeerID, "hmac_proof", hex.EncodeToString(p.HMACProof))
+			}
+			added++
+
+			// Record introduction in sovereign history.
+			if rt.peerHistory != nil {
+				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "relay-pairing")
+			}
+
+			// SECURITY Layer 6: Audit logging.
+			slog.Info("peer-notify: peer introduced",
+				"name", p.Name,
+				"peer", p.PeerID[:16]+"...",
+				"group", groupID,
+				"relay", remotePeer.String()[:16]+"...")
+		}
+
+		// Hot-reload gater so new peers are immediately allowed.
+		if added > 0 && rt.gater != nil {
+			newPeers, err := auth.LoadAuthorizedKeys(rt.authKeys)
+			if err != nil {
+				slog.Error("peer-notify: gater reload failed", "err", err)
+			} else {
+				rt.gater.UpdateAuthorizedPeers(newPeers)
+				slog.Info("peer-notify: gater reloaded", "peers", len(newPeers))
+			}
+		}
+	})
+}
+
+// isConfiguredRelay checks if a peer ID matches one of the configured relay addresses.
+func (rt *serveRuntime) isConfiguredRelay(p peer.ID) bool {
+	for _, addr := range rt.config.Relay.Addresses {
+		maddr, err := ma.NewMultiaddr(addr)
+		if err != nil {
+			continue
+		}
+		ai, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		if ai.ID == p {
+			return true
+		}
+	}
+	return false
+}
+
+// hasGroupMembership checks if this peer participated in the given pairing group.
+// Returns true if any peer in authorized_keys has a matching group attribute.
+func (rt *serveRuntime) hasGroupMembership(groupID string) bool {
+	entries, err := auth.ListPeers(rt.authKeys)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Group == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+// countGroupPeers counts how many peers in authorized_keys belong to the given group.
+func (rt *serveRuntime) countGroupPeers(groupID string) int {
+	entries, err := auth.ListPeers(rt.authKeys)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.Group == groupID {
+			count++
+		}
+	}
+	return count
+}
+
 // StartWatchdog signals systemd readiness and starts health check loop.
 // Additional health checks can be passed for daemon-specific checks (e.g., socket alive).
 func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
@@ -626,9 +777,37 @@ func (rt *serveRuntime) StartMetricsServer() {
 	}()
 }
 
+// StartPeerHistorySaver runs a background goroutine that periodically saves
+// the peer interaction history to disk.
+func (rt *serveRuntime) StartPeerHistorySaver() {
+	if rt.peerHistory == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case <-ticker.C:
+				if err := rt.peerHistory.Save(); err != nil {
+					slog.Warn("peer-history: save failed", "err", err)
+				}
+			}
+		}
+	}()
+}
+
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	// Save peer history before exit.
+	if rt.peerHistory != nil {
+		if err := rt.peerHistory.Save(); err != nil {
+			slog.Warn("peer-history: final save failed", "err", err)
+		}
+	}
 	if rt.peerRelay != nil {
 		rt.peerRelay.Disable()
 	}

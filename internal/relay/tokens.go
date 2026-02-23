@@ -34,6 +34,7 @@ type CodeSlot struct {
 	Name      string    // peer's friendly name
 	UsedAt    time.Time // zero = unused
 	Attempts  int       // failed attempts (max 3)
+	HMACProof []byte    // HMAC-SHA256(token, groupID) computed at pairing time
 }
 
 // PairingGroup holds a set of related pairing codes.
@@ -49,8 +50,9 @@ type PairingGroup struct {
 
 // PeerInfo is a joined peer's identity and name.
 type PeerInfo struct {
-	PeerID peer.ID
-	Name   string
+	PeerID    peer.ID
+	Name      string
+	HMACProof []byte // HMAC-SHA256(token, groupID) - proves token possession
 }
 
 // GroupInfo is a read-only snapshot of a pairing group for listing.
@@ -197,6 +199,21 @@ func (ts *TokenStore) RecordFailedAttempt(token []byte) {
 	}
 }
 
+// SetHMACProof stores the HMAC commitment proof for a code slot.
+func (ts *TokenStore) SetHMACProof(groupID string, slotIdx int, proof []byte) {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return
+	}
+	group.mu.Lock()
+	defer group.mu.Unlock()
+	if slotIdx >= 0 && slotIdx < len(group.codes) {
+		group.codes[slotIdx].HMACProof = proof
+	}
+}
+
 // GetGroupPeers returns all joined peers in the group except the one at excludeIdx.
 func (ts *TokenStore) GetGroupPeers(groupID string, excludeIdx int) []PeerInfo {
 	ts.mu.RLock()
@@ -216,8 +233,9 @@ func (ts *TokenStore) GetGroupPeers(groupID string, excludeIdx int) []PeerInfo {
 			continue
 		}
 		peers = append(peers, PeerInfo{
-			PeerID: slot.PeerID,
-			Name:   slot.Name,
+			PeerID:    slot.PeerID,
+			Name:      slot.Name,
+			HMACProof: slot.HMACProof,
 		})
 	}
 	return peers

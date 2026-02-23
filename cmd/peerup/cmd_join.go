@@ -3,6 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 
 	"fmt"
@@ -342,7 +345,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	s.CloseWrite()
 
 	// Read response.
-	status, peers, err := relay.ReadPairingResponse(s)
+	status, groupID, _, peers, err := relay.ReadPairingResponse(s)
 	if err != nil {
 		fatal("Pairing failed: %v", err)
 	}
@@ -356,6 +359,24 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 
 	// Add discovered peers to authorized_keys and config names.
 	authKeysPath := cfg.Security.AuthorizedKeysFile
+
+	// Authorize relay and annotate with group ID so hasGroupMembership() works
+	// for peer-notify validation (even if this peer joined first with 0 peers).
+	if groupID != "" {
+		if err := auth.AddPeer(authKeysPath, relayPeerID.String(), "relay"); err != nil {
+			if !strings.Contains(err.Error(), "already authorized") {
+				log.Printf("Warning: failed to authorize relay: %v", err)
+			}
+		}
+		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "group", groupID)
+
+		// Compute and store own HMAC commitment proof for this group.
+		// proof = HMAC-SHA256(token, groupID) - matches what the relay stored.
+		mac := hmac.New(sha256.New, data.TokenV2)
+		mac.Write([]byte(groupID))
+		ownProof := mac.Sum(nil)
+		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "hmac_proof", hex.EncodeToString(ownProof))
+	}
 
 	// Load existing names for conflict resolution.
 	existingNames := make(map[string]bool)
@@ -384,6 +405,9 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 			if !strings.Contains(err.Error(), "already authorized") {
 				log.Printf("Warning: failed to authorize peer: %v", err)
 			}
+		}
+		if groupID != "" {
+			auth.SetPeerAttr(authKeysPath, p.PeerID.String(), "group", groupID)
 		}
 
 		// Add to config names.
