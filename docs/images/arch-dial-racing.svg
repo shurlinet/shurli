@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 560" width="780" height="560">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 570" width="780" height="570">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
@@ -45,7 +45,7 @@
   <!-- YES arrow (left) - fast path -->
   <line x1="260" y1="175" x2="165" y2="175" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
   <polygon points="170,170 170,180 160,175" fill="#9ece6a"/>
-  <text x="212" y="168" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">YES</text>
+  <text x="212" y="170" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">YES</text>
 
   <!-- Fast path result -->
   <rect x="30" y="155" width="130" height="44" rx="10" fill="url(#successFill)" stroke="#9ece6a" stroke-width="1.5"/>

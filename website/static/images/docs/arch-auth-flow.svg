@@ -62,8 +62,8 @@
   <polygon points="570,263 570,273 580,268" fill="#f7768e"/>
 
   <!-- Labels on decision arrows -->
-  <text x="155" y="264" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">YES</text>
-  <text x="537" y="264" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">NO</text>
+  <text x="155" y="266" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">YES</text>
+  <text x="537" y="266" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">NO</text>
 
   <!-- Authorized box -->
   <rect x="20" y="347" width="120" height="44" rx="10" fill="url(#successFill)" stroke="#9ece6a" stroke-width="1.5"/>
