@@ -494,6 +494,20 @@ This is not a weekend hobby project. peer-up is built as critical infrastructure
 
 Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here - from code quality to deployment to security decisions.
 
+## Disclaimer
+
+peer-up is experimental software under active development. It is built with significant AI assistance (Claude) and, despite thorough testing, **will contain bugs** that neither automated tests nor manual testing have caught.
+
+**By using this software, you acknowledge:**
+
+- This is provided "as is" with no warranty of any kind (see [LICENSE](LICENSE))
+- The developers are not liable for any damages, losses, or consequences arising from its use
+- Network tunnels may disconnect, services may become unreachable, and configurations may behave unexpectedly
+- This is not a replacement for enterprise VPN, firewall, or security infrastructure
+- You are responsible for evaluating whether peer-up is suitable for your use case
+
+If you discover a bug, please [open an issue](https://github.com/satindergrewal/peer-up/issues). Every report makes the project more reliable for everyone.
+
 ## Development
 
 ### AI-Assisted Development
