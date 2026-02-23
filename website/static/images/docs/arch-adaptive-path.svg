@@ -221,7 +221,7 @@
   <!-- already shown with the vertical arrow -->
 
   <!-- Cross-connection: I-e feeds into I-b context -->
-  <line x1="290" y1="234" x2="420" y2="155" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
-  <polygon points="417,152 418,159 424,155" fill="#565f89" opacity="0.4"/>
-  <text x="365" y="185" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle" transform="rotate(-18, 365, 185)">NATType</text>
+  <line x1="290" y1="234" x2="420" y2="200" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <polygon points="417,197 418,204 424,200" fill="#565f89" opacity="0.4"/>
+  <text x="360" y="210" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle" transform="rotate(-12, 360, 210)">NATType</text>
 </svg>
