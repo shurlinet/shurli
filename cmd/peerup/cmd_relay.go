@@ -298,12 +298,14 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay remove", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
+	forceFlag := fs.Bool("force", false, "remove even if it is the last relay address")
+	fs.BoolVar(forceFlag, "f", false, "shorthand for --force")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: peerup relay remove <multiaddr>")
+		return fmt.Errorf("usage: peerup relay remove [-f] <multiaddr>")
 	}
 
 	target := fs.Arg(0)
@@ -312,7 +314,7 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Check it exists
+	// Check it exists.
 	found := false
 	for _, addr := range cfg.Relay.Addresses {
 		if addr == target {
@@ -322,6 +324,11 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 	}
 	if !found {
 		return fmt.Errorf("relay address not found in config: %s", truncateAddr(target))
+	}
+
+	// Guard against removing the last relay address without --force.
+	if len(cfg.Relay.Addresses) == 1 && !*forceFlag {
+		return fmt.Errorf("cannot remove the last relay address (the daemon needs at least one).\nUse --force (-f) to override.")
 	}
 
 	// Remove from config file

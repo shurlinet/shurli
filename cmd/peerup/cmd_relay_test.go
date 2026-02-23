@@ -144,10 +144,27 @@ func TestDoRelayRemove(t *testing.T) {
 			wantErrStr: "not found",
 		},
 		{
-			name: "last relay can be removed",
+			name: "last relay blocked without force",
 			args: func(t *testing.T) []string {
 				cfgPath := writeTestConfigDir(t)
 				return []string{"--config", cfgPath, "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
+			},
+			wantErr:    true,
+			wantErrStr: "cannot remove the last",
+		},
+		{
+			name: "last relay allowed with --force",
+			args: func(t *testing.T) []string {
+				cfgPath := writeTestConfigDir(t)
+				return []string{"--config", cfgPath, "--force", "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "last relay allowed with -f",
+			args: func(t *testing.T) []string {
+				cfgPath := writeTestConfigDir(t)
+				return []string{"--config", cfgPath, "-f", "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
 			},
 			wantErr: false,
 		},
