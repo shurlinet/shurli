@@ -18,10 +18,14 @@ func stripFirstHeading(body string) string {
 	return body
 }
 
-// buildDocLinkMap builds the source->slug mapping from docEntries.
+// buildDocLinkMap builds the source->slug mapping from docEntries and linkOnlyEntries.
 func buildDocLinkMap() map[string]string {
-	m := make(map[string]string, len(docEntries))
+	m := make(map[string]string, len(docEntries)+len(linkOnlyEntries))
 	for _, e := range docEntries {
+		slug := strings.TrimSuffix(e.Output, ".md")
+		m[e.Source] = slug
+	}
+	for _, e := range linkOnlyEntries {
 		slug := strings.TrimSuffix(e.Output, ".md")
 		m[e.Source] = slug
 	}

@@ -1,0 +1,97 @@
+---
+title: "Roadmap"
+weight: 9
+description: "Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."
+---
+
+This document outlines the multi-phase evolution of peer-up from a simple NAT traversal tool to a comprehensive decentralized P2P network infrastructure.
+
+## Philosophy
+
+> **Build for 1-5 years. Make it adaptable. Don't predict 2074.**
+
+- **Modular architecture** - Easy to add/swap components
+- **Library-first** - Core logic reusable in other projects
+- **Progressive enhancement** - Each phase adds value independently
+- **No hard dependencies** - Works without optional features (naming, blockchain, etc.)
+- **Local-first** - Offline-capable, no central services required
+- **Self-sovereign** - No accounts, no telemetry, no vendor dependency
+- **Automation-friendly** - Daemon API, headless onboarding, multi-language SDKs
+
+---
+
+## Batch Overview
+
+| Batch | Focus | Key Items | Status |
+|-------|-------|-----------|--------|
+| Phase 1 | **Configuration** | YAML config, sample files, refactored nodes | Done |
+| Phase 2 | **Authentication** | ConnectionGater, authorized_keys, defense-in-depth | Done |
+| Phase 3 | **keytool CLI** | Key management (superseded by peerup subcommands) | Done |
+| Phase 4A | **Core Library + UX** | `pkg/p2pnet/`, single binary, init wizard | Done |
+| Phase 4B | **Frictionless Onboarding** | invite/join, QR codes, auth CLI, relay CLI | Done |
+| A | **Reliability** | Reconnection with backoff, TCP dial timeout, DHT in proxy, integration tests | Done |
+| B | **Code Quality** | Proxy dedup, structured logging (`log/slog`), sentinel errors, build version embedding | Done |
+| C | **Self-Healing** | Config validation/archive/rollback, commit-confirmed, systemd watchdog | Done |
+| D | **libp2p Features** | AutoNAT v2, smart dialing, QUIC preferred, version in Identify | Done |
+| E | **New Capabilities** | `peerup status`, `/healthz` endpoint, headless invite/join, UserAgent fix | Done |
+| F | **Daemon Mode** | `peerup daemon`, Unix socket API, ping/traceroute/resolve, dynamic proxies | Done |
+| G | **Test Coverage & Documentation** | 80.3% combined coverage, Docker integration tests, relay merge, engineering journal, website | Done |
+| H | **Observability** | Prometheus metrics, libp2p built-in metrics, custom peerup metrics, audit logging, Grafana dashboard | Done |
+| Pre-I-a | **Build & Deployment Tooling** | Makefile, service install (systemd/launchd), generic local checks runner | Done |
+| Pre-I-b | **PAKE-Secured Invite/Join** | Ephemeral DH + token-bound AEAD, relay-resistant pairing, v2 invite codes | Done |
+| Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | Done |
+| I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | Done |
+| Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | Done |
+| K | **mDNS Local Discovery** | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
+| L | **PeerManager / AddrMan** | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
+| M | **GossipSub Network Intelligence** | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
+| N | **ZKP Privacy Layer** | Anonymous auth (set membership proofs), anonymous relay authorization, privacy-preserving reputation, private namespace membership | Planned |
+| J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
+
+---
+
+## Timeline Summary
+
+| Phase | Duration | Status |
+|-------|----------|--------|
+| Phase 1: Configuration | 1 week | Complete |
+| Phase 2: Authentication | 2 weeks | Complete |
+| Phase 3: keytool CLI | 1 week | Complete |
+| Phase 4A: Core Library + UX | 2-3 weeks | Complete |
+| Phase 4B: Frictionless Onboarding | 1-2 weeks | Complete |
+| **Phase 4C: Core Hardening & Security** | 6-8 weeks | Complete (Batches A-I, Post-I-1) |
+| Batch K: mDNS Local Discovery | <1 week | Planned |
+| Batch L: PeerManager / AddrMan | 2-3 weeks | Planned |
+| Batch M: GossipSub Network Intelligence | 1-2 weeks | Planned |
+| Phase 4D: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
+| Phase 4E: Distribution & Launch | 1-2 weeks | Planned |
+| Phase 4F: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
+| Phase 4G: Mobile Apps | 3-4 weeks | Planned |
+| Phase 4H: Federation | 2-3 weeks | Planned |
+| Phase 4I: Advanced Naming | 2-3 weeks | Planned (Optional) |
+| Phase 5+: Ecosystem | Ongoing | Conceptual |
+
+**Total estimated time for Phase 4**: 18-26 weeks (5-6 months)
+
+**Priority logic**: Onboarding first (remove friction) -> harden the core (security, self-healing, reliability, tests) -> make it extensible with real plugins (file sharing, service templates, WoL prove the architecture) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+
+---
+
+## Contributing
+
+This roadmap is a living document. Phases may be reordered, combined, or adjusted based on:
+- User feedback and demand
+- Technical challenges discovered during implementation
+- Emerging technologies (AI, quantum, blockchain alternatives)
+- Community contributions
+
+**Adaptability over perfection.** We build for the next 1-5 years, not 50.
+
+---
+
+**Last Updated**: 2026-02-23
+**Current Phase**: Post-I-1 Complete (Frictionless Relay Pairing + Daemon-Centric + Reachability Grade).
+**Phase count**: 4C-4I (7 phases, down from 9 - file sharing and service templates merged into plugin architecture)
+**Next Milestone**: Batch L (PeerManager / AddrMan)
+**Future milestones**: L (PeerManager) -> N (ZKP Privacy) -> J (Visual Channel)
+**Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
