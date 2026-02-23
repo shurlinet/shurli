@@ -88,10 +88,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-23
-**Current Phase**: Phase 4C Complete. Phase 5 (Network Intelligence) next.
-**Phases**: 1-4C (complete), 5 (Network Intelligence), 6-11 (planned), 12+ (ecosystem)
-**Next Milestone**: Phase 5 - mDNS (5-K), PeerManager (5-L), GossipSub (5-M)
-**Future milestones**: Phase 5 (Network Intelligence) -> Phase 6 (Plugins) -> Phase 7 (Distribution)
-**Research**: N (ZKP Privacy - watching for trustless ZKP in Go) -> J (Visual Channel - future)
-**Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
+*Last updated: 2026-02-23. Current: Phase 4C complete. Next: Phase 5 (Network Intelligence).*

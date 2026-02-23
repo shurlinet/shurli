@@ -71,7 +71,7 @@
   <!-- Direct arrow -->
   <line x1="540" y1="140" x2="540" y2="180" stroke="#9ece6a" stroke-width="2.5" filter="url(#glow)"/>
   <polygon points="535,176 545,176 540,184" fill="#9ece6a"/>
-  <text x="570" y="165" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">2.0 ms</text>
+  <text x="558" y="163" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">2.0 ms</text>
 
   <!-- Home (right) -->
   <rect x="490" y="186" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.2"/>
