@@ -586,7 +586,7 @@ This complements the userspace hardening (Resource Manager, per-peer limits) wit
 **Who has this**: Cloudflare's MASQUE relays, QUIC-native applications.
 **Who doesn't**: WireGuard (stateless, reconnects fast but not 0-RTT), all current P2P tunnel tools.
 
-This is a future optimization for peer-up's QUIC transport - particularly valuable for mobile clients (Phase 4G).
+This is a future optimization for peer-up's QUIC transport - particularly valuable for mobile clients (Phase 9).
 
 ---
 
@@ -625,8 +625,8 @@ At scale - when a relay server handles thousands of concurrent circuits, or when
 ### The hybrid strategy
 
 peer-up's planned approach:
-1. **Now through Phase 4E**: Ship in Go. Fix goroutine lifecycle, tune GC, add observability.
-2. **Phase 4F+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
+1. **Now through Phase 7**: Ship in Go. Fix goroutine lifecycle, tune GC, add observability.
+2. **Phase 8+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
 3. **Long-term**: Re-evaluate full Rust migration only if market demands 100x throughput and there's engineering capacity for it.
 
 **Sources**: [Rust vs Go (Bitfield)](https://bitfieldconsulting.com/posts/rust-vs-go), [Go GC Guide](https://tip.golang.org/doc/gc-guide), [Iroh roadmap](https://www.iroh.computer/roadmap)
