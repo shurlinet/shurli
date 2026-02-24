@@ -584,10 +584,14 @@ func (rt *serveRuntime) SetupPeerNotify() {
 				auth.SetPeerAttr(rt.authKeys, p.PeerID, "hmac_proof", hex.EncodeToString(p.HMACProof))
 			}
 
-			// Add name mapping to config so `ping <name>` works.
+			// Add name mapping to config and live resolver so `ping <name>` works
+			// without a daemon restart.
 			if p.Name != "" {
 				configDir := filepath.Dir(rt.configFile)
 				updateConfigNames(rt.configFile, configDir, p.Name, p.PeerID)
+				if pid, err := peer.Decode(p.PeerID); err == nil {
+					rt.network.RegisterName(p.Name, pid)
+				}
 			}
 			added++
 
