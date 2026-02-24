@@ -583,6 +583,12 @@ func (rt *serveRuntime) SetupPeerNotify() {
 			if len(p.HMACProof) == relay.HMACProofSize {
 				auth.SetPeerAttr(rt.authKeys, p.PeerID, "hmac_proof", hex.EncodeToString(p.HMACProof))
 			}
+
+			// Add name mapping to config so `ping <name>` works.
+			if p.Name != "" {
+				configDir := filepath.Dir(rt.configFile)
+				updateConfigNames(rt.configFile, configDir, p.Name, p.PeerID)
+			}
 			added++
 
 			// Record introduction in sovereign history.
