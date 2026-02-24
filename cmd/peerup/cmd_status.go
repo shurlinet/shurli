@@ -86,10 +86,14 @@ func doStatus(args []string, stdout io.Writer) error {
 				if len(short) > 16 {
 					short = short[:16] + "..."
 				}
+				badge := "[UNVERIFIED]"
+				if p.Verified != "" {
+					badge = "[VERIFIED]"
+				}
 				if p.Comment != "" {
-					fmt.Fprintf(stdout, "  %s  # %s\n", short, p.Comment)
+					fmt.Fprintf(stdout, "  %s %s  # %s\n", badge, short, p.Comment)
 				} else {
-					fmt.Fprintf(stdout, "  %s\n", short)
+					fmt.Fprintf(stdout, "  %s %s\n", badge, short)
 				}
 			}
 		}

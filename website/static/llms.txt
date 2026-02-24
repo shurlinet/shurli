@@ -10,12 +10,12 @@ Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pai
 
 - [Architecture](https://peerup.dev/docs/architecture/): Component overview, network topology, auth flow, service exposure, daemon architecture, security model, naming system (planned tiers), federation model (planned), mobile architecture (planned)
 - [Quick Start](https://peerup.dev/docs/quick-start/): Install, init, invite/join, proxy setup - get two machines connected in 60 seconds
-- [Daemon API](https://peerup.dev/docs/daemon-api/): 14 REST endpoints over Unix socket - status, peers, services, auth CRUD, ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose, shutdown
+- [Daemon API](https://peerup.dev/docs/daemon-api/): 15 REST endpoints over Unix socket - status, peers, services, auth CRUD, paths, ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose, shutdown
 - [Network Tools](https://peerup.dev/docs/network-tools/): P2P ping (continuous, stats), traceroute (hop analysis, DIRECT vs RELAYED), name resolution
 - [FAQ](https://peerup.dev/docs/faq/): How NAT traversal works, Circuit Relay v2, symmetric NAT, security model, comparison context
 - [Relay Setup](https://peerup.dev/docs/relay-setup/): Deploy your own relay server on a VPS - setup script, systemd service, security checklist, troubleshooting
 - [Testing](https://peerup.dev/docs/testing/): Unit tests, Docker integration tests, coverage reporting
-- [Roadmap](https://peerup.dev/docs/roadmap/): Full multi-phase plan - Phase 4D (plugins/SDK), 4E (distribution), 4F (gateway daemon), 4G (mobile), 4H (federation), 4I (naming)
+- [Roadmap](https://peerup.dev/docs/roadmap/): Full multi-phase plan - Phase 5 (network intelligence: mDNS, PeerManager, GossipSub), Phase 6 (plugins/SDK), Phase 7 (distribution), Phase 8 (gateway), Phase 9 (mobile), Phase 10 (federation), Phase 11 (naming)
 
 ## Code
 

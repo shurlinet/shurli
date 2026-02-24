@@ -55,6 +55,8 @@ func runRelay(args []string) {
 		runRelayListPeers(serverConfigFile)
 	case "info":
 		runRelayInfo(serverConfigFile)
+	case "pair":
+		runRelayPair(args[1:], serverConfigFile)
 	case "config":
 		runRelayServerConfig(args[1:], serverConfigFile)
 	case "version":
@@ -179,31 +181,61 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 	added := false
 
 	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Handle "addresses: []" inline empty array.
+		if !added && trimmedLine == "addresses: []" {
+			idx := strings.Index(line, "addresses:")
+			result = append(result, line[:idx]+"addresses:")
+			for _, addr := range toAdd {
+				result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+			}
+			added = true
+			for k := i + 1; k < len(lines); k++ {
+				result = append(result, lines[k])
+			}
+			break
+		}
+
 		result = append(result, line)
-		// Find the last `- "..."` line under relay.addresses and insert after it
-		if !added && strings.TrimSpace(line) == "addresses:" {
-			// Scan forward to find the last `- ` entry in this list
+
+		// Find relay.addresses and insert new entries.
+		if !added && trimmedLine == "addresses:" {
+			// Scan forward to find existing entries.
+			hasEntries := false
 			insertIdx := len(result) - 1
 			for j := i + 1; j < len(lines); j++ {
 				trimmed := strings.TrimSpace(lines[j])
 				if strings.HasPrefix(trimmed, "- ") {
 					insertIdx = len(result) + (j - i - 1)
+					hasEntries = true
 				} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 					break
 				}
 			}
-			// We'll mark where to insert; process remaining lines up to insertIdx
-			for k := i + 1; k < len(lines); k++ {
-				result = append(result, lines[k])
-				if len(result)-1 == insertIdx {
-					// Insert new addresses here
-					for _, addr := range toAdd {
-						result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+
+			if !hasEntries {
+				// Empty list: insert right after "addresses:" line.
+				for _, addr := range toAdd {
+					result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+				}
+				added = true
+				for k := i + 1; k < len(lines); k++ {
+					result = append(result, lines[k])
+				}
+			} else {
+				// Has entries: insert after the last entry.
+				for k := i + 1; k < len(lines); k++ {
+					result = append(result, lines[k])
+					if len(result)-1 == insertIdx {
+						for _, addr := range toAdd {
+							result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+						}
+						added = true
 					}
-					added = true
 				}
 			}
-			break // We've processed the rest of the file
+			break
 		}
 	}
 
@@ -266,12 +298,14 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay remove", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
+	forceFlag := fs.Bool("force", false, "remove even if it is the last relay address")
+	fs.BoolVar(forceFlag, "f", false, "shorthand for --force")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: peerup relay remove <multiaddr>")
+		return fmt.Errorf("usage: peerup relay remove [-f] <multiaddr>")
 	}
 
 	target := fs.Arg(0)
@@ -280,7 +314,7 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Check it exists
+	// Check it exists.
 	found := false
 	for _, addr := range cfg.Relay.Addresses {
 		if addr == target {
@@ -292,8 +326,9 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 		return fmt.Errorf("relay address not found in config: %s", truncateAddr(target))
 	}
 
-	if len(cfg.Relay.Addresses) == 1 {
-		return fmt.Errorf("cannot remove the last relay address. At least one relay is required")
+	// Guard against removing the last relay address without --force.
+	if len(cfg.Relay.Addresses) == 1 && !*forceFlag {
+		return fmt.Errorf("cannot remove the last relay address (the daemon needs at least one).\nUse --force (-f) to override.")
 	}
 
 	// Remove from config file

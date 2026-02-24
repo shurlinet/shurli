@@ -74,7 +74,7 @@ The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can for
 
 ### Grafana dashboard included
 
-A pre-built Grafana dashboard ships in `grafana/peerup-dashboard.json`. Import it into any Grafana instance to get 16 panels across 5 sections:
+A pre-built Grafana dashboard ships in `grafana/peerup-dashboard.json`. Import it into any Grafana instance to get 29 panels across 6 sections:
 
 - **Overview** - version, uptime, active connections, total bytes, auth summary
 - **Proxy Throughput** - bytes/sec per service, active connections, connection rate, session duration percentiles

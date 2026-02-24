@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
+  <defs>
+    <linearGradient id="phoneFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="stepFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="connectFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="380" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Mobile App Config Flow</text>
+  <!-- Planned badge -->
+  <rect x="545" y="10" width="140" height="22" rx="11" fill="#e0af68" opacity="0.15" stroke="#e0af68" stroke-width="1"/>
+  <text x="615" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 9</text>
+
+  <!-- Phone frame -->
+  <rect x="40" y="50" width="200" height="300" rx="20" fill="#1a1b26" stroke="#565f89" stroke-width="2"/>
+  <rect x="55" y="70" width="170" height="260" rx="8" fill="url(#phoneFill)"/>
+
+  <!-- App header -->
+  <text x="140" y="93" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">peer-up</text>
+  <line x1="60" y1="100" x2="220" y2="100" stroke="#565f89" stroke-width="0.5"/>
+
+  <!-- Config tree -->
+  <text x="75" y="120" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">Scan QR Code</text>
+  <text x="75" y="138" font-family="SF Mono, monospace" font-size="9" fill="#565f89">from peerup invite</text>
+
+  <text x="75" y="162" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">Or enter invite code:</text>
+  <rect x="70" y="170" width="140" height="24" rx="4" fill="#1e2140" stroke="#565f89" stroke-width="1"/>
+  <text x="80" y="186" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7">ABCX-7KMN-P2P3</text>
+
+  <!-- Connect button -->
+  <rect x="75" y="210" width="130" height="32" rx="6" fill="url(#connectFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="140" y="231" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">Connect</text>
+
+  <!-- Connected state -->
+  <line x1="60" y1="255" x2="220" y2="255" stroke="#565f89" stroke-width="0.5"/>
+  <text x="140" y="275" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">Connected</text>
+
+  <!-- Service list -->
+  <text x="80" y="295" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">SSH</text>
+  <circle cx="205" cy="292" r="4" fill="#9ece6a"/>
+  <text x="80" y="310" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Ollama</text>
+  <circle cx="205" cy="307" r="4" fill="#9ece6a"/>
+  <text x="80" y="325" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">XRDP</text>
+  <circle cx="205" cy="322" r="4" fill="#9ece6a"/>
+
+  <!-- Arrow from phone to services -->
+  <line x1="245" y1="200" x2="310" y2="200" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="307,196 307,204 315,200" fill="#7aa2f7"/>
+
+  <!-- Once connected section -->
+  <rect x="320" y="55" width="355" height="295" rx="10" fill="#1a1b26" stroke="#565f89" stroke-width="1"/>
+  <text x="497" y="78" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Once Connected</text>
+
+  <rect x="340" y="95" width="315" height="34" rx="6" fill="url(#stepFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="360" y="117" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">SSH clients work</text>
+  <text x="600" y="117" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">ssh user@home</text>
+
+  <rect x="340" y="140" width="315" height="34" rx="6" fill="url(#stepFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="360" y="162" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">Browsers work</text>
+  <text x="600" y="162" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">http://laptop:8080</text>
+
+  <rect x="340" y="185" width="315" height="34" rx="6" fill="url(#stepFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="360" y="207" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">Native apps work</text>
+  <text x="600" y="207" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">Plex :32400</text>
+
+  <rect x="340" y="230" width="315" height="34" rx="6" fill="url(#stepFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="360" y="252" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">Chat with home LLM</text>
+  <text x="600" y="252" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">Ollama API</text>
+
+  <!-- Platform badges -->
+  <rect x="340" y="285" width="80" height="38" rx="12" fill="#2d3561" stroke="#3b82f6" stroke-width="1"/>
+  <text x="380" y="301" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle">iOS</text>
+  <text x="380" y="315" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">NEPacketTunnel</text>
+
+  <rect x="440" y="285" width="80" height="38" rx="12" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1"/>
+  <text x="480" y="301" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle">Android</text>
+  <text x="480" y="315" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">VPNService</text>
+
+  <text x="665" y="301" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">Full TUN interface</text>
+  <text x="665" y="315" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">Virtual network</text>
+</svg>

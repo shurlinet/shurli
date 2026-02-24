@@ -190,12 +190,12 @@ func TestPAKEStreamSimulation(t *testing.T) {
 	joinerSession, _ := NewPAKESession()
 
 	// Step 2: Joiner sends [0x02][32-byte pubkey] to inviter
-	joinerToInviter.WriteByte(VersionV2)
+	joinerToInviter.WriteByte(VersionV1)
 	joinerToInviter.Write(joinerSession.PublicKey())
 
 	// Step 3: Inviter reads version + pubkey from joiner
 	versionByte, _ := joinerToInviter.ReadByte()
-	if versionByte != VersionV2 {
+	if versionByte != VersionV1 {
 		t.Fatalf("expected version 0x02, got 0x%02x", versionByte)
 	}
 	joinerPub, err := ReadPublicKey(joinerToInviter)
@@ -389,7 +389,7 @@ func TestPAKEWithIOPipe(t *testing.T) {
 			errCh <- err
 			return
 		}
-		if vBuf[0] != VersionV2 {
+		if vBuf[0] != VersionV1 {
 			errCh <- fmt.Errorf("expected v2, got %d", vBuf[0])
 			return
 		}
@@ -440,7 +440,7 @@ func TestPAKEWithIOPipe(t *testing.T) {
 		}
 
 		// Send version byte + our pubkey
-		if _, err := joinerToInviterW.Write([]byte{VersionV2}); err != nil {
+		if _, err := joinerToInviterW.Write([]byte{VersionV1}); err != nil {
 			errCh <- err
 			return
 		}

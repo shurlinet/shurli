@@ -18,6 +18,7 @@ The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix doma
   - [GET /v1/services](#get-v1services)
   - [GET /v1/peers](#get-v1peers)
   - [GET /v1/auth](#get-v1auth)
+  - [GET /v1/paths](#get-v1paths)
   - [POST /v1/auth](#post-v1auth)
   - [DELETE /v1/auth/{peer_id}](#delete-v1authpeer_id)
   - [POST /v1/ping](#post-v1ping)
@@ -39,7 +40,7 @@ The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix doma
 
 The daemon runs the full P2P lifecycle (relay connection, DHT bootstrap, service exposure, watchdog) plus an HTTP server on a Unix socket.
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
 
 **Default paths**:
 - Socket: `~/.config/peerup/peerup.sock` (permissions `0600`)
@@ -130,7 +131,7 @@ peerup daemon status --json   # raw JSON
 
 ### GET /v1/status
 
-Returns daemon status: peer ID, version, uptime, connected peers, addresses, services count.
+Returns daemon status: peer ID, version, uptime, connected peers, addresses, services count, network capabilities, and reachability grade.
 
 **Response (JSON)**:
 
@@ -148,7 +149,17 @@ Returns daemon status: peer ID, version, uptime, connected peers, addresses, ser
     "relay_addresses": [
       "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWK.../p2p-circuit"
     ],
-    "services_count": 2
+    "services_count": 2,
+    "has_global_ipv6": true,
+    "has_global_ipv4": false,
+    "nat_type": "port-restricted",
+    "stun_external_addrs": ["203.0.113.50:12345"],
+    "is_relaying": false,
+    "reachability": {
+      "grade": "A",
+      "label": "Excellent",
+      "description": "Public IPv6 detected"
+    }
   }
 }
 ```
@@ -258,7 +269,7 @@ peerup daemon peers --all    # all peers including DHT neighbors
 
 ### GET /v1/auth
 
-Lists authorized peers from the `authorized_keys` file.
+Lists authorized peers from the `authorized_keys` file. Includes verification status and expiry if set.
 
 **Response (JSON)**:
 
@@ -267,16 +278,71 @@ Lists authorized peers from the `authorized_keys` file.
   "data": [
     {
       "peer_id": "12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6",
-      "comment": "laptop"
+      "comment": "laptop",
+      "verified": "sha256:a1b2c3d4",
+      "expires_at": ""
+    },
+    {
+      "peer_id": "12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt",
+      "comment": "contractor-bob",
+      "verified": "",
+      "expires_at": "2026-03-15T00:00:00Z"
     }
   ]
 }
 ```
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_id` | string | The peer's libp2p ID |
+| `comment` | string | Human-readable label (from `# comment` in authorized_keys) |
+| `verified` | string | SAS verification fingerprint prefix, empty if unverified |
+| `expires_at` | string | RFC3339 expiry timestamp, empty if never expires |
+
 **Response (Text)**:
 
 ```
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6	# laptop
+```
+
+---
+
+### GET /v1/paths
+
+Lists active connection paths to all connected peers, including path type, transport, IP version, and latency.
+
+**Response (JSON)**:
+
+```json
+{
+  "data": [
+    {
+      "peer_id": "12D3KooWPrmh163sTHW3mYQm7YsLsSR2wr71fPp4g6yjuGv3sGQt",
+      "path_type": "DIRECT",
+      "address": "/ip6/2001:db8::1/udp/9000/quic-v1",
+      "connected_at": "2026-02-23T10:30:00Z",
+      "transport": "quic",
+      "ip_version": "IPv6",
+      "last_rtt_ms": 6.1
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `peer_id` | string | The connected peer's ID |
+| `path_type` | string | `DIRECT` or `RELAYED` |
+| `address` | string | Multiaddr of the connection |
+| `connected_at` | string | RFC3339 timestamp of connection |
+| `transport` | string | `quic` or `tcp` |
+| `ip_version` | string | `IPv4` or `IPv6` |
+| `last_rtt_ms` | float | Last measured RTT in milliseconds (0 if unknown) |
+
+**Response (Text)**:
+
+```
+12D3KooWPrmh16...	DIRECT	quic	IPv6	rtt=6.1ms
 ```
 
 ---
@@ -768,4 +834,4 @@ This is more reliable than PID files, which can be stale themselves.
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-23

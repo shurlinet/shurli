@@ -13,13 +13,13 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// PAKE handshake for invite/join protocol v2.
+// PAKE handshake for invite/join protocol.
 //
 // Wire protocol:
-//   1. Joiner -> Inviter: [0x02] [32-byte X25519 public key]     (33 bytes)
+//   1. Joiner -> Inviter: [0x01] [32-byte X25519 public key]     (33 bytes)
 //   2. Inviter -> Joiner: [32-byte X25519 public key]             (32 bytes)
 //      Both compute: shared = X25519(myPrivate, theirPublic)
-//      Both derive:  key = HKDF-SHA256(shared || token, "peerup-invite-v2")
+//      Both derive:  key = HKDF-SHA256(shared || token, "peerup-invite-v1")
 //   3. Joiner -> Inviter: [length-prefixed AEAD encrypted message]
 //   4. Inviter -> Joiner: [length-prefixed AEAD encrypted message]
 //
@@ -29,16 +29,16 @@ import (
 
 const (
 	// pakeInfo is the HKDF info string for deriving the session key.
-	pakeInfo = "peerup-invite-v2"
+	pakeInfo = "peerup-invite-v1"
 
 	// maxEncryptedMsgLen caps the length of a single encrypted message
 	// to prevent memory exhaustion from a malicious peer.
 	maxEncryptedMsgLen = 4096
 
-	// VersionV1 identifies the original cleartext invite protocol.
+	// VersionV1 identifies the PAKE-secured invite protocol (peer-to-peer).
 	VersionV1 byte = 0x01
 
-	// VersionV2 identifies the PAKE-secured invite protocol.
+	// VersionV2 identifies the relay pairing protocol (relay-mediated).
 	VersionV2 byte = 0x02
 )
 

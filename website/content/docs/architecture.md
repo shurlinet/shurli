@@ -11,14 +11,14 @@ This document describes the technical architecture of peer-up, from current impl
 ## Table of Contents
 
 - [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
-- [Target Architecture (Phase 4D+)](#target-architecture-phase-4d) - planned additions
+- [Target Architecture (Phase 6+)](#target-architecture-phase-6) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 4H)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 4G)
+- [Federation Model](#federation-model) - planned (Phase 10)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 9)
 
 ---
 
@@ -48,9 +48,14 @@ peer-up/
 │   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake (--non-interactive)
 │   │   ├── cmd_join.go      # Decode invite, connect, auto-configure (--non-interactive, env var)
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
+│   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
+│   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
+│   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
-│   │   └── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
-│   │   └── cmd_relay_serve.go # Relay server: serve/authorize/info/config
+│   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
+│   │   └── exit.go          # Testable os.Exit wrapper
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
@@ -60,6 +65,8 @@ peer-up/
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── verify.go            # SAS verification helpers (emoji fingerprints)
+│   ├── reachability.go      # Reachability grade calculation (A-F scale)
 │   ├── interfaces.go        # Interface discovery, IPv6/IPv4 classification
 │   ├── pathdialer.go        # Parallel dial racing (direct + relay, first wins)
 │   ├── pathtracker.go       # Per-peer path quality tracking (event-bus driven)
@@ -92,8 +99,17 @@ peer-up/
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
 │   ├── identity/            # Ed25519 identity management (shared by peerup + relay-server)
 │   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
-│   ├── invite/              # Invite code encoding/decoding
-│   │   └── code.go          # Binary → base32 with dash grouping
+│   ├── invite/              # Invite code encoding + PAKE handshake
+│   │   ├── code.go          # Binary -> base32 with dash grouping
+│   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
+│   ├── relay/               # Relay pairing, admin socket, peer introductions
+│   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
+│   │   ├── pairing.go       # Relay pairing protocol (/peerup/relay-pair/1.0.0)
+│   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/peerup/peer-notify/1.0.0)
+│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair)
+│   │   └── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   ├── reputation/           # Peer interaction tracking
+│   │   └── history.go       # Append-only interaction log per peer (foundation for PeerManager)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
 │   │   ├── qrcode.go        # Public API: New(), Bitmap(), ToSmallString()
 │   │   ├── encoder.go       # Data encoding (numeric, alphanumeric, byte modes)
@@ -104,14 +120,15 @@ peer-up/
 │   ├── termcolor/           # Minimal ANSI terminal colors (replaces fatih/color)
 │   │   └── color.go         # Green, Red, Yellow, Faint - respects NO_COLOR
 │   ├── validate/            # Input validation helpers
-│   │   └── validate.go      # ServiceName() - DNS-label format for protocol IDs
+│   │   ├── service.go        # ServiceName() - DNS-label format for protocol IDs
+│   │   ├── network.go        # Network address validation (multiaddr, IP, port)
+│   │   └── errors.go         # Sentinel errors
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
 ├── relay-server/            # Deployment artifacts
 │   ├── setup.sh             # Deploy/verify/uninstall (builds peerup, runs relay serve)
-│   ├── relay-server.service # systemd unit template (installed as peerup-relay.service)
-│   └── relay-server.sample.yaml
+│   └── relay-server.service # systemd unit template (installed as peerup-relay.service)
 │
 ├── deploy/                  # Service management files
 │   ├── peerup-daemon.service   # systemd unit for daemon (Linux)
@@ -125,10 +142,13 @@ peer-up/
 ├── docs/                    # Project documentation
 │   ├── ARCHITECTURE.md      # This file
 │   ├── DAEMON-API.md        # Daemon API reference
+│   ├── ENGINEERING-JOURNAL.md # Phase-by-phase engineering decisions
+│   ├── MONITORING.md        # Prometheus + Grafana monitoring guide
 │   ├── NETWORK-TOOLS.md     # Network diagnostic tools guide
-│   ├── FAQ.md
 │   ├── ROADMAP.md
-│   └── TESTING.md
+│   ├── TESTING.md
+│   ├── engineering-journal/ # Detailed per-phase journal entries
+│   └── faq/               # FAQ sub-pages (comparisons, security, relay, design, deep dives)
 │
 └── examples/                # Example implementations
     └── basic-service/
@@ -158,7 +178,7 @@ peerup auth remove <peer-id>
 Machine A: peerup invite --name home     # Generates invite code + QR
 Machine B: peerup join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
 ```
-The invite protocol uses PAKE-secured key exchange (v2): ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Legacy v1 cleartext exchange is supported for backward compatibility (auto-detected by version byte).
+The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Version byte: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Legacy cleartext protocol was deleted (zero downgrade surface).
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
@@ -167,7 +187,7 @@ echo "12D3KooW... # home-server" >> ~/.config/peerup/authorized_keys
 
 ---
 
-## Target Architecture (Phase 4D+)
+## Target Architecture (Phase 6+)
 
 ### Planned Additions
 
@@ -179,12 +199,12 @@ peer-up/
 │   ├── peerup/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 4F: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 8: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 4D: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 4H: Network peering
+│   ├── interfaces.go        # 🆕 Phase 6: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 10: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -192,10 +212,10 @@ peer-up/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 4D: File transfer plugin
-│   └── tun/                 # 🆕 Phase 4F: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 6: File transfer plugin
+│   └── tun/                 # 🆕 Phase 8: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 4G: Mobile apps
+├── mobile/                  # 🆕 Phase 9: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -208,7 +228,7 @@ peer-up/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 4F)** - not yet implemented. See [Roadmap Phase 4F](../roadmap/) for details.
+> **Status: Planned (Phase 8)** - not yet implemented. See [Roadmap Phase 8](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -216,7 +236,7 @@ peer-up/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 14 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
 
 `peerup daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -271,7 +291,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-14 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
+15 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
 
 ### Dynamic Proxy Management
 
@@ -382,7 +402,7 @@ Custom peerup metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 16 panels across 5 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/peerup-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`, `grafana/peerup-dashboard.json`
 
@@ -502,7 +522,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 4D/4I)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 4I](../roadmap/).
+> **Planned (Phase 6/11)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 11](../roadmap/).
 
 ---
 
@@ -543,7 +563,7 @@ The ACL check runs in the stream handler before dialing the local TCP service, s
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 4H](../roadmap/).
+> **Status: Planned (Phase 10)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 10](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -564,13 +584,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `peerup invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 4F/4I.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `peerup invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 8/11.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](/images/docs/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 4F/4I)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 8/11)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -586,7 +606,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 4H)** - not yet implemented. See [Roadmap Phase 4H](../roadmap/).
+> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](../roadmap/).
 
 ### Relay Peering
 
@@ -596,7 +616,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 4G)** - not yet implemented. See [Roadmap Phase 4G](../roadmap/).
+> **Status: Planned (Phase 9)** - not yet implemented. See [Roadmap Phase 9](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -640,7 +660,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 5+.
+> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 12+.
 
 ---
 
@@ -776,7 +796,7 @@ Validated at four points:
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
 
-**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ](../faq/#how-does-ethereums-p2p-network-compare-to-peer-ups) for detailed comparisons.
+**Why libp2p**: peer-up's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ comparisons](../faq/comparisons/#how-do-p2p-networking-stacks-compare) for detailed comparisons.
 
 **Optional**:
 - Ethereum (blockchain naming)
@@ -785,5 +805,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-22
-**Architecture Version**: 3.0 (Batch I adaptive path selection, dial racing flow, observability + daemon diagrams added)
+**Last Updated**: 2026-02-25
+**Architecture Version**: 3.2 (Post-I-2 peer-notify, relay admin socket, HMAC proofs, CGNAT detection, cross-network hardening)

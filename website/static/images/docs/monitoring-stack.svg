@@ -61,7 +61,7 @@
   <polygon points="267,182 273,185 267,188" fill="#e0af68"/>
 
   <!-- "scrape" label -->
-  <text x="240" y="138" font-family="ui-monospace, monospace" font-size="7" fill="#e0af68" text-anchor="middle" transform="rotate(-12, 240, 138)">scrape</text>
+  <text x="232" y="122" font-family="ui-monospace, monospace" font-size="7" fill="#e0af68" text-anchor="middle">scrape</text>
 
   <!-- Grafana (right) -->
   <rect x="540" y="100" width="200" height="130" rx="8" fill="url(#grafFill)" stroke="#7aa2f7" stroke-width="1.5"/>

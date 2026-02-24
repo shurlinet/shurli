@@ -44,6 +44,7 @@ func run(args []string) error {
 	if !*dryRun {
 		os.MkdirAll(outDir, 0755)
 		os.MkdirAll(filepath.Join(outDir, "engineering-journal"), 0755)
+		os.MkdirAll(filepath.Join(outDir, "faq"), 0755)
 		os.MkdirAll(filepath.Join(websiteDir, "static", "images", "docs"), 0755)
 	}
 
@@ -70,7 +71,15 @@ func run(args []string) error {
 		count++
 	}
 
-	// 5. Sync engineering journal
+	// 5. Sync FAQ sub-pages
+	faqOutDir := filepath.Join(outDir, "faq")
+	for _, entry := range faqEntries {
+		if syncFaqEntry(docsDir, faqOutDir, entry, *dryRun) {
+			count++
+		}
+	}
+
+	// 6. Sync engineering journal
 	journalOutDir := filepath.Join(outDir, "engineering-journal")
 	for _, entry := range journalEntries {
 		if syncJournalEntry(docsDir, journalOutDir, entry, *dryRun) {
@@ -78,7 +87,7 @@ func run(args []string) error {
 		}
 	}
 
-	// 6. Generate llms-full.txt
+	// 7. Generate llms-full.txt
 	if generateLLMSFull(root, docsDir, websiteDir, *dryRun) {
 		count++
 	}
@@ -207,6 +216,12 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 		return false
 	}
 
+	// Also extract the Disclaimer section and append it
+	disclaimer := extractSection(string(data), "Disclaimer")
+	if disclaimer != "" {
+		body += "\n## Disclaimer\n" + disclaimer
+	}
+
 	body = promoteHeadings(body)
 	body = rewriteQuickStartLinks(body)
 
@@ -294,6 +309,44 @@ func syncJournalEntry(docsDir, journalOutDir string, entry journalEntry, dryRun 
 	return true
 }
 
+// syncFaqEntry syncs a single FAQ sub-page file.
+func syncFaqEntry(docsDir, faqOutDir string, entry journalEntry, dryRun bool) bool {
+	srcPath := filepath.Join(docsDir, "faq", entry.Source)
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		fmt.Printf("  SKIP faq/%s (not found)\n", entry.Source)
+		return false
+	}
+
+	body := stripFirstHeading(string(data))
+	body = rewriteFaqImagePaths(body)
+	body = rewriteFaqDocLinks(body)
+
+	// README.md becomes _index.md with .md->directory link rewriting
+	outName := entry.Source
+	if entry.Source == "README.md" {
+		outName = "_index.md"
+		body = rewriteJournalMdToDir(body)
+	}
+
+	output := buildFrontMatter(entry.Title, entry.Weight, entry.Description)
+	output += buildSyncComment("docs/faq/" + entry.Source)
+	output += "\n" + body
+
+	if dryRun {
+		fmt.Printf("  WOULD SYNC faq/%s -> faq/%s\n", entry.Source, outName)
+		return true
+	}
+
+	dstPath := filepath.Join(faqOutDir, outName)
+	if err := os.WriteFile(dstPath, []byte(output), 0644); err != nil {
+		fmt.Printf("  ERROR faq/%s: %v\n", outName, err)
+		return false
+	}
+	fmt.Printf("  SYNC faq/%s -> faq/%s\n", entry.Source, outName)
+	return true
+}
+
 // generateLLMSFull concatenates all docs into website/static/llms-full.txt.
 func generateLLMSFull(root, docsDir, websiteDir string, dryRun bool) bool {
 	if dryRun {
@@ -310,6 +363,11 @@ func generateLLMSFull(root, docsDir, websiteDir string, dryRun bool) bool {
 	// Docs in user-journey order
 	for _, entry := range docEntries {
 		appendFile(&b, filepath.Join(docsDir, entry.Source), separator)
+	}
+
+	// FAQ sub-pages in order
+	for _, entry := range faqEntries {
+		appendFile(&b, filepath.Join(docsDir, "faq", entry.Source), separator)
 	}
 
 	// Engineering journal in order

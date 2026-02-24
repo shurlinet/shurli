@@ -57,7 +57,7 @@
   <text x="420" y="145" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">HTTP/1.1 over Unix socket</text>
   <text x="420" y="165" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">Cookie-based auth (0600)</text>
   <text x="420" y="185" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">JSON + plain text output</text>
-  <text x="420" y="205" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">14 REST endpoints</text>
+  <text x="420" y="205" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7">15 REST endpoints</text>
 
   <!-- Arrow down-left: P2P Network -->
   <line x1="195" y1="244" x2="195" y2="280" stroke="#7aa2f7" stroke-width="1.5"/>

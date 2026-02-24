@@ -2,6 +2,7 @@ package auth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -140,5 +141,165 @@ func TestInterceptUpgraded(t *testing.T) {
 	}
 	if reason != 0 {
 		t.Errorf("reason = %d, want 0", reason)
+	}
+}
+
+// --- Enrollment mode tests ---
+
+func TestEnrollmentModeAdmitsProbation(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 5, 10*time.Second)
+
+	unknown := genPeerID(t)
+	cm := testConnMultiaddrs()
+
+	if !g.InterceptSecured(network.DirInbound, unknown, cm) {
+		t.Error("enrollment mode should admit unknown peer on probation")
+	}
+	if g.ProbationCount() != 1 {
+		t.Errorf("probation count = %d, want 1", g.ProbationCount())
+	}
+}
+
+func TestEnrollmentModeDisabledDenies(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	// Enrollment mode is off by default.
+
+	unknown := genPeerID(t)
+	cm := testConnMultiaddrs()
+
+	if g.InterceptSecured(network.DirInbound, unknown, cm) {
+		t.Error("should deny unknown peer when enrollment is off")
+	}
+}
+
+func TestEnrollmentModeLimitEnforced(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 2, 10*time.Second)
+
+	cm := testConnMultiaddrs()
+	// Admit 2 peers (limit).
+	g.InterceptSecured(network.DirInbound, genPeerID(t), cm)
+	g.InterceptSecured(network.DirInbound, genPeerID(t), cm)
+
+	// Third should be denied.
+	third := genPeerID(t)
+	if g.InterceptSecured(network.DirInbound, third, cm) {
+		t.Error("should deny when probation limit reached")
+	}
+}
+
+func TestPromotePeer(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 5, 10*time.Second)
+
+	p := genPeerID(t)
+	cm := testConnMultiaddrs()
+
+	g.InterceptSecured(network.DirInbound, p, cm)
+	if g.ProbationCount() != 1 {
+		t.Fatal("should be on probation")
+	}
+
+	g.PromotePeer(p)
+
+	if g.ProbationCount() != 0 {
+		t.Error("probation count should be 0 after promotion")
+	}
+	if !g.IsAuthorized(p) {
+		t.Error("promoted peer should be authorized")
+	}
+}
+
+func TestCleanupProbation(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 5, 10*time.Millisecond)
+
+	p := genPeerID(t)
+	cm := testConnMultiaddrs()
+	g.InterceptSecured(network.DirInbound, p, cm)
+
+	time.Sleep(20 * time.Millisecond)
+
+	var evicted []peer.ID
+	g.CleanupProbation(func(id peer.ID) {
+		evicted = append(evicted, id)
+	})
+
+	if len(evicted) != 1 || evicted[0] != p {
+		t.Errorf("should evict 1 peer, got %d", len(evicted))
+	}
+	if g.ProbationCount() != 0 {
+		t.Error("probation should be empty after cleanup")
+	}
+}
+
+func TestDisableEnrollmentClearsProbation(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 5, 10*time.Second)
+
+	cm := testConnMultiaddrs()
+	g.InterceptSecured(network.DirInbound, genPeerID(t), cm)
+	g.InterceptSecured(network.DirInbound, genPeerID(t), cm)
+
+	g.SetEnrollmentMode(false, 0, 0)
+
+	if g.ProbationCount() != 0 {
+		t.Error("disabling enrollment should clear probation peers")
+	}
+	if g.IsEnrollmentEnabled() {
+		t.Error("enrollment should be disabled")
+	}
+}
+
+// --- Expiry tests ---
+
+func TestExpiredPeerDenied(t *testing.T) {
+	p := genPeerID(t)
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{p: true})
+	g.SetPeerExpiry(p, time.Now().Add(-time.Hour)) // expired 1 hour ago
+
+	cm := testConnMultiaddrs()
+	if g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("expired peer should be denied")
+	}
+}
+
+func TestNonExpiredPeerAllowed(t *testing.T) {
+	p := genPeerID(t)
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{p: true})
+	g.SetPeerExpiry(p, time.Now().Add(time.Hour)) // expires in 1 hour
+
+	cm := testConnMultiaddrs()
+	if !g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("non-expired peer should be allowed")
+	}
+}
+
+func TestNoExpiryPeerAllowed(t *testing.T) {
+	p := genPeerID(t)
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{p: true})
+	// No SetPeerExpiry call = no expiry
+
+	cm := testConnMultiaddrs()
+	if !g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("peer with no expiry should be allowed")
+	}
+}
+
+func TestClearExpiry(t *testing.T) {
+	p := genPeerID(t)
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{p: true})
+	g.SetPeerExpiry(p, time.Now().Add(-time.Hour)) // expired
+
+	cm := testConnMultiaddrs()
+	if g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("should be denied while expired")
+	}
+
+	// Clear expiry.
+	g.SetPeerExpiry(p, time.Time{})
+	if !g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("should be allowed after clearing expiry")
 	}
 }

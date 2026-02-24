@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +27,8 @@ import (
 
 	"github.com/satindergrewal/peer-up/internal/auth"
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/relay"
+	"github.com/satindergrewal/peer-up/internal/reputation"
 	"github.com/satindergrewal/peer-up/internal/watchdog"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
@@ -61,6 +65,9 @@ type serveRuntime struct {
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
 	metricsServer *http.Server
+
+	// Sovereign per-peer interaction history
+	peerHistory *reputation.PeerHistory
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -180,6 +187,10 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 
 	fmt.Printf("Peer ID: %s\n", net.Host().ID())
 	fmt.Println()
+
+	// Initialize sovereign peer interaction history.
+	historyPath := filepath.Join(filepath.Dir(cfgFile), "peer_history.json")
+	rt.peerHistory = reputation.NewPeerHistory(historyPath)
 
 	return rt, nil
 }
@@ -399,11 +410,33 @@ func (rt *serveRuntime) Bootstrap() error {
 			go func() {
 				probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
 				defer probeCancel()
-				if _, err := rt.stunProber.Probe(probeCtx); err != nil {
+				result, err := rt.stunProber.Probe(probeCtx)
+				if err != nil {
 					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
+				} else {
+					result.DetectCGNAT()
 				}
 			}()
 		}
+
+		// Delayed stale-address check: after libp2p has time to update,
+		// warn if it still advertises addresses for removed interfaces.
+		go func() {
+			time.Sleep(10 * time.Second)
+			sysIPs := currentSystemIPs()
+			for _, addr := range h.Addrs() {
+				addrStr := addr.String()
+				if strings.Contains(addrStr, "/p2p-circuit") {
+					continue
+				}
+				if ip := extractIPFromMultiaddr(addrStr); ip != nil {
+					if _, ok := sysIPs[ip.String()]; !ok {
+						slog.Warn("stale address detected after network change",
+							"addr", addrStr, "ip", ip.String())
+					}
+				}
+			}
+		}()
 	}, rt.metrics)
 	go netmon.Run(rt.ctx)
 
@@ -418,11 +451,16 @@ func (rt *serveRuntime) Bootstrap() error {
 			fmt.Printf("Warning: STUN probe failed: %v\n", err)
 			return
 		}
+		// Check for CGNAT after probe completes.
+		result.DetectCGNAT()
+
 		fmt.Printf("NAT type: %s", result.NATType)
 		if len(result.ExternalAddrs) > 0 {
 			fmt.Printf(" (external: %s)", result.ExternalAddrs[0])
 		}
-		if result.NATType.HolePunchable() {
+		if result.BehindCGNAT {
+			fmt.Print(" [CGNAT]")
+		} else if result.NATType.HolePunchable() {
 			fmt.Print(" [hole-punchable]")
 		}
 		fmt.Println()
@@ -508,6 +546,168 @@ func (rt *serveRuntime) SetupPingPong() {
 	})
 }
 
+// SetupPeerNotify registers the peer-notify stream handler so the daemon
+// can receive peer introductions from the relay. This is the "mailbox
+// receiver" - when the relay delivers an introduction, the daemon
+// processes it and updates authorized_keys.
+func (rt *serveRuntime) SetupPeerNotify() {
+	if rt.authKeys == "" {
+		return // no authorized_keys = no gating = nothing to update
+	}
+
+	h := rt.network.Host()
+	h.SetStreamHandler(protocol.ID(relay.PeerNotifyProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		// SECURITY Layer 2: Only accept from configured relay peer IDs.
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("peer-notify: rejected from non-relay",
+				"peer", remotePeer.String()[:16]+"...")
+			return
+		}
+
+		// Parse notification.
+		peers, groupID, groupSize, err := relay.ReadPeerNotify(s)
+		if err != nil {
+			slog.Warn("peer-notify: parse error", "err", err)
+			return
+		}
+
+		// SECURITY Layer 3: Group ID validation - only accept for groups we participated in.
+		if !rt.hasGroupMembership(groupID) {
+			slog.Warn("peer-notify: unknown group", "group", groupID)
+			return
+		}
+
+		// SECURITY Layer 1: Group size enforcement.
+		existing := rt.countGroupPeers(groupID)
+		if existing+len(peers) >= groupSize {
+			slog.Warn("peer-notify: group size exceeded",
+				"group", groupID,
+				"existing", existing,
+				"incoming", len(peers),
+				"max", groupSize)
+			return
+		}
+
+		// Add each introduced peer to authorized_keys.
+		added := 0
+		for _, p := range peers {
+			comment := p.Name
+			if comment == "" {
+				comment = "introduced-" + time.Now().Format("2006-01-02")
+			}
+			alreadyExists := false
+			if err := auth.AddPeer(rt.authKeys, p.PeerID, comment); err != nil {
+				if strings.Contains(err.Error(), "already authorized") {
+					alreadyExists = true
+				} else {
+					slog.Error("peer-notify: add failed",
+						"peer", p.PeerID[:16]+"...", "err", err)
+					continue
+				}
+			}
+
+			// Always update attributes (even for existing peers that may
+			// be missing group/hmac from a previous incomplete pairing).
+			auth.SetPeerAttr(rt.authKeys, p.PeerID, "group", groupID)
+
+			// Store HMAC commitment proof if present (Layer 4 data).
+			if len(p.HMACProof) == relay.HMACProofSize {
+				auth.SetPeerAttr(rt.authKeys, p.PeerID, "hmac_proof", hex.EncodeToString(p.HMACProof))
+			}
+
+			// Add name mapping to config and live resolver so `ping <name>` works
+			// without a daemon restart.
+			if p.Name != "" {
+				configDir := filepath.Dir(rt.configFile)
+				updateConfigNames(rt.configFile, configDir, p.Name, p.PeerID)
+				if pid, err := peer.Decode(p.PeerID); err == nil {
+					rt.network.RegisterName(p.Name, pid)
+				}
+			}
+			if !alreadyExists {
+				added++
+			}
+
+			// Record introduction in sovereign history.
+			if rt.peerHistory != nil {
+				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "relay-pairing")
+			}
+
+			// SECURITY Layer 6: Audit logging.
+			slog.Info("peer-notify: peer introduced",
+				"name", p.Name,
+				"peer", p.PeerID[:16]+"...",
+				"group", groupID,
+				"relay", remotePeer.String()[:16]+"...")
+		}
+
+		// Hot-reload gater so new peers are immediately allowed.
+		if added > 0 && rt.gater != nil {
+			newPeers, err := auth.LoadAuthorizedKeys(rt.authKeys)
+			if err != nil {
+				slog.Error("peer-notify: gater reload failed", "err", err)
+			} else {
+				rt.gater.UpdateAuthorizedPeers(newPeers)
+				slog.Info("peer-notify: gater reloaded", "peers", len(newPeers))
+			}
+		}
+	})
+}
+
+// isConfiguredRelay checks if a peer ID matches one of the configured relay addresses.
+func (rt *serveRuntime) isConfiguredRelay(p peer.ID) bool {
+	for _, addr := range rt.config.Relay.Addresses {
+		maddr, err := ma.NewMultiaddr(addr)
+		if err != nil {
+			continue
+		}
+		ai, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		if ai.ID == p {
+			return true
+		}
+	}
+	return false
+}
+
+// hasGroupMembership checks if this peer participated in the given pairing group.
+// Returns true if any peer in authorized_keys has a matching group attribute.
+func (rt *serveRuntime) hasGroupMembership(groupID string) bool {
+	entries, err := auth.ListPeers(rt.authKeys)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Group == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+// countGroupPeers counts how many non-relay peers in authorized_keys belong to
+// the given group. The relay itself has a group annotation (for hasGroupMembership)
+// but is infrastructure, not a group member, so it must be excluded from the
+// size enforcement check.
+func (rt *serveRuntime) countGroupPeers(groupID string) int {
+	entries, err := auth.ListPeers(rt.authKeys)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.Group == groupID && !rt.isConfiguredRelay(e.PeerID) {
+			count++
+		}
+	}
+	return count
+}
+
 // StartWatchdog signals systemd readiness and starts health check loop.
 // Additional health checks can be passed for daemon-specific checks (e.g., socket alive).
 func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
@@ -528,6 +728,11 @@ func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
 		{
 			Name: "relay-reservation",
 			Check: func() error {
+				// Grace period: don't warn during the first 60s after startup.
+				// Bootstrap needs time to establish the relay reservation.
+				if time.Since(rt.startTime) < 60*time.Second {
+					return nil
+				}
 				for _, addr := range h.Addrs() {
 					if strings.Contains(addr.String(), "p2p-circuit") {
 						return nil
@@ -561,20 +766,18 @@ func (rt *serveRuntime) StartStatusPrinter() {
 			fmt.Printf("Peer ID: %s\n", h.ID())
 			fmt.Printf("Connected peers: %d\n", len(h.Network().Peers()))
 			fmt.Println("Addresses:")
+			currentIPs := currentSystemIPs()
 			for _, addr := range h.Addrs() {
-				label := "local"
-				addrStr := addr.String()
-				if strings.Contains(addrStr, "/p2p-circuit") {
-					label = "RELAY"
-				} else if !strings.Contains(addrStr, "/ip4/10.") &&
-					!strings.Contains(addrStr, "/ip4/192.168.") &&
-					!strings.Contains(addrStr, "/ip4/127.") &&
-					!strings.Contains(addrStr, "/ip6/::1") &&
-					!strings.Contains(addrStr, "/ip6/fe80") &&
-					!strings.Contains(addrStr, "/ip6/fd") {
-					label = "public"
+				label := classifyMultiaddr(addr.String())
+				// Cross-check non-relay addresses against actual interfaces.
+				if label != "RELAY" {
+					if ip := extractIPFromMultiaddr(addr.String()); ip != nil {
+						if _, ok := currentIPs[ip.String()]; !ok {
+							label += ",stale?"
+						}
+					}
 				}
-				fmt.Printf("  [%s] %s\n", label, addrStr)
+				fmt.Printf("  [%s] %s\n", label, addr.String())
 			}
 			fmt.Println("--------------")
 			select {
@@ -584,6 +787,57 @@ func (rt *serveRuntime) StartStatusPrinter() {
 			}
 		}
 	}()
+}
+
+// classifyMultiaddr returns a human-readable label for a multiaddr:
+// "RELAY", "public", or "local".
+func classifyMultiaddr(addrStr string) string {
+	if strings.Contains(addrStr, "/p2p-circuit") {
+		return "RELAY"
+	}
+	// Extract IP from multiaddr string (e.g. "/ip4/10.0.1.5/tcp/1234").
+	ip := extractIPFromMultiaddr(addrStr)
+	if ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !isCGNATAddr(ip) {
+		return "public"
+	}
+	return "local"
+}
+
+// extractIPFromMultiaddr parses the IP address from a multiaddr string.
+func extractIPFromMultiaddr(addrStr string) net.IP {
+	parts := strings.Split(addrStr, "/")
+	for i, p := range parts {
+		if (p == "ip4" || p == "ip6") && i+1 < len(parts) {
+			return net.ParseIP(parts[i+1])
+		}
+	}
+	return nil
+}
+
+// currentSystemIPs returns a set of all IP addresses currently assigned to
+// system interfaces (including private). Used to detect stale libp2p addresses
+// after network interface changes.
+func currentSystemIPs() map[string]struct{} {
+	ips := make(map[string]struct{})
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, a := range addrs {
+		if ipNet, ok := a.(*net.IPNet); ok {
+			ips[ipNet.IP.String()] = struct{}{}
+		}
+	}
+	return ips
+}
+
+// isCGNATAddr checks if an IP is in the CGNAT range (100.64.0.0/10, RFC 6598).
+func isCGNATAddr(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
 }
 
 // ConnectToPeer ensures the host can reach the target peer using parallel
@@ -626,9 +880,37 @@ func (rt *serveRuntime) StartMetricsServer() {
 	}()
 }
 
+// StartPeerHistorySaver runs a background goroutine that periodically saves
+// the peer interaction history to disk.
+func (rt *serveRuntime) StartPeerHistorySaver() {
+	if rt.peerHistory == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case <-ticker.C:
+				if err := rt.peerHistory.Save(); err != nil {
+					slog.Warn("peer-history: save failed", "err", err)
+				}
+			}
+		}
+	}()
+}
+
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	// Save peer history before exit.
+	if rt.peerHistory != nil {
+		if err := rt.peerHistory.Save(); err != nil {
+			slog.Warn("peer-history: final save failed", "err", err)
+		}
+	}
 	if rt.peerRelay != nil {
 		rt.peerRelay.Disable()
 	}

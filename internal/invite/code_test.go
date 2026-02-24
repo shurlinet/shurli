@@ -18,9 +18,7 @@ func generateTestPeerID(t *testing.T) peer.ID {
 const testRelayAddr = "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWRzaGMTqQbRHNMZkAYj8ALUXoK99qSjhiFLanDoVWK9An"
 const testRelayAddr2 = "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWQvzCBP1MdU6g3UC6rUwHtDkbMUWQKDapmHqQFPqZqTn7"
 
-// --- v2 (default) tests ---
-
-func TestV2EncodeDecodeRoundTrip(t *testing.T) {
+func TestEncodeDecodeRoundTrip(t *testing.T) {
 	pid := generateTestPeerID(t)
 	token, err := GenerateToken()
 	if err != nil {
@@ -37,15 +35,15 @@ func TestV2EncodeDecodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	t.Logf("v2 invite code (%d chars): %s", len(code), code)
+	t.Logf("invite code (%d chars): %s", len(code), code)
 
 	decoded, err := Decode(code)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
 
-	if decoded.Version != VersionV2 {
-		t.Errorf("Version = %d, want %d", decoded.Version, VersionV2)
+	if decoded.Version != VersionV1 {
+		t.Errorf("Version = %d, want %d", decoded.Version, VersionV1)
 	}
 	if token != decoded.Token {
 		t.Errorf("Token mismatch")
@@ -61,7 +59,7 @@ func TestV2EncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestV2WithNamespace(t *testing.T) {
+func TestEncodeDecodeWithNamespace(t *testing.T) {
 	pid := generateTestPeerID(t)
 	token, _ := GenerateToken()
 
@@ -76,15 +74,15 @@ func TestV2WithNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	t.Logf("v2 invite code with namespace (%d chars): %s", len(code), code)
+	t.Logf("invite code with namespace (%d chars): %s", len(code), code)
 
 	decoded, err := Decode(code)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
 
-	if decoded.Version != VersionV2 {
-		t.Errorf("Version = %d, want %d", decoded.Version, VersionV2)
+	if decoded.Version != VersionV1 {
+		t.Errorf("Version = %d, want %d", decoded.Version, VersionV1)
 	}
 	if decoded.Network != "my-crew" {
 		t.Errorf("Network = %q, want %q", decoded.Network, "my-crew")
@@ -94,7 +92,7 @@ func TestV2WithNamespace(t *testing.T) {
 	}
 }
 
-func TestV2NamespaceTooLong(t *testing.T) {
+func TestNamespaceTooLong(t *testing.T) {
 	pid := generateTestPeerID(t)
 	token, _ := GenerateToken()
 
@@ -110,48 +108,6 @@ func TestV2NamespaceTooLong(t *testing.T) {
 		t.Fatal("Encode should reject namespace > 63 chars")
 	}
 }
-
-// --- v1 backward compatibility tests ---
-
-func TestV1EncodeDecodeRoundTrip(t *testing.T) {
-	pid := generateTestPeerID(t)
-	token, _ := GenerateToken()
-
-	data := &InviteData{
-		Version:   VersionV1,
-		Token:     token,
-		RelayAddr: testRelayAddr,
-		PeerID:    pid,
-	}
-
-	code, err := Encode(data)
-	if err != nil {
-		t.Fatalf("Encode v1: %v", err)
-	}
-
-	decoded, err := Decode(code)
-	if err != nil {
-		t.Fatalf("Decode v1: %v", err)
-	}
-
-	if decoded.Version != VersionV1 {
-		t.Errorf("Version = %d, want %d", decoded.Version, VersionV1)
-	}
-	if token != decoded.Token {
-		t.Errorf("Token mismatch")
-	}
-	if data.RelayAddr != decoded.RelayAddr {
-		t.Errorf("RelayAddr mismatch")
-	}
-	if data.PeerID != decoded.PeerID {
-		t.Errorf("PeerID mismatch")
-	}
-	if decoded.Network != "" {
-		t.Errorf("v1 should have empty network, got %q", decoded.Network)
-	}
-}
-
-// --- Shared tests ---
 
 func TestTokenHex(t *testing.T) {
 	token, err := GenerateToken()
@@ -191,16 +147,10 @@ func TestDecodeInvalid(t *testing.T) {
 
 func TestDecodeFutureVersion(t *testing.T) {
 	// Version 0x03 should be rejected with a helpful message
-	_, err := Decode("AYAA") // version byte 0x03
-	if err == nil {
-		t.Error("expected error for future version")
-	}
-	// The base32 might not decode to a valid version byte, but let's test
-	// with a known prefix. Construct a raw payload with version 0x03.
-	raw := make([]byte, 20)
+	raw := make([]byte, 30)
 	raw[0] = 0x03
 	encoded := encoding.EncodeToString(raw)
-	_, err = Decode(encoded)
+	_, err := Decode(encoded)
 	if err == nil {
 		t.Error("expected error for version 3")
 	}
@@ -256,8 +206,8 @@ func TestDecodeRejectsTrailingJunk(t *testing.T) {
 	}
 }
 
-func TestV2GlobalNetworkOmitsNamespace(t *testing.T) {
-	// When Network is empty, v2 encodes namespace length as 0.
+func TestGlobalNetworkOmitsNamespace(t *testing.T) {
+	// When Network is empty, encodes namespace length as 0.
 	// Decoded code should have empty Network.
 	pid := generateTestPeerID(t)
 	token, _ := GenerateToken()
@@ -279,7 +229,7 @@ func TestV2GlobalNetworkOmitsNamespace(t *testing.T) {
 	}
 }
 
-func TestV2MaxNamespace(t *testing.T) {
+func TestMaxNamespace(t *testing.T) {
 	pid := generateTestPeerID(t)
 	token, _ := GenerateToken()
 
@@ -303,5 +253,127 @@ func TestV2MaxNamespace(t *testing.T) {
 	}
 	if decoded.Network != ns {
 		t.Errorf("namespace mismatch: got %q", decoded.Network)
+	}
+}
+
+// --- v2 relay pairing tests ---
+
+func TestV2EncodeDecodeRoundTrip(t *testing.T) {
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i + 1)
+	}
+
+	code, err := EncodeV2(token, testRelayAddr, "")
+	if err != nil {
+		t.Fatalf("EncodeV2: %v", err)
+	}
+	t.Logf("v2 invite code (%d chars): %s", len(code), code)
+
+	decoded, err := Decode(code)
+	if err != nil {
+		t.Fatalf("Decode v2: %v", err)
+	}
+
+	if decoded.Version != VersionV2 {
+		t.Errorf("Version = %d, want %d", decoded.Version, VersionV2)
+	}
+	if len(decoded.TokenV2) != 16 {
+		t.Fatalf("TokenV2 length = %d, want 16", len(decoded.TokenV2))
+	}
+	for i := 0; i < 16; i++ {
+		if decoded.TokenV2[i] != byte(i+1) {
+			t.Errorf("TokenV2[%d] = %d, want %d", i, decoded.TokenV2[i], i+1)
+		}
+	}
+	if decoded.Network != "" {
+		t.Errorf("Network should be empty, got %q", decoded.Network)
+	}
+	if decoded.PeerID != "" {
+		t.Errorf("PeerID should be empty for v2, got %s", decoded.PeerID)
+	}
+	// Verify relay address contains expected components
+	if !strings.Contains(decoded.RelayAddr, "203.0.113.50") {
+		t.Errorf("RelayAddr missing IP: %s", decoded.RelayAddr)
+	}
+	if !strings.Contains(decoded.RelayAddr, "7777") {
+		t.Errorf("RelayAddr missing port: %s", decoded.RelayAddr)
+	}
+}
+
+func TestV2EncodeDecodeWithNamespace(t *testing.T) {
+	token := make([]byte, 16)
+	for i := range token {
+		token[i] = byte(i)
+	}
+
+	code, err := EncodeV2(token, testRelayAddr, "family-net")
+	if err != nil {
+		t.Fatalf("EncodeV2: %v", err)
+	}
+
+	decoded, err := Decode(code)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	if decoded.Version != VersionV2 {
+		t.Errorf("Version = %d, want %d", decoded.Version, VersionV2)
+	}
+	if decoded.Network != "family-net" {
+		t.Errorf("Network = %q, want family-net", decoded.Network)
+	}
+}
+
+func TestV2RejectsWrongTokenSize(t *testing.T) {
+	_, err := EncodeV2([]byte("short"), testRelayAddr, "")
+	if err == nil {
+		t.Error("should reject non-16-byte token")
+	}
+}
+
+func TestV2RejectsLongNamespace(t *testing.T) {
+	token := make([]byte, 16)
+	_, err := EncodeV2(token, testRelayAddr, strings.Repeat("x", 64))
+	if err == nil {
+		t.Error("should reject namespace > 63 chars")
+	}
+}
+
+func TestV2RejectsTrailingJunk(t *testing.T) {
+	token := make([]byte, 16)
+	code, err := EncodeV2(token, testRelayAddr, "")
+	if err != nil {
+		t.Fatalf("EncodeV2: %v", err)
+	}
+
+	junk := code + "AAAA"
+	_, err = Decode(junk)
+	if err == nil {
+		t.Error("should reject v2 code with trailing junk")
+	}
+}
+
+func TestV2ShorterThanV1(t *testing.T) {
+	// v2 should be shorter since it has no inviter peer ID
+	token8 := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token16 := make([]byte, 16)
+	copy(token16, token8[:])
+
+	pid := generateTestPeerID(t)
+	v1Code, _ := Encode(&InviteData{
+		Token:     token8,
+		RelayAddr: testRelayAddr,
+		PeerID:    pid,
+	})
+	v2Code, _ := EncodeV2(token16, testRelayAddr, "")
+
+	// v2 has 8 more token bytes but no inviter peer ID (38 bytes saved)
+	// so v2 should be shorter overall
+	t.Logf("v1 code length: %d chars", len(v1Code))
+	t.Logf("v2 code length: %d chars", len(v2Code))
+
+	if len(v2Code) >= len(v1Code) {
+		t.Errorf("v2 code (%d chars) should be shorter than v1 (%d chars)", len(v2Code), len(v1Code))
 	}
 }

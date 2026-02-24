@@ -8,14 +8,14 @@
   <rect width="1200" height="400" fill="url(#bgD)"/>
   <!-- Transport stack visualization - QUIC preferred over TCP -->
   <!-- Transport layers stacked -->
-  <rect x="100" y="260" width="300" height="44" rx="6" fill="#3b82f6" opacity="0.15"/>
-  <text x="250" y="287" font-family="SF Mono, monospace" font-size="13" fill="#3b82f6" text-anchor="middle" opacity="0.8">QUIC (preferred)</text>
-  <rect x="100" y="310" width="300" height="36" rx="6" fill="#7aa2f7" opacity="0.1"/>
-  <text x="250" y="333" font-family="SF Mono, monospace" font-size="12" fill="#7aa2f7" text-anchor="middle" opacity="0.5">TCP</text>
-  <rect x="100" y="352" width="300" height="32" rx="6" fill="#7aa2f7" opacity="0.06"/>
-  <text x="250" y="373" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7" text-anchor="middle" opacity="0.3">WebSocket</text>
+  <rect x="100" y="130" width="300" height="44" rx="6" fill="#3b82f6" opacity="0.15"/>
+  <text x="250" y="157" font-family="SF Mono, monospace" font-size="13" fill="#3b82f6" text-anchor="middle" opacity="0.8">QUIC (preferred)</text>
+  <rect x="100" y="180" width="300" height="36" rx="6" fill="#7aa2f7" opacity="0.1"/>
+  <text x="250" y="203" font-family="SF Mono, monospace" font-size="12" fill="#7aa2f7" text-anchor="middle" opacity="0.5">TCP</text>
+  <rect x="100" y="222" width="300" height="32" rx="6" fill="#7aa2f7" opacity="0.06"/>
+  <text x="250" y="243" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7" text-anchor="middle" opacity="0.3">WebSocket</text>
   <!-- RTT comparison -->
-  <text x="250" y="240" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">Transport Priority</text>
+  <text x="250" y="115" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">Transport Priority</text>
   <!-- AutoNAT v2 - per-address reachability testing -->
   <circle cx="620" cy="160" r="50" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.4"/>
   <circle cx="620" cy="160" r="6" fill="#bb9af7" opacity="0.8"/>

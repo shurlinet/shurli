@@ -9,7 +9,8 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Date | What's New |
 |------|-----------|
 | 2026-02-18 | **Private DHT** - Peer discovery now runs on `/peerup/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 14 REST endpoints |
+| 2026-02-23 | **Relay pairing** - `peerup relay pair` generates pairing codes, `peerup join` accepts them. SAS verification, reachability grades (A-F) |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 15 REST endpoints |
 | 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
 | 2026-02-16 | **Service management** - `peerup service add/remove/enable/disable` from the CLI |
 | 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
@@ -72,7 +73,19 @@ peerup proxy home ssh 2222
 ssh -p 2222 user@localhost
 ```
 
-> **Relay server**: Both machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay. A shared relay is used by default during development.
+### Path C: Relay-managed group setup
+
+If a relay admin shared a pairing code:
+
+```bash
+peerup join <pairing-code> --name laptop
+# Connects to relay, discovers other peers, auto-authorizes everyone
+# Shows SAS verification fingerprints for each peer
+```
+
+The relay admin generates codes with `peerup relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+
+> **Relay server**: All machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `peerup relay serve` to start a relay.
 
 ## Why peer-up exists
 
@@ -107,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/peerup/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `peerup` binary with 15 subcommands. No runtime dependencies |
+| **Single Binary** | One `peerup` binary with 16 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -184,8 +197,10 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 | Command | Description |
 |---------|-------------|
 | `peerup invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
-| `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite, auto-configure both sides |
-| `peerup status` | Show local config, identity, authorized peers, services |
+| `peerup join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
+| `peerup relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
+| `peerup verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
+| `peerup status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `peerup version` | Show version, commit, build date, Go version |
 
 The `<target>` in network commands accepts either a peer ID or a name from the `names:` section of your config. All commands support `--config <path>`.
@@ -195,10 +210,10 @@ The `<target>` in network commands accepts either a peer ID or a name from the `
 The daemon runs `peerup daemon` as a long-lived background process. It starts the full P2P host, exposes configured services, and opens a Unix socket API for management.
 
 **Key features:**
-- Unix socket at `~/.config/peerup/.daemon.sock` (no TCP exposure)
+- Unix socket at `~/.config/peerup/peerup.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/peerup/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 14 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve
+- 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
 
 **Example:**
 ```bash
@@ -350,7 +365,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── peerup/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (15 subcommands)
+│   ├── main.go                # Command dispatch (16 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping
@@ -393,7 +408,7 @@ internal/
 │   └── errors.go
 ├── daemon/                    # Daemon API server + client library
 │   ├── server.go              # Unix socket HTTP server with cookie auth
-│   ├── handlers.go            # 14 REST endpoint handlers
+│   ├── handlers.go            # 15 REST endpoint handlers
 │   ├── client.go              # Go client (auto-reads cookie, Unix transport)
 │   ├── types.go               # Request/response types
 │   └── errors.go
@@ -479,6 +494,20 @@ This is not a weekend hobby project. peer-up is built as critical infrastructure
 
 Think of it like a bubble in outer space. If it breaks, the people inside don't get a second chance. That standard guides everything here - from code quality to deployment to security decisions.
 
+## Disclaimer
+
+peer-up is experimental software under active development. It is built with significant AI assistance (Claude) and, despite thorough testing, **will contain bugs** that neither automated tests nor manual testing have caught.
+
+**By using this software, you acknowledge:**
+
+- This is provided "as is" with no warranty of any kind (see [LICENSE](LICENSE))
+- The developers are not liable for any damages, losses, or consequences arising from its use
+- Network tunnels may disconnect, services may become unreachable, and configurations may behave unexpectedly
+- This is not a replacement for enterprise VPN, firewall, or security infrastructure
+- You are responsible for evaluating whether peer-up is suitable for your use case
+
+If you discover a bug, please [open an issue](https://github.com/satindergrewal/peer-up/issues). Every report makes the project more reliable for everyone.
+
 ## Development
 
 ### AI-Assisted Development
@@ -505,7 +534,7 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (14 endpoints) |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
 | [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |

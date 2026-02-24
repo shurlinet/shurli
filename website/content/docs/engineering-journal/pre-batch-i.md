@@ -95,9 +95,9 @@ Both sides generate ephemeral X25519 keypairs, exchange public keys, compute the
 - **Breaking change** - Only support v2 codes. Rejected because users may have old codes in scripts or documentation.
 - **Content negotiation** - Single format with feature flags. Adds complexity without clear benefit.
 
-**Decision**: Version byte in invite code (first byte of binary payload) determines format. v1 (0x01) = legacy format (no namespace, cleartext handshake). v2 (0x02) = new format (includes namespace length + bytes, PAKE handshake). Future versions (0x03+) are rejected with a "please upgrade peerup" message.
+**Decision**: Version byte in invite code (first byte of binary payload) determines format. Originally: v1 (0x01) = legacy cleartext, v2 (0x02) = PAKE-encrypted with namespace. Post-I-1 deleted the cleartext protocol and renumbered: v1 (0x01) = PAKE-encrypted invite, v2 (0x02) = relay pairing code. Future versions (0x03+) are rejected with a "please upgrade peerup" message.
 
-On the wire, the inviter's stream handler peeks at the first byte: 0x02 triggers PAKE handshake, anything else (ASCII hex chars 0x30-0x66) triggers v1 cleartext protocol. Both sides are backward compatible.
+On the wire, the stream handler reads the version byte: 0x01 triggers PAKE handshake, 0x02 triggers relay pairing protocol.
 
 **Consequences**: v2 invite codes are slightly longer (1 extra byte for namespace length when global, more with a namespace). The inviter must handle both protocols in the stream handler, but the code paths are cleanly separated.
 
