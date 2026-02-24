@@ -262,11 +262,12 @@ func ReadPeerNotify(r io.Reader) (peers []NotifyPeerInfo, groupID string, groupS
 	return peers, groupID, groupSize, nil
 }
 
-// RunReconnectNotifier subscribes to peer connectedness events and pushes
+// RunReconnectNotifier subscribes to peer identification events and pushes
 // introductions when an authorized peer with a group attribute reconnects.
-// Uses the same event bus pattern as PathTracker.
+// Uses EvtPeerIdentificationCompleted (not EvtPeerConnectednessChanged) so
+// the peer's supported protocols are known before opening a stream.
 func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifier, authKeysPath string) {
-	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
+	sub, err := h.EventBus().Subscribe(new(event.EvtPeerIdentificationCompleted))
 	if err != nil {
 		slog.Error("reconnect-notifier: subscribe failed", "err", err)
 		return
@@ -281,13 +282,10 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 			if !ok {
 				return
 			}
-			e := evt.(event.EvtPeerConnectednessChanged)
-			if e.Connectedness != network.Connected {
-				continue
-			}
-			slog.Info("reconnect-notifier: peer connected",
+			e := evt.(event.EvtPeerIdentificationCompleted)
+			slog.Info("reconnect-notifier: peer identified",
 				"peer", e.Peer.String()[:16]+"...")
-			// Look up connecting peer in authorized_keys.
+			// Look up identified peer in authorized_keys.
 			entries, err := auth.ListPeers(authKeysPath)
 			if err != nil {
 				continue
