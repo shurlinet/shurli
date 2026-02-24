@@ -155,7 +155,7 @@ This is a future optimization for peer-up's QUIC transport - particularly valuab
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
 | libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, Iroh) |
 | Formal verification | Limited | Strong (s2n-quic has 300+ Kani harnesses) |
-| Binary size | ~15-20MB | ~5-10MB |
+| Binary size | ~25-28MB | ~5-10MB |
 | Cross-compilation | Trivial (`GOOS=linux GOARCH=arm64`) | Requires target toolchain setup |
 | Concurrency model | Goroutines (simple, GC-managed) | async/await (no runtime overhead) |
 
