@@ -170,7 +170,23 @@ func TestUpdateConfigNames(t *testing.T) {
 		dir := t.TempDir()
 		cfgFile := dir + "/nonexistent.yaml"
 
-		// Should not panic  - just log a warning
+		// Should not panic - just log a warning
 		updateConfigNames(cfgFile, dir, "test", "12D3KooWTest")
+	})
+
+	t.Run("duplicate name is not added twice", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgFile := dir + "/config.yaml"
+		os.WriteFile(cfgFile, []byte("version: 1\nnames:\n  laptop: \"12D3KooWTestPeer\"\n"), 0600)
+
+		// Call again with same name+peerID - should be a no-op
+		updateConfigNames(cfgFile, dir, "laptop", "12D3KooWTestPeer")
+
+		data, _ := os.ReadFile(cfgFile)
+		got := string(data)
+		count := strings.Count(got, "laptop:")
+		if count != 1 {
+			t.Errorf("should have exactly 1 'laptop:' entry, got %d:\n%s", count, got)
+		}
 	})
 }

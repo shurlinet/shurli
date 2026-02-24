@@ -617,12 +617,19 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 
 	content := string(data)
 
+	// Skip if this exact name+peerID mapping already exists in the config.
+	// This prevents duplicate entries when peer-notify re-delivers introductions.
+	expectedEntry := fmt.Sprintf("%s: \"%s\"", name, peerIDStr)
+	if strings.Contains(content, expectedEntry) {
+		return
+	}
+
 	// Replace "names: {}" with a proper names block
 	if strings.Contains(content, "names: {}") {
 		replacement := fmt.Sprintf("names:\n  %s: \"%s\"", name, peerIDStr)
 		content = strings.Replace(content, "names: {}", replacement, 1)
 	} else if strings.Contains(content, "names:") {
-		// Append under existing names section  - find the line and add after it
+		// Append under existing names section - find the line and add after it
 		lines := strings.Split(content, "\n")
 		var result []string
 		added := false
