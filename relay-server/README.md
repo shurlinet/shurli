@@ -57,19 +57,49 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 
 # Edit if needed (defaults are good - port 7777, gating enabled)
 nano relay-server.yaml
-
-# Create authorized_keys with your home-node and client-node peer IDs
-nano relay_authorized_keys
 ```
 
-Add one peer ID per line to `relay_authorized_keys`:
+Then restart the service to pick up config changes:
+
+```bash
+sudo systemctl restart peerup-relay
+```
+
+### Add peers to the relay
+
+**Option A: Pairing codes (recommended)**
+
+Generate pairing codes and share them with your peers:
+
+```bash
+# Generate 3 pairing codes (one per person)
+./peerup relay pair --count 3
+
+# Each person joins with one command on their machine:
+peerup join <pairing-code> --name laptop
+```
+
+Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `peerup verify <name>`.
+
+**Option B: Manual authorization**
+
+If you already know the peer IDs, add them directly:
+
+```bash
+# Using the CLI
+./peerup relay authorize <peer-id> --comment "home-node"
+./peerup relay authorize <peer-id> --comment "client-node"
+
+# Or edit the file directly (one peer ID per line)
+nano relay_authorized_keys
+```
 
 ```
 12D3KooWARqzAAN9es44ACsL7W82tfbpiMVPfSi1M5czHHYPk5fY  # home-node
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # client-node
 ```
 
-Then restart the service to pick up config changes:
+Restart the service after manual changes:
 
 ```bash
 sudo systemctl restart peerup-relay
@@ -104,7 +134,7 @@ Service:
   [OK]   Service runs as non-root user: peerup
   ...
 
-=== Summary: 15 passed, 0 warnings, 0 failures ===
+=== Summary: 25 passed, 0 warnings, 0 failures ===
 Everything looks great!
 ```
 
@@ -199,7 +229,7 @@ After setup, your relay-server directory looks like:
 |-------|----------|
 | Service fails to start | `sudo journalctl -u peerup-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 relay_node.key` |
-| Peers can't connect | Check `relay_authorized_keys` has their peer IDs |
+| Peers can't connect | Use `peerup relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |

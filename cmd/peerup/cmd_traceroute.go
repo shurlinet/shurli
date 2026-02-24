@@ -18,6 +18,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/daemon"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -36,6 +37,12 @@ func runTraceroute(args []string) {
 	}
 
 	target := remaining[0]
+
+	// Try daemon first (faster, no bootstrap needed).
+	if client := tryDaemonClient(); client != nil {
+		runTracerouteViaDaemon(client, target, *jsonFlag)
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -222,4 +229,30 @@ func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeC
 	}
 
 	return nil
+}
+
+// runTracerouteViaDaemon traces a peer through the running daemon.
+func runTracerouteViaDaemon(client *daemon.Client, target string, jsonOutput bool) {
+	// Show verification badge.
+	if !jsonOutput {
+		showVerificationBadge(client, target)
+	}
+
+	if jsonOutput {
+		resp, err := client.Traceroute(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(resp)
+	} else {
+		text, err := client.TracerouteText(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		fmt.Print(text)
+	}
 }

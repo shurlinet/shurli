@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/satindergrewal/peer-up/internal/daemon"
 	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
@@ -21,6 +22,7 @@ func runPing(args []string) {
 	fs := flag.NewFlagSet("ping", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	count := fs.Int("c", 0, "number of pings (0 = continuous until Ctrl+C)")
+	fs.IntVar(count, "n", 0, "alias for -c")
 	intervalStr := fs.String("interval", "1s", "interval between pings")
 	jsonFlag := fs.Bool("json", false, "output as JSON (one line per ping)")
 	fs.Parse(args)
@@ -30,7 +32,7 @@ func runPing(args []string) {
 		fmt.Println("Usage: peerup ping [--config <path>] [-c N] [--interval 1s] [--json] <target>")
 		fmt.Println()
 		fmt.Println("Options:")
-		fmt.Println("  -c N           Number of pings (0 = continuous, default)")
+		fmt.Println("  -c, -n N       Number of pings (0 = continuous, default)")
 		fmt.Println("  --interval 1s  Time between pings (default: 1s)")
 		fmt.Println("  --json         Output each ping as a JSON line")
 		fmt.Println()
@@ -46,6 +48,17 @@ func runPing(args []string) {
 	interval, err := time.ParseDuration(*intervalStr)
 	if err != nil {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
+	}
+
+	// Try daemon first (faster, no bootstrap needed).
+	// Skip daemon for continuous ping (count=0) because the daemon's HTTP
+	// API collects all results before responding. The direct P2P path below
+	// streams results via a channel and handles Ctrl+C correctly.
+	if *count != 0 {
+		if client := tryDaemonClient(); client != nil {
+			runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+			return
+		}
 	}
 
 	// Set up context with Ctrl+C cancellation
@@ -143,5 +156,51 @@ func runPing(args []string) {
 		fmt.Printf("\n--- %s ping statistics ---\n", target)
 		fmt.Printf("%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
 			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
+	}
+}
+
+// runPingViaDaemon pings a peer through the running daemon.
+func runPingViaDaemon(client *daemon.Client, target string, count, intervalMs int, jsonOutput bool) {
+	// Show verification badge (OMEMO-style).
+	if !jsonOutput {
+		showVerificationBadge(client, target)
+	}
+
+	if jsonOutput {
+		resp, err := client.Ping(target, count, intervalMs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(resp)
+	} else {
+		text, err := client.PingText(target, count, intervalMs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+		fmt.Print(text)
+	}
+}
+
+// showVerificationBadge queries the daemon for a peer's verification status
+// and prints a badge. Unverified peers get a persistent warning.
+func showVerificationBadge(client *daemon.Client, target string) {
+	entries, err := client.AuthList()
+	if err != nil {
+		return // non-fatal, skip badge
+	}
+
+	for _, e := range entries {
+		if e.Comment == target || e.PeerID == target {
+			if e.Verified != "" {
+				fmt.Printf("[VERIFIED] Peer %q verified (%s)\n", target, e.Verified)
+			} else {
+				fmt.Printf("[UNVERIFIED] Peer %q not verified. Run: peerup verify %s\n", target, target)
+			}
+			return
+		}
 	}
 }

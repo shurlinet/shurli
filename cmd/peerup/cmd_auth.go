@@ -152,7 +152,21 @@ func doAuthList(args []string, stdout io.Writer) error {
 		} else {
 			fmt.Fprintf(stdout, "  %d. %s\n", i+1, short)
 		}
-		termcolor.Faint("     %s\n", full)
+
+		// Show attributes on the detail line.
+		attrs := full
+		if entry.Group != "" {
+			attrs += " [group=" + entry.Group + "]"
+		}
+		if entry.Verified != "" {
+			attrs += " [verified=" + entry.Verified + "]"
+		} else {
+			attrs += " [UNVERIFIED]"
+		}
+		if !entry.ExpiresAt.IsZero() {
+			attrs += " [expires=" + entry.ExpiresAt.Format("2006-01-02") + "]"
+		}
+		termcolor.Faint("     %s\n", attrs)
 	}
 	fmt.Fprintf(stdout, "\nFile: %s\n", authKeysPath)
 	return nil
