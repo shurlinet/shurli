@@ -198,7 +198,7 @@ func DecodePeerInfos(data []byte, count int) ([]PeerInfo, error) {
 		}
 		pidLen := int(data[offset])
 		offset++
-		if offset+pidLen >= len(data) {
+		if offset+pidLen > len(data) {
 			return nil, fmt.Errorf("truncated peer ID at index %d", i)
 		}
 		pid := peer.ID(data[offset : offset+pidLen])
@@ -286,8 +286,8 @@ func ReadPairingResponse(r io.Reader) (status byte, groupID string, groupSize in
 		return status, groupID, groupSize, nil, nil
 	}
 
-	// Read all remaining bytes for peer data.
-	peerData, err := io.ReadAll(r)
+	// Read remaining bytes for peer data (capped: max 255 peers * 300 bytes each).
+	peerData, err := io.ReadAll(io.LimitReader(r, 255*300))
 	if err != nil {
 		return status, groupID, groupSize, nil, fmt.Errorf("failed to read peer data: %w", err)
 	}

@@ -795,7 +795,7 @@ func classifyMultiaddr(addrStr string) string {
 	if strings.Contains(addrStr, "/p2p-circuit") {
 		return "RELAY"
 	}
-	// Extract IP from multiaddr string (e.g. "/ip4/172.20.10.3/tcp/1234").
+	// Extract IP from multiaddr string (e.g. "/ip4/10.0.1.5/tcp/1234").
 	ip := extractIPFromMultiaddr(addrStr)
 	if ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !isCGNATAddr(ip) {
 		return "public"
