@@ -2043,7 +2043,7 @@ peer-up/
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
-│   │   ├── serve_common.go  # Shared P2P runtime (used by daemon + standalone tools)
+│   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
 ├── pkg/p2pnet/              # Importable P2P library
@@ -2054,6 +2054,8 @@ peer-up/
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
+│   ├── verify.go            # SAS verification helpers (emoji fingerprints)
+│   ├── reachability.go      # Reachability grade calculation (A-F scale)
 │   ├── interfaces.go        # Interface discovery, IPv6/IPv4 classification
 │   ├── pathdialer.go        # Parallel dial racing (direct + relay, first wins)
 │   ├── pathtracker.go       # Per-peer path quality tracking (event-bus driven)
@@ -2089,9 +2091,14 @@ peer-up/
 │   ├── invite/              # Invite code encoding + PAKE handshake
 │   │   ├── code.go          # Binary -> base32 with dash grouping
 │   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
-│   ├── relay/               # Relay pairing + token management
+│   ├── relay/               # Relay pairing, admin socket, peer introductions
 │   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
-│   │   └── pairing.go       # Relay pairing protocol (/peerup/relay-pair/1.0.0)
+│   │   ├── pairing.go       # Relay pairing protocol (/peerup/relay-pair/1.0.0)
+│   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/peerup/peer-notify/1.0.0)
+│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair)
+│   │   └── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   ├── reputation/           # Peer interaction tracking
+│   │   └── history.go       # Append-only interaction log per peer (foundation for PeerManager)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
 │   │   ├── qrcode.go        # Public API: New(), Bitmap(), ToSmallString()
 │   │   ├── encoder.go       # Data encoding (numeric, alphanumeric, byte modes)
@@ -2102,14 +2109,15 @@ peer-up/
 │   ├── termcolor/           # Minimal ANSI terminal colors (replaces fatih/color)
 │   │   └── color.go         # Green, Red, Yellow, Faint - respects NO_COLOR
 │   ├── validate/            # Input validation helpers
-│   │   └── validate.go      # ServiceName() - DNS-label format for protocol IDs
+│   │   ├── service.go        # ServiceName() - DNS-label format for protocol IDs
+│   │   ├── network.go        # Network address validation (multiaddr, IP, port)
+│   │   └── errors.go         # Sentinel errors
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
 ├── relay-server/            # Deployment artifacts
 │   ├── setup.sh             # Deploy/verify/uninstall (builds peerup, runs relay serve)
-│   ├── relay-server.service # systemd unit template (installed as peerup-relay.service)
-│   └── relay-server.sample.yaml
+│   └── relay-server.service # systemd unit template (installed as peerup-relay.service)
 │
 ├── deploy/                  # Service management files
 │   ├── peerup-daemon.service   # systemd unit for daemon (Linux)
@@ -2123,10 +2131,13 @@ peer-up/
 ├── docs/                    # Project documentation
 │   ├── ARCHITECTURE.md      # This file
 │   ├── DAEMON-API.md        # Daemon API reference
+│   ├── ENGINEERING-JOURNAL.md # Phase-by-phase engineering decisions
+│   ├── MONITORING.md        # Prometheus + Grafana monitoring guide
 │   ├── NETWORK-TOOLS.md     # Network diagnostic tools guide
-│   ├── FAQ.md
 │   ├── ROADMAP.md
-│   └── TESTING.md
+│   ├── TESTING.md
+│   ├── engineering-journal/ # Detailed per-phase journal entries
+│   └── faq/               # FAQ sub-pages (comparisons, security, relay, design, deep dives)
 │
 └── examples/                # Example implementations
     └── basic-service/
@@ -2783,8 +2794,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-23
-**Architecture Version**: 3.1 (Post-I-1 relay pairing, SAS verification, reachability grades, 15 endpoints)
+**Last Updated**: 2026-02-25
+**Architecture Version**: 3.2 (Post-I-2 peer-notify, relay admin socket, HMAC proofs, CGNAT detection, cross-network hardening)
 
 
 ---
