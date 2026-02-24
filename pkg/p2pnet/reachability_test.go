@@ -119,3 +119,35 @@ func TestReachabilityGradeB_NATNoneFromSTUN(t *testing.T) {
 		t.Errorf("STUN no-NAT should be B, got %s", grade.Grade)
 	}
 }
+
+func TestReachabilityGradeD_CGNAT_OverridesPortRestricted(t *testing.T) {
+	ifaces := &InterfaceSummary{
+		Interfaces: []InterfaceInfo{{Name: "pdp_ip0"}},
+	}
+	stun := &STUNResult{
+		NATType:     NATPortRestricted,
+		BehindCGNAT: true,
+		CGNATNote:   "RFC 6598 CGNAT address detected on pdp_ip0 (100.64.1.5)",
+	}
+	grade := ComputeReachabilityGrade(ifaces, stun)
+	if grade.Grade != GradeD {
+		t.Errorf("CGNAT behind port-restricted NAT should be D, got %s", grade.Grade)
+	}
+	if grade.Description != "CGNAT detected, hole-punch unlikely" {
+		t.Errorf("wrong description: %s", grade.Description)
+	}
+}
+
+func TestReachabilityGradeD_CGNAT_OverridesFullCone(t *testing.T) {
+	ifaces := &InterfaceSummary{
+		Interfaces: []InterfaceInfo{{Name: "wwan0"}},
+	}
+	stun := &STUNResult{
+		NATType:     NATFullCone,
+		BehindCGNAT: true,
+	}
+	grade := ComputeReachabilityGrade(ifaces, stun)
+	if grade.Grade != GradeD {
+		t.Errorf("CGNAT should cap at D even with full-cone inner NAT, got %s", grade.Grade)
+	}
+}
