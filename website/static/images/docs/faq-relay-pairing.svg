@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" width="800" height="480">
+  <defs>
+    <linearGradient id="adminFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a3e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e3330;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="peerFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="480" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Relay Pairing - Multi-Peer Onboarding</text>
+
+  <!-- Admin header -->
+  <rect x="30" y="45" width="100" height="36" rx="8" fill="url(#adminFill)" stroke="#9ece6a" stroke-width="1.3"/>
+  <text x="80" y="67" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Admin</text>
+
+  <!-- Relay header -->
+  <rect x="270" y="45" width="100" height="36" rx="8" fill="url(#relayFill)" stroke="#bb9af7" stroke-width="1.3"/>
+  <text x="320" y="67" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Relay</text>
+
+  <!-- Peer A header -->
+  <rect x="460" y="45" width="90" height="36" rx="8" fill="url(#peerFill)" stroke="#3b82f6" stroke-width="1.3"/>
+  <text x="505" y="67" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Peer A</text>
+
+  <!-- Peer B header -->
+  <rect x="620" y="45" width="90" height="36" rx="8" fill="url(#peerFill)" stroke="#3b82f6" stroke-width="1.3"/>
+  <text x="665" y="67" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Peer B</text>
+
+  <!-- Vertical lifelines -->
+  <line x1="80" y1="81" x2="80" y2="450" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="320" y1="81" x2="320" y2="450" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="505" y1="81" x2="505" y2="450" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="665" y1="81" x2="665" y2="450" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+
+  <!-- Phase 1: Generate codes -->
+  <text x="20" y="106" font-family="SF Mono, monospace" font-size="9" fill="#565f89">Phase 1</text>
+  <line x1="80" y1="110" x2="320" y2="110" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="315,105 315,115 324,110" fill="#9ece6a"/>
+  <text x="200" y="103" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">relay pair --count 2</text>
+
+  <!-- Relay stores hashes -->
+  <rect x="260" y="120" width="120" height="20" rx="4" fill="#1a1e36" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="320" y="134" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">SHA-256(token)</text>
+
+  <!-- Return codes -->
+  <line x1="320" y1="150" x2="80" y2="150" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="86,145 86,155 77,150" fill="#9ece6a"/>
+  <text x="200" y="143" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">code-abc, code-xyz</text>
+
+  <!-- Admin shares codes out-of-band -->
+  <line x1="80" y1="180" x2="505" y2="180" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <polygon points="500,175 500,185 509,180" fill="#e0af68"/>
+  <text x="290" y="173" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle" font-style="italic">shares code-abc (out-of-band)</text>
+
+  <line x1="80" y1="200" x2="665" y2="200" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <polygon points="660,195 660,205 669,200" fill="#e0af68"/>
+  <text x="370" y="193" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle" font-style="italic">shares code-xyz (out-of-band)</text>
+
+  <!-- Phase 2: Peers join -->
+  <text x="20" y="230" font-family="SF Mono, monospace" font-size="9" fill="#565f89">Phase 2</text>
+
+  <!-- Peer A joins -->
+  <line x1="505" y1="235" x2="320" y2="235" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="325,230 325,240 316,235" fill="#7aa2f7"/>
+  <text x="412" y="228" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">join code-abc --name laptop</text>
+
+  <!-- Relay validates -->
+  <rect x="255" y="245" width="130" height="32" rx="4" fill="#1a1e36" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="320" y="258" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">validate token</text>
+  <text x="320" y="270" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">enroll + authorize</text>
+
+  <!-- Peer B joins -->
+  <line x1="665" y1="290" x2="320" y2="290" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="325,285 325,295 316,290" fill="#7aa2f7"/>
+  <text x="492" y="283" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">join code-xyz --name desktop</text>
+
+  <!-- Relay validates again -->
+  <rect x="255" y="300" width="130" height="32" rx="4" fill="#1a1e36" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="320" y="313" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">validate token</text>
+  <text x="320" y="325" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">enroll + authorize</text>
+
+  <!-- Phase 3: Discovery -->
+  <text x="20" y="355" font-family="SF Mono, monospace" font-size="9" fill="#565f89">Phase 3</text>
+
+  <!-- Relay sends peer list to A -->
+  <line x1="320" y1="360" x2="505" y2="360" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="500,355 500,365 509,360" fill="#9ece6a"/>
+  <text x="412" y="353" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">peer list [B]</text>
+
+  <!-- Relay sends peer list to B -->
+  <line x1="320" y1="380" x2="665" y2="380" stroke="#9ece6a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="660,375 660,385 669,380" fill="#9ece6a"/>
+  <text x="492" y="373" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">peer list [A]</text>
+
+  <!-- Both add to authorized_keys -->
+  <rect x="445" y="395" width="120" height="22" rx="4" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="505" y="410" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">auth_keys += B</text>
+
+  <rect x="605" y="395" width="120" height="22" rx="4" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="665" y="410" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">auth_keys += A</text>
+
+  <!-- Security notes -->
+  <rect x="115" y="430" width="570" height="30" rx="6" fill="#1a1e36" stroke="#565f89" stroke-width="0.8" opacity="0.7"/>
+  <text x="400" y="449" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">
+    Tokens SHA-256 hashed on relay | Max 3 attempts | Probation: 10 peers, 15s timeout | Uniform error responses
+  </text>
+</svg>

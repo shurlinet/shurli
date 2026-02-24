@@ -4,6 +4,8 @@
 
 The invite/join flow uses a PAKE-inspired encrypted handshake (shipped in Pre-Batch I-b). The invite code itself is a shared secret that never travels over the wire.
 
+![PAKE handshake sequence: both sides generate X25519 keys, exchange public keys, derive AEAD key from DH secret + invite code, exchange encrypted identities, confirm with MACs](../images/faq-pake-handshake.svg)
+
 1. Both sides generate ephemeral X25519 key pairs
 2. They exchange public keys over the relay-mediated stream
 3. Each side derives a shared AEAD key using HKDF-SHA256 with the DH shared secret and invite code combined as input keying material (info: "peerup-invite-v1")
@@ -19,6 +21,8 @@ The original v1 cleartext invite protocol has been deleted. There is zero downgr
 ## How does relay pairing work?
 
 Relay pairing is the streamlined way to onboard multiple peers to a relay. Instead of SSH-ing into the relay and manually exchanging peer IDs, the relay admin generates pairing codes and shares them.
+
+![Relay pairing flow: admin generates codes, shares out-of-band, peers join relay with codes, relay validates tokens and distributes peer lists for mutual authorization](../images/faq-relay-pairing.svg)
 
 **Relay admin:**
 ```bash
@@ -85,6 +89,8 @@ The grade helps you understand *why* a connection goes through the relay instead
 ## How do private DHT networks work?
 
 By default, all peer-up nodes share one DHT with protocol prefix `/peerup/kad/1.0.0`. With private DHT networks, you set a namespace and your nodes form a completely separate DHT:
+
+![Private DHT networks: two isolated DHT bubbles with different protocol prefixes cannot discover or communicate with each other](../images/faq-private-dht.svg)
 
 ```yaml
 # config.yaml
