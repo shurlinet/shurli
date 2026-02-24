@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -148,7 +149,7 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		expected := "Bearer " + s.authToken
-		if auth != expected {
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -160,6 +161,7 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 
 func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 	var req PairRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondAdminError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -167,6 +169,10 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 
 	if req.Count < 1 {
 		req.Count = 1
+	}
+	if req.Count > 100 {
+		respondAdminError(w, http.StatusBadRequest, "count exceeds maximum (100)")
+		return
 	}
 	if req.TTLSeconds < 1 {
 		req.TTLSeconds = 3600 // 1 hour default

@@ -279,10 +279,20 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 	recentlyNotified := make(map[peer.ID]time.Time)
 	const dedupeWindow = 30 * time.Second
 
+	// Periodic cleanup prevents unbounded map growth on long-running relays.
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-cleanupTicker.C:
+			for pid, ts := range recentlyNotified {
+				if time.Since(ts) > dedupeWindow {
+					delete(recentlyNotified, pid)
+				}
+			}
 		case evt, ok := <-sub.Out():
 			if !ok {
 				return

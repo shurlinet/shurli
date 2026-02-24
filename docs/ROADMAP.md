@@ -192,7 +192,7 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 ### Phase 4C: Core Hardening & Security
 
 **Timeline**: 6-8 weeks (batched)
-**Status**: ✅ Complete (Batches A-I, all Pre-I items shipped)
+**Status**: ✅ Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening)
 
 **Goal**: Harden every component for production reliability. Fix critical security gaps, add self-healing resilience, implement test coverage, and make the system recover from failures automatically - before wider distribution puts binaries in more hands.
 
@@ -214,6 +214,8 @@ $ peerup relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Pre-I-c | **Private DHT Networks** | Configurable DHT namespace for isolated peer groups (gaming, family, org) | ✅ DONE |
 | I | **Adaptive Path Selection** | Interface discovery, dial racing, path quality, network monitoring, STUN hole-punch, every-peer-relay | ✅ DONE |
 | Post-I-1 | **Frictionless Relay Pairing** | Relay admin generates pairing codes, joiners connect in one command, SAS verification, expiring peers, reachability grading | ✅ DONE |
+| Post-I-2 | **Peer Introduction Protocol** | Relay pushes peer introductions to daemons, HMAC group commitment, interaction history, relay admin socket | ✅ DONE |
+| Pre-Phase 5 | **Cross-Network Hardening** | 8 bug fixes from live cross-network testing, CGNAT detection, stale address diagnostics, systemd/launchd service setup | ✅ DONE |
 | **Phase 5** | **Network Intelligence** | |
 | 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
 | 5-L | PeerManager / AddrMan | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
@@ -393,6 +395,34 @@ New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/
 
 Zero new dependencies. Binary size unchanged at 28MB.
 
+**Post-I-2: Peer Introduction Protocol** ✅ DONE
+
+Relay actively pushes peer introductions to connected daemons when new peers join a group. Eliminates the need for manual "restart daemon to discover peers" after pairing. Driven by live testing revealing that paired peers didn't discover each other until both restarted.
+
+- [x] **Peer-notify protocol** - `/peerup/peer-notify/1.0.0` stream protocol. Relay sends `PeerIntroduction` messages (peer ID, name, group ID, HMAC proof) to all group members when a new peer completes pairing. Daemon handler auto-authorizes introduced peers and registers names in the live resolver.
+- [x] **HMAC group commitment** - `HMAC-SHA256(token, groupID)` proves token possession during pairing without revealing the token. Stored as `hmac_proof=` attribute in authorized_keys. Verified on introduction delivery.
+- [x] **Relay admin socket** - Unix socket + cookie auth (same pattern as daemon API). `internal/relay/admin.go` serves `/v1/pair` endpoint. `peerup relay pair` is a fire-and-forget HTTP client via `internal/relay/admin_client.go`. Decouples code generation from the relay server process.
+- [x] **Reconnect notifier** - `internal/relay/notify.go`. When a previously-connected peer re-identifies (e.g., after network change), relay re-delivers introductions for their group. Deduplication prevents burst delivery on reconnect flap.
+- [x] **Interaction history** - `internal/reputation/history.go`. Append-only interaction log per peer (connection events, protocol exchanges). Foundation for Phase 5-L PeerManager scoring.
+- [x] **Attribute updates for existing peers** - peer-notify handler updates group and HMAC proof attributes even for already-authorized peers (re-pairing after restart).
+
+New files: `internal/relay/notify.go`, `internal/relay/admin.go`, `internal/relay/admin_client.go`, `internal/reputation/history.go` (all with matching `_test.go` files).
+
+**Pre-Phase 5 Hardening** ✅ DONE
+
+Cross-network testing across multiple ISPs and NAT types exposed 8 bugs. All fixed and re-verified on live networks before starting Phase 5. "No compromises. Can't build on a broken foundation."
+
+- [x] **Startup race condition** - moved `SetupPeerNotify()` and `SetupPingPong()` before `Bootstrap()` so protocol handlers are registered before relay connection triggers introductions
+- [x] **Address label misclassification** - replaced string-based IP classification with proper `net.IP` parsing. All RFC 1918, CGNAT (100.64.0.0/10), and link-local ranges now correctly labeled `[local]`
+- [x] **`auth list` missing attributes** - extended output to show `[group=...]`, `[UNVERIFIED]`/`[VERIFIED]`, and expiry per peer
+- [x] **Peer-notify attribute skip** - fixed code path that skipped group/HMAC attribute updates for already-authorized peers
+- [x] **Noisy reconnect notifier** - reduced to DEBUG level, added 30s deduplication window
+- [x] **Health check false warning** - added 60s startup grace period before relay-reservation health check fires
+- [x] **STUN CGNAT awareness** - `BehindCGNAT` field in `STUNResult`, grade capped at D when RFC 6598 CGNAT detected on local interfaces
+- [x] **Stale address detection** - cross-checks `host.Addrs()` against `net.InterfaceAddrs()`, labels stale addresses in status output, delayed diagnostic log 10s after network change
+- [x] **Duplicate config names** - `updateConfigNames()` now checks if name+peerID already exists before writing (prevents YAML parse errors from duplicate keys)
+- [x] **Service deployment** - systemd services on relay VPS and home-node (enabled at boot, watchdog integrated), launchd plist for macOS client
+
 **Module Consolidation** (completed - single Go module):
 - [x] Merged three Go modules (main, relay-server, cmd/keytool) into a single `go.mod`
 - [x] Deleted `go.work` - no workspace needed with one module
@@ -433,7 +463,7 @@ Zero new dependencies. Binary size unchanged at 28MB.
 **Batch F - Daemon Mode** (completed):
 - [x] `peerup daemon` - long-running P2P host with Unix socket HTTP API
 - [x] Cookie-based authentication (32-byte random hex, `0600` permissions, rotated per restart)
-- [x] 14 API endpoints with JSON + plain text format negotiation (`?format=text` / `Accept: text/plain`)
+- [x] 15 API endpoints with JSON + plain text format negotiation (`?format=text` / `Accept: text/plain`)
 - [x] `serve_common.go` - extracted shared P2P runtime (zero duplication between serve and daemon)
 - [x] Auth hot-reload - `POST /v1/auth` and `DELETE /v1/auth/{peer_id}` take effect immediately
 - [x] Dynamic proxy management - create/destroy TCP proxies at runtime via API
@@ -1207,7 +1237,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 3: keytool CLI | ✅ 1 week | Complete |
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1) |
+| **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
 | **Phase 5: Network Intelligence** | 📋 4-6 weeks | Planned |
 | Phase 6: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
 | Phase 7: Distribution & Launch | 📋 1-2 weeks | Planned |
@@ -1338,8 +1368,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-02-23
-**Current Phase**: Phase 4C Complete. Phase 5 (Network Intelligence) next.
+**Last Updated**: 2026-02-25
+**Current Phase**: Phase 4C Complete (including Post-I-2 and Pre-Phase 5 Hardening). Phase 5 next.
 **Phases**: 1-4C (complete), 5 (Network Intelligence), 6-11 (planned), 12+ (ecosystem)
 **Next Milestone**: Phase 5 - mDNS (5-K), PeerManager (5-L), GossipSub (5-M)
 **Future milestones**: Phase 5 (Network Intelligence) -> Phase 6 (Plugins) -> Phase 7 (Distribution)
