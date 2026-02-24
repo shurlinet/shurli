@@ -55,9 +55,9 @@
   <polygon points="126,155 126,165 117,160" fill="#7aa2f7"/>
   <text x="400" y="153" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">1. Ephemeral public key</text>
 
-  <!-- Relay sees label -->
-  <rect x="345" y="137" width="110" height="18" rx="4" fill="#1a1e36" stroke="#565f89" stroke-width="0.8" opacity="0.8"/>
-  <text x="400" y="150" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">sees: pub keys only</text>
+  <!-- Relay sees annotation (right side, outside arrows) -->
+  <text x="760" y="148" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end" opacity="0.7">relay sees:</text>
+  <text x="760" y="159" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end" opacity="0.7">pub keys only</text>
 
   <!-- Step 2: Both derive AEAD key -->
   <rect x="30" y="180" width="180" height="32" rx="4" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8"/>
@@ -81,9 +81,9 @@
   <polygon points="126,255 126,265 117,260" fill="#bb9af7"/>
   <text x="400" y="253" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">3. XChaCha20-Poly1305(name, peer ID)</text>
 
-  <!-- Relay sees label -->
-  <rect x="340" y="239" width="120" height="18" rx="4" fill="#1a1e36" stroke="#565f89" stroke-width="0.8" opacity="0.8"/>
-  <text x="400" y="252" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">sees: ciphertext only</text>
+  <!-- Relay sees annotation (right side, outside arrows) -->
+  <text x="760" y="248" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end" opacity="0.7">relay sees:</text>
+  <text x="760" y="259" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end" opacity="0.7">ciphertext only</text>
 
   <!-- Step 4: Key confirmation MACs -->
   <line x1="120" y1="295" x2="680" y2="295" stroke="#e0af68" stroke-width="2" filter="url(#glow)"/>
