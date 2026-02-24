@@ -585,6 +585,7 @@ After Phase 5 observability and PeerManager provide the data:
 **Built-in Plugin: Service Templates** (proves `ServiceManager` + health middleware):
 - [ ] `peerup daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
 - [ ] `peerup daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] `peerup daemon --openclaw` shortcut (auto-detects OpenClaw Gateway on localhost:18789, exposes with friendly name "openclaw-gateway")
 - [ ] Health check middleware - verify local service is reachable before exposing
 - [ ] Streaming response verification (chunked transfer for LLM output)
 
@@ -790,6 +791,7 @@ Deliverables:
 - [ ] Relay version announcement - relay broadcasts its version to connected peers via libp2p Identify `UserAgent`. Peers see "relay running v1.2.0, you have v1.1.0, run `peerup upgrade`"
 
 **Use-Case Guides & Launch Content**:
+- [ ] Guide: OpenClaw Gateway - *"Remote Access to OpenClaw Gateway in 60 Seconds"* (one-command setup with `--openclaw`, no Tailscale account or port forwarding needed)
 - [ ] Guide: GPU inference - *"Access your home GPU from anywhere through Starlink CGNAT"*
 - [ ] Guide: IoT/smart home remote access (Home Assistant, cameras behind CGNAT)
 - [ ] Guide: Media server sharing (Jellyfin/Plex with friends via invite flow)

@@ -22,7 +22,8 @@ type journalEntry struct {
 // Ordered by sidebar weight. Order also determines llms-full.txt concatenation.
 var docEntries = []docEntry{
 	{"NETWORK-TOOLS.md", "network-tools.md", 2, "Network Tools", "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."},
-	{"FAQ.md", "faq.md", 3, "FAQ", "How peer-up compares to Tailscale and ZeroTier, how NAT traversal works, the security model, and troubleshooting common issues."},
+	// FAQ.md removed - FAQ is now split into sub-pages under docs/faq/.
+	// Synced via faqEntries below, same pattern as journalEntries.
 	{"MONITORING.md", "monitoring.md", 6, "Monitoring", "Set up Prometheus and Grafana to visualize peer-up metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."},
 	{"DAEMON-API.md", "daemon-api.md", 7, "Daemon API", "REST API reference for the peer-up daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."},
 	{"ARCHITECTURE.md", "architecture.md", 8, "Architecture", "Technical architecture of peer-up: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."},
@@ -68,11 +69,28 @@ var relaySetupMeta = docEntry{
 	Description: "Complete guide to deploying your own peer-up relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks.",
 }
 
+// Ordered by weight. README.md becomes _index.md.
+var faqEntries = []journalEntry{
+	{"README.md", 3, "FAQ", "Frequently asked questions about peer-up, organized by topic."},
+	{"design-philosophy.md", 1, "Design Philosophy", "Why peer-up uses no accounts, no central servers, and no vendor dependencies."},
+	{"comparisons.md", 2, "Comparisons", "How different approaches to remote access compare: centralized VPNs, P2P mesh tools, relay architectures."},
+	{"relay-and-nat.md", 3, "Relay & NAT Traversal", "How connections work: Circuit Relay v2, hole-punching, symmetric NAT, self-hosted relays."},
+	{"security-and-features.md", 4, "Security & Features", "How pairing, verification, reachability grading, encrypted invites, and private DHT networks work."},
+	{"technical-deep-dives.md", 5, "Technical Deep Dives", "libp2p improvements, emerging technologies, and the Go vs Rust trade-off."},
+}
+
 // linkOnlyEntries are docs excluded from auto-sync but still need link rewriting.
 // Other docs reference these files (e.g., ROADMAP.md), so cross-doc links like
 // (ROADMAP.md) must still resolve to (../roadmap/).
 var linkOnlyEntries = []docEntry{
 	{"ROADMAP.md", "roadmap", 0, "", ""},
+	{"FAQ.md", "faq", 0, "", ""},
+	// FAQ sub-pages (for cross-doc links from main docs, e.g. ARCHITECTURE.md)
+	{"faq/comparisons.md", "faq/comparisons", 0, "", ""},
+	{"faq/design-philosophy.md", "faq/design-philosophy", 0, "", ""},
+	{"faq/relay-and-nat.md", "faq/relay-and-nat", 0, "", ""},
+	{"faq/security-and-features.md", "faq/security-and-features", 0, "", ""},
+	{"faq/technical-deep-dives.md", "faq/technical-deep-dives", 0, "", ""},
 }
 
 // Directories whose relative links (../dir/) get rewritten to GitHub URLs.
