@@ -644,7 +644,10 @@ func (rt *serveRuntime) hasGroupMembership(groupID string) bool {
 	return false
 }
 
-// countGroupPeers counts how many peers in authorized_keys belong to the given group.
+// countGroupPeers counts how many non-relay peers in authorized_keys belong to
+// the given group. The relay itself has a group annotation (for hasGroupMembership)
+// but is infrastructure, not a group member, so it must be excluded from the
+// size enforcement check.
 func (rt *serveRuntime) countGroupPeers(groupID string) int {
 	entries, err := auth.ListPeers(rt.authKeys)
 	if err != nil {
@@ -652,7 +655,7 @@ func (rt *serveRuntime) countGroupPeers(groupID string) int {
 	}
 	count := 0
 	for _, e := range entries {
-		if e.Group == groupID {
+		if e.Group == groupID && !rt.isConfiguredRelay(e.PeerID) {
 			count++
 		}
 	}
