@@ -18,7 +18,7 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Architecture
 
-| Aspect | **peer-up** | **Centralized VPN (e.g., Tailscale)** |
+| Aspect | **peer-up** | **Centralized VPN** |
 |--------|------------|---------------------------------------|
 | **Foundation** | libp2p (circuit relay v2, DHT, QUIC) | WireGuard (kernel-level crypto) |
 | **Topology** | Client -> Relay -> Server (with DCUtR upgrade to direct) | Full mesh, point-to-point |
@@ -28,7 +28,7 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Privacy & Sovereignty
 
-| | **peer-up** | **Centralized VPN (e.g., Tailscale)** |
+| | **peer-up** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -38,7 +38,7 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Features
 
-| Feature | **peer-up** | **Centralized VPN (e.g., Tailscale)** |
+| Feature | **peer-up** | **Centralized VPN** |
 |---------|------------|---------------------------------------|
 | **Service tunneling** | SSH, XRDP, generic TCP | Full IP-layer VPN (any protocol) |
 | **Auth model** | SSH-style `authorized_keys` (peer ID allowlist) | SSO (Google, Okta, GitHub), ACLs |
