@@ -51,6 +51,8 @@ type STUNResult struct {
 	NATType       NATType       `json:"nat_type"`
 	ExternalAddrs []string      `json:"external_addrs"`
 	ProbedAt      time.Time     `json:"probed_at"`
+	BehindCGNAT  bool          `json:"behind_cgnat,omitempty"`
+	CGNATNote    string         `json:"cgnat_note,omitempty"`
 }
 
 // DefaultSTUNServers are well-known public STUN servers.
@@ -448,6 +450,45 @@ func stunBytesEqual(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+// DetectCGNAT checks local network interfaces for RFC 6598 CGNAT addresses
+// (100.64.0.0/10) and sets BehindCGNAT accordingly. This is the only reliable
+// client-side signal for carrier-grade NAT. Mobile carriers using RFC 1918
+// addresses (172.16-31.x.x) cannot be distinguished from regular home networks.
+func (r *STUNResult) DetectCGNAT() {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip4 := ipNet.IP.To4()
+			if ip4 == nil {
+				continue
+			}
+			// RFC 6598 CGNAT: 100.64.0.0/10
+			if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+				r.BehindCGNAT = true
+				r.CGNATNote = fmt.Sprintf("RFC 6598 CGNAT address detected on %s (%s)", iface.Name, ipNet.IP)
+				slog.Info("stun: CGNAT detected",
+					"interface", iface.Name,
+					"addr", ipNet.IP.String())
+				return
+			}
+		}
+	}
 }
 
 // BuildSTUNBindingRequest creates a STUN Binding Request packet with the given

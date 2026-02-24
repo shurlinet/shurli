@@ -144,13 +144,29 @@ func TestDoRelayRemove(t *testing.T) {
 			wantErrStr: "not found",
 		},
 		{
-			name: "last relay cannot be removed",
+			name: "last relay blocked without force",
 			args: func(t *testing.T) []string {
 				cfgPath := writeTestConfigDir(t)
 				return []string{"--config", cfgPath, "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
 			},
 			wantErr:    true,
 			wantErrStr: "cannot remove the last",
+		},
+		{
+			name: "last relay allowed with --force",
+			args: func(t *testing.T) []string {
+				cfgPath := writeTestConfigDir(t)
+				return []string{"--config", cfgPath, "--force", "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "last relay allowed with -f",
+			args: func(t *testing.T) []string {
+				cfgPath := writeTestConfigDir(t)
+				return []string{"--config", cfgPath, "-f", "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"}
+			},
+			wantErr: false,
 		},
 		{
 			name: "missing arg returns usage error",
@@ -236,6 +252,109 @@ func TestDoRelayAdd(t *testing.T) {
 			}
 		})
 	}
+}
+
+// writeTestConfigDirEmptyRelay creates a test config with an empty relay.addresses list.
+func writeTestConfigDirEmptyRelay(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
+	if err != nil {
+		t.Fatalf("generate key pair: %v", err)
+	}
+	data, err := crypto.MarshalPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "identity.key"), data, 0600); err != nil {
+		t.Fatalf("write identity key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "authorized_keys"), nil, 0600); err != nil {
+		t.Fatalf("write authorized_keys: %v", err)
+	}
+
+	cfg := `version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+relay:
+  addresses:
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "test-network"
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+protocols:
+  ping_pong:
+    enabled: true
+    id: "/pingpong/1.0.0"
+services: {}
+names: {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "peerup.yaml"), []byte(cfg), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return filepath.Join(dir, "peerup.yaml")
+}
+
+func TestDoRelayAddEmptyList(t *testing.T) {
+	cfgPath := writeTestConfigDirEmptyRelay(t)
+	addr := "/ip4/5.6.7.8/tcp/8888/p2p/12D3KooWSC3sb3uKwHJ8g6GkjqVK5pN2JFSasBknoT3ciVdFWf3q"
+
+	var stdout bytes.Buffer
+	err := doRelayAdd([]string{"--config", cfgPath, addr}, &stdout)
+	if err != nil {
+		t.Fatalf("doRelayAdd to empty list: %v", err)
+	}
+
+	// Verify address was written to file.
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(data), addr) {
+		t.Errorf("config should contain %s, got:\n%s", addr, string(data))
+	}
+}
+
+func TestAddRelayToConfigFile(t *testing.T) {
+	t.Run("empty list", func(t *testing.T) {
+		cfgPath := writeTestConfigDirEmptyRelay(t)
+		addr := "/ip4/5.6.7.8/tcp/8888/p2p/12D3KooWSW5mRMox8DtEQFnm6fKqCwPm8b3Sjbxa5YKgjVyW5rPW"
+
+		if err := addRelayToConfigFile(cfgPath, addr); err != nil {
+			t.Fatalf("addRelayToConfigFile: %v", err)
+		}
+
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if !strings.Contains(string(data), addr) {
+			t.Errorf("config should contain relay address, got:\n%s", string(data))
+		}
+	})
+
+	t.Run("already present is no-op", func(t *testing.T) {
+		cfgPath := writeTestConfigDir(t)
+		existing := "/ip4/1.2.3.4/tcp/7777/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+
+		before, _ := os.ReadFile(cfgPath)
+		if err := addRelayToConfigFile(cfgPath, existing); err != nil {
+			t.Fatalf("addRelayToConfigFile: %v", err)
+		}
+		after, _ := os.ReadFile(cfgPath)
+
+		// Should have added a duplicate entry (the caller checks for existence).
+		// The function itself doesn't deduplicate - that's the caller's job.
+		if len(after) <= len(before) {
+			t.Error("expected entry to be appended")
+		}
+	})
 }
 
 // ----- truncateAddr tests -----

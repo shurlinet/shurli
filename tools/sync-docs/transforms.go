@@ -18,10 +18,14 @@ func stripFirstHeading(body string) string {
 	return body
 }
 
-// buildDocLinkMap builds the source->slug mapping from docEntries.
+// buildDocLinkMap builds the source->slug mapping from docEntries and linkOnlyEntries.
 func buildDocLinkMap() map[string]string {
-	m := make(map[string]string, len(docEntries))
+	m := make(map[string]string, len(docEntries)+len(linkOnlyEntries))
 	for _, e := range docEntries {
+		slug := strings.TrimSuffix(e.Output, ".md")
+		m[e.Source] = slug
+	}
+	for _, e := range linkOnlyEntries {
 		slug := strings.TrimSuffix(e.Output, ".md")
 		m[e.Source] = slug
 	}
@@ -68,6 +72,42 @@ func rewriteDocLinkAnchored(body, source, slug string) string {
 // rewriteImagePaths rewrites ](images/foo.svg) to ](/images/docs/foo.svg).
 func rewriteImagePaths(body string) string {
 	return strings.ReplaceAll(body, "](images/", "](/images/docs/")
+}
+
+// rewriteFaqImagePaths rewrites ](../images/foo.svg) to ](/images/docs/foo.svg).
+// FAQ sub-files live in docs/faq/, so images are at ../images/.
+func rewriteFaqImagePaths(body string) string {
+	return strings.ReplaceAll(body, "](../images/", "](/images/docs/")
+}
+
+// rewriteFaqDocLinks rewrites cross-doc references from FAQ sub-pages.
+// e.g., (../ARCHITECTURE.md) -> (../../architecture/)
+func rewriteFaqDocLinks(body string) string {
+	linkMap := buildDocLinkMap()
+	for source, slug := range linkMap {
+		// Anchored links first
+		prefix := "(../" + source + "#"
+		for {
+			idx := strings.Index(body, prefix)
+			if idx < 0 {
+				break
+			}
+			end := strings.IndexByte(body[idx:], ')')
+			if end < 0 {
+				break
+			}
+			end += idx
+			anchor := body[idx+len(prefix) : end]
+			oldLink := body[idx : end+1]
+			newLink := "(../../" + slug + "/#" + anchor + ")"
+			body = strings.Replace(body, oldLink, newLink, 1)
+		}
+		// Plain links
+		old := "(../" + source + ")"
+		newVal := "(../../" + slug + "/)"
+		body = strings.ReplaceAll(body, old, newVal)
+	}
+	return body
 }
 
 // rewriteSpecialLinks handles two hardcoded link rewrites:

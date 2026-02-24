@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/satindergrewal/peer-up/pkg/p2pnet"
 )
 
 // Client connects to a running daemon via its Unix socket.
@@ -234,6 +236,17 @@ func (c *Client) PingText(peer string, count, intervalMs int) (string, error) {
 	req := PingRequest{Peer: peer, Count: count, IntervalMs: intervalMs}
 	body, _ := json.Marshal(req)
 	return c.doText("POST", "/v1/ping", strings.NewReader(string(body)))
+}
+
+// Traceroute traces the path to a peer and returns the result as JSON.
+func (c *Client) Traceroute(peer string) (*p2pnet.TraceResult, error) {
+	req := TraceRequest{Peer: peer}
+	body, _ := json.Marshal(req)
+	var resp p2pnet.TraceResult
+	if err := c.doJSON("POST", "/v1/traceroute", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // TracerouteText traces the path to a peer, returns plain text output.

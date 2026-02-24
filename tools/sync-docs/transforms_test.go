@@ -186,6 +186,46 @@ func TestRewriteJournalMdToDir(t *testing.T) {
 	}
 }
 
+func TestRewriteFaqImagePaths(t *testing.T) {
+	tests := []struct {
+		name, input, want string
+	}{
+		{"svg image", "![alt](../images/foo.svg)", "![alt](/images/docs/foo.svg)"},
+		{"png image", "![alt](../images/bar.png)", "![alt](/images/docs/bar.png)"},
+		{"no match", "![alt](https://example.com/img.png)", "![alt](https://example.com/img.png)"},
+		{"main doc path unchanged", "![alt](images/foo.svg)", "![alt](images/foo.svg)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rewriteFaqImagePaths(tt.input)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRewriteFaqDocLinks(t *testing.T) {
+	tests := []struct {
+		name, input, want string
+	}{
+		{"architecture", "[arch](../ARCHITECTURE.md)", "[arch](../../architecture/)"},
+		{"architecture anchor", "[arch](../ARCHITECTURE.md#daemon)", "[arch](../../architecture/#daemon)"},
+		{"roadmap", "[rm](../ROADMAP.md)", "[rm](../../roadmap/)"},
+		{"faq self-link", "[faq](../FAQ.md)", "[faq](../../faq/)"},
+		{"external unchanged", "[g](https://google.com)", "[g](https://google.com)"},
+		{"not in map", "[x](../RANDOM.md)", "[x](../RANDOM.md)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rewriteFaqDocLinks(tt.input)
+			if got != tt.want {
+				t.Errorf("\n got: %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPromoteHeadings(t *testing.T) {
 	tests := []struct {
 		name, input, want string
@@ -315,10 +355,14 @@ Feature list.
 	docsDir := filepath.Join(root, "docs")
 	os.MkdirAll(filepath.Join(docsDir, "images"), 0755)
 	os.MkdirAll(filepath.Join(docsDir, "engineering-journal"), 0755)
+	os.MkdirAll(filepath.Join(docsDir, "faq"), 0755)
 
-	os.WriteFile(filepath.Join(docsDir, "FAQ.md"), []byte("# FAQ\n\nSee [ARCHITECTURE.md](ARCHITECTURE.md) for details.\n\n![diagram](images/test.svg)\n"), 0644)
 	os.WriteFile(filepath.Join(docsDir, "ARCHITECTURE.md"), []byte("# Architecture\n\nSee the [FAQ](FAQ.md#how-it-works) for comparisons.\n\nFull API in [DAEMON-API.md](DAEMON-API.md).\n"), 0644)
 	os.WriteFile(filepath.Join(docsDir, "images", "test.svg"), []byte("<svg/>"), 0644)
+
+	// Create FAQ sub-pages
+	os.WriteFile(filepath.Join(docsDir, "faq", "README.md"), []byte("# peer-up FAQ\n\n| [Design Philosophy](design-philosophy.md) | Why no accounts. |\n"), 0644)
+	os.WriteFile(filepath.Join(docsDir, "faq", "design-philosophy.md"), []byte("# FAQ - Design Philosophy\n\nSee [ARCHITECTURE.md](../ARCHITECTURE.md) for details.\n\n![diagram](../images/test.svg)\n"), 0644)
 
 	// Create engineering journal
 	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "README.md"), []byte("# Engineering Journal\n\n| [Core](core-architecture.md) |\n"), 0644)
@@ -339,7 +383,8 @@ Feature list.
 	}
 
 	// Verify outputs exist
-	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "faq.md"))
+	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "faq", "_index.md"))
+	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "faq", "design-philosophy.md"))
 	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "architecture.md"))
 	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "quick-start.md"))
 	assertFileExists(t, filepath.Join(root, "website", "content", "docs", "relay-setup.md"))
@@ -348,12 +393,17 @@ Feature list.
 	assertFileExists(t, filepath.Join(root, "website", "static", "images", "docs", "test.svg"))
 	assertFileExists(t, filepath.Join(root, "website", "static", "llms-full.txt"))
 
-	// Verify FAQ link rewriting
-	faqContent := readFile(t, filepath.Join(root, "website", "content", "docs", "faq.md"))
-	assertContains(t, faqContent, "(../architecture/)", "FAQ should link to architecture")
-	assertContains(t, faqContent, "](/images/docs/test.svg)", "FAQ should rewrite image path")
-	assertContains(t, faqContent, `weight: 3`, "FAQ should have weight 3")
-	assertNotContains(t, faqContent, "# FAQ", "FAQ should strip first heading")
+	// Verify FAQ _index.md (from README.md)
+	faqIndex := readFile(t, filepath.Join(root, "website", "content", "docs", "faq", "_index.md"))
+	assertContains(t, faqIndex, `title: "FAQ"`, "FAQ index should have title")
+	assertContains(t, faqIndex, "(design-philosophy/)", "FAQ index should rewrite .md to directory")
+	assertNotContains(t, faqIndex, "# peer-up FAQ", "FAQ index should strip first heading")
+
+	// Verify FAQ sub-page link rewriting
+	faqDesign := readFile(t, filepath.Join(root, "website", "content", "docs", "faq", "design-philosophy.md"))
+	assertContains(t, faqDesign, "(../../architecture/)", "FAQ sub-page should link to architecture with ../../")
+	assertContains(t, faqDesign, "](/images/docs/test.svg)", "FAQ sub-page should rewrite ../images/ path")
+	assertNotContains(t, faqDesign, "# FAQ - Design Philosophy", "FAQ sub-page should strip first heading")
 
 	// Verify Architecture link rewriting
 	archContent := readFile(t, filepath.Join(root, "website", "content", "docs", "architecture.md"))
@@ -379,8 +429,8 @@ Feature list.
 func TestRun_DryRun(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0644)
-	os.MkdirAll(filepath.Join(root, "docs"), 0755)
-	os.WriteFile(filepath.Join(root, "docs", "FAQ.md"), []byte("# FAQ\n\nContent.\n"), 0644)
+	os.MkdirAll(filepath.Join(root, "docs", "faq"), 0755)
+	os.WriteFile(filepath.Join(root, "docs", "faq", "README.md"), []byte("# FAQ\n\nContent.\n"), 0644)
 	os.MkdirAll(filepath.Join(root, "website", "content", "docs"), 0755)
 
 	err := run([]string{"--root-dir", root, "--dry-run"})
@@ -389,7 +439,7 @@ func TestRun_DryRun(t *testing.T) {
 	}
 
 	// No output files should be created
-	_, err = os.Stat(filepath.Join(root, "website", "content", "docs", "faq.md"))
+	_, err = os.Stat(filepath.Join(root, "website", "content", "docs", "faq", "_index.md"))
 	if err == nil {
 		t.Error("dry-run should not create files")
 	}

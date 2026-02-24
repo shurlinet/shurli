@@ -51,6 +51,8 @@ func main() {
 		runInvite(os.Args[2:])
 	case "join":
 		runJoin(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -112,6 +114,7 @@ func printUsage() {
 	fmt.Println("  relay deauthorize <peer-id>              Remove a peer's access")
 	fmt.Println("  relay list-peers                         List authorized peers")
 	fmt.Println("  relay info                               Show peer ID and multiaddrs")
+	fmt.Println("  relay pair [--count N] [--ttl 1h]        Generate pairing codes")
 	fmt.Println("  relay config validate                    Validate relay config")
 	fmt.Println("  relay config rollback                    Restore last-known-good config")
 	fmt.Println()
@@ -124,6 +127,7 @@ func printUsage() {
 	fmt.Println("Pairing:")
 	fmt.Println("  invite [--name \"home\"] [--non-interactive]")
 	fmt.Println("  join <code> [--name \"laptop\"] [--non-interactive]")
+	fmt.Println("  verify <peer>                           Verify a peer's identity (SAS)")
 	fmt.Println()
 	fmt.Println("  status [--config path]                  Show local config and services")
 	fmt.Println("  version                                 Show version information")

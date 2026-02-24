@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" width="800" height="380">
+  <defs>
+    <linearGradient id="layer1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b2020;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a1515;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a3e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e3330;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="380" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Home Relay Security - Three Defense Layers</text>
+
+  <!-- Attacker on left -->
+  <rect x="30" y="155" width="100" height="36" rx="8" fill="#2a1515" stroke="#f7768e" stroke-width="1.3"/>
+  <text x="80" y="177" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">Attacker</text>
+
+  <!-- Authorized peer on left bottom -->
+  <rect x="30" y="275" width="100" height="36" rx="8" fill="#1e2140" stroke="#3b82f6" stroke-width="1.3"/>
+  <text x="80" y="291" font-family="system-ui, sans-serif" font-size="10" fill="#3b82f6" text-anchor="middle" font-weight="600">Authorized</text>
+  <text x="80" y="304" font-family="system-ui, sans-serif" font-size="10" fill="#3b82f6" text-anchor="middle" font-weight="600">Peer</text>
+
+  <!-- Layer 1: ConnectionGater -->
+  <rect x="180" y="60" width="170" height="280" rx="10" fill="url(#layer1)" stroke="#f7768e" stroke-width="1.5" opacity="0.9"/>
+  <text x="265" y="48" font-family="system-ui, sans-serif" font-size="12" fill="#f7768e" text-anchor="middle" font-weight="600">Layer 1</text>
+  <text x="265" y="85" font-family="SF Mono, monospace" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">ConnectionGater</text>
+  <text x="265" y="102" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">authorized_keys</text>
+  <text x="265" y="115" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">peer ID allowlist</text>
+
+  <!-- Attacker blocked -->
+  <line x1="130" y1="173" x2="180" y2="173" stroke="#f7768e" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="176,168 176,178 184,173" fill="#f7768e"/>
+  <text x="265" y="170" font-family="SF Mono, monospace" font-size="16" fill="#f7768e" text-anchor="middle">&#x2717;</text>
+  <text x="265" y="188" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="middle">REJECTED</text>
+  <text x="265" y="200" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">zero protocol parsing</text>
+
+  <!-- Authorized peer passes Layer 1 -->
+  <line x1="130" y1="293" x2="350" y2="293" stroke="#3b82f6" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="345,288 345,298 354,293" fill="#3b82f6"/>
+  <text x="265" y="285" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">ALLOWED</text>
+
+  <!-- Layer 2: Resource Limits -->
+  <rect x="390" y="60" width="170" height="280" rx="10" fill="url(#layer2)" stroke="#bb9af7" stroke-width="1.5" opacity="0.9"/>
+  <text x="475" y="48" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="600">Layer 2</text>
+  <text x="475" y="85" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">Resource Limits</text>
+  <text x="475" y="105" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">4 reservations max</text>
+  <text x="475" y="118" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">16 circuits max</text>
+  <text x="475" y="131" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">128KB / 10min per session</text>
+  <text x="475" y="144" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">per-IP, per-ASN caps</text>
+
+  <!-- Authorized peer passes Layer 2 -->
+  <line x1="390" y1="293" x2="560" y2="293" stroke="#3b82f6" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="555,288 555,298 564,293" fill="#3b82f6"/>
+  <text x="475" y="285" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">WITHIN LIMITS</text>
+
+  <!-- Layer 3: E2E Encryption -->
+  <rect x="600" y="60" width="170" height="280" rx="10" fill="url(#layer3)" stroke="#9ece6a" stroke-width="1.5" opacity="0.9"/>
+  <text x="685" y="48" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle" font-weight="600">Layer 3</text>
+  <text x="685" y="85" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="600">E2E Encryption</text>
+  <text x="685" y="105" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Noise protocol (Ed25519)</text>
+  <text x="685" y="118" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Relay sees ciphertext</text>
+  <text x="685" y="131" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">No content inspection</text>
+  <text x="685" y="144" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">No traffic analysis</text>
+
+  <!-- Authorized peer relay active -->
+  <line x1="600" y1="293" x2="755" y2="293" stroke="#3b82f6" stroke-width="2" filter="url(#glow)"/>
+  <text x="685" y="285" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">ENCRYPTED RELAY</text>
+
+  <!-- Sealed envelope icon -->
+  <rect x="644" y="305" width="82" height="22" rx="4" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="685" y="320" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">sealed bytes</text>
+
+  <!-- Bottom note -->
+  <text x="400" y="365" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" opacity="0.7">
+    Unauthenticated peers are stopped at Layer 1 - attack surface increase is zero
+  </text>
+</svg>
