@@ -150,14 +150,18 @@ func runDaemonStart(args []string) {
 		fatal("Failed to start: %v", err)
 	}
 
+	// Register protocol handlers BEFORE Bootstrap so they're ready when
+	// the relay fires reconnect-notifier on our connection. Without this,
+	// the relay tries to deliver peer introductions before the handler exists.
+	rt.SetupPingPong()
+	rt.SetupPeerNotify()
+
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()
 		fatal("Bootstrap failed: %v", err)
 	}
 
 	rt.ExposeConfiguredServices()
-	rt.SetupPingPong()
-	rt.SetupPeerNotify()
 	rt.StartPeerHistorySaver()
 
 	// Start daemon API server

@@ -274,6 +274,11 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 	}
 	defer sub.Close()
 
+	// Dedup: skip re-notifying the same peer within a short window.
+	// Prevents burst logging when peers reconnect rapidly.
+	recentlyNotified := make(map[peer.ID]time.Time)
+	const dedupeWindow = 30 * time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -283,8 +288,14 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 				return
 			}
 			e := evt.(event.EvtPeerIdentificationCompleted)
-			slog.Info("reconnect-notifier: peer identified",
+			slog.Debug("reconnect-notifier: peer identified",
 				"peer", e.Peer.String()[:16]+"...")
+
+			// Skip if recently notified.
+			if last, ok := recentlyNotified[e.Peer]; ok && time.Since(last) < dedupeWindow {
+				continue
+			}
+
 			// Look up identified peer in authorized_keys.
 			entries, err := auth.ListPeers(authKeysPath)
 			if err != nil {
@@ -292,6 +303,7 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 			}
 			for _, entry := range entries {
 				if entry.PeerID == e.Peer && entry.Group != "" {
+					recentlyNotified[e.Peer] = time.Now()
 					go func(pid peer.ID, gid string) {
 						if err := notifier.NotifyPeer(ctx, pid, gid); err != nil {
 							slog.Warn("reconnect-notifier: delivery failed",

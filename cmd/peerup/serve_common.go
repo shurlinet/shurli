@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -409,11 +410,33 @@ func (rt *serveRuntime) Bootstrap() error {
 			go func() {
 				probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
 				defer probeCancel()
-				if _, err := rt.stunProber.Probe(probeCtx); err != nil {
+				result, err := rt.stunProber.Probe(probeCtx)
+				if err != nil {
 					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
+				} else {
+					result.DetectCGNAT()
 				}
 			}()
 		}
+
+		// Delayed stale-address check: after libp2p has time to update,
+		// warn if it still advertises addresses for removed interfaces.
+		go func() {
+			time.Sleep(10 * time.Second)
+			sysIPs := currentSystemIPs()
+			for _, addr := range h.Addrs() {
+				addrStr := addr.String()
+				if strings.Contains(addrStr, "/p2p-circuit") {
+					continue
+				}
+				if ip := extractIPFromMultiaddr(addrStr); ip != nil {
+					if _, ok := sysIPs[ip.String()]; !ok {
+						slog.Warn("stale address detected after network change",
+							"addr", addrStr, "ip", ip.String())
+					}
+				}
+			}
+		}()
 	}, rt.metrics)
 	go netmon.Run(rt.ctx)
 
@@ -428,11 +451,16 @@ func (rt *serveRuntime) Bootstrap() error {
 			fmt.Printf("Warning: STUN probe failed: %v\n", err)
 			return
 		}
+		// Check for CGNAT after probe completes.
+		result.DetectCGNAT()
+
 		fmt.Printf("NAT type: %s", result.NATType)
 		if len(result.ExternalAddrs) > 0 {
 			fmt.Printf(" (external: %s)", result.ExternalAddrs[0])
 		}
-		if result.NATType.HolePunchable() {
+		if result.BehindCGNAT {
+			fmt.Print(" [CGNAT]")
+		} else if result.NATType.HolePunchable() {
 			fmt.Print(" [hole-punchable]")
 		}
 		fmt.Println()
@@ -570,13 +598,19 @@ func (rt *serveRuntime) SetupPeerNotify() {
 			if comment == "" {
 				comment = "introduced-" + time.Now().Format("2006-01-02")
 			}
+			alreadyExists := false
 			if err := auth.AddPeer(rt.authKeys, p.PeerID, comment); err != nil {
-				if !strings.Contains(err.Error(), "already authorized") {
+				if strings.Contains(err.Error(), "already authorized") {
+					alreadyExists = true
+				} else {
 					slog.Error("peer-notify: add failed",
 						"peer", p.PeerID[:16]+"...", "err", err)
+					continue
 				}
-				continue
 			}
+
+			// Always update attributes (even for existing peers that may
+			// be missing group/hmac from a previous incomplete pairing).
 			auth.SetPeerAttr(rt.authKeys, p.PeerID, "group", groupID)
 
 			// Store HMAC commitment proof if present (Layer 4 data).
@@ -593,7 +627,9 @@ func (rt *serveRuntime) SetupPeerNotify() {
 					rt.network.RegisterName(p.Name, pid)
 				}
 			}
-			added++
+			if !alreadyExists {
+				added++
+			}
 
 			// Record introduction in sovereign history.
 			if rt.peerHistory != nil {
@@ -692,6 +728,11 @@ func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
 		{
 			Name: "relay-reservation",
 			Check: func() error {
+				// Grace period: don't warn during the first 60s after startup.
+				// Bootstrap needs time to establish the relay reservation.
+				if time.Since(rt.startTime) < 60*time.Second {
+					return nil
+				}
 				for _, addr := range h.Addrs() {
 					if strings.Contains(addr.String(), "p2p-circuit") {
 						return nil
@@ -725,20 +766,18 @@ func (rt *serveRuntime) StartStatusPrinter() {
 			fmt.Printf("Peer ID: %s\n", h.ID())
 			fmt.Printf("Connected peers: %d\n", len(h.Network().Peers()))
 			fmt.Println("Addresses:")
+			currentIPs := currentSystemIPs()
 			for _, addr := range h.Addrs() {
-				label := "local"
-				addrStr := addr.String()
-				if strings.Contains(addrStr, "/p2p-circuit") {
-					label = "RELAY"
-				} else if !strings.Contains(addrStr, "/ip4/10.") &&
-					!strings.Contains(addrStr, "/ip4/192.168.") &&
-					!strings.Contains(addrStr, "/ip4/127.") &&
-					!strings.Contains(addrStr, "/ip6/::1") &&
-					!strings.Contains(addrStr, "/ip6/fe80") &&
-					!strings.Contains(addrStr, "/ip6/fd") {
-					label = "public"
+				label := classifyMultiaddr(addr.String())
+				// Cross-check non-relay addresses against actual interfaces.
+				if label != "RELAY" {
+					if ip := extractIPFromMultiaddr(addr.String()); ip != nil {
+						if _, ok := currentIPs[ip.String()]; !ok {
+							label += ",stale?"
+						}
+					}
 				}
-				fmt.Printf("  [%s] %s\n", label, addrStr)
+				fmt.Printf("  [%s] %s\n", label, addr.String())
 			}
 			fmt.Println("--------------")
 			select {
@@ -748,6 +787,57 @@ func (rt *serveRuntime) StartStatusPrinter() {
 			}
 		}
 	}()
+}
+
+// classifyMultiaddr returns a human-readable label for a multiaddr:
+// "RELAY", "public", or "local".
+func classifyMultiaddr(addrStr string) string {
+	if strings.Contains(addrStr, "/p2p-circuit") {
+		return "RELAY"
+	}
+	// Extract IP from multiaddr string (e.g. "/ip4/172.20.10.3/tcp/1234").
+	ip := extractIPFromMultiaddr(addrStr)
+	if ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !isCGNATAddr(ip) {
+		return "public"
+	}
+	return "local"
+}
+
+// extractIPFromMultiaddr parses the IP address from a multiaddr string.
+func extractIPFromMultiaddr(addrStr string) net.IP {
+	parts := strings.Split(addrStr, "/")
+	for i, p := range parts {
+		if (p == "ip4" || p == "ip6") && i+1 < len(parts) {
+			return net.ParseIP(parts[i+1])
+		}
+	}
+	return nil
+}
+
+// currentSystemIPs returns a set of all IP addresses currently assigned to
+// system interfaces (including private). Used to detect stale libp2p addresses
+// after network interface changes.
+func currentSystemIPs() map[string]struct{} {
+	ips := make(map[string]struct{})
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, a := range addrs {
+		if ipNet, ok := a.(*net.IPNet); ok {
+			ips[ipNet.IP.String()] = struct{}{}
+		}
+	}
+	return ips
+}
+
+// isCGNATAddr checks if an IP is in the CGNAT range (100.64.0.0/10, RFC 6598).
+func isCGNATAddr(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127
 }
 
 // ConnectToPeer ensures the host can reach the target peer using parallel

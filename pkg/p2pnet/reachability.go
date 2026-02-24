@@ -48,6 +48,17 @@ func ComputeReachabilityGrade(ifaces *InterfaceSummary, stun *STUNResult) Reacha
 
 	// No public IP directly visible. Check STUN results for NAT type.
 	if stun != nil {
+		// If CGNAT is confirmed, cap at grade D regardless of NAT type.
+		// Hole-punching through the inner NAT is irrelevant when a carrier
+		// NAT sits above it and drops unsolicited inbound packets.
+		if stun.BehindCGNAT {
+			return ReachabilityGrade{
+				Grade:       GradeD,
+				Label:       "Poor",
+				Description: "CGNAT detected, hole-punch unlikely",
+			}
+		}
+
 		switch stun.NATType {
 		case NATNone:
 			// STUN says no NAT but we didn't detect a public IP above.
