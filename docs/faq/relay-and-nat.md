@@ -123,6 +123,8 @@ This is the most important security question for peer-up's future. The short ans
 
 Here's the full breakdown - because "trust us" is not a security argument.
 
+![Home relay security layers: unauthenticated peers blocked at ConnectionGater (Layer 1), authorized peers pass through resource limits (Layer 2) and E2E encryption (Layer 3)](../images/faq-relay-security-layers.svg)
+
 ### What "acting as a relay" actually means
 
 When your home node enables relay service, it does one thing: accept a reservation from a peer (identified by their peer ID), then forward encrypted bytes between that peer and whoever connects to them through you. Your node never sees the content - it's end-to-end encrypted with Noise protocol. Your node never authenticates the remote peer's connections - that's the target peer's job.
@@ -203,6 +205,8 @@ An open service is an open door with a bouncer inside. A peer-up relay is a door
 | **Self-hosted** | Yes | No (Tailscale operates) | N/A (public nodes) |
 
 ### The path forward
+
+![Decentralization path: from single VPS relay to peer relays to DHT discovery to fully distributed where every public peer relays for authorized peers](../images/faq-decentralization-path.svg)
 
 The ConnectionGater-protected relay model is how peer-up eliminates dependency on the central relay VPS:
 
