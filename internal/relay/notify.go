@@ -285,6 +285,8 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 			if e.Connectedness != network.Connected {
 				continue
 			}
+			slog.Info("reconnect-notifier: peer connected",
+				"peer", e.Peer.String()[:16]+"...")
 			// Look up connecting peer in authorized_keys.
 			entries, err := auth.ListPeers(authKeysPath)
 			if err != nil {
@@ -292,7 +294,13 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 			}
 			for _, entry := range entries {
 				if entry.PeerID == e.Peer && entry.Group != "" {
-					go notifier.NotifyPeer(ctx, e.Peer, entry.Group)
+					go func(pid peer.ID, gid string) {
+						if err := notifier.NotifyPeer(ctx, pid, gid); err != nil {
+							slog.Warn("reconnect-notifier: delivery failed",
+								"peer", pid.String()[:16]+"...",
+								"group", gid, "err", err)
+						}
+					}(e.Peer, entry.Group)
 					break
 				}
 			}
