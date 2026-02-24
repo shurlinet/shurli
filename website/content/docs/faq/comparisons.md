@@ -321,9 +321,21 @@ Where peer-up goes further than Ethereum's usage:
 
 ---
 
-## What features does no existing tool provide?
+## What does peer-up ship that others don't?
 
-These are genuine gaps in every P2P/VPN/tunnel tool available today:
+### Built-in observability
+
+Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
+
+peer-up ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+
+**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
+
+---
+
+## What are the open problems in P2P networking?
+
+These are genuine gaps in every P2P/VPN/tunnel tool available today, including peer-up:
 
 ### 1. Zero-RTT proxy connection resume
 
@@ -346,21 +358,14 @@ Every relay server processes packets through the kernel network stack (syscalls 
 **Who has it**: Nobody (Cloudflare uses XDP for DDoS, not for relay forwarding).
 **Difficulty**: High (Linux-only, requires privileged access).
 
-### 4. Built-in observability
-
-Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
-
-**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 29 panels). No other P2P tunnel tool ships with this level of built-in observability.
-**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
-
-### 5. Formally verified protocol state machine
+### 4. Formally verified protocol state machine
 
 No P2P tool has mathematically proven that its handshake / invite / key exchange protocol is correct. Bugs in state machines cause security vulnerabilities. Formal verification tools like [Kani](https://github.com/model-checking/kani) (Rust) and [TLA+](https://lamport.azurewebsites.net/tla/tla.html) can prove correctness.
 
 **Who has it**: AWS s2n-quic (QUIC only, not application layer). [Bert13](https://dl.acm.org/doi/10.1145/3719027.3765213) (first formally-verified post-quantum TLS 1.3 in Rust).
 **Difficulty**: High (requires Rust migration for Kani, or TLA+ model of invite protocol).
 
-### 6. Cryptographic agility (post-quantum ready)
+### 5. Cryptographic agility (post-quantum ready)
 
 No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum handshakes. When ML-KEM mandates arrive (2026-2028), every tool will need emergency patches.
 

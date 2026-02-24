@@ -12,7 +12,7 @@ The invite/join flow uses a PAKE-inspired encrypted handshake (shipped in Pre-Ba
 
 1. Both sides generate ephemeral X25519 key pairs
 2. They exchange public keys over the relay-mediated stream
-3. Each side derives a shared AEAD key: HKDF-SHA256(DH-shared-secret, invite-code-as-salt)
+3. Each side derives a shared AEAD key using HKDF-SHA256 with the DH shared secret and invite code combined as input keying material (info: "peerup-invite-v1")
 4. All subsequent messages (peer names, peer IDs) are encrypted with XChaCha20-Poly1305
 5. Key confirmation MACs verify both sides derived the same key
 
@@ -38,7 +38,7 @@ peerup join <pairing-code> --name laptop
 # Connects to relay, discovers other peers, mutually authorizes everyone
 ```
 
-The flow has 8 steps: token validation, enrollment mode (probationary peer admission), peer discovery, mutual authorization, name conflict resolution (automatic -2, -3 suffixes), SAS fingerprint display, daemon auto-start, and expiry management.
+The relay-side flow covers: token validation, enrollment mode (probationary peer admission), HMAC group commitment, peer authorization, group attribute annotation, peer discovery, and response encoding with the joined peer list.
 
 Security properties:
 - Pairing codes are hashed (SHA-256) on the relay. The relay stores the hash, not the code.

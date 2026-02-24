@@ -3674,9 +3674,21 @@ Where peer-up goes further than Ethereum's usage:
 
 ---
 
-## What features does no existing tool provide?
+## What does peer-up ship that others don't?
 
-These are genuine gaps in every P2P/VPN/tunnel tool available today:
+### Built-in observability
+
+Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
+
+peer-up ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+
+**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
+
+---
+
+## What are the open problems in P2P networking?
+
+These are genuine gaps in every P2P/VPN/tunnel tool available today, including peer-up:
 
 ### 1. Zero-RTT proxy connection resume
 
@@ -3699,21 +3711,14 @@ Every relay server processes packets through the kernel network stack (syscalls 
 **Who has it**: Nobody (Cloudflare uses XDP for DDoS, not for relay forwarding).
 **Difficulty**: High (Linux-only, requires privileged access).
 
-### 4. Built-in observability
-
-Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
-
-**Who has it**: peer-up (Batch H shipped Prometheus metrics, libp2p built-in metrics, custom proxy/auth/holepunch counters, structured audit logging, and a pre-built Grafana dashboard with 29 panels). No other P2P tunnel tool ships with this level of built-in observability.
-**What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
-
-### 5. Formally verified protocol state machine
+### 4. Formally verified protocol state machine
 
 No P2P tool has mathematically proven that its handshake / invite / key exchange protocol is correct. Bugs in state machines cause security vulnerabilities. Formal verification tools like [Kani](https://github.com/model-checking/kani) (Rust) and [TLA+](https://lamport.azurewebsites.net/tla/tla.html) can prove correctness.
 
 **Who has it**: AWS s2n-quic (QUIC only, not application layer). [Bert13](https://dl.acm.org/doi/10.1145/3719027.3765213) (first formally-verified post-quantum TLS 1.3 in Rust).
 **Difficulty**: High (requires Rust migration for Kani, or TLA+ model of invite protocol).
 
-### 6. Cryptographic agility (post-quantum ready)
+### 5. Cryptographic agility (post-quantum ready)
 
 No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum handshakes. When ML-KEM mandates arrive (2026-2028), every tool will need emergency patches.
 
@@ -3874,24 +3879,13 @@ Circuit Relay v2 was specifically redesigned (from v1) because v1 relays had no 
 
 When any limit is hit, the relay returns `RESOURCE_LIMIT_EXCEEDED` and the connection is refused. No crash, no OOM, no degradation. The peer simply can't connect.
 
-### `require_auth: true` - only relay for people you chose
+### Only relay for people you chose
 
-This is peer-up's critical addition: **relay service restricted to peers in your `authorized_keys` file.** An anonymous internet scanner hitting your relay's port gets rejected at the ConnectionGater before any relay protocol runs. The reservation request never reaches the relay service logic.
+peer-up's relay service is **restricted to peers in your `authorized_keys` file** by default. The ConnectionGater blocks unauthenticated connections before any relay protocol runs - an anonymous internet scanner hitting your relay's port gets rejected at the connection layer, and the reservation request never reaches the relay service logic.
 
-```yaml
-# home-node config
-relay_service:
-  enabled: true
-  require_auth: true    # Only relay for peers in authorized_keys
-  resources:
-    max_reservations: 8
-    session_duration: "15m"
-    session_data_limit: "128MB"
-```
+Batch I-f shipped "every-peer-is-a-relay" - any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB per direction, 10-minute sessions). The ConnectionGater ensures only authorized peers can make reservations or create circuits through this relay.
 
-**Note**: Batch I-f shipped "every-peer-is-a-relay" - any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits). The config above is for explicit relay service configuration with custom limits.
-
-With `require_auth: true`, the attack surface increase from enabling relay is **zero** for unauthenticated peers - they're rejected at the same layer they'd be rejected at today.
+The attack surface increase from enabling relay is **zero** for unauthenticated peers - they are rejected at the same layer they would be rejected at today.
 
 ### "But my IP address becomes visible"
 
@@ -3903,7 +3897,7 @@ This concern has two parts:
 - **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
-The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS - and arguably less, since the VPS has no auth requirement for relay service.
+The relay VPS model today already exposes its public IP. A home relay with the ConnectionGater is no more exposed than the VPS - and arguably less, since only authorized peers can connect.
 
 ### What your relay CANNOT be used for
 
@@ -3913,29 +3907,29 @@ The relay VPS model today already exposes its public IP. A home relay with `requ
 | **Connection injection** | Both peers authenticate each other via peer ID (Ed25519) |
 | **DDoS amplification** | QUIC source address verification; per-IP reservation limits |
 | **Resource exhaustion** | Hard limits on reservations, circuits, duration, data |
-| **Open relay abuse** | `require_auth: true` - only authorized peers can reserve |
+| **Open relay abuse** | ConnectionGater allowlist - only authorized peers can reserve |
 | **Pivot to your LAN** | Relay forwards bytes, doesn't parse them. No routing to your network. |
 
 ### Why this is different from running an open service
 
 Self-hosters know the pattern: expose a service on a home server, and within hours the port scanners find it. Firewall logs light up with probes from around the world. This happens because the service accepts connections from anyone - every participant on the network can reach it.
 
-A peer-up relay with `require_auth` is fundamentally different:
+A peer-up relay with its ConnectionGater allowlist is fundamentally different:
 
-| | **Typical exposed service** | **peer-up relay with `require_auth`** |
+| | **Typical exposed service** | **peer-up relay** |
 |---|---|---|
 | **Who can connect** | Anyone who finds the port | Only peers in your `authorized_keys` |
 | **What they can do** | Full protocol interaction | Forward encrypted bytes (nothing else) |
 | **Discovery** | Port scanning, Shodan, service-specific gossip | Private - only authorized peers know about it |
 | **Attack surface** | Full protocol parser (HTTP, SSH, etc.) | ConnectionGater rejection (zero protocol parsing for unauthorized) |
 
-An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key - and even then, it only passes sealed envelopes.
+An open service is an open door with a bouncer inside. A peer-up relay is a door that only opens with the right key - and even then, it only passes sealed envelopes.
 
 ### Comparison with other relay architectures
 
-| Feature | **peer-up (require_auth)** | **Tailscale DERP** | **IPFS public relay** |
-|---------|--------------------------|-------------------|---------------------|
-| **Who can use it** | Explicit allowlist | Any Tailscale account holder | Anyone |
+| Feature | **peer-up** | **Tailscale DERP** | **IPFS public relay** |
+|---------|------------|-------------------|---------------------|
+| **Who can use it** | Explicit allowlist (authorized_keys) | Any Tailscale account holder | Anyone |
 | **Authentication** | ConnectionGater (peer ID) | WireGuard keys | None |
 | **Resource limits** | Per-peer, per-IP, per-ASN | Not published | 128 KB / 2 min |
 | **E2E encryption** | Noise (Ed25519) | WireGuard (Curve25519) | Noise |
@@ -3944,10 +3938,10 @@ An open service is an open door with a bouncer inside. A peer-up relay with `req
 
 ### The path forward
 
-The `require_auth` relay model is how peer-up eliminates dependency on the central relay VPS:
+The ConnectionGater-protected relay model is how peer-up eliminates dependency on the central relay VPS:
 
-1. **Today**: One relay VPS -> single point of failure
-2. **Near-term**: Home nodes with public IPv6 or port-forwarding enable relay with `require_auth` -> multiple relays across the network
+1. **Today**: One relay VPS + every-peer-is-a-relay (Batch I-f) for peers with public IPs
+2. **Near-term**: Home nodes with public IPv6 or port-forwarding serve as additional relays -> multiple relays across the network
 3. **Medium-term**: Peers discover authorized relays via DHT (not a central endpoint) -> no single point of failure
 4. **End state**: Every publicly-reachable peer-up node relays for its authorized peers -> relay VPS becomes **obsolete** (not just optional)
 
@@ -3997,7 +3991,7 @@ The invite/join flow uses a PAKE-inspired encrypted handshake (shipped in Pre-Ba
 
 1. Both sides generate ephemeral X25519 key pairs
 2. They exchange public keys over the relay-mediated stream
-3. Each side derives a shared AEAD key: HKDF-SHA256(DH-shared-secret, invite-code-as-salt)
+3. Each side derives a shared AEAD key using HKDF-SHA256 with the DH shared secret and invite code combined as input keying material (info: "peerup-invite-v1")
 4. All subsequent messages (peer names, peer IDs) are encrypted with XChaCha20-Poly1305
 5. Key confirmation MACs verify both sides derived the same key
 
@@ -4023,7 +4017,7 @@ peerup join <pairing-code> --name laptop
 # Connects to relay, discovers other peers, mutually authorizes everyone
 ```
 
-The flow has 8 steps: token validation, enrollment mode (probationary peer admission), peer discovery, mutual authorization, name conflict resolution (automatic -2, -3 suffixes), SAS fingerprint display, daemon auto-start, and expiry management.
+The relay-side flow covers: token validation, enrollment mode (probationary peer admission), HMAC group commitment, peer authorization, group attribute annotation, peer discovery, and response encoding with the joined peer list.
 
 Security properties:
 - Pairing codes are hashed (SHA-256) on the relay. The relay stores the hash, not the code.
@@ -4247,7 +4241,7 @@ This is a future optimization for peer-up's QUIC transport - particularly valuab
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
 | libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, Iroh) |
 | Formal verification | Limited | Strong (s2n-quic has 300+ Kani harnesses) |
-| Binary size | ~15-20MB | ~5-10MB |
+| Binary size | ~25-28MB | ~5-10MB |
 | Cross-compilation | Trivial (`GOOS=linux GOARCH=arm64`) | Requires target toolchain setup |
 | Concurrency model | Goroutines (simple, GC-managed) | async/await (no runtime overhead) |
 

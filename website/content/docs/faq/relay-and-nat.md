@@ -151,24 +151,13 @@ Circuit Relay v2 was specifically redesigned (from v1) because v1 relays had no 
 
 When any limit is hit, the relay returns `RESOURCE_LIMIT_EXCEEDED` and the connection is refused. No crash, no OOM, no degradation. The peer simply can't connect.
 
-### `require_auth: true` - only relay for people you chose
+### Only relay for people you chose
 
-This is peer-up's critical addition: **relay service restricted to peers in your `authorized_keys` file.** An anonymous internet scanner hitting your relay's port gets rejected at the ConnectionGater before any relay protocol runs. The reservation request never reaches the relay service logic.
+peer-up's relay service is **restricted to peers in your `authorized_keys` file** by default. The ConnectionGater blocks unauthenticated connections before any relay protocol runs - an anonymous internet scanner hitting your relay's port gets rejected at the connection layer, and the reservation request never reaches the relay service logic.
 
-```yaml
-# home-node config
-relay_service:
-  enabled: true
-  require_auth: true    # Only relay for peers in authorized_keys
-  resources:
-    max_reservations: 8
-    session_duration: "15m"
-    session_data_limit: "128MB"
-```
+Batch I-f shipped "every-peer-is-a-relay" - any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB per direction, 10-minute sessions). The ConnectionGater ensures only authorized peers can make reservations or create circuits through this relay.
 
-**Note**: Batch I-f shipped "every-peer-is-a-relay" - any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits). The config above is for explicit relay service configuration with custom limits.
-
-With `require_auth: true`, the attack surface increase from enabling relay is **zero** for unauthenticated peers - they're rejected at the same layer they'd be rejected at today.
+The attack surface increase from enabling relay is **zero** for unauthenticated peers - they are rejected at the same layer they would be rejected at today.
 
 ### "But my IP address becomes visible"
 
@@ -180,7 +169,7 @@ This concern has two parts:
 - **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
-The relay VPS model today already exposes its public IP. A home relay with `require_auth: true` is no more exposed than the VPS - and arguably less, since the VPS has no auth requirement for relay service.
+The relay VPS model today already exposes its public IP. A home relay with the ConnectionGater is no more exposed than the VPS - and arguably less, since only authorized peers can connect.
 
 ### What your relay CANNOT be used for
 
@@ -190,29 +179,29 @@ The relay VPS model today already exposes its public IP. A home relay with `requ
 | **Connection injection** | Both peers authenticate each other via peer ID (Ed25519) |
 | **DDoS amplification** | QUIC source address verification; per-IP reservation limits |
 | **Resource exhaustion** | Hard limits on reservations, circuits, duration, data |
-| **Open relay abuse** | `require_auth: true` - only authorized peers can reserve |
+| **Open relay abuse** | ConnectionGater allowlist - only authorized peers can reserve |
 | **Pivot to your LAN** | Relay forwards bytes, doesn't parse them. No routing to your network. |
 
 ### Why this is different from running an open service
 
 Self-hosters know the pattern: expose a service on a home server, and within hours the port scanners find it. Firewall logs light up with probes from around the world. This happens because the service accepts connections from anyone - every participant on the network can reach it.
 
-A peer-up relay with `require_auth` is fundamentally different:
+A peer-up relay with its ConnectionGater allowlist is fundamentally different:
 
-| | **Typical exposed service** | **peer-up relay with `require_auth`** |
+| | **Typical exposed service** | **peer-up relay** |
 |---|---|---|
 | **Who can connect** | Anyone who finds the port | Only peers in your `authorized_keys` |
 | **What they can do** | Full protocol interaction | Forward encrypted bytes (nothing else) |
 | **Discovery** | Port scanning, Shodan, service-specific gossip | Private - only authorized peers know about it |
 | **Attack surface** | Full protocol parser (HTTP, SSH, etc.) | ConnectionGater rejection (zero protocol parsing for unauthorized) |
 
-An open service is an open door with a bouncer inside. A peer-up relay with `require_auth` is a door that only opens with the right key - and even then, it only passes sealed envelopes.
+An open service is an open door with a bouncer inside. A peer-up relay is a door that only opens with the right key - and even then, it only passes sealed envelopes.
 
 ### Comparison with other relay architectures
 
-| Feature | **peer-up (require_auth)** | **Tailscale DERP** | **IPFS public relay** |
-|---------|--------------------------|-------------------|---------------------|
-| **Who can use it** | Explicit allowlist | Any Tailscale account holder | Anyone |
+| Feature | **peer-up** | **Tailscale DERP** | **IPFS public relay** |
+|---------|------------|-------------------|---------------------|
+| **Who can use it** | Explicit allowlist (authorized_keys) | Any Tailscale account holder | Anyone |
 | **Authentication** | ConnectionGater (peer ID) | WireGuard keys | None |
 | **Resource limits** | Per-peer, per-IP, per-ASN | Not published | 128 KB / 2 min |
 | **E2E encryption** | Noise (Ed25519) | WireGuard (Curve25519) | Noise |
@@ -221,10 +210,10 @@ An open service is an open door with a bouncer inside. A peer-up relay with `req
 
 ### The path forward
 
-The `require_auth` relay model is how peer-up eliminates dependency on the central relay VPS:
+The ConnectionGater-protected relay model is how peer-up eliminates dependency on the central relay VPS:
 
-1. **Today**: One relay VPS -> single point of failure
-2. **Near-term**: Home nodes with public IPv6 or port-forwarding enable relay with `require_auth` -> multiple relays across the network
+1. **Today**: One relay VPS + every-peer-is-a-relay (Batch I-f) for peers with public IPs
+2. **Near-term**: Home nodes with public IPv6 or port-forwarding serve as additional relays -> multiple relays across the network
 3. **Medium-term**: Peers discover authorized relays via DHT (not a central endpoint) -> no single point of failure
 4. **End state**: Every publicly-reachable peer-up node relays for its authorized peers -> relay VPS becomes **obsolete** (not just optional)
 
