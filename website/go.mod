@@ -1,4 +1,4 @@
-module github.com/satindergrewal/peer-up/website
+module github.com/shurlinet/shurli/website
 
 go 1.25.7
 
