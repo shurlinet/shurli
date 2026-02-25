@@ -43,7 +43,7 @@
   <text x="100" y="133" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" font-weight="600">Tier 1</text>
   <text x="140" y="133" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" font-weight="600">Local Override</text>
   <text x="430" y="133" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="end">IMPLEMENTED</text>
-  <text x="100" y="152" font-family="SF Mono, monospace" font-size="9" fill="#565f89">Check: ~/.peerup/names.yaml</text>
+  <text x="100" y="152" font-family="SF Mono, monospace" font-size="9" fill="#565f89">Check: ~/.shurli/names.yaml</text>
   <text x="100" y="168" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">laptop → 12D3KooW...</text>
 
   <!-- "Not found" fallthrough -->

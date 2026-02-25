@@ -40,7 +40,7 @@
   <rect width="800" height="520" fill="url(#bgGrad)" rx="12"/>
 
   <!-- Title -->
-  <text x="400" y="38" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="16" font-weight="600">How peer-up's Engineering Philosophy Evolved</text>
+  <text x="400" y="38" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="16" font-weight="600">How Shurli's Engineering Philosophy Evolved</text>
 
   <!-- Layer 1: Foundation - Core Principles -->
   <rect x="40" y="60" width="720" height="100" rx="12" fill="url(#layer1Grad)" stroke="#9ece6a" stroke-width="1.5" opacity="0.9"/>

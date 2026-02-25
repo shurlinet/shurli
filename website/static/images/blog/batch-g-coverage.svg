@@ -7,8 +7,8 @@
   </defs>
   <rect width="1200" height="400" fill="url(#bgG)"/>
   <!-- Coverage bars - package coverage visualization -->
-  <!-- cmd/peerup -->
-  <text x="180" y="82" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">cmd/peerup</text>
+  <!-- cmd/shurli -->
+  <text x="180" y="82" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">cmd/shurli</text>
   <rect x="200" y="68" width="400" height="20" rx="4" fill="#1e2030"/>
   <rect x="200" y="68" width="320" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
   <text x="530" y="83" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">80%</text>

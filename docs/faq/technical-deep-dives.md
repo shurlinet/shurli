@@ -1,8 +1,8 @@
 # FAQ - Technical Deep Dives
 
-## What libp2p improvements has peer-up adopted?
+## What libp2p improvements has Shurli adopted?
 
-peer-up uses go-libp2p v0.47.0. Several improvements have shipped since then that would meaningfully improve performance, security, and reliability.
+Shurli uses go-libp2p v0.47.0. Several improvements have shipped since then that would meaningfully improve performance, security, and reliability.
 
 ### AutoNAT v2 (go-libp2p v0.41.1+)
 
@@ -15,7 +15,7 @@ The old AutoNAT tested "is my node reachable?" as a binary yes/no. v2 tests **in
 | **Amplification risk** | Yes (could be spoofed) | No (client must transfer 30-100KB first) |
 | **IPv4/IPv6** | Can't distinguish | Tests each separately |
 
-A peer-up node could know "IPv4 is behind NAT but IPv6 is public" and make smarter connection decisions.
+A Shurli node could know "IPv4 is behind NAT but IPv6 is public" and make smarter connection decisions.
 
 **Source**: [AutoNAT v2 Specification](https://github.com/libp2p/specs/blob/master/autonat/autonat-v2.md)
 
@@ -27,7 +27,7 @@ New behavior: ranks addresses intelligently, prioritizes QUIC over TCP, dials se
 
 ### Resource Manager
 
-DAG-based resource constraints at system, protocol, and per-peer levels. This is the proper replacement for peer-up's `WithInfiniteLimits()`:
+DAG-based resource constraints at system, protocol, and per-peer levels. This is the proper replacement for Shurli's `WithInfiniteLimits()`:
 
 - Per-peer connection and stream limits
 - Per-peer bandwidth caps
@@ -48,7 +48,7 @@ No v2 of DCUtR, but continuous refinement:
 
 **Source**: [Large Scale NAT Traversal Measurement Study](https://arxiv.org/html/2510.27500v1), [libp2p Hole Punching blog](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 
-### What peer-up has done (Phase 4C - shipped)
+### What Shurli has done (Phase 4C - shipped)
 
 | Optimization | Status |
 |-------------|--------|
@@ -64,16 +64,23 @@ No v2 of DCUtR, but continuous refinement:
 | **PAKE-secured invite** | Done (Pre-I-b: encrypted handshake, v1 cleartext deleted) |
 | **Private DHT namespaces** | Done (Pre-I-c: `discovery.network` for isolated peer groups) |
 | **Daemon-first commands** | Done (Post-I-1: ping/traceroute try daemon API first, fall back to standalone) |
+| **Peer introduction delivery** | Done (Post-I-2: `/shurli/peer-notify/1.0.0`, relay pushes introductions with HMAC proofs) |
+| **HMAC group commitment** | Done (Post-I-2: `HMAC-SHA256(token, groupID)` proves token possession) |
+| **Relay admin socket** | Done (Post-I-2: Unix socket + cookie auth, `relay pair` is HTTP client) |
+| **Sovereign interaction history** | Done (Post-I-2: per-peer `peer_history.json`, Welford's running average) |
+| **Startup race fix** | Done (Pre-Phase 5: handlers registered before DHT bootstrap) |
+| **Stale address detection** | Done (Pre-Phase 5: `[stale?]` labels after network change) |
+| **systemd/launchd services** | Done (Pre-Phase 5: `shurli service install/start/stop/status`) |
 
-These changes brought connection setup closer to 1-3 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
+These changes brought connection setup closer to 3-10 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
 
 ---
 
-## What emerging technologies could benefit peer-up?
+## What emerging technologies could benefit Shurli?
 
 ### Protocols to watch
 
-| Protocol | What it gives peer-up | Status (2026) | Phase |
+| Protocol | What it gives Shurli | Status (2026) | Phase |
 |----------|----------------------|---------------|-------|
 | **MASQUE** ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) | HTTP/3 relay that looks like HTTPS to deep packet inspection. 0-RTT session resumption for instant reconnection after network switch. | Production (Cloudflare deploys across 330+ datacenters) | Future |
 | **Post-quantum Noise** (ML-KEM / FIPS 203) | Quantum-resistant handshakes. Regulatory mandates expected 2026-2028. | AWS KMS, Windows 11 shipping ML-KEM. libp2p not yet adopted. | Future |
@@ -95,11 +102,11 @@ These changes brought connection setup closer to 1-3 seconds via parallel dial r
 | **Infrastructure** | Self-hosted relay | Self-hosted or Cloudflare's global network |
 | **Browser support** | No (requires native client) | Yes (WebTransport API) |
 
-peer-up could offer MASQUE as an alternative relay transport alongside Circuit Relay v2 - giving users the choice between libp2p-native P2P and HTTP/3-based relay for environments where traffic must look like standard HTTPS.
+Shurli could offer MASQUE as an alternative relay transport alongside Circuit Relay v2 - giving users the choice between libp2p-native P2P and HTTP/3-based relay for environments where traffic must look like standard HTTPS.
 
 ### Post-quantum cryptography: The coming mandate
 
-peer-up currently uses Noise protocol with Ed25519 (classical cryptography). Quantum computers could eventually break this. The industry is preparing:
+Shurli currently uses Noise protocol with Ed25519 (classical cryptography). Quantum computers could eventually break this. The industry is preparing:
 
 - **NIST finalized** ML-KEM (FIPS 203) and ML-DSA (FIPS 204) as post-quantum standards
 - **AWS** KMS, ACM, and Secrets Manager support ML-KEM (Nov 2025)
@@ -107,7 +114,7 @@ peer-up currently uses Noise protocol with Ed25519 (classical cryptography). Qua
 - **CRYSTALS-Kyber** being phased out in favor of ML-KEM (transition by 2026)
 - **Hybrid approach**: Run classical + post-quantum in parallel during transition
 
-For peer-up, the path is:
+For Shurli, the path is:
 1. **Watch** libp2p's adoption of post-quantum Noise variants
 2. **Design** cipher suite selection into the architecture (cryptographic agility)
 3. **Implement** hybrid Noise + ML-KEM when libp2p support lands
@@ -116,7 +123,7 @@ For peer-up, the path is:
 
 ### eBPF: Relay-server hardening at kernel speed
 
-[eBPF](https://ebpf.io/) (extended Berkeley Packet Filter) allows running sandboxed programs in the Linux kernel without modifying kernel source. For peer-up's relay server:
+[eBPF](https://ebpf.io/) (extended Berkeley Packet Filter) allows running sandboxed programs in the Linux kernel without modifying kernel source. For Shurli's relay server:
 
 - **XDP (eXpress Data Path)**: Process packets before they reach the network stack - millions of packets/sec DDoS mitigation
 - **Rate limiting**: Per-IP connection throttling at kernel level (faster than iptables)
@@ -134,17 +141,17 @@ This complements the userspace hardening (Resource Manager, per-peer limits) wit
 **Who has this**: Cloudflare's MASQUE relays, QUIC-native applications.
 **Who doesn't**: WireGuard (stateless, reconnects fast but not 0-RTT), all current P2P tunnel tools.
 
-This is a future optimization for peer-up's QUIC transport - particularly valuable for mobile clients (Phase 9).
+This is a future optimization for Shurli's QUIC transport - particularly valuable for mobile clients (Phase 9).
 
 ---
 
-## Why does peer-up use Go instead of Rust?
+## Why does Shurli use Go instead of Rust?
 
 ### The trade-off
 
 | Factor | **Go** | **Rust** |
 |--------|--------|----------|
-| Development speed | Fast - the reason peer-up exists today | 2-3x slower initial development |
+| Development speed | Fast - the reason Shurli exists today | 2-3x slower initial development |
 | GC pauses at scale | 10s pauses observed at 600K connections | None - no garbage collector |
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
 | libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, Iroh) |
@@ -172,7 +179,7 @@ At scale - when a relay server handles thousands of concurrent circuits, or when
 
 ### The hybrid strategy
 
-peer-up's planned approach:
+Shurli's planned approach:
 1. **Now through Phase 7**: Ship in Go. Fix goroutine lifecycle, tune GC, add observability.
 2. **Phase 8+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
 3. **Long-term**: Re-evaluate full Rust migration only if market demands 100x throughput and there's engineering capacity for it.
@@ -181,4 +188,62 @@ peer-up's planned approach:
 
 ---
 
-**Last Updated**: 2026-02-24
+## How does reachability grade computation work in detail?
+
+The reachability grade combines two data sources: interface discovery and STUN probe results.
+
+**Interface discovery** scans all network interfaces and classifies each address:
+- Global unicast IPv6 -> public
+- Public IPv4 (not RFC 1918 / RFC 6598) -> public
+- RFC 6598 (`100.64.0.0/10`) -> CGNAT flag set
+- Everything else -> private/local
+
+**STUN probing** uses Google's public STUN servers to determine NAT behavior. It reports the external IP, port allocation strategy, and filtering behavior.
+
+**Grade computation logic**:
+
+```
+if no connectivity:           Grade F
+if CGNAT detected:            Grade D (cap, overrides STUN)
+if public IPv6:               Grade A
+if public IPv4:               Grade B
+if full-cone or addr-restricted: Grade B
+if port-restricted:           Grade C
+if symmetric:                 Grade D
+```
+
+The CGNAT cap at grade D is the critical design choice. STUN probes the inner NAT and can report "hole-punchable" when the outer CGNAT will drop the punched packets. The grade overrides this false optimism.
+
+Grades update automatically on network change events (WiFi switch, cable plug/unplug, VPN up/down). The grade is exposed via `shurli daemon status` and the REST API.
+
+---
+
+## What is sovereign peer interaction history?
+
+Each daemon maintains a local `peer_history.json` file tracking interaction data with every known peer. This data never leaves the machine - it's the foundation for future trust algorithms.
+
+**What's tracked per peer**:
+
+| Field | Purpose |
+|-------|---------|
+| `first_seen` | When this peer was first encountered |
+| `last_seen` | Most recent connection |
+| `connection_count` | Total successful connections |
+| `avg_latency_ms` | Running average (Welford's online algorithm) |
+| `path_types` | Map of `"direct": N, "relay": M` |
+| `introduced_by` | Which relay or peer introduced this one |
+| `intro_method` | `"relay-pairing"`, `"invite"`, or `"manual"` |
+
+**Implementation details**:
+- Thread-safe with `sync.RWMutex`
+- Atomic file writes (temp file + rename) for crash safety
+- Best-effort load on startup (missing file is not an error)
+- Storage bounded by peer count (per-peer aggregates, not per-connection logs)
+
+**Why collect now**: Future trust algorithms (EigenTrust, reputation scoring) need interaction data as input. Starting collection now means months of history will be ready when those algorithms ship. Waiting until algorithm implementation to start collecting means zero history to bootstrap from.
+
+**Sovereignty**: Each peer controls its own history. No central reputation server. No gossip-based sharing. The data stays local until explicit trust algorithms decide how (and whether) to use it.
+
+---
+
+**Last Updated**: 2026-02-25

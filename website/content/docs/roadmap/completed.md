@@ -42,15 +42,15 @@ description: "All completed phases and batches: Configuration, Authentication, C
 
 **Goal**: Create production-ready CLI tool for managing Ed25519 keypairs and authorized_keys.
 
-**Status**: Completed (keytool features merged into `peerup` subcommands in Phase 4C module consolidation; `cmd/keytool/` deleted)
+**Status**: Completed (keytool features merged into `shurli` subcommands in Phase 4C module consolidation; `cmd/keytool/` deleted)
 
-All keytool functionality now lives in `peerup` subcommands: `peerup whoami` (peerid), `peerup auth add` (authorize), `peerup auth remove` (revoke), `peerup auth list`, `peerup auth validate` (validate). Key generation happens via `peerup init`.
+All keytool functionality now lives in `shurli` subcommands: `shurli whoami` (peerid), `shurli auth add` (authorize), `shurli auth remove` (revoke), `shurli auth list`, `shurli auth validate` (validate). Key generation happens via `shurli init`.
 
 ---
 
 ## Phase 4A: Core Library & Service Registry
 
-**Goal**: Transform peer-up into a reusable library and enable exposing local services through P2P connections.
+**Goal**: Transform Shurli into a reusable library and enable exposing local services through P2P connections.
 
 **Deliverables**:
 - [x] Create `pkg/p2pnet/` as importable package
@@ -64,9 +64,9 @@ All keytool functionality now lives in `peerup` subcommands: `peerup whoami` (pe
 - [x] Refactor to `cmd/` layout with single Go module
 - [x] Tested: SSH, XRDP, generic TCP proxy all working across LAN and 5G
 - [x] **UX Streamlining**:
-  - [x] Single binary - merged home-node into `peerup daemon`
-  - [x] Standard config path - auto-discovery (`./peerup.yaml` -> `~/.config/peerup/config.yaml` -> `/etc/peerup/config.yaml`)
-  - [x] `peerup init` - interactive setup wizard (generates config, keys, authorized_keys)
+  - [x] Single binary - merged home-node into `shurli daemon`
+  - [x] Standard config path - auto-discovery (`./shurli.yaml` -> `~/.config/shurli/config.yaml` -> `/etc/shurli/config.yaml`)
+  - [x] `shurli init` - interactive setup wizard (generates config, keys, authorized_keys)
   - [x] All commands support `--config <path>` flag
   - [x] Unified config type (one config format for all modes)
 
@@ -77,14 +77,14 @@ All keytool functionality now lives in `peerup` subcommands: `peerup whoami` (pe
 **Goal**: Eliminate manual key exchange and config editing. Get two machines connected in under 60 seconds.
 
 **Deliverables**:
-- [x] `peerup invite` - generate short-lived invite code (encodes relay address + peer ID)
-- [x] `peerup join <code>` - accept invite, exchange keys, auto-configure, connect
-- [x] QR code output for `peerup invite` (scannable by mobile app later)
-- [x] `peerup whoami` - show own peer ID and friendly name for sharing
-- [x] `peerup auth add/list/remove` - manage authorized peers
-- [x] `peerup relay add/list/remove` - manage relay addresses without editing YAML
+- [x] `shurli invite` - generate short-lived invite code (encodes relay address + peer ID)
+- [x] `shurli join <code>` - accept invite, exchange keys, auto-configure, connect
+- [x] QR code output for `shurli invite` (scannable by mobile app later)
+- [x] `shurli whoami` - show own peer ID and friendly name for sharing
+- [x] `shurli auth add/list/remove` - manage authorized peers
+- [x] `shurli relay add/list/remove` - manage relay addresses without editing YAML
 - [x] Flexible relay address input - accept `IP:PORT` or bare `IP` (default port 7777) in addition to full multiaddr
-- [x] QR code display in `peerup init` (peer ID) and `peerup invite` (invite code)
+- [x] QR code display in `shurli init` (peer ID) and `shurli invite` (invite code)
 
 **Security hardening** (done as part of 4B):
 - [x] Sanitize authorized_keys comments (prevent newline injection)
@@ -98,17 +98,17 @@ All keytool functionality now lives in `peerup` subcommands: `peerup whoami` (pe
 **User Experience**:
 ```bash
 # Machine A (home server)
-$ peerup invite --name home
+$ shurli invite --name home
 === Invite Code (expires in 10m0s) ===
 AEQB-XJKZ-M4NP-...
 [QR code displayed]
 Waiting for peer to join...
 
 # Machine B (laptop)
-$ peerup join AEQB-XJKZ-M4NP-... --name laptop
+$ shurli join AEQB-XJKZ-M4NP-... --name laptop
 === Joined successfully! ===
 Peer "home" authorized and added to names.
-Try: peerup ping home
+Try: shurli ping home
 ```
 
 ---
@@ -133,20 +133,20 @@ Try: peerup ping home
 - [x] AutoNAT v2 - per-address reachability testing with nonce-based dial verification
 - [x] Smart dialing - address ranking, QUIC prioritization, sequential dial with fast failover
 - [x] QUIC as preferred transport - 1 fewer RTT on connection setup (3 RTTs vs 4 for TCP)
-- [x] Version in Identify - `libp2p.UserAgent("peerup/<version>")` set on all hosts
-- [x] Private DHT - migrated from IPFS Amino DHT to private peerup DHT (`/peerup/kad/1.0.0`)
+- [x] Version in Identify - `libp2p.UserAgent("shurli/<version>")` set on all hosts
+- [x] Private DHT - migrated from IPFS Amino DHT to private shurli DHT (`/shurli/kad/1.0.0`)
 
 ### Self-Healing & Resilience
 
 Inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik:
 
-- [x] **Config validation** - `peerup config validate` parses config, checks key file, verifies relay address
+- [x] **Config validation** - `shurli config validate` parses config, checks key file, verifies relay address
 - [x] **Config archive** - auto-saves last-known-good config on successful startup. Atomic write.
-- [x] **Config rollback** - `peerup config rollback` restores from last-known-good archive
-- [x] **Commit-confirmed pattern** (Juniper JunOS / Cisco IOS) - `peerup config apply <new-config> --confirm-timeout 5m` applies config and auto-reverts if not confirmed. **Prevents permanent lockout on remote relay.**
+- [x] **Config rollback** - `shurli config rollback` restores from last-known-good archive
+- [x] **Commit-confirmed pattern** (Juniper JunOS / Cisco IOS) - `shurli config apply <new-config> --confirm-timeout 5m` applies config and auto-reverts if not confirmed. **Prevents permanent lockout on remote relay.**
 - [x] **systemd watchdog integration** - `sd_notify("WATCHDOG=1")` every 30s with health check
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` with JSON: peer ID, version, uptime, connected peers
-- [x] **`peerup status` command** - version, peer ID, config path, relay addresses, authorized peers, services, names
+- [x] **`shurli status` command** - version, peer ID, config path, relay addresses, authorized peers, services, names
 
 ### Batch Deliverables
 
@@ -160,17 +160,17 @@ Inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik:
 **Batch B - Code Quality**:
 - [x] Deduplicated bidirectional proxy - `BidirectionalProxy()` + `HalfCloseConn` interface (was 4 copies, now 1)
 - [x] Sentinel errors - 8 sentinel errors across 4 packages
-- [x] Build version embedding - `peerup version`, ldflags injection
+- [x] Build version embedding - `shurli version`, ldflags injection
 - [x] Structured logging with `log/slog`
 
 **Batch E - New Capabilities**:
-- [x] `peerup status` - local-only info command
+- [x] `shurli status` - local-only info command
 - [x] `/healthz` HTTP endpoint on relay-server
-- [x] `peerup invite --non-interactive` - bare invite code to stdout, progress to stderr
-- [x] `peerup join --non-interactive` - reads code from CLI arg, env var, or stdin
+- [x] `shurli invite --non-interactive` - bare invite code to stdout, progress to stderr
+- [x] `shurli join --non-interactive` - reads code from CLI arg, env var, or stdin
 
 **Batch F - Daemon Mode**:
-- [x] `peerup daemon` - long-running P2P host with Unix socket HTTP API
+- [x] `shurli daemon` - long-running P2P host with Unix socket HTTP API
 - [x] Cookie-based authentication (32-byte random hex, `0600` permissions, rotated per restart)
 - [x] 15 API endpoints with JSON + plain text format negotiation
 - [x] Auth hot-reload, dynamic proxy management
@@ -178,7 +178,7 @@ Inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik:
 - [x] Service files: systemd + launchd
 
 **Batch G - Test Coverage & Documentation**:
-Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary merged into peerup.
+Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary merged into shurli.
 - [x] 96 test functions covering CLI commands
 - [x] All 15 API handlers tested
 - [x] Docker integration tests with coverage
@@ -188,7 +188,7 @@ Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary me
 **Batch H - Observability**:
 - [x] Prometheus `/metrics` endpoint (opt-in via config)
 - [x] libp2p built-in metrics exposed (swarm, hole-punch, AutoNAT, relay, rcmgr)
-- [x] Custom peerup metrics (proxy bytes/connections/duration, auth counters, hole-punch stats, API timing)
+- [x] Custom shurli metrics (proxy bytes/connections/duration, auth counters, hole-punch stats, API timing)
 - [x] Audit logging - structured JSON via slog for security events
 - [x] Grafana dashboard - 29 panels across 6 sections
 
@@ -210,7 +210,7 @@ Upgraded the invite/join token exchange from cleartext to an encrypted handshake
 
 **Pre-I-c: Private DHT Networks**:
 - [x] Config option: `discovery.network: "my-crew"` for isolated peer groups
-- [x] DHT prefix becomes `/peerup/<namespace>/kad/1.0.0`
+- [x] DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`
 - [x] Nodes with different namespaces speak different protocols and cannot discover each other
 - [x] Validation: DNS-label safe (lowercase alphanumeric + hyphens, 1-63 chars)
 
@@ -235,9 +235,9 @@ Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin gener
 - [x] **v2 invite code format** - 16-byte token, relay address + namespace encoded. Shorter than v1 (126 vs 186 chars)
 - [x] **Connection gater enrollment mode** - probationary peers (max 10, 15s timeout) during active pairing
 - [x] **SAS verification (OMEMO-style)** - 4-emoji + 6-digit numeric fingerprint. Persistent `[UNVERIFIED]` badge until verified.
-- [x] **Relay pairing protocol** - `/peerup/relay-pair/1.0.0` stream protocol. 8-step flow.
-- [x] **`peerup relay pair`** - generates pairing codes with `--count N`, `--ttl`, `--namespace`, `--expires`
-- [x] **Daemon-first commands** - `peerup ping` and `peerup traceroute` try daemon API first, fall back to standalone
+- [x] **Relay pairing protocol** - `/shurli/relay-pair/1.0.0` stream protocol. 8-step flow.
+- [x] **`shurli relay pair`** - generates pairing codes with `--count N`, `--ttl`, `--namespace`, `--expires`
+- [x] **Daemon-first commands** - `shurli ping` and `shurli traceroute` try daemon API first, fall back to standalone
 - [x] **Reachability grade** - A (public IPv6), B (public IPv4 or hole-punchable NAT), C (port-restricted NAT), D (symmetric NAT/CGNAT), F (offline)
 
 Zero new dependencies. Binary size unchanged at 28MB.

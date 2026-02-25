@@ -42,7 +42,7 @@ make push      # make check && git push (impossible to push without checks passi
 - **Consistency**: Every contributor runs the exact same build flags, test flags, and lint checks. No "works on my machine" drift.
 - **Safety gate**: `make push` makes it impossible to push code that fails checks. The `.checks` file is yours to customize, so you define what "safe to push" means for your setup.
 - **Cross-platform install**: One command installs the binary and sets up the right service manager (systemd on Linux, launchd on macOS). No manual service file copying or editing.
-- **Version injection**: Every binary knows its exact version, commit hash, and build date. `peerup version` always tells you precisely what you're running.
+- **Version injection**: Every binary knows its exact version, commit hash, and build date. `shurli version` always tells you precisely what you're running.
 
 ## Pre-I-b: Encrypted invite/join handshake
 
@@ -55,7 +55,7 @@ The invite/join pairing now uses an encrypted handshake. Before, the invite toke
 ```
 1. Joiner -> Inviter:  [version 0x01] [32-byte X25519 public key]
 2. Inviter -> Joiner:  [32-byte X25519 public key]
-   -- Both derive: key = HKDF-SHA256(DH_shared || token, "peerup-invite-v2")
+   -- Both derive: key = HKDF-SHA256(DH_shared || token, "shurli-invite-v2")
 3. Joiner -> Inviter:  [AEAD encrypted: joiner name]
 4. Inviter -> Joiner:  [AEAD encrypted: "OK" + inviter name]
 ```
@@ -76,7 +76,7 @@ Both sides compute an ephemeral X25519 Diffie-Hellman shared secret, mix it with
 
 ### Backward compatibility
 
-Invite code version byte determines the protocol. Originally: 0x01 = legacy cleartext, 0x02 = encrypted handshake. Post-I-1 deleted the cleartext protocol and renumbered: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Future versions (0x03+) are rejected with a "please upgrade peerup" message.
+Invite code version byte determines the protocol. Originally: 0x01 = legacy cleartext, 0x02 = encrypted handshake. Post-I-1 deleted the cleartext protocol and renumbered: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Future versions (0x03+) are rejected with a "please upgrade shurli" message.
 
 ### v2 invite codes carry the namespace
 
@@ -96,41 +96,41 @@ v2 invite codes include a namespace field. When you join a private network, the 
 Nodes can now form completely isolated peer groups by setting a network namespace:
 
 ```bash
-peerup init --network "my-crew"
+shurli init --network "my-crew"
 ```
 
 This produces a config with:
 
 ```yaml
 discovery:
-  rendezvous: "peerup-default-network"
+  rendezvous: "shurli-default-network"
   network: "my-crew"
 ```
 
 ### Protocol-level isolation
 
-The DHT protocol prefix becomes `/peerup/my-crew/kad/1.0.0`. Nodes on different namespaces speak entirely different protocols. They don't just filter each other out. They literally cannot discover each other. This is a protocol-level guarantee, not an application-layer filter.
+The DHT protocol prefix becomes `/shurli/my-crew/kad/1.0.0`. Nodes on different namespaces speak entirely different protocols. They don't just filter each other out. They literally cannot discover each other. This is a protocol-level guarantee, not an application-layer filter.
 
 | Config | DHT Protocol Prefix |
 |--------|-------------------|
-| `network: ""` (default) | `/peerup/kad/1.0.0` |
-| `network: "my-crew"` | `/peerup/my-crew/kad/1.0.0` |
-| `network: "family"` | `/peerup/family/kad/1.0.0` |
+| `network: ""` (default) | `/shurli/kad/1.0.0` |
+| `network: "my-crew"` | `/shurli/my-crew/kad/1.0.0` |
+| `network: "family"` | `/shurli/family/kad/1.0.0` |
 
 ### Status display
 
 ```bash
-$ peerup status
+$ shurli status
 Version:  v0.x.x
 Peer ID:  12D3KooW...
 Network:  my-crew
-Config:   ~/.config/peerup/config.yaml
+Config:   ~/.config/shurli/config.yaml
 ...
 ```
 
 ### Backward compatibility
 
-Empty or missing `network` field = global DHT (`/peerup/kad/1.0.0`). Zero breaking changes for existing deployments.
+Empty or missing `network` field = global DHT (`/shurli/kad/1.0.0`). Zero breaking changes for existing deployments.
 
 ### Why this matters
 

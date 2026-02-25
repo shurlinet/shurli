@@ -62,7 +62,7 @@
   <circle cx="60" cy="205" r="6" fill="#9ece6a"/>
   <rect x="80" y="188" width="340" height="42" rx="8" fill="url(#doneGrad)" stroke="#9ece6a" stroke-width="1"/>
   <text x="94" y="206" font-size="11" font-weight="600" fill="#c0caf5">Phase 3: keytool CLI</text>
-  <text x="94" y="222" font-size="9" fill="#a9b1d6">Key management (now peerup subcommands)</text>
+  <text x="94" y="222" font-size="9" fill="#a9b1d6">Key management (now shurli subcommands)</text>
   <text x="400" y="213" text-anchor="end" font-size="9" font-weight="600" fill="#9ece6a" font-family="ui-monospace, monospace">1 week</text>
 
   <!-- Phase 4A -->

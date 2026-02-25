@@ -11,9 +11,9 @@ Build system, documentation pipeline, and developer workflow tooling.
 **Alternatives considered**:
 - **Fix the sed chains again** - The third round of fixes proved the pattern: every sed fix risks breaking an adjacent match. The bash script had grown to 377 lines with 20+ sed commands, many interacting.
 - **Python/Node script** - Would work but adds a runtime dependency to a pure-Go project. Every contributor would need Python/Node installed.
-- **Add to peerup binary as a subcommand** - Keeps it in Go but bloats the shipped binary with dev-only code. Users never run doc sync.
+- **Add to shurli binary as a subcommand** - Keeps it in Go but bloats the shipped binary with dev-only code. Users never run doc sync.
 
-**Decision**: Standalone Go program in `tools/sync-docs/` (4 files, ~1033 lines). Every text transform is a pure `func(string) string` with zero I/O. Table-driven tests cover every transform independently. Run via `go run ./tools/sync-docs` or `make sync-docs`. Not compiled into the peerup binary. CI runs it during website builds.
+**Decision**: Standalone Go program in `tools/sync-docs/` (4 files, ~1033 lines). Every text transform is a pure `func(string) string` with zero I/O. Table-driven tests cover every transform independently. Run via `go run ./tools/sync-docs` or `make sync-docs`. Not compiled into the shurli binary. CI runs it during website builds.
 
 Architecture:
 - `config.go` - ordered slices of doc entries and journal entries (replaces bash associative arrays)
@@ -23,7 +23,7 @@ Architecture:
 
 **Consequences**: Link rewriting bugs become compiler errors or test failures instead of runtime surprises. Adding a new doc file means adding one struct literal to `config.go`. The `website` Makefile target auto-syncs before starting Hugo. Zero new dependencies.
 
-**Reference**: [`tools/sync-docs/`](https://github.com/satindergrewal/peer-up/blob/main/tools/sync-docs/)
+**Reference**: [`tools/sync-docs/`](https://github.com/shurlinet/shurli/blob/main/tools/sync-docs/)
 
 ---
 
@@ -35,8 +35,8 @@ Architecture:
 - **Keep bash, import template** - Bash cannot import Go templates. Would require generating a shared file format.
 - **Separate Go binary in tools/** - Like sync-docs, but relay setup is user-facing (operators run it), not dev-only. Belongs in the main binary.
 
-**Decision**: `peerup relay setup` subcommand with TimeMachine-style backup/restore. Reuses existing `config_template.go` for config generation. Setup.sh section 6.5 reduced from 192 lines to 3 lines (`peerup relay setup`). 18 new tests cover backup rotation, restore, config generation, and edge cases.
+**Decision**: `shurli relay setup` subcommand with TimeMachine-style backup/restore. Reuses existing `config_template.go` for config generation. Setup.sh section 6.5 reduced from 192 lines to 3 lines (`shurli relay setup`). 18 new tests cover backup rotation, restore, config generation, and edge cases.
 
 **Consequences**: Single source of truth for relay config. Operators get `--backup` and `--restore` flags for free. The bash script still handles system-level tasks (apt, systemd, firewall) where bash is the right tool.
 
-**Reference**: [`cmd/peerup/cmd_relay.go`](https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/cmd_relay.go), [`relay-server/setup.sh`](https://github.com/satindergrewal/peer-up/blob/main/relay-server/setup.sh)
+**Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`relay-server/setup.sh`](https://github.com/shurlinet/shurli/blob/main/relay-server/setup.sh)

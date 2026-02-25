@@ -93,11 +93,11 @@
   <!-- Protocol IDs on right side -->
   <rect x="540" y="170" width="100" height="145" rx="8" fill="#1a1e36" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
   <text x="590" y="190" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">Protocols</text>
-  <text x="590" y="212" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/ssh/</text>
+  <text x="590" y="212" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/shurli/ssh/</text>
   <text x="590" y="224" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
-  <text x="590" y="246" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/http/</text>
+  <text x="590" y="246" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/shurli/http/</text>
   <text x="590" y="258" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
-  <text x="590" y="280" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/peerup/smb/</text>
+  <text x="590" y="280" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">/shurli/smb/</text>
   <text x="590" y="292" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">1.0.0</text>
 
   <!-- Connecting line from protocols to registry -->
