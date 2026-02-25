@@ -6,7 +6,7 @@
 # To get a peer's ID:
 #   1. Run the peer node once to generate its key file
 #   2. Look for the "Peer ID:" line in the output
-#   3. Or use: peerup-keytool peerid --key <keyfile>
+#   3. Or use: shurli-keytool peerid --key <keyfile>
 #
 # Examples:
 # 12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL  # my-laptop
