@@ -3,7 +3,7 @@
        Shows: 3 containers (relay + node-a + node-b) communicating through circuit relay -->
   <defs>
     <linearGradient id="dtGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#7aa2f7"/>
+      <stop offset="0%" style="stop-color:#e8729a"/>
       <stop offset="100%" style="stop-color:#bb9af7"/>
     </linearGradient>
   </defs>
@@ -21,8 +21,8 @@
   <text x="400" y="145" text-anchor="middle" fill="#a9b1d6" font-family="monospace" font-size="11">shurli relay serve</text>
   <text x="400" y="165" text-anchor="middle" fill="#565f89" font-family="monospace" font-size="10">:4001 QUIC + TCP</text>
   <!-- Node A container -->
-  <rect x="60" y="205" width="200" height="65" rx="8" fill="#1a1b26" stroke="#7aa2f7" stroke-width="2"/>
-  <text x="160" y="230" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Node A</text>
+  <rect x="60" y="205" width="200" height="65" rx="8" fill="#1a1b26" stroke="#e8729a" stroke-width="2"/>
+  <text x="160" y="230" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Node A</text>
   <text x="160" y="250" text-anchor="middle" fill="#a9b1d6" font-family="monospace" font-size="11">shurli init + invite</text>
   <!-- Node B container -->
   <rect x="540" y="205" width="200" height="65" rx="8" fill="#1a1b26" stroke="#bb9af7" stroke-width="2"/>
@@ -30,8 +30,8 @@
   <text x="640" y="250" text-anchor="middle" fill="#a9b1d6" font-family="monospace" font-size="11">shurli join + ping</text>
   <!-- Connection lines -->
   <!-- Node A to Relay -->
-  <line x1="200" y1="205" x2="320" y2="180" stroke="#7aa2f7" stroke-width="2"/>
-  <text x="120" y="194" fill="#7aa2f7" font-family="monospace" font-size="9">circuit relay</text>
+  <line x1="200" y1="205" x2="320" y2="180" stroke="#e8729a" stroke-width="2"/>
+  <text x="120" y="194" fill="#e8729a" font-family="monospace" font-size="9">circuit relay</text>
   <!-- Node B to Relay -->
   <line x1="600" y1="205" x2="480" y2="180" stroke="#bb9af7" stroke-width="2"/>
   <text x="720" y="194" text-anchor="end" fill="#bb9af7" font-family="monospace" font-size="9">circuit relay</text>
@@ -46,12 +46,12 @@
   <text x="122" y="340" text-anchor="middle" fill="#e0af68" font-family="monospace" font-size="10">1. relay starts</text>
   <line x1="185" y1="335" x2="205" y2="335" stroke="#565f89" stroke-width="1"/>
   <polygon points="203,331 211,335 203,339" fill="#565f89"/>
-  <rect x="210" y="322" width="125" height="26" rx="4" fill="#7aa2f7" fill-opacity="0.1"/>
-  <text x="272" y="340" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="10">2. node-a init</text>
+  <rect x="210" y="322" width="125" height="26" rx="4" fill="#e8729a" fill-opacity="0.1"/>
+  <text x="272" y="340" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="10">2. node-a init</text>
   <line x1="335" y1="335" x2="355" y2="335" stroke="#565f89" stroke-width="1"/>
   <polygon points="353,331 361,335 353,339" fill="#565f89"/>
-  <rect x="360" y="322" width="125" height="26" rx="4" fill="#7aa2f7" fill-opacity="0.1"/>
-  <text x="422" y="340" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="10">3. invite</text>
+  <rect x="360" y="322" width="125" height="26" rx="4" fill="#e8729a" fill-opacity="0.1"/>
+  <text x="422" y="340" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="10">3. invite</text>
   <line x1="485" y1="335" x2="505" y2="335" stroke="#565f89" stroke-width="1"/>
   <polygon points="503,331 511,335 503,339" fill="#565f89"/>
   <rect x="510" y="322" width="125" height="26" rx="4" fill="#bb9af7" fill-opacity="0.1"/>

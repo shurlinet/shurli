@@ -39,8 +39,8 @@
   <text x="715" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 10</text>
 
   <!-- Network 1 (Your Network) -->
-  <rect x="30" y="55" width="220" height="210" rx="12" fill="url(#netA)" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="6,3"/>
-  <text x="140" y="78" font-family="system-ui, sans-serif" font-size="12" fill="#3b82f6" text-anchor="middle" font-weight="600">Your Network</text>
+  <rect x="30" y="55" width="220" height="210" rx="12" fill="url(#netA)" stroke="#da1c5c" stroke-width="1.2" stroke-dasharray="6,3"/>
+  <text x="140" y="78" font-family="system-ui, sans-serif" font-size="12" fill="#da1c5c" text-anchor="middle" font-weight="600">Your Network</text>
   <text x="140" y="92" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">"grewal"</text>
 
   <!-- Relay -->
@@ -90,17 +90,17 @@
   <line x1="715" y1="180" x2="685" y2="144" stroke="#565f89" stroke-width="1"/>
 
   <!-- Federation arrows between relays -->
-  <line x1="200" y1="126" x2="338" y2="126" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <polygon points="335,122 335,130 342,126" fill="#7aa2f7"/>
-  <polygon points="205,122 205,130 198,126" fill="#7aa2f7"/>
+  <line x1="200" y1="126" x2="338" y2="126" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="335,122 335,130 342,126" fill="#e8729a"/>
+  <polygon points="205,122 205,130 198,126" fill="#e8729a"/>
 
-  <line x1="460" y1="126" x2="598" y2="126" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <polygon points="595,122 595,130 602,126" fill="#7aa2f7"/>
-  <polygon points="465,122 465,130 458,126" fill="#7aa2f7"/>
+  <line x1="460" y1="126" x2="598" y2="126" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="595,122 595,130 602,126" fill="#e8729a"/>
+  <polygon points="465,122 465,130 458,126" fill="#e8729a"/>
 
   <!-- Federation label -->
-  <text x="270" y="48" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
-  <text x="530" y="48" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">federation</text>
+  <text x="270" y="48" font-family="SF Mono, monospace" font-size="8" fill="#e8729a" text-anchor="middle">federation</text>
+  <text x="530" y="48" font-family="SF Mono, monospace" font-size="8" fill="#e8729a" text-anchor="middle">federation</text>
 
   <!-- Cross-network example -->
   <rect x="130" y="295" width="540" height="60" rx="8" fill="#1a1b26" stroke="#565f89" stroke-width="1"/>

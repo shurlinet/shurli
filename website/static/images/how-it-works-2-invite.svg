@@ -15,12 +15,12 @@
   <circle cx="56" cy="18" r="5" fill="#28c840"/>
   <text x="200" y="22" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle">server</text>
   <!-- Content -->
-  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7">$ shurli invite</text>
+  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli invite</text>
   <text x="20" y="98" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Share this invite code with your peer:</text>
   <text x="20" y="130" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">shurli://12D3KooWRx...7xRm</text>
   <text x="20" y="150" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">  /relay/relay.example.com/tcp/4001</text>
   <text x="20" y="182" font-family="SF Mono, monospace" font-size="12" fill="#e0af68">Waiting for peer to join...</text>
   <!-- Arrow indicating share -->
-  <rect x="120" y="200" width="160" height="36" rx="8" fill="none" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="4,3"/>
-  <text x="200" y="223" font-family="system-ui, sans-serif" font-size="13" fill="#7aa2f7" text-anchor="middle">Share via any channel</text>
+  <rect x="120" y="200" width="160" height="36" rx="8" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="200" y="223" font-family="system-ui, sans-serif" font-size="13" fill="#e8729a" text-anchor="middle">Share via any channel</text>
 </svg>

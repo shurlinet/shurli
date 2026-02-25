@@ -16,11 +16,11 @@
   <text x="170" y="125" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">0-RTT connection establishment • Native multiplexing • Built-in encryption</text>
   <text x="170" y="143" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">UDP-based - may be blocked by some corporate firewalls</text>
   <!-- Priority 2: TCP -->
-  <rect x="100" y="165" width="600" height="70" rx="8" fill="#1a1b26" stroke="#7aa2f7" stroke-width="2"/>
-  <rect x="100" y="165" width="40" height="70" rx="8" fill="#7aa2f7" fill-opacity="0.15"/>
-  <rect x="140" y="165" width="0" height="70" fill="#7aa2f7" fill-opacity="0"/>
-  <text x="120" y="207" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="20" font-weight="700">2</text>
-  <text x="170" y="190" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="15" font-weight="700">TCP</text>
+  <rect x="100" y="165" width="600" height="70" rx="8" fill="#1a1b26" stroke="#e8729a" stroke-width="2"/>
+  <rect x="100" y="165" width="40" height="70" rx="8" fill="#e8729a" fill-opacity="0.15"/>
+  <rect x="140" y="165" width="0" height="70" fill="#e8729a" fill-opacity="0"/>
+  <text x="120" y="207" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="20" font-weight="700">2</text>
+  <text x="170" y="190" fill="#e8729a" font-family="system-ui,sans-serif" font-size="15" font-weight="700">TCP</text>
   <text x="215" y="190" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">(universal fallback)</text>
   <text x="170" y="210" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="12">Works everywhere • Reliable delivery • Noise protocol for encryption + muxing</text>
   <text x="170" y="228" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Higher latency (3-way handshake) - but passes through virtually any network</text>

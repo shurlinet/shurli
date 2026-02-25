@@ -15,12 +15,12 @@
   <circle cx="56" cy="18" r="5" fill="#28c840"/>
   <text x="200" y="22" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle">laptop</text>
   <!-- Content -->
-  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7">$ shurli join &lt;invite-code&gt;</text>
+  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli join &lt;invite-code&gt;</text>
   <text x="20" y="93" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Connecting... done</text>
   <text x="20" y="113" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Paired with "home-server"</text>
-  <text x="20" y="145" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7">$ shurli proxy home ssh</text>
+  <text x="20" y="145" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli proxy home ssh</text>
   <text x="20" y="170" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Proxying home:22 -> localhost:2222</text>
-  <text x="20" y="200" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7">$ ssh -p 2222 localhost</text>
+  <text x="20" y="200" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ ssh -p 2222 localhost</text>
   <text x="20" y="225" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Welcome to home-server!</text>
   <text x="20" y="245" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">user@home-server:~$</text>
 </svg>

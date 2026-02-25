@@ -35,8 +35,8 @@
   <!-- Overall -->
   <text x="180" y="258" font-family="SF Mono, monospace" font-size="13" fill="#c0caf5" text-anchor="end" font-weight="600">COMBINED</text>
   <rect x="200" y="242" width="400" height="24" rx="5" fill="#1e2030"/>
-  <rect x="200" y="242" width="321" height="24" rx="5" fill="#7aa2f7" opacity="0.5"/>
-  <text x="530" y="259" font-family="SF Mono, monospace" font-size="12" fill="#7aa2f7" font-weight="600">80.3%</text>
+  <rect x="200" y="242" width="321" height="24" rx="5" fill="#e8729a" opacity="0.5"/>
+  <text x="530" y="259" font-family="SF Mono, monospace" font-size="12" fill="#e8729a" font-weight="600">80.3%</text>
   <!-- Security audit section -->
   <rect x="700" y="60" width="420" height="140" rx="10" fill="none" stroke="#24283b" stroke-width="1"/>
   <text x="910" y="90" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Security Audit</text>
