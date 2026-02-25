@@ -5,7 +5,7 @@ layout: hextra-home
 ---
 
 <div class="shurli-hero-logo">
-  <img src="/images/logo.png" alt="Shurli logo" width="96" height="96" />
+  <img src="/images/symbol-centered.svg" alt="Shurli logo" width="96" height="96" />
 </div>
 
 {{< hextra/hero-badge >}}
