@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400">
   <defs>
     <linearGradient id="bgG" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
+      <stop offset="0%" style="stop-color:#141316"/>
       <stop offset="100%" style="stop-color:#0d0f14"/>
     </linearGradient>
     <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561"/>
-      <stop offset="100%" style="stop-color:#1e2140"/>
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
     </linearGradient>
     <linearGradient id="centerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078"/>
-      <stop offset="100%" style="stop-color:#251e50"/>
+      <stop offset="0%" style="stop-color:#38353b"/>
+      <stop offset="100%" style="stop-color:#2a282c"/>
     </linearGradient>
     <filter id="gl">
       <feGaussianBlur stdDeviation="3" result="blur"/>
@@ -30,7 +30,7 @@
   <rect x="40" y="55" width="220" height="140" rx="12" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1.5"/>
   <text x="150" y="78" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="12" font-weight="600">SIMPLICITY</text>
   <text x="150" y="95" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Adopted from both influences</text>
-  <line x1="60" y1="105" x2="240" y2="105" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="60" y1="105" x2="240" y2="105" stroke="#1a191c" stroke-width="1"/>
   <text x="55" y="122" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Shurli: Two commands</text>
   <text x="55" y="140" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Musk: Delete the part</text>
   <text x="55" y="158" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Jobs: Simple &gt; complex</text>
@@ -40,7 +40,7 @@
   <rect x="290" y="55" width="220" height="140" rx="12" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1.5"/>
   <text x="400" y="78" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="12" font-weight="600">FOCUS</text>
   <text x="400" y="95" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Adopted from both influences</text>
-  <line x1="310" y1="105" x2="490" y2="105" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="310" y1="105" x2="490" y2="105" stroke="#1a191c" stroke-width="1"/>
   <text x="305" y="122" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Shurli: Explicit dismissals</text>
   <text x="305" y="140" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Musk: Challenge requirements</text>
   <text x="305" y="158" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Jobs: Say no to 1,000 things</text>
@@ -50,7 +50,7 @@
   <rect x="540" y="55" width="220" height="140" rx="12" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1.5"/>
   <text x="650" y="78" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="12" font-weight="600">CONVICTION</text>
   <text x="650" y="95" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Strongest alignment</text>
-  <line x1="560" y1="105" x2="740" y2="105" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="560" y1="105" x2="740" y2="105" stroke="#1a191c" stroke-width="1"/>
   <text x="555" y="122" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Shurli: People get hurt</text>
   <text x="555" y="140" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Musk: Multiplanetary species</text>
   <text x="555" y="158" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Jobs: Dent in the universe</text>
@@ -60,27 +60,27 @@
   <text x="400" y="222" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="12" font-weight="600">Where Shurli Diverges</text>
 
   <!-- Divergence: User Control -->
-  <rect x="40" y="240" width="230" height="110" rx="12" fill="#1a1b26" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <rect x="40" y="240" width="230" height="110" rx="12" fill="#1a191c" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="155" y="263" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">USER SOVEREIGNTY</text>
-  <line x1="55" y1="272" x2="255" y2="272" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="55" y1="272" x2="255" y2="272" stroke="#1a191c" stroke-width="1"/>
   <text x="55" y="290" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Jobs: Walled garden</text>
   <text x="55" y="307" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Musk: Vertical integration</text>
   <text x="55" y="330" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">Shurli: Agnostic design</text>
   <text x="55" y="343" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ Own quality, not users</text>
 
   <!-- Divergence: Privacy -->
-  <rect x="290" y="240" width="220" height="110" rx="12" fill="#1a1b26" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <rect x="290" y="240" width="220" height="110" rx="12" fill="#1a191c" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="400" y="263" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">PRIVACY</text>
-  <line x1="305" y1="272" x2="495" y2="272" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="305" y1="272" x2="495" y2="272" stroke="#1a191c" stroke-width="1"/>
   <text x="305" y="290" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Jobs: Moderate telemetry</text>
   <text x="305" y="307" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Musk: Heavy telemetry</text>
   <text x="305" y="330" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">Shurli: User-controlled</text>
   <text x="305" y="343" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ Your data, your infra</text>
 
   <!-- Divergence: Transparency -->
-  <rect x="530" y="240" width="230" height="110" rx="12" fill="#1a1b26" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <rect x="530" y="240" width="230" height="110" rx="12" fill="#1a191c" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="645" y="263" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">TRANSPARENCY</text>
-  <line x1="545" y1="272" x2="745" y2="272" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="545" y1="272" x2="745" y2="272" stroke="#1a191c" stroke-width="1"/>
   <text x="545" y="290" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Jobs: Extreme secrecy</text>
   <text x="545" y="307" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">Musk: Selectively open</text>
   <text x="545" y="330" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">Shurli: Fully open</text>

@@ -3,11 +3,11 @@
        Left: every command boots a fresh P2P host (slow)
        Right: persistent daemon, instant CLI commands -->
   <!-- Background -->
-  <rect width="800" height="380" rx="12" fill="#0f1117"/>
+  <rect width="800" height="380" rx="12" fill="#141316"/>
   <!-- Title -->
   <text x="400" y="36" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Why Daemon Mode Changes Everything</text>
   <!-- BEFORE panel -->
-  <rect x="30" y="55" width="355" height="280" rx="8" fill="#1a1b26" stroke="#f7768e" stroke-width="1" stroke-opacity="0.5"/>
+  <rect x="30" y="55" width="355" height="280" rx="8" fill="#1a191c" stroke="#f7768e" stroke-width="1" stroke-opacity="0.5"/>
   <text x="207" y="80" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="13" font-weight="600">BEFORE - Every Command</text>
   <!-- Before: repeated startup sequence -->
   <g opacity="0.9">
@@ -32,7 +32,7 @@
   <path d="M 395 195 L 420 195" fill="none" stroke="#565f89" stroke-width="2"/>
   <polygon points="418,189 430,195 418,201" fill="#565f89"/>
   <!-- AFTER panel -->
-  <rect x="415" y="55" width="355" height="280" rx="8" fill="#1a1b26" stroke="#9ece6a" stroke-width="1" stroke-opacity="0.5"/>
+  <rect x="415" y="55" width="355" height="280" rx="8" fill="#1a191c" stroke="#9ece6a" stroke-width="1" stroke-opacity="0.5"/>
   <text x="592" y="80" text-anchor="middle" fill="#9ece6a" font-family="system-ui,sans-serif" font-size="13" font-weight="600">AFTER - Daemon Mode</text>
   <!-- Daemon: persistent host -->
   <rect x="435" y="95" width="315" height="40" rx="6" fill="#9ece6a" fill-opacity="0.08" stroke="#9ece6a" stroke-width="1" stroke-opacity="0.3"/>

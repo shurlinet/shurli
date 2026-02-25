@@ -9,11 +9,11 @@
     </linearGradient>
   </defs>
   <!-- Background -->
-  <rect width="800" height="340" rx="12" fill="#0f1117"/>
+  <rect width="800" height="340" rx="12" fill="#141316"/>
   <!-- Title -->
   <text x="400" y="36" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Exponential Backoff with Cap</text>
   <!-- Timeline base line -->
-  <line x1="60" y1="180" x2="740" y2="180" stroke="#24283b" stroke-width="2"/>
+  <line x1="60" y1="180" x2="740" y2="180" stroke="#222124" stroke-width="2"/>
   <!-- Failure flash -->
   <rect x="55" y="100" width="10" height="30" rx="3" fill="#f7768e" opacity="0.8"/>
   <text x="60" y="90" text-anchor="middle" fill="#f7768e" font-family="monospace" font-size="11">FAIL</text>

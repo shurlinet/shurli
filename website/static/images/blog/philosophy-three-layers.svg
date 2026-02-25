@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
+      <stop offset="0%" style="stop-color:#141316"/>
       <stop offset="100%" style="stop-color:#0d0f14"/>
     </linearGradient>
     <linearGradient id="layer1Grad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -9,12 +9,12 @@
       <stop offset="100%" style="stop-color:#1a2e12"/>
     </linearGradient>
     <linearGradient id="layer2Grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561"/>
-      <stop offset="100%" style="stop-color:#1e2140"/>
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
     </linearGradient>
     <linearGradient id="layer3Grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078"/>
-      <stop offset="100%" style="stop-color:#251e50"/>
+      <stop offset="0%" style="stop-color:#38353b"/>
+      <stop offset="100%" style="stop-color:#2a282c"/>
     </linearGradient>
     <linearGradient id="agnosticGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#614a1e"/>
@@ -115,7 +115,7 @@
   <text x="400" y="452" text-anchor="middle" fill="#565f89" font-family="SF Mono, monospace" font-size="10">Own the quality, never the user's choices</text>
 
   <!-- Legend -->
-  <rect x="40" y="480" width="720" height="30" rx="8" fill="#0f1117" stroke="#1a1b26" stroke-width="1"/>
+  <rect x="40" y="480" width="720" height="30" rx="8" fill="#141316" stroke="#1a191c" stroke-width="1"/>
   <text x="60" y="500" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">✓ Adopted</text>
   <text x="160" y="500" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">✗ Rejected</text>
   <text x="280" y="500" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Core principles came first - external influences enhanced the process and design approach</text>

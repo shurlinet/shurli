@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340">
   <defs>
     <linearGradient id="nodeBlue" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="nodeGreen" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#2d4a3e;stop-opacity:1" />
@@ -18,7 +18,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="340" rx="12" fill="#0f1117"/>
+  <rect width="800" height="340" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Private DHT Networks - Protocol-Level Isolation</text>
@@ -71,7 +71,7 @@
   <text x="400" y="215" font-family="system-ui, sans-serif" font-size="18" fill="#f7768e" text-anchor="middle" opacity="0.8">&#x2717;</text>
 
   <!-- Explanation -->
-  <rect x="150" y="280" width="500" height="40" rx="8" fill="#1a1e36" stroke="#565f89" stroke-width="0.8"/>
+  <rect x="150" y="280" width="500" height="40" rx="8" fill="#1e1d20" stroke="#565f89" stroke-width="0.8"/>
   <text x="400" y="296" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">Different protocols - cannot discover or communicate with each other</text>
   <text x="400" y="312" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Not a firewall or ACL - protocol-level isolation via DHT prefix</text>
 </svg>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
   <!-- Background -->
-  <rect width="700" height="380" rx="12" fill="#0f1117"/>
+  <rect width="700" height="380" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Cross-Network Latency: Real Measurements</text>
@@ -22,8 +22,8 @@
   <text x="170" y="314" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="end">5G Day 2 (hole-punch)</text>
 
   <!-- Grid lines -->
-  <line x1="180" y1="80" x2="180" y2="335" stroke="#1a1b26" stroke-width="1"/>
-  <line x1="180" y1="335" x2="660" y2="335" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="180" y1="80" x2="180" y2="335" stroke="#1a191c" stroke-width="1"/>
+  <line x1="180" y1="335" x2="660" y2="335" stroke="#1a191c" stroke-width="1"/>
 
   <!-- X-axis scale markers (0, 50, 100, 150, 200ms) -->
   <text x="180" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">0</text>
@@ -33,9 +33,9 @@
   <text x="660" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">200ms</text>
 
   <!-- Vertical grid lines (subtle) -->
-  <line x1="300" y1="80" x2="300" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
-  <line x1="420" y1="80" x2="420" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
-  <line x1="540" y1="80" x2="540" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <line x1="300" y1="80" x2="300" y2="335" stroke="#1a191c" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <line x1="420" y1="80" x2="420" y2="335" stroke="#1a191c" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <line x1="540" y1="80" x2="540" y2="335" stroke="#1a191c" stroke-width="0.5" stroke-dasharray="4,4"/>
 
   <!-- Bar: Satellite WiFi - DIRECT 22ms -->
   <rect x="180" y="94" width="53" height="22" rx="3" fill="#73daca" opacity="0.85"/>

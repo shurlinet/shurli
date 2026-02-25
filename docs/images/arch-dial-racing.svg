@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 570" width="780" height="570">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="successFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -22,7 +22,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="780" height="560" rx="12" fill="#0f1117"/>
+  <rect width="780" height="560" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="390" y="30" font-family="system-ui, sans-serif" font-size="15" fill="#c0caf5" text-anchor="middle" font-weight="700">Parallel Dial Racing Flow</text>
@@ -58,7 +58,7 @@
   <text x="405" y="237" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" font-weight="600">NO</text>
 
   <!-- Parallel race box -->
-  <rect x="110" y="255" width="560" height="120" rx="12" fill="#0f1117" stroke="#bb9af7" stroke-width="1.8" stroke-dasharray="6,3"/>
+  <rect x="110" y="255" width="560" height="120" rx="12" fill="#141316" stroke="#bb9af7" stroke-width="1.8" stroke-dasharray="6,3"/>
   <text x="390" y="275" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="600">Parallel Race (first success wins)</text>
 
   <!-- DHT Strategy -->
@@ -76,7 +76,7 @@
   <text x="525" y="355" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" text-anchor="middle">result: RELAYED connection</text>
 
   <!-- VS / parallel symbol -->
-  <circle cx="385" cy="324" r="14" fill="#0f1117" stroke="#e0af68" stroke-width="1.2"/>
+  <circle cx="385" cy="324" r="14" fill="#141316" stroke="#e0af68" stroke-width="1.2"/>
   <text x="385" y="329" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="700">||</text>
 
   <!-- Arrow from race to winner -->
