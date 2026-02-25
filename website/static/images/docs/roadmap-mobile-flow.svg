@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
   <defs>
     <linearGradient id="phoneFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="stepFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="connectFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -22,7 +22,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="700" height="380" rx="12" fill="#0f1117"/>
+  <rect width="700" height="380" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Mobile App Config Flow</text>
@@ -31,7 +31,7 @@
   <text x="615" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 9</text>
 
   <!-- Phone frame -->
-  <rect x="40" y="50" width="200" height="300" rx="20" fill="#1a1b26" stroke="#565f89" stroke-width="2"/>
+  <rect x="40" y="50" width="200" height="300" rx="20" fill="#1a191c" stroke="#565f89" stroke-width="2"/>
   <rect x="55" y="70" width="170" height="260" rx="8" fill="url(#phoneFill)"/>
 
   <!-- App header -->
@@ -43,7 +43,7 @@
   <text x="75" y="138" font-family="SF Mono, monospace" font-size="9" fill="#565f89">from shurli invite</text>
 
   <text x="75" y="162" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">Or enter invite code:</text>
-  <rect x="70" y="170" width="140" height="24" rx="4" fill="#1e2140" stroke="#565f89" stroke-width="1"/>
+  <rect x="70" y="170" width="140" height="24" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="1"/>
   <text x="80" y="186" font-family="SF Mono, monospace" font-size="9" fill="#e8729a">ABCX-7KMN-P2P3</text>
 
   <!-- Connect button -->
@@ -67,7 +67,7 @@
   <polygon points="307,196 307,204 315,200" fill="#e8729a"/>
 
   <!-- Once connected section -->
-  <rect x="320" y="55" width="355" height="295" rx="10" fill="#1a1b26" stroke="#565f89" stroke-width="1"/>
+  <rect x="320" y="55" width="355" height="295" rx="10" fill="#1a191c" stroke="#565f89" stroke-width="1"/>
   <text x="497" y="78" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Once Connected</text>
 
   <rect x="340" y="95" width="315" height="34" rx="6" fill="url(#stepFill)" stroke="#9ece6a" stroke-width="1"/>
@@ -87,7 +87,7 @@
   <text x="600" y="252" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="end">Ollama API</text>
 
   <!-- Platform badges -->
-  <rect x="340" y="285" width="80" height="38" rx="12" fill="#2d3561" stroke="#da1c5c" stroke-width="1"/>
+  <rect x="340" y="285" width="80" height="38" rx="12" fill="#2c2a2e" stroke="#da1c5c" stroke-width="1"/>
   <text x="380" y="301" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle">iOS</text>
   <text x="380" y="315" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">NEPacketTunnel</text>
 

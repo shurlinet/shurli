@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 550" width="660" height="550">
   <defs>
     <linearGradient id="tierFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="inputFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="errorFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
@@ -22,7 +22,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="660" height="550" rx="12" fill="#0f1117"/>
+  <rect width="660" height="550" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="235" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Multi-Tier Name Resolution</text>

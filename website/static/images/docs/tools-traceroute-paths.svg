@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 350" width="800" height="350">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -18,7 +18,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="350" rx="12" fill="#0f1117"/>
+  <rect width="800" height="350" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Traceroute - Relayed vs Direct Path</text>
@@ -56,7 +56,7 @@
   <text x="250" y="236" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">via relay</text>
 
   <!-- Path label -->
-  <rect x="135" y="265" width="230" height="28" rx="6" fill="#1a1e36" stroke="#e8729a" stroke-width="0.8" opacity="0.6"/>
+  <rect x="135" y="265" width="230" height="28" rx="6" fill="#1e1d20" stroke="#e8729a" stroke-width="0.8" opacity="0.6"/>
   <text x="250" y="283" font-family="SF Mono, monospace" font-size="9" fill="#e8729a" text-anchor="middle">path: [RELAYED via relay-server/0.1.0]</text>
 
   <!-- ====== RIGHT SIDE: DIRECT ====== -->
@@ -80,7 +80,7 @@
   <text x="550" y="236" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">10.0.1.50:9000</text>
 
   <!-- Path label -->
-  <rect x="485" y="265" width="170" height="28" rx="6" fill="#1a1e36" stroke="#9ece6a" stroke-width="0.8" opacity="0.6"/>
+  <rect x="485" y="265" width="170" height="28" rx="6" fill="#1e1d20" stroke="#9ece6a" stroke-width="0.8" opacity="0.6"/>
   <text x="570" y="283" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">path: [DIRECT]</text>
 
   <!-- Comparison note -->

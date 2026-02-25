@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 500" width="700" height="500">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="successFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
@@ -22,7 +22,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="700" height="500" rx="12" fill="#0f1117"/>
+  <rect width="700" height="500" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="30" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Authentication Flow</text>

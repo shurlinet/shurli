@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
   <defs>
     <linearGradient id="bgG" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
-      <stop offset="100%" style="stop-color:#1a1b26"/>
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgG)"/>
@@ -38,7 +38,7 @@
   <rect x="200" y="242" width="321" height="24" rx="5" fill="#e8729a" opacity="0.5"/>
   <text x="530" y="259" font-family="SF Mono, monospace" font-size="12" fill="#e8729a" font-weight="600">80.3%</text>
   <!-- Security audit section -->
-  <rect x="700" y="60" width="420" height="140" rx="10" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="700" y="60" width="420" height="140" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
   <text x="910" y="90" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Security Audit</text>
   <text x="720" y="120" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">CVE-2026-26014</text>
   <text x="920" y="120" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">RESOLVED</text>
@@ -47,12 +47,12 @@
   <text x="720" y="168" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Hardening</text>
   <text x="920" y="168" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">10 files fixed</text>
   <!-- ADR count -->
-  <rect x="700" y="230" width="200" height="120" rx="10" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="700" y="230" width="200" height="120" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
   <text x="800" y="270" font-family="system-ui, sans-serif" font-size="48" fill="#bb9af7" text-anchor="middle" font-weight="700" opacity="0.7">28</text>
   <text x="800" y="296" font-family="system-ui, sans-serif" font-size="13" fill="#bb9af7" text-anchor="middle" opacity="0.6">ADRs</text>
   <text x="800" y="316" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">architecture decisions</text>
   <!-- Docker tests -->
-  <rect x="930" y="230" width="190" height="120" rx="10" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="930" y="230" width="190" height="120" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
   <text x="1025" y="268" font-family="SF Mono, monospace" font-size="12" fill="#e0af68" text-anchor="middle">Docker</text>
   <text x="1025" y="288" font-family="SF Mono, monospace" font-size="12" fill="#e0af68" text-anchor="middle">Integration</text>
   <text x="1025" y="316" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">relay + invite + ping</text>

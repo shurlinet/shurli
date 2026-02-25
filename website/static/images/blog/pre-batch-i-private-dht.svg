@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" width="800" height="380">
   <!-- Pre-I-c: Private DHT Network Isolation -->
   <!-- Background -->
-  <rect width="800" height="380" rx="12" fill="#0f1117"/>
+  <rect width="800" height="380" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="400" y="32" text-anchor="middle" fill="#a9b1d6" font-family="system-ui,sans-serif" font-size="15" font-weight="600">Private DHT Network Isolation</text>
   <text x="400" y="52" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Different namespaces speak different protocols - they cannot discover each other</text>
 
   <!-- Left network: Global (default) -->
-  <rect x="30" y="75" width="340" height="240" rx="10" fill="#1a1b26" stroke="#e8729a" stroke-width="1.5"/>
+  <rect x="30" y="75" width="340" height="240" rx="10" fill="#1a191c" stroke="#e8729a" stroke-width="1.5"/>
   <text x="200" y="98" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Global Network (default)</text>
 
   <!-- Protocol prefix -->
@@ -42,7 +42,7 @@
   <text x="200" y="300" text-anchor="middle" fill="#565f89" font-family="ui-monospace,monospace" font-size="9">network: ""</text>
 
   <!-- Right network: Private "my-crew" -->
-  <rect x="430" y="75" width="340" height="240" rx="10" fill="#1a1b26" stroke="#bb9af7" stroke-width="1.5"/>
+  <rect x="430" y="75" width="340" height="240" rx="10" fill="#1a191c" stroke="#bb9af7" stroke-width="1.5"/>
   <text x="600" y="98" text-anchor="middle" fill="#bb9af7" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Private Network: "my-crew"</text>
 
   <!-- Protocol prefix -->
@@ -68,7 +68,7 @@
   <text x="600" y="300" text-anchor="middle" fill="#565f89" font-family="ui-monospace,monospace" font-size="9">network: "my-crew"</text>
 
   <!-- Center barrier: X marks showing isolation -->
-  <rect x="378" y="140" width="44" height="180" rx="4" fill="#0f1117" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <rect x="378" y="140" width="44" height="180" rx="4" fill="#141316" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="400" y="195" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="16" font-weight="700">X</text>
   <text x="400" y="220" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="7">CAN'T</text>
   <text x="400" y="232" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="7">DISCOVER</text>
