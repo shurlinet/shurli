@@ -16,8 +16,9 @@ import (
 // Reconnection tuning constants
 //
 // These control how aggressively PeerManager reconnects to disconnected peers.
-// They are hard-coded for the current authorized-peers phase (small networks,
-// 5-20 peers). For larger or open networks, these should be moved to config.
+// They are hard-coded for the current phase. The watchlist is bounded by
+// authorized_keys entries, not by total network size. For open networks,
+// these should be moved to config.
 //
 // To tune in code: adjust the constants below and rebuild.
 // To make configurable: add fields to DiscoveryConfig in internal/config,
@@ -345,13 +346,13 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 	result, err := pm.pathDialer.DialPeer(dialCtx, target)
 
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
 	if err != nil {
 		mp.ConsecFailures++
 		mp.LastDialError = err.Error()
 
 		// Exponential backoff: backoffBase * 2^failures, capped at backoffMax.
+		// The min(..., 5) guard caps the bit shift to prevent overflow:
+		// 1 << 5 = 32, so max = 30s * 32 = 960s, clamped to backoffMax.
 		backoff := backoffBase * (1 << min(mp.ConsecFailures, 5))
 		if backoff > backoffMax {
 			backoff = backoffMax
@@ -359,6 +360,7 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 		mp.BackoffUntil = time.Now().Add(backoff)
 
 		pm.incMetric("failure")
+		pm.mu.Unlock()
 		slog.Debug("peermanager: reconnect failed",
 			"peer", short,
 			"failures", mp.ConsecFailures,
@@ -373,8 +375,13 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 	mp.LastDialError = ""
 
 	pm.incMetric("success")
+	pm.mu.Unlock()
+
 	slog.Info("peermanager: reconnected", "peer", short, "path", result.PathType)
 
+	// Invoke callback OUTSIDE the lock to prevent potential deadlock
+	// if the callback (e.g., PeerHistory.RecordConnection) ever calls
+	// back into PeerManager.
 	if pm.onReconnect != nil {
 		pm.onReconnect(target.String(), string(result.PathType), result.Duration.Seconds()*1000)
 	}

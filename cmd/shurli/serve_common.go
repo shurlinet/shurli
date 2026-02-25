@@ -569,7 +569,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
 		rt.mdnsDiscovery = p2pnet.NewMDNSDiscovery(h, rt.metrics)
-		if err := rt.mdnsDiscovery.Start(); err != nil {
+		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
 			slog.Warn("mdns: failed to start", "error", err)
 			rt.mdnsDiscovery = nil
 		} else {
