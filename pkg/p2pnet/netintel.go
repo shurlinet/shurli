@@ -122,6 +122,12 @@ const (
 	// a single announcement. Announcements are tiny (~150 bytes) so
 	// this is generous. Prevents hung streams from blocking goroutines.
 	streamTimeout = 10 * time.Second
+
+	// maxConcurrentSends limits simultaneous outbound announcement streams.
+	// Prevents a thundering herd when AnnounceNow() fires to many peers
+	// (e.g., after a network change with 200+ connected peers). Peers
+	// beyond this limit are skipped for this tick and get the next one.
+	maxConcurrentSends = 20
 )
 
 // NodeAnnouncement is the presence message exchanged between peers.
@@ -274,6 +280,10 @@ func (ni *NetIntel) GetAllPeerState() []PeerAnnouncement {
 func (ni *NetIntel) streamHandler(s network.Stream) {
 	defer s.Close()
 
+	// Set read deadline to prevent slow-read DoS. A malicious peer could
+	// open a stream and trickle bytes indefinitely without this guard.
+	s.SetDeadline(time.Now().Add(streamTimeout))
+
 	sender := s.Conn().RemotePeer()
 
 	// Read announcement with size limit.
@@ -294,6 +304,16 @@ func (ni *NetIntel) streamHandler(s network.Stream) {
 	if ann.Version != 1 {
 		ni.incRecvMetric("invalid")
 		slog.Debug("netintel: unsupported version", "peer", shortID(sender), "version", ann.Version)
+		return
+	}
+
+	// Reject far-future timestamps. A malicious peer could set a timestamp
+	// far in the future to poison the cache and suppress all subsequent
+	// legitimate announcements from the real originator (since they would
+	// appear "stale" by comparison). 60-second tolerance handles clock skew.
+	if ann.Timestamp > time.Now().Unix()+60 {
+		ni.incRecvMetric("invalid")
+		slog.Debug("netintel: future timestamp rejected", "peer", shortID(sender), "ts", ann.Timestamp)
 		return
 	}
 
@@ -386,6 +406,7 @@ func (ni *NetIntel) publishToAll() {
 	}
 
 	peers := ni.host.Network().Peers()
+	sem := make(chan struct{}, maxConcurrentSends)
 	for _, pid := range peers {
 		if pid == ni.host.ID() {
 			continue
@@ -393,7 +414,15 @@ func (ni *NetIntel) publishToAll() {
 		if ni.peerFilter != nil && !ni.peerFilter(pid) {
 			continue
 		}
-		go ni.sendToPeer(pid, data)
+		select {
+		case sem <- struct{}{}:
+		default:
+			continue // all send slots busy, skip this peer
+		}
+		go func(target peer.ID) {
+			defer func() { <-sem }()
+			ni.sendToPeer(target, data)
+		}(pid)
 	}
 }
 

@@ -1,6 +1,7 @@
 package p2pnet
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -34,7 +35,13 @@ func TestMDNSDiscovery_SelfIgnored(t *testing.T) {
 	net := newMDNSNetwork(t)
 	h := net.Host()
 
-	md := &MDNSDiscovery{host: h, metrics: nil}
+	md := NewMDNSDiscovery(h, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := md.Start(ctx); err != nil {
+		t.Fatalf("md.Start: %v", err)
+	}
+	defer md.Close()
 
 	// HandlePeerFound with our own ID should be a no-op.
 	md.HandlePeerFound(peer.AddrInfo{
@@ -51,7 +58,13 @@ func TestMDNSDiscovery_HandlePeerFound(t *testing.T) {
 	netA := newMDNSNetwork(t)
 	netB := newMDNSNetwork(t)
 
-	md := &MDNSDiscovery{host: netA.Host(), metrics: nil}
+	md := NewMDNSDiscovery(netA.Host(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := md.Start(ctx); err != nil {
+		t.Fatalf("md.Start: %v", err)
+	}
+	defer md.Close()
 
 	// Simulate discovering netB via mDNS.
 	addr, _ := ma.NewMultiaddr("/ip4/192.168.1.100/tcp/9999")
@@ -89,12 +102,15 @@ func TestMDNSDiscovery_TwoHosts(t *testing.T) {
 	mdA := NewMDNSDiscovery(netA.Host(), nil)
 	mdB := NewMDNSDiscovery(netB.Host(), nil)
 
-	if err := mdA.Start(); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	if err := mdA.Start(ctx); err != nil {
 		t.Fatalf("mdA.Start: %v", err)
 	}
 	t.Cleanup(func() { mdA.Close() })
 
-	if err := mdB.Start(); err != nil {
+	if err := mdB.Start(ctx); err != nil {
 		t.Fatalf("mdB.Start: %v", err)
 	}
 	t.Cleanup(func() { mdB.Close() })
