@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package docker_test contains Docker-based integration tests for peer-up.
+// Package docker_test contains Docker-based integration tests for Shurli.
 //
 // These tests verify the actual compiled binaries work end-to-end in separate
 // containers communicating through a relay server. They are NOT run by
@@ -87,7 +87,7 @@ func TestMain(m *testing.M) {
 
 func TestRelayHealthy(t *testing.T) {
 	// Verify relay is running and config is valid.
-	out, _, err := dockerExec("relay", "sh", "-c", "cd /data && peerup relay config validate")
+	out, _, err := dockerExec("relay", "sh", "-c", "cd /data && shurli relay config validate")
 	if err != nil {
 		t.Fatalf("relay config validate failed: %v\noutput: %s", err, out)
 	}
@@ -99,9 +99,9 @@ func TestRelayHealthy(t *testing.T) {
 	}
 
 	// Verify relay process is actually running.
-	ps, _, err := dockerExec("relay", "sh", "-c", "ps aux | grep 'peerup relay serve' | grep -v grep")
-	if err != nil || !strings.Contains(ps, "peerup") {
-		t.Fatalf("peerup relay serve process not running in container.\nps output: %s", ps)
+	ps, _, err := dockerExec("relay", "sh", "-c", "ps aux | grep 'shurli relay serve' | grep -v grep")
+	if err != nil || !strings.Contains(ps, "shurli") {
+		t.Fatalf("shurli relay serve process not running in container.\nps output: %s", ps)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 
 	// Get node-a peer ID.
-	out, _, err := dockerExec("node-a", "peerup", "whoami", "--config", "/root/.config/peerup/config.yaml")
+	out, _, err := dockerExec("node-a", "shurli", "whoami", "--config", "/root/.config/shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("node-a whoami failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestInviteJoinFlow(t *testing.T) {
 		t.Fatalf("node-b setup failed: %v", err)
 	}
 
-	out, _, err = dockerExec("node-b", "peerup", "whoami", "--config", "/root/.config/peerup/config.yaml")
+	out, _, err = dockerExec("node-b", "shurli", "whoami", "--config", "/root/.config/shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("node-b whoami failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// Run invite in background, capturing stdout (the invite code) to a file.
 	// No nohup needed - container runs "sleep infinity" so no SIGHUP risk.
 	_, _, err = dockerExec("node-a", "sh", "-c",
-		"peerup invite --non-interactive --name home --config /root/.config/peerup/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
+		"shurli invite --non-interactive --name home --config /root/.config/shurli/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
 	if err != nil {
 		t.Fatalf("failed to start invite on node-a: %v", err)
 	}
@@ -170,8 +170,8 @@ func TestInviteJoinFlow(t *testing.T) {
 
 	// ── Step 5: Run join on node-b ──
 	t.Log("Running join on node-b...")
-	// Use PEERUP_INVITE_CODE env var - clean approach for scripted usage.
-	joinCmd := fmt.Sprintf("PEERUP_INVITE_CODE='%s' peerup join --non-interactive --name laptop", inviteCode)
+	// Use SHURLI_INVITE_CODE env var - clean approach for scripted usage.
+	joinCmd := fmt.Sprintf("SHURLI_INVITE_CODE='%s' shurli join --non-interactive --name laptop", inviteCode)
 	out, stderr, err := dockerExecWithTimeout("node-b", 60*time.Second, "sh", "-c", joinCmd)
 	if err != nil {
 		t.Fatalf("node-b join failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)
@@ -182,7 +182,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	t.Log("Verifying authorized_keys...")
 
 	// Node-a should have node-b's peer ID.
-	authA, _, err := dockerExec("node-a", "cat", "/root/.config/peerup/authorized_keys")
+	authA, _, err := dockerExec("node-a", "cat", "/root/.config/shurli/authorized_keys")
 	if err != nil {
 		t.Fatalf("failed to read node-a authorized_keys: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 
 	// Node-b should have node-a's peer ID.
-	authB, _, err := dockerExec("node-b", "cat", "/root/.config/peerup/authorized_keys")
+	authB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/authorized_keys")
 	if err != nil {
 		t.Fatalf("failed to read node-b authorized_keys: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 
 	// ── Step 7: Verify names in node-b's config ──
-	cfgB, _, err := dockerExec("node-b", "cat", "/root/.config/peerup/config.yaml")
+	cfgB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("failed to read node-b config: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestPingThroughRelay(t *testing.T) {
 	// so node-a will only advertise relay addresses.
 	t.Log("Starting daemon on node-a...")
 	_, _, err := dockerExec("node-a", "sh", "-c",
-		"peerup daemon start --config /root/.config/peerup/config.yaml > /tmp/daemon-stdout.txt 2>&1 &")
+		"shurli daemon start --config /root/.config/shurli/config.yaml > /tmp/daemon-stdout.txt 2>&1 &")
 	if err != nil {
 		t.Fatalf("failed to start daemon on node-a: %v", err)
 	}
@@ -249,9 +249,9 @@ func TestPingThroughRelay(t *testing.T) {
 
 	// ── Step 4: Ping from node-b ──
 	t.Log("Pinging node-a from node-b...")
-	// Config is at default location (~/.config/peerup/config.yaml), no --config needed.
+	// Config is at default location (~/.config/shurli/config.yaml), no --config needed.
 	out, stderr, err := dockerExecWithTimeout("node-b", 90*time.Second,
-		"peerup", "ping", "--json", "-c", "2", "home")
+		"shurli", "ping", "--json", "-c", "2", "home")
 	if err != nil {
 		t.Fatalf("node-b ping failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)
 	}
@@ -319,13 +319,13 @@ func TestPingThroughRelay(t *testing.T) {
 
 // ─── Coverage Collection ─────────────────────────────────────────────────────
 
-// collectDockerCoverage gracefully stops all peerup processes inside Docker
+// collectDockerCoverage gracefully stops all shurli processes inside Docker
 // containers so they flush coverage data (GOCOVERDIR=/covdata), then copies
 // the data to a host directory for merging with unit test coverage.
 //
-// Set PEERUP_COVDIR to enable collection. Example:
+// Set SHURLI_COVDIR to enable collection. Example:
 //
-//	PEERUP_COVDIR=./coverage/integration go test -tags integration ./test/docker/
+//	SHURLI_COVDIR=./coverage/integration go test -tags integration ./test/docker/
 //
 // Then merge with unit coverage:
 //
@@ -334,9 +334,9 @@ func TestPingThroughRelay(t *testing.T) {
 //	go tool covdata textfmt -i=./coverage/merged -o=./coverage/combined.out
 //	go tool cover -func=./coverage/combined.out | tail -1
 func collectDockerCoverage() {
-	covDir := os.Getenv("PEERUP_COVDIR")
+	covDir := os.Getenv("SHURLI_COVDIR")
 	if covDir == "" {
-		fmt.Println("PEERUP_COVDIR not set, skipping coverage collection.")
+		fmt.Println("SHURLI_COVDIR not set, skipping coverage collection.")
 		return
 	}
 
@@ -349,10 +349,10 @@ func collectDockerCoverage() {
 
 	containers := []string{"relay", "node-a", "node-b"}
 
-	// Send SIGTERM to all peerup processes so they flush coverage on exit.
-	// The container PID 1 is "sleep infinity", so we target peerup specifically.
+	// Send SIGTERM to all shurli processes so they flush coverage on exit.
+	// The container PID 1 is "sleep infinity", so we target shurli specifically.
 	for _, c := range containers {
-		dockerExec(c, "sh", "-c", "pkill -TERM peerup 2>/dev/null || true")
+		dockerExec(c, "sh", "-c", "pkill -TERM shurli 2>/dev/null || true")
 	}
 
 	// Wait for processes to exit and flush coverage.
@@ -426,7 +426,7 @@ func composeDown() {
 }
 
 func composeLogs() {
-	// Dump relay process logs (peerup relay serve runs inside a sleeping container).
+	// Dump relay process logs (shurli relay serve runs inside a sleeping container).
 	fmt.Fprintln(os.Stderr, "=== relay server logs ===")
 	out, _, _ := dockerExec("relay", "cat", "/tmp/relay-stdout.txt")
 	fmt.Fprintln(os.Stderr, out)
@@ -496,9 +496,9 @@ func setupRelay() error {
 	}
 
 	// Start relay server in background inside the container.
-	// Container is sleeping; we launch peerup relay serve as a background process.
+	// Container is sleeping; we launch shurli relay serve as a background process.
 	_, _, err := dockerExec("relay", "sh", "-c",
-		"cd /data && nohup peerup relay serve > /tmp/relay-stdout.txt 2>&1 &")
+		"cd /data && nohup shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
 	if err != nil {
 		return fmt.Errorf("failed to start relay server: %w", err)
 	}
@@ -531,16 +531,16 @@ func setupNode(container, relayAddr string) error {
 	cfg := generateNodeConfig(relayAddr)
 
 	// Write config.
-	if err := writeFileInContainer(container, "/root/.config/peerup/config.yaml", cfg); err != nil {
+	if err := writeFileInContainer(container, "/root/.config/shurli/config.yaml", cfg); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 	// Security hardening requires 0600 on config files.
-	if _, _, err := dockerExec(container, "chmod", "600", "/root/.config/peerup/config.yaml"); err != nil {
+	if _, _, err := dockerExec(container, "chmod", "600", "/root/.config/shurli/config.yaml"); err != nil {
 		return fmt.Errorf("failed to chmod node config: %w", err)
 	}
 
 	// Write empty authorized_keys.
-	if err := writeFileInContainer(container, "/root/.config/peerup/authorized_keys",
+	if err := writeFileInContainer(container, "/root/.config/shurli/authorized_keys",
 		"# authorized_keys - Peer ID allowlist (one per line)\n"); err != nil {
 		return fmt.Errorf("failed to write authorized_keys: %w", err)
 	}
@@ -576,7 +576,7 @@ health:
 // generateNodeConfig returns a node config pointing to the given relay.
 // Matches the structure from config_template.go.
 func generateNodeConfig(relayAddr string) string {
-	return fmt.Sprintf(`# peer-up configuration
+	return fmt.Sprintf(`# Shurli configuration
 # Generated by: integration test
 
 version: 1
@@ -596,7 +596,7 @@ relay:
   reservation_interval: "2m"
 
 discovery:
-  rendezvous: "peerup-integration-test"
+  rendezvous: "shurli-integration-test"
   bootstrap_peers: []
 
 security:

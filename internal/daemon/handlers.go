@@ -13,8 +13,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/satindergrewal/peer-up/internal/auth"
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // maxRequestBodySize limits the size of JSON request bodies to prevent
@@ -76,9 +76,9 @@ func respondText(w http.ResponseWriter, status int, text string) {
 	fmt.Fprint(w, text)
 }
 
-// isPeerupAgent returns true if the agent version string identifies a peerup or relay-server peer.
-func isPeerupAgent(agent string) bool {
-	return strings.HasPrefix(agent, "peerup/") || strings.HasPrefix(agent, "relay-server/")
+// isShurliAgent returns true if the agent version string identifies a shurli or relay-server peer.
+func isShurliAgent(agent string) bool {
+	return strings.HasPrefix(agent, "shurli/") || strings.HasPrefix(agent, "relay-server/")
 }
 
 // --- Handlers ---
@@ -209,8 +209,8 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// By default, only show peerup and relay-server peers
-		if !showAll && !isPeerupAgent(info.AgentVersion) {
+		// By default, only show shurli and relay-server peers
+		if !showAll && !isShurliAgent(info.AgentVersion) {
 			continue
 		}
 

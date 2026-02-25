@@ -1,0 +1,30 @@
+[Unit]
+Description=Shurli daemon - P2P network service
+Documentation=https://shurli.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/shurli daemon
+Restart=on-failure
+RestartSec=5
+WatchdogSec=90
+User=shurli
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/shurli/.config/shurli
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

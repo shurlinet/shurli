@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // --- Mock runtime ---
@@ -44,7 +44,7 @@ func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
 		version:   "test-0.1.0",
 		startTime: time.Now().Add(-60 * time.Second),
-		pingProto: "/peerup/ping/1.0.0",
+		pingProto: "/shurli/ping/1.0.0",
 	}
 }
 
@@ -431,7 +431,7 @@ func TestNetworkClientIntegration(t *testing.T) {
 		net:          net,
 		version:      "test-0.2.0",
 		startTime:    time.Now().Add(-120 * time.Second),
-		pingProto:    "/peerup/ping/1.0.0",
+		pingProto:    "/shurli/ping/1.0.0",
 		authKeysPath: authKeysPath,
 		gater:        gater,
 	}
@@ -730,7 +730,7 @@ func TestP2PHandlerIntegration(t *testing.T) {
 	netA.RegisterName("remote", netB.Host().ID())
 
 	// Register a ping-pong handler on B (reads "ping\n", writes "pong\n")
-	pingProto := "/peerup/ping/1.0.0"
+	pingProto := "/shurli/ping/1.0.0"
 	netB.Host().SetStreamHandler(protocol.ID(pingProto), func(s network.Stream) {
 		defer s.Close()
 		buf := make([]byte, 64)

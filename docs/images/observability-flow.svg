@@ -5,12 +5,12 @@
       <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="auditFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="sourceFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="endpointFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#4a3520;stop-opacity:1" />
@@ -26,34 +26,34 @@
   </defs>
 
   <!-- Background -->
-  <rect width="760" height="500" rx="12" fill="#0f1117"/>
+  <rect width="760" height="500" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Observability Architecture (Batch H)</text>
   <text x="380" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">All features opt-in, disabled by default. Zero overhead when off.</text>
 
   <!-- Metric Sources (left column) -->
-  <text x="30" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" font-weight="600">METRIC SOURCES</text>
+  <text x="30" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#e8729a" font-weight="600">METRIC SOURCES</text>
 
   <!-- Source: Proxy -->
   <rect x="20" y="90" width="200" height="56" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="120" y="108" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Proxy (proxy.go)</text>
+  <text x="120" y="108" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Proxy (proxy.go)</text>
   <text x="120" y="122" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">bytes_total, connections</text>
   <text x="120" y="134" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">active_conns, duration</text>
 
   <!-- Source: Auth -->
   <rect x="20" y="156" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="120" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Auth Gater (gater.go)</text>
+  <text x="120" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Auth Gater (gater.go)</text>
   <text x="120" y="188" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">auth_decisions_total{allow,deny}</text>
 
   <!-- Source: Hole Punch -->
   <rect x="20" y="210" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="120" y="228" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Hole Punch (network.go)</text>
+  <text x="120" y="228" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Hole Punch (network.go)</text>
   <text x="120" y="242" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">holepunch_total, duration</text>
 
   <!-- Source: Daemon API -->
   <rect x="20" y="264" width="200" height="44" rx="6" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="120" y="282" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Daemon API (middleware.go)</text>
+  <text x="120" y="282" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Daemon API (middleware.go)</text>
   <text x="120" y="296" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">requests_total, duration</text>
 
   <!-- Source: libp2p built-in -->
@@ -106,15 +106,15 @@
   <polygon points="537,268 543,272 537,276" fill="#bb9af7"/>
 
   <!-- Callback pattern label -->
-  <rect x="200" y="385" width="360" height="75" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1"/>
+  <rect x="200" y="385" width="360" height="75" rx="6" fill="#1e1d20" stroke="#414868" stroke-width="1"/>
   <text x="380" y="404" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Callback Pattern (no circular imports)</text>
-  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/peerup --(closure)--> pkg/p2pnet</text>
+  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/shurli --(closure)--> pkg/p2pnet</text>
   <text x="380" y="436" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">AuthDecisionFunc(peerID, result) feeds both metrics + audit</text>
   <text x="380" y="450" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Wired in serve_common.go before network creation</text>
 
   <!-- Legend -->
   <rect x="20" y="400" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="38" y="410" font-family="system-ui, sans-serif" font-size="9" fill="#7dcfff">Custom peerup metrics</text>
+  <text x="38" y="410" font-family="system-ui, sans-serif" font-size="9" fill="#7dcfff">Custom shurli metrics</text>
   <rect x="20" y="418" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2"/>
   <text x="38" y="428" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Free from libp2p (no extra code)</text>
   <line x1="20" y1="444" x2="32" y2="444" stroke="#73daca" stroke-width="1.5"/>

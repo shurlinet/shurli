@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/satindergrewal/peer-up/internal/invite"
+	"github.com/shurlinet/shurli/internal/invite"
 )
 
 // AdminGaterInterface is the subset of AuthorizedPeerGater needed by the admin socket.

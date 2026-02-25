@@ -12,11 +12,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/satindergrewal/peer-up/internal/auth"
+	"github.com/shurlinet/shurli/internal/auth"
 )
 
 // Protocol ID for relay pairing.
-const PairingProtocol = "/peerup/relay-pair/1.0.0"
+const PairingProtocol = "/shurli/relay-pair/1.0.0"
 
 // Wire status bytes.
 const (

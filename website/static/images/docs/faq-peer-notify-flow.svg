@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" width="700" height="400">
+  <!-- Background -->
+  <rect width="700" height="400" rx="12" fill="#141316"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Peer Introduction Delivery (/shurli/peer-notify/1.0.0)</text>
+  <text x="350" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">How the relay introduces peers after pairing without being a trust authority</text>
+
+  <!-- Actor lifelines -->
+  <!-- Peer A -->
+  <rect x="60" y="62" width="80" height="24" rx="4" fill="#1e3a2f" stroke="#73daca" stroke-width="1"/>
+  <text x="100" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Peer A</text>
+  <line x1="100" y1="86" x2="100" y2="380" stroke="#73daca" stroke-width="0.5" stroke-dasharray="4,4"/>
+
+  <!-- Relay -->
+  <rect x="295" y="62" width="80" height="24" rx="4" fill="#1a2840" stroke="#e8729a" stroke-width="1"/>
+  <text x="335" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Relay</text>
+  <line x1="335" y1="86" x2="335" y2="380" stroke="#e8729a" stroke-width="0.5" stroke-dasharray="4,4"/>
+
+  <!-- Peer B -->
+  <rect x="530" y="62" width="80" height="24" rx="4" fill="#2a2a1e" stroke="#e0af68" stroke-width="1"/>
+  <text x="570" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">Peer B</text>
+  <line x1="570" y1="86" x2="570" y2="380" stroke="#e0af68" stroke-width="0.5" stroke-dasharray="4,4"/>
+
+  <!-- Step 1: Peer A joins with pairing code -->
+  <text x="18" y="116" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">1</text>
+  <line x1="100" y1="112" x2="335" y2="112" stroke="#73daca" stroke-width="1.5"/>
+  <polygon points="332,108 340,112 332,116" fill="#73daca"/>
+  <text x="218" y="108" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce" text-anchor="middle">join with pairing code</text>
+
+  <!-- Step 2: Relay validates token, stores HMAC -->
+  <rect x="280" y="122" width="110" height="22" rx="3" fill="#1a2840" stroke="#e8729a" stroke-width="0.5"/>
+  <text x="335" y="137" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle">validate + store HMAC</text>
+
+  <!-- Step 3: Peer B joins later -->
+  <text x="18" y="166" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">2</text>
+  <line x1="570" y1="162" x2="335" y2="162" stroke="#e0af68" stroke-width="1.5"/>
+  <polygon points="338,158 330,162 338,166" fill="#e0af68"/>
+  <text x="453" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce" text-anchor="middle">join with pairing code</text>
+
+  <!-- Step 4: Relay validates Peer B -->
+  <rect x="280" y="172" width="110" height="22" rx="3" fill="#1a2840" stroke="#e8729a" stroke-width="0.5"/>
+  <text x="335" y="187" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle">validate + store HMAC</text>
+
+  <!-- Step 5: Relay notifies Peer A about Peer B -->
+  <text x="18" y="216" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">3</text>
+  <line x1="335" y1="212" x2="100" y2="212" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="103,208 95,212 103,216" fill="#bb9af7"/>
+  <text x="218" y="208" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle">peer-notify: Peer B + HMAC proof</text>
+
+  <!-- Step 6: Peer A verifies HMAC -->
+  <rect x="40" y="224" width="120" height="34" rx="3" fill="#1e3a2f" stroke="#73daca" stroke-width="0.5"/>
+  <text x="100" y="238" font-family="system-ui, sans-serif" font-size="8" fill="#73daca" text-anchor="middle">verify HMAC proof</text>
+  <text x="100" y="250" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle">add to authorized_keys</text>
+
+  <!-- Step 7: Relay also notifies Peer B about Peer A -->
+  <text x="18" y="280" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">4</text>
+  <line x1="335" y1="276" x2="570" y2="276" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="567,272 575,276 567,280" fill="#bb9af7"/>
+  <text x="453" y="272" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle">peer-notify: Peer A + HMAC proof</text>
+
+  <!-- Step 8: Peer B verifies HMAC -->
+  <rect x="510" y="288" width="120" height="34" rx="3" fill="#2a2a1e" stroke="#e0af68" stroke-width="0.5"/>
+  <text x="570" y="302" font-family="system-ui, sans-serif" font-size="8" fill="#e0af68" text-anchor="middle">verify HMAC proof</text>
+  <text x="570" y="314" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle">add to authorized_keys</text>
+
+  <!-- Result: Both peers can now connect directly -->
+  <rect x="150" y="342" width="400" height="28" rx="6" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1"/>
+  <text x="350" y="360" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">Both peers authorized - direct connection possible</text>
+
+  <!-- Key insight box -->
+  <text x="350" y="392" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Relay is the delivery medium, not the trust authority. HMAC proofs verify token possession without exposing tokens.</text>
+</svg>

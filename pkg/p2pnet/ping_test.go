@@ -113,7 +113,7 @@ func TestPingPeer_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := PingPeer(ctx, netA.Host(), netB.Host().ID(), "/peerup/ping/1.0.0", 0, time.Second)
+	ch := PingPeer(ctx, netA.Host(), netB.Host().ID(), "/shurli/ping/1.0.0", 0, time.Second)
 
 	// Channel should close without hanging
 	count := 0
@@ -135,7 +135,7 @@ func TestPingPeer_CountedPings(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := PingPeer(ctx, netA.Host(), netB.Host().ID(), "/peerup/ping/1.0.0", 2, 100*time.Millisecond)
+	ch := PingPeer(ctx, netA.Host(), netB.Host().ID(), "/shurli/ping/1.0.0", 2, 100*time.Millisecond)
 
 	var results []PingResult
 	for r := range ch {

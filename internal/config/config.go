@@ -154,7 +154,7 @@ type ServiceConfig struct {
 // NamesConfig holds name resolution configuration
 type NamesConfig map[string]string // name → peer ID
 
-// NodeConfig is the unified configuration for all peerup modes.
+// NodeConfig is the unified configuration for all shurli modes.
 // HomeNodeConfig already has all fields (Identity, Network, Relay, Discovery,
 // Security, Protocols, Services, Names). ClientNodeConfig is a strict subset.
 type NodeConfig = HomeNodeConfig

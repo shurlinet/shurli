@@ -1,4 +1,4 @@
 ---
 title: Blog
-description: "Engineering updates, release notes, and development insights from the peer-up project."
+description: "Engineering updates, release notes, and development insights from the Shurli project."
 ---

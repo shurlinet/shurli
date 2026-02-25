@@ -1,20 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" width="800" height="420">
   <defs>
     <linearGradient id="publicFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:0.25" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:0.1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:0.25" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:0.1" />
     </linearGradient>
     <linearGradient id="privateFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:0.25" />
       <stop offset="100%" style="stop-color:#162c24;stop-opacity:0.1" />
     </linearGradient>
     <linearGradient id="relayGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -26,7 +26,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="420" rx="12" fill="#0f1117"/>
+  <rect width="800" height="420" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Private DNS Architecture</text>
@@ -41,7 +41,7 @@
   <!-- Public DNS entries -->
   <rect x="60" y="85" width="300" height="34" rx="6" fill="url(#nodeGrad)" stroke="#565f89" stroke-width="1"/>
   <text x="80" y="107" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">example.com</text>
-  <text x="240" y="107" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">-> 203.0.113.50</text>
+  <text x="240" y="107" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">-> 203.0.113.50</text>
 
   <rect x="60" y="125" width="300" height="34" rx="6" fill="url(#nodeGrad)" stroke="#565f89" stroke-width="1"/>
   <text x="80" y="147" font-family="SF Mono, monospace" font-size="10" fill="#f7768e">bob.example.com</text>
@@ -64,18 +64,18 @@
   <!-- Private DNS entries -->
   <rect x="60" y="245" width="340" height="34" rx="6" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1"/>
   <text x="80" y="267" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">bob.example.com</text>
-  <text x="260" y="267" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">-> Bob's peer ID</text>
+  <text x="260" y="267" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">-> Bob's peer ID</text>
 
   <rect x="60" y="285" width="340" height="34" rx="6" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1"/>
   <text x="80" y="307" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">home.example.com</text>
-  <text x="280" y="307" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">-> Home's peer ID</text>
+  <text x="280" y="307" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">-> Home's peer ID</text>
 
   <!-- Peer nodes -->
-  <rect x="460" y="245" width="120" height="34" rx="6" fill="url(#nodeGrad)" stroke="#3b82f6" stroke-width="1"/>
-  <text x="520" y="266" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle">Bob</text>
+  <rect x="460" y="245" width="120" height="34" rx="6" fill="url(#nodeGrad)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="520" y="266" font-family="SF Mono, monospace" font-size="10" fill="#e8729a" text-anchor="middle">Bob</text>
 
-  <rect x="460" y="290" width="120" height="34" rx="6" fill="url(#nodeGrad)" stroke="#3b82f6" stroke-width="1"/>
-  <text x="520" y="311" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle">Home</text>
+  <rect x="460" y="290" width="120" height="34" rx="6" fill="url(#nodeGrad)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="520" y="311" font-family="SF Mono, monospace" font-size="10" fill="#e8729a" text-anchor="middle">Home</text>
 
   <!-- Services on Home -->
   <rect x="620" y="280" width="130" height="52" rx="6" fill="url(#nodeGrad)" stroke="#565f89" stroke-width="1"/>

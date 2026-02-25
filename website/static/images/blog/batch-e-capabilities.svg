@@ -1,25 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
   <defs>
     <linearGradient id="bgE" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
-      <stop offset="100%" style="stop-color:#1a1b26"/>
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgE)"/>
-  <!-- peerup status - terminal card -->
-  <rect x="60" y="40" width="380" height="320" rx="10" fill="#16161e" stroke="#24283b" stroke-width="1"/>
-  <rect x="60" y="40" width="380" height="32" rx="10" fill="#1a1b26"/>
-  <rect x="60" y="62" width="380" height="10" fill="#1a1b26"/>
+  <!-- shurli status - terminal card -->
+  <rect x="60" y="40" width="380" height="320" rx="10" fill="#141315" stroke="#222124" stroke-width="1"/>
+  <rect x="60" y="40" width="380" height="32" rx="10" fill="#1a191c"/>
+  <rect x="60" y="62" width="380" height="10" fill="#1a191c"/>
   <circle cx="82" cy="56" r="5" fill="#ff5f57"/>
   <circle cx="100" cy="56" r="5" fill="#febc2e"/>
   <circle cx="118" cy="56" r="5" fill="#28c840"/>
-  <text x="250" y="60" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">peerup status</text>
-  <text x="80" y="100" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7">Version:</text>
+  <text x="250" y="60" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">shurli status</text>
+  <text x="80" y="100" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Version:</text>
   <text x="200" y="100" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">1.0.0-4c7g</text>
-  <text x="80" y="124" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7">Peer ID:</text>
+  <text x="80" y="124" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Peer ID:</text>
   <text x="200" y="124" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">12D3KooW...7xRm</text>
-  <text x="80" y="148" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7">Config:</text>
-  <text x="200" y="148" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">~/.config/peerup/</text>
+  <text x="80" y="148" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Config:</text>
+  <text x="200" y="148" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">~/.config/shurli/</text>
   <text x="80" y="180" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Relays:</text>
   <text x="200" y="180" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">1 configured</text>
   <text x="80" y="204" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Peers:</text>
@@ -29,27 +29,27 @@
   <text x="80" y="260" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">Names:</text>
   <text x="200" y="260" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">home, laptop, phone</text>
   <!-- /healthz endpoint - JSON response -->
-  <rect x="500" y="60" width="300" height="200" rx="10" fill="#16161e" stroke="#24283b" stroke-width="1"/>
+  <rect x="500" y="60" width="300" height="200" rx="10" fill="#141315" stroke="#222124" stroke-width="1"/>
   <text x="510" y="88" font-family="SF Mono, monospace" font-size="11" fill="#565f89">GET /healthz</text>
-  <text x="510" y="114" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">{</text>
+  <text x="510" y="114" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">{</text>
   <text x="530" y="132" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"status"</text><text x="616" y="132" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "healthy",</text>
   <text x="530" y="150" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"uptime"</text><text x="616" y="150" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "72h14m",</text>
   <text x="530" y="168" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"peers"</text><text x="612" y="168" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: 5,</text>
   <text x="530" y="186" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"version"</text><text x="624" y="186" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "1.0.0"</text>
-  <text x="510" y="204" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7">}</text>
+  <text x="510" y="204" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">}</text>
   <!-- Headless pairing - pipe visualization -->
   <rect x="500" y="290" width="300" height="60" rx="8" fill="none" stroke="#e0af68" stroke-width="1.5" opacity="0.5"/>
-  <text x="650" y="316" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">peerup invite --non-interactive |</text>
-  <text x="650" y="334" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">PEERUP_INVITE_CODE=$(cat) peerup join</text>
+  <text x="650" y="316" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">shurli invite --non-interactive |</text>
+  <text x="650" y="334" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">SHURLI_INVITE_CODE=$(cat) shurli join</text>
   <!-- Connection arrows -->
   <path d="M 860 160 L 900 160" stroke="#565f89" stroke-width="1.5" opacity="0.4"/>
   <!-- Automation icon - gear -->
-  <circle cx="960" cy="160" r="40" fill="none" stroke="#7aa2f7" stroke-width="1.5" opacity="0.3"/>
-  <circle cx="960" cy="160" r="15" fill="none" stroke="#7aa2f7" stroke-width="2" opacity="0.5"/>
+  <circle cx="960" cy="160" r="40" fill="none" stroke="#e8729a" stroke-width="1.5" opacity="0.3"/>
+  <circle cx="960" cy="160" r="15" fill="none" stroke="#e8729a" stroke-width="2" opacity="0.5"/>
   <!-- Gear teeth -->
-  <rect x="955" y="112" width="10" height="16" rx="2" fill="#7aa2f7" opacity="0.3"/>
-  <rect x="955" y="192" width="10" height="16" rx="2" fill="#7aa2f7" opacity="0.3"/>
-  <rect x="912" y="155" width="16" height="10" rx="2" fill="#7aa2f7" opacity="0.3"/>
-  <rect x="992" y="155" width="16" height="10" rx="2" fill="#7aa2f7" opacity="0.3"/>
-  <text x="960" y="224" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" text-anchor="middle" opacity="0.6">automation-ready</text>
+  <rect x="955" y="112" width="10" height="16" rx="2" fill="#e8729a" opacity="0.3"/>
+  <rect x="955" y="192" width="10" height="16" rx="2" fill="#e8729a" opacity="0.3"/>
+  <rect x="912" y="155" width="16" height="10" rx="2" fill="#e8729a" opacity="0.3"/>
+  <rect x="992" y="155" width="16" height="10" rx="2" fill="#e8729a" opacity="0.3"/>
+  <text x="960" y="224" font-family="system-ui, sans-serif" font-size="12" fill="#e8729a" text-anchor="middle" opacity="0.6">automation-ready</text>
 </svg>

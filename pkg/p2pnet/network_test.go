@@ -12,8 +12,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 
-	"github.com/satindergrewal/peer-up/internal/auth"
-	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/config"
 )
 
 func TestTruncateError(t *testing.T) {
@@ -615,11 +615,11 @@ func TestDHTProtocolPrefixForNamespace(t *testing.T) {
 		namespace string
 		want      string
 	}{
-		{"", "/peerup"},
-		{"my-crew", "/peerup/my-crew"},
-		{"gaming", "/peerup/gaming"},
-		{"org-internal", "/peerup/org-internal"},
-		{"a", "/peerup/a"},
+		{"", "/shurli"},
+		{"my-crew", "/shurli/my-crew"},
+		{"gaming", "/shurli/gaming"},
+		{"org-internal", "/shurli/org-internal"},
+		{"a", "/shurli/a"},
 	}
 	for _, tt := range tests {
 		got := DHTProtocolPrefixForNamespace(tt.namespace)

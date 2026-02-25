@@ -34,7 +34,7 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
 
-**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/peerup/serve_common.go`
+**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`
 
 ---
 
@@ -46,8 +46,8 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 - **Move gater to pkg/p2pnet** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
 - **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
 
-**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/peerup/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
+**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/shurli/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
 
 **Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
 
-**Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/peerup/serve_common.go`
+**Reference**: `internal/auth/gater.go:SetDecisionCallback`, `cmd/shurli/serve_common.go`

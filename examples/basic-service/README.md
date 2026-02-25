@@ -10,7 +10,7 @@ This example demonstrates the core functionality of the `pkg/p2pnet` library:
 1. **Server** (`server.go`):
    - Starts a local HTTP server on `localhost:8080`
    - Creates a P2P network node
-   - Exposes the HTTP service via P2P using protocol `/peerup/http/1.0.0`
+   - Exposes the HTTP service via P2P using protocol `/shurli/http/1.0.0`
    - Waits for incoming connections
 
 2. **Client** (`client.go`):
@@ -39,7 +39,7 @@ You'll see output like:
 🌐 Starting local HTTP server on localhost:8080
 🆔 Server Peer ID: 12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL
 📍 Listening on: [/ip4/127.0.0.1/tcp/9100 /ip4/10.0.1.100/tcp/9100]
-✅ Registered service: http (protocol: /peerup/http/1.0.0, local: localhost:8080)
+✅ Registered service: http (protocol: /shurli/http/1.0.0, local: localhost:8080)
 ✅ Server ready! Share this peer ID with clients:
    12D3KooWLCavCP1Pma9NGJQnGDQhgwSjgQgupWprZJH4w1P3HCVL
 
@@ -88,7 +88,7 @@ You'll see logs indicating the incoming connection:
 ## What's Happening Under the Hood
 
 1. **Service Registration**: Server registers the HTTP service with `ExposeService("http", "localhost:8080")`
-2. **Stream Handler**: Library sets up a handler for protocol `/peerup/http/1.0.0`
+2. **Stream Handler**: Library sets up a handler for protocol `/shurli/http/1.0.0`
 3. **Peer Connection**: Client connects to server using direct TCP (in production, use relay/DHT)
 4. **Service Stream**: Client opens a stream using `ConnectToService()`
 5. **Bidirectional Proxy**: Library creates TCP↔Stream proxy automatically
@@ -114,9 +114,9 @@ conn.Read(response)
 
 ### Protocol Naming Convention
 ```
-/peerup/<service-name>/<version>
+/shurli/<service-name>/<version>
 ```
-Examples: `/peerup/http/1.0.0`, `/peerup/ssh/1.0.0`
+Examples: `/shurli/http/1.0.0`, `/shurli/ssh/1.0.0`
 
 ## Limitations of This Example
 

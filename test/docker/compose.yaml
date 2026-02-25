@@ -1,4 +1,4 @@
-# Docker Compose topology for peer-up integration tests.
+# Docker Compose topology for Shurli integration tests.
 #
 # Three containers on a single bridge network:
 #   relay  (172.28.0.10)  - circuit relay server, gating disabled for tests
@@ -22,7 +22,7 @@ services:
     environment:
       - GOCOVERDIR=/covdata
     networks:
-      peerup-test:
+      shurli-test:
         ipv4_address: 172.28.0.10
     entrypoint: ["sleep", "infinity"]
 
@@ -35,7 +35,7 @@ services:
     environment:
       - GOCOVERDIR=/covdata
     networks:
-      peerup-test:
+      shurli-test:
         ipv4_address: 172.28.0.11
     entrypoint: ["sleep", "infinity"]
 
@@ -48,12 +48,12 @@ services:
     environment:
       - GOCOVERDIR=/covdata
     networks:
-      peerup-test:
+      shurli-test:
         ipv4_address: 172.28.0.12
     entrypoint: ["sleep", "infinity"]
 
 networks:
-  peerup-test:
+  shurli-test:
     driver: bridge
     ipam:
       config:

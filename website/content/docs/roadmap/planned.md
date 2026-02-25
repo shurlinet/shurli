@@ -10,7 +10,7 @@ Smarter peer discovery, scoring, and communication. mDNS for instant LAN discove
 
 ### 5-K: mDNS Local Discovery
 
-Zero-config peer discovery on the local network. When two peer-up nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
+Zero-config peer discovery on the local network. When two Shurli nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
 
 - [ ] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
 - [ ] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
@@ -27,9 +27,9 @@ Bitcoin-inspired peer management, dimming star scoring, persistent peer table, p
 
 ### 5-M: GossipSub Network Intelligence
 
-libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all peer-up communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware: direct PEX at <10 peers, GossipSub at 10+.
+libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all Shurli communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware: direct PEX at <10 peers, GossipSub at 10+.
 
-- [ ] **GossipSub topic per namespace** - `/peerup/<namespace>/gossip/1.0.0`
+- [ ] **GossipSub topic per namespace** - `/shurli/<namespace>/gossip/1.0.0`
 - [ ] **Address change broadcast** - immediate notification instead of waiting for DHT re-discovery
 - [ ] **PEX transport upgrade** - PEX messages carried over GossipSub
 - [ ] **PeerManager observation sharing** - peers share aggregated scoring observations
@@ -44,13 +44,13 @@ After Phase 5 PeerManager provides the data:
 - [ ] Multi-relay failover - health-aware selection based on connection quality scores
 - [ ] Per-peer bandwidth tracking - feeds into relay quota warnings, PeerManager scoring, smart relay selection
 - [ ] Bootstrap decentralization - hardcoded seed peers -> DNS seeds -> DHT peer exchange -> fully self-sustaining (same pattern as Bitcoin)
-- [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable peer-up node relays for its authorized peers. No special nodes, no central coordination
+- [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable Shurli node relays for its authorized peers. No special nodes, no central coordination
 
 ---
 
 ## Batch N: ZKP Privacy Layer - STATUS: WATCHING
 
-Zero-knowledge proofs applied to peer-up's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
+Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
 **Status: Active Watch (2026-02-23)**
 
@@ -92,7 +92,7 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 
 **Timeline**: 3-4 weeks
 
-**Goal**: Make peer-up extensible by third parties - and prove the architecture works by shipping real plugins: file transfer, service templates, and Wake-on-LAN.
+**Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins: file transfer, service templates, and Wake-on-LAN.
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
@@ -110,26 +110,26 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 - [ ] Protocol ID formatter - configurable protocol namespace and versioning
 
 **Built-in Plugin: File Transfer**:
-- [ ] `peerup send <file> --to <peer>` and `peerup receive`
+- [ ] `shurli send <file> --to <peer>` and `shurli receive`
 - [ ] Auto-accept from authorized peers (configurable)
 - [ ] Progress bar, resume interrupted transfers, directory support
 
 **Built-in Plugin: Service Templates**:
-- [ ] `peerup daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
-- [ ] `peerup daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] `shurli daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
+- [ ] `shurli daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
 - [ ] Health check middleware - verify local service is reachable before exposing
 
 **Built-in Plugin: Wake-on-LAN**:
-- [ ] `peerup wake <peer>` - send magic packet before connecting
+- [ ] `shurli wake <peer>` - send magic packet before connecting
 - [ ] Event hook: auto-wake peer on connection attempt (optional)
 
 **Service Discovery Protocol**:
-- [ ] New protocol `/peerup/discovery/1.0.0` - query a remote peer for their exposed services
-- [ ] `peerup discover <peer>` CLI command
+- [ ] New protocol `/shurli/discovery/1.0.0` - query a remote peer for their exposed services
+- [ ] `shurli discover <peer>` CLI command
 
-**Python SDK** (`peerup-sdk`):
+**Python SDK** (`shurli-sdk`):
 - [ ] Thin wrapper around daemon Unix socket API
-- [ ] `pip install peerup-sdk`
+- [ ] `pip install shurli-sdk`
 - [ ] Async support (asyncio)
 
 **Plugin Interface Preview**:
@@ -163,11 +163,11 @@ net.OnEvent(func(e p2pnet.Event) {
 
 **Timeline**: 1-2 weeks
 
-**Goal**: Make peer-up installable without a Go toolchain, launch with compelling use-case content, and establish `peerup.dev` as the stable distribution anchor.
+**Goal**: Make Shurli installable without a Go toolchain, launch with compelling use-case content, and establish `shurli.io` as the stable distribution anchor.
 
-**Rationale**: High impact, low effort. The domain `peerup.dev` is the one thing no third party can take away - every user-facing URL routes through it, never hardcoded to `github.com` or any other host.
+**Rationale**: High impact, low effort. The domain `shurli.io` is the one thing no third party can take away - every user-facing URL routes through it, never hardcoded to `github.com` or any other host.
 
-**Website & Documentation (peerup.dev)**:
+**Website & Documentation (shurli.io)**:
 - [x] Hugo + Hextra site, automated docs sync, landing page, blog, CI/CD deploy
 - [x] GitHub Pages hosting with custom domain, Cloudflare DNS + CDN + DDoS protection
 - [x] AI-Agent discoverability: `/llms.txt` and `/llms-full.txt`
@@ -177,12 +177,12 @@ net.OnEvent(func(e p2pnet.Event) {
 
 **Release Manifest & Upgrade Endpoint**:
 - [ ] CI generates `releases/latest.json` on every tagged release
-- [ ] `peerup upgrade` fetches manifest from `peerup.dev` (not GitHub API directly)
+- [ ] `shurli upgrade` fetches manifest from `shurli.io` (not GitHub API directly)
 - [ ] Fallback order: GitHub -> GitLab -> IPFS gateway
 
 **Distribution Resilience** (gradual rollout):
 
-The domain (`peerup.dev`) is the anchor. DNS is on Cloudflare under our control. If any host disappears, one DNS record change restores service.
+The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. If any host disappears, one DNS record change restores service.
 
 | Layer | GitHub (primary) | GitLab (mirror) | IPFS (fallback) |
 |-------|-----------------|-----------------|-----------------|
@@ -194,8 +194,8 @@ The domain (`peerup.dev`) is the anchor. DNS is on Cloudflare under our control.
 **Package Managers & Binaries**:
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)
 - [ ] Ed25519-signed checksums
-- [ ] Homebrew tap: `brew install satindergrewal/tap/peerup`
-- [ ] One-line install: `curl -sSL get.peerup.dev | sh`
+- [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
+- [ ] One-line install: `curl -sSL get.shurli.io | sh`
 - [ ] APT, AUR, Docker image
 
 **Embedded / Router Builds** (OpenWRT, Ubiquiti, GL.iNet, MikroTik):
@@ -203,9 +203,9 @@ The domain (`peerup.dev`) is the anchor. DNS is on Cloudflare under our control.
 - [ ] Binary size budget: default <=25MB stripped, embedded <=10MB compressed
 
 **Auto-Upgrade** (builds on commit-confirmed pattern from Phase 4C):
-- [ ] `peerup upgrade --check` - compare version, show changelog
-- [ ] `peerup upgrade` - download, verify, replace binary, restart
-- [ ] `peerup upgrade --auto` - automatic with commit-confirmed rollback safety. **Impossible to brick a remote node.**
+- [ ] `shurli upgrade --check` - compare version, show changelog
+- [ ] `shurli upgrade` - download, verify, replace binary, restart
+- [ ] `shurli upgrade --auto` - automatic with commit-confirmed rollback safety. **Impossible to brick a remote node.**
 
 **Use-Case Guides & Launch Content**:
 - [ ] GPU inference - *"Access your home GPU from anywhere through Starlink CGNAT"*
@@ -223,8 +223,8 @@ services:
 ```
 
 ```bash
-# Home: peerup daemon
-# Remote: peerup proxy home ollama 11434
+# Home: shurli daemon
+# Remote: shurli proxy home ollama 11434
 # Then: curl http://localhost:11434/api/generate -d '{"model":"llama3",...}'
 ```
 
@@ -252,13 +252,13 @@ services:
 **Usage Examples**:
 ```bash
 # Mode 1: SOCKS proxy (no root needed)
-peerup-gateway --mode socks --port 1080
+shurli-gateway --mode socks --port 1080
 
 # Mode 2: DNS server (queries relay's private DNS)
-peerup-gateway --mode dns --port 53
+shurli-gateway --mode dns --port 53
 
 # Mode 3: Virtual network (requires root)
-sudo peerup-gateway --mode tun --network 10.64.0.0/16
+sudo shurli-gateway --mode tun --network 10.64.0.0/16
 ```
 
 ---
@@ -279,7 +279,7 @@ sudo peerup-gateway --mode tun --network 10.64.0.0/16
 **Deliverables**:
 - [ ] iOS app with NEPacketTunnelProvider
 - [ ] Android app with VPNService
-- [ ] QR code scanning for `peerup invite` codes
+- [ ] QR code scanning for `shurli invite` codes
 - [ ] Background connection maintenance + battery optimization
 
 {{< figure src="/images/docs/roadmap-mobile-flow.svg" alt="Mobile App Config Flow" >}}
@@ -343,13 +343,13 @@ curl http://desktop.bob:8080
 
 ## Positioning & Community
 
-### Privacy Narrative - peer-up's Moat
+### Privacy Narrative - Shurli's Moat
 
-peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
+Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
 
-> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues).*
+> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues).*
 
-| | **peer-up** | **Tailscale** |
+| | **Shurli** | **Tailscale** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -389,7 +389,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 - [ ] Split tunneling (route only specific traffic through tunnel)
 - [ ] Store-carry-forward for offline peers (DTN pattern)
 
-**Researched and Set Aside** (Feb 2026): The following techniques were evaluated through cross-network research and consciously shelved. They have minimum viable network sizes (10-20+ peers) that exceed peer-up's typical 2-5 peer deployments. At small scale, they add overhead without benefit. Revisit when peer-up grows to networks of 20+ peers.
+**Researched and Set Aside** (Feb 2026): The following techniques were evaluated through cross-network research and consciously shelved. They have minimum viable network sizes (10-20+ peers) that exceed Shurli's typical 2-5 peer deployments. At small scale, they add overhead without benefit. Revisit when Shurli grows to networks of 20+ peers.
 
 - Vivaldi network coordinates (latency prediction)
 - CRDTs for partition-tolerant peer state
@@ -426,7 +426,7 @@ peer-up is not a cheaper Tailscale. It's the **self-sovereign alternative** for 
 
 **Phase 6**: Third-party plugins work, file transfer between peers, SDK published
 
-**Phase 7**: One-line install, `peerup upgrade --auto` with rollback safety, GPU inference guide published
+**Phase 7**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
 **Phase 8**: Gateway works in all 3 modes, private DNS resolves only within P2P network
 

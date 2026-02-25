@@ -18,20 +18,20 @@ import (
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
 
-	"github.com/satindergrewal/peer-up/internal/auth"
-	"github.com/satindergrewal/peer-up/internal/config"
+	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/config"
 )
 
-// DHTProtocolPrefix is the default protocol prefix for the private peerup Kademlia DHT.
-// This isolates peerup from the public IPFS Amino DHT (/ipfs/kad/1.0.0),
-// giving us our own routing table at /peerup/kad/1.0.0.
+// DHTProtocolPrefix is the default protocol prefix for the private shurli Kademlia DHT.
+// This isolates shurli from the public IPFS Amino DHT (/ipfs/kad/1.0.0),
+// giving us our own routing table at /shurli/kad/1.0.0.
 // For namespace-specific prefixes, use DHTProtocolPrefixForNamespace.
-const DHTProtocolPrefix = "/peerup"
+const DHTProtocolPrefix = "/shurli"
 
 // DHTProtocolPrefixForNamespace returns the DHT protocol prefix for a given
-// network namespace. An empty namespace returns the default global prefix ("/peerup").
-// A non-empty namespace produces "/peerup/<namespace>" which results in the
-// full DHT protocol "/peerup/<namespace>/kad/1.0.0", completely isolated from
+// network namespace. An empty namespace returns the default global prefix ("/shurli").
+// A non-empty namespace produces "/shurli/<namespace>" which results in the
+// full DHT protocol "/shurli/<namespace>/kad/1.0.0", completely isolated from
 // other namespaces at the protocol level.
 func DHTProtocolPrefixForNamespace(namespace string) string {
 	if namespace == "" {
@@ -106,7 +106,7 @@ type Config struct {
 	AuthorizedKeys  string                       // Path to authorized_keys file (auto-creates gater if Gater is nil)
 	Gater           *auth.AuthorizedPeerGater     // Pre-created gater (for hot-reload support). Takes precedence over AuthorizedKeys.
 	Config          *config.Config
-	UserAgent       string                        // libp2p Identify user agent (e.g. "peerup/0.1.0")
+	UserAgent       string                        // libp2p Identify user agent (e.g. "shurli/0.1.0")
 
 	// Relay configuration (optional)
 	EnableRelay         bool              // Enable relay support (AutoRelay + hole punching)
@@ -119,7 +119,7 @@ type Config struct {
 	ResourceLimitsEnabled bool            // Enable libp2p resource manager (connection/stream/memory limits)
 
 	// Observability
-	Metrics *Metrics // Custom peerup metrics (nil = disabled). When non-nil, libp2p metrics are registered on Metrics.Registry.
+	Metrics *Metrics // Custom shurli metrics (nil = disabled). When non-nil, libp2p metrics are registered on Metrics.Registry.
 }
 
 // New creates a new P2P network instance
@@ -272,7 +272,7 @@ func (n *Network) ExposeService(name, localAddress string, allowedPeers map[peer
 	}
 	return n.serviceRegistry.RegisterService(&Service{
 		Name:         name,
-		Protocol:     fmt.Sprintf("/peerup/%s/1.0.0", name),
+		Protocol:     fmt.Sprintf("/shurli/%s/1.0.0", name),
 		LocalAddress: localAddress,
 		Enabled:      true,
 		AllowedPeers: allowedPeers,
@@ -304,7 +304,7 @@ func (n *Network) ConnectToServiceContext(ctx context.Context, peerID peer.ID, s
 	if err := ValidateServiceName(serviceName); err != nil {
 		return nil, err
 	}
-	protocol := fmt.Sprintf("/peerup/%s/1.0.0", serviceName)
+	protocol := fmt.Sprintf("/shurli/%s/1.0.0", serviceName)
 	return n.serviceRegistry.DialService(ctx, peerID, protocol)
 }
 

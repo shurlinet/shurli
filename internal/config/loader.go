@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/satindergrewal/peer-up/internal/validate"
+	"github.com/shurlinet/shurli/internal/validate"
 )
 
 // checkConfigFilePermissions warns if a config file has overly permissive
@@ -66,7 +66,7 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		version = 1
 	}
 	if version > CurrentConfigVersion {
-		return nil, fmt.Errorf("%w: version %d is newer than supported version %d; please upgrade peerup", ErrConfigVersionTooNew, version, CurrentConfigVersion)
+		return nil, fmt.Errorf("%w: version %d is newer than supported version %d; please upgrade shurli", ErrConfigVersionTooNew, version, CurrentConfigVersion)
 	}
 
 	// Parse duration
@@ -225,8 +225,8 @@ func ValidateClientNodeConfig(cfg *ClientNodeConfig) error {
 	return nil
 }
 
-// FindConfigFile searches for a peerup config file in standard locations.
-// Search order: explicitPath (if given), ./peerup.yaml, ~/.config/peerup/config.yaml, /etc/peerup/config.yaml
+// FindConfigFile searches for a shurli config file in standard locations.
+// Search order: explicitPath (if given), ./shurli.yaml, ~/.config/shurli/config.yaml, /etc/shurli/config.yaml
 func FindConfigFile(explicitPath string) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err != nil {
@@ -236,15 +236,15 @@ func FindConfigFile(explicitPath string) (string, error) {
 	}
 
 	searchPaths := []string{
-		"peerup.yaml",
+		"shurli.yaml",
 	}
 
-	// ~/.config/peerup/config.yaml
+	// ~/.config/shurli/config.yaml
 	if home, err := os.UserHomeDir(); err == nil {
-		searchPaths = append(searchPaths, filepath.Join(home, ".config", "peerup", "config.yaml"))
+		searchPaths = append(searchPaths, filepath.Join(home, ".config", "shurli", "config.yaml"))
 	}
 
-	searchPaths = append(searchPaths, filepath.Join("/etc", "peerup", "config.yaml"))
+	searchPaths = append(searchPaths, filepath.Join("/etc", "shurli", "config.yaml"))
 
 	for _, path := range searchPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -252,17 +252,17 @@ func FindConfigFile(explicitPath string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("%w; searched:\n  %s\n\nRun 'peerup init' to create one, or use --config <path>", ErrConfigNotFound, strings.Join(searchPaths, "\n  "))
+	return "", fmt.Errorf("%w; searched:\n  %s\n\nRun 'shurli init' to create one, or use --config <path>", ErrConfigNotFound, strings.Join(searchPaths, "\n  "))
 }
 
 // LoadNodeConfig loads unified node configuration from a YAML file.
-// This is the preferred loader for all peerup commands.
+// This is the preferred loader for all shurli commands.
 func LoadNodeConfig(path string) (*NodeConfig, error) {
 	return LoadHomeNodeConfig(path)
 }
 
 // ResolveConfigPaths resolves relative file paths in the config to be relative
-// to the config file's directory. This allows configs in ~/.config/peerup/ to
+// to the config file's directory. This allows configs in ~/.config/shurli/ to
 // reference key files and authorized_keys using relative paths.
 func ResolveConfigPaths(cfg *NodeConfig, configDir string) {
 	if cfg.Identity.KeyFile != "" && !filepath.IsAbs(cfg.Identity.KeyFile) {
@@ -308,13 +308,13 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	return nil
 }
 
-// DefaultConfigDir returns the default peerup config directory (~/.config/peerup).
+// DefaultConfigDir returns the default shurli config directory (~/.config/shurli).
 func DefaultConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "peerup"), nil
+	return filepath.Join(home, ".config", "shurli"), nil
 }
 
 // ValidateRelayServerConfig validates relay server configuration

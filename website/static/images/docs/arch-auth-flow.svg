@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 500" width="700" height="500">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="successFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
@@ -22,19 +22,19 @@
   </defs>
 
   <!-- Background -->
-  <rect width="700" height="500" rx="12" fill="#0f1117"/>
+  <rect width="700" height="500" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="30" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Authentication Flow</text>
 
   <!-- Step 1: Client Attempts Connection -->
-  <rect x="225" y="48" width="250" height="44" rx="10" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.5"/>
+  <rect x="225" y="48" width="250" height="44" rx="10" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.5"/>
   <text x="350" y="67" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Client Attempts Connection</text>
   <text x="350" y="82" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">to Home Node</text>
 
   <!-- Arrow 1→2 -->
-  <line x1="350" y1="92" x2="350" y2="118" stroke="#7aa2f7" stroke-width="1.5"/>
-  <polygon points="345,115 355,115 350,123" fill="#7aa2f7"/>
+  <line x1="350" y1="92" x2="350" y2="118" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="345,115 355,115 350,123" fill="#e8729a"/>
 
   <!-- Step 2: Transport Handshake -->
   <rect x="200" y="125" width="300" height="55" rx="10" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="1.5"/>
@@ -42,8 +42,8 @@
   <text x="350" y="168" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle">Noise protocol · Ed25519 key exchange</text>
 
   <!-- Arrow 2→3 -->
-  <line x1="350" y1="180" x2="350" y2="206" stroke="#7aa2f7" stroke-width="1.5"/>
-  <polygon points="345,203 355,203 350,211" fill="#7aa2f7"/>
+  <line x1="350" y1="180" x2="350" y2="206" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="345,203 355,203 350,211" fill="#e8729a"/>
 
   <!-- Step 3: ConnectionGater (decision diamond) -->
   <polygon points="350,213 500,268 350,323 200,268" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1.5"/>

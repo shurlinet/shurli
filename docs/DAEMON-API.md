@@ -1,6 +1,6 @@
 # Daemon API Reference
 
-The peer-up daemon (`peerup daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.
+The Shurli daemon (`shurli daemon`) runs a long-lived P2P host with a Unix domain socket HTTP API for programmatic control.
 
 ## Table of Contents
 
@@ -37,8 +37,8 @@ The daemon runs the full P2P lifecycle (relay connection, DHT bootstrap, service
 ![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 **Default paths**:
-- Socket: `~/.config/peerup/peerup.sock` (permissions `0600`)
-- Cookie: `~/.config/peerup/.daemon-cookie` (permissions `0600`)
+- Socket: `~/.config/shurli/shurli.sock` (permissions `0600`)
+- Cookie: `~/.config/shurli/.daemon-cookie` (permissions `0600`)
 
 ---
 
@@ -49,7 +49,7 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 ### How It Works
 
 1. On startup, the daemon generates a 32-byte random hex token
-2. Token is written to `~/.config/peerup/.daemon-cookie` with `0600` permissions
+2. Token is written to `~/.config/shurli/.daemon-cookie` with `0600` permissions
 3. Every API request must include `Authorization: Bearer <token>` header
 4. Token is validated on every request - `401 Unauthorized` if missing or wrong
 5. Cookie file is deleted on clean shutdown
@@ -65,14 +65,14 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 ### Example
 
 ```bash
-curl -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
-     --unix-socket ~/.config/peerup/peerup.sock \
+curl -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/status
 ```
 
-The CLI client (`peerup daemon status`, etc.) reads the cookie file automatically - no manual auth needed.
+The CLI client (`shurli daemon status`, etc.) reads the cookie file automatically - no manual auth needed.
 
-> **Tip**: All curl examples in this document use inline `$(cat ~/.config/peerup/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable - see [Integration Examples](#integration-examples).
+> **Tip**: All curl examples in this document use inline `$(cat ~/.config/shurli/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable - see [Integration Examples](#integration-examples).
 
 ### Unauthorized Response
 
@@ -115,8 +115,8 @@ Plain text responses are single-line or tabular, designed for `grep`/`awk`/`cut`
 ### CLI Format Selection
 
 ```bash
-peerup daemon status          # human-readable text
-peerup daemon status --json   # raw JSON
+shurli daemon status          # human-readable text
+shurli daemon status --json   # raw JSON
 ```
 
 ---
@@ -176,8 +176,8 @@ relay_addresses: 1
 **curl**:
 
 ```bash
-curl -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
-     --unix-socket ~/.config/peerup/peerup.sock \
+curl -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/status
 ```
 
@@ -194,13 +194,13 @@ Lists all registered services.
   "data": [
     {
       "name": "ssh",
-      "protocol": "/peerup/ssh/1.0.0",
+      "protocol": "/shurli/ssh/1.0.0",
       "local_address": "localhost:22",
       "enabled": true
     },
     {
       "name": "ollama",
-      "protocol": "/peerup/ollama/1.0.0",
+      "protocol": "/shurli/ollama/1.0.0",
       "local_address": "localhost:11434",
       "enabled": true
     }
@@ -211,8 +211,8 @@ Lists all registered services.
 **Response (Text)** (tab-separated):
 
 ```
-ssh	localhost:22	/peerup/ssh/1.0.0	enabled
-ollama	localhost:11434	/peerup/ollama/1.0.0	enabled
+ssh	localhost:22	/shurli/ssh/1.0.0	enabled
+ollama	localhost:11434	/shurli/ollama/1.0.0	enabled
 ```
 
 ---
@@ -221,20 +221,20 @@ ollama	localhost:11434	/peerup/ollama/1.0.0	enabled
 
 Lists connected peers with their addresses and software version.
 
-**By default, only peerup and relay-server peers are shown.** Peer-up uses a private Kademlia DHT (`/peerup/kad/1.0.0`), isolated from the public IPFS Amino network. Your node only communicates with other peer-up nodes for DHT peer discovery.
+**By default, only shurli and relay-server peers are shown.** Shurli uses a private Kademlia DHT (`/shurli/kad/1.0.0`), isolated from the public IPFS Amino network. Your node only communicates with other Shurli nodes for DHT peer discovery.
 
 To see all connected peers (including DHT neighbors), add `?all=true`:
 
 ```
-GET /v1/peers           → only peerup/relay-server peers
+GET /v1/peers           → only shurli/relay-server peers
 GET /v1/peers?all=true  → all connected peers (including DHT neighbors)
 ```
 
 **CLI**:
 
 ```bash
-peerup daemon peers          # only peerup peers
-peerup daemon peers --all    # all peers including DHT neighbors
+shurli daemon peers          # only shurli peers
+shurli daemon peers --all    # all peers including DHT neighbors
 ```
 
 **Response (JSON)**:
@@ -247,7 +247,7 @@ peerup daemon peers --all    # all peers including DHT neighbors
       "addresses": [
         "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWK.../p2p-circuit/p2p/12D3KooWH..."
       ],
-      "agent_version": "peerup/0.1.0"
+      "agent_version": "shurli/0.1.0"
     }
   ]
 }
@@ -256,7 +256,7 @@ peerup daemon peers --all    # all peers including DHT neighbors
 **Response (Text)**:
 
 ```
-12D3KooWNq8c1fN...	peerup/0.1.0	3 addrs
+12D3KooWNq8c1fN...	shurli/0.1.0	3 addrs
 ```
 
 ---
@@ -384,8 +384,8 @@ Removes a peer from `authorized_keys` and hot-reloads the connection gater. Acce
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
-     --unix-socket ~/.config/peerup/peerup.sock \
+     -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/auth/12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6
 ```
 
@@ -590,8 +590,8 @@ Tears down an active proxy by ID.
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
-     --unix-socket ~/.config/peerup/peerup.sock \
+     -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/connect/proxy-1
 ```
 
@@ -690,46 +690,46 @@ The CLI communicates with the daemon over the Unix socket. It reads the cookie f
 ### Starting the Daemon
 
 ```bash
-peerup daemon              # Start daemon (foreground)
-peerup daemon start        # Same as above
+shurli daemon              # Start daemon (foreground)
+shurli daemon start        # Same as above
 ```
 
 ### Querying the Daemon
 
 ```bash
-peerup daemon status               # Human-readable status
-peerup daemon status --json        # JSON output
-peerup daemon services             # List services
-peerup daemon services --json
-peerup daemon peers                # List connected peers
-peerup daemon peers --json
+shurli daemon status               # Human-readable status
+shurli daemon status --json        # JSON output
+shurli daemon services             # List services
+shurli daemon services --json
+shurli daemon peers                # List connected peers
+shurli daemon peers --json
 ```
 
 ### Network Diagnostics (via daemon)
 
 ```bash
-peerup daemon ping home-server                 # 4 pings via daemon
-peerup daemon ping home-server -c 10           # 10 pings
-peerup daemon ping home-server --json          # JSON output
+shurli daemon ping home-server                 # 4 pings via daemon
+shurli daemon ping home-server -c 10           # 10 pings
+shurli daemon ping home-server --json          # JSON output
 ```
 
 ### Dynamic Proxy Management
 
 ```bash
 # Create a proxy
-peerup daemon connect --peer home-server --service ssh --listen 127.0.0.1:2222
+shurli daemon connect --peer home-server --service ssh --listen 127.0.0.1:2222
 
 # Use it
 ssh user@127.0.0.1 -p 2222
 
 # Tear it down
-peerup daemon disconnect proxy-1
+shurli daemon disconnect proxy-1
 ```
 
 ### Stopping the Daemon
 
 ```bash
-peerup daemon stop          # Graceful shutdown via API
+shurli daemon stop          # Graceful shutdown via API
 ```
 
 ---
@@ -740,8 +740,8 @@ peerup daemon stop          # Graceful shutdown via API
 
 ```bash
 #!/bin/bash
-SOCKET=~/.config/peerup/peerup.sock
-TOKEN=$(cat ~/.config/peerup/.daemon-cookie)
+SOCKET=~/.config/shurli/shurli.sock
+TOKEN=$(cat ~/.config/shurli/.daemon-cookie)
 
 # Check if daemon is running
 if [ ! -S "$SOCKET" ]; then
@@ -773,8 +773,8 @@ import http.client
 import json
 import socket
 
-SOCKET_PATH = os.path.expanduser("~/.config/peerup/peerup.sock")
-COOKIE_PATH = os.path.expanduser("~/.config/peerup/.daemon-cookie")
+SOCKET_PATH = os.path.expanduser("~/.config/shurli/shurli.sock")
+COOKIE_PATH = os.path.expanduser("~/.config/shurli/.daemon-cookie")
 
 # Read auth token
 with open(COOKIE_PATH) as f:
@@ -802,11 +802,11 @@ print(f"Peers: {data['data']['connected_peers']}")
 ### Startup
 
 1. Generate 32-byte random hex token
-2. Write token to `~/.config/peerup/.daemon-cookie` (`0600`)
+2. Write token to `~/.config/shurli/.daemon-cookie` (`0600`)
 3. Check for stale socket - dial the existing socket:
    - Connection succeeds → another daemon is alive → return `ErrDaemonAlreadyRunning`
    - Connection fails → stale socket → remove it and proceed
-4. Create Unix socket at `~/.config/peerup/peerup.sock`
+4. Create Unix socket at `~/.config/shurli/shurli.sock`
 5. Set socket permissions to `0600`
 6. Start HTTP server on the socket
 
