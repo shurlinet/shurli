@@ -35,12 +35,12 @@
   <rect x="55" y="70" width="170" height="260" rx="8" fill="url(#phoneFill)"/>
 
   <!-- App header -->
-  <text x="140" y="93" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">peer-up</text>
+  <text x="140" y="93" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Shurli</text>
   <line x1="60" y1="100" x2="220" y2="100" stroke="#565f89" stroke-width="0.5"/>
 
   <!-- Config tree -->
   <text x="75" y="120" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">Scan QR Code</text>
-  <text x="75" y="138" font-family="SF Mono, monospace" font-size="9" fill="#565f89">from peerup invite</text>
+  <text x="75" y="138" font-family="SF Mono, monospace" font-size="9" fill="#565f89">from shurli invite</text>
 
   <text x="75" y="162" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">Or enter invite code:</text>
   <rect x="70" y="170" width="140" height="24" rx="4" fill="#1e2140" stroke="#565f89" stroke-width="1"/>

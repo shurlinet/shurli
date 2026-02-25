@@ -1,10 +1,10 @@
 ---
 title: "Roadmap"
 weight: 9
-description: "Multi-phase development roadmap for peer-up. From NAT traversal tool to decentralized P2P network infrastructure."
+description: "Multi-phase development roadmap for Shurli. From NAT traversal tool to decentralized P2P network infrastructure."
 ---
 
-This document outlines the multi-phase evolution of peer-up from a simple NAT traversal tool to a comprehensive decentralized P2P network infrastructure.
+This document outlines the multi-phase evolution of Shurli from a simple NAT traversal tool to a comprehensive decentralized P2P network infrastructure.
 
 ## Philosophy
 
@@ -26,14 +26,14 @@ This document outlines the multi-phase evolution of peer-up from a simple NAT tr
 |-------|-------|--------------|--------|
 | Phase&nbsp;1 | **Configuration** | YAML config, sample files | Done |
 | Phase&nbsp;2 | **Authentication** | ConnectionGater, authorized_keys | Done |
-| Phase&nbsp;3 | **keytool&nbsp;CLI** | Key management (now peerup subcommands) | Done |
+| Phase&nbsp;3 | **keytool&nbsp;CLI** | Key management (now shurli subcommands) | Done |
 | Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/p2pnet/`, single binary, init wizard | Done |
 | Phase&nbsp;4B | **Onboarding** | invite/join, QR codes, auth + relay CLI | Done |
 | A | **Reliability** | Reconnection with backoff, dial timeout, DHT in proxy | Done |
 | B | **Code&nbsp;Quality** | Proxy dedup, `log/slog`, sentinel errors, version embedding | Done |
 | C | **Self-Healing** | Config archive/rollback, commit-confirmed, watchdog | Done |
 | D | **libp2p** | AutoNAT v2, QUIC preferred, Identify UserAgent | Done |
-| E | **Capabilities** | `peerup status`, `/healthz`, headless invite/join | Done |
+| E | **Capabilities** | `shurli status`, `/healthz`, headless invite/join | Done |
 | F | **Daemon** | Unix socket API, cookie auth, ping/traceroute/resolve | Done |
 | G | **Testing** | 80.3% coverage, Docker tests, relay merge, website | Done |
 | H | **Observability** | Prometheus metrics, audit logging, Grafana dashboard | Done |

@@ -1,5 +1,5 @@
-baseURL: https://peerup.dev/
-title: peer-up
+baseURL: https://shurli.io/
+title: Shurli
 languageCode: en-us
 enableGitInfo: true
 
@@ -34,7 +34,7 @@ menu:
       pageRef: /about
       weight: 3
     - name: GitHub
-      url: https://github.com/satindergrewal/peer-up
+      url: https://github.com/shurlinet/shurli
       weight: 4
       params:
         icon: github
@@ -45,9 +45,9 @@ menu:
 
 params:
   banner:
-    message: "**Early-stage software.** peer-up is experimental and built with AI assistance. It will have bugs. Not recommended for production or safety-critical use. [Read the disclaimer](/docs/quick-start/#disclaimer)."
+    message: "**Early-stage software.** Shurli is experimental and built with AI assistance. It will have bugs. Not recommended for production or safety-critical use. [Read the disclaimer](/docs/quick-start/#disclaimer)."
 
-  title: peer-up
+  title: Shurli
   description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls. No accounts, no cloud, no subscriptions.
 
   images:
@@ -71,7 +71,7 @@ params:
 
   editURL:
     enable: true
-    base: https://github.com/satindergrewal/peer-up/edit/main/website/content
+    base: https://github.com/shurlinet/shurli/edit/main/website/content
 
   theme:
     default: system

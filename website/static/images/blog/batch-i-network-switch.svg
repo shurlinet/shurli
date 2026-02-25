@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+  <!-- Background -->
+  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Network Switch: Graceful Degradation</text>
+  <text x="350" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">What happens when your network changes mid-connection</text>
+
+  <!-- State 1: Direct connection -->
+  <rect x="30" y="70" width="160" height="90" rx="8" fill="#1e3a2f" stroke="#73daca" stroke-width="1.5"/>
+  <text x="110" y="92" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Satellite WiFi</text>
+  <text x="110" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle">DIRECT</text>
+  <text x="110" y="130" font-family="ui-monospace, monospace" font-size="10" fill="#c0caf5" text-anchor="middle">22ms</text>
+  <text x="110" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Grade A (IPv6)</text>
+
+  <!-- Arrow 1: Network switch event -->
+  <line x1="190" y1="115" x2="230" y2="115" stroke="#e0af68" stroke-width="2"/>
+  <polygon points="227,111 235,115 227,119" fill="#e0af68"/>
+  <text x="212" y="105" font-family="system-ui, sans-serif" font-size="8" fill="#e0af68" text-anchor="middle">switch</text>
+
+  <!-- State 2: Relayed (graceful) -->
+  <rect x="235" y="70" width="160" height="90" rx="8" fill="#2a2a1e" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="315" y="92" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">5G Cellular</text>
+  <text x="315" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle">RELAYED</text>
+  <text x="315" y="130" font-family="ui-monospace, monospace" font-size="10" fill="#c0caf5" text-anchor="middle">157ms</text>
+  <text x="315" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Grade D (CGNAT)</text>
+
+  <!-- Arrow 2 -->
+  <line x1="395" y1="115" x2="435" y2="115" stroke="#9ece6a" stroke-width="2"/>
+  <polygon points="432,111 440,115 432,119" fill="#9ece6a"/>
+  <text x="417" y="105" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle">punch</text>
+
+  <!-- State 3: Direct after hole-punch -->
+  <rect x="440" y="70" width="160" height="90" rx="8" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="520" y="92" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">5G (punched)</text>
+  <text x="520" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle">DIRECT</text>
+  <text x="520" y="130" font-family="ui-monospace, monospace" font-size="10" fill="#c0caf5" text-anchor="middle">68ms</text>
+  <text x="520" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">DCUtR (257ms punch)</text>
+
+  <!-- Success indicator -->
+  <rect x="200" y="172" width="340" height="28" rx="6" fill="#1e3a2f" stroke="#73daca" stroke-width="1"/>
+  <text x="370" y="190" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">0% packet loss through entire transition</text>
+
+  <!-- The broken case -->
+  <rect x="100" y="216" width="500" height="50" rx="8" fill="#1a1b26" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="350" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">Known gap: Wired Ethernet plug/unplug killed the daemon</text>
+  <text x="350" y="254" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Phase 5-L PeerManager will add proper address lifecycle management</text>
+</svg>

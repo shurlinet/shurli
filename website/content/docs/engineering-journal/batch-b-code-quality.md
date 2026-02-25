@@ -21,7 +21,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Clean relay configuration. Users can list multiple addresses for the same relay (e.g., IPv4 and IPv6) without issues.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/network.go:280-309`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:280-309`
 
 ---
 
@@ -30,7 +30,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 **Context**: Needed structured logging throughout the project. Many Go projects use zerolog or zap for performance.
 
 **Alternatives considered**:
-- **zerolog** - Zero-allocation, fast. Rejected because it's another dependency, and peer-up doesn't produce enough log volume to need zero-allocation logging.
+- **zerolog** - Zero-allocation, fast. Rejected because it's another dependency, and Shurli doesn't produce enough log volume to need zero-allocation logging.
 - **zap** - Uber's logger, excellent performance. Rejected for the same reason - adds dependency weight for no measurable benefit.
 - **log/slog** - Go 1.21+ standard library structured logging. Built-in, no dependency, sufficient performance.
 
@@ -38,7 +38,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: No external logging dependency. Standard library compatibility means any future handler (JSON, OpenTelemetry) can be swapped in without changing call sites. Slightly more verbose than zerolog's fluent API, but consistency with stdlib is worth it.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/main.go:20-22` (handler setup), used throughout all packages
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/main.go:20-22` (handler setup), used throughout all packages
 
 ---
 
@@ -52,9 +52,9 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Decision**: Package-level sentinel errors using `errors.New()`: `ErrServiceNotFound`, `ErrNameNotFound`, `ErrConfigNotFound`, `ErrNoArchive`, `ErrCommitConfirmedPending`, `ErrNoPending`, `ErrDaemonAlreadyRunning`, `ErrProxyNotFound`. Callers use `errors.Is()` to check.
 
-**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/errors.go` and `https://github.com/satindergrewal/peer-up/blob/main/internal/config/errors.go`.
+**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/errors.go` and `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/errors.go`, `https://github.com/satindergrewal/peer-up/blob/main/internal/config/errors.go`, `https://github.com/satindergrewal/peer-up/blob/main/internal/daemon/errors.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/errors.go`
 
 ---
 
@@ -66,8 +66,8 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 - **Version file** - Read from embedded file. Rejected because it's another artifact to maintain.
 - **Git describe at runtime** - Call `git describe` at startup. Rejected because the binary might not be in a git repo.
 
-**Decision**: `ldflags` injection at build time: `-X main.version=... -X main.commit=... -X main.buildDate=...`. Defaults to `dev` and `unknown` for development builds. Also sent as libp2p Identify UserAgent (`peerup/0.1.0`).
+**Decision**: `ldflags` injection at build time: `-X main.version=... -X main.commit=... -X main.buildDate=...`. Defaults to `dev` and `unknown` for development builds. Also sent as libp2p Identify UserAgent (`shurli/0.1.0`).
 
-**Consequences**: Every binary is self-identifying. `peerup version` shows exact build info. The UserAgent appears in `peerup daemon peers --all`, making it easy to verify what version each peer runs.
+**Consequences**: Every binary is self-identifying. `shurli version` shows exact build info. The UserAgent appears in `shurli daemon peers --all`, making it easy to verify what version each peer runs.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/main.go:10-17`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/network.go:121-123`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/main.go:10-17`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:121-123`

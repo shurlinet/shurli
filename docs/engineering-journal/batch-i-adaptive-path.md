@@ -6,7 +6,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 ### ADR-I01: Interface Discovery with IPv6/IPv4 Classification
 
-**Context**: peer-up needs to know what network interfaces are available to make intelligent connection decisions. Without interface awareness, the system cannot distinguish between IPv4-only, IPv6-only, or dual-stack hosts.
+**Context**: Shurli needs to know what network interfaces are available to make intelligent connection decisions. Without interface awareness, the system cannot distinguish between IPv4-only, IPv6-only, or dual-stack hosts.
 
 **Alternatives considered**:
 - **Rely on libp2p's address reporting** - libp2p reports listen addresses but doesn't classify them by interface or IP version. Insufficient for path ranking decisions.
@@ -39,7 +39,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 ### ADR-I03: Event-Driven Path Quality Tracking
 
-**Context**: Once connected, peer-up needs to know the quality of each connection path (direct vs relayed, transport type, IP version) for monitoring and future path switching decisions.
+**Context**: Once connected, Shurli needs to know the quality of each connection path (direct vs relayed, transport type, IP version) for monitoring and future path switching decisions.
 
 **Alternatives considered**:
 - **Periodic polling** - Poll connection state on a timer. Wasteful and misses transient changes.
@@ -55,7 +55,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 ### ADR-I04: Network Change Monitoring (Polling with Diff)
 
-**Context**: When a user switches WiFi networks, gains/loses a cellular connection, or plugs in Ethernet, peer-up should detect the change and re-evaluate connection paths.
+**Context**: When a user switches WiFi networks, gains/loses a cellular connection, or plugs in Ethernet, Shurli should detect the change and re-evaluate connection paths.
 
 **Alternatives considered**:
 - **macOS SCDynamicStore + Linux Netlink** - Platform-native, truly event-driven, zero polling. More code, platform-specific build tags, harder to test.
@@ -71,7 +71,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 ### ADR-I05: Zero-Dependency STUN Client (RFC 5389)
 
-**Context**: To classify NAT type and discover external addresses for hole-punching, peer-up needs STUN probing. Existing Go STUN libraries (pion/stun) would add a new dependency.
+**Context**: To classify NAT type and discover external addresses for hole-punching, Shurli needs STUN probing. Existing Go STUN libraries (pion/stun) would add a new dependency.
 
 **Alternatives considered**:
 - **pion/stun** - Mature, widely used. Rejected because it pulls in the entire pion dependency tree (already have pion/dtls as a transitive dep of libp2p, but adding pion/stun directly increases attack surface and binary size).

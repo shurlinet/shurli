@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 380" width="700" height="380">
+  <!-- Background -->
+  <rect width="700" height="380" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Cross-Network Latency: Real Measurements</text>
+  <text x="350" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Ping latency (ms) across 4 network types, 2 test sessions</text>
+
+  <!-- Legend -->
+  <rect x="240" y="56" width="10" height="10" rx="2" fill="#73daca"/>
+  <text x="255" y="65" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">DIRECT</text>
+  <rect x="310" y="56" width="10" height="10" rx="2" fill="#e0af68"/>
+  <text x="325" y="65" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">RELAYED</text>
+  <rect x="390" y="56" width="10" height="10" rx="2" fill="#f7768e"/>
+  <text x="405" y="65" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">FAILED</text>
+
+  <!-- Y-axis labels -->
+  <text x="170" y="106" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="end">Satellite WiFi (A)</text>
+  <text x="170" y="158" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="end">Terrestrial WiFi (B)</text>
+  <text x="170" y="210" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="end">Wired Ethernet (D)</text>
+  <text x="170" y="262" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="end">5G Cellular CGNAT (C)</text>
+  <text x="170" y="314" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="end">5G Day 2 (hole-punch)</text>
+
+  <!-- Grid lines -->
+  <line x1="180" y1="80" x2="180" y2="335" stroke="#1a1b26" stroke-width="1"/>
+  <line x1="180" y1="335" x2="660" y2="335" stroke="#1a1b26" stroke-width="1"/>
+
+  <!-- X-axis scale markers (0, 50, 100, 150, 200ms) -->
+  <text x="180" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">0</text>
+  <text x="300" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">50</text>
+  <text x="420" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">100</text>
+  <text x="540" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">150</text>
+  <text x="660" y="352" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">200ms</text>
+
+  <!-- Vertical grid lines (subtle) -->
+  <line x1="300" y1="80" x2="300" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <line x1="420" y1="80" x2="420" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <line x1="540" y1="80" x2="540" y2="335" stroke="#1a1b26" stroke-width="0.5" stroke-dasharray="4,4"/>
+
+  <!-- Bar: Satellite WiFi - DIRECT 22ms -->
+  <rect x="180" y="94" width="53" height="22" rx="3" fill="#73daca" opacity="0.85"/>
+  <text x="240" y="109" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">22ms avg</text>
+  <text x="340" y="109" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">IPv6 QUIC direct, same LAN</text>
+
+  <!-- Bar: Terrestrial WiFi - DIRECT 22ms -->
+  <rect x="180" y="146" width="53" height="22" rx="3" fill="#73daca" opacity="0.85"/>
+  <text x="240" y="161" font-family="ui-monospace, monospace" font-size="9" fill="#73daca">22ms avg</text>
+  <text x="340" y="161" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">Cross-ISP via public IPv6</text>
+
+  <!-- Bar: Wired Ethernet - FAILED -->
+  <rect x="180" y="198" width="24" height="22" rx="3" fill="#f7768e" opacity="0.85"/>
+  <text x="210" y="213" font-family="ui-monospace, monospace" font-size="9" fill="#f7768e">FAILED</text>
+  <text x="285" y="213" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">Daemon died on interface change (Phase 5-L fix)</text>
+
+  <!-- Bar: 5G CGNAT Day 1 - RELAYED 157ms -->
+  <rect x="180" y="250" width="377" height="22" rx="3" fill="#e0af68" opacity="0.85"/>
+  <text x="565" y="265" font-family="ui-monospace, monospace" font-size="9" fill="#e0af68">157ms avg</text>
+
+  <!-- Bar: 5G Day 2 - started RELAYED then went DIRECT -->
+  <rect x="180" y="302" width="377" height="10" rx="3" fill="#e0af68" opacity="0.4"/>
+  <rect x="180" y="302" width="192" height="10" rx="3" fill="#73daca" opacity="0.85"/>
+  <rect x="180" y="314" width="192" height="10" rx="3" fill="#73daca" opacity="0.85"/>
+  <text x="380" y="323" font-family="ui-monospace, monospace" font-size="9" fill="#9ece6a">68-160ms after hole-punch (257ms punch)</text>
+
+  <!-- X-axis label -->
+  <text x="420" y="370" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Ping Latency (ms)</text>
+</svg>
