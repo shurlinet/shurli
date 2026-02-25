@@ -792,7 +792,7 @@ Deliverables:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) - publish to GitHub Releases + GitLab Releases
 - [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
 - [ ] Publish to GitHub Releases with Ed25519-signed checksums (release key in repo)
-- [ ] Homebrew tap: `brew install satindergrewal/tap/shurli`
+- [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
 - [ ] One-line install script: `curl -sSL get.shurli.io | sh` - fetches `releases/latest.json`, detects OS/arch, downloads binary (GitHub → GitLab → IPFS fallback), verifies checksum, installs to `~/.local/bin` or `/usr/local/bin`
 - [ ] APT repository for Debian/Ubuntu
 - [ ] AUR package for Arch Linux
@@ -1332,7 +1332,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Failover runbook documented: which DNS records to change for each failure scenario
 - GoReleaser builds binaries for 9+ targets (linux/mac/windows × amd64/arm64 + linux/mipsle + linux/arm/v7)
 - Embedded builds ≤10MB (UPX compressed), default builds ≤25MB (stripped)
-- Homebrew tap works: `brew install satindergrewal/tap/shurli`
+- Homebrew tap works: `brew install shurlinet/tap/shurli`
 - Docker image available
 - Install-to-running in under 30 seconds
 - `shurli upgrade` fetches manifest from `shurli.io`, downloads with fallback, verifies checksum
