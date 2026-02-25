@@ -39,8 +39,8 @@
   <text x="715" y="25" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle" font-weight="600">PLANNED - Phase 10</text>
 
   <!-- Network A bubble (left) -->
-  <ellipse cx="170" cy="180" rx="145" ry="120" fill="url(#netFillA)" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="6,3"/>
-  <text x="170" y="82" font-family="system-ui, sans-serif" font-size="12" fill="#3b82f6" text-anchor="middle" font-weight="600">Network A</text>
+  <ellipse cx="170" cy="180" rx="145" ry="120" fill="url(#netFillA)" stroke="#da1c5c" stroke-width="1.2" stroke-dasharray="6,3"/>
+  <text x="170" y="82" font-family="system-ui, sans-serif" font-size="12" fill="#da1c5c" text-anchor="middle" font-weight="600">Network A</text>
 
   <!-- Network A relay -->
   <rect x="130" y="130" width="80" height="40" rx="8" fill="url(#relayNode)" stroke="#bb9af7" stroke-width="1.2"/>
@@ -80,20 +80,20 @@
 
   <!-- Federation arrows between relays -->
   <!-- A ↔ B -->
-  <line x1="210" y1="150" x2="590" y2="150" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <polygon points="585,145 585,155 594,150" fill="#7aa2f7"/>
-  <polygon points="215,145 215,155 206,150" fill="#7aa2f7"/>
-  <text x="400" y="143" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle">federation peering</text>
+  <line x1="210" y1="150" x2="590" y2="150" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="585,145 585,155 594,150" fill="#e8729a"/>
+  <polygon points="215,145 215,155 206,150" fill="#e8729a"/>
+  <text x="400" y="143" font-family="SF Mono, monospace" font-size="9" fill="#e8729a" text-anchor="middle">federation peering</text>
 
   <!-- A ↔ C -->
-  <line x1="190" y1="170" x2="365" y2="290" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <polygon points="360,285 370,291 362,296" fill="#7aa2f7"/>
-  <polygon points="196,175 185,170 192,164" fill="#7aa2f7"/>
+  <line x1="190" y1="170" x2="365" y2="290" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="360,285 370,291 362,296" fill="#e8729a"/>
+  <polygon points="196,175 185,170 192,164" fill="#e8729a"/>
 
   <!-- B ↔ C -->
-  <line x1="610" y1="170" x2="435" y2="290" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <polygon points="440,285 430,291 438,296" fill="#7aa2f7"/>
-  <polygon points="604,175 615,170 608,164" fill="#7aa2f7"/>
+  <line x1="610" y1="170" x2="435" y2="290" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="440,285 430,291 438,296" fill="#e8729a"/>
+  <polygon points="604,175 615,170 608,164" fill="#e8729a"/>
 
   <!-- Cross-network connection example -->
   <text x="400" y="450" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Cross-Network Connection Example</text>

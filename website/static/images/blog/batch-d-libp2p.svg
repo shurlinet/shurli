@@ -8,12 +8,12 @@
   <rect width="1200" height="400" fill="url(#bgD)"/>
   <!-- Transport stack visualization - QUIC preferred over TCP -->
   <!-- Transport layers stacked -->
-  <rect x="100" y="130" width="300" height="44" rx="6" fill="#3b82f6" opacity="0.15"/>
-  <text x="250" y="157" font-family="SF Mono, monospace" font-size="13" fill="#3b82f6" text-anchor="middle" opacity="0.8">QUIC (preferred)</text>
-  <rect x="100" y="180" width="300" height="36" rx="6" fill="#7aa2f7" opacity="0.1"/>
-  <text x="250" y="203" font-family="SF Mono, monospace" font-size="12" fill="#7aa2f7" text-anchor="middle" opacity="0.5">TCP</text>
-  <rect x="100" y="222" width="300" height="32" rx="6" fill="#7aa2f7" opacity="0.06"/>
-  <text x="250" y="243" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7" text-anchor="middle" opacity="0.3">WebSocket</text>
+  <rect x="100" y="130" width="300" height="44" rx="6" fill="#da1c5c" opacity="0.15"/>
+  <text x="250" y="157" font-family="SF Mono, monospace" font-size="13" fill="#da1c5c" text-anchor="middle" opacity="0.8">QUIC (preferred)</text>
+  <rect x="100" y="180" width="300" height="36" rx="6" fill="#e8729a" opacity="0.1"/>
+  <text x="250" y="203" font-family="SF Mono, monospace" font-size="12" fill="#e8729a" text-anchor="middle" opacity="0.5">TCP</text>
+  <rect x="100" y="222" width="300" height="32" rx="6" fill="#e8729a" opacity="0.06"/>
+  <text x="250" y="243" font-family="SF Mono, monospace" font-size="11" fill="#e8729a" text-anchor="middle" opacity="0.3">WebSocket</text>
   <!-- RTT comparison -->
   <text x="250" y="115" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">Transport Priority</text>
   <!-- AutoNAT v2 - per-address reachability testing -->
@@ -40,8 +40,8 @@
   <!-- Ranked addresses -->
   <rect x="870" y="148" width="220" height="28" rx="5" fill="#9ece6a" opacity="0.15"/>
   <text x="880" y="167" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">1. /quic-v1  (fastest)</text>
-  <rect x="870" y="184" width="220" height="28" rx="5" fill="#7aa2f7" opacity="0.1"/>
-  <text x="880" y="203" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7">2. /tcp  (reliable)</text>
+  <rect x="870" y="184" width="220" height="28" rx="5" fill="#e8729a" opacity="0.1"/>
+  <text x="880" y="203" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">2. /tcp  (reliable)</text>
   <rect x="870" y="220" width="220" height="28" rx="5" fill="#e0af68" opacity="0.1"/>
   <text x="880" y="239" font-family="SF Mono, monospace" font-size="11" fill="#e0af68">3. /ws  (fallback)</text>
   <rect x="870" y="256" width="220" height="28" rx="5" fill="#565f89" opacity="0.08"/>

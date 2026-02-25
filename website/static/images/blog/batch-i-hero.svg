@@ -34,8 +34,8 @@
   <text x="35" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">No path quality tracking</text>
 
   <!-- Center: Batch I -->
-  <rect x="250" y="70" width="200" height="190" rx="8" fill="url(#centerGrad)" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="350" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Batch I Ships</text>
+  <rect x="250" y="70" width="200" height="190" rx="8" fill="url(#centerGrad)" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="350" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#e8729a" text-anchor="middle" font-weight="600">Batch I Ships</text>
 
   <text x="265" y="118" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Interface discovery</text>
   <text x="265" y="136" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Parallel dial racing</text>
@@ -44,7 +44,7 @@
   <text x="265" y="190" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Network change monitor</text>
   <text x="265" y="208" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Every-peer-is-a-relay</text>
 
-  <text x="350" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" text-anchor="middle">0 new dependencies</text>
+  <text x="350" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#e8729a" text-anchor="middle">0 new dependencies</text>
 
   <!-- Right: After -->
   <rect x="480" y="70" width="200" height="190" rx="8" fill="url(#afterGrad)" stroke="#73daca" stroke-width="1.5"/>

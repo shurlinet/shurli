@@ -64,8 +64,8 @@
   <text x="232" y="122" font-family="ui-monospace, monospace" font-size="7" fill="#e0af68" text-anchor="middle">scrape</text>
 
   <!-- Grafana (right) -->
-  <rect x="540" y="100" width="200" height="130" rx="8" fill="url(#grafFill)" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="640" y="128" font-family="system-ui, sans-serif" font-size="13" fill="#7aa2f7" text-anchor="middle" font-weight="700">Grafana</text>
+  <rect x="540" y="100" width="200" height="130" rx="8" fill="url(#grafFill)" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="640" y="128" font-family="system-ui, sans-serif" font-size="13" fill="#e8729a" text-anchor="middle" font-weight="700">Grafana</text>
   <text x="640" y="146" font-family="system-ui, sans-serif" font-size="9" fill="#cfc9c2" text-anchor="middle">Visualize metrics</text>
   <text x="640" y="162" font-family="ui-monospace, monospace" font-size="9" fill="#565f89" text-anchor="middle">localhost:3000</text>
 
@@ -78,11 +78,11 @@
   <text x="665" y="206" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a">System</text>
 
   <!-- Arrow: Prometheus to Grafana -->
-  <line x1="470" y1="165" x2="540" y2="165" stroke="#7aa2f7" stroke-width="1.5"/>
-  <polygon points="537,161 543,165 537,169" fill="#7aa2f7"/>
+  <line x1="470" y1="165" x2="540" y2="165" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="537,161 543,165 537,169" fill="#e8729a"/>
 
   <!-- "query" label -->
-  <text x="505" y="158" font-family="ui-monospace, monospace" font-size="7" fill="#7aa2f7" text-anchor="middle">PromQL</text>
+  <text x="505" y="158" font-family="ui-monospace, monospace" font-size="7" fill="#e8729a" text-anchor="middle">PromQL</text>
 
   <!-- Optional: Loki path from audit logs -->
   <rect x="270" y="265" width="200" height="50" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1" stroke-dasharray="4,2"/>
@@ -95,8 +95,8 @@
   <!-- Legend -->
   <line x1="555" y1="260" x2="567" y2="260" stroke="#e0af68" stroke-width="1.5"/>
   <text x="573" y="264" font-family="system-ui, sans-serif" font-size="8" fill="#e0af68">Prometheus scrape</text>
-  <line x1="555" y1="275" x2="567" y2="275" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="573" y="279" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7">Grafana query</text>
+  <line x1="555" y1="275" x2="567" y2="275" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="573" y="279" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a">Grafana query</text>
   <line x1="555" y1="290" x2="567" y2="290" stroke="#bb9af7" stroke-width="1" stroke-dasharray="4,2"/>
   <text x="573" y="294" font-family="system-ui, sans-serif" font-size="8" fill="#bb9af7">Audit log flow (optional)</text>
 </svg>

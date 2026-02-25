@@ -36,8 +36,8 @@
   <text x="152" y="192" font-family="system-ui, sans-serif" font-size="9" fill="#73daca" text-anchor="middle">DHT Discovery</text>
 
   <!-- Relay track -->
-  <rect x="62" y="208" width="120" height="28" rx="4" fill="#1e2a3a" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="122" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" text-anchor="middle">Relay Connect</text>
+  <rect x="62" y="208" width="120" height="28" rx="4" fill="#1e2a3a" stroke="#e8729a" stroke-width="1"/>
+  <text x="122" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#e8729a" text-anchor="middle">Relay Connect</text>
 
   <!-- Winner indicator -->
   <line x1="182" y1="222" x2="210" y2="222" stroke="#9ece6a" stroke-width="2"/>

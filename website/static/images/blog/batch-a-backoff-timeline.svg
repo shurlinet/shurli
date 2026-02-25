@@ -4,7 +4,7 @@
        Visual: timeline with growing gaps between retry dots -->
   <defs>
     <linearGradient id="abGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#7aa2f7"/>
+      <stop offset="0%" style="stop-color:#e8729a"/>
       <stop offset="100%" style="stop-color:#9ece6a"/>
     </linearGradient>
   </defs>
@@ -19,24 +19,24 @@
   <text x="60" y="90" text-anchor="middle" fill="#f7768e" font-family="monospace" font-size="11">FAIL</text>
   <!-- Retry points along timeline with growing gaps -->
   <!-- Retry 1: 1s -->
-  <circle cx="110" cy="180" r="8" fill="#7aa2f7"/>
-  <text x="110" y="210" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="12" font-weight="600">1s</text>
+  <circle cx="110" cy="180" r="8" fill="#e8729a"/>
+  <text x="110" y="210" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="12" font-weight="600">1s</text>
   <text x="110" y="160" text-anchor="middle" fill="#565f89" font-family="monospace" font-size="10">retry 1</text>
   <!-- Arrow showing gap -->
   <line x1="118" y1="180" x2="155" y2="180" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
   <!-- Retry 2: 2s -->
-  <circle cx="170" cy="180" r="8" fill="#7aa2f7"/>
-  <text x="170" y="210" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="12" font-weight="600">2s</text>
+  <circle cx="170" cy="180" r="8" fill="#e8729a"/>
+  <text x="170" y="210" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="12" font-weight="600">2s</text>
   <text x="170" y="160" text-anchor="middle" fill="#565f89" font-family="monospace" font-size="10">retry 2</text>
   <line x1="178" y1="180" x2="235" y2="180" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
   <!-- Retry 3: 4s -->
-  <circle cx="260" cy="180" r="8" fill="#7aa2f7"/>
-  <text x="260" y="210" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="12" font-weight="600">4s</text>
+  <circle cx="260" cy="180" r="8" fill="#e8729a"/>
+  <text x="260" y="210" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="12" font-weight="600">4s</text>
   <text x="260" y="160" text-anchor="middle" fill="#565f89" font-family="monospace" font-size="10">retry 3</text>
   <line x1="268" y1="180" x2="355" y2="180" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
   <!-- Retry 4: 8s -->
-  <circle cx="380" cy="180" r="8" fill="#7aa2f7"/>
-  <text x="380" y="210" text-anchor="middle" fill="#7aa2f7" font-family="monospace" font-size="12" font-weight="600">8s</text>
+  <circle cx="380" cy="180" r="8" fill="#e8729a"/>
+  <text x="380" y="210" text-anchor="middle" fill="#e8729a" font-family="monospace" font-size="12" font-weight="600">8s</text>
   <text x="380" y="160" text-anchor="middle" fill="#565f89" font-family="monospace" font-size="10">retry 4</text>
   <line x1="388" y1="180" x2="495" y2="180" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
   <!-- Retry 5: 16s -->
@@ -55,10 +55,10 @@
   <text x="725" y="157" text-anchor="middle" fill="#9ece6a" font-family="monospace" font-size="10" font-weight="600">capped</text>
   <!-- Growing gap visualization (bars below) -->
   <text x="60" y="255" fill="#565f89" font-family="system-ui,sans-serif" font-size="11">Wait between retries:</text>
-  <rect x="110" y="260" width="8" height="12" rx="2" fill="#7aa2f7" opacity="0.6"/>
-  <rect x="170" y="260" width="16" height="12" rx="2" fill="#7aa2f7" opacity="0.6"/>
-  <rect x="260" y="256" width="32" height="16" rx="2" fill="#7aa2f7" opacity="0.6"/>
-  <rect x="380" y="252" width="48" height="20" rx="2" fill="#7aa2f7" opacity="0.6"/>
+  <rect x="110" y="260" width="8" height="12" rx="2" fill="#e8729a" opacity="0.6"/>
+  <rect x="170" y="260" width="16" height="12" rx="2" fill="#e8729a" opacity="0.6"/>
+  <rect x="260" y="256" width="32" height="16" rx="2" fill="#e8729a" opacity="0.6"/>
+  <rect x="380" y="252" width="48" height="20" rx="2" fill="#e8729a" opacity="0.6"/>
   <rect x="520" y="248" width="56" height="24" rx="2" fill="#bb9af7" opacity="0.6"/>
   <rect x="640" y="244" width="64" height="28" rx="2" fill="#bb9af7" opacity="0.6"/>
   <!-- Cap indicator -->
