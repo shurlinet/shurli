@@ -26,13 +26,13 @@
 
   <text x="565" y="102" fill="#414868" font-family="system-ui,sans-serif" font-size="18">=</text>
 
-  <rect x="585" y="75" width="185" height="55" rx="6" fill="#1e2740" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="677" y="98" text-anchor="middle" fill="#7aa2f7" font-family="ui-monospace,monospace" font-size="13" font-weight="600">make all</text>
+  <rect x="585" y="75" width="185" height="55" rx="6" fill="#1e2740" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="677" y="98" text-anchor="middle" fill="#e8729a" font-family="ui-monospace,monospace" font-size="13" font-weight="600">make all</text>
   <text x="677" y="118" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="9">build + test + lint</text>
 
   <!-- Row 2: Install pipeline -->
-  <rect x="30" y="155" width="225" height="55" rx="6" fill="#1e2740" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="142" y="178" text-anchor="middle" fill="#7aa2f7" font-family="ui-monospace,monospace" font-size="13" font-weight="600">make install</text>
+  <rect x="30" y="155" width="225" height="55" rx="6" fill="#1e2740" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="142" y="178" text-anchor="middle" fill="#e8729a" font-family="ui-monospace,monospace" font-size="13" font-weight="600">make install</text>
   <text x="142" y="198" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="9">build + install binary + service</text>
 
   <!-- Arrow -->

@@ -12,7 +12,7 @@
   <!-- Before: repeated startup sequence -->
   <g opacity="0.9">
     <!-- Command 1 -->
-    <text x="55" y="110" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli ping home</text>
+    <text x="55" y="110" fill="#e8729a" font-family="monospace" font-size="11">$ shurli ping home</text>
     <text x="70" y="127" fill="#565f89" font-family="monospace" font-size="10">→ create P2P host</text>
     <text x="70" y="142" fill="#565f89" font-family="monospace" font-size="10">→ connect relay</text>
     <text x="70" y="157" fill="#565f89" font-family="monospace" font-size="10">→ bootstrap DHT</text>
@@ -20,7 +20,7 @@
     <text x="70" y="187" fill="#9ece6a" font-family="monospace" font-size="10">→ ping!</text>
     <text x="70" y="202" fill="#f7768e" font-family="monospace" font-size="10">→ tear down host</text>
     <!-- Command 2 -->
-    <text x="55" y="226" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli ping home</text>
+    <text x="55" y="226" fill="#e8729a" font-family="monospace" font-size="11">$ shurli ping home</text>
     <text x="70" y="243" fill="#565f89" font-family="monospace" font-size="10">→ create P2P host</text>
     <text x="70" y="258" fill="#565f89" font-family="monospace" font-size="10">→ connect relay</text>
     <text x="70" y="273" fill="#565f89" font-family="monospace" font-size="10">→ bootstrap DHT</text>
@@ -39,13 +39,13 @@
   <text x="445" y="115" fill="#9ece6a" font-family="monospace" font-size="11">shurli daemon</text>
   <text x="580" y="115" fill="#565f89" font-family="monospace" font-size="10">← always running, connected</text>
   <!-- Fast commands -->
-  <text x="445" y="160" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli daemon ping home</text>
+  <text x="445" y="160" fill="#e8729a" font-family="monospace" font-size="11">$ shurli daemon ping home</text>
   <text x="460" y="177" fill="#9ece6a" font-family="monospace" font-size="10">→ instant! (Unix socket)</text>
-  <text x="445" y="205" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli daemon ping home</text>
+  <text x="445" y="205" fill="#e8729a" font-family="monospace" font-size="11">$ shurli daemon ping home</text>
   <text x="460" y="222" fill="#9ece6a" font-family="monospace" font-size="10">→ instant again!</text>
-  <text x="445" y="250" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli daemon proxy start ssh</text>
+  <text x="445" y="250" fill="#e8729a" font-family="monospace" font-size="11">$ shurli daemon proxy start ssh</text>
   <text x="460" y="267" fill="#9ece6a" font-family="monospace" font-size="10">→ instant!</text>
-  <text x="445" y="295" fill="#7aa2f7" font-family="monospace" font-size="11">$ shurli daemon peers</text>
+  <text x="445" y="295" fill="#e8729a" font-family="monospace" font-size="11">$ shurli daemon peers</text>
   <text x="460" y="312" fill="#9ece6a" font-family="monospace" font-size="10">→ instant!</text>
   <!-- Bottom comparison -->
   <rect x="80" y="345" width="260" height="22" rx="4" fill="#f7768e" fill-opacity="0.1"/>

@@ -17,19 +17,19 @@
   <!-- Title -->
   <text x="400" y="25" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#565f89" text-anchor="middle">Shurli terminal demo</text>
   <!-- Terminal content -->
-  <text x="24" y="80" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#7aa2f7">$ shurli init</text>
+  <text x="24" y="80" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#e8729a">$ shurli init</text>
   <text x="24" y="105" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Generating identity... done</text>
   <text x="24" y="125" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Peer ID: 12D3KooW...7xRm</text>
   <text x="24" y="145" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#9ece6a">Network initialized successfully</text>
-  <text x="24" y="180" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#7aa2f7">$ shurli invite</text>
+  <text x="24" y="180" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#e8729a">$ shurli invite</text>
   <text x="24" y="205" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Invite code (share with peer):</text>
   <text x="24" y="225" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#bb9af7">shurli://12D3KooW...7xRm/relay/relay.example.com</text>
-  <text x="24" y="260" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#7aa2f7">$ shurli join &lt;invite-code&gt;</text>
+  <text x="24" y="260" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#e8729a">$ shurli join &lt;invite-code&gt;</text>
   <text x="24" y="285" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Connecting to peer... done</text>
   <text x="24" y="305" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Mutual authorization... done</text>
   <text x="24" y="325" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#9ece6a">Paired successfully!</text>
-  <text x="24" y="360" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#7aa2f7">$ shurli proxy home ssh</text>
+  <text x="24" y="360" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#e8729a">$ shurli proxy home ssh</text>
   <text x="24" y="385" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#a9b1d6">Proxying home:22 -> localhost:2222</text>
-  <text x="24" y="420" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#7aa2f7">$ ssh -p 2222 localhost</text>
+  <text x="24" y="420" font-family="SF Mono, Fira Code, monospace" font-size="14" fill="#e8729a">$ ssh -p 2222 localhost</text>
   <text x="24" y="445" font-family="SF Mono, Fira Code, monospace" font-size="13" fill="#9ece6a">Welcome to home-server!</text>
 </svg>

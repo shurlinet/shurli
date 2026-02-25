@@ -8,28 +8,28 @@
   <text x="400" y="52" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="12">Different namespaces speak different protocols - they cannot discover each other</text>
 
   <!-- Left network: Global (default) -->
-  <rect x="30" y="75" width="340" height="240" rx="10" fill="#1a1b26" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="200" y="98" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Global Network (default)</text>
+  <rect x="30" y="75" width="340" height="240" rx="10" fill="#1a1b26" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="200" y="98" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Global Network (default)</text>
 
   <!-- Protocol prefix -->
   <rect x="55" y="110" width="290" height="24" rx="4" fill="#1e2740" stroke="#3d59a1" stroke-width="0.5"/>
   <text x="200" y="127" text-anchor="middle" fill="#73daca" font-family="ui-monospace,monospace" font-size="10">/shurli/kad/1.0.0</text>
 
   <!-- Nodes in global network -->
-  <circle cx="100" cy="185" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="100" y="189" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="9">Node A</text>
+  <circle cx="100" cy="185" r="22" fill="#1e2740" stroke="#e8729a" stroke-width="1"/>
+  <text x="100" y="189" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="9">Node A</text>
 
-  <circle cx="200" cy="165" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="200" y="169" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="9">Node B</text>
+  <circle cx="200" cy="165" r="22" fill="#1e2740" stroke="#e8729a" stroke-width="1"/>
+  <text x="200" y="169" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="9">Node B</text>
 
-  <circle cx="300" cy="185" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="300" y="189" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="9">Node C</text>
+  <circle cx="300" cy="185" r="22" fill="#1e2740" stroke="#e8729a" stroke-width="1"/>
+  <text x="300" y="189" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="9">Node C</text>
 
-  <circle cx="150" cy="240" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="150" y="244" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="9">Node D</text>
+  <circle cx="150" cy="240" r="22" fill="#1e2740" stroke="#e8729a" stroke-width="1"/>
+  <text x="150" y="244" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="9">Node D</text>
 
-  <circle cx="250" cy="250" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="250" y="254" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="9">Node E</text>
+  <circle cx="250" cy="250" r="22" fill="#1e2740" stroke="#e8729a" stroke-width="1"/>
+  <text x="250" y="254" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="9">Node E</text>
 
   <!-- Connections within global -->
   <line x1="120" y1="178" x2="180" y2="170" stroke="#3d59a1" stroke-width="0.8" opacity="0.6"/>

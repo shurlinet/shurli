@@ -14,8 +14,8 @@
   <rect x="330" y="70" width="140" height="30" rx="6" fill="#2a1a1a" stroke="#f7768e" stroke-width="1.5"/>
   <text x="400" y="90" text-anchor="middle" fill="#f7768e" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Relay</text>
 
-  <rect x="600" y="70" width="140" height="30" rx="6" fill="#1e2740" stroke="#7aa2f7" stroke-width="1.5"/>
-  <text x="670" y="90" text-anchor="middle" fill="#7aa2f7" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Inviter</text>
+  <rect x="600" y="70" width="140" height="30" rx="6" fill="#1e2740" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="670" y="90" text-anchor="middle" fill="#e8729a" font-family="system-ui,sans-serif" font-size="13" font-weight="600">Inviter</text>
 
   <!-- Vertical lifelines -->
   <line x1="130" y1="105" x2="130" y2="395" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>

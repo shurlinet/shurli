@@ -13,9 +13,9 @@
   <line x1="100" y1="86" x2="100" y2="380" stroke="#73daca" stroke-width="0.5" stroke-dasharray="4,4"/>
 
   <!-- Relay -->
-  <rect x="295" y="62" width="80" height="24" rx="4" fill="#1a2840" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="335" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Relay</text>
-  <line x1="335" y1="86" x2="335" y2="380" stroke="#7aa2f7" stroke-width="0.5" stroke-dasharray="4,4"/>
+  <rect x="295" y="62" width="80" height="24" rx="4" fill="#1a2840" stroke="#e8729a" stroke-width="1"/>
+  <text x="335" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" text-anchor="middle" font-weight="600">Relay</text>
+  <line x1="335" y1="86" x2="335" y2="380" stroke="#e8729a" stroke-width="0.5" stroke-dasharray="4,4"/>
 
   <!-- Peer B -->
   <rect x="530" y="62" width="80" height="24" rx="4" fill="#2a2a1e" stroke="#e0af68" stroke-width="1"/>
@@ -29,8 +29,8 @@
   <text x="218" y="108" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce" text-anchor="middle">join with pairing code</text>
 
   <!-- Step 2: Relay validates token, stores HMAC -->
-  <rect x="280" y="122" width="110" height="22" rx="3" fill="#1a2840" stroke="#7aa2f7" stroke-width="0.5"/>
-  <text x="335" y="137" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7" text-anchor="middle">validate + store HMAC</text>
+  <rect x="280" y="122" width="110" height="22" rx="3" fill="#1a2840" stroke="#e8729a" stroke-width="0.5"/>
+  <text x="335" y="137" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle">validate + store HMAC</text>
 
   <!-- Step 3: Peer B joins later -->
   <text x="18" y="166" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">2</text>
@@ -39,8 +39,8 @@
   <text x="453" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce" text-anchor="middle">join with pairing code</text>
 
   <!-- Step 4: Relay validates Peer B -->
-  <rect x="280" y="172" width="110" height="22" rx="3" fill="#1a2840" stroke="#7aa2f7" stroke-width="0.5"/>
-  <text x="335" y="187" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7" text-anchor="middle">validate + store HMAC</text>
+  <rect x="280" y="172" width="110" height="22" rx="3" fill="#1a2840" stroke="#e8729a" stroke-width="0.5"/>
+  <text x="335" y="187" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle">validate + store HMAC</text>
 
   <!-- Step 5: Relay notifies Peer A about Peer B -->
   <text x="18" y="216" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">3</text>
