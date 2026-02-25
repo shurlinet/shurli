@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
   <!-- Background -->
-  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+  <rect width="700" height="280" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Network Switch: Graceful Degradation</text>
@@ -42,7 +42,7 @@
   <text x="370" y="190" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">0% packet loss through entire transition</text>
 
   <!-- The broken case -->
-  <rect x="100" y="216" width="500" height="50" rx="8" fill="#1a1b26" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <rect x="100" y="216" width="500" height="50" rx="8" fill="#1a191c" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="350" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">Known gap: Wired Ethernet plug/unplug killed the daemon</text>
   <text x="350" y="254" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Phase 5-L PeerManager will add proper address lifecycle management</text>
 </svg>

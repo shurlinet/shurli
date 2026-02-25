@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="internetFill" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#1a1e36;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#1e1d20;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <filter id="glow">
       <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -22,7 +22,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="450" rx="12" fill="#0f1117"/>
+  <rect width="800" height="450" rx="12" fill="#141316"/>
 
   <!-- Internet cloud bar -->
   <rect x="100" y="20" width="600" height="40" rx="8" fill="url(#internetFill)" stroke="#565f89" stroke-width="1" opacity="0.6"/>
@@ -46,8 +46,8 @@
   <rect x="330" y="110" width="140" height="80" rx="12" fill="url(#relayFill)" stroke="#bb9af7" stroke-width="1.5"/>
   <!-- Cloud icon -->
   <ellipse cx="400" cy="132" rx="20" ry="12" fill="none" stroke="#bb9af7" stroke-width="1.5"/>
-  <ellipse cx="390" cy="135" rx="10" ry="7" fill="#251e50"/>
-  <ellipse cx="410" cy="135" rx="10" ry="7" fill="#251e50"/>
+  <ellipse cx="390" cy="135" rx="10" ry="7" fill="#2a282c"/>
+  <ellipse cx="410" cy="135" rx="10" ry="7" fill="#2a282c"/>
   <text x="400" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="600">Relay Server</text>
   <text x="400" y="175" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">VPS · Public IP</text>
 

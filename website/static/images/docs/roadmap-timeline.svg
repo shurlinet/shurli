@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 690" font-family="system-ui, -apple-system, sans-serif">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
-      <stop offset="100%" style="stop-color:#1a1b26"/>
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
     <linearGradient id="doneGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f"/>
@@ -27,7 +27,7 @@
 
   <!-- Background -->
   <rect width="900" height="690" rx="12" fill="url(#bg)"/>
-  <rect x="0.5" y="0.5" width="899" height="689" rx="12" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="0.5" y="0.5" width="899" height="689" rx="12" fill="none" stroke="#222124" stroke-width="1"/>
 
   <!-- Title -->
   <text x="450" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#c0caf5">Development Timeline</text>
@@ -37,7 +37,7 @@
   <text x="675" y="66" text-anchor="middle" font-size="12" font-weight="600" fill="#e0af68">PLANNED</text>
 
   <!-- Divider line -->
-  <line x1="450" y1="55" x2="450" y2="670" stroke="#24283b" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="450" y1="55" x2="450" y2="670" stroke="#222124" stroke-width="1" stroke-dasharray="4,4"/>
 
   <!-- ===================== LEFT COLUMN: COMPLETED ===================== -->
 
@@ -174,7 +174,7 @@
   <text x="850" y="558" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
 
   <!-- Legend -->
-  <rect x="30" y="645" width="840" height="30" rx="6" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="30" y="645" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
   <circle cx="70" cy="660" r="5" fill="#9ece6a"/>
   <text x="82" y="664" font-size="9" fill="#a9b1d6">Complete</text>
   <circle cx="170" cy="660" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>

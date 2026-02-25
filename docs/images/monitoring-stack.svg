@@ -9,17 +9,17 @@
       <stop offset="100%" style="stop-color:#2a1f12;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="grafFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="auditFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
   </defs>
 
   <!-- Background -->
-  <rect width="760" height="340" rx="12" fill="#0f1117"/>
+  <rect width="760" height="340" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Monitoring Stack</text>
@@ -85,7 +85,7 @@
   <text x="505" y="158" font-family="ui-monospace, monospace" font-size="7" fill="#e8729a" text-anchor="middle">PromQL</text>
 
   <!-- Optional: Loki path from audit logs -->
-  <rect x="270" y="265" width="200" height="50" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1" stroke-dasharray="4,2"/>
+  <rect x="270" y="265" width="200" height="50" rx="6" fill="#1e1d20" stroke="#414868" stroke-width="1" stroke-dasharray="4,2"/>
   <text x="370" y="287" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">Loki / Log Aggregator</text>
   <text x="370" y="303" font-family="system-ui, sans-serif" font-size="8" fill="#414868" text-anchor="middle">(optional - for audit log search)</text>
 

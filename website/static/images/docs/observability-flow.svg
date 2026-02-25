@@ -5,12 +5,12 @@
       <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="auditFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="sourceFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="endpointFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#4a3520;stop-opacity:1" />
@@ -26,7 +26,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="760" height="500" rx="12" fill="#0f1117"/>
+  <rect width="760" height="500" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Observability Architecture (Batch H)</text>
@@ -106,7 +106,7 @@
   <polygon points="537,268 543,272 537,276" fill="#bb9af7"/>
 
   <!-- Callback pattern label -->
-  <rect x="200" y="385" width="360" height="75" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1"/>
+  <rect x="200" y="385" width="360" height="75" rx="6" fill="#1e1d20" stroke="#414868" stroke-width="1"/>
   <text x="380" y="404" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Callback Pattern (no circular imports)</text>
   <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/shurli --(closure)--> pkg/p2pnet</text>
   <text x="380" y="436" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">AuthDecisionFunc(peerID, result) feeds both metrics + audit</text>

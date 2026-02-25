@@ -15,7 +15,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+  <rect width="700" height="280" rx="12" fill="#141316"/>
 
   <!-- Title -->
   <text x="350" y="30" font-family="system-ui, sans-serif" font-size="16" fill="#c0caf5" text-anchor="middle" font-weight="700">Batch I: Adaptive Path Selection</text>
