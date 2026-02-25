@@ -10,19 +10,19 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
-- [Target Architecture (Phase 6+)](#target-architecture-phase-6) - planned additions
+- [Current Architecture (Phase 5 Complete)](#current-architecture-phase-5-complete) - what's built and working
+- [Target Architecture (Phase 8+)](#target-architecture-phase-8) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 10)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 9)
+- [Federation Model](#federation-model) - planned (Phase 12)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 11)
 
 ---
 
-## Current Architecture (Phase 4C Complete)
+## Current Architecture (Phase 5 Complete)
 
 ### Component Overview
 
@@ -32,7 +32,7 @@ Shurli/
 │   ├── shurli/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
 │   │   │                    #   proxy, whoami, auth, relay, config, service,
-│   │   │                    #   invite, join, status, init, version)
+│   │   │                    #   invite, join, verify, status, init, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
@@ -73,6 +73,9 @@ Shurli/
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
+│   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
+│   ├── peermanager.go       # Background reconnection with exponential backoff
+│   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
@@ -83,6 +86,7 @@ Shurli/
 │   │   ├── loader.go           # Load, validate, resolve paths, find config
 │   │   ├── archive.go          # Last-known-good archive/rollback (atomic writes)
 │   │   ├── confirm.go          # Commit-confirmed pattern (apply/confirm/enforce)
+│   │   ├── snapshot.go         # TimeMachine-style config snapshots
 │   │   └── errors.go           # Sentinel errors (ErrConfigNotFound, ErrNoArchive, etc.)
 │   ├── auth/                # SSH-style authentication
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
@@ -187,7 +191,7 @@ echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
 
 ---
 
-## Target Architecture (Phase 6+)
+## Target Architecture (Phase 8+)
 
 ### Planned Additions
 
@@ -199,12 +203,12 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 8: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 10: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 6: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 10: Network peering
+│   ├── interfaces.go        # 🆕 Phase 8: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 12: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -212,10 +216,10 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 6: File transfer plugin
-│   └── tun/                 # 🆕 Phase 8: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 8: File transfer plugin
+│   └── tun/                 # 🆕 Phase 10: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 9: Mobile apps
+├── mobile/                  # 🆕 Phase 11: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -228,7 +232,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 8)** - not yet implemented. See [Roadmap Phase 8](../roadmap/) for details.
+> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -247,15 +251,26 @@ To avoid code duplication, the P2P lifecycle is extracted into `serve_common.go`
 ```go
 // serveRuntime holds the shared P2P lifecycle state.
 type serveRuntime struct {
-    network    *p2pnet.Network
-    config     *config.HomeNodeConfig
-    configFile string
-    gater      *auth.AuthorizedPeerGater  // nil if gating disabled
-    authKeys   string                      // path to authorized_keys
-    ctx        context.Context
-    cancel     context.CancelFunc
-    version    string
-    startTime  time.Time
+    network          *p2pnet.Network
+    config           *config.HomeNodeConfig
+    configFile       string
+    gater            *auth.AuthorizedPeerGater // nil if gating disabled
+    authKeys         string                    // path to authorized_keys
+    ctx              context.Context
+    cancel           context.CancelFunc
+    version          string
+    startTime        time.Time
+    kdht             *dht.IpfsDHT             // peer discovery from daemon API
+    ifSummary        *p2pnet.InterfaceSummary  // interface discovery (IPv4/IPv6)
+    pathDialer       *p2pnet.PathDialer        // parallel dial racing
+    pathTracker      *p2pnet.PathTracker       // per-peer path quality tracking
+    stunProber       *p2pnet.STUNProber        // NAT type detection
+    mdnsDiscovery    *p2pnet.MDNSDiscovery     // LAN discovery (nil when disabled)
+    peerManager      *p2pnet.PeerManager       // background reconnection with backoff
+    netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
+    peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
+    metrics          *p2pnet.Metrics           // nil when telemetry disabled
+    peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
 
@@ -270,10 +285,15 @@ type RuntimeInfo interface {
     Network() *p2pnet.Network
     ConfigFile() string
     AuthKeysPath() string
-    GaterForHotReload() GaterReloader  // nil if gating disabled
+    GaterForHotReload() GaterReloader            // nil if gating disabled
     Version() string
     StartTime() time.Time
     PingProtocolID() string
+    ConnectToPeer(ctx context.Context, peerID peer.ID) error
+    Interfaces() *p2pnet.InterfaceSummary        // nil before discovery
+    PathTracker() *p2pnet.PathTracker             // nil before bootstrap
+    STUNResult() *p2pnet.STUNResult               // nil before probe
+    IsRelaying() bool                             // true if peer relay enabled
 }
 ```
 
@@ -402,7 +422,7 @@ Custom shurli metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 23 visualization panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -522,7 +542,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 6/11)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 11](../roadmap/).
+> **Planned (Phase 8/13)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 13](../roadmap/).
 
 ---
 
@@ -563,7 +583,7 @@ The ACL check runs in the stream handler before dialing the local TCP service, s
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 10)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 10](../roadmap/).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 12](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -584,13 +604,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 8/11.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 10/13.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](/images/docs/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 8/11)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 10/13)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -606,7 +626,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](../roadmap/).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](../roadmap/).
 
 ### Relay Peering
 
@@ -616,7 +636,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 9)** - not yet implemented. See [Roadmap Phase 9](../roadmap/).
+> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 11](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -660,7 +680,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 12+.
+> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 14+.
 
 ---
 
@@ -805,5 +825,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-25
-**Architecture Version**: 3.2 (Post-I-2 peer-notify, relay admin socket, HMAC proofs, CGNAT detection, cross-network hardening)
+**Last Updated**: 2026-02-26
+**Architecture Version**: 3.3 (Phase 5: mDNS, PeerManager, NetIntel presence + gossip forwarding)
