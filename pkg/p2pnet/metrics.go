@@ -49,6 +49,10 @@ type Metrics struct {
 	// PeerManager reconnection metrics
 	PeerManagerReconnectTotal *prometheus.CounterVec
 
+	// Network intelligence (presence) metrics
+	NetIntelSentTotal     *prometheus.CounterVec
+	NetIntelReceivedTotal *prometheus.CounterVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -195,6 +199,21 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"result"},
 		),
 
+		NetIntelSentTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_netintel_sent_total",
+				Help: "Total presence announcements sent by result (success, error).",
+			},
+			[]string{"result"},
+		),
+		NetIntelReceivedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_netintel_received_total",
+				Help: "Total presence announcements received by result (accepted, forwarded, rejected, invalid).",
+			},
+			[]string{"result"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_interface_count",
@@ -228,6 +247,8 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.STUNProbeTotal,
 		m.MDNSDiscoveredTotal,
 		m.PeerManagerReconnectTotal,
+		m.NetIntelSentTotal,
+		m.NetIntelReceivedTotal,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)
