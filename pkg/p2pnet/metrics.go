@@ -46,6 +46,9 @@ type Metrics struct {
 	// mDNS discovery metrics
 	MDNSDiscoveredTotal *prometheus.CounterVec
 
+	// PeerManager reconnection metrics
+	PeerManagerReconnectTotal *prometheus.CounterVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -184,6 +187,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"result"},
 		),
 
+		PeerManagerReconnectTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_peermanager_reconnect_total",
+				Help: "Total PeerManager reconnection attempts by result (success, failure, backoff_skip).",
+			},
+			[]string{"result"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_interface_count",
@@ -216,6 +227,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.NetworkChangeTotal,
 		m.STUNProbeTotal,
 		m.MDNSDiscoveredTotal,
+		m.PeerManagerReconnectTotal,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)
