@@ -43,6 +43,9 @@ type Metrics struct {
 	// STUN probe metrics
 	STUNProbeTotal *prometheus.CounterVec
 
+	// mDNS discovery metrics
+	MDNSDiscoveredTotal *prometheus.CounterVec
+
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
@@ -173,6 +176,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"result"},
 		),
 
+		MDNSDiscoveredTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_mdns_discovered_total",
+				Help: "Total mDNS discovery events by result.",
+			},
+			[]string{"result"},
+		),
+
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_interface_count",
@@ -204,6 +215,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.ConnectedPeers,
 		m.NetworkChangeTotal,
 		m.STUNProbeTotal,
+		m.MDNSDiscoveredTotal,
 		m.InterfaceCount,
 		m.BuildInfo,
 	)

@@ -97,6 +97,16 @@ type DiscoveryConfig struct {
 	Rendezvous     string   `yaml:"rendezvous"`
 	Network        string   `yaml:"network,omitempty"`  // DHT namespace for private networks (empty = global)
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	MDNSEnabled    *bool    `yaml:"mdns_enabled,omitempty"` // LAN peer discovery (default: true)
+}
+
+// IsMDNSEnabled returns whether mDNS local discovery is enabled.
+// Defaults to true when not explicitly set in config.
+func (d *DiscoveryConfig) IsMDNSEnabled() bool {
+	if d.MDNSEnabled == nil {
+		return true
+	}
+	return *d.MDNSEnabled
 }
 
 // RelayDiscoveryConfig holds relay server discovery configuration

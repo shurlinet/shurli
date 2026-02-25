@@ -58,6 +58,12 @@ type serveRuntime struct {
 	// STUN prober for NAT type detection and external address discovery
 	stunProber *p2pnet.STUNProber
 
+	// mDNS local discovery (nil when disabled)
+	mdnsDiscovery *p2pnet.MDNSDiscovery
+
+	// Routing discovery for DHT re-advertising on network change
+	routingDiscovery *drouting.RoutingDiscovery
+
 	// Peer relay (auto-enabled when public IP detected)
 	peerRelay *p2pnet.PeerRelay
 
@@ -352,6 +358,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Advertise ourselves on the DHT using a rendezvous string
 	routingDiscovery := drouting.NewRoutingDiscovery(kdht)
+	rt.routingDiscovery = routingDiscovery
 	fmt.Printf("Advertising on rendezvous: %s\n", cfg.Discovery.Rendezvous)
 
 	// Keep advertising in the background
@@ -419,6 +426,24 @@ func (rt *serveRuntime) Bootstrap() error {
 			}()
 		}
 
+		// Re-bootstrap DHT and re-advertise on network change.
+		// Our addresses changed; DHT peers need the update.
+		go func() {
+			if rt.kdht != nil {
+				refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
+				defer refreshCancel()
+				if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
+					slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
+				} else {
+					slog.Info("netmonitor: DHT re-bootstrapped after network change")
+				}
+			}
+			if rt.routingDiscovery != nil {
+				rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
+				slog.Info("netmonitor: re-advertised on rendezvous")
+			}
+		}()
+
 		// Delayed stale-address check: after libp2p has time to update,
 		// warn if it still advertises addresses for removed interfaces.
 		go func() {
@@ -465,6 +490,18 @@ func (rt *serveRuntime) Bootstrap() error {
 		}
 		fmt.Println()
 	}()
+
+	// Start mDNS local discovery (default: enabled).
+	// Discovered peers go through ConnectionGater; no auth bypass.
+	if cfg.Discovery.IsMDNSEnabled() {
+		rt.mdnsDiscovery = p2pnet.NewMDNSDiscovery(h, rt.metrics)
+		if err := rt.mdnsDiscovery.Start(); err != nil {
+			slog.Warn("mdns: failed to start", "error", err)
+			rt.mdnsDiscovery = nil
+		} else {
+			fmt.Println("mDNS local discovery enabled")
+		}
+	}
 
 	// Initialize peer relay (auto-enables if this host has a public IP).
 	// The existing ConnectionGater restricts who can use this relay.
@@ -913,6 +950,9 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	if rt.peerRelay != nil {
 		rt.peerRelay.Disable()
+	}
+	if rt.mdnsDiscovery != nil {
+		rt.mdnsDiscovery.Close()
 	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)

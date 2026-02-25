@@ -47,6 +47,7 @@ discovery:
   # Rendezvous string for DHT discovery (must match between peers)
   rendezvous: "shurli-default-network"
   bootstrap_peers: []
+  # mdns_enabled: true  # LAN peer discovery (default: true)
 
 security:
   # Peer ID allowlist (relative to config directory)
