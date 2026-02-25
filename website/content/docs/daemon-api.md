@@ -227,7 +227,7 @@ ollama	localhost:11434	/shurli/ollama/1.0.0	enabled
 
 Lists connected peers with their addresses and software version.
 
-**By default, only shurli and relay-server peers are shown.** Peer-up uses a private Kademlia DHT (`/shurli/kad/1.0.0`), isolated from the public IPFS Amino network. Your node only communicates with other Shurli nodes for DHT peer discovery.
+**By default, only shurli and relay-server peers are shown.** Shurli uses a private Kademlia DHT (`/shurli/kad/1.0.0`), isolated from the public IPFS Amino network. Your node only communicates with other Shurli nodes for DHT peer discovery.
 
 To see all connected peers (including DHT neighbors), add `?all=true`:
 
