@@ -42,7 +42,7 @@
 
   <!-- Key derivation box -->
   <rect x="120" y="200" width="560" height="35" rx="6" fill="#1a1b26" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="400" y="215" text-anchor="middle" fill="#e0af68" font-family="system-ui,sans-serif" font-size="11" font-weight="600">Both derive: key = HKDF-SHA256(DH_shared || token, "peerup-invite-v2")</text>
+  <text x="400" y="215" text-anchor="middle" fill="#e0af68" font-family="system-ui,sans-serif" font-size="11" font-weight="600">Both derive: key = HKDF-SHA256(DH_shared || token, "shurli-invite-v2")</text>
   <text x="400" y="229" text-anchor="middle" fill="#565f89" font-family="system-ui,sans-serif" font-size="9">Wrong token = wrong key = AEAD decryption fails silently</text>
 
   <!-- Step 3: Encrypted joiner name -->

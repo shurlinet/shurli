@@ -108,13 +108,13 @@
   <!-- Callback pattern label -->
   <rect x="200" y="385" width="360" height="75" rx="6" fill="#1a1e36" stroke="#414868" stroke-width="1"/>
   <text x="380" y="404" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Callback Pattern (no circular imports)</text>
-  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/peerup --(closure)--> pkg/p2pnet</text>
+  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/shurli --(closure)--> pkg/p2pnet</text>
   <text x="380" y="436" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">AuthDecisionFunc(peerID, result) feeds both metrics + audit</text>
   <text x="380" y="450" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Wired in serve_common.go before network creation</text>
 
   <!-- Legend -->
   <rect x="20" y="400" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#3d59a1" stroke-width="1"/>
-  <text x="38" y="410" font-family="system-ui, sans-serif" font-size="9" fill="#7dcfff">Custom peerup metrics</text>
+  <text x="38" y="410" font-family="system-ui, sans-serif" font-size="9" fill="#7dcfff">Custom shurli metrics</text>
   <rect x="20" y="418" width="12" height="12" rx="2" fill="url(#sourceFill)" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2"/>
   <text x="38" y="428" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Free from libp2p (no extra code)</text>
   <line x1="20" y1="444" x2="32" y2="444" stroke="#73daca" stroke-width="1.5"/>

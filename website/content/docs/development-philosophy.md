@@ -1,14 +1,14 @@
 ---
 title: "Development Philosophy"
 weight: 11
-description: "The principles, inspirations, and decision-making framework behind peer-up. How the project started, why self-sovereignty matters, and lessons from SuperMesh."
+description: "The principles, inspirations, and decision-making framework behind Shurli. How the project started, why self-sovereignty matters, and lessons from SuperMesh."
 ---
 
-The principles, inspirations, and decision-making framework behind peer-up's development.
+The principles, inspirations, and decision-making framework behind Shurli's development.
 
 ## How it started
 
-peer-up started when Satinder wanted to access OpenClaw from outside his home network. Every alternative meant routing through someone else's infrastructure to reach his own data. Tailscale would have worked, but it requires an online account and the free tier has limits. So he tried a different approach: "I'll just code the simplest silly tool using AI and see if it works." It worked. Features grew naturally from real needs, one at a time. The principles emerged from development conversations, not a predetermined manifesto.
+Shurli started when Satinder wanted to access OpenClaw from outside his home network. Every alternative meant routing through someone else's infrastructure to reach his own data. Tailscale would have worked, but it requires an online account and the free tier has limits. So he tried a different approach: "I'll just code the simplest silly tool using AI and see if it works." It worked. Features grew naturally from real needs, one at a time. The principles emerged from development conversations, not a predetermined manifesto.
 
 For the full origin story, see the [blog post](/blog/development-philosophy/).
 
@@ -16,7 +16,7 @@ For the full origin story, see the [blog post](/blog/development-philosophy/).
 
 ## The founding ethic
 
-Every technical decision in peer-up flows from a moral commitment: if this software breaks, people who depend on it get hurt. Financially, psychologically, and potentially physically. This isn't a quality standard. It's the reason the project exists the way it does.
+Every technical decision in Shurli flows from a moral commitment: if this software breaks, people who depend on it get hurt. Financially, psychologically, and potentially physically. This isn't a quality standard. It's the reason the project exists the way it does.
 
 **In practice:** No silent failures. No data hostage. No trust assumptions. No "good enough" security. The relay is treated as hostile until proven otherwise.
 
@@ -32,7 +32,7 @@ Every technical decision in peer-up flows from a moral commitment: if this softw
 
 ### 2. Two commands from zero
 
-A new user goes from nothing to connected in two commands: `peerup init` and `peerup join <code>`. Everything else is optional. Onboarding friction killed CJDNS and Yggdrasil, so every feature is tested against this constraint.
+A new user goes from nothing to connected in two commands: `shurli init` and `shurli join <code>`. Everything else is optional. Onboarding friction killed CJDNS and Yggdrasil, so every feature is tested against this constraint.
 
 ### 3. Lead with outcomes, not protocol
 
@@ -44,7 +44,7 @@ When the relay is slow, don't optimize the relay. Eliminate the need for it. Whe
 
 ### 5. Let the work speak
 
-Never disparage competitors publicly. Never engage with trolls. Describe what peer-up does. Let users compare. The best response to criticism is better code. This applies to all public content.
+Never disparage competitors publicly. Never engage with trolls. Describe what Shurli does. Let users compare. The best response to criticism is better code. This applies to all public content.
 
 ### 6. Never leave users without options
 
@@ -66,7 +66,7 @@ The [engineering journal](/docs/engineering-journal/), batch system, and post-ph
 
 ### 10. Sovereignty over convenience
 
-peer-up exists for people who choose sovereignty over convenience. No accounts, no cloud dependency, no phone-home, no vendor lock-in.
+Shurli exists for people who choose sovereignty over convenience. No accounts, no cloud dependency, no phone-home, no vendor lock-in.
 
 ---
 
@@ -74,7 +74,7 @@ peer-up exists for people who choose sovereignty over convenience. No accounts, 
 
 After the core principles were established, we recognized strong alignment with Musk's engineering process, what Walter Isaacson called "[the algorithm](https://www.simonandschuster.com/books/Elon-Musk/Walter-Isaacson/9781982181284)", first explained in detail during the [2021 Everyday Astronaut Starbase tour](https://www.youtube.com/watch?v=t705r8ICkRw):
 
-| Step | Musk | peer-up equivalent |
+| Step | Musk | Shurli equivalent |
 |------|------|--------------------|
 | 1. Make requirements less dumb | Question every requirement | Explicit dismissals with documented reasoning |
 | 2. Delete the part | "The best part is no part" | Relay elimination research, removing unnecessary commands |
@@ -90,16 +90,16 @@ After the core principles were established, we recognized strong alignment with 
 
 ### Rejected from Musk
 - **Public combativeness** - rejected as a net-negative use of time and focus. Every hour on public fights is an hour not spent writing better code
-- **"Break things" in production** - peer-up is infrastructure where failure hurts people
+- **"Break things" in production** - Shurli is infrastructure where failure hurts people
 - **Vendor-controlled telemetry** - observability yes, but user-controlled. Data stays on the user's infrastructure, never ours
 
 ---
 
 ## Inspiration: Steve Jobs' design philosophy
 
-Jobs' principles on simplicity, design, and user experience directly shaped the peerup.dev website and documentation strategy.
+Jobs' principles on simplicity, design, and user experience directly shaped the shurli.io website and documentation strategy.
 
-| Jobs Principle | Source | peer-up equivalent |
+| Jobs Principle | Source | Shurli equivalent |
 |---------------|--------|--------------------|
 | "Simple can be harder than complex" | [BusinessWeek, 1998](https://www.bloomberg.com/news/articles/1998-05-25/steve-jobs-theres-sanity-returning) | Two commands from zero |
 | "Design is how it works" | [NYT Magazine, 2003](https://daringfireball.net/linked/2007/01/23/how-it-works) | SVG docs, visual-first communication |
@@ -115,33 +115,33 @@ Jobs' principles on simplicity, design, and user experience directly shaped the 
 - **Detail obsession** - security audits, ADRs, privacy checks on parts nobody sees
 
 ### Rejected from Jobs
-- **Walled garden** - peer-up's agnostic design is the philosophical opposite of Apple's closed ecosystem
-- **Secrecy** - peer-up operates fully in the open (28 ADRs, AI disclosed, blog documenting every batch)
-- **"Users don't know what they want"** - peer-up respects user sovereignty and agency
+- **Walled garden** - Shurli's agnostic design is the philosophical opposite of Apple's closed ecosystem
+- **Secrecy** - Shurli operates fully in the open (28 ADRs, AI disclosed, blog documenting every batch)
+- **"Users don't know what they want"** - Shurli respects user sovereignty and agency
 
 ---
 
 ## The agnostic design principle
 
-This is where peer-up deliberately diverges from both Jobs and Musk.
+This is where Shurli deliberately diverges from both Jobs and Musk.
 
-Jobs said: own everything, lock users in for quality. Musk said: vertically integrate for speed. Both are right in their context. peer-up says: **own the quality, never the user's choices.**
+Jobs said: own everything, lock users in for quality. Musk said: vertically integrate for speed. Both are right in their context. Shurli says: **own the quality, never the user's choices.**
 
 - **No single identity provider** - SSH-style keys today, designed for pluggable identity later
 - **No single relay infrastructure** - run your own, use community relays, or any compatible relay
 - **No single transport** - QUIC, TCP, WebSocket. The stack adapts
 
-As peer-up grows toward mobile apps, web/desktop clients, and SDK/plugin ecosystems, this principle extends to every new integration point. No vendor lock-in. No platform dependency.
+As Shurli grows toward mobile apps, web/desktop clients, and SDK/plugin ecosystems, this principle extends to every new integration point. No vendor lock-in. No platform dependency.
 
-**peer-up is plumbing, not a platform.** Plumbing works with any fixture.
+**Shurli is plumbing, not a platform.** Plumbing works with any fixture.
 
 ---
 
 ## Alignment and divergence
 
-![What peer-up Adopted - and Where It Diverges](/images/philosophy-convergence.svg)
+![What Shurli Adopted - and Where It Diverges](/images/philosophy-convergence.svg)
 
-| Dimension | peer-up | Musk's influence | Jobs' influence | Alignment |
+| Dimension | Shurli | Musk's influence | Jobs' influence | Alignment |
 |-----------|---------|-----------------|-----------------|-----------|
 | Simplicity | Two commands | Delete the part | Simple > complex | Adopted from both |
 | Focus | Explicit dismissals | Challenge requirements | Say no to 1,000 | Adopted from both |
@@ -170,7 +170,7 @@ No principle is sacred. But changing one requires documenting why.
 
 ## AI-assisted development
 
-peer-up is built with AI assistance (Claude, by Anthropic). The architecture, design decisions, and direction come from human judgment. AI helps with code generation, documentation, and systematic analysis.
+Shurli is built with AI assistance (Claude, by Anthropic). The architecture, design decisions, and direction come from human judgment. AI helps with code generation, documentation, and systematic analysis.
 
 We believe in transparency about this. The quality of the code speaks for itself. Every line is reviewed, tested, and shipped with the same rigor regardless of who wrote the first draft.
 

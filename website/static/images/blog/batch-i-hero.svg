@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+  <defs>
+    <linearGradient id="beforeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e1e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a1515;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="afterGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="centerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2840;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141e32;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="30" font-family="system-ui, sans-serif" font-size="16" fill="#c0caf5" text-anchor="middle" font-weight="700">Batch I: Adaptive Path Selection</text>
+  <text x="350" y="50" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">6 components working together to find and maintain the best connection path</text>
+
+  <!-- Left: Before -->
+  <rect x="20" y="70" width="200" height="190" rx="8" fill="url(#beforeGrad)" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="120" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">Before Batch I</text>
+
+  <text x="35" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">DHT discovery: 15s timeout</text>
+  <text x="35" y="140" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Relay fallback: 30s timeout</text>
+  <text x="35" y="160" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Sequential (one after other)</text>
+  <text x="35" y="185" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e">Worst case: 45 seconds</text>
+  <text x="35" y="205" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">No NAT awareness</text>
+  <text x="35" y="225" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">No network change detection</text>
+  <text x="35" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">No path quality tracking</text>
+
+  <!-- Center: Batch I -->
+  <rect x="250" y="70" width="200" height="190" rx="8" fill="url(#centerGrad)" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="350" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Batch I Ships</text>
+
+  <text x="265" y="118" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Interface discovery</text>
+  <text x="265" y="136" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Parallel dial racing</text>
+  <text x="265" y="154" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">STUN NAT detection</text>
+  <text x="265" y="172" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Path quality tracking</text>
+  <text x="265" y="190" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Network change monitor</text>
+  <text x="265" y="208" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Every-peer-is-a-relay</text>
+
+  <text x="350" y="245" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" text-anchor="middle">0 new dependencies</text>
+
+  <!-- Right: After -->
+  <rect x="480" y="70" width="200" height="190" rx="8" fill="url(#afterGrad)" stroke="#73daca" stroke-width="1.5"/>
+  <text x="580" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" text-anchor="middle" font-weight="600">After Batch I</text>
+
+  <text x="495" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">Connect: 3-10s typical</text>
+  <text x="495" y="140" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">Direct IPv6: 7-22ms</text>
+  <text x="495" y="160" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">Auto relay on public IP</text>
+  <text x="495" y="185" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Reachability grades A-F</text>
+  <text x="495" y="205" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">CGNAT honest detection</text>
+  <text x="495" y="225" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Graceful degradation</text>
+  <text x="580" y="250" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Tested on 4 networks</text>
+
+  <!-- Connecting arrows -->
+  <line x1="220" y1="165" x2="250" y2="165" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="450" y1="165" x2="480" y2="165" stroke="#414868" stroke-width="1" stroke-dasharray="4,3"/>
+  <polygon points="247,162 253,165 247,168" fill="#414868"/>
+  <polygon points="477,162 483,165 477,168" fill="#414868"/>
+</svg>

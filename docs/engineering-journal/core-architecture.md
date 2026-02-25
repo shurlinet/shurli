@@ -6,7 +6,7 @@ Foundational technology choices made before the batch system.
 
 ### ADR-001: Why Go
 
-**Context**: peer-up needs to compile to a single static binary, run on Linux/macOS/Windows, and interface with libp2p (which has mature Go and Rust implementations).
+**Context**: Shurli needs to compile to a single static binary, run on Linux/macOS/Windows, and interface with libp2p (which has mature Go and Rust implementations).
 
 **Alternatives considered**:
 - **Rust** - Better memory safety guarantees, smaller binaries. Rejected because rust-libp2p has less mature circuit relay v2 support, and compile times would slow iteration during early development.
@@ -16,13 +16,13 @@ Foundational technology choices made before the batch system.
 
 **Consequences**: Larger binary size (~28MB stripped) compared to Rust. Accepted because distribution simplicity outweighs binary size for a CLI tool. Binary size is actively monitored and optimized (see `binary-optimization` practices).
 
-**Reference**: `go.mod`, `cmd/peerup/main.go`
+**Reference**: `go.mod`, `cmd/shurli/main.go`
 
 ---
 
 ### ADR-002: Why libp2p (Not Raw QUIC, Not WireGuard)
 
-**Context**: peer-up needs NAT traversal, encrypted transport, peer discovery, and circuit relay. Building these from scratch would take years.
+**Context**: Shurli needs NAT traversal, encrypted transport, peer discovery, and circuit relay. Building these from scratch would take years.
 
 **Alternatives considered**:
 - **Raw QUIC + custom protocol** - Full control, smaller dependency tree. Rejected because we'd need to implement hole punching, relay, DHT, and peer routing from scratch.
@@ -37,18 +37,18 @@ Foundational technology choices made before the batch system.
 
 ---
 
-### ADR-003: Why Private DHT `/peerup/kad/1.0.0`
+### ADR-003: Why Private DHT `/shurli/kad/1.0.0`
 
-**Context**: Initially used the public IPFS Amino DHT (`/ipfs/kad/1.0.0`). This worked but mixed peerup peers into the global IPFS routing table, leaking peer discovery to the public network.
+**Context**: Initially used the public IPFS Amino DHT (`/ipfs/kad/1.0.0`). This worked but mixed shurli peers into the global IPFS routing table, leaking peer discovery to the public network.
 
 **Alternatives considered**:
-- **Keep IPFS Amino DHT** - Zero config, large bootstrap. Rejected because (a) privacy: peerup peers are discoverable by anyone on IPFS, (b) pollution: peerup's rendezvous strings pollute the global DHT, (c) reliability: depends on IPFS bootstrap nodes staying healthy.
+- **Keep IPFS Amino DHT** - Zero config, large bootstrap. Rejected because (a) privacy: shurli peers are discoverable by anyone on IPFS, (b) pollution: shurli's rendezvous strings pollute the global DHT, (c) reliability: depends on IPFS bootstrap nodes staying healthy.
 - **No DHT, relay-only** - Simpler. Rejected because DHT enables peer discovery without centralized infrastructure.
 - **mDNS only** - Local network discovery. Rejected because it doesn't work across networks.
 
-**Decision**: Private Kademlia DHT with protocol prefix `/peerup/kad/1.0.0` (constant `p2pnet.DHTProtocolPrefix`). Peerup peers only discover and route to other peerup peers.
+**Decision**: Private Kademlia DHT with protocol prefix `/shurli/kad/1.0.0` (constant `p2pnet.DHTProtocolPrefix`). Shurli peers only discover and route to other shurli peers.
 
-**Consequences**: Smaller routing table (only peerup peers), no IPFS bootstrap dependency, but requires at least one known peer (relay) to bootstrap into the DHT.
+**Consequences**: Smaller routing table (only shurli peers), no IPFS bootstrap dependency, but requires at least one known peer (relay) to bootstrap into the DHT.
 
 **Reference**: `pkg/p2pnet/network.go:27` (`DHTProtocolPrefix` constant), commit `d1d4336`
 
@@ -56,7 +56,7 @@ Foundational technology choices made before the batch system.
 
 ### ADR-004: Why Circuit Relay v2
 
-**Context**: Users behind CGNAT (5G, carrier-grade NAT, double NAT) cannot receive inbound connections. This is the core problem peer-up solves.
+**Context**: Users behind CGNAT (5G, carrier-grade NAT, double NAT) cannot receive inbound connections. This is the core problem Shurli solves.
 
 **Alternatives considered**:
 - **UPnP/NAT-PMP only** - Works for simple NAT, fails on CGNAT. Rejected as sole strategy.
@@ -73,7 +73,7 @@ Foundational technology choices made before the batch system.
 
 ### ADR-005: Why Connection Gating via `authorized_keys`
 
-**Context**: peer-up networks are private. Only explicitly authorized peers should connect. Needed an SSH-like trust model.
+**Context**: Shurli networks are private. Only explicitly authorized peers should connect. Needed an SSH-like trust model.
 
 **Alternatives considered**:
 - **Certificate authority** - More scalable, supports expiration. Rejected because it requires PKI infrastructure (CA key management, certificate issuance), which contradicts "no central authority."
@@ -90,23 +90,23 @@ Foundational technology choices made before the batch system.
 
 ### ADR-006: Why Single Binary with Subcommands
 
-**Context**: peer-up has many functions: daemon, ping, proxy, config management, relay server (separate binary). Needed a clean CLI structure.
+**Context**: Shurli has many functions: daemon, ping, proxy, config management, relay server (separate binary). Needed a clean CLI structure.
 
 **Alternatives considered**:
-- **Separate binaries per function** - `peerup-daemon`, `peerup-ping`, etc. Rejected because it complicates distribution and PATH management.
+- **Separate binaries per function** - `shurli-daemon`, `shurli-ping`, etc. Rejected because it complicates distribution and PATH management.
 - **cobra/urfave CLI framework** - Feature-rich. Rejected because they add dependency weight and complexity for what's essentially a dispatch table. Standard library `flag` + manual dispatch is lighter and fully sufficient.
 
-**Decision**: Single `peerup` binary using `os.Args[1]` dispatch (`cmd/peerup/main.go`) with standard library `flag` for each subcommand. Relay server is a separate binary (`cmd/relay-server/`) because it has different deployment concerns (VPS vs local machine).
+**Decision**: Single `shurli` binary using `os.Args[1]` dispatch (`cmd/shurli/main.go`) with standard library `flag` for each subcommand. Relay server is a separate binary (`cmd/relay-server/`) because it has different deployment concerns (VPS vs local machine).
 
 **Consequences**: The binary includes all functionality, so it's slightly larger than specialized binaries would be. Accepted because single-binary deployment is a core principle - `curl install | sh` drops one file.
 
-**Reference**: `cmd/peerup/main.go`
+**Reference**: `cmd/shurli/main.go`
 
 ---
 
 ### ADR-007: Why YAML Config
 
-**Context**: peer-up needs configuration for identity, network, relay, discovery, security, services, and names. Needed a human-readable, editable format.
+**Context**: Shurli needs configuration for identity, network, relay, discovery, security, services, and names. Needed a human-readable, editable format.
 
 **Alternatives considered**:
 - **TOML** - Good for flat config. Rejected because nested structures (services map, relay addresses) are more natural in YAML.
@@ -116,15 +116,15 @@ Foundational technology choices made before the batch system.
 
 **Decision**: YAML via `gopkg.in/yaml.v3`. Single config file with versioning (`version: 1`), duration strings (`10m`, `1h`), and relative path resolution.
 
-**Consequences**: YAML is sensitive to indentation, which can confuse users. Mitigated by: (a) `peerup init` generates valid config automatically, (b) `peerup config validate` catches syntax errors, (c) config templates in `config_template.go` ensure consistency.
+**Consequences**: YAML is sensitive to indentation, which can confuse users. Mitigated by: (a) `shurli init` generates valid config automatically, (b) `shurli config validate` catches syntax errors, (c) config templates in `config_template.go` ensure consistency.
 
-**Reference**: `internal/config/types.go`, `internal/config/loader.go`, `cmd/peerup/config_template.go`
+**Reference**: `internal/config/types.go`, `internal/config/loader.go`, `cmd/shurli/config_template.go`
 
 ---
 
 ### ADR-008: Why No External Dependencies Beyond libp2p
 
-**Context**: Every dependency is an attack surface, a binary size cost, and a maintenance burden. peer-up is infrastructure software.
+**Context**: Every dependency is an attack surface, a binary size cost, and a maintenance burden. Shurli is infrastructure software.
 
 **Alternatives considered**: N/A - this is a constraint, not a choice between options.
 

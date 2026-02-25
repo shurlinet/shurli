@@ -48,7 +48,7 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 
 **Consequences**: First connection to a peer may be slow (DHT walk + relay reservation). Subsequent connections reuse the existing link. This is the correct behavior - find the peer, then talk to them.
 
-**Reference**: `cmd/peerup/serve_common.go` (`ConnectToPeer` method), `internal/daemon/handlers.go:338`
+**Reference**: `cmd/shurli/serve_common.go` (`ConnectToPeer` method), `internal/daemon/handlers.go:338`
 
 ---
 

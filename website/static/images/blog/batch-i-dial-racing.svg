@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+  <!-- Background -->
+  <rect width="700" height="280" rx="12" fill="#0f1117"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="700">Dial Racing: Sequential vs Parallel</text>
+
+  <!-- BEFORE section -->
+  <text x="60" y="60" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" font-weight="600">Before (Sequential)</text>
+
+  <!-- Timeline bar background -->
+  <rect x="60" y="72" width="580" height="40" rx="4" fill="#1a1b26"/>
+
+  <!-- DHT block (15s) -->
+  <rect x="60" y="74" width="193" height="36" rx="4" fill="#3a1e1e" stroke="#f7768e" stroke-width="1"/>
+  <text x="156" y="96" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle">DHT Discovery (15s timeout)</text>
+
+  <!-- Wait arrow -->
+  <text x="260" y="96" font-family="system-ui, sans-serif" font-size="10" fill="#565f89">then</text>
+
+  <!-- Relay block (30s) -->
+  <rect x="290" y="74" width="350" height="36" rx="4" fill="#3a2a1e" stroke="#e0af68" stroke-width="1"/>
+  <text x="465" y="96" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" text-anchor="middle">Relay Fallback (30s timeout)</text>
+
+  <!-- Total -->
+  <text x="350" y="128" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">Worst case: 45 seconds</text>
+
+  <!-- AFTER section -->
+  <text x="60" y="160" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" font-weight="600">After (Parallel Racing)</text>
+
+  <!-- Two parallel tracks -->
+  <rect x="60" y="172" width="580" height="68" rx="4" fill="#1a1b26"/>
+
+  <!-- DHT track -->
+  <rect x="62" y="174" width="180" height="28" rx="4" fill="#1e3a2f" stroke="#73daca" stroke-width="1"/>
+  <text x="152" y="192" font-family="system-ui, sans-serif" font-size="9" fill="#73daca" text-anchor="middle">DHT Discovery</text>
+
+  <!-- Relay track -->
+  <rect x="62" y="208" width="120" height="28" rx="4" fill="#1e2a3a" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="122" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" text-anchor="middle">Relay Connect</text>
+
+  <!-- Winner indicator -->
+  <line x1="182" y1="222" x2="210" y2="222" stroke="#9ece6a" stroke-width="2"/>
+  <polygon points="207,218 215,222 207,226" fill="#9ece6a"/>
+  <text x="220" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" font-weight="600">FIRST WINS</text>
+
+  <!-- Cancelled indicator on DHT -->
+  <line x1="242" y1="186" x2="270" y2="186" stroke="#f7768e" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="275" y="190" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">cancelled</text>
+
+  <!-- Connected box -->
+  <rect x="340" y="190" width="140" height="30" rx="6" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="410" y="209" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">Connected</text>
+
+  <!-- Path classification -->
+  <text x="500" y="200" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Path: DIRECT</text>
+  <text x="500" y="215" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Transport: QUIC</text>
+
+  <!-- Total -->
+  <text x="350" y="262" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" text-anchor="middle" font-weight="600">Typical: 3-10 seconds (first path wins)</text>
+</svg>

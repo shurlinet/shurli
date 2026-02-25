@@ -12,17 +12,17 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 ### ADR-I01: Interface Discovery with IPv6/IPv4 Classification
 
-**Context**: peer-up needs to know what network interfaces are available to make intelligent connection decisions. Without interface awareness, the system cannot distinguish between IPv4-only, IPv6-only, or dual-stack hosts.
+**Context**: Shurli needs to know what network interfaces are available to make intelligent connection decisions. Without interface awareness, the system cannot distinguish between IPv4-only, IPv6-only, or dual-stack hosts.
 
 **Alternatives considered**:
 - **Rely on libp2p's address reporting** - libp2p reports listen addresses but doesn't classify them by interface or IP version. Insufficient for path ranking decisions.
 - **Platform-specific APIs** (macOS SCDynamicStore, Linux netlink) - More detailed but requires platform-specific code for a cross-platform tool.
 
-**Decision**: `DiscoverInterfaces()` in `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+**Decision**: `DiscoverInterfaces()` in `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
 **Consequences**: Cross-platform (Go stdlib). Slightly less detailed than platform-native APIs but sufficient for path ranking. Prometheus `interface_count` gauge tracks interface availability.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/interfaces.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/interfaces_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/interfaces.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/interfaces_test.go`
 
 ---
 
@@ -39,13 +39,13 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Connection time drops from 45s worst-case to the faster of DHT or relay (typically 3-10s). Slightly more goroutines spawned per connection attempt, but context cancellation ensures clean cleanup.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/pathdialer.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/pathdialer_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/pathdialer.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/pathdialer_test.go`
 
 ---
 
 ### ADR-I03: Event-Driven Path Quality Tracking
 
-**Context**: Once connected, peer-up needs to know the quality of each connection path (direct vs relayed, transport type, IP version) for monitoring and future path switching decisions.
+**Context**: Once connected, Shurli needs to know the quality of each connection path (direct vs relayed, transport type, IP version) for monitoring and future path switching decisions.
 
 **Alternatives considered**:
 - **Periodic polling** - Poll connection state on a timer. Wasteful and misses transient changes.
@@ -55,13 +55,13 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Zero polling overhead. Event-driven means path info updates immediately on connection state changes. Adds a dependency on libp2p's event bus API stability.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/pathtracker.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/pathtracker_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/pathtracker.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/pathtracker_test.go`
 
 ---
 
 ### ADR-I04: Network Change Monitoring (Polling with Diff)
 
-**Context**: When a user switches WiFi networks, gains/loses a cellular connection, or plugs in Ethernet, peer-up should detect the change and re-evaluate connection paths.
+**Context**: When a user switches WiFi networks, gains/loses a cellular connection, or plugs in Ethernet, Shurli should detect the change and re-evaluate connection paths.
 
 **Alternatives considered**:
 - **macOS SCDynamicStore + Linux Netlink** - Platform-native, truly event-driven, zero polling. More code, platform-specific build tags, harder to test.
@@ -71,23 +71,23 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Polling introduces a detection delay (up to the poll interval). Acceptable because network changes are rare events and the poll interval is configurable. Platform-native event-driven detection can be added later as an optimization without changing the callback API.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/netmonitor.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/netmonitor_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/netmonitor.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/netmonitor_test.go`
 
 ---
 
 ### ADR-I05: Zero-Dependency STUN Client (RFC 5389)
 
-**Context**: To classify NAT type and discover external addresses for hole-punching, peer-up needs STUN probing. Existing Go STUN libraries (pion/stun) would add a new dependency.
+**Context**: To classify NAT type and discover external addresses for hole-punching, Shurli needs STUN probing. Existing Go STUN libraries (pion/stun) would add a new dependency.
 
 **Alternatives considered**:
 - **pion/stun** - Mature, widely used. Rejected because it pulls in the entire pion dependency tree (already have pion/dtls as a transitive dep of libp2p, but adding pion/stun directly increases attack surface and binary size).
 - **Skip STUN entirely** - Rely on AutoNAT v2 only. AutoNAT gives reachability but not NAT type classification (full-cone vs symmetric matters for hole-punch prediction).
 
-**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
+**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
 
 **Consequences**: Zero new dependencies. Binary size unchanged. The STUN client only implements Binding Request (the simplest STUN transaction). Does NOT implement TURN or ICE. Runs in background at startup (non-blocking) and re-probes on network change.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/stunprober.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/stunprober_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/stunprober.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/stunprober_test.go`
 
 ---
 
@@ -104,4 +104,4 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Peers behind NAT never become relays (correct). Peers with public IPs silently become relays for their authorized peers. The conservative limits prevent resource exhaustion on home machines. DHT-based relay discovery (so peers can find each other's relays) is deferred to Post-I.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/peerrelay.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/peerrelay_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/peerrelay.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/peerrelay_test.go`

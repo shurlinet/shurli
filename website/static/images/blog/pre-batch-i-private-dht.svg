@@ -13,7 +13,7 @@
 
   <!-- Protocol prefix -->
   <rect x="55" y="110" width="290" height="24" rx="4" fill="#1e2740" stroke="#3d59a1" stroke-width="0.5"/>
-  <text x="200" y="127" text-anchor="middle" fill="#73daca" font-family="ui-monospace,monospace" font-size="10">/peerup/kad/1.0.0</text>
+  <text x="200" y="127" text-anchor="middle" fill="#73daca" font-family="ui-monospace,monospace" font-size="10">/shurli/kad/1.0.0</text>
 
   <!-- Nodes in global network -->
   <circle cx="100" cy="185" r="22" fill="#1e2740" stroke="#7aa2f7" stroke-width="1"/>
@@ -47,7 +47,7 @@
 
   <!-- Protocol prefix -->
   <rect x="455" y="110" width="290" height="24" rx="4" fill="#2a1e3a" stroke="#5a4a78" stroke-width="0.5"/>
-  <text x="600" y="127" text-anchor="middle" fill="#bb9af7" font-family="ui-monospace,monospace" font-size="10">/peerup/my-crew/kad/1.0.0</text>
+  <text x="600" y="127" text-anchor="middle" fill="#bb9af7" font-family="ui-monospace,monospace" font-size="10">/shurli/my-crew/kad/1.0.0</text>
 
   <!-- Nodes in private network -->
   <circle cx="510" cy="185" r="22" fill="#2a1e3a" stroke="#bb9af7" stroke-width="1"/>

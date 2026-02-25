@@ -1,13 +1,13 @@
 # Testing Guide: SSH Access via P2P Network
 
-This guide walks through testing the complete peer-up system with SSH service exposure.
+This guide walks through testing the complete Shurli system with SSH service exposure.
 
 ## Goal
 
 Connect to your home computer's SSH server from a client device (laptop/phone) through the P2P network, traversing CGNAT/NAT using a relay server.
 
 ```
-[Client]  ──peerup proxy──▶  [Relay Server]  ◀──peerup daemon──  [Home Server]  ──TCP──▶  [SSH :22]
+[Client]  ──shurli proxy──▶  [Relay Server]  ◀──shurli daemon──  [Home Server]  ──TCP──▶  [SSH :22]
  (Laptop)                       (VPS)                         (Behind CGNAT)
 ```
 
@@ -16,8 +16,8 @@ Connect to your home computer's SSH server from a client device (laptop/phone) t
 ### 1. Three Machines/Terminals
 
 - **Relay Server**: VPS with public IP (Linode, DigitalOcean, AWS, etc.)
-- **Home Server**: Your home computer behind CGNAT/NAT (runs `peerup daemon`)
-- **Client**: Laptop or another device (runs `peerup proxy`)
+- **Home Server**: Your home computer behind CGNAT/NAT (runs `shurli daemon`)
+- **Client**: Laptop or another device (runs `shurli proxy`)
 
 ### 2. SSH Server Running
 
@@ -32,11 +32,11 @@ sudo systemctl start sshd
 # macOS - enable in System Preferences > Sharing > Remote Login
 ```
 
-### 3. Build peerup
+### 3. Build shurli
 
 ```bash
-# Build peerup (single binary - handles both client and relay server)
-go build -ldflags="-s -w" -trimpath -o peerup ./cmd/peerup
+# Build shurli (single binary - handles both client and relay server)
+go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 ```
 
 ---
@@ -54,8 +54,8 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 
 # Build from project root
 cd ..
-go build -ldflags="-s -w" -trimpath -o relay-server/peerup ./cmd/peerup
-cd relay-server && ./peerup relay serve
+go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+cd relay-server && ./shurli relay serve
 ```
 
 **Expected output:**
@@ -79,11 +79,11 @@ cd relay-server && ./peerup relay serve
 ### Run the setup wizard
 
 ```bash
-./peerup init
+./shurli init
 ```
 
 The wizard will:
-1. Create `~/.config/peerup/` directory
+1. Create `~/.config/shurli/` directory
 2. Ask for your relay server address (accepts flexible formats):
    - Full multiaddr: `/ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...`
    - IP and port: `1.2.3.4:7777` (then prompts for peer ID)
@@ -93,7 +93,7 @@ The wizard will:
 4. Display your **Peer ID** as text + QR code (share with peers)
 5. Write `config.yaml`, `identity.key`, and `authorized_keys`
 
-**Tip**: Check your peer ID anytime with `./peerup whoami`
+**Tip**: Check your peer ID anytime with `./shurli whoami`
 
 ### Configure services
 
@@ -101,10 +101,10 @@ Add services via CLI (preferred) or by editing the config file:
 
 ```bash
 # Add via CLI
-./peerup service add ssh localhost:22
-./peerup service add xrdp localhost:3389
+./shurli service add ssh localhost:22
+./shurli service add xrdp localhost:3389
 
-# Or edit ~/.config/peerup/config.yaml directly
+# Or edit ~/.config/shurli/config.yaml directly
 ```
 
 Ensure `force_private_reachability` is set for CGNAT:
@@ -117,16 +117,16 @@ network:
 ### Start the server
 
 ```bash
-./peerup daemon
+./shurli daemon
 ```
 
 **Expected output:**
 ```
-Loaded configuration from ~/.config/peerup/config.yaml
+Loaded configuration from ~/.config/shurli/config.yaml
 🏠 Peer ID: 12D3KooWHOME...ABC
 ✅ Connected to relay 12D3KooWABC...
 ✅ Relay address: /ip4/YOUR_VPS_IP/tcp/7777/p2p/12D3KooWABC.../p2p-circuit/p2p/12D3KooWHOME...ABC
-✅ Registered service: ssh (protocol: /peerup/ssh/1.0.0, local: localhost:22)
+✅ Registered service: ssh (protocol: /shurli/ssh/1.0.0, local: localhost:22)
 ```
 
 **Save the Home Server Peer ID**: `12D3KooWHOME...ABC`
@@ -138,7 +138,7 @@ Loaded configuration from ~/.config/peerup/config.yaml
 ### Run the setup wizard
 
 ```bash
-./peerup init
+./shurli init
 ```
 
 ### Authorize peers
@@ -147,13 +147,13 @@ Loaded configuration from ~/.config/peerup/config.yaml
 
 On the home server:
 ```bash
-./peerup invite --name home
+./shurli invite --name home
 # Displays an invite code + QR code. Share the code with the client.
 ```
 
 On the client:
 ```bash
-./peerup join <invite-code> --name laptop
+./shurli join <invite-code> --name laptop
 # Automatically: connects to inviter, exchanges peer IDs,
 # adds each other to authorized_keys, adds name mapping.
 ```
@@ -162,29 +162,29 @@ On the client:
 
 On the client, add the home server's peer ID:
 ```bash
-./peerup auth add 12D3KooWHOME...ABC --comment "home-server"
+./shurli auth add 12D3KooWHOME...ABC --comment "home-server"
 ```
 
 Do the same on the home server - add the client's peer ID:
 ```bash
-./peerup auth add 12D3KooWCLIENT...XYZ --comment "laptop"
+./shurli auth add 12D3KooWCLIENT...XYZ --comment "laptop"
 ```
 
 Verify with:
 ```bash
-./peerup auth list
+./shurli auth list
 ```
 
 **Option C: Manual file edit**
 ```bash
-# Edit ~/.config/peerup/authorized_keys
+# Edit ~/.config/shurli/authorized_keys
 # Add the peer ID (one per line):
 12D3KooWHOME...ABC  # home-server
 ```
 
 ### Add friendly name
 
-If you used the invite/join flow, names are added automatically. Otherwise, edit `~/.config/peerup/config.yaml` on the client:
+If you used the invite/join flow, names are added automatically. Otherwise, edit `~/.config/shurli/config.yaml` on the client:
 
 ```yaml
 # Map friendly names to peer IDs:
@@ -199,7 +199,7 @@ names:
 ### Test connectivity first
 
 ```bash
-./peerup ping home
+./shurli ping home
 ```
 
 You should see a successful ping/pong response.
@@ -207,7 +207,7 @@ You should see a successful ping/pong response.
 ### Start the SSH proxy
 
 ```bash
-./peerup proxy home ssh 2222
+./shurli proxy home ssh 2222
 ```
 
 This creates a local TCP listener on port 2222 that tunnels through the P2P network to the home server's SSH service.
@@ -240,10 +240,10 @@ services:
     local_address: "localhost:3389"
 ```
 
-Restart `peerup daemon`, then on the client:
+Restart `shurli daemon`, then on the client:
 
 ```bash
-./peerup proxy home xrdp 13389
+./shurli proxy home xrdp 13389
 # Then connect:
 xfreerdp /v:localhost:13389 /u:your_username
 ```
@@ -258,7 +258,7 @@ services:
 ```
 
 ```bash
-./peerup proxy home web 8080
+./shurli proxy home web 8080
 # Then: curl http://localhost:8080
 ```
 
@@ -270,15 +270,15 @@ After initial setup, you can add or remove relay servers:
 
 ```bash
 # Add a relay (flexible formats)
-./peerup relay add 1.2.3.4 --peer-id 12D3KooW...
-./peerup relay add 1.2.3.4:7777 --peer-id 12D3KooW...
-./peerup relay add /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...
+./shurli relay add 1.2.3.4 --peer-id 12D3KooW...
+./shurli relay add 1.2.3.4:7777 --peer-id 12D3KooW...
+./shurli relay add /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...
 
 # List configured relays
-./peerup relay list
+./shurli relay list
 
 # Remove a relay
-./peerup relay remove /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...
+./shurli relay remove /ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...
 ```
 
 ### Relay health check
@@ -324,7 +324,7 @@ Failed to connect to SSH service: protocol not supported
 **Fix:**
 - Verify `services.ssh.enabled: true` in home server config
 - Check server logs for "Registered service: ssh"
-- Ensure SSH protocol ID matches: `/peerup/ssh/1.0.0`
+- Ensure SSH protocol ID matches: `/shurli/ssh/1.0.0`
 
 ### Connection Refused on localhost:22
 
@@ -345,7 +345,7 @@ Cannot resolve target "home"
 
 **Fix:**
 - Add name mapping to `names:` section in client config
-- Or use the full peer ID directly: `peerup proxy 12D3KooW... ssh 2222`
+- Or use the full peer ID directly: `shurli proxy 12D3KooW... ssh 2222`
 
 ### Discovery Not Working
 
@@ -364,8 +364,8 @@ Cannot resolve target "home"
 
 - [ ] Relay server running and accessible
 - [ ] Home server gets relay address with `/p2p-circuit`
-- [ ] `peerup ping home` succeeds from client
-- [ ] `peerup proxy home ssh 2222` creates local listener
+- [ ] `shurli ping home` succeeds from client
+- [ ] `shurli proxy home ssh 2222` creates local listener
 - [ ] `ssh -p 2222 user@localhost` connects to home computer
 - [ ] XRDP / other TCP services also work
 
@@ -373,7 +373,7 @@ Cannot resolve target "home"
 
 ## Unit Tests
 
-peer-up has automated unit tests for core packages. These run in CI (GitHub Actions) on every push.
+Shurli has automated unit tests for core packages. These run in CI (GitHub Actions) on every push.
 
 ### Running Tests
 
@@ -387,7 +387,7 @@ go test -race -count=1 ./...
 go test -race ./internal/config/
 go test -race ./internal/auth/
 go test -race ./internal/invite/
-go test -race ./cmd/peerup/
+go test -race ./cmd/shurli/
 
 # Verbose output (see individual test names)
 go test -race -v ./internal/auth/
@@ -407,7 +407,7 @@ go test -race -v ./internal/auth/
 | `internal/identity` | `identity_test.go` | Key creation, persistence, file permissions, PeerIDFromKeyFile |
 | `internal/validate` | `service_test.go` | Service name validation (valid/invalid cases, max length) |
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
-| `cmd/peerup` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
+| `cmd/shurli` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
 | `pkg/p2pnet` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
 | `pkg/p2pnet` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
 | `pkg/p2pnet` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
@@ -461,7 +461,7 @@ Docker integration tests exercise the actual compiled binary end-to-end (relay s
 ```bash
 # Run Docker tests with coverage collection
 mkdir -p coverage/integration
-PEERUP_COVDIR="$PWD/coverage/integration" \
+SHURLI_COVDIR="$PWD/coverage/integration" \
   go test -tags integration -v -timeout 5m ./test/docker/
 
 # Run unit tests with binary-format coverage (for merging)

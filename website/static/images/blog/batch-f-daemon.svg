@@ -9,7 +9,7 @@
   <!-- Central daemon process -->
   <circle cx="600" cy="200" r="60" fill="none" stroke="#7aa2f7" stroke-width="2" opacity="0.6"/>
   <circle cx="600" cy="200" r="45" fill="none" stroke="#7aa2f7" stroke-width="1" opacity="0.3"/>
-  <text x="600" y="195" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7" text-anchor="middle" font-weight="600">peerup</text>
+  <text x="600" y="195" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7" text-anchor="middle" font-weight="600">shurli</text>
   <text x="600" y="213" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7" text-anchor="middle" opacity="0.7">daemon</text>
   <!-- Unix socket - line from daemon to socket icon -->
   <line x1="540" y1="200" x2="380" y2="200" stroke="#bb9af7" stroke-width="2" opacity="0.5"/>

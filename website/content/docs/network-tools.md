@@ -6,7 +6,7 @@ description: "P2P network diagnostic commands: ping, traceroute, and resolve. Wo
 <!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs - do not edit directly -->
 
 
-peer-up provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
+Shurli provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
 
 ## Table of Contents
 
@@ -25,10 +25,10 @@ P2P `ping` - measures round-trip time and connection path to a peer.
 
 ```bash
 # Standalone (creates temp host, pings, exits)
-peerup ping <peer> [-c N] [--interval 1s] [--json] [--config path]
+shurli ping <peer> [-c N] [--interval 1s] [--json] [--config path]
 
 # Via daemon (reuses existing host - faster)
-peerup daemon ping <peer> [-c N] [--interval 1s] [--json]
+shurli daemon ping <peer> [-c N] [--interval 1s] [--json]
 ```
 
 ### Behavior
@@ -88,7 +88,7 @@ When disabled, the peer doesn't register the ping-pong stream handler. Pings wil
 
 ### How It Works
 
-1. Open a libp2p stream to the target peer using the ping-pong protocol (`/peerup/ping/1.0.0`)
+1. Open a libp2p stream to the target peer using the ping-pong protocol (`/shurli/ping/1.0.0`)
 2. Send `"ping\n"` on the stream
 3. Wait for `"pong\n"` response
 4. Measure round-trip time
@@ -104,12 +104,12 @@ P2P `traceroute` - shows the network path to a peer with per-hop latency.
 
 ```bash
 # Standalone
-peerup traceroute <peer> [--json] [--config path]
+shurli traceroute <peer> [--json] [--config path]
 
 # Via daemon API
-curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
+curl -X POST -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
      -d '{"peer":"home-server"}' \
-     --unix-socket ~/.config/peerup/peerup.sock \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/traceroute
 ```
 
@@ -164,12 +164,12 @@ P2P `nslookup` - resolves peer names to peer IDs.
 
 ```bash
 # Standalone (no network needed)
-peerup resolve <name> [--json] [--config path]
+shurli resolve <name> [--json] [--config path]
 
 # Via daemon API
-curl -X POST -H "Authorization: Bearer $(cat ~/.config/peerup/.daemon-cookie)" \
+curl -X POST -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
      -d '{"name":"home-server"}' \
-     --unix-socket ~/.config/peerup/peerup.sock \
+     --unix-socket ~/.config/shurli/shurli.sock \
      http://localhost/v1/resolve
 ```
 
@@ -218,8 +218,8 @@ All network tools work in two modes:
 
 | Mode | Command | Speed | When to Use |
 |------|---------|-------|-------------|
-| Standalone | `peerup ping home-server` | Slower (creates temp host, bootstraps DHT) | One-off diagnostics, daemon not running |
-| Daemon | `peerup daemon ping home-server` | Faster (reuses existing host + connections) | Repeated diagnostics, scripting |
+| Standalone | `shurli ping home-server` | Slower (creates temp host, bootstraps DHT) | One-off diagnostics, daemon not running |
+| Daemon | `shurli daemon ping home-server` | Faster (reuses existing host + connections) | Repeated diagnostics, scripting |
 
 ### Standalone Startup
 
@@ -246,13 +246,13 @@ Both modes use the same underlying functions:
 
 ## System Utility Comparison
 
-| System Tool | peer-up Equivalent | What It Does |
+| System Tool | Shurli Equivalent | What It Does |
 |-------------|-------------------|--------------|
-| `ping` | `peerup ping` | Measure RTT to a peer |
-| `traceroute` | `peerup traceroute` | Show path to a peer (direct vs relay) |
-| `nslookup` / `dig` | `peerup resolve` | Resolve name to peer ID |
-| `ss` / `netstat` | `peerup daemon peers` | Show connected peers |
-| `systemctl status` | `peerup daemon status` | Show daemon status |
+| `ping` | `shurli ping` | Measure RTT to a peer |
+| `traceroute` | `shurli traceroute` | Show path to a peer (direct vs relay) |
+| `nslookup` / `dig` | `shurli resolve` | Resolve name to peer ID |
+| `ss` / `netstat` | `shurli daemon peers` | Show connected peers |
+| `systemctl status` | `shurli daemon status` | Show daemon status |
 
 ---
 

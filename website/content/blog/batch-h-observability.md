@@ -3,7 +3,7 @@ title: "Prometheus Metrics and Audit Logging"
 date: 2026-02-21
 tags: [release, batch-h]
 image: /images/blog/batch-h-observability.svg
-description: "Opt-in Prometheus metrics endpoint, custom peerup metrics, structured audit logging, and free libp2p built-in metrics. Zero overhead when disabled."
+description: "Opt-in Prometheus metrics endpoint, custom shurli metrics, structured audit logging, and free libp2p built-in metrics. Zero overhead when disabled."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
@@ -13,7 +13,7 @@ authors:
 
 ## What's new
 
-peer-up now exposes a Prometheus `/metrics` endpoint and structured audit logging. Both are opt-in, disabled by default, with zero overhead when off. Enable them in your config:
+Shurli now exposes a Prometheus `/metrics` endpoint and structured audit logging. Both are opt-in, disabled by default, with zero overhead when off. Enable them in your config:
 
 ```yaml
 telemetry:
@@ -26,7 +26,7 @@ telemetry:
 
 ## Why it matters
 
-You can't fix what you can't measure. Before Batch H, the only way to understand what peer-up was doing was reading log output. Now you can track proxy throughput, auth decisions, hole punch success rates, and API latency with any Prometheus-compatible tool.
+You can't fix what you can't measure. Before Batch H, the only way to understand what Shurli was doing was reading log output. Now you can track proxy throughput, auth decisions, hole punch success rates, and API latency with any Prometheus-compatible tool.
 
 This is also the foundation for Batch I (Adaptive Path Selection). Smart path decisions need connection quality data, and the metrics pipeline provides it.
 
@@ -34,7 +34,7 @@ This is also the foundation for Batch I (Adaptive Path Selection). Smart path de
 
 ![Observability data flow - from metric sources through Prometheus registry to /metrics endpoint](/images/docs/observability-flow.svg)
 
-### 10 custom peerup metrics
+### 10 custom shurli metrics
 
 - **Proxy**: bytes transferred, connections established, active sessions, session duration (per service)
 - **Auth**: allow/deny decision counts
@@ -56,7 +56,7 @@ Auth decisions, service ACL denials, API access, and auth changes are logged as 
 
 ### Why Prometheus, not OpenTelemetry
 
-The original roadmap said "OpenTelemetry integration." Research showed this was the wrong choice for peer-up:
+The original roadmap said "OpenTelemetry integration." Research showed this was the wrong choice for Shurli:
 
 1. libp2p v0.47.0 emits metrics natively via `prometheus/client_golang`, not OTel
 2. Adding the OTel SDK would add ~4MB to the binary
@@ -74,7 +74,7 @@ The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can for
 
 ### Grafana dashboard included
 
-A pre-built Grafana dashboard ships in `grafana/peerup-dashboard.json`. Import it into any Grafana instance to get 29 panels across 6 sections:
+A pre-built Grafana dashboard ships in `grafana/shurli-dashboard.json`. Import it into any Grafana instance to get 29 panels across 6 sections:
 
 - **Overview** - version, uptime, active connections, total bytes, auth summary
 - **Proxy Throughput** - bytes/sec per service, active connections, connection rate, session duration percentiles

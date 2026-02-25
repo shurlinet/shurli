@@ -1,18 +1,18 @@
 ---
 title: Trust & Security
 weight: 4
-description: "peer-up's security program: threat model, vulnerability reporting process, response commitments, and audit history."
+description: "Shurli's security program: threat model, vulnerability reporting process, response commitments, and audit history."
 ---
 
 ## Security Program
 
-peer-up is infrastructure software that people depend on for remote access to their machines. A security compromise doesn't just leak data - it could give an attacker SSH access to your home server. We take this seriously.
+Shurli is infrastructure software that people depend on for remote access to their machines. A security compromise doesn't just leak data - it could give an attacker SSH access to your home server. We take this seriously.
 
 This page documents our security posture, threat model, vulnerability reporting process, and response commitments. We believe transparency is the strongest security signal we can provide.
 
 ## Current Security Controls
 
-peer-up ships with these security defaults:
+Shurli ships with these security defaults:
 
 | Control | Description |
 |---------|-------------|
@@ -23,13 +23,13 @@ peer-up ships with these security defaults:
 | **Input validation** | Service names: DNS-label format enforced. Relay addresses: parsed as multiaddr before writing. Comments: newline injection sanitized. |
 | **Stream read limits** | Invite/join streams capped at 512 bytes to prevent OOM. |
 | **Relay resource limits** | Circuit relay v2 with configurable `WithResources()` - session duration, data caps, per-peer limits. |
-| **Private DHT** | Kademlia DHT uses `/peerup/kad/1.0.0` protocol prefix - isolated from public IPFS routing. |
+| **Private DHT** | Kademlia DHT uses `/shurli/kad/1.0.0` protocol prefix - isolated from public IPFS routing. |
 | **Cookie auth** | Daemon API uses 32-byte random hex cookie, `0600` permissions, rotated every restart. |
 | **Config rollback** | Commit-confirmed pattern auto-reverts bad configs on remote nodes. |
 
 ## Threat Model
 
-peer-up's threat surface includes:
+Shurli's threat surface includes:
 
 ### Relay Server (Public-Facing VPS)
 
@@ -74,20 +74,20 @@ The relay is the most exposed component - it's a public-facing server that accep
 
 ## Vulnerability Reporting
 
-If you find a security vulnerability in peer-up, please report it responsibly:
+If you find a security vulnerability in Shurli, please report it responsibly:
 
-**Email**: security@peerup.dev *(not yet active - use GitHub Security Advisories until domain is configured)*
+**Email**: security@shurli.io *(not yet active - use GitHub Security Advisories until domain is configured)*
 
-**GitHub Security Advisories**: [Report a vulnerability](https://github.com/satindergrewal/peer-up/security/advisories/new)
+**GitHub Security Advisories**: [Report a vulnerability](https://github.com/shurlinet/shurli/security/advisories/new)
 
 ### What to Include
 
 - **Title**: Brief description of the vulnerability
 - **Severity**: Your assessment (Critical / High / Medium / Low)
-- **Affected component**: Which part of peer-up is affected
+- **Affected component**: Which part of Shurli is affected
 - **Reproduction steps**: How to trigger the vulnerability
 - **Impact**: What an attacker could achieve
-- **Environment**: OS, Go version, peer-up version
+- **Environment**: OS, Go version, Shurli version
 
 ### Response Commitments
 
@@ -98,7 +98,7 @@ If you find a security vulnerability in peer-up, please report it responsibly:
 | **Medium** (limited impact, defense-in-depth) | 14 days | 30 days | 90 days |
 | **Low** (hardening, best practice) | 30 days | 60 days | Best effort |
 
-These are targets, not guarantees. peer-up is maintained by a small team. But we take every report seriously and will communicate transparently about our progress.
+These are targets, not guarantees. Shurli is maintained by a small team. But we take every report seriously and will communicate transparently about our progress.
 
 ## Security Audit History
 
@@ -118,7 +118,7 @@ The [Engineering Journal](/docs/engineering-journal/) documents the reasoning be
 
 ## Trust Model Philosophy
 
-peer-up's security model is deliberately simple:
+Shurli's security model is deliberately simple:
 
 > **An `authorized_keys` file decides who connects. You control the file. That's it.**
 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340">
   <defs>
-    <linearGradient id="peerupFill" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="shurliFill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#152a22;stop-opacity:1" />
     </linearGradient>
@@ -23,20 +23,20 @@
 
   <!-- Title -->
   <text x="380" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Monitoring Stack</text>
-  <text x="380" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">peer-up + Prometheus + Grafana</text>
+  <text x="380" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Shurli + Prometheus + Grafana</text>
 
-  <!-- peer-up nodes (left) -->
+  <!-- Shurli nodes (left) -->
   <text x="30" y="78" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" font-weight="600">PEER-UP NODES</text>
 
-  <rect x="20" y="90" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <rect x="20" y="90" width="180" height="50" rx="6" fill="url(#shurliFill)" stroke="#73daca" stroke-width="1"/>
   <text x="110" y="112" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Home Node (daemon)</text>
   <text x="110" y="128" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
 
-  <rect x="20" y="152" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <rect x="20" y="152" width="180" height="50" rx="6" fill="url(#shurliFill)" stroke="#73daca" stroke-width="1"/>
   <text x="110" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Client Node (daemon)</text>
   <text x="110" y="190" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
 
-  <rect x="20" y="214" width="180" height="50" rx="6" fill="url(#peerupFill)" stroke="#73daca" stroke-width="1"/>
+  <rect x="20" y="214" width="180" height="50" rx="6" fill="url(#shurliFill)" stroke="#73daca" stroke-width="1"/>
   <text x="110" y="236" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" text-anchor="middle" font-weight="600">Relay Server</text>
   <text x="110" y="252" font-family="ui-monospace, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">127.0.0.1:9091/metrics</text>
 

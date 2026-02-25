@@ -1,6 +1,6 @@
 # Engineering Journal
 
-This document captures the **why** behind every significant architecture decision in peer-up. Each entry follows a lightweight ADR (Architecture Decision Record) format: what problem we faced, what options we considered, what we chose, and what trade-offs we accepted.
+This document captures the **why** behind every significant architecture decision in Shurli. Each entry follows a lightweight ADR (Architecture Decision Record) format: what problem we faced, what options we considered, what we chose, and what trade-offs we accepted.
 
 New developers, contributors, and future-us should be able to read this and understand not just what the code does, but why it's shaped the way it is.
 
@@ -26,4 +26,6 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Batch H: Observability](batch-h-observability.md) | ADR-H01 to ADR-H03 | Prometheus, nil-safe pattern, auth callback |
 | [Pre-Batch I](pre-batch-i.md) | ADR-Ia01 to ADR-Ib02 | Makefile, PAKE invite, DHT namespaces |
 | [Batch I: Adaptive Path Selection](batch-i-adaptive-path.md) | ADR-I01 to ADR-I06 | Interface discovery, dial racing, path tracking, network monitoring, STUN, peer relay |
+| [Post-I-2: Trust & Delivery](post-i-2-trust-and-delivery.md) | ADR-J01 to ADR-J06 | Peer notify, HMAC, relay admin, SAS verification, reachability, history |
+| [Pre-Phase 5 Hardening](pre-phase5-hardening.md) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
 | [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |

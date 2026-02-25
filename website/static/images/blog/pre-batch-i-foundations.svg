@@ -56,11 +56,11 @@
   <text x="580" y="92" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Pre-I-c: Private Networks</text>
 
   <rect x="495" y="108" width="170" height="26" rx="4" fill="#1e2740" stroke="#3d59a1" stroke-width="0.5"/>
-  <text x="500" y="124" font-family="ui-monospace, monospace" font-size="8" fill="#73daca">/peerup/kad/1.0.0</text>
+  <text x="500" y="124" font-family="ui-monospace, monospace" font-size="8" fill="#73daca">/shurli/kad/1.0.0</text>
   <text x="580" y="148" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">default (global)</text>
 
   <rect x="495" y="162" width="170" height="26" rx="4" fill="#1e2740" stroke="#7aa2f7" stroke-width="0.5"/>
-  <text x="500" y="178" font-family="ui-monospace, monospace" font-size="8" fill="#7aa2f7">/peerup/my-crew/kad/1.0.0</text>
+  <text x="500" y="178" font-family="ui-monospace, monospace" font-size="8" fill="#7aa2f7">/shurli/my-crew/kad/1.0.0</text>
   <text x="580" y="202" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">isolated namespace</text>
 
   <text x="580" y="230" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle">Protocol-level isolation</text>
