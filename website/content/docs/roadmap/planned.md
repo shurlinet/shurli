@@ -194,7 +194,7 @@ The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. 
 **Package Managers & Binaries**:
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)
 - [ ] Ed25519-signed checksums
-- [ ] Homebrew tap: `brew install satindergrewal/tap/shurli`
+- [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
 - [ ] One-line install: `curl -sSL get.shurli.io | sh`
 - [ ] APT, AUR, Docker image
 
