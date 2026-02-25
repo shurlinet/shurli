@@ -129,12 +129,12 @@
 .shurli-section-icon {
   text-align: center;
   margin-bottom: 0.5rem;
-  color: #3b82f6;
+  color: #da1c5c;
   opacity: 0.7;
 }
 
 :is(.dark .shurli-section-icon) {
-  color: #7aa2f7;
+  color: #fbb040;
   opacity: 0.8;
 }
 
@@ -245,7 +245,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #da1c5c;
   color: #fff;
   font-size: 0.875rem;
   font-weight: 700;
@@ -289,14 +289,14 @@
   font-size: 0.8125rem;
   padding: 0.15em 0.4em;
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(218, 28, 92, 0.1);
+  color: #da1c5c;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
 :is(.dark .shurli-step-desc code) {
-  background: rgba(122, 162, 247, 0.15);
-  color: #7aa2f7;
+  background: rgba(251, 176, 64, 0.15);
+  color: #fbb040;
 }
 
 /* ============================================================ */
@@ -382,7 +382,7 @@
 .shurli-cta-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(218, 28, 92, 0.3);
 }
 
 :is(.dark .shurli-cta-card) {
@@ -392,16 +392,16 @@
 
 :is(.dark .shurli-cta-card:hover) {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  border-color: rgba(122, 162, 247, 0.3);
+  border-color: rgba(251, 176, 64, 0.3);
 }
 
 .shurli-cta-icon {
   margin-bottom: 0.75rem;
-  color: #3b82f6;
+  color: #da1c5c;
 }
 
 :is(.dark .shurli-cta-icon) {
-  color: #7aa2f7;
+  color: #fbb040;
 }
 
 .shurli-cta-title {
@@ -472,7 +472,7 @@
 
 .shurli-blog-card-noimage {
   padding: 2rem 1.5rem;
-  background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  background: linear-gradient(135deg, #121328, #da1c5c);
 }
 
 .shurli-blog-card-noimage .shurli-blog-card-title {
@@ -516,11 +516,11 @@
 .shurli-blog-card-readmore {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #3b82f6;
+  color: #da1c5c;
 }
 
 :is(.dark .shurli-blog-card-readmore) {
-  color: #7aa2f7;
+  color: #fbb040;
 }
 
 /* Pinned blog post */
@@ -529,7 +529,7 @@
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
-  background: #2563eb;
+  background: #9e1f63;
   color: #fff;
   font-size: 0.7rem;
   font-weight: 600;
@@ -541,7 +541,7 @@
 }
 
 :is(.dark .shurli-pinned-badge) {
-  background: #7aa2f7;
+  background: #fbb040;
   color: #0f172a;
 }
 
