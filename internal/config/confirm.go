@@ -74,7 +74,7 @@ func BeginCommitConfirmed(configPath string, timeout time.Duration) error {
 
 // ApplyCommitConfirmed copies newConfigPath over configPath and begins a
 // commit-confirmed with the given timeout. This is the high-level operation
-// for `peerup config apply`.
+// for `shurli config apply`.
 func ApplyCommitConfirmed(configPath, newConfigPath string, timeout time.Duration) error {
 	// Begin the commit-confirmed first (backs up current config, creates marker)
 	if err := BeginCommitConfirmed(configPath, timeout); err != nil {

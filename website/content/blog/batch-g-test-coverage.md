@@ -13,7 +13,7 @@ authors:
 
 ## What's new
 
-peer-up now has 80.3% combined test coverage across unit tests and Docker integration tests. Every CLI command, every daemon API handler, every config edge case - tested. And a post-phase security audit caught 10 issues, all fixed.
+Shurli now has 80.3% combined test coverage across unit tests and Docker integration tests. Every CLI command, every daemon API handler, every config edge case - tested. And a post-phase security audit caught 10 issues, all fixed.
 
 ## Why it matters
 

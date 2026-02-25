@@ -8,7 +8,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func TestSanitizePath(t *testing.T) {
@@ -83,7 +83,7 @@ func TestInstrumentHandler_RecordsMetrics(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 
-	val := gatherCounter(t, m, "peerup_daemon_requests_total", map[string]string{
+	val := gatherCounter(t, m, "shurli_daemon_requests_total", map[string]string{
 		"method": "GET", "path": "/v1/status", "status": "200",
 	})
 	if val != 1 {
@@ -108,7 +108,7 @@ func TestInstrumentHandler_CapturesErrorStatus(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 
-	val := gatherCounter(t, m, "peerup_daemon_requests_total", map[string]string{
+	val := gatherCounter(t, m, "shurli_daemon_requests_total", map[string]string{
 		"method": "GET", "path": "/v1/unknown", "status": "404",
 	})
 	if val != 1 {
@@ -131,7 +131,7 @@ func TestInstrumentHandler_SanitizesPath(t *testing.T) {
 	wrapped.ServeHTTP(rec, req)
 
 	// The metric should use the sanitized path
-	val := gatherCounter(t, m, "peerup_daemon_requests_total", map[string]string{
+	val := gatherCounter(t, m, "shurli_daemon_requests_total", map[string]string{
 		"method": "DELETE", "path": "/v1/auth/:id", "status": "200",
 	})
 	if val != 1 {
@@ -153,7 +153,7 @@ func TestInstrumentHandler_RecordsDuration(t *testing.T) {
 	wrapped.ServeHTTP(rec, req)
 
 	// Verify histogram sample count is 1
-	count := gatherHistogramCount(t, m, "peerup_daemon_request_duration_seconds", map[string]string{
+	count := gatherHistogramCount(t, m, "shurli_daemon_request_duration_seconds", map[string]string{
 		"method": "POST", "path": "/v1/ping", "status": "200",
 	})
 	if count != 1 {
@@ -176,7 +176,7 @@ func TestInstrumentHandler_MultipleRequests(t *testing.T) {
 		wrapped.ServeHTTP(rec, req)
 	}
 
-	val := gatherCounter(t, m, "peerup_daemon_requests_total", map[string]string{
+	val := gatherCounter(t, m, "shurli_daemon_requests_total", map[string]string{
 		"method": "GET", "path": "/v1/status", "status": "200",
 	})
 	if val != 5 {

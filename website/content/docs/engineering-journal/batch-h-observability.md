@@ -23,7 +23,7 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: No distributed tracing (deferred). No OTLP export (can be added via bridge later). Binary size increase: ~1MB (28MB total). Any Prometheus-compatible tool (Grafana, Datadog, etc.) works out of the box.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/metrics.go`, `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/network.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go`
 
 ---
 
@@ -40,20 +40,20 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/audit.go`, `https://github.com/satindergrewal/peer-up/blob/main/internal/daemon/middleware.go`, `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/serve_common.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/audit.go`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/middleware.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`
 
 ---
 
 ### ADR-H03: Auth Decision Callback (Avoiding Circular Imports)
 
-**Context**: Auth decisions happen in `https://github.com/satindergrewal/peer-up/blob/main/internal/auth/gater.go`. Metrics live in `https://github.com/satindergrewal/peer-up/blob/main/pkg/p2pnet/metrics.go`. Go forbids circular imports: `https://github.com/satindergrewal/peer-up/blob/main/internal/auth` cannot import `pkg/p2pnet`.
+**Context**: Auth decisions happen in `https://github.com/shurlinet/shurli/blob/main/internal/auth/gater.go`. Metrics live in `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go`. Go forbids circular imports: `https://github.com/shurlinet/shurli/blob/main/internal/auth` cannot import `pkg/p2pnet`.
 
 **Alternatives considered**:
-- **Move gater to pkg/p2pnet** - Would work but breaks the `https://github.com/satindergrewal/peer-up/blob/main/internal/` boundary. The gater is an internal implementation detail.
+- **Move gater to pkg/p2pnet** - Would work but breaks the `https://github.com/shurlinet/shurli/blob/main/internal/` boundary. The gater is an internal implementation detail.
 - **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
 
-**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `https://github.com/satindergrewal/peer-up/blob/main/internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
+**Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `https://github.com/shurlinet/shurli/blob/main/internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
 
 **Consequences**: Clean dependency graph. The auth package has zero knowledge of Prometheus or audit logging. The callback is nil-safe (checked before calling). Easy to add more observers later by extending the closure.
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/internal/auth/gater.go:SetDecisionCallback`, `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/serve_common.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/auth/gater.go:SetDecisionCallback`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`

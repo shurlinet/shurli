@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
   <defs>
     <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e2140;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="relayFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#251e50;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#38353b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a282c;stop-opacity:1" />
     </linearGradient>
     <!-- Glow filter for active connections -->
     <filter id="glow">
@@ -19,22 +19,22 @@
   </defs>
 
   <!-- Background -->
-  <rect width="800" height="400" rx="12" fill="#0f1117"/>
+  <rect width="800" height="400" rx="12" fill="#141316"/>
 
   <!-- Direct connection (dashed - future/preferred path) -->
   <line x1="160" y1="200" x2="640" y2="200" stroke="#9ece6a" stroke-width="2" stroke-dasharray="8,6" opacity="0.5"/>
   <text x="400" y="185" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" opacity="0.7">direct path (when possible)</text>
 
   <!-- Relay connections (solid - always works) -->
-  <line x1="160" y1="200" x2="400" y2="110" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
-  <line x1="400" y1="110" x2="640" y2="200" stroke="#7aa2f7" stroke-width="2.5" filter="url(#glow)"/>
-  <text x="400" y="145" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle">relayed path (always works)</text>
+  <line x1="160" y1="200" x2="400" y2="110" stroke="#e8729a" stroke-width="2.5" filter="url(#glow)"/>
+  <line x1="400" y1="110" x2="640" y2="200" stroke="#e8729a" stroke-width="2.5" filter="url(#glow)"/>
+  <text x="400" y="145" font-family="system-ui, sans-serif" font-size="11" fill="#e8729a" text-anchor="middle">relayed path (always works)</text>
 
   <!-- Device A: Your Laptop -->
-  <rect x="60" y="160" width="200" height="80" rx="12" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.5"/>
+  <rect x="60" y="160" width="200" height="80" rx="12" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.5"/>
   <!-- Laptop icon -->
-  <rect x="140" y="172" width="40" height="26" rx="3" fill="none" stroke="#7aa2f7" stroke-width="1.5"/>
-  <rect x="132" y="198" width="56" height="4" rx="2" fill="#7aa2f7" opacity="0.6"/>
+  <rect x="140" y="172" width="40" height="26" rx="3" fill="none" stroke="#e8729a" stroke-width="1.5"/>
+  <rect x="132" y="198" width="56" height="4" rx="2" fill="#e8729a" opacity="0.6"/>
   <text x="160" y="222" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="600">Your Laptop</text>
   <text x="160" y="236" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">behind CGNAT</text>
 
@@ -42,17 +42,17 @@
   <rect x="330" y="70" width="140" height="80" rx="12" fill="url(#relayFill)" stroke="#bb9af7" stroke-width="1.5"/>
   <!-- Cloud icon -->
   <ellipse cx="400" cy="92" rx="24" ry="14" fill="none" stroke="#bb9af7" stroke-width="1.5"/>
-  <ellipse cx="388" cy="96" rx="12" ry="8" fill="#251e50"/>
-  <ellipse cx="412" cy="96" rx="12" ry="8" fill="#251e50"/>
+  <ellipse cx="388" cy="96" rx="12" ry="8" fill="#2a282c"/>
+  <ellipse cx="412" cy="96" rx="12" ry="8" fill="#2a282c"/>
   <text x="400" y="122" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="600">Relay</text>
   <text x="400" y="136" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">circuit relay v2</text>
 
   <!-- Device B: Home Server -->
-  <rect x="540" y="160" width="200" height="80" rx="12" fill="url(#nodeFill)" stroke="#3b82f6" stroke-width="1.5"/>
+  <rect x="540" y="160" width="200" height="80" rx="12" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.5"/>
   <!-- Server icon -->
-  <rect x="625" y="172" width="30" height="8" rx="2" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
-  <rect x="625" y="182" width="30" height="8" rx="2" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
-  <rect x="625" y="192" width="30" height="8" rx="2" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
+  <rect x="625" y="172" width="30" height="8" rx="2" fill="none" stroke="#e8729a" stroke-width="1.2"/>
+  <rect x="625" y="182" width="30" height="8" rx="2" fill="none" stroke="#e8729a" stroke-width="1.2"/>
+  <rect x="625" y="192" width="30" height="8" rx="2" fill="none" stroke="#e8729a" stroke-width="1.2"/>
   <circle cx="650" y="176" r="1.5" fill="#9ece6a"/>
   <circle cx="650" y="186" r="1.5" fill="#9ece6a"/>
   <circle cx="650" y="196" r="1.5" fill="#9ece6a"/>
@@ -66,7 +66,7 @@
   <text x="558" y="152" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="middle" opacity="0.6">NAT</text>
 
   <!-- Legend -->
-  <line x1="200" y1="340" x2="240" y2="340" stroke="#7aa2f7" stroke-width="2"/>
+  <line x1="200" y1="340" x2="240" y2="340" stroke="#e8729a" stroke-width="2"/>
   <text x="250" y="344" font-family="system-ui, sans-serif" font-size="11" fill="#a9b1d6">Encrypted relay (always works)</text>
   <line x1="420" y1="340" x2="460" y2="340" stroke="#9ece6a" stroke-width="2" stroke-dasharray="8,6"/>
   <text x="470" y="344" font-family="system-ui, sans-serif" font-size="11" fill="#a9b1d6">Direct P2P (when possible)</text>

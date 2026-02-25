@@ -25,14 +25,14 @@ Config archive/rollback, commit-confirmed pattern, and watchdog with pure-Go sd_
 **Context**: Changing config on a remote node is dangerous - if the new config prevents connectivity, you're locked out. Network engineers solve this with "commit confirmed" - apply the change, and if you don't confirm within N minutes, it auto-reverts.
 
 **Alternatives considered**:
-- **Manual rollback only** - User must SSH in (if they can) and run `peerup config rollback`. Rejected because if the config broke SSH access, there's no way in.
+- **Manual rollback only** - User must SSH in (if they can) and run `shurli config rollback`. Rejected because if the config broke SSH access, there's no way in.
 - **Two-phase commit** - More complex, requires coordination. Rejected as over-engineering for a single-node config change.
 
-**Decision**: `peerup config apply <new> --confirm-timeout 5m` backs up current config, applies new config, starts a timer. If `peerup config confirm` isn't run within the timeout, the daemon reverts to the backup and restarts via `exitFunc(1)` (systemd restarts it with the restored config).
+**Decision**: `shurli config apply <new> --confirm-timeout 5m` backs up current config, applies new config, starts a timer. If `shurli config confirm` isn't run within the timeout, the daemon reverts to the backup and restarts via `exitFunc(1)` (systemd restarts it with the restored config).
 
 **Consequences**: Requires systemd (or equivalent) to restart on exit. The `exitFunc` is injectable for testing (`EnforceCommitConfirmed` takes `func(int)` instead of calling `os.Exit` directly).
 
-**Reference**: `internal/config/confirm.go`, `cmd/peerup/cmd_config.go`
+**Reference**: `internal/config/confirm.go`, `cmd/shurli/cmd_config.go`
 
 ---
 
@@ -50,4 +50,4 @@ The watchdog loop runs configurable health checks (default 30s interval) and onl
 
 **Consequences**: Zero dependency for systemd integration. Works on both Linux (systemd) and macOS (launchd, where sd_notify is a no-op). The health check framework is extensible - Batch H will add libp2p connection health.
 
-**Reference**: `internal/watchdog/watchdog.go`, `cmd/peerup/cmd_daemon.go:158-166`
+**Reference**: `internal/watchdog/watchdog.go`, `cmd/shurli/cmd_daemon.go:158-166`

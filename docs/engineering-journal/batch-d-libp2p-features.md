@@ -38,14 +38,14 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 ### ADR-D03: Identify UserAgent
 
-**Context**: When multiple peers are connected, it's hard to tell which are peerup peers vs DHT neighbors, relay servers, or random libp2p nodes.
+**Context**: When multiple peers are connected, it's hard to tell which are shurli peers vs DHT neighbors, relay servers, or random libp2p nodes.
 
 **Alternatives considered**:
 - **Custom protocol handshake** - Send version info in a custom protocol. Rejected because libp2p's Identify protocol already does this.
 
-**Decision**: Set `libp2p.UserAgent("peerup/" + version)` on every host. The daemon's peer list filters by UserAgent prefix (`peerup/` or `relay-server/`) by default, showing only network members. `--all` flag shows everything.
+**Decision**: Set `libp2p.UserAgent("shurli/" + version)` on every host. The daemon's peer list filters by UserAgent prefix (`shurli/` or `relay-server/`) by default, showing only network members. `--all` flag shows everything.
 
-**Consequences**: Version info is visible to any connected peer (including non-peerup peers). Accepted because version strings are not sensitive - they aid debugging and interoperability.
+**Consequences**: Version info is visible to any connected peer (including non-shurli peers). Accepted because version strings are not sensitive - they aid debugging and interoperability.
 
 **Reference**: `pkg/p2pnet/network.go:121-123`, `internal/daemon/handlers.go:78-80`
 

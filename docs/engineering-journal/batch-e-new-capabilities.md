@@ -16,7 +16,7 @@ Relay health endpoint and headless invite/join for scripting.
 
 **Consequences**: Minimal information exposure (no peer IDs, no version, no protocol list in the health response - hardened in the post-phase audit). Loopback-only prevents information disclosure to the public internet.
 
-**Reference**: `cmd/peerup/cmd_relay_serve.go`
+**Reference**: `cmd/shurli/cmd_relay_serve.go`
 
 ---
 
@@ -25,11 +25,11 @@ Relay health endpoint and headless invite/join for scripting.
 **Context**: Docker containers, CI/CD pipelines, and scripts need to create/accept invites without interactive prompts or QR codes.
 
 **Alternatives considered**:
-- **Separate CLI for scripting** - A `peerup-cli` tool. Rejected because it fragments the tool.
-- **Environment variables only** - `PEERUP_INVITE_CODE=xxx peerup join`. Supported alongside the flag.
+- **Separate CLI for scripting** - A `shurli-cli` tool. Rejected because it fragments the tool.
+- **Environment variables only** - `SHURLI_INVITE_CODE=xxx shurli join`. Supported alongside the flag.
 
-**Decision**: `--non-interactive` flag on both `invite` and `join`. In non-interactive mode: invite prints bare code to stdout (progress to stderr), join reads code from positional arg or `PEERUP_INVITE_CODE` env var. No QR code, no prompts, no color.
+**Decision**: `--non-interactive` flag on both `invite` and `join`. In non-interactive mode: invite prints bare code to stdout (progress to stderr), join reads code from positional arg or `SHURLI_INVITE_CODE` env var. No QR code, no prompts, no color.
 
 **Consequences**: Docker integration tests can create and exchange invite codes programmatically. The flag reuses the same code paths as interactive mode - just different I/O routing.
 
-**Reference**: `cmd/peerup/cmd_invite.go:34`, `cmd/peerup/cmd_join.go`
+**Reference**: `cmd/shurli/cmd_invite.go:34`, `cmd/shurli/cmd_join.go`

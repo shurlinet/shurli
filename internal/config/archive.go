@@ -8,7 +8,7 @@ import (
 )
 
 // ArchivePath returns the last-known-good archive path for a config file.
-// Example: /home/user/.config/peerup/config.yaml → /home/user/.config/peerup/.config.last-good.yaml
+// Example: /home/user/.config/shurli/config.yaml → /home/user/.config/shurli/.config.last-good.yaml
 func ArchivePath(configPath string) string {
 	dir := filepath.Dir(configPath)
 	base := filepath.Base(configPath)

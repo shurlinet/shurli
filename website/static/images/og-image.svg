@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
   <defs>
     <linearGradient id="ogBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1a1b26;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#24283b;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a191c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#222124;stop-opacity:1" />
     </linearGradient>
   </defs>
   <!-- Background -->
   <rect width="1200" height="630" fill="url(#ogBg)"/>
   <!-- Title -->
-  <text x="600" y="260" font-family="system-ui, -apple-system, sans-serif" font-size="72" fill="#c0caf5" text-anchor="middle" font-weight="700">peer-up</text>
+  <text x="600" y="260" font-family="system-ui, -apple-system, sans-serif" font-size="72" fill="#c0caf5" text-anchor="middle" font-weight="700">Shurli</text>
   <!-- Subtitle -->
-  <text x="600" y="330" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#7aa2f7" text-anchor="middle">Access your home server from anywhere</text>
+  <text x="600" y="330" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#e8729a" text-anchor="middle">Access your home server from anywhere</text>
   <!-- Tagline -->
   <text x="600" y="380" font-family="system-ui, -apple-system, sans-serif" font-size="20" fill="#565f89" text-anchor="middle">Peer-to-peer connectivity through NAT, CGNAT, and firewalls</text>
 </svg>
