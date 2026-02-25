@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 690" font-family="system-ui, -apple-system, sans-serif">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
-      <stop offset="100%" style="stop-color:#1a1b26"/>
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
     <linearGradient id="doneGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1e3a2f"/>
@@ -27,7 +27,7 @@
 
   <!-- Background -->
   <rect width="900" height="690" rx="12" fill="url(#bg)"/>
-  <rect x="0.5" y="0.5" width="899" height="689" rx="12" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="0.5" y="0.5" width="899" height="689" rx="12" fill="none" stroke="#222124" stroke-width="1"/>
 
   <!-- Title -->
   <text x="450" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#c0caf5">Development Timeline</text>
@@ -37,7 +37,7 @@
   <text x="675" y="66" text-anchor="middle" font-size="12" font-weight="600" fill="#e0af68">PLANNED</text>
 
   <!-- Divider line -->
-  <line x1="450" y1="55" x2="450" y2="670" stroke="#24283b" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="450" y1="55" x2="450" y2="670" stroke="#222124" stroke-width="1" stroke-dasharray="4,4"/>
 
   <!-- ===================== LEFT COLUMN: COMPLETED ===================== -->
 
@@ -62,7 +62,7 @@
   <circle cx="60" cy="205" r="6" fill="#9ece6a"/>
   <rect x="80" y="188" width="340" height="42" rx="8" fill="url(#doneGrad)" stroke="#9ece6a" stroke-width="1"/>
   <text x="94" y="206" font-size="11" font-weight="600" fill="#c0caf5">Phase 3: keytool CLI</text>
-  <text x="94" y="222" font-size="9" fill="#a9b1d6">Key management (now peerup subcommands)</text>
+  <text x="94" y="222" font-size="9" fill="#a9b1d6">Key management (now shurli subcommands)</text>
   <text x="400" y="213" text-anchor="end" font-size="9" font-weight="600" fill="#9ece6a" font-family="ui-monospace, monospace">1 week</text>
 
   <!-- Phase 4A -->
@@ -88,12 +88,12 @@
   <text x="400" y="370" text-anchor="end" font-size="9" font-weight="700" fill="#9ece6a" font-family="ui-monospace, monospace">6-8 weeks</text>
 
   <!-- "You are here" marker -->
-  <circle cx="60" cy="440" r="10" fill="none" stroke="#7aa2f7" stroke-width="2" filter="url(#glow)"/>
-  <circle cx="60" cy="440" r="4" fill="#7aa2f7"/>
-  <text x="80" y="444" font-size="11" font-weight="700" fill="#7aa2f7">You are here</text>
+  <circle cx="60" cy="440" r="10" fill="none" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <circle cx="60" cy="440" r="4" fill="#e8729a"/>
+  <text x="80" y="444" font-size="11" font-weight="700" fill="#e8729a">You are here</text>
 
   <!-- Connector arrow from left to right column -->
-  <path d="M 200 455 Q 450 470 500 105" fill="none" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
+  <path d="M 200 455 Q 450 470 500 105" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
 
   <!-- ===================== RIGHT COLUMN: PLANNED ===================== -->
 
@@ -174,13 +174,13 @@
   <text x="850" y="558" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
 
   <!-- Legend -->
-  <rect x="30" y="645" width="840" height="30" rx="6" fill="none" stroke="#24283b" stroke-width="1"/>
+  <rect x="30" y="645" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
   <circle cx="70" cy="660" r="5" fill="#9ece6a"/>
   <text x="82" y="664" font-size="9" fill="#a9b1d6">Complete</text>
   <circle cx="170" cy="660" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
   <text x="182" y="664" font-size="9" fill="#a9b1d6">Planned</text>
   <circle cx="270" cy="660" r="5" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
   <text x="282" y="664" font-size="9" fill="#a9b1d6">Future / Optional</text>
-  <circle cx="410" cy="660" r="5" fill="#7aa2f7" filter="url(#glow)"/>
+  <circle cx="410" cy="660" r="5" fill="#e8729a" filter="url(#glow)"/>
   <text x="422" y="664" font-size="9" fill="#a9b1d6">Current position</text>
 </svg>

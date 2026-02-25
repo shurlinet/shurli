@@ -1,23 +1,23 @@
 ---
 title: "Monitoring"
 weight: 6
-description: "Set up Prometheus and Grafana to visualize peer-up metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
+description: "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
 ---
 <!-- Auto-synced from docs/MONITORING.md by sync-docs - do not edit directly -->
 
 
-This guide walks you through setting up Prometheus and Grafana to visualize peer-up metrics. By the end, you'll have a live dashboard showing proxy throughput, auth decisions, hole punch stats, API latency, and system health.
+This guide walks you through setting up Prometheus and Grafana to visualize Shurli metrics. By the end, you'll have a live dashboard showing proxy throughput, auth decisions, hole punch stats, API latency, and system health.
 
-![Monitoring stack - peer-up nodes scraped by Prometheus, visualized in Grafana](/images/docs/monitoring-stack.svg)
+![Monitoring stack - Shurli nodes scraped by Prometheus, visualized in Grafana](/images/docs/monitoring-stack.svg)
 
 ## Prerequisites
 
-- peer-up running with telemetry enabled
+- Shurli running with telemetry enabled
 - Docker (recommended) or local Prometheus + Grafana installs
 
-## Step 1: Enable telemetry in peer-up
+## Step 1: Enable telemetry in Shurli
 
-Add this to your `peerup.yaml` (or relay config):
+Add this to your `shurli.yaml` (or relay config):
 
 ```yaml
 telemetry:
@@ -34,7 +34,7 @@ Restart the daemon. Verify metrics are being served:
 curl http://127.0.0.1:9091/metrics
 ```
 
-You should see output starting with `# HELP` and `# TYPE` lines, followed by metric values. Both custom `peerup_*` metrics and libp2p built-in metrics (`libp2p_*`) will appear.
+You should see output starting with `# HELP` and `# TYPE` lines, followed by metric values. Both custom `shurli_*` metrics and libp2p built-in metrics (`libp2p_*`) will appear.
 
 > **Relay server**: When both `health.enabled` and `telemetry.metrics.enabled` are set, the relay adds `/metrics` to its existing `/healthz` HTTP mux. No extra port needed.
 
@@ -49,7 +49,7 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'peerup'
+  - job_name: 'shurli'
     static_configs:
       - targets: ['host.docker.internal:9091']
         labels:
@@ -68,7 +68,7 @@ docker run -d \
   prom/prometheus
 ```
 
-Verify at `http://localhost:9090/targets` - the peerup target should show as **UP**.
+Verify at `http://localhost:9090/targets` - the shurli target should show as **UP**.
 
 ### Option B: Local install
 
@@ -76,11 +76,11 @@ Download from [prometheus.io/download](https://prometheus.io/download/), add the
 
 ### Scraping multiple nodes
 
-Add each peer-up instance as a separate target:
+Add each Shurli instance as a separate target:
 
 ```yaml
 scrape_configs:
-  - job_name: 'peerup'
+  - job_name: 'shurli'
     static_configs:
       - targets: ['10.0.1.50:9091']
         labels:
@@ -88,7 +88,7 @@ scrape_configs:
       - targets: ['10.0.1.51:9091']
         labels:
           instance: 'client-node'
-  - job_name: 'peerup-relay'
+  - job_name: 'shurli-relay'
     static_configs:
       - targets: ['relay.example.com:9091']
         labels:
@@ -115,11 +115,11 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 3. Set URL to `http://host.docker.internal:9090` (or `http://172.17.0.1:9090` on Linux)
 4. Click **Save & test**
 
-## Step 4: Import the peer-up dashboard
+## Step 4: Import the Shurli dashboard
 
 1. Go to **Dashboards > Import**
 2. Click **Upload dashboard JSON file**
-3. Select `grafana/peerup-dashboard.json` from the peer-up repository
+3. Select `grafana/shurli-dashboard.json` from the Shurli repository
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
@@ -133,7 +133,7 @@ You'll immediately see the dashboard with 29 panels across 6 sections.
 
 Six stat panels showing the essentials at a glance:
 
-- **Version** - which peer-up version is running
+- **Version** - which Shurli version is running
 - **Uptime** - how long the daemon has been running
 - **Active Proxy Connections** - current session count
 - **Total Connections** - lifetime connection count
@@ -184,20 +184,20 @@ Go runtime health:
 
 ## Available metrics reference
 
-### Custom peerup metrics
+### Custom shurli metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `peerup_proxy_bytes_total` | Counter | direction, service | Bytes transferred through proxy |
-| `peerup_proxy_connections_total` | Counter | service | Connections established |
-| `peerup_proxy_active_connections` | Gauge | service | Currently active connections |
-| `peerup_proxy_duration_seconds` | Histogram | service | Connection session duration |
-| `peerup_auth_decisions_total` | Counter | decision | Auth allow/deny counts |
-| `peerup_holepunch_total` | Counter | result | Hole punch success/failure |
-| `peerup_holepunch_duration_seconds` | Histogram | result | Hole punch attempt duration |
-| `peerup_daemon_requests_total` | Counter | method, path, status | API request counts |
-| `peerup_daemon_request_duration_seconds` | Histogram | method, path, status | API request latency |
-| `peerup_info` | Gauge | version, go_version | Build information |
+| `shurli_proxy_bytes_total` | Counter | direction, service | Bytes transferred through proxy |
+| `shurli_proxy_connections_total` | Counter | service | Connections established |
+| `shurli_proxy_active_connections` | Gauge | service | Currently active connections |
+| `shurli_proxy_duration_seconds` | Histogram | service | Connection session duration |
+| `shurli_auth_decisions_total` | Counter | decision | Auth allow/deny counts |
+| `shurli_holepunch_total` | Counter | result | Hole punch success/failure |
+| `shurli_holepunch_duration_seconds` | Histogram | result | Hole punch attempt duration |
+| `shurli_daemon_requests_total` | Counter | method, path, status | API request counts |
+| `shurli_daemon_request_duration_seconds` | Histogram | method, path, status | API request latency |
+| `shurli_info` | Gauge | version, go_version | Build information |
 
 ### libp2p built-in metrics (free, no extra code)
 
@@ -247,19 +247,19 @@ Since audit events go to stderr, you can pipe them to any log collector:
 
 **systemd journal** (default when running as a service):
 ```bash
-journalctl -u peerup-daemon -o json | jq 'select(.MESSAGE | contains("audit"))'
+journalctl -u shurli-daemon -o json | jq 'select(.MESSAGE | contains("audit"))'
 ```
 
 **File output**:
 ```bash
-peerup daemon 2> /var/log/peerup-audit.json
+shurli daemon 2> /var/log/shurli-audit.json
 ```
 
 **Loki / Promtail**: Point Promtail at the journal or log file, filter on `audit` field presence.
 
 ## Docker Compose (all-in-one)
 
-For a quick local stack with Prometheus + Grafana + peer-up metrics:
+For a quick local stack with Prometheus + Grafana + Shurli metrics:
 
 ```yaml
 services:
@@ -291,22 +291,22 @@ Start with `docker compose up -d`, then import the dashboard at `http://localhos
 
 **Proxy throughput over last hour:**
 ```promql
-sum(rate(peerup_proxy_bytes_total[1h])) by (service, direction)
+sum(rate(shurli_proxy_bytes_total[1h])) by (service, direction)
 ```
 
 **Hole punch success rate (last 24h):**
 ```promql
-sum(peerup_holepunch_total{result="success"}) / sum(peerup_holepunch_total)
+sum(shurli_holepunch_total{result="success"}) / sum(shurli_holepunch_total)
 ```
 
 **Top API endpoints by latency (p95):**
 ```promql
-histogram_quantile(0.95, sum by (le, path) (rate(peerup_daemon_request_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le, path) (rate(shurli_daemon_request_duration_seconds_bucket[5m])))
 ```
 
 **Auth deny rate (should be near zero for a healthy node):**
 ```promql
-rate(peerup_auth_decisions_total{decision="deny"}[5m])
+rate(shurli_auth_decisions_total{decision="deny"}[5m])
 ```
 
 **Memory trend:**
@@ -321,7 +321,7 @@ If you use Grafana alerting or Alertmanager, here are useful alert rules:
 ```yaml
 # Too many auth denials (possible scanning/attack)
 - alert: HighAuthDenyRate
-  expr: rate(peerup_auth_decisions_total{decision="deny"}[5m]) > 1
+  expr: rate(shurli_auth_decisions_total{decision="deny"}[5m]) > 1
   for: 5m
   labels:
     severity: warning
@@ -330,7 +330,7 @@ If you use Grafana alerting or Alertmanager, here are useful alert rules:
 
 # Hole punch success rate dropping
 - alert: LowHolePunchSuccess
-  expr: sum(peerup_holepunch_total{result="success"}) / sum(peerup_holepunch_total) < 0.5
+  expr: sum(shurli_holepunch_total{result="success"}) / sum(shurli_holepunch_total) < 0.5
   for: 15m
   labels:
     severity: warning

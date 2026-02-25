@@ -1,4 +1,20 @@
-/* peer-up brand customizations */
+/* Shurli brand customizations */
+
+/* ============================================================ */
+/* Theme primary color override (Hextra uses HSL variables)      */
+/* ============================================================ */
+
+:root {
+  --primary-hue: 340deg;
+  --primary-saturation: 77%;
+  --primary-lightness: 48%;
+}
+
+.dark {
+  --primary-hue: 36deg;
+  --primary-saturation: 96%;
+  --primary-lightness: 62%;
+}
 
 /* ============================================================ */
 /* Documentation diagrams  - consistent SVG image presentation    */
@@ -45,19 +61,19 @@
 /* Hero logo  - globe above the badge                              */
 /* ============================================================ */
 
-.peerup-hero-logo {
+.shurli-hero-logo {
   margin-bottom: 1.5rem;
   text-align: center;
 }
 
-.peerup-hero-logo img {
+.shurli-hero-logo img {
   width: 96px;
   height: 96px;
   border-radius: 20%;
   transition: transform 0.3s ease;
 }
 
-.peerup-hero-logo img:hover {
+.shurli-hero-logo img:hover {
   transform: scale(1.05);
 }
 
@@ -65,7 +81,7 @@
 /* Hero hook  - problem-first line above headline                 */
 /* ============================================================ */
 
-.peerup-hero-hook {
+.shurli-hero-hook {
   font-size: 1.1rem;
   line-height: 1.6;
   color: #6b7280;
@@ -76,7 +92,7 @@
   letter-spacing: 0.01em;
 }
 
-:is(.dark .peerup-hero-hook) {
+:is(.dark .shurli-hero-hook) {
   color: #9ca3af;
 }
 
@@ -84,7 +100,7 @@
 /* Secondary button (View on GitHub)                             */
 /* ============================================================ */
 
-.peerup-secondary-btn {
+.shurli-secondary-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -99,18 +115,18 @@
   transition: all 0.2s ease;
 }
 
-.peerup-secondary-btn:hover {
+.shurli-secondary-btn:hover {
   border-color: #9ca3af;
   color: #111827;
   background: rgba(0, 0, 0, 0.03);
 }
 
-:is(.dark .peerup-secondary-btn) {
+:is(.dark .shurli-secondary-btn) {
   color: #d1d5db;
   border-color: #4b5563;
 }
 
-:is(.dark .peerup-secondary-btn:hover) {
+:is(.dark .shurli-secondary-btn:hover) {
   border-color: #9ca3af;
   color: #f9fafb;
   background: rgba(255, 255, 255, 0.05);
@@ -120,25 +136,25 @@
 /* Section layout  - shared by all new sections                   */
 /* ============================================================ */
 
-.peerup-section {
+.shurli-section {
   width: 100%;
   margin-top: 4rem;
   margin-bottom: 2rem;
 }
 
-.peerup-section-icon {
+.shurli-section-icon {
   text-align: center;
   margin-bottom: 0.5rem;
-  color: #3b82f6;
+  color: #da1c5c;
   opacity: 0.7;
 }
 
-:is(.dark .peerup-section-icon) {
-  color: #7aa2f7;
+:is(.dark .shurli-section-icon) {
+  color: #fbb040;
   opacity: 0.8;
 }
 
-.peerup-section-title {
+.shurli-section-title {
   font-size: 1.75rem;
   font-weight: 700;
   color: #111827;
@@ -147,11 +163,11 @@
   text-align: center;
 }
 
-:is(.dark .peerup-section-title) {
+:is(.dark .shurli-section-title) {
   color: #f9fafb;
 }
 
-.peerup-section-subtitle {
+.shurli-section-subtitle {
   font-size: 1rem;
   color: #6b7280;
   max-width: 640px;
@@ -162,7 +178,7 @@
   margin-bottom: 2rem;
 }
 
-:is(.dark .peerup-section-subtitle) {
+:is(.dark .shurli-section-subtitle) {
   color: #9ca3af;
 }
 
@@ -170,7 +186,7 @@
 /* Terminal Demo section                                         */
 /* ============================================================ */
 
-.peerup-demo-container {
+.shurli-demo-container {
   width: 100%;
   max-width: 800px;
   margin-left: auto;
@@ -183,14 +199,14 @@
     0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-:is(.dark .peerup-demo-container) {
+:is(.dark .shurli-demo-container) {
   box-shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.4),
     0 2px 4px -2px rgba(0, 0, 0, 0.3),
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.peerup-demo-image {
+.shurli-demo-image {
   width: 100%;
   height: auto;
   display: block;
@@ -200,7 +216,7 @@
 /* How It Works  - 3-step grid                                    */
 /* ============================================================ */
 
-.peerup-steps-grid {
+.shurli-steps-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
@@ -208,13 +224,13 @@
 }
 
 @media (max-width: 768px) {
-  .peerup-steps-grid {
+  .shurli-steps-grid {
     grid-template-columns: 1fr;
     gap: 2rem;
   }
 }
 
-.peerup-step {
+.shurli-step {
   position: relative;
   border-radius: 12px;
   padding: 1.25rem;
@@ -224,35 +240,35 @@
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.peerup-step:hover {
+.shurli-step:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-:is(.dark .peerup-step) {
+:is(.dark .shurli-step) {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-:is(.dark .peerup-step:hover) {
+:is(.dark .shurli-step:hover) {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.peerup-step-number {
+.shurli-step-number {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #da1c5c;
   color: #fff;
   font-size: 0.875rem;
   font-weight: 700;
   margin-bottom: 1rem;
 }
 
-.peerup-step-image {
+.shurli-step-image {
   width: 100%;
   height: auto;
   border-radius: 8px;
@@ -260,50 +276,50 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-:is(.dark .peerup-step-image) {
+:is(.dark .shurli-step-image) {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-.peerup-step-title {
+.shurli-step-title {
   font-size: 1.125rem;
   font-weight: 600;
   color: #111827;
   margin-bottom: 0.5rem;
 }
 
-:is(.dark .peerup-step-title) {
+:is(.dark .shurli-step-title) {
   color: #f9fafb;
 }
 
-.peerup-step-desc {
+.shurli-step-desc {
   font-size: 0.875rem;
   color: #6b7280;
   line-height: 1.6;
 }
 
-:is(.dark .peerup-step-desc) {
+:is(.dark .shurli-step-desc) {
   color: #9ca3af;
 }
 
-.peerup-step-desc code {
+.shurli-step-desc code {
   font-size: 0.8125rem;
   padding: 0.15em 0.4em;
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(218, 28, 92, 0.1);
+  color: #da1c5c;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
-:is(.dark .peerup-step-desc code) {
-  background: rgba(122, 162, 247, 0.15);
-  color: #7aa2f7;
+:is(.dark .shurli-step-desc code) {
+  background: rgba(251, 176, 64, 0.15);
+  color: #fbb040;
 }
 
 /* ============================================================ */
 /* Network Diagram section                                       */
 /* ============================================================ */
 
-.peerup-diagram-container {
+.shurli-diagram-container {
   width: 100%;
   max-width: 800px;
   margin-left: auto;
@@ -315,13 +331,13 @@
     0 2px 4px -2px rgba(0, 0, 0, 0.1);
 }
 
-:is(.dark .peerup-diagram-container) {
+:is(.dark .shurli-diagram-container) {
   box-shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.4),
     0 2px 4px -2px rgba(0, 0, 0, 0.3);
 }
 
-.peerup-diagram-image {
+.shurli-diagram-image {
   width: 100%;
   height: auto;
   display: block;
@@ -331,7 +347,7 @@
 /* Install section                                               */
 /* ============================================================ */
 
-.peerup-install-container {
+.shurli-install-container {
   width: 100%;
   max-width: 640px;
   margin-left: auto;
@@ -343,18 +359,18 @@
 /* Bottom CTA grid                                               */
 /* ============================================================ */
 
-.peerup-cta-section {
+.shurli-cta-section {
   margin-top: 4rem;
   margin-bottom: 0;
   padding-top: 3rem;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-:is(.dark .peerup-cta-section) {
+:is(.dark .shurli-cta-section) {
   border-top-color: rgba(255, 255, 255, 0.06);
 }
 
-.peerup-cta-grid {
+.shurli-cta-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1.25rem;
@@ -362,13 +378,13 @@
 }
 
 @media (max-width: 768px) {
-  .peerup-cta-grid {
+  .shurli-cta-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
 }
 
-.peerup-cta-card {
+.shurli-cta-card {
   display: block;
   padding: 1.5rem;
   border-radius: 12px;
@@ -379,49 +395,49 @@
   transition: all 0.2s ease;
 }
 
-.peerup-cta-card:hover {
+.shurli-cta-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(218, 28, 92, 0.3);
 }
 
-:is(.dark .peerup-cta-card) {
+:is(.dark .shurli-cta-card) {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-:is(.dark .peerup-cta-card:hover) {
+:is(.dark .shurli-cta-card:hover) {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  border-color: rgba(122, 162, 247, 0.3);
+  border-color: rgba(251, 176, 64, 0.3);
 }
 
-.peerup-cta-icon {
+.shurli-cta-icon {
   margin-bottom: 0.75rem;
-  color: #3b82f6;
+  color: #da1c5c;
 }
 
-:is(.dark .peerup-cta-icon) {
-  color: #7aa2f7;
+:is(.dark .shurli-cta-icon) {
+  color: #fbb040;
 }
 
-.peerup-cta-title {
+.shurli-cta-title {
   font-size: 1rem;
   font-weight: 600;
   color: #111827;
   margin-bottom: 0.25rem;
 }
 
-:is(.dark .peerup-cta-title) {
+:is(.dark .shurli-cta-title) {
   color: #f9fafb;
 }
 
-.peerup-cta-desc {
+.shurli-cta-desc {
   font-size: 0.875rem;
   color: #6b7280;
   line-height: 1.5;
 }
 
-:is(.dark .peerup-cta-desc) {
+:is(.dark .shurli-cta-desc) {
   color: #9ca3af;
 }
 
@@ -429,31 +445,31 @@
 /* Blog listing  - image cards with title overlay                 */
 /* ============================================================ */
 
-.peerup-blog-card {
+.shurli-blog-card {
   display: block;
   margin-bottom: 2rem;
   text-decoration: none;
   transition: transform 0.2s ease;
 }
 
-.peerup-blog-card:hover {
+.shurli-blog-card:hover {
   transform: translateY(-2px);
 }
 
-.peerup-blog-card-image-wrap {
+.shurli-blog-card-image-wrap {
   position: relative;
   width: 100%;
   overflow: hidden;
   border-radius: 12px;
 }
 
-.peerup-blog-card-image {
+.shurli-blog-card-image {
   width: 100%;
   height: auto;
   display: block;
 }
 
-.peerup-blog-card-overlay {
+.shurli-blog-card-overlay {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -462,7 +478,7 @@
   background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
 }
 
-.peerup-blog-card-title {
+.shurli-blog-card-title {
   font-size: 1.5rem;
   font-weight: 700;
   color: #fff;
@@ -470,66 +486,66 @@
   line-height: 1.3;
 }
 
-.peerup-blog-card-noimage {
+.shurli-blog-card-noimage {
   padding: 2rem 1.5rem;
-  background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  background: linear-gradient(135deg, #121328, #da1c5c);
 }
 
-.peerup-blog-card-noimage .peerup-blog-card-title {
+.shurli-blog-card-noimage .shurli-blog-card-title {
   font-size: 1.5rem;
   font-weight: 700;
   color: #fff;
   margin: 0;
 }
 
-.peerup-blog-card-body {
+.shurli-blog-card-body {
   padding: 1rem 1.5rem 1.25rem;
 }
 
-.peerup-blog-card-desc {
+.shurli-blog-card-desc {
   font-size: 0.9rem;
   color: #4b5563;
   line-height: 1.6;
   margin: 0.5rem 0;
 }
 
-:is(.dark .peerup-blog-card-desc) {
+:is(.dark .shurli-blog-card-desc) {
   color: #9ca3af;
 }
 
-.peerup-blog-card-footer {
+.shurli-blog-card-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-top: 0.75rem;
 }
 
-.peerup-blog-card-date {
+.shurli-blog-card-date {
   font-size: 0.8rem;
   color: #9ca3af;
 }
 
-:is(.dark .peerup-blog-card-date) {
+:is(.dark .shurli-blog-card-date) {
   color: #6b7280;
 }
 
-.peerup-blog-card-readmore {
+.shurli-blog-card-readmore {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #3b82f6;
+  color: #da1c5c;
 }
 
-:is(.dark .peerup-blog-card-readmore) {
-  color: #7aa2f7;
+:is(.dark .shurli-blog-card-readmore) {
+  color: #fbb040;
 }
 
 /* Pinned blog post */
 
-.peerup-pinned-badge {
+.shurli-pinned-badge {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
-  background: #2563eb;
+  background: #9e1f63;
   color: #fff;
   font-size: 0.7rem;
   font-weight: 600;
@@ -540,17 +556,17 @@
   z-index: 2;
 }
 
-:is(.dark .peerup-pinned-badge) {
-  background: #7aa2f7;
+:is(.dark .shurli-pinned-badge) {
+  background: #fbb040;
   color: #0f172a;
 }
 
-.peerup-blog-card-noimage .peerup-pinned-badge {
+.shurli-blog-card-noimage .shurli-pinned-badge {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
 }
 
-.peerup-blog-card-noimage {
+.shurli-blog-card-noimage {
   position: relative;
 }

@@ -1,7 +1,7 @@
-# peer-up Makefile
-# Build, test, install, and manage the peerup daemon.
+# Shurli Makefile
+# Build, test, install, and manage the shurli daemon.
 
-BINARY     := peerup
+BINARY     := shurli
 INSTALL_DIR := /usr/local/bin
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -9,17 +9,17 @@ BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS    := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE) -s -w
 OS         := $(shell uname -s)
 
-SYSTEMD_SERVICE := deploy/peerup-daemon.service
-SYSTEMD_DEST    := /etc/systemd/system/peerup-daemon.service
-LAUNCHD_PLIST   := deploy/com.peerup.daemon.plist
-LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.peerup.daemon.plist
-LAUNCHD_LABEL   := com.peerup.daemon
+SYSTEMD_SERVICE := deploy/shurli-daemon.service
+SYSTEMD_DEST    := /etc/systemd/system/shurli-daemon.service
+LAUNCHD_PLIST   := deploy/com.shurli.daemon.plist
+LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.shurli.daemon.plist
+LAUNCHD_LABEL   := com.shurli.daemon
 
 .PHONY: build test clean install install-service uninstall-service uninstall restart-service sync-docs website check push help
 
-## Build the peerup binary with version embedding.
+## Build the shurli binary with version embedding.
 build:
-	go build -ldflags "$(LDFLAGS)" -trimpath -o $(BINARY) ./cmd/peerup
+	go build -ldflags "$(LDFLAGS)" -trimpath -o $(BINARY) ./cmd/shurli
 
 ## Run all tests with race detection.
 test:
@@ -42,20 +42,20 @@ install-service:
 ifeq ($(OS),Linux)
 	@echo "Installing systemd service..."
 	@echo "This requires elevated permissions."
-	@if ! id -u peerup >/dev/null 2>&1; then \
-		echo "Creating system user 'peerup'..."; \
-		sudo useradd --system --shell /usr/sbin/nologin --create-home peerup; \
-		sudo mkdir -p /home/peerup/.config/peerup; \
-		sudo chown peerup:peerup /home/peerup/.config/peerup; \
-		echo "User 'peerup' created."; \
+	@if ! id -u shurli >/dev/null 2>&1; then \
+		echo "Creating system user 'shurli'..."; \
+		sudo useradd --system --shell /usr/sbin/nologin --create-home shurli; \
+		sudo mkdir -p /home/shurli/.config/shurli; \
+		sudo chown shurli:shurli /home/shurli/.config/shurli; \
+		echo "User 'shurli' created."; \
 	fi
 	sudo cp $(SYSTEMD_SERVICE) $(SYSTEMD_DEST)
 	sudo systemctl daemon-reload
-	sudo systemctl enable peerup-daemon
+	sudo systemctl enable shurli-daemon
 	@echo ""
 	@echo "Service installed and enabled."
-	@echo "Start with: sudo systemctl start peerup-daemon"
-	@echo "Logs:       journalctl -u peerup-daemon -f"
+	@echo "Start with: sudo systemctl start shurli-daemon"
+	@echo "Logs:       journalctl -u shurli-daemon -f"
 else ifeq ($(OS),Darwin)
 	@echo "Installing launchd service..."
 	@mkdir -p $(dir $(LAUNCHD_DEST))
@@ -63,7 +63,7 @@ else ifeq ($(OS),Darwin)
 	launchctl load $(LAUNCHD_DEST)
 	@echo ""
 	@echo "Service installed and loaded."
-	@echo "Logs: /tmp/peerup-daemon.log"
+	@echo "Logs: /tmp/shurli-daemon.log"
 else
 	@echo "Unsupported OS for service install: $(OS)"
 	@echo "Supported: Linux (systemd), macOS (launchd)"
@@ -75,8 +75,8 @@ uninstall-service:
 ifeq ($(OS),Linux)
 	@echo "Removing systemd service..."
 	@echo "This requires elevated permissions."
-	-sudo systemctl stop peerup-daemon 2>/dev/null
-	-sudo systemctl disable peerup-daemon 2>/dev/null
+	-sudo systemctl stop shurli-daemon 2>/dev/null
+	-sudo systemctl disable shurli-daemon 2>/dev/null
 	-sudo rm -f $(SYSTEMD_DEST)
 	-sudo systemctl daemon-reload
 	@echo "Service removed."
@@ -101,9 +101,9 @@ restart-service:
 ifeq ($(OS),Linux)
 	@echo "Restarting systemd service..."
 	@echo "This requires elevated permissions."
-	sudo systemctl restart peerup-daemon
+	sudo systemctl restart shurli-daemon
 	@echo "Service restarted."
-	@echo "Status: sudo systemctl status peerup-daemon"
+	@echo "Status: sudo systemctl status shurli-daemon"
 else ifeq ($(OS),Darwin)
 	@echo "Restarting launchd service..."
 	launchctl kickstart -k gui/$$(id -u)/$(LAUNCHD_LABEL)
@@ -152,9 +152,9 @@ push: check
 
 ## Show available targets.
 help:
-	@echo "peer-up Makefile targets:"
+	@echo "Shurli Makefile targets:"
 	@echo ""
-	@echo "  build             Build the peerup binary"
+	@echo "  build             Build the shurli binary"
 	@echo "  test              Run all tests with race detection"
 	@echo "  clean             Remove build artifacts"
 	@echo "  install           Build, install binary, and set up service"

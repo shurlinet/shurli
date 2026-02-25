@@ -34,7 +34,7 @@ Coverage-instrumented Docker tests, relay binary, injectable exit, and post-phas
 - **Use a public relay** - Test against a real relay. Rejected because tests must be self-contained and reproducible.
 - **Mock relay in-process** - Use libp2p relay transport directly. Rejected because we want to test the actual relay-server binary.
 
-**Decision**: Build `relay-server` binary alongside `peerup` binary for Docker tests. The compose file starts a relay container, and node containers use it for circuit relay.
+**Decision**: Build `relay-server` binary alongside `shurli` binary for Docker tests. The compose file starts a relay container, and node containers use it for circuit relay.
 
 **Consequences**: Tests verify the actual deployment path (binary -> container -> relay -> circuit). Takes longer to build but catches real integration issues.
 
@@ -50,11 +50,11 @@ Coverage-instrumented Docker tests, relay binary, injectable exit, and post-phas
 - **Panic + recover** - Use `panic` instead of `os.Exit` and recover in tests. Rejected because panics have different semantics (stack traces, deferred functions).
 - **Return error codes** - Refactor all commands to return errors. Considered for future, but too large a refactor for a testing improvement.
 
-**Decision**: Package-level `var osExit = os.Exit` that tests override with a function that records the exit code instead of terminating. Applied to `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/` (the main binary) and `cmd/relay-server/`.
+**Decision**: Package-level `var osExit = os.Exit` that tests override with a function that records the exit code instead of terminating. Applied to `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/` (the main binary) and `cmd/relay-server/`.
 
 **Consequences**: Minimal code change (one variable + one test helper), enables testing of all exit paths. The variable is package-level, so tests must be careful about parallel execution (each test restores the original `osExit`).
 
-**Reference**: `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/run.go`, `https://github.com/satindergrewal/peer-up/blob/main/cmd/peerup/run_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/run.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/run_test.go`
 
 ---
 

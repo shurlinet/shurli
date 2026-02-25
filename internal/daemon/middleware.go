@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // statusRecorder wraps http.ResponseWriter to capture the status code.

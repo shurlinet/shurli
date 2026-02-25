@@ -36,7 +36,7 @@ The improvements come from upgrading everything *around* the relay - see the nex
 
 ---
 
-## Why Circuit Relay v2 is the right choice for peer-up
+## Why Circuit Relay v2 is the right choice for Shurli
 
 1. **Symmetric NAT** - Hole-punch success rates are irrelevant (all protocols fail against symmetric NAT, all fall back to relay)
 2. **Self-hosted relay** - You control limits, so the 128KB/2min public relay caps don't apply
@@ -90,7 +90,7 @@ Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem*
 
 ---
 
-## Why does peer-up use its own relay?
+## Why does Shurli use its own relay?
 
 For Starlink/CGNAT (symmetric NAT) users, hole-punching **always fails**. Traffic must stay on the relay for the entire session. This means:
 
@@ -99,7 +99,7 @@ For Starlink/CGNAT (symmetric NAT) users, hole-punching **always fails**. Traffi
 3. **Tailscale's DERP** - Would work, but requires a Tailscale account and their control plane.
 4. **Your own relay** - Works indefinitely, unlimited data, you control everything.
 
-peer-up's self-hosted relay ($5/month VPS) is the only option that provides **both** unlimited traffic **and** full sovereignty.
+Shurli's self-hosted relay ($5/month VPS) is the only option that provides **both** unlimited traffic **and** full sovereignty.
 
 ---
 
@@ -113,13 +113,13 @@ With symmetric NAT (CGNAT), the mapped port **changes for every destination**:
 
 The port the lighthouse tells Peer B to use was allocated for the lighthouse connection, not Peer B. The hole-punch fails.
 
-**Nebula has no relay fallback.** If hole-punching fails, the connection simply doesn't work. Tailscale falls back to DERP. peer-up falls back to circuit relay. Nebula has nothing.
+**Nebula has no relay fallback.** If hole-punching fails, the connection simply doesn't work. Tailscale falls back to DERP. Shurli falls back to circuit relay. Nebula has nothing.
 
 ---
 
 ## Is it safe for my home node to act as a relay?
 
-This is the most important security question for peer-up's future. The short answer: **yes, with Circuit Relay v2's built-in protections, a home node can safely relay traffic for authorized peers without increasing its attack surface.**
+This is the most important security question for Shurli's future. The short answer: **yes, with Circuit Relay v2's built-in protections, a home node can safely relay traffic for authorized peers without increasing its attack surface.**
 
 Here's the full breakdown - because "trust us" is not a security argument.
 
@@ -149,9 +149,11 @@ When any limit is hit, the relay returns `RESOURCE_LIMIT_EXCEEDED` and the conne
 
 ### Only relay for people you chose
 
-peer-up's relay service is **restricted to peers in your `authorized_keys` file** by default. The ConnectionGater blocks unauthenticated connections before any relay protocol runs - an anonymous internet scanner hitting your relay's port gets rejected at the connection layer, and the reservation request never reaches the relay service logic.
+Shurli's relay service is **restricted to peers in your `authorized_keys` file** by default. The ConnectionGater blocks unauthenticated connections before any relay protocol runs - an anonymous internet scanner hitting your relay's port gets rejected at the connection layer, and the reservation request never reaches the relay service logic.
 
 Batch I-f shipped "every-peer-is-a-relay" - any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB per direction, 10-minute sessions). The ConnectionGater ensures only authorized peers can make reservations or create circuits through this relay.
+
+Relay management uses the relay admin socket (Unix domain socket with cookie auth). Admins generate pairing codes via `shurli relay pair`, which talks to the running relay process directly. No SSH needed for peer onboarding, no manual peer ID exchange.
 
 The attack surface increase from enabling relay is **zero** for unauthenticated peers - they are rejected at the same layer they would be rejected at today.
 
@@ -161,7 +163,7 @@ This concern has two parts:
 
 **Part 1: Visible to peers you explicitly authorized.** Yes - when a peer connects directly (via hole punch or IPv6), they see your IP. But you already authorized them in `authorized_keys`. They already know where you are conceptually. And your IP is visible in any direct TCP/QUIC connection regardless of whether relay service is enabled.
 
-**Part 2: Visible on the public DHT.** No - peer-up uses a **private Kademlia DHT** (`/peerup/kad/1.0.0`), completely isolated from the public IPFS Amino DHT. Your node only talks to other peer-up nodes for discovery, not the broader IPFS network. Your addresses are only discoverable by peers running peer-up software. Additional mitigations:
+**Part 2: Visible on the public DHT.** No - Shurli uses a **private Kademlia DHT** (`/shurli/kad/1.0.0`), completely isolated from the public IPFS Amino DHT. Your node only talks to other Shurli nodes for discovery, not the broader IPFS network. Your addresses are only discoverable by peers running Shurli software. Additional mitigations:
 - **Relay-only advertising**: Advertise only your relay VPS address; your home IP only visible after authentication
 - **IPv6 privacy extensions**: Use temporary IPv6 addresses that rotate
 
@@ -182,20 +184,20 @@ The relay VPS model today already exposes its public IP. A home relay with the C
 
 Self-hosters know the pattern: expose a service on a home server, and within hours the port scanners find it. Firewall logs light up with probes from around the world. This happens because the service accepts connections from anyone - every participant on the network can reach it.
 
-A peer-up relay with its ConnectionGater allowlist is fundamentally different:
+A Shurli relay with its ConnectionGater allowlist is fundamentally different:
 
-| | **Typical exposed service** | **peer-up relay** |
+| | **Typical exposed service** | **Shurli relay** |
 |---|---|---|
 | **Who can connect** | Anyone who finds the port | Only peers in your `authorized_keys` |
 | **What they can do** | Full protocol interaction | Forward encrypted bytes (nothing else) |
 | **Discovery** | Port scanning, Shodan, service-specific gossip | Private - only authorized peers know about it |
 | **Attack surface** | Full protocol parser (HTTP, SSH, etc.) | ConnectionGater rejection (zero protocol parsing for unauthorized) |
 
-An open service is an open door with a bouncer inside. A peer-up relay is a door that only opens with the right key - and even then, it only passes sealed envelopes.
+An open service is an open door with a bouncer inside. A Shurli relay is a door that only opens with the right key - and even then, it only passes sealed envelopes.
 
 ### Comparison with other relay architectures
 
-| Feature | **peer-up** | **Tailscale DERP** | **IPFS public relay** |
+| Feature | **Shurli** | **Tailscale DERP** | **IPFS public relay** |
 |---------|------------|-------------------|---------------------|
 | **Who can use it** | Explicit allowlist (authorized_keys) | Any Tailscale account holder | Anyone |
 | **Authentication** | ConnectionGater (peer ID) | WireGuard keys | None |
@@ -208,12 +210,12 @@ An open service is an open door with a bouncer inside. A peer-up relay is a door
 
 ![Decentralization path: from single VPS relay to peer relays to DHT discovery to fully distributed where every public peer relays for authorized peers](../images/faq-decentralization-path.svg)
 
-The ConnectionGater-protected relay model is how peer-up eliminates dependency on the central relay VPS:
+The ConnectionGater-protected relay model is how Shurli eliminates dependency on the central relay VPS:
 
 1. **Today**: One relay VPS + every-peer-is-a-relay (Batch I-f) for peers with public IPs
 2. **Near-term**: Home nodes with public IPv6 or port-forwarding serve as additional relays -> multiple relays across the network
 3. **Medium-term**: Peers discover authorized relays via DHT (not a central endpoint) -> no single point of failure
-4. **End state**: Every publicly-reachable peer-up node relays for its authorized peers -> relay VPS becomes **obsolete** (not just optional)
+4. **End state**: Every publicly-reachable Shurli node relays for its authorized peers -> relay VPS becomes **obsolete** (not just optional)
 
 This follows the same decentralization path as Bitcoin: hardcoded seeds -> DNS seeds -> peer exchange -> fully self-sustaining network.
 
@@ -224,7 +226,7 @@ This follows the same decentralization path as Bitcoin: hardcoded seeds -> DNS s
 
 ---
 
-## Can NAT traversal improve without changes to peer-up?
+## Can NAT traversal improve without changes to Shurli?
 
 Yes. NAT traversal success depends heavily on what the NAT device does, and router/OS vendors are starting to make NATs friendlier.
 
@@ -232,7 +234,7 @@ Yes. NAT traversal success depends heavily on what the NAT device does, and rout
 
 FreeBSD's packet filter (PF) now has an `endpoint-independent` NAT option for UDP. This makes the NAT behave as "full cone" - the mapped port stays the same regardless of destination. Full-cone NATs have near-100% hole-punch success because both peers can predict each other's mapped ports.
 
-**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior - and peer-up's DCUtR success rate improves automatically without any code changes.
+**Why this matters**: OPNsense (a popular firewall/router OS) is FreeBSD-based. If OPNsense adopts this option, a significant number of home and SMB routers get friendlier NAT behavior - and Shurli's DCUtR success rate improves automatically without any code changes.
 
 **What to watch**: OPNsense releases, pfSense updates, and any Linux `nftables` equivalent. If this pattern spreads to consumer routers, the percentage of "hard NAT" cases (endpoint-dependent mapping) shrinks organically.
 
@@ -242,10 +244,27 @@ FreeBSD's packet filter (PF) now has an `endpoint-independent` NAT option for UD
 
 Many ISPs now provide globally routable public IPv6 addresses. IPv6 has no NAT - every device gets a public address. When two peers both have IPv6, they connect directly with zero NAT traversal, zero hole punching, zero relay dependency.
 
-peer-up already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests IPv4 and IPv6 reachability independently, so a node behind IPv4 CGNAT but with public IPv6 will correctly identify that its IPv6 addresses are directly reachable.
+Shurli already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests IPv4 and IPv6 reachability independently, so a node behind IPv4 CGNAT but with public IPv6 will correctly identify that its IPv6 addresses are directly reachable.
 
 **Expected impact**: As IPv6 adoption grows (currently ~45% globally, higher on mobile networks), the percentage of connections requiring relay will decrease. For networks where both peers have IPv6, relay is already unnecessary today.
 
 ---
 
-**Last Updated**: 2026-02-24
+## How does CGNAT detection work?
+
+CGNAT (Carrier-Grade NAT) is a second layer of NAT applied by mobile carriers and some ISPs. It makes hole-punching unreliable because the outer NAT drops unsolicited inbound packets regardless of inner NAT type.
+
+Shurli detects CGNAT by checking local interfaces for RFC 6598 addresses (`100.64.0.0/10`). When found, the reachability grade is capped at D regardless of STUN results. This prevents false optimism: STUN sees only the inner NAT and might report "hole-punchable" when the outer CGNAT will actually block it.
+
+| Detection method | What it catches | What it misses |
+|-----------------|-----------------|----------------|
+| RFC 6598 (`100.64.0.0/10`) on local interface | Standard CGNAT deployments | Mobile carriers using RFC 1918 (`172.x.x.x`) for CGNAT |
+| STUN external IP differs from local IP | Any NAT layer | Can't distinguish CGNAT from regular NAT |
+
+The limitation: mobile carriers that assign RFC 1918 addresses (like `172.20.x.x`) for CGNAT look identical to regular home networks. There's no clean way to detect this without active probing against a known endpoint. In testing, a 5G carrier using `172.20.10.x` was graded as "hole-punchable" even though most hole-punch attempts failed.
+
+The grade is honest about what it knows and what it doesn't. When CGNAT is detected, the grade says so. When it can't be detected, the grade reflects STUN results and the user sees the outcome in their actual connection path (direct vs relayed).
+
+---
+
+**Last Updated**: 2026-02-25

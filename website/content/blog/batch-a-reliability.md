@@ -3,7 +3,7 @@ title: "Connections That Don't Give Up"
 date: 2026-02-10
 tags: [release, batch-a]
 image: /images/blog/batch-a-reliability.svg
-description: "peer-up connections now retry automatically with exponential backoff. Network drops recover without intervention."
+description: "Shurli connections now retry automatically with exponential backoff. Network drops recover without intervention."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
@@ -13,7 +13,7 @@ authors:
 
 ## What's new
 
-peer-up connections now retry automatically with exponential backoff when they fail. If your relay hiccups or a transient network issue drops a connection, peer-up reconnects without you lifting a finger.
+Shurli connections now retry automatically with exponential backoff when they fail. If your relay hiccups or a transient network issue drops a connection, Shurli reconnects without you lifting a finger.
 
 TCP proxies have proper timeout handling: dial timeouts for initial connections and half-close propagation for clean shutdown. SSH sessions through relay stay alive as long as you need them.
 

@@ -1,26 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" width="400" height="280">
   <defs>
     <linearGradient id="bg2" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1b26;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#24283b;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#1a191c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#222124;stop-opacity:1" />
     </linearGradient>
   </defs>
   <!-- Terminal window -->
   <rect width="400" height="280" rx="10" fill="url(#bg2)"/>
   <!-- Title bar -->
-  <rect width="400" height="36" rx="10" fill="#16161e"/>
-  <rect x="0" y="24" width="400" height="12" fill="#16161e"/>
+  <rect width="400" height="36" rx="10" fill="#141315"/>
+  <rect x="0" y="24" width="400" height="12" fill="#141315"/>
   <circle cx="20" cy="18" r="5" fill="#ff5f57"/>
   <circle cx="38" cy="18" r="5" fill="#febc2e"/>
   <circle cx="56" cy="18" r="5" fill="#28c840"/>
   <text x="200" y="22" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle">server</text>
   <!-- Content -->
-  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#7aa2f7">$ peerup invite</text>
+  <text x="20" y="68" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli invite</text>
   <text x="20" y="98" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Share this invite code with your peer:</text>
-  <text x="20" y="130" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">peerup://12D3KooWRx...7xRm</text>
+  <text x="20" y="130" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">shurli://12D3KooWRx...7xRm</text>
   <text x="20" y="150" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">  /relay/relay.example.com/tcp/4001</text>
   <text x="20" y="182" font-family="SF Mono, monospace" font-size="12" fill="#e0af68">Waiting for peer to join...</text>
   <!-- Arrow indicating share -->
-  <rect x="120" y="200" width="160" height="36" rx="8" fill="none" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="4,3"/>
-  <text x="200" y="223" font-family="system-ui, sans-serif" font-size="13" fill="#7aa2f7" text-anchor="middle">Share via any channel</text>
+  <rect x="120" y="200" width="160" height="36" rx="8" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="200" y="223" font-family="system-ui, sans-serif" font-size="13" fill="#e8729a" text-anchor="middle">Share via any channel</text>
 </svg>

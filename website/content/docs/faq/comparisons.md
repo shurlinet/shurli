@@ -6,19 +6,19 @@ description: "How different approaches to remote access compare: centralized VPN
 <!-- Auto-synced from docs/faq/comparisons.md by sync-docs - do not edit directly -->
 
 
-> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/satindergrewal/peer-up/issues) or pull requests.
+> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues) or pull requests.
 
-## How does peer-up differ from centralized VPN tools?
+## How does Shurli differ from centralized VPN tools?
 
 The core architectural difference comes down to how coordination works.
 
 Centralized VPN tools use a coordination server controlled by the vendor. Your devices register with that server, authenticate through it, and rely on it to broker connections. Your identity lives in their database, your device graph is visible to their infrastructure, and your ability to connect depends on their service being online and their terms remaining acceptable.
 
-peer-up takes the opposite approach: fully decentralized coordination via a Kademlia DHT and local configuration files. Identity is an Ed25519 key pair generated on your machine. Authorization is a local `authorized_keys` file listing which peer IDs are allowed. There is no account, no sign-in, no external dependency for authentication or discovery.
+Shurli takes the opposite approach: fully decentralized coordination via a Kademlia DHT and local configuration files. Identity is an Ed25519 key pair generated on your machine. Authorization is a local `authorized_keys` file listing which peer IDs are allowed. There is no account, no sign-in, no external dependency for authentication or discovery.
 
 ### Architecture
 
-| Aspect | **peer-up** | **Centralized VPN** |
+| Aspect | **Shurli** | **Centralized VPN** |
 |--------|------------|---------------------------------------|
 | **Foundation** | libp2p (circuit relay v2, DHT, QUIC) | WireGuard (kernel-level crypto) |
 | **Topology** | Client -> Relay -> Server (with DCUtR upgrade to direct) | Full mesh, point-to-point |
@@ -28,7 +28,7 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Privacy & Sovereignty
 
-| | **peer-up** | **Centralized VPN** |
+| | **Shurli** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -38,17 +38,17 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Features
 
-| Feature | **peer-up** | **Centralized VPN** |
+| Feature | **Shurli** | **Centralized VPN** |
 |---------|------------|---------------------------------------|
 | **Service tunneling** | SSH, XRDP, generic TCP | Full IP-layer VPN (any protocol) |
 | **Auth model** | SSH-style `authorized_keys` (peer ID allowlist) | SSO (Google, Okta, GitHub), ACLs |
 | **DNS** | Friendly names in config + private DNS on relay (planned) | MagicDNS (auto device names) |
 | **Platforms** | Linux, macOS (Go binary) | Linux, Windows, macOS, iOS, Android, containers |
-| **Setup** | `peerup init` wizard | Download -> sign in -> done |
+| **Setup** | `shurli init` wizard | Download -> sign in -> done |
 | **Admin UI** | CLI only | Web dashboard, admin console |
 | **Exit nodes** | Not yet | Yes |
 | **Subnet routing** | Not yet | Yes |
-| **Multi-user/team** | Relay pairing codes + invite/join + `peerup verify` | Built-in team management, SSO |
+| **Multi-user/team** | Relay pairing codes + invite/join + `shurli verify` | Built-in team management, SSO |
 
 ### Strengths of the decentralized approach
 
@@ -69,17 +69,17 @@ peer-up takes the opposite approach: fully decentralized coordination via a Kade
 
 ### Self-hosted control planes: a middle ground
 
-Projects like [Headscale](https://github.com/juanfont/headscale) and [NetBird](https://github.com/netbirdio/netbird) offer self-hosted alternatives that eliminate the vendor dependency. You run the coordination server yourself, so there is no third-party account requirement and no external control over your network. However, the architecture still requires a coordination server - it is self-hosted rather than vendor-hosted, but not eliminated. The WireGuard transport layer remains the same, and you still manage a centralized piece of infrastructure. These sit in between: more sovereign than a vendor-hosted control plane, less decentralized than peer-up's DHT-based approach.
+Projects like [Headscale](https://github.com/juanfont/headscale) and [NetBird](https://github.com/netbirdio/netbird) offer self-hosted alternatives that eliminate the vendor dependency. You run the coordination server yourself, so there is no third-party account requirement and no external control over your network. However, the architecture still requires a coordination server - it is self-hosted rather than vendor-hosted, but not eliminated. The WireGuard transport layer remains the same, and you still manage a centralized piece of infrastructure. These sit in between: more sovereign than a vendor-hosted control plane, less decentralized than Shurli's DHT-based approach.
 
 ---
 
-## How does peer-up differ from other P2P and mesh tools?
+## How does Shurli differ from other P2P and mesh tools?
 
 ### Direct competitors
 
 #### Hyprspace - Most similar in the libp2p ecosystem
 
-- **Stack**: Go + libp2p + IPFS DHT (same as peer-up)
+- **Stack**: Go + libp2p + IPFS DHT (same as Shurli)
 - **What it does**: Lightweight VPN that creates TUN interfaces, uses DHT for discovery, NAT hole-punching via libp2p
 - **Key features**: Virtual IP addresses, IPv6 routing, Service Network (subdomain-based service addressing)
 - **Difference**: Hyprspace operates at the IP layer (TUN/TAP VPN), not TCP service proxy. No invite/onboarding flow, no relay-first architecture.
@@ -128,13 +128,13 @@ Projects like [Headscale](https://github.com/juanfont/headscale) and [NetBird](h
 
 - **Headscale**: Open source Tailscale control server - uses official Tailscale clients
 - **NetBird**: Full self-hosted mesh with WireGuard, management service, signal server, relay
-- **Difference**: Both are WireGuard-based, not libp2p. Different philosophy - they replicate Tailscale's architecture with self-hosted infrastructure, peer-up builds something structurally different.
+- **Difference**: Both are WireGuard-based, not libp2p. Different philosophy - they replicate Tailscale's architecture with self-hosted infrastructure, Shurli builds something structurally different.
 
 ### Comparison table
 
 | Project | Stack | Layer | Relay fallback | CGNAT works | Onboarding | Self-sovereign |
 |---------|-------|-------|---------------|-------------|------------|----------------|
-| **peer-up** | Go + libp2p | TCP service proxy | Yes (circuit relay v2) | Yes | `init` wizard + invite/join | Yes |
+| **Shurli** | Go + libp2p | TCP service proxy | Yes (circuit relay v2) | Yes | `init` wizard + invite/join | Yes |
 | **Hyprspace** | Go + libp2p | IP layer (TUN) | Yes (circuit relay) | Yes | Manual config | Yes |
 | **Hyperswarm** | Node.js + HyperDHT | Library | Yes (DHT-assisted) | Yes | API only | Yes |
 | **connet** | Go + QUIC | TCP proxy | Yes (control server) | Partial | Manual config | Yes |
@@ -147,13 +147,13 @@ Projects like [Headscale](https://github.com/juanfont/headscale) and [NetBird](h
 
 ### Blockchain P2P networks as reference points
 
-These are not competitors but useful reference points. Their P2P stacks solve different problems (block propagation, consensus) but share underlying technology with peer-up:
+These are not competitors but useful reference points. Their P2P stacks solve different problems (block propagation, consensus) but share underlying technology with Shurli:
 
 | Network | P2P Stack | Discovery | NAT Traversal | Encryption | Key Insight |
 |---------|-----------|-----------|---------------|------------|-------------|
 | **Bitcoin** | Custom (TCP only) | DNS seeds + addr gossip | None | BIP 324 (added 2023 - was plaintext for 14 years) | Simplicity is strength; 17 years of adversarial hardening |
 | **Ethereum (execution)** | devp2p / RLPx | discv5 (UDP) | None (public IPs expected) | ECIES | Legacy layer, pre-Merge |
-| **Ethereum (consensus)** | **libp2p** (same as peer-up) | discv5 (chose over Kademlia) | Minimal | Noise protocol | Validates libp2p for critical infrastructure |
+| **Ethereum (consensus)** | **libp2p** (same as Shurli) | discv5 (chose over Kademlia) | Minimal | Noise protocol | Validates libp2p for critical infrastructure |
 | **Filecoin** | libp2p | Kademlia DHT | Circuit relay | Noise / TLS 1.3 | Largest libp2p deployment by data volume |
 | **Polkadot** | libp2p (Rust) | Kademlia DHT | Circuit relay | Noise | Multi-chain P2P; validates rust-libp2p |
 
@@ -202,15 +202,15 @@ Circuit Relay v2 is slower because it involves a reservation step and DHT lookup
 
 ## How do P2P networking stacks compare?
 
-These comparisons are reference points showing where peer-up's libp2p foundation sits in the broader P2P landscape. Bitcoin and Ethereum are not competitors - they solve different problems (block propagation, consensus) - but their P2P stacks share enough architectural overlap to be instructive.
+These comparisons are reference points showing where Shurli's libp2p foundation sits in the broader P2P landscape. Bitcoin and Ethereum are not competitors - they solve different problems (block propagation, consensus) - but their P2P stacks share enough architectural overlap to be instructive.
 
 ### Bitcoin's P2P stack
 
-Bitcoin's P2P protocol has **less overhead per message**, but it cannot do what peer-up needs.
+Bitcoin's P2P protocol has **less overhead per message**, but it cannot do what Shurli needs.
 
 #### The comparison
 
-| | **Bitcoin P2P** | **libp2p (peer-up)** |
+| | **Bitcoin P2P** | **libp2p (Shurli)** |
 |---|---|---|
 | **Transport** | Raw TCP only | TCP, QUIC, WebSocket, WebRTC |
 | **Handshake** | 1.5-3 RTTs (~296 bytes) | 4+ RTTs (TCP) / 3 RTTs (QUIC) |
@@ -224,11 +224,11 @@ Bitcoin's P2P protocol has **less overhead per message**, but it cannot do what 
 
 It is simpler, not fundamentally faster. Bitcoin uses raw TCP with a 24-byte binary header and zero encryption. No protocol negotiation, no multiplexing, no security handshake. It is lean because it *trusts nothing* at the network layer - blocks are verified cryptographically after receipt anyway.
 
-#### Why it does not matter for peer-up
+#### Why it does not matter for Shurli
 
 **Bitcoin P2P cannot traverse NAT or CGNAT at all.** If both sides cannot directly reach each other, Bitcoin nodes simply cannot connect inbound. Users behind ISP CGNAT cannot run full Bitcoin nodes that accept inbound connections. Bitcoin originally had UPnP enabled by default but disabled it due to [miniupnpc vulnerabilities](https://bitcoin.org/en/alert/2015-10-12-upnp-vulnerability). It now uses PCP (Port Control Protocol), which ISP CGNAT equipment intentionally blocks.
 
-NAT/CGNAT traversal is peer-up's entire reason for existing.
+NAT/CGNAT traversal is Shurli's entire reason for existing.
 
 #### The key research finding
 
@@ -236,11 +236,11 @@ A 2021 study implemented Bitcoin's block exchange protocol on top of libp2p and 
 
 > *"Setting up communication channels is time-consuming, but data transfers are fast"*
 
-Once the connection is established, **bulk throughput is comparable**. The overhead is in the handshake, not the data flow. For peer-up's use case (long-lived connections proxying SSH, Ollama, XRDP), connection setup latency is a one-time cost that becomes irrelevant.
+Once the connection is established, **bulk throughput is comparable**. The overhead is in the handshake, not the data flow. For Shurli's use case (long-lived connections proxying SSH, Ollama, XRDP), connection setup latency is a one-time cost that becomes irrelevant.
 
 **Source**: Barbara Guidi, Andrea Michienzi, Laura Ricci. *"A libP2P Implementation of the Bitcoin Block Exchange Protocol."* Proceedings of the 2nd International Workshop on Distributed Infrastructure for Common Good (DICG '21), ACM, 2021. DOI: [10.1145/3493426.3493822](https://dl.acm.org/doi/10.1145/3493426.3493822)
 
-#### What peer-up does to close the gap
+#### What Shurli does to close the gap
 
 These optimizations shipped in Phase 4C:
 
@@ -249,21 +249,21 @@ These optimizations shipped in Phase 4C:
 3. **Parallel dial racing** (done, Batch I) - race DHT and relay in parallel, first wins
 4. **STUN probing** (done, Batch I) - classify NAT type, predict hole-punch success
 
-Once hole punching succeeds, peer-up is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal. Connection warmup and stream pooling remain as future optimizations.
+Once hole punching succeeds, Shurli is essentially just encrypted TCP with 12 bytes of Yamux framing per frame - very close to Bitcoin's raw TCP speed but with encryption and NAT traversal. Connection warmup and stream pooling remain as future optimizations.
 
 #### Bottom line
 
-Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. peer-up needs relay + hole punching + encryption, and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
+Bitcoin P2P is lean but primitive. It solved a different problem: broadcasting blocks to publicly-reachable nodes. Shurli needs relay + hole punching + encryption, and libp2p is the right tool for that. The performance gap narrows dramatically with QUIC + connection pooling + DCUtR direct connections.
 
 ### Ethereum's P2P stack
 
-Ethereum is the most relevant comparison because **its consensus layer uses the same libp2p stack** that peer-up is built on. Ethereum actually runs two separate P2P networks.
+Ethereum is the most relevant comparison because **its consensus layer uses the same libp2p stack** that Shurli is built on. Ethereum actually runs two separate P2P networks.
 
 #### Ethereum's two P2P layers
 
 **Execution layer (devp2p/RLPx)** - the original Ethereum networking, predating The Merge:
 
-| | **devp2p (Execution)** | **peer-up (libp2p)** |
+| | **devp2p (Execution)** | **Shurli (libp2p)** |
 |---|---|---|
 | **Transport** | TCP only | QUIC + TCP + WebSocket |
 | **Encryption** | ECIES (ECDH + AES) | Noise / TLS 1.3 |
@@ -274,7 +274,7 @@ Ethereum is the most relevant comparison because **its consensus layer uses the 
 
 **Consensus layer (libp2p)** - adopted for the Beacon Chain (post-Merge):
 
-| | **Ethereum Consensus** | **peer-up** |
+| | **Ethereum Consensus** | **Shurli** |
 |---|---|---|
 | **Stack** | libp2p (Go and Rust implementations) | libp2p (Go) |
 | **libp2p version** | ~v0.30.x era | v0.47.0 (newer) |
@@ -307,13 +307,13 @@ Ethereum's consensus layer uses libp2p for transport and encryption but **not** 
 
 The key reason: Kademlia DHT maintains routing tables and handles both content routing and peer discovery, which generates more background traffic than needed for pure discovery. discv5 does one thing - find peers - and does it with less bandwidth overhead.
 
-**For peer-up**: Kademlia DHT is the right choice today because peer-up uses it for both peer discovery and rendezvous coordination, and the bandwidth overhead is negligible at current network sizes. The discv5 approach becomes interesting at larger scales where DHT maintenance traffic is measurable.
+**For Shurli**: Kademlia DHT is the right choice today because Shurli uses it for both peer discovery and rendezvous coordination, and the bandwidth overhead is negligible at current network sizes. The discv5 approach becomes interesting at larger scales where DHT maintenance traffic is measurable.
 
-#### What this means for peer-up
+#### What this means for Shurli
 
-peer-up's libp2p foundation is **validated by Ethereum's consensus layer** - the same networking stack secures one of the largest decentralized networks in existence. peer-up also benefits from improvements driven by Ethereum's scale: gossipsub optimizations, Noise protocol hardening, and transport upgrades all flow back to the shared libp2p codebase.
+Shurli's libp2p foundation is **validated by Ethereum's consensus layer** - the same networking stack secures one of the largest decentralized networks in existence. Shurli also benefits from improvements driven by Ethereum's scale: gossipsub optimizations, Noise protocol hardening, and transport upgrades all flow back to the shared libp2p codebase.
 
-Where peer-up goes further than Ethereum's usage:
+Where Shurli goes further than Ethereum's usage:
 - **Full NAT traversal** (AutoNAT v2, circuit relay, DCUtR) - Ethereum validators do not need this
 - **QUIC as preferred transport** - Ethereum consensus still primarily uses TCP
 - **WebSocket for anti-censorship** - Ethereum has no DPI evasion story
@@ -321,13 +321,13 @@ Where peer-up goes further than Ethereum's usage:
 
 ---
 
-## What does peer-up ship that others don't?
+## What does Shurli ship that others don't?
 
 ### Built-in observability
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-peer-up ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+Shurli ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
 
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
@@ -335,7 +335,7 @@ peer-up ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holep
 
 ## What are the open problems in P2P networking?
 
-These are genuine gaps in every P2P/VPN/tunnel tool available today, including peer-up:
+These are genuine gaps in every P2P/VPN/tunnel tool available today, including Shurli:
 
 ### 1. Zero-RTT proxy connection resume
 

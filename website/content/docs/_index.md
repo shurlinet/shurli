@@ -1,9 +1,9 @@
 ---
 title: Documentation
-description: "Everything you need to know about peer-up: quick start guide, architecture, daemon API, security model, and network tools."
+description: "Everything you need to know about Shurli: quick start guide, architecture, daemon API, security model, and network tools."
 ---
 
-Everything you need to know about peer-up, from getting started to deep architecture details.
+Everything you need to know about Shurli, from getting started to deep architecture details.
 
 {{< cards >}}
   {{< card link="quick-start" title="Quick Start" subtitle="Get connected in 60 seconds" icon="play" >}}
@@ -13,7 +13,7 @@ Everything you need to know about peer-up, from getting started to deep architec
   {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay server" icon="server" >}}
   {{< card link="monitoring" title="Monitoring" subtitle="Prometheus, Grafana, and audit logging" icon="chart-bar" >}}
   {{< card link="daemon-api" title="Daemon API" subtitle="REST API reference for the daemon" icon="terminal" >}}
-  {{< card link="architecture" title="Architecture" subtitle="How peer-up works under the hood" icon="cube" >}}
+  {{< card link="architecture" title="Architecture" subtitle="How Shurli works under the hood" icon="cube" >}}
   {{< card link="roadmap" title="Roadmap" subtitle="Multi-phase implementation plan" icon="map" >}}
   {{< card link="testing" title="Testing" subtitle="Test strategy and coverage" icon="check-circle" >}}
   {{< card link="engineering-journal" title="Engineering Journal" subtitle="Why every decision was made" icon="book-open" >}}

@@ -12,10 +12,10 @@ func TestArchivePath(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"/home/user/.config/peerup/config.yaml", "/home/user/.config/peerup/.config.last-good.yaml"},
-		{"/etc/peerup/config.yaml", "/etc/peerup/.config.last-good.yaml"},
+		{"/home/user/.config/shurli/config.yaml", "/home/user/.config/shurli/.config.last-good.yaml"},
+		{"/etc/shurli/config.yaml", "/etc/shurli/.config.last-good.yaml"},
 		{"relay-server.yaml", ".relay-server.last-good.yaml"},
-		{"/path/to/peerup.yaml", "/path/to/.peerup.last-good.yaml"},
+		{"/path/to/shurli.yaml", "/path/to/.shurli.last-good.yaml"},
 	}
 	for _, tt := range tests {
 		got := ArchivePath(tt.input)

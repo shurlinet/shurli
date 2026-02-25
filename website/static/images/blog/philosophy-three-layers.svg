@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1117"/>
+      <stop offset="0%" style="stop-color:#141316"/>
       <stop offset="100%" style="stop-color:#0d0f14"/>
     </linearGradient>
     <linearGradient id="layer1Grad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -9,12 +9,12 @@
       <stop offset="100%" style="stop-color:#1a2e12"/>
     </linearGradient>
     <linearGradient id="layer2Grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3561"/>
-      <stop offset="100%" style="stop-color:#1e2140"/>
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
     </linearGradient>
     <linearGradient id="layer3Grad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#3b3078"/>
-      <stop offset="100%" style="stop-color:#251e50"/>
+      <stop offset="0%" style="stop-color:#38353b"/>
+      <stop offset="100%" style="stop-color:#2a282c"/>
     </linearGradient>
     <linearGradient id="agnosticGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#614a1e"/>
@@ -40,7 +40,7 @@
   <rect width="800" height="520" fill="url(#bgGrad)" rx="12"/>
 
   <!-- Title -->
-  <text x="400" y="38" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="16" font-weight="600">How peer-up's Engineering Philosophy Evolved</text>
+  <text x="400" y="38" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="16" font-weight="600">How Shurli's Engineering Philosophy Evolved</text>
 
   <!-- Layer 1: Foundation - Core Principles -->
   <rect x="40" y="60" width="720" height="100" rx="12" fill="url(#layer1Grad)" stroke="#9ece6a" stroke-width="1.5" opacity="0.9"/>
@@ -58,13 +58,13 @@
   <text x="530" y="148" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="10">Think like a hacker</text>
 
   <!-- Arrow down -->
-  <line x1="400" y1="160" x2="400" y2="180" stroke="#7aa2f7" stroke-width="1.5" filter="url(#softGlow)"/>
-  <polygon points="394,177 400,187 406,177" fill="#7aa2f7"/>
+  <line x1="400" y1="160" x2="400" y2="180" stroke="#e8729a" stroke-width="1.5" filter="url(#softGlow)"/>
+  <polygon points="394,177 400,187 406,177" fill="#e8729a"/>
   <text x="420" y="177" fill="#565f89" font-family="system-ui, sans-serif" font-size="9" font-style="italic">enhanced by</text>
 
   <!-- Layer 2: Process Influence - Musk -->
-  <rect x="40" y="190" width="350" height="130" rx="12" fill="url(#layer2Grad)" stroke="#7aa2f7" stroke-width="1.5" opacity="0.9"/>
-  <text x="60" y="215" fill="#7aa2f7" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROCESS INFLUENCE</text>
+  <rect x="40" y="190" width="350" height="130" rx="12" fill="url(#layer2Grad)" stroke="#e8729a" stroke-width="1.5" opacity="0.9"/>
+  <text x="60" y="215" fill="#e8729a" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROCESS INFLUENCE</text>
   <text x="60" y="237" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="12" font-weight="600">Adopted from Musk's 5-Step Process</text>
 
   <text x="60" y="258" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">✓</text>
@@ -97,7 +97,7 @@
   <text x="443" y="309" fill="#565f89" font-family="SF Mono, monospace" font-size="10">Closed ecosystem / walled garden</text>
 
   <!-- Arrows down from both Layer 2 and 3 -->
-  <line x1="215" y1="320" x2="300" y2="350" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="4,3" filter="url(#softGlow)"/>
+  <line x1="215" y1="320" x2="300" y2="350" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="4,3" filter="url(#softGlow)"/>
   <line x1="585" y1="320" x2="500" y2="350" stroke="#bb9af7" stroke-width="1.5" stroke-dasharray="4,3" filter="url(#softGlow)"/>
 
   <text x="400" y="345" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9" font-style="italic">converges into</text>
@@ -115,7 +115,7 @@
   <text x="400" y="452" text-anchor="middle" fill="#565f89" font-family="SF Mono, monospace" font-size="10">Own the quality, never the user's choices</text>
 
   <!-- Legend -->
-  <rect x="40" y="480" width="720" height="30" rx="8" fill="#0f1117" stroke="#1a1b26" stroke-width="1"/>
+  <rect x="40" y="480" width="720" height="30" rx="8" fill="#141316" stroke="#1a191c" stroke-width="1"/>
   <text x="60" y="500" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9">✓ Adopted</text>
   <text x="160" y="500" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">✗ Rejected</text>
   <text x="280" y="500" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Core principles came first - external influences enhanced the process and design approach</text>

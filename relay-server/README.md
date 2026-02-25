@@ -1,4 +1,4 @@
-# peer-up Relay Server Setup
+# Shurli Relay Server Setup
 
 Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.04).
 
@@ -21,8 +21,8 @@ ufw enable
 ### Clone the repo
 
 ```bash
-git clone https://github.com/satindergrewal/peer-up.git
-cd peer-up/relay-server
+git clone https://github.com/shurlinet/shurli.git
+cd Shurli/relay-server
 ```
 
 ### Run the setup script
@@ -49,8 +49,8 @@ sudo whoami    # should print: root
 ### Configure (as the service user)
 
 ```bash
-ssh peerup@YOUR_VPS_IP
-cd peer-up/relay-server
+ssh shurli@YOUR_VPS_IP
+cd Shurli/relay-server
 
 # Create config from sample
 cp ../configs/relay-server.sample.yaml relay-server.yaml
@@ -62,7 +62,7 @@ nano relay-server.yaml
 Then restart the service to pick up config changes:
 
 ```bash
-sudo systemctl restart peerup-relay
+sudo systemctl restart shurli-relay
 ```
 
 ### Add peers to the relay
@@ -73,13 +73,13 @@ Generate pairing codes and share them with your peers:
 
 ```bash
 # Generate 3 pairing codes (one per person)
-./peerup relay pair --count 3
+./shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
-peerup join <pairing-code> --name laptop
+shurli join <pairing-code> --name laptop
 ```
 
-Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `peerup verify <name>`.
+Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `shurli verify <name>`.
 
 **Option B: Manual authorization**
 
@@ -87,8 +87,8 @@ If you already know the peer IDs, add them directly:
 
 ```bash
 # Using the CLI
-./peerup relay authorize <peer-id> --comment "home-node"
-./peerup relay authorize <peer-id> --comment "client-node"
+./shurli relay authorize <peer-id> --comment "home-node"
+./shurli relay authorize <peer-id> --comment "client-node"
 
 # Or edit the file directly (one peer ID per line)
 nano relay_authorized_keys
@@ -102,7 +102,7 @@ nano relay_authorized_keys
 Restart the service after manual changes:
 
 ```bash
-sudo systemctl restart peerup-relay
+sudo systemctl restart shurli-relay
 ```
 
 ---
@@ -112,7 +112,7 @@ sudo systemctl restart peerup-relay
 Run the health check anytime:
 
 ```bash
-cd ~/peer-up/relay-server
+cd ~/Shurli/relay-server
 bash setup.sh --check
 ```
 
@@ -120,8 +120,8 @@ You should see all `[OK]` items:
 
 ```
 Binary:
-  [OK]   peerup binary exists
-  [OK]   peerup is executable
+  [OK]   shurli binary exists
+  [OK]   shurli is executable
 
 Configuration:
   [OK]   relay-server.yaml exists
@@ -129,9 +129,9 @@ Configuration:
   ...
 
 Service:
-  [OK]   peerup-relay service is enabled (starts on boot)
-  [OK]   peerup-relay service is running
-  [OK]   Service runs as non-root user: peerup
+  [OK]   shurli-relay service is enabled (starts on boot)
+  [OK]   shurli-relay service is running
+  [OK]   Service runs as non-root user: shurli
   ...
 
 === Summary: 25 passed, 0 warnings, 0 failures ===
@@ -145,7 +145,7 @@ Everything looks great!
 To remove the systemd service, firewall rules, and system tuning:
 
 ```bash
-cd ~/peer-up/relay-server
+cd ~/Shurli/relay-server
 bash setup.sh --uninstall
 ```
 
@@ -158,7 +158,7 @@ This removes:
 It does **not** delete your binary, config, keys, or source code. To fully clean up:
 
 ```bash
-rm -rf ~/peer-up  # Only if you want to remove everything
+rm -rf ~/Shurli  # Only if you want to remove everything
 ```
 
 ---
@@ -167,24 +167,24 @@ rm -rf ~/peer-up  # Only if you want to remove everything
 
 ```bash
 # Service management
-sudo systemctl status peerup-relay
-sudo systemctl restart peerup-relay
-sudo systemctl stop peerup-relay
+sudo systemctl status shurli-relay
+sudo systemctl restart shurli-relay
+sudo systemctl stop shurli-relay
 
 # Follow logs
-sudo journalctl -u peerup-relay -f
+sudo journalctl -u shurli-relay -f
 
 # Recent logs (last 50 lines)
-sudo journalctl -u peerup-relay -n 50
+sudo journalctl -u shurli-relay -n 50
 
 # Check log disk usage
 sudo journalctl --disk-usage
 
 # Update relay server (after code changes)
-cd ~/peer-up
+cd ~/Shurli
 git pull
-go build -ldflags="-s -w" -trimpath -o relay-server/peerup ./cmd/peerup
-sudo systemctl restart peerup-relay
+go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+sudo systemctl restart shurli-relay
 ```
 
 ---
@@ -212,8 +212,8 @@ Or just run: `bash setup.sh --check`
 After setup, your relay-server directory looks like:
 
 ```
-~/peer-up/relay-server/
-├── peerup                    # Binary (built from cmd/peerup, gitignored)
+~/Shurli/relay-server/
+├── shurli                    # Binary (built from cmd/shurli, gitignored)
 ├── relay-server.yaml         # Config (gitignored)
 ├── relay-server.service      # Template service file (in git)
 ├── relay_node.key            # Identity key (auto-generated, gitignored)
@@ -227,9 +227,9 @@ After setup, your relay-server directory looks like:
 
 | Issue | Solution |
 |-------|----------|
-| Service fails to start | `sudo journalctl -u peerup-relay -n 30` for error logs |
+| Service fails to start | `sudo journalctl -u shurli-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 relay_node.key` |
-| Peers can't connect | Use `peerup relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
+| Peers can't connect | Use `shurli relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
