@@ -61,6 +61,9 @@ type serveRuntime struct {
 	// mDNS local discovery (nil when disabled)
 	mdnsDiscovery *p2pnet.MDNSDiscovery
 
+	// Peer lifecycle management (background reconnection with backoff)
+	peerManager *p2pnet.PeerManager
+
 	// Routing discovery for DHT re-advertising on network change
 	routingDiscovery *drouting.RoutingDiscovery
 
@@ -382,6 +385,19 @@ func (rt *serveRuntime) Bootstrap() error {
 	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
 	go rt.pathTracker.Start(rt.ctx)
 
+	// Initialize PeerManager for background reconnection of authorized peers.
+	rt.peerManager = p2pnet.NewPeerManager(h, rt.pathDialer, rt.metrics,
+		func(peerID, pathType string, latencyMs float64) {
+			if rt.peerHistory != nil {
+				rt.peerHistory.RecordConnection(peerID, pathType, latencyMs)
+			}
+		},
+	)
+	if rt.gater != nil {
+		rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
+	}
+	rt.peerManager.Start(rt.ctx)
+
 	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
 	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
 		// Update interface summary
@@ -407,6 +423,11 @@ func (rt *serveRuntime) Bootstrap() error {
 		// Re-evaluate peer relay eligibility on network change
 		if rt.peerRelay != nil {
 			rt.peerRelay.AutoDetect(newSummary)
+		}
+
+		// Reset PeerManager backoffs so disconnected peers are retried immediately.
+		if rt.peerManager != nil {
+			rt.peerManager.OnNetworkChange()
 		}
 
 		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
@@ -689,6 +710,11 @@ func (rt *serveRuntime) SetupPeerNotify() {
 			} else {
 				rt.gater.UpdateAuthorizedPeers(newPeers)
 				slog.Info("peer-notify: gater reloaded", "peers", len(newPeers))
+
+				// Update PeerManager watchlist with newly introduced peers.
+				if rt.peerManager != nil {
+					rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
+				}
 			}
 		}
 	})
@@ -953,6 +979,9 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	if rt.mdnsDiscovery != nil {
 		rt.mdnsDiscovery.Close()
+	}
+	if rt.peerManager != nil {
+		rt.peerManager.Close()
 	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
