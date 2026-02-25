@@ -9,7 +9,7 @@
 *.dylib
 
 # Built executables
-/peerup
+/shurli
 cmd/keytool/keytool
 relay-server/relay-server
 
@@ -45,6 +45,9 @@ relay_authorized_keys
 !test/**/compose.yaml
 !website/hugo.yaml
 !.github/workflows/*.yaml
+
+# Claude Code project instructions (private, never commit)
+CLAUDE.md
 
 # Local checks file (user-created, one command per line)
 .checks

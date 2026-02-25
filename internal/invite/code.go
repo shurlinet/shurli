@@ -220,7 +220,7 @@ func Decode(code string) (*InviteData, error) {
 		return decodeV2(raw)
 	default:
 		if ver > VersionV2 {
-			return nil, fmt.Errorf("invite code version %d is newer than supported; please upgrade peerup", ver)
+			return nil, fmt.Errorf("invite code version %d is newer than supported; please upgrade shurli", ver)
 		}
 		return nil, fmt.Errorf("unsupported invite code version: %d", ver)
 	}

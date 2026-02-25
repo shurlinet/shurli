@@ -32,7 +32,7 @@ fi
 
 echo
 echo "=== Docker integration tests (with covdata) ==="
-PEERUP_COVDIR="$COV/integration" go test -tags integration -count=1 -timeout 300s "$ROOT/test/docker/"
+SHURLI_COVDIR="$COV/integration" go test -tags integration -count=1 -timeout 300s "$ROOT/test/docker/"
 
 echo
 echo "=== Merging coverage ==="

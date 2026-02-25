@@ -7,8 +7,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Metrics holds all custom peerup Prometheus metrics.
-// Uses an isolated prometheus.Registry so peerup metrics don't collide
+// Metrics holds all custom shurli Prometheus metrics.
+// Uses an isolated prometheus.Registry so shurli metrics don't collide
 // with the global default registry. Each test gets its own Metrics instance.
 type Metrics struct {
 	Registry *prometheus.Registry
@@ -52,7 +52,7 @@ type Metrics struct {
 
 // NewMetrics creates a new Metrics instance with all collectors registered
 // on an isolated registry. The version and goVersion are recorded as labels
-// on the peerup_info gauge.
+// on the shurli_info gauge.
 func NewMetrics(version, goVersion string) *Metrics {
 	reg := prometheus.NewRegistry()
 
@@ -65,28 +65,28 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		ProxyBytesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_proxy_bytes_total",
+				Name: "shurli_proxy_bytes_total",
 				Help: "Total bytes transferred through proxy connections.",
 			},
 			[]string{"direction", "service"},
 		),
 		ProxyConnectionsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_proxy_connections_total",
+				Name: "shurli_proxy_connections_total",
 				Help: "Total number of proxy connections established.",
 			},
 			[]string{"service"},
 		),
 		ProxyActiveConns: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "peerup_proxy_active_connections",
+				Name: "shurli_proxy_active_connections",
 				Help: "Number of currently active proxy connections.",
 			},
 			[]string{"service"},
 		),
 		ProxyDurationSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "peerup_proxy_duration_seconds",
+				Name:    "shurli_proxy_duration_seconds",
 				Help:    "Duration of proxy connections in seconds.",
 				Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1s to ~1h
 			},
@@ -95,7 +95,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		AuthDecisionsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_auth_decisions_total",
+				Name: "shurli_auth_decisions_total",
 				Help: "Total number of authentication decisions.",
 			},
 			[]string{"decision"},
@@ -103,14 +103,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		HolePunchTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_holepunch_total",
+				Name: "shurli_holepunch_total",
 				Help: "Total number of hole punch attempts.",
 			},
 			[]string{"result"},
 		),
 		HolePunchDurationSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "peerup_holepunch_duration_seconds",
+				Name:    "shurli_holepunch_duration_seconds",
 				Help:    "Duration of hole punch attempts in seconds.",
 				Buckets: prometheus.ExponentialBuckets(0.01, 2, 10), // 10ms to ~10s
 			},
@@ -119,14 +119,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		DaemonRequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_daemon_requests_total",
+				Name: "shurli_daemon_requests_total",
 				Help: "Total number of daemon API requests.",
 			},
 			[]string{"method", "path", "status"},
 		),
 		DaemonRequestDurationSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "peerup_daemon_request_duration_seconds",
+				Name:    "shurli_daemon_request_duration_seconds",
 				Help:    "Duration of daemon API requests in seconds.",
 				Buckets: prometheus.DefBuckets,
 			},
@@ -135,14 +135,14 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		PathDialTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_path_dial_total",
+				Name: "shurli_path_dial_total",
 				Help: "Total number of path dial attempts.",
 			},
 			[]string{"path_type", "result"},
 		),
 		PathDialDurationSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "peerup_path_dial_duration_seconds",
+				Name:    "shurli_path_dial_duration_seconds",
 				Help:    "Duration of path dial attempts in seconds.",
 				Buckets: prometheus.ExponentialBuckets(0.1, 2, 10), // 100ms to ~50s
 			},
@@ -151,7 +151,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		ConnectedPeers: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "peerup_connected_peers",
+				Name: "shurli_connected_peers",
 				Help: "Number of connected peers by path type, transport, and IP version.",
 			},
 			[]string{"path_type", "transport", "ip_version"},
@@ -159,7 +159,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		NetworkChangeTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_network_change_total",
+				Name: "shurli_network_change_total",
 				Help: "Total number of network interface changes detected.",
 			},
 			[]string{"change_type"},
@@ -167,7 +167,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		STUNProbeTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "peerup_stun_probe_total",
+				Name: "shurli_stun_probe_total",
 				Help: "Total number of STUN probe attempts.",
 			},
 			[]string{"result"},
@@ -175,7 +175,7 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		InterfaceCount: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "peerup_interface_count",
+				Name: "shurli_interface_count",
 				Help: "Number of network interfaces with global unicast addresses.",
 			},
 			[]string{"ip_version"},
@@ -183,8 +183,8 @@ func NewMetrics(version, goVersion string) *Metrics {
 
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "peerup_info",
-				Help: "Build information for the running peerup instance.",
+				Name: "shurli_info",
+				Help: "Build information for the running shurli instance.",
 			},
 			[]string{"version", "go_version"},
 		),

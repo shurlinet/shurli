@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/satindergrewal/peer-up/pkg/p2pnet"
+import "github.com/shurlinet/shurli/pkg/p2pnet"
 
 // StatusResponse is returned by GET /v1/status.
 type StatusResponse struct {

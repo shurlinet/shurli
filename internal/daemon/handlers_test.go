@@ -16,8 +16,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/satindergrewal/peer-up/internal/config"
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // --- Mock runtime with a real p2pnet.Network ---
@@ -117,22 +117,22 @@ func newNetworkServer(t *testing.T) (*Server, *networkMockRuntime) {
 		net:       net,
 		version:   "test-0.1.0",
 		startTime: time.Now().Add(-60 * time.Second),
-		pingProto: "/peerup/ping/1.0.0",
+		pingProto: "/shurli/ping/1.0.0",
 	}
 
 	srv := NewServer(rt, socketPath, cookiePath, "test-0.1.0")
 	return srv, rt
 }
 
-// --- isPeerupAgent ---
+// --- isShurliAgent ---
 
-func TestIsPeerupAgent(t *testing.T) {
+func TestIsShurliAgent(t *testing.T) {
 	tests := []struct {
 		agent string
 		want  bool
 	}{
-		{"peerup/1.0.0", true},
-		{"peerup/0.1.0-dev", true},
+		{"shurli/1.0.0", true},
+		{"shurli/0.1.0-dev", true},
 		{"relay-server/1.0.0", true},
 		{"kubo/0.20.0", false},
 		{"", false},
@@ -141,9 +141,9 @@ func TestIsPeerupAgent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.agent, func(t *testing.T) {
-			got := isPeerupAgent(tt.agent)
+			got := isShurliAgent(tt.agent)
 			if got != tt.want {
-				t.Errorf("isPeerupAgent(%q) = %v, want %v", tt.agent, got, tt.want)
+				t.Errorf("isShurliAgent(%q) = %v, want %v", tt.agent, got, tt.want)
 			}
 		})
 	}
@@ -818,17 +818,17 @@ func TestHandlePeerList_WithConnectedPeers(t *testing.T) {
 	}
 
 	// Set B's agent version in A's peerstore so filtering works
-	netA.Host().Peerstore().Put(netB.Host().ID(), "AgentVersion", "peerup/test-0.1.0")
+	netA.Host().Peerstore().Put(netB.Host().ID(), "AgentVersion", "shurli/test-0.1.0")
 
 	rt := &networkMockRuntime{
 		net:       netA,
 		version:   "test-0.1.0",
 		startTime: time.Now(),
-		pingProto: "/peerup/ping/1.0.0",
+		pingProto: "/shurli/ping/1.0.0",
 	}
 	srv := NewServer(rt, socketPath, cookiePath, "test-0.1.0")
 
-	t.Run("JSON default filter shows peerup peer", func(t *testing.T) {
+	t.Run("JSON default filter shows shurli peer", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/v1/peers", nil)
 		rec := httptest.NewRecorder()
 		srv.handlePeerList(rec, req)
@@ -846,7 +846,7 @@ func TestHandlePeerList_WithConnectedPeers(t *testing.T) {
 		if len(peers) != 1 {
 			t.Fatalf("got %d peers, want 1", len(peers))
 		}
-		if peers[0].AgentVersion != "peerup/test-0.1.0" {
+		if peers[0].AgentVersion != "shurli/test-0.1.0" {
 			t.Errorf("AgentVersion = %q", peers[0].AgentVersion)
 		}
 		if len(peers[0].Addresses) == 0 {
@@ -879,7 +879,7 @@ func TestHandlePeerList_WithConnectedPeers(t *testing.T) {
 			t.Errorf("Content-Type = %q", ct)
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "peerup/test-0.1.0") {
+		if !strings.Contains(body, "shurli/test-0.1.0") {
 			t.Errorf("text output missing agent version: %q", body)
 		}
 		if !strings.Contains(body, "addrs") {

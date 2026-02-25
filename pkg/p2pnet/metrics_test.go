@@ -33,7 +33,7 @@ func TestMetricsIsolation(t *testing.T) {
 		t.Fatalf("Gather failed: %v", err)
 	}
 	for _, f := range families {
-		if f.GetName() == "peerup_auth_decisions_total" {
+		if f.GetName() == "shurli_auth_decisions_total" {
 			for _, metric := range f.GetMetric() {
 				if metric.GetCounter().GetValue() != 0 {
 					t.Error("m2 registry saw m1 counter value; registries are not isolated")
@@ -65,16 +65,16 @@ func TestMetricsCounters(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"peerup_proxy_bytes_total":              false,
-		"peerup_proxy_connections_total":        false,
-		"peerup_proxy_active_connections":       false,
-		"peerup_proxy_duration_seconds":         false,
-		"peerup_auth_decisions_total":           false,
-		"peerup_holepunch_total":                false,
-		"peerup_holepunch_duration_seconds":     false,
-		"peerup_daemon_requests_total":          false,
-		"peerup_daemon_request_duration_seconds": false,
-		"peerup_info":                           false,
+		"shurli_proxy_bytes_total":              false,
+		"shurli_proxy_connections_total":        false,
+		"shurli_proxy_active_connections":       false,
+		"shurli_proxy_duration_seconds":         false,
+		"shurli_auth_decisions_total":           false,
+		"shurli_holepunch_total":                false,
+		"shurli_holepunch_duration_seconds":     false,
+		"shurli_daemon_requests_total":          false,
+		"shurli_daemon_request_duration_seconds": false,
+		"shurli_info":                           false,
 	}
 
 	for _, f := range families {
@@ -99,7 +99,7 @@ func TestMetricsBuildInfo(t *testing.T) {
 	}
 
 	for _, f := range families {
-		if f.GetName() != "peerup_info" {
+		if f.GetName() != "shurli_info" {
 			continue
 		}
 		for _, metric := range f.GetMetric() {
@@ -136,11 +136,11 @@ func TestMetricsHandler(t *testing.T) {
 	body, _ := io.ReadAll(rec.Body)
 	output := string(body)
 
-	if !strings.Contains(output, "peerup_auth_decisions_total") {
-		t.Error("handler output missing peerup_auth_decisions_total")
+	if !strings.Contains(output, "shurli_auth_decisions_total") {
+		t.Error("handler output missing shurli_auth_decisions_total")
 	}
-	if !strings.Contains(output, "peerup_info") {
-		t.Error("handler output missing peerup_info")
+	if !strings.Contains(output, "shurli_info") {
+		t.Error("handler output missing shurli_info")
 	}
 	// Verify Go runtime metrics are present
 	if !strings.Contains(output, "go_goroutines") {
@@ -175,7 +175,7 @@ func TestMetricsNoLabelCollision(t *testing.T) {
 func TestMetricsRegistryDoesNotUseGlobal(t *testing.T) {
 	m := NewMetrics("test", "go1.26.0")
 
-	// The peerup registry should be separate from the default global
+	// The shurli registry should be separate from the default global
 	if m.Registry == prometheus.DefaultRegisterer {
 		t.Error("Metrics registry is the global DefaultRegisterer; should be isolated")
 	}

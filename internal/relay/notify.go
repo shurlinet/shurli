@@ -14,11 +14,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/satindergrewal/peer-up/internal/auth"
+	"github.com/shurlinet/shurli/internal/auth"
 )
 
 // Protocol ID for peer introduction delivery.
-const PeerNotifyProtocol = "/peerup/peer-notify/1.0.0"
+const PeerNotifyProtocol = "/shurli/peer-notify/1.0.0"
 
 // Wire format version.
 const notifyVersion byte = 0x01
