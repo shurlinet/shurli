@@ -15,11 +15,11 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // RuntimeInfo provides the daemon server with access to the P2P runtime.
-// This interface decouples the daemon package from the cmd/peerup serveRuntime struct.
+// This interface decouples the daemon package from the cmd/shurli serveRuntime struct.
 type RuntimeInfo interface {
 	Network() *p2pnet.Network
 	ConfigFile() string

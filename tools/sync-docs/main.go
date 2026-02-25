@@ -4,7 +4,7 @@
 // Usage:
 //
 //	go run ./tools/sync-docs
-//	go run ./tools/sync-docs --root-dir /path/to/peer-up
+//	go run ./tools/sync-docs --root-dir /path/to/Shurli
 //	go run ./tools/sync-docs --dry-run
 package main
 

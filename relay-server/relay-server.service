@@ -1,5 +1,5 @@
 [Unit]
-Description=peer-up Relay Server
+Description=Shurli Relay Server
 After=network-online.target
 Wants=network-online.target
 
@@ -14,10 +14,10 @@ Group=YOUR_USERNAME
 
 # Set WorkingDirectory to where relay-server.yaml lives
 # Change this to your actual path:
-WorkingDirectory=/home/YOUR_USERNAME/peer-up/relay-server
+WorkingDirectory=/home/YOUR_USERNAME/Shurli/relay-server
 
 # Single binary - relay mode
-ExecStart=/home/YOUR_USERNAME/peer-up/relay-server/peerup relay serve
+ExecStart=/home/YOUR_USERNAME/Shurli/relay-server/shurli relay serve
 
 Restart=always
 RestartSec=5
@@ -44,12 +44,12 @@ CPUQuota=200%
 TasksMax=4096
 
 # Allow read/write only to the working directory (for key file, config, logs)
-ReadWritePaths=/home/YOUR_USERNAME/peer-up/relay-server
+ReadWritePaths=/home/YOUR_USERNAME/Shurli/relay-server
 
 # Logging via journald (configure rotation in /etc/systemd/journald.conf)
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=peerup-relay
+SyslogIdentifier=shurli-relay
 
 [Install]
 WantedBy=multi-user.target

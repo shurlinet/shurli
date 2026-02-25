@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // Client connects to a running daemon via its Unix socket.
@@ -156,7 +156,7 @@ func (c *Client) ServicesText() (string, error) {
 	return c.doText("GET", "/v1/services", nil)
 }
 
-// Peers returns the list of connected peers. If all is true, includes non-peerup DHT peers.
+// Peers returns the list of connected peers. If all is true, includes non-shurli DHT peers.
 func (c *Client) Peers(all bool) ([]PeerInfo, error) {
 	path := "/v1/peers"
 	if all {
@@ -169,7 +169,7 @@ func (c *Client) Peers(all bool) ([]PeerInfo, error) {
 	return resp, nil
 }
 
-// PeersText returns peers as plain text. If all is true, includes non-peerup DHT peers.
+// PeersText returns peers as plain text. If all is true, includes non-shurli DHT peers.
 func (c *Client) PeersText(all bool) (string, error) {
 	path := "/v1/peers"
 	if all {

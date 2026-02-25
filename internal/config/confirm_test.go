@@ -17,7 +17,7 @@ func TestPendingPath(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"/home/user/.config/peerup/config.yaml", "/home/user/.config/peerup/.config.pending"},
+		{"/home/user/.config/shurli/config.yaml", "/home/user/.config/shurli/.config.pending"},
 		{"relay-server.yaml", ".relay-server.pending"},
 	}
 	for _, tt := range tests {

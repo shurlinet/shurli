@@ -15,7 +15,7 @@ func TestStripFirstHeading(t *testing.T) {
 		{"no heading", "Body text\nMore text", "Body text\nMore text"},
 		{"only heading", "# Title", ""},
 		{"h2 not stripped", "## Subtitle\nBody", "## Subtitle\nBody"},
-		{"heading with content below", "# Peer-Up\n\n## Quick Start\n\nHello", "\n## Quick Start\n\nHello"},
+		{"heading with content below", "# Shurli\n\n## Quick Start\n\nHello", "\n## Quick Start\n\nHello"},
 		{"empty", "", ""},
 	}
 	for _, tt := range tests {
@@ -105,11 +105,11 @@ func TestRewriteGitHubSourceLinks(t *testing.T) {
 	tests := []struct {
 		name, input, want string
 	}{
-		{"cmd link", "[x](../cmd/peerup/main.go)", "[x](" + githubBase + "/cmd/peerup/main.go)"},
+		{"cmd link", "[x](../cmd/shurli/main.go)", "[x](" + githubBase + "/cmd/shurli/main.go)"},
 		{"pkg link", "[x](../pkg/p2pnet/foo.go)", "[x](" + githubBase + "/pkg/p2pnet/foo.go)"},
 		{"internal link", "[x](../internal/config/)", "[x](" + githubBase + "/internal/config/)"},
 		{"github link", "[ci](../.github/workflows/ci.yml)", "[ci](" + githubBase + "/.github/workflows/ci.yml)"},
-		{"not relative", "[x](cmd/peerup/main.go)", "[x](cmd/peerup/main.go)"},
+		{"not relative", "[x](cmd/shurli/main.go)", "[x](cmd/shurli/main.go)"},
 		{"external", "[x](https://example.com)", "[x](https://example.com)"},
 	}
 	for _, tt := range tests {
@@ -132,7 +132,7 @@ func TestRewriteQuickStartLinks(t *testing.T) {
 			"[Relay Setup guide](../relay-setup/)",
 		},
 		{"docs link", "[x](docs/FAQ.md)", "[x](" + githubBase + "/docs/FAQ.md)"},
-		{"cmd link", "[x](cmd/peerup/)", "[x](" + githubBase + "/cmd/peerup/)"},
+		{"cmd link", "[x](cmd/shurli/)", "[x](" + githubBase + "/cmd/shurli/)"},
 		{"external", "[x](https://example.com)", "[x](https://example.com)"},
 	}
 	for _, tt := range tests {
@@ -150,7 +150,7 @@ func TestRewriteJournalBackticks(t *testing.T) {
 		name, input, want string
 	}{
 		{"pkg ref", "`pkg/p2pnet/interfaces.go`", "`" + githubBase + "/pkg/p2pnet/interfaces.go`"},
-		{"cmd ref", "`cmd/peerup/main.go`", "`" + githubBase + "/cmd/peerup/main.go`"},
+		{"cmd ref", "`cmd/shurli/main.go`", "`" + githubBase + "/cmd/shurli/main.go`"},
 		{"internal ref", "`internal/config/loader.go`", "`" + githubBase + "/internal/config/loader.go`"},
 		{"no backtick", "pkg/p2pnet/interfaces.go", "pkg/p2pnet/interfaces.go"},
 		{"other prefix", "`test/docker/file.go`", "`test/docker/file.go`"},
@@ -246,7 +246,7 @@ func TestPromoteHeadings(t *testing.T) {
 }
 
 func TestExtractSection(t *testing.T) {
-	readme := `# Peer-Up
+	readme := `# Shurli
 
 Some intro text.
 
@@ -334,14 +334,14 @@ func TestRun_FullSync(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0644)
 
 	// Create README.md with Quick Start section
-	os.WriteFile(filepath.Join(root, "README.md"), []byte(`# peer-up
+	os.WriteFile(filepath.Join(root, "README.md"), []byte(`# Shurli
 
 ## Quick Start
 
 ### Build
 
 `+"```"+`bash
-go build ./cmd/peerup
+go build ./cmd/shurli
 `+"```"+`
 
 See [relay-server/README.md](relay-server/README.md) for relay setup.
@@ -361,7 +361,7 @@ Feature list.
 	os.WriteFile(filepath.Join(docsDir, "images", "test.svg"), []byte("<svg/>"), 0644)
 
 	// Create FAQ sub-pages
-	os.WriteFile(filepath.Join(docsDir, "faq", "README.md"), []byte("# peer-up FAQ\n\n| [Design Philosophy](design-philosophy.md) | Why no accounts. |\n"), 0644)
+	os.WriteFile(filepath.Join(docsDir, "faq", "README.md"), []byte("# Shurli FAQ\n\n| [Design Philosophy](design-philosophy.md) | Why no accounts. |\n"), 0644)
 	os.WriteFile(filepath.Join(docsDir, "faq", "design-philosophy.md"), []byte("# FAQ - Design Philosophy\n\nSee [ARCHITECTURE.md](../ARCHITECTURE.md) for details.\n\n![diagram](../images/test.svg)\n"), 0644)
 
 	// Create engineering journal
@@ -397,7 +397,7 @@ Feature list.
 	faqIndex := readFile(t, filepath.Join(root, "website", "content", "docs", "faq", "_index.md"))
 	assertContains(t, faqIndex, `title: "FAQ"`, "FAQ index should have title")
 	assertContains(t, faqIndex, "(design-philosophy/)", "FAQ index should rewrite .md to directory")
-	assertNotContains(t, faqIndex, "# peer-up FAQ", "FAQ index should strip first heading")
+	assertNotContains(t, faqIndex, "# Shurli FAQ", "FAQ index should strip first heading")
 
 	// Verify FAQ sub-page link rewriting
 	faqDesign := readFile(t, filepath.Join(root, "website", "content", "docs", "faq", "design-philosophy.md"))
@@ -446,7 +446,7 @@ func TestRun_DryRun(t *testing.T) {
 }
 
 func TestRun_MissingRoot(t *testing.T) {
-	err := run([]string{"--root-dir", "/tmp/nonexistent-peerup-test-12345"})
+	err := run([]string{"--root-dir", "/tmp/nonexistent-shurli-test-12345"})
 	if err == nil {
 		t.Error("expected error for missing root")
 	}

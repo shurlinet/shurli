@@ -33,7 +33,7 @@ func TestRegisterService(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		svc := &Service{
 			Name:         "ssh",
-			Protocol:     "/peerup/ssh/1.0.0",
+			Protocol:     "/shurli/ssh/1.0.0",
 			LocalAddress: "localhost:22",
 			Enabled:      true,
 		}
@@ -58,7 +58,7 @@ func TestRegisterService(t *testing.T) {
 	t.Run("empty name", func(t *testing.T) {
 		svc := &Service{
 			Name:         "",
-			Protocol:     "/peerup/test/1.0.0",
+			Protocol:     "/shurli/test/1.0.0",
 			LocalAddress: "localhost:8080",
 		}
 		if err := reg.RegisterService(svc); err == nil {
@@ -69,7 +69,7 @@ func TestRegisterService(t *testing.T) {
 	t.Run("empty address", func(t *testing.T) {
 		svc := &Service{
 			Name:         "test",
-			Protocol:     "/peerup/test/1.0.0",
+			Protocol:     "/shurli/test/1.0.0",
 			LocalAddress: "",
 		}
 		if err := reg.RegisterService(svc); err == nil {
@@ -80,7 +80,7 @@ func TestRegisterService(t *testing.T) {
 	t.Run("duplicate", func(t *testing.T) {
 		svc := &Service{
 			Name:         "ssh",
-			Protocol:     "/peerup/ssh2/1.0.0",
+			Protocol:     "/shurli/ssh2/1.0.0",
 			LocalAddress: "localhost:2222",
 		}
 		err := reg.RegisterService(svc)
@@ -98,7 +98,7 @@ func TestUnregisterService(t *testing.T) {
 
 	svc := &Service{
 		Name:         "ssh",
-		Protocol:     "/peerup/ssh/1.0.0",
+		Protocol:     "/shurli/ssh/1.0.0",
 		LocalAddress: "localhost:22",
 		Enabled:      true,
 	}
@@ -129,7 +129,7 @@ func TestGetService(t *testing.T) {
 
 	svc := &Service{
 		Name:         "ssh",
-		Protocol:     "/peerup/ssh/1.0.0",
+		Protocol:     "/shurli/ssh/1.0.0",
 		LocalAddress: "localhost:22",
 		Enabled:      true,
 	}
@@ -167,13 +167,13 @@ func TestListServices(t *testing.T) {
 	// Add two services
 	reg.RegisterService(&Service{
 		Name:         "ssh",
-		Protocol:     "/peerup/ssh/1.0.0",
+		Protocol:     "/shurli/ssh/1.0.0",
 		LocalAddress: "localhost:22",
 		Enabled:      true,
 	})
 	reg.RegisterService(&Service{
 		Name:         "xrdp",
-		Protocol:     "/peerup/xrdp/1.0.0",
+		Protocol:     "/shurli/xrdp/1.0.0",
 		LocalAddress: "localhost:3389",
 		Enabled:      true,
 	})

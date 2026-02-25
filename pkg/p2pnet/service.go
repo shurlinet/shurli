@@ -15,7 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/satindergrewal/peer-up/internal/validate"
+	"github.com/shurlinet/shurli/internal/validate"
 )
 
 // connectionTag returns "[RELAYED]" or "[DIRECT]" based on the stream's connection path.
@@ -35,7 +35,7 @@ func ValidateServiceName(name string) error {
 // Service represents a service that can be exposed over the P2P network
 type Service struct {
 	Name         string              // Service name (e.g., "ssh", "http")
-	Protocol     string              // libp2p protocol ID (e.g., "/peerup/ssh/1.0.0")
+	Protocol     string              // libp2p protocol ID (e.g., "/shurli/ssh/1.0.0")
 	LocalAddress string              // Local TCP address (e.g., "localhost:22")
 	Enabled      bool                // Whether this service is enabled
 	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed)
