@@ -1,6 +1,22 @@
 /* Shurli brand customizations */
 
 /* ============================================================ */
+/* Theme primary color override (Hextra uses HSL variables)      */
+/* ============================================================ */
+
+:root {
+  --primary-hue: 340deg;
+  --primary-saturation: 77%;
+  --primary-lightness: 48%;
+}
+
+.dark {
+  --primary-hue: 36deg;
+  --primary-saturation: 96%;
+  --primary-lightness: 62%;
+}
+
+/* ============================================================ */
 /* Documentation diagrams  - consistent SVG image presentation    */
 /* ============================================================ */
 
