@@ -614,6 +614,7 @@ func TestRunRelayServerVersion(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunDaemonStop_NoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	code, exited := captureExit(func() {
 		runDaemonStop()
 	})
@@ -623,6 +624,7 @@ func TestRunDaemonStop_NoDaemon(t *testing.T) {
 }
 
 func TestRunDaemonStatus_NoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	code, exited := captureExit(func() {
 		runDaemonStatus(nil)
 	})
@@ -659,6 +661,7 @@ func TestRunDaemonDisconnect_NoArgs(t *testing.T) {
 }
 
 func TestDaemonClient_NoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	code, exited := captureExit(func() {
 		_ = daemonClient()
 	})
@@ -1255,6 +1258,7 @@ func TestLoadOrCreateConfig_InvalidConfig(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunDaemonServices_NoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	code, exited := captureExit(func() {
 		runDaemonServices(nil)
 	})
@@ -1264,6 +1268,7 @@ func TestRunDaemonServices_NoDaemon(t *testing.T) {
 }
 
 func TestRunDaemonPeers_NoDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	code, exited := captureExit(func() {
 		runDaemonPeers(nil)
 	})
