@@ -64,6 +64,9 @@ type serveRuntime struct {
 	// Peer lifecycle management (background reconnection with backoff)
 	peerManager *p2pnet.PeerManager
 
+	// Network intelligence presence protocol (nil when disabled)
+	netIntel *p2pnet.NetIntel
+
 	// Routing discovery for DHT re-advertising on network change
 	routingDiscovery *drouting.RoutingDiscovery
 
@@ -398,6 +401,51 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 	rt.peerManager.Start(rt.ctx)
 
+	// Start network intelligence presence protocol (default: enabled).
+	// Shares reachability, NAT type, and capability info with connected peers
+	// via direct push + gossip forwarding (Layer 1 + Layer 2 transport).
+	if cfg.Discovery.IsNetIntelEnabled() {
+		announceInterval := cfg.Discovery.AnnounceInterval // 0 = default
+		rt.netIntel = p2pnet.NewNetIntel(h, rt.metrics,
+			// PeerFilter: only share with and cache from authorized peers.
+			// When public network mode lands, this callback gets a second
+			// branch for open-network peers. No change to NetIntel itself.
+			func(pid peer.ID) bool {
+				if rt.gater == nil {
+					return true
+				}
+				return rt.gater.IsAuthorized(pid)
+			},
+			// NodeStateProvider: build announcement from current runtime state.
+			func() *p2pnet.NodeAnnouncement {
+				ann := &p2pnet.NodeAnnouncement{
+					Version:   1,
+					UptimeSec: int64(time.Since(rt.startTime).Seconds()),
+					PeerCount: len(h.Network().Peers()),
+					Timestamp: time.Now().Unix(),
+				}
+				if rt.ifSummary != nil {
+					ann.HasIPv4 = rt.ifSummary.HasGlobalIPv4
+					ann.HasIPv6 = rt.ifSummary.HasGlobalIPv6
+				}
+				var stunResult *p2pnet.STUNResult
+				if rt.stunProber != nil {
+					stunResult = rt.stunProber.Result()
+					if stunResult != nil {
+						ann.NATType = string(stunResult.NATType)
+						ann.BehindCGNAT = stunResult.BehindCGNAT
+					}
+				}
+				grade := p2pnet.ComputeReachabilityGrade(rt.ifSummary, stunResult)
+				ann.Grade = grade.Grade
+				return ann
+			},
+			announceInterval,
+		)
+		rt.netIntel.Start(rt.ctx)
+		fmt.Println("Network intelligence (presence) enabled")
+	}
+
 	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
 	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
 		// Update interface summary
@@ -428,6 +476,11 @@ func (rt *serveRuntime) Bootstrap() error {
 		// Reset PeerManager backoffs so disconnected peers are retried immediately.
 		if rt.peerManager != nil {
 			rt.peerManager.OnNetworkChange()
+		}
+
+		// Re-announce network state immediately so peers get fresh capabilities.
+		if rt.netIntel != nil {
+			rt.netIntel.AnnounceNow()
 		}
 
 		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
@@ -982,6 +1035,9 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	if rt.peerManager != nil {
 		rt.peerManager.Close()
+	}
+	if rt.netIntel != nil {
+		rt.netIntel.Close()
 	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)

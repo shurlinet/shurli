@@ -94,10 +94,12 @@ type RelayConfig struct {
 
 // DiscoveryConfig holds DHT discovery configuration
 type DiscoveryConfig struct {
-	Rendezvous     string   `yaml:"rendezvous"`
-	Network        string   `yaml:"network,omitempty"`  // DHT namespace for private networks (empty = global)
-	BootstrapPeers []string `yaml:"bootstrap_peers"`
-	MDNSEnabled    *bool    `yaml:"mdns_enabled,omitempty"` // LAN peer discovery (default: true)
+	Rendezvous       string        `yaml:"rendezvous"`
+	Network          string        `yaml:"network,omitempty"`            // DHT namespace for private networks (empty = global)
+	BootstrapPeers   []string      `yaml:"bootstrap_peers"`
+	MDNSEnabled      *bool         `yaml:"mdns_enabled,omitempty"`      // LAN peer discovery (default: true)
+	NetIntelEnabled  *bool         `yaml:"net_intel_enabled,omitempty"` // Presence announcements (default: true)
+	AnnounceInterval time.Duration `yaml:"announce_interval,omitempty"` // How often to push state (default: 5m)
 }
 
 // IsMDNSEnabled returns whether mDNS local discovery is enabled.
@@ -107,6 +109,15 @@ func (d *DiscoveryConfig) IsMDNSEnabled() bool {
 		return true
 	}
 	return *d.MDNSEnabled
+}
+
+// IsNetIntelEnabled returns whether network intelligence presence
+// announcements are enabled. Defaults to true when not explicitly set.
+func (d *DiscoveryConfig) IsNetIntelEnabled() bool {
+	if d.NetIntelEnabled == nil {
+		return true
+	}
+	return *d.NetIntelEnabled
 }
 
 // RelayDiscoveryConfig holds relay server discovery configuration

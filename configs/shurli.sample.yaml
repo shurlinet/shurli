@@ -48,6 +48,8 @@ discovery:
   rendezvous: "shurli-default-network"
   bootstrap_peers: []
   # mdns_enabled: true  # LAN peer discovery (default: true)
+  # net_intel_enabled: true     # Share network state with peers (default: true)
+  # announce_interval: "5m"     # How often to push state (default: 5m)
 
 security:
   # Peer ID allowlist (relative to config directory)
