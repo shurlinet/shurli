@@ -19,7 +19,7 @@ import (
 //   1. Joiner -> Inviter: [0x01] [32-byte X25519 public key]     (33 bytes)
 //   2. Inviter -> Joiner: [32-byte X25519 public key]             (32 bytes)
 //      Both compute: shared = X25519(myPrivate, theirPublic)
-//      Both derive:  key = HKDF-SHA256(shared || token, "peerup-invite-v1")
+//      Both derive:  key = HKDF-SHA256(shared || token, "shurli-invite-v1")
 //   3. Joiner -> Inviter: [length-prefixed AEAD encrypted message]
 //   4. Inviter -> Joiner: [length-prefixed AEAD encrypted message]
 //
@@ -29,7 +29,7 @@ import (
 
 const (
 	// pakeInfo is the HKDF info string for deriving the session key.
-	pakeInfo = "peerup-invite-v1"
+	pakeInfo = "shurli-invite-v1"
 
 	// maxEncryptedMsgLen caps the length of a single encrypted message
 	// to prevent memory exhaustion from a malicious peer.

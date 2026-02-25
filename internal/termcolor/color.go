@@ -1,7 +1,7 @@
 // Package termcolor provides simple ANSI terminal color output.
 //
 // This replaces the github.com/fatih/color dependency with minimal ANSI
-// escape codes. Only the functions actually used by peer-up are provided.
+// escape codes. Only the functions actually used by Shurli are provided.
 //
 // Inspired by the API of github.com/fatih/color (MIT License).
 // Copyright (c) 2013 Fatih Arslan. See THIRD_PARTY_NOTICES in the repo root.

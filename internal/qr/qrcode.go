@@ -6,7 +6,7 @@
 // Original: https://github.com/skip2/go-qrcode
 // Modifications: removed PNG/image support (not needed for terminal display),
 // flattened sub-packages into single internal package, exported only the
-// minimal API needed by peer-up.
+// minimal API needed by Shurli.
 package qr
 
 import (

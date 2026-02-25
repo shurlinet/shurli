@@ -50,7 +50,7 @@ func TestNewAllLevels(t *testing.T) {
 
 func TestNewLongContent(t *testing.T) {
 	// URL-length content (typical invite code use case)
-	content := "https://peerup.dev/join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ12-3456-7890"
+	content := "https://shurli.dev/join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ12-3456-7890"
 	q, err := New(content, Medium)
 	if err != nil {
 		t.Fatalf("New long content: %v", err)

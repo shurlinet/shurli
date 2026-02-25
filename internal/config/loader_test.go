@@ -19,7 +19,7 @@ relay:
     - "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWRzaGMTqQbRHNMZkAYj8ALUXoK99qSjhiFLanDoVWK9An"
   reservation_interval: "2m"
 discovery:
-  rendezvous: "peerup-test-net"
+  rendezvous: "shurli-test-net"
   bootstrap_peers: []
 security:
   authorized_keys_file: "authorized_keys"
@@ -63,8 +63,8 @@ func TestLoadNodeConfig(t *testing.T) {
 	if cfg.Relay.ReservationInterval.Minutes() != 2 {
 		t.Errorf("ReservationInterval = %v, want 2m", cfg.Relay.ReservationInterval)
 	}
-	if cfg.Discovery.Rendezvous != "peerup-test-net" {
-		t.Errorf("Rendezvous = %q, want %q", cfg.Discovery.Rendezvous, "peerup-test-net")
+	if cfg.Discovery.Rendezvous != "shurli-test-net" {
+		t.Errorf("Rendezvous = %q, want %q", cfg.Discovery.Rendezvous, "shurli-test-net")
 	}
 	if !cfg.Security.EnableConnectionGating {
 		t.Error("EnableConnectionGating should be true")
@@ -197,14 +197,14 @@ func TestResolveConfigPaths(t *testing.T) {
 		Security: SecurityConfig{AuthorizedKeysFile: "authorized_keys"},
 	}
 
-	ResolveConfigPaths(cfg, "/home/user/.config/peerup")
+	ResolveConfigPaths(cfg, "/home/user/.config/shurli")
 
-	want := "/home/user/.config/peerup/identity.key"
+	want := "/home/user/.config/shurli/identity.key"
 	if cfg.Identity.KeyFile != want {
 		t.Errorf("KeyFile = %q, want %q", cfg.Identity.KeyFile, want)
 	}
 
-	want = "/home/user/.config/peerup/authorized_keys"
+	want = "/home/user/.config/shurli/authorized_keys"
 	if cfg.Security.AuthorizedKeysFile != want {
 		t.Errorf("AuthorizedKeysFile = %q, want %q", cfg.Security.AuthorizedKeysFile, want)
 	}
@@ -216,7 +216,7 @@ func TestResolveConfigPathsAbsolute(t *testing.T) {
 		Security: SecurityConfig{AuthorizedKeysFile: "/absolute/auth"},
 	}
 
-	ResolveConfigPaths(cfg, "/home/user/.config/peerup")
+	ResolveConfigPaths(cfg, "/home/user/.config/shurli")
 
 	if cfg.Identity.KeyFile != "/absolute/path/key" {
 		t.Errorf("absolute path should not change: %q", cfg.Identity.KeyFile)
@@ -248,7 +248,7 @@ func TestFindConfigFileExplicitMissing(t *testing.T) {
 
 func TestFindConfigFileLocalDir(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "peerup.yaml")
+	configPath := filepath.Join(dir, "shurli.yaml")
 	if err := os.WriteFile(configPath, []byte("identity:\n  key_file: x"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -262,8 +262,8 @@ func TestFindConfigFileLocalDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindConfigFile: %v", err)
 	}
-	if found != "peerup.yaml" {
-		t.Errorf("found = %q, want %q", found, "peerup.yaml")
+	if found != "shurli.yaml" {
+		t.Errorf("found = %q, want %q", found, "shurli.yaml")
 	}
 }
 
@@ -605,7 +605,7 @@ relay:
     - "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooWRzaGMTqQbRHNMZkAYj8ALUXoK99qSjhiFLanDoVWK9An"
   reservation_interval: "2m"
 discovery:
-  rendezvous: "peerup-test-net"
+  rendezvous: "shurli-test-net"
   bootstrap_peers: []
 security:
   authorized_keys_file: "authorized_keys"

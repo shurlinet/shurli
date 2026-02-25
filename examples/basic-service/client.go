@@ -9,8 +9,8 @@ import (
 	"os"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/satindergrewal/peer-up/internal/config"
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func main() {

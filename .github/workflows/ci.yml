@@ -45,7 +45,7 @@ jobs:
       - name: Docker Integration Tests with Coverage
         run: |
           mkdir -p coverage/integration
-          PEERUP_COVDIR="$PWD/coverage/integration" \
+          SHURLI_COVDIR="$PWD/coverage/integration" \
             go test -tags integration -v -timeout 5m ./test/docker/
         env:
           DOCKER_BUILDKIT: "1"

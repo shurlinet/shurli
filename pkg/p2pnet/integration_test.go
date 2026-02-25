@@ -15,7 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/satindergrewal/peer-up/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // newTestHost creates a minimal libp2p host for integration testing.
@@ -53,7 +53,7 @@ func TestTwoHostsStream(t *testing.T) {
 	client := newTestHost(t)
 
 	const testProtocol = protocol.ID("/test/echo/1.0.0")
-	const testMessage = "hello peer-up"
+	const testMessage = "hello Shurli"
 
 	// Server: echo handler
 	server.SetStreamHandler(testProtocol, func(s network.Stream) {
@@ -232,7 +232,7 @@ func TestTCPListenerWithLocalService(t *testing.T) {
 	server := newTestHost(t)
 	client := newTestHost(t)
 
-	const svcProtocol = protocol.ID("/peerup/echo-test/1.0.0")
+	const svcProtocol = protocol.ID("/shurli/echo-test/1.0.0")
 
 	// Server: proxy incoming streams to the local echo service
 	server.SetStreamHandler(svcProtocol, func(s network.Stream) {
@@ -289,8 +289,8 @@ func TestTCPListenerWithLocalService(t *testing.T) {
 func TestUserAgentExchange(t *testing.T) {
 	// Create two hosts with distinct UserAgent strings.
 	// libp2p's Identify protocol exchanges UserAgent on connect.
-	serverUA := "peerup/1.2.3"
-	clientUA := "peerup/4.5.6"
+	serverUA := "shurli/1.2.3"
+	clientUA := "shurli/4.5.6"
 
 	server, err := libp2p.New(
 		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
@@ -359,7 +359,7 @@ func registerPingHandler(t *testing.T, h host.Host, protoID string) {
 }
 
 func TestPingPeer_Connected(t *testing.T) {
-	const pingProto = "/peerup/ping/1.0.0"
+	const pingProto = "/shurli/ping/1.0.0"
 
 	server := newTestHost(t)
 	client := newTestHost(t)
@@ -408,7 +408,7 @@ func TestPingPeer_NotConnected_Fails(t *testing.T) {
 	// This test proves the bug: if peers aren't connected and the host
 	// has no addresses for the target, PingPeer fails with "no addresses".
 	// This is the scenario ConnectToPeer was added to fix.
-	const pingProto = "/peerup/ping/1.0.0"
+	const pingProto = "/shurli/ping/1.0.0"
 
 	server := newTestHost(t)
 	client := newTestHost(t)
@@ -433,7 +433,7 @@ func TestPingPeer_AddressInPeerstore_AutoConnects(t *testing.T) {
 	// This test proves the fix: if the peer's addresses are in the peerstore
 	// (which ConnectToPeer ensures via DHT/relay), PingPeer succeeds even
 	// without a pre-existing connection  - libp2p dials automatically.
-	const pingProto = "/peerup/ping/1.0.0"
+	const pingProto = "/shurli/ping/1.0.0"
 
 	server := newTestHost(t)
 	client := newTestHost(t)

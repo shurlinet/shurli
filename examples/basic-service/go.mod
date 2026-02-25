@@ -1,12 +1,12 @@
-module github.com/satindergrewal/peer-up/examples/basic-service
+module github.com/shurlinet/shurli/examples/basic-service
 
 go 1.25.7
 
-replace github.com/satindergrewal/peer-up => ../../
+replace github.com/shurlinet/shurli => ../../
 
 require (
 	github.com/libp2p/go-libp2p v0.38.2
-	github.com/satindergrewal/peer-up v0.0.0
+	github.com/shurlinet/shurli v0.0.0
 )
 
 require (
