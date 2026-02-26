@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Install native mDNS library
+        run: sudo apt-get install -y -qq libavahi-compat-libdnssd-dev
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -36,6 +39,9 @@ jobs:
     needs: build-and-test
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install native mDNS library
+        run: sudo apt-get install -y -qq libavahi-compat-libdnssd-dev
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
