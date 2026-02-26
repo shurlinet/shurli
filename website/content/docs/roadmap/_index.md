@@ -42,12 +42,14 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Pre-I-c | **Private&nbsp;DHT** | Namespace isolation for peer groups | Done |
 | I | **Adaptive&nbsp;Path** | Interface discovery, dial racing, STUN, every-peer-relay | Done |
 | Post-I-1 | **Relay&nbsp;Pairing** | Pairing codes, SAS verification, reachability grades | Done |
-| **Phase&nbsp;5** | **Network&nbsp;Intelligence** | | |
-| 5-K | mDNS | Zero-config LAN peer discovery | Planned |
-| 5-L | PeerManager | Bitcoin-inspired scoring, persistent peer table, PEX | Planned |
-| 5-M | GossipSub | PubSub broadcast, address change announcements | Planned |
-| N | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Watching |
-| J | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Future |
+| Post-I-2 | **Peer&nbsp;Intro** | HMAC group commitment, relay-pushed introductions | Done |
+| Pre-5 | **Hardening** | 8 cross-network fixes, 5 NoDaemon test fixes | Done |
+| **Phase&nbsp;5** | **Network&nbsp;Intelligence** | mDNS, PeerManager, NetIntel presence | **Done** |
+| 5-K | mDNS | Native DNS-SD LAN discovery (dns_sd.h CGo) | Done |
+| 5-L | PeerManager | Background reconnection, authorized peer lifecycle | Done |
+| 5-M | NetIntel | Presence announcements, gossip forwarding | Done |
+| 6 | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Watching |
+| 7 | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Future |
 
 ---
 
@@ -63,16 +65,18 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 4A: Core Library + UX | 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | 6-8 weeks | Complete (Batches A-I, Post-I-1) |
-| **Phase 5: Network Intelligence** | 4-6 weeks | Planned |
-| Phase 6: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
-| Phase 7: Distribution & Launch | 1-2 weeks | Planned |
-| Phase 8: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
-| Phase 9: Mobile Apps | 3-4 weeks | Planned |
-| Phase 10: Federation | 2-3 weeks | Planned |
-| Phase 11: Advanced Naming | 2-3 weeks | Planned (Optional) |
-| Phase 12+: Ecosystem | Ongoing | Conceptual |
+| **Phase 5: Network Intelligence** | 4-6 weeks | **Complete** |
+| Phase 6: ZKP Privacy Layer | TBD | Watching |
+| Phase 7: Visual Channel | TBD | Planned |
+| Phase 8: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
+| Phase 9: Distribution & Launch | 1-2 weeks | Planned |
+| Phase 10: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
+| Phase 11: Mobile Apps | 3-4 weeks | Planned |
+| Phase 12: Federation | 2-3 weeks | Planned |
+| Phase 13: Advanced Naming | 2-3 weeks | Planned (Optional) |
+| Phase 14+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (mDNS, PeerManager, GossipSub) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ZKP privacy (watching) -> visual pairing -> plugins -> distribute with use-case content -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -88,4 +92,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-02-23. Current: Phase 4C complete. Next: Phase 5 (Network Intelligence).*
+*Last updated: 2026-02-26. Current: Phase 5 complete. Next: Phase 6 (ZKP Privacy Layer - watching for Go Halo 2).*
