@@ -76,16 +76,21 @@ type MDNSDiscovery struct {
 
 	// Semaphore for concurrent connection attempts.
 	sem chan struct{}
+
+	// browseNowCh signals the browse loop to run immediately.
+	// Used after network changes to discover LAN peers faster.
+	browseNowCh chan struct{}
 }
 
 // NewMDNSDiscovery creates an mDNS discovery service.
 // Metrics is optional (nil-safe).
 func NewMDNSDiscovery(h host.Host, m *Metrics) *MDNSDiscovery {
 	return &MDNSDiscovery{
-		host:    h,
-		metrics: m,
-		lastTry: make(map[peer.ID]time.Time),
-		sem:     make(chan struct{}, mdnsMaxConcurrentConnects),
+		host:        h,
+		metrics:     m,
+		lastTry:     make(map[peer.ID]time.Time),
+		sem:         make(chan struct{}, mdnsMaxConcurrentConnects),
+		browseNowCh: make(chan struct{}, 1),
 	}
 }
 
@@ -163,6 +168,19 @@ func (md *MDNSDiscovery) startServer() error {
 	return nil
 }
 
+// BrowseNow triggers an immediate mDNS re-browse. Called after network
+// changes to discover LAN peers without waiting for the next 30s cycle.
+// Clears dedup timers since the network context has changed.
+func (md *MDNSDiscovery) BrowseNow() {
+	md.mu.Lock()
+	clear(md.lastTry)
+	md.mu.Unlock()
+	select {
+	case md.browseNowCh <- struct{}{}:
+	default: // browse already pending
+	}
+}
+
 // browseLoop periodically runs nativeBrowse to discover peers.
 // On macOS/Linux with CGo, uses the platform's DNS-SD API.
 // Falls back to zeroconf on other platforms.
@@ -188,6 +206,8 @@ func (md *MDNSDiscovery) browseLoop() {
 		case <-md.ctx.Done():
 			return
 		case <-ticker.C:
+			md.runBrowse()
+		case <-md.browseNowCh:
 			md.runBrowse()
 		}
 	}
@@ -286,6 +306,27 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// Add addresses with a 10-minute TTL. LAN addresses are ephemeral;
 	// they refresh on the next mDNS cycle.
 	md.host.Peerstore().AddAddrs(pi.ID, pi.Addrs, 10*time.Minute)
+
+	// Path upgrade: if peer is connected via relay only, close the relay
+	// connections so host.Connect() below will establish a direct path
+	// using the LAN addresses we just added to the peerstore.
+	conns := md.host.Network().ConnsToPeer(pi.ID)
+	allRelayed := len(conns) > 0
+	for _, conn := range conns {
+		if !conn.Stat().Limited {
+			allRelayed = false
+			break
+		}
+	}
+	if allRelayed {
+		slog.Info("mdns: peer on LAN but connected via relay, upgrading to direct", "peer", short)
+		for _, conn := range conns {
+			conn.Close()
+		}
+		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
+			md.metrics.MDNSDiscoveredTotal.WithLabelValues("upgraded").Inc()
+		}
+	}
 
 	// Acquire semaphore slot. Non-blocking: if all slots are busy, skip.
 	select {
