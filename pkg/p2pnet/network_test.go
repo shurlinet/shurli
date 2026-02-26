@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
@@ -634,4 +635,58 @@ func TestDHTProtocolPrefixForNamespace_DefaultMatchesConstant(t *testing.T) {
 	if got != DHTProtocolPrefix {
 		t.Errorf("empty namespace returned %q, want DHTProtocolPrefix %q", got, DHTProtocolPrefix)
 	}
+}
+
+func TestGlobalIPv6AddrsFactory(t *testing.T) {
+	t.Run("noop when global IPv6 already present", func(t *testing.T) {
+		addrs := mustMultiaddrs(t,
+			"/ip4/203.0.113.1/tcp/4001",
+			"/ip6/2001:db8::1/tcp/4001",
+			"/ip6/::1/tcp/4001",
+		)
+		result := globalIPv6AddrsFactory(addrs)
+		if len(result) != len(addrs) {
+			t.Errorf("expected %d addrs unchanged, got %d", len(addrs), len(result))
+		}
+	})
+
+	t.Run("noop when no IPv6 listeners", func(t *testing.T) {
+		addrs := mustMultiaddrs(t,
+			"/ip4/203.0.113.1/tcp/4001",
+		)
+		result := globalIPv6AddrsFactory(addrs)
+		if len(result) != len(addrs) {
+			t.Errorf("expected %d addrs unchanged, got %d", len(addrs), len(result))
+		}
+	})
+
+	t.Run("extracts ports from loopback", func(t *testing.T) {
+		// Simulate: loopback IPv6 with TCP and QUIC, no global IPv6.
+		// The factory should try to add global IPv6 from interfaces.
+		// On CI/test machines there may not be global IPv6, so just
+		// verify it doesn't panic or corrupt the address list.
+		addrs := mustMultiaddrs(t,
+			"/ip4/172.20.10.3/tcp/4001",
+			"/ip6/::1/tcp/5001",
+			"/ip6/::1/udp/6001/quic-v1",
+		)
+		result := globalIPv6AddrsFactory(addrs)
+		// Should always return at least the original addresses.
+		if len(result) < len(addrs) {
+			t.Errorf("factory removed addresses: had %d, got %d", len(addrs), len(result))
+		}
+	})
+}
+
+func mustMultiaddrs(t *testing.T, strs ...string) []ma.Multiaddr {
+	t.Helper()
+	addrs := make([]ma.Multiaddr, len(strs))
+	for i, s := range strs {
+		a, err := ma.NewMultiaddr(s)
+		if err != nil {
+			t.Fatalf("bad multiaddr %q: %v", s, err)
+		}
+		addrs[i] = a
+	}
+	return addrs
 }
