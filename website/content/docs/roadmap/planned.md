@@ -4,38 +4,7 @@ weight: 2
 description: "Upcoming phases and future work: network intelligence, ZKP privacy, plugins, distribution, mobile, federation, and beyond."
 ---
 
-## Phase 5: Network Intelligence
-
-Smarter peer discovery, scoring, and communication. mDNS for instant LAN discovery, Bitcoin-inspired peer management for reliable connections, and PubSub broadcast for network-wide awareness. Includes relay decentralization groundwork.
-
-### 5-K: mDNS Local Discovery
-
-Zero-config peer discovery on the local network. When two Shurli nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
-
-- [ ] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
-- [ ] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
-- [ ] Combine with DHT discovery - mDNS for local, DHT for remote. Both feed into PathDialer
-- [ ] Config option: `discovery.mdns_enabled: true` (default: true, disable for server-only nodes)
-- [ ] Explicit DHT routing table refresh on network change events
-- [ ] Test: two hosts on same LAN discover each other via mDNS within 5 seconds without relay
-
-Quick win. One libp2p option on host construction + NetworkMonitor integration. Prerequisite: none. Zero new dependencies.
-
-### 5-L: PeerManager / AddrMan
-
-Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX). Top priority after mDNS. Motivated by the "no re-upgrade from relay to direct after network change" finding from Batch I live testing.
-
-### 5-M: GossipSub Network Intelligence
-
-libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all Shurli communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware: direct PEX at <10 peers, GossipSub at 10+.
-
-- [ ] **GossipSub topic per namespace** - `/shurli/<namespace>/gossip/1.0.0`
-- [ ] **Address change broadcast** - immediate notification instead of waiting for DHT re-discovery
-- [ ] **PEX transport upgrade** - PEX messages carried over GossipSub
-- [ ] **PeerManager observation sharing** - peers share aggregated scoring observations
-- [ ] **Scale-aware activation** - threshold at 10 connected peers
-
-### Relay Decentralization
+## Relay Decentralization
 
 After Phase 5 PeerManager provides the data:
 
@@ -48,7 +17,7 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## Batch N: ZKP Privacy Layer - STATUS: WATCHING
+## Phase 6: ZKP Privacy Layer - STATUS: WATCHING
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
@@ -88,7 +57,15 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 
 ---
 
-## Phase 6: Plugin Architecture, SDK & First Plugins
+## Phase 7: Visual Channel - "Constellation Code"
+
+**Timeline**: TBD
+
+**Goal**: Animated visual pairing verification. Instead of comparing emoji fingerprints, both devices display a synchronized animated pattern. If the patterns match, the connection is authentic. More intuitive than text-based verification, especially for non-technical users.
+
+---
+
+## Phase 8: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 
@@ -159,7 +136,7 @@ net.OnEvent(func(e p2pnet.Event) {
 
 ---
 
-## Phase 7: Distribution & Launch
+## Phase 9: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 
@@ -230,7 +207,7 @@ services:
 
 ---
 
-## Phase 8: Desktop Gateway Daemon + Private DNS
+## Phase 10: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 
@@ -263,7 +240,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 9: Mobile Applications
+## Phase 11: Mobile Applications
 
 **Timeline**: 3-4 weeks
 
@@ -286,7 +263,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 10: Federation - Network Peering
+## Phase 12: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 
@@ -324,7 +301,7 @@ curl http://desktop.bob:8080
 
 ---
 
-## Phase 11: Advanced Naming Systems (Optional)
+## Phase 13: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 
@@ -373,7 +350,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 
 ---
 
-## Phase 12+: Ecosystem & Polish
+## Phase 14+: Ecosystem & Polish
 
 **Status**: Conceptual
 
@@ -422,16 +399,18 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 
 **Phase 4C**: CI on every push, >60% overall coverage, relay resource limits, auto-recovery within 30s, commit-confirmed prevents lockout, QUIC transport default
 
-**Phase 5**: mDNS discovers LAN peers within 5 seconds, PeerManager scores and persists peers, network change triggers re-upgrade from relay to direct, GossipSub broadcasts address changes within seconds
+**Phase 6**: ZKP proves group membership without revealing identity
 
-**Phase 6**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 7**: Animated visual pairing replaces emoji fingerprints
 
-**Phase 7**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
+**Phase 8**: Third-party plugins work, file transfer between peers, SDK published
 
-**Phase 8**: Gateway works in all 3 modes, private DNS resolves only within P2P network
+**Phase 9**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
-**Phase 9**: iOS app approved, Android app published, QR invite flow works
+**Phase 10**: Gateway works in all 3 modes, private DNS resolves only within P2P network
 
-**Phase 10**: Two networks federate, cross-network routing works
+**Phase 11**: iOS app approved, Android app published, QR invite flow works
 
-**Phase 11**: 3+ naming backends working, plugin API documented
+**Phase 12**: Two networks federate, cross-network routing works
+
+**Phase 13**: 3+ naming backends working, plugin API documented

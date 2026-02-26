@@ -3,12 +3,15 @@ package p2pnet
 import (
 	"context"
 	"log/slog"
+	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	libp2pmdns "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/libp2p/zeroconf/v2"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // MDNSServiceName is the DNS-SD service type used for LAN discovery.
@@ -30,14 +33,36 @@ const (
 	// attempts. On a busy LAN with many Shurli nodes, prevents
 	// spawning hundreds of goroutines at once.
 	mdnsMaxConcurrentConnects = 5
+
+	// mdnsBrowseInterval controls how often we re-query the network.
+	// Each round creates a fresh multicast socket, working around
+	// platform-specific issues where a single long-lived Browse
+	// stalls silently (macOS mDNSResponder interference, Linux avahi
+	// socket conflicts, etc.).
+	mdnsBrowseInterval = 30 * time.Second
+
+	// mdnsBrowseTimeout is how long each Browse round runs before
+	// being canceled and restarted. Keeps the multicast socket fresh.
+	mdnsBrowseTimeout = 10 * time.Second
+
+	// dnsaddrPrefix matches libp2p's TXT record format for multiaddrs.
+	dnsaddrPrefix = "dnsaddr="
 )
 
-// MDNSDiscovery wraps libp2p mDNS for local network peer discovery.
+// MDNSDiscovery handles LAN peer discovery using mDNS (DNS-SD).
+// Registers the service via zeroconf.RegisterProxy, then runs a
+// periodic browse loop using platform-native APIs when available
+// (dns_sd.h on macOS/Linux) or zeroconf as fallback.
+//
+// Native browse cooperates with the system mDNS daemon via IPC
+// (mDNSResponder on macOS, avahi on Linux) instead of competing
+// for the multicast socket on port 5353.
+//
 // Discovered peers have their addresses added to the peerstore;
 // connection attempts go through the normal ConnectionGater.
 type MDNSDiscovery struct {
 	host    host.Host
-	service libp2pmdns.Service
+	server  *zeroconf.Server
 	metrics *Metrics
 
 	// Managed context for clean shutdown of connection goroutines.
@@ -56,33 +81,183 @@ type MDNSDiscovery struct {
 // NewMDNSDiscovery creates an mDNS discovery service.
 // Metrics is optional (nil-safe).
 func NewMDNSDiscovery(h host.Host, m *Metrics) *MDNSDiscovery {
-	md := &MDNSDiscovery{
+	return &MDNSDiscovery{
 		host:    h,
 		metrics: m,
 		lastTry: make(map[peer.ID]time.Time),
 		sem:     make(chan struct{}, mdnsMaxConcurrentConnects),
 	}
-	md.service = libp2pmdns.NewMdnsService(h, MDNSServiceName, md)
-	return md
 }
 
-// Start begins mDNS advertising and browsing on the local network.
+// Start begins mDNS advertising and periodic browsing on the local network.
 func (md *MDNSDiscovery) Start(ctx context.Context) error {
 	md.ctx, md.cancel = context.WithCancel(ctx)
-	return md.service.Start()
+
+	// Register our service with zeroconf directly (no libp2p wrapper).
+	if err := md.startServer(); err != nil {
+		return err
+	}
+
+	// Start periodic browse loop.
+	md.wg.Add(1)
+	go md.browseLoop()
+	return nil
 }
 
 // Close stops the mDNS service and waits for in-flight connection
-// attempts to finish. The managed context cancellation ensures
-// goroutines don't leak on shutdown.
+// attempts to finish.
 func (md *MDNSDiscovery) Close() error {
 	md.cancel()
+	if md.server != nil {
+		md.server.Shutdown()
+	}
 	md.wg.Wait()
-	return md.service.Close()
+	return nil
 }
 
-// HandlePeerFound implements the libp2p mdns.Notifee interface.
-// Called when a peer is discovered via mDNS on the local network.
+// startServer registers our service with zeroconf for mDNS advertising.
+// Builds TXT records from the host's listen addresses, following libp2p's
+// dnsaddr= format so other nodes (including those using libp2p's mDNS
+// wrapper) can parse them.
+func (md *MDNSDiscovery) startServer() error {
+	interfaceAddrs, err := md.host.Network().InterfaceListenAddresses()
+	if err != nil {
+		return err
+	}
+
+	p2pAddrs, err := peer.AddrInfoToP2pAddrs(&peer.AddrInfo{
+		ID:    md.host.ID(),
+		Addrs: interfaceAddrs,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Build TXT records for addresses suitable for mDNS (IP-based, no relay).
+	var txts []string
+	for _, addr := range p2pAddrs {
+		if isSuitableForMDNS(addr) {
+			txts = append(txts, dnsaddrPrefix+addr.String())
+		}
+	}
+
+	// Extract IPs for A/AAAA records (required by DNS-SD spec but we
+	// only use TXT records for actual address resolution).
+	ips := getIPs(p2pAddrs)
+
+	peerName := randomString(32 + rand.Intn(32))
+	server, err := zeroconf.RegisterProxy(
+		peerName,
+		MDNSServiceName,
+		"local",
+		4001, // port required by spec; we use TXT records for actual addresses
+		peerName,
+		ips,
+		txts,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	md.server = server
+	return nil
+}
+
+// browseLoop periodically runs nativeBrowse to discover peers.
+// On macOS/Linux with CGo, uses the platform's DNS-SD API.
+// Falls back to zeroconf on other platforms.
+func (md *MDNSDiscovery) browseLoop() {
+	defer md.wg.Done()
+
+	// Small initial delay to let the host finish setting up
+	// (interface binding, relay connection, etc.).
+	select {
+	case <-time.After(2 * time.Second):
+	case <-md.ctx.Done():
+		return
+	}
+
+	// Run first browse immediately after initial delay.
+	md.runBrowse()
+
+	ticker := time.NewTicker(mdnsBrowseInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-md.ctx.Done():
+			return
+		case <-ticker.C:
+			md.runBrowse()
+		}
+	}
+}
+
+// runBrowse executes a single bounded browse round, processing any
+// discovered entries through HandlePeerFound. Uses nativeBrowse which
+// is platform-specific (dns_sd.h on macOS/Linux, zeroconf fallback).
+func (md *MDNSDiscovery) runBrowse() {
+	browseCtx, browseCancel := context.WithTimeout(md.ctx, mdnsBrowseTimeout)
+	defer browseCancel()
+
+	entries := make(chan []string, 100)
+
+	// Consumer: process TXT record sets as they arrive.
+	var browseWG sync.WaitGroup
+	browseWG.Add(1)
+	go func() {
+		defer browseWG.Done()
+		for txts := range entries {
+			md.processTextRecords(txts)
+		}
+	}()
+
+	// nativeBrowse blocks until context is canceled or times out.
+	if err := nativeBrowse(browseCtx, MDNSServiceName, "local.", entries); err != nil {
+		// Context cancellation/timeout is normal.
+		if md.ctx.Err() == nil {
+			slog.Debug("mdns: browse round error", "error", err)
+		}
+	}
+	close(entries)
+
+	browseWG.Wait()
+}
+
+// processTextRecords converts mDNS TXT records to peer.AddrInfo
+// and feeds each through HandlePeerFound.
+func (md *MDNSDiscovery) processTextRecords(txts []string) {
+	addrs := make([]ma.Multiaddr, 0, len(txts))
+	for _, txt := range txts {
+		if !strings.HasPrefix(txt, dnsaddrPrefix) {
+			continue
+		}
+		addr, err := ma.NewMultiaddr(txt[len(dnsaddrPrefix):])
+		if err != nil {
+			slog.Debug("mdns: bad multiaddr in TXT", "error", err)
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+	if len(addrs) == 0 {
+		return
+	}
+
+	infos, err := peer.AddrInfosFromP2pAddrs(addrs...)
+	if err != nil {
+		slog.Debug("mdns: failed to parse peer addrs", "error", err)
+		return
+	}
+	for _, info := range infos {
+		if info.ID == md.host.ID() {
+			continue
+		}
+		md.HandlePeerFound(info)
+	}
+}
+
+// HandlePeerFound is called when a peer is discovered via mDNS on the
+// local network.
 func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	if pi.ID == md.host.ID() {
 		return
@@ -139,4 +314,76 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
 		}
 	}()
+}
+
+// isSuitableForMDNS returns true for multiaddrs that should be advertised
+// via mDNS. Must start with /ip4, /ip6, or .local DNS; must not use relay
+// or browser-only transports. Matches libp2p's filtering logic.
+func isSuitableForMDNS(addr ma.Multiaddr) bool {
+	if addr == nil {
+		return false
+	}
+	first, _ := ma.SplitFirst(addr)
+	if first == nil {
+		return false
+	}
+	switch first.Protocol().Code {
+	case ma.P_IP4, ma.P_IP6:
+		// Direct IP addresses are always suitable for LAN discovery.
+	case ma.P_DNS, ma.P_DNS4, ma.P_DNS6, ma.P_DNSADDR:
+		if !strings.HasSuffix(strings.ToLower(first.Value()), ".local") {
+			return false
+		}
+	default:
+		return false
+	}
+	// Exclude relay and browser transports.
+	excluded := false
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_CIRCUIT, ma.P_WEBTRANSPORT, ma.P_WEBRTC,
+			ma.P_WEBRTC_DIRECT, ma.P_P2P_WEBRTC_DIRECT, ma.P_WS, ma.P_WSS:
+			excluded = true
+			return false
+		}
+		return true
+	})
+	return !excluded
+}
+
+// getIPs extracts one IPv4 and one IPv6 address from multiaddrs for
+// A/AAAA records required by DNS-SD spec. Falls back to 127.0.0.1.
+func getIPs(addrs []ma.Multiaddr) []string {
+	var ip4, ip6 string
+	for _, addr := range addrs {
+		first, _ := ma.SplitFirst(addr)
+		if first == nil {
+			continue
+		}
+		if ip4 == "" && first.Protocol().Code == ma.P_IP4 {
+			ip4 = first.Value()
+		} else if ip6 == "" && first.Protocol().Code == ma.P_IP6 {
+			ip6 = first.Value()
+		}
+	}
+	var ips []string
+	if ip4 != "" {
+		ips = append(ips, ip4)
+	}
+	if ip6 != "" {
+		ips = append(ips, ip6)
+	}
+	if len(ips) == 0 {
+		ips = append(ips, "127.0.0.1")
+	}
+	return ips
+}
+
+func randomString(l int) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	s := make([]byte, 0, l)
+	for i := 0; i < l; i++ {
+		s = append(s, alphabet[rand.Intn(len(alphabet))])
+	}
+	return string(s)
 }
