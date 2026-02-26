@@ -229,6 +229,145 @@ After setup, your relay-server directory looks like:
 
 ---
 
+## Manual Installation (Any Linux/Unix)
+
+The `setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
+
+### Prerequisites
+
+**Go** (version from `go.mod`, currently 1.26.0+):
+```bash
+# Download from https://go.dev/dl/
+wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+```
+
+**Native mDNS library** (optional, enables LAN peer discovery):
+
+| Distribution | Package | Install |
+|-------------|---------|---------|
+| Debian/Ubuntu | `libavahi-compat-libdnssd-dev` | `sudo apt install libavahi-compat-libdnssd-dev` |
+| Fedora/RHEL/CentOS | `avahi-compat-libdns_sd-devel` | `sudo dnf install avahi-compat-libdns_sd-devel` |
+| Arch Linux | `avahi` | `sudo pacman -S avahi` |
+| Alpine Linux | `avahi-compat-libdns_sd` | `sudo apk add avahi-compat-libdns_sd avahi-dev` |
+| openSUSE | `avahi-compat-mDNSResponder-devel` | `sudo zypper install avahi-compat-mDNSResponder-devel` |
+| FreeBSD | `avahi-libdns` | `sudo pkg install avahi-libdns` |
+| macOS | Built-in | No install needed (dns_sd is in libSystem) |
+
+Without this library, Shurli falls back to pure-Go mDNS (works but less reliable on systems with a running mDNS daemon). Build with `CGO_ENABLED=0` to explicitly use the fallback.
+
+**QR code tool** (optional, for `setup.sh --check` display):
+
+| Distribution | Package |
+|-------------|---------|
+| Debian/Ubuntu | `qrencode` |
+| Fedora/RHEL | `qrencode` |
+| Arch | `qrencode` |
+| Alpine | `libqrencode` |
+| macOS | `brew install qrencode` |
+
+### Build
+
+```bash
+git clone https://github.com/shurlinet/shurli.git
+cd Shurli
+
+# Full build with optimizations
+go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+
+# Verify
+./relay-server/shurli version
+```
+
+### Configure
+
+```bash
+cd relay-server
+cp ../configs/relay-server.sample.yaml relay-server.yaml
+# Edit relay-server.yaml if needed (defaults: port 7777, gating enabled)
+```
+
+### Create service user (if running as a service)
+
+```bash
+sudo useradd -r -m -s /bin/bash shurli
+sudo chown -R shurli:shurli /path/to/Shurli/relay-server
+```
+
+### Network tuning (QUIC performance)
+
+```bash
+# Increase UDP buffer sizes for QUIC
+echo 'net.core.rmem_max=7500000' | sudo tee -a /etc/sysctl.conf
+echo 'net.core.wmem_max=7500000' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+### Firewall
+
+Open port 7777 for TCP and UDP:
+
+| Firewall | Commands |
+|----------|----------|
+| ufw (Ubuntu) | `sudo ufw allow 7777/tcp && sudo ufw allow 7777/udp` |
+| firewalld (Fedora/RHEL) | `sudo firewall-cmd --permanent --add-port=7777/tcp && sudo firewall-cmd --permanent --add-port=7777/udp && sudo firewall-cmd --reload` |
+| iptables | `sudo iptables -A INPUT -p tcp --dport 7777 -j ACCEPT && sudo iptables -A INPUT -p udp --dport 7777 -j ACCEPT` |
+| nftables | Add `tcp dport 7777 accept` and `udp dport 7777 accept` to your input chain |
+| pf (FreeBSD/macOS) | Add `pass in proto { tcp, udp } to port 7777` to `/etc/pf.conf` |
+
+Also check your VPS provider's security groups/firewall rules in their web console.
+
+### Install systemd service
+
+```bash
+# Copy and customize the service template
+sudo cp relay-server.service /etc/systemd/system/shurli-relay.service
+
+# Edit to match your paths and user
+sudo nano /etc/systemd/system/shurli-relay.service
+# Key fields: User=shurli, WorkingDirectory=/path/to/relay-server, ExecStart=/path/to/shurli relay serve
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now shurli-relay
+```
+
+For **non-systemd** systems (Alpine with OpenRC, FreeBSD with rc.d, etc.), create a service script that runs:
+
+```bash
+/path/to/shurli relay serve --config /path/to/relay-server.yaml
+```
+
+The binary is self-contained. It reads config from the working directory or the path specified by `--config`.
+
+### Log rotation
+
+For systemd systems, limit journal size:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+echo -e "[Journal]\nSystemMaxUse=500M\nMaxFileSec=7day" | sudo tee /etc/systemd/journald.conf.d/shurli-relay.conf
+sudo systemctl restart systemd-journald
+```
+
+### Verify
+
+```bash
+# Check service is running
+sudo systemctl status shurli-relay
+
+# Check it's listening
+ss -tlnp | grep 7777
+
+# Check logs
+sudo journalctl -u shurli-relay -n 20
+
+# Or run the health check script (even on non-Ubuntu, it reports useful info)
+bash setup.sh --check
+```
+
+---
+
 ## Troubleshooting
 
 | Issue | Solution |
@@ -240,3 +379,5 @@ After setup, your relay-server directory looks like:
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
 | Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
+| `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
+| CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |

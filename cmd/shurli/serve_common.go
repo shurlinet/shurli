@@ -478,6 +478,20 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerManager.OnNetworkChange()
 		}
 
+		// Trigger immediate mDNS re-browse. If we just returned to a LAN
+		// where a peer exists, mDNS will discover it and upgrade the path
+		// from RELAYED to DIRECT without waiting for the next 30s cycle.
+		if rt.mdnsDiscovery != nil {
+			rt.mdnsDiscovery.BrowseNow()
+		}
+
+		// Probe direct paths through newly available interfaces.
+		// If a relayed peer is reachable via IPv6 on a secondary
+		// interface (e.g., USB LAN), upgrade to direct.
+		if rt.peerManager != nil {
+			go rt.peerManager.ProbeAndUpgradeRelayed()
+		}
+
 		// Re-announce network state immediately so peers get fresh capabilities.
 		if rt.netIntel != nil {
 			rt.netIntel.AnnounceNow()
