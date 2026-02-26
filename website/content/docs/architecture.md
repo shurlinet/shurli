@@ -74,6 +74,8 @@ Shurli/
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
 │   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
+│   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
+│   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
 │   ├── peermanager.go       # Background reconnection with exponential backoff
 │   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
