@@ -12,11 +12,7 @@
       <stop offset="0%" style="stop-color:#2a2518"/>
       <stop offset="100%" style="stop-color:#1f1c14"/>
     </linearGradient>
-    <linearGradient id="watchGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2a1a28"/>
-      <stop offset="100%" style="stop-color:#1f141e"/>
-    </linearGradient>
-    <linearGradient id="futureGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+<linearGradient id="futureGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1a1a2e"/>
       <stop offset="100%" style="stop-color:#151525"/>
     </linearGradient>
@@ -112,12 +108,12 @@
   <!-- Timeline line (right) -->
   <line x1="510" y1="90" x2="510" y2="700" stroke="#e0af68" stroke-width="2" opacity="0.3" stroke-dasharray="4,3"/>
 
-  <!-- Phase 6: ZKP Privacy (Watching) -->
-  <circle cx="510" cy="110" r="6" fill="none" stroke="#bb9af7" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="93" width="340" height="42" rx="8" fill="url(#watchGrad)" stroke="#bb9af7" stroke-width="1" stroke-dasharray="4,3"/>
+  <!-- Phase 6: ZKP Privacy (Planned) -->
+  <circle cx="510" cy="110" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="93" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
   <text x="544" y="111" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: ZKP Privacy Layer</text>
   <text x="544" y="127" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
-  <text x="850" y="118" text-anchor="end" font-size="9" font-weight="600" fill="#bb9af7" font-family="ui-monospace, monospace">Watching</text>
+  <text x="850" y="118" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
 
   <!-- Phase 7: Visual Channel -->
   <circle cx="510" cy="160" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
@@ -179,12 +175,10 @@
   <rect x="30" y="695" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
   <circle cx="70" cy="710" r="5" fill="#9ece6a"/>
   <text x="82" y="714" font-size="9" fill="#a9b1d6">Complete</text>
-  <circle cx="170" cy="710" r="5" fill="none" stroke="#bb9af7" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <text x="182" y="714" font-size="9" fill="#a9b1d6">Watching</text>
-  <circle cx="270" cy="710" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <text x="282" y="714" font-size="9" fill="#a9b1d6">Planned</text>
-  <circle cx="370" cy="710" r="5" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <text x="382" y="714" font-size="9" fill="#a9b1d6">Future / Optional</text>
-  <circle cx="510" cy="710" r="5" fill="#e8729a" filter="url(#glow)"/>
-  <text x="522" y="714" font-size="9" fill="#a9b1d6">Current position</text>
+  <circle cx="190" cy="710" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="202" y="714" font-size="9" fill="#a9b1d6">Planned</text>
+  <circle cx="300" cy="710" r="5" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="312" y="714" font-size="9" fill="#a9b1d6">Future / Optional</text>
+  <circle cx="450" cy="710" r="5" fill="#e8729a" filter="url(#glow)"/>
+  <text x="462" y="714" font-size="9" fill="#a9b1d6">Current position</text>
 </svg>

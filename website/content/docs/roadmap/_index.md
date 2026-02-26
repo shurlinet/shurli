@@ -48,7 +48,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | 5-K | mDNS | Native DNS-SD LAN discovery (dns_sd.h CGo) | Done |
 | 5-L | PeerManager | Background reconnection, authorized peer lifecycle | Done |
 | 5-M | NetIntel | Presence announcements, gossip forwarding | Done |
-| 6 | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Watching |
+| 6 | **ZKP&nbsp;Privacy** | Anonymous auth, anonymous relay, private reputation | Planned |
 | 7 | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Future |
 
 ---
@@ -66,7 +66,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 4B: Frictionless Onboarding | 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | 6-8 weeks | Complete (Batches A-I, Post-I-1) |
 | **Phase 5: Network Intelligence** | 4-6 weeks | **Complete** |
-| Phase 6: ZKP Privacy Layer | TBD | Watching |
+| Phase 6: ZKP Privacy Layer | TBD | Planned |
 | Phase 7: Visual Channel | TBD | Planned |
 | Phase 8: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
 | Phase 9: Distribution & Launch | 1-2 weeks | Planned |
@@ -76,7 +76,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 13: Advanced Naming | 2-3 weeks | Planned (Optional) |
 | Phase 14+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ZKP privacy (watching) -> visual pairing -> plugins -> distribute with use-case content -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ZKP privacy -> visual pairing -> plugins -> distribute with use-case content -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -92,4 +92,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-02-26. Current: Phase 5 complete. Next: Phase 6 (ZKP Privacy Layer - watching for Go Halo 2).*
+*Last updated: 2026-02-26. Current: Phase 5 complete. Next: Phase 6 (ZKP Privacy Layer - gnark PLONK + KZG).*
