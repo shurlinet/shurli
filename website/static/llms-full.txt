@@ -319,6 +319,11 @@ go vet ./...
 You can also build directly with Go:
 
 ```bash
+# Optional: enable native mDNS for LAN discovery (recommended)
+# macOS: automatic (uses built-in mDNSResponder)
+# Linux: sudo apt install libavahi-compat-libdnssd-dev
+# Without this, falls back to pure-Go mDNS (works but less reliable)
+
 # Build shurli
 go build -o shurli ./cmd/shurli
 
@@ -931,7 +936,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 23 visualization panels across 6 sections.
+You'll immediately see the dashboard with 29 panels (23 visualizations + 6 row headers) across 6 sections.
 
 ## Dashboard sections
 
@@ -2063,6 +2068,8 @@ Shurli/
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
 │   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
+│   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
+│   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
 │   ├── peermanager.go       # Background reconnection with exponential backoff
 │   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
@@ -2411,7 +2418,7 @@ Custom shurli metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 23 visualization panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels (23 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -3711,7 +3718,7 @@ Where Shurli goes further than Ethereum's usage:
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-Shurli ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 23 visualization panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+Shurli ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
 
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 

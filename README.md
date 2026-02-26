@@ -319,6 +319,11 @@ go vet ./...
 You can also build directly with Go:
 
 ```bash
+# Optional: enable native mDNS for LAN discovery (recommended)
+# macOS: automatic (uses built-in mDNSResponder)
+# Linux: sudo apt install libavahi-compat-libdnssd-dev
+# Without this, falls back to pure-Go mDNS (works but less reliable)
+
 # Build shurli
 go build -o shurli ./cmd/shurli
 
