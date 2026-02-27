@@ -108,7 +108,7 @@ Steps 1-3 are synchronous and complete in under a millisecond. Steps 4-6 run in 
 
 ## What's still open
 
-1. **Active stream continuity.** When a network change kills the underlying connection, active streams (proxy sessions, file transfers) break. PeerManager reconnects in 5-15 seconds and new streams work immediately, but in-flight data on the old stream is lost. QUIC 0-RTT session resumption could make this seamless in a future phase.
+1. **Active stream continuity.** When a network change kills the underlying connection, active streams (proxy sessions, file transfers) break. PeerManager reconnects in 5-15 seconds and new streams work immediately, but in-flight data on the old stream is lost. QUIC 0-RTT session resumption (RFC 9000) could make this seamless, but libp2p's QUIC transport does not expose session ticket or 0-RTT APIs yet. This is blocked on upstream, not something we can implement today.
 
 ## How it was tested
 
