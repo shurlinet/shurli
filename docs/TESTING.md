@@ -111,7 +111,8 @@ Ensure `force_private_reachability` is set for CGNAT:
 
 ```yaml
 network:
-  force_private_reachability: true  # CRITICAL for CGNAT (Starlink, etc.)
+  force_private_reachability: true  # CRITICAL for CGNAT (satellite ISP, etc.)
+  # force_cgnat: true  # Set if your carrier uses RFC 1918 addresses for CGNAT
 ```
 
 ### Start the server

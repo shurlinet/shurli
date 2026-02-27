@@ -72,7 +72,7 @@ It uses Google's public STUN servers to determine the external IP and NAT behavi
 
 The critical design choice: CGNAT detection **caps the grade at D** regardless of what the inner NAT reports. STUN will happily say "hole-punchable" when a port-restricted NAT sits behind CGNAT, because STUN only sees the inner NAT. The outer CGNAT will still drop unsolicited inbound packets. Our grade computation overrides STUN's false optimism.
 
-Current limitation: CGNAT detection only identifies RFC 6598 addresses (`100.64.0.0/10`) on local interfaces. Mobile carriers that use RFC 1918 addresses (like `172.x.x.x`) for CGNAT cannot be distinguished from regular home networks. The grade for Network C was technically "hole-punchable" even though the carrier NAT blocked most attempts.
+Auto-detection identifies RFC 6598 addresses (`100.64.0.0/10`) on local interfaces. Mobile carriers that use RFC 1918 addresses (like `172.x.x.x`) for CGNAT cannot be auto-detected, but users can set `network.force_cgnat: true` in their config to correctly signal their CGNAT status.
 
 ## Graceful network switching
 
@@ -86,7 +86,7 @@ The network change monitor detects interface changes and triggers three things:
 2. **STUN re-probe** - determines reachability on the new network
 3. **Path re-evaluation** - if the current path is dead, falls back to relay immediately
 
-The known gap: plugging or unplugging a wired Ethernet adapter killed the daemon entirely. Interface addition/removal (as opposed to WiFi switching) isn't handled yet. This is a Phase 5-L fix.
+~~The known gap: plugging or unplugging a wired Ethernet adapter killed the daemon.~~ **Fixed in Phase 5**: PeerManager's `CloseStaleConnections()` handles interface addition/removal gracefully. See [Phase 5: Automatic WiFi Transition](/blog/phase5-network-resilience/).
 
 ## Every peer is a relay
 
@@ -108,17 +108,17 @@ This isn't reliable. On day 1, the same network stayed relayed for the entire se
 
 But it demonstrates the system working exactly as designed: try everything, take whatever works, be honest about what doesn't.
 
-## What's still broken
+## What was broken (update: mostly fixed)
 
-Honesty about failures matters more than marketing about successes.
+Honesty about failures matters more than marketing about successes. Here's what was broken at Batch I ship time, with Phase 5 status:
 
-1. **Wired Ethernet plug/unplug kills the daemon.** Interface addition/removal triggers a fatal error. WiFi switching works fine because the interface stays present. Fix: Phase 5-L PeerManager with proper address lifecycle management.
+1. ~~**Wired Ethernet plug/unplug kills the daemon.**~~ **Fixed in Phase 5.** `CloseStaleConnections()` matches connection local IPs against removed interfaces and closes dead connections instantly. USB LAN plug/unplug tested and working.
 
-2. **No path re-upgrade after network switch.** After returning to Satellite WiFi from 5G, the connection stayed relayed even though both peers were back on the same LAN. The daemon has no mechanism to detect that a better path became available. Fix: Phase 5-L PeerManager with periodic path probing.
+2. ~~**No path re-upgrade after network switch.**~~ **Fixed in Phase 5.** Three mechanisms: mDNS LAN discovery with `ForceDirectDial`, IPv6 path probing via `ProbeAndUpgradeRelayed()`, and PeerManager relay-discard when direct exists. Tested on 7 transition scenarios.
 
-3. **CGNAT detection misses RFC 1918 carriers.** Mobile carriers using `172.x.x.x` for CGNAT look identical to home networks. Only `100.64.0.0/10` (RFC 6598) triggers the CGNAT grade cap. No clean fix exists without active probing.
+3. ~~**CGNAT detection misses RFC 1918 carriers.**~~ **Fixed in Phase 5.** Users can now set `network.force_cgnat: true` in config to correctly signal CGNAT when their carrier uses RFC 1918 addresses. Auto-detection still handles RFC 6598 (`100.64.0.0/10`) automatically.
 
-4. **SSH proxy always relayed.** Even on networks where ping achieved direct connections, SSH proxy sessions went through the relay. The proxy doesn't benefit from DCUtR upgrades on existing connections. Fix: needs investigation in Phase 5-L.
+4. ~~**SSH proxy always relayed.**~~ **Partially fixed in Phase 5.** Daemon-managed connections benefit from path upgrades (mDNS, IPv6 probing, relay-discard). Standalone `shurli proxy` sessions without daemon may still relay.
 
 ## Impact
 
@@ -134,4 +134,4 @@ Honesty about failures matters more than marketing about successes.
 
 Six components shipped in Batch I: interface discovery, parallel dial racing, STUN NAT detection, path quality tracking, network change monitoring, and every-peer-is-a-relay. Zero new dependencies. Tested on real networks with real measurements, including the failures.
 
-Next: Phase 5. mDNS local discovery, PeerManager for intelligent path management, and GossipSub for network intelligence.
+**Update**: Phase 5 shipped. mDNS native discovery, PeerManager lifecycle management, and automatic WiFi transition are all live. See [Phase 5: Automatic WiFi Transition](/blog/phase5-network-resilience/) for the full results.
