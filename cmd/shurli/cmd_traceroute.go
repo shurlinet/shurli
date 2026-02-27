@@ -28,20 +28,23 @@ func runTraceroute(args []string) {
 	fs := flag.NewFlagSet("traceroute", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
+	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli traceroute [--config <path>] [--json] <target>")
+		fmt.Println("Usage: shurli traceroute [--config <path>] [--json] [--standalone] <target>")
 		osExit(1)
 	}
 
 	target := remaining[0]
 
 	// Try daemon first (faster, no bootstrap needed).
-	if client := tryDaemonClient(); client != nil {
-		runTracerouteViaDaemon(client, target, *jsonFlag)
-		return
+	if !*standaloneFlag {
+		if client := tryDaemonClient(); client != nil {
+			runTracerouteViaDaemon(client, target, *jsonFlag)
+			return
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,6 +60,16 @@ func runTraceroute(args []string) {
 		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
+
+	// Check if standalone mode is allowed
+	if !*standaloneFlag && !cfg.CLI.AllowStandalone {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli traceroute --standalone %s\n", target)
+		osExit(1)
+	}
 
 	// Create P2P network
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{

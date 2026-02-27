@@ -625,8 +625,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	slog.Info("proxy created via API", "id", id, "peer", req.Peer, "service", req.Service, "listen", proxy.Listen)
-	respondJSON(w, http.StatusOK, ConnectResponse{ID: id, ListenAddress: proxy.Listen})
+	// Detect connection path type for the response
+	h := pnet.Host()
+	pathType, addr := p2pnet.PeerConnInfo(h, targetPeerID)
+
+	slog.Info("proxy created via API", "id", id, "peer", req.Peer, "service", req.Service, "listen", proxy.Listen, "path", pathType)
+	respondJSON(w, http.StatusOK, ConnectResponse{
+		ID:            id,
+		ListenAddress: proxy.Listen,
+		PathType:      pathType,
+		Address:       addr,
+	})
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {

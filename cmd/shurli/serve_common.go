@@ -473,7 +473,14 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerRelay.AutoDetect(newSummary)
 		}
 
-		// Reset PeerManager backoffs so disconnected peers are retried immediately.
+		// Close connections on interfaces that just disappeared. Without
+		// this, dead sockets sit until TCP keepalive timeout (minutes),
+		// blocking reconnection through the new active interface.
+		if rt.peerManager != nil && len(change.Removed) > 0 {
+			rt.peerManager.CloseStaleConnections(change.Removed)
+		}
+
+		// Reset backoffs and trigger immediate reconnect cycle.
 		if rt.peerManager != nil {
 			rt.peerManager.OnNetworkChange()
 		}
@@ -509,7 +516,7 @@ func (rt *serveRuntime) Bootstrap() error {
 				if err != nil {
 					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
 				} else {
-					result.DetectCGNAT()
+					result.DetectCGNAT(rt.config.Network.ForceCGNAT)
 				}
 			}()
 		}
@@ -565,7 +572,7 @@ func (rt *serveRuntime) Bootstrap() error {
 			return
 		}
 		// Check for CGNAT after probe completes.
-		result.DetectCGNAT()
+		result.DetectCGNAT(rt.config.Network.ForceCGNAT)
 
 		fmt.Printf("NAT type: %s", result.NATType)
 		if len(result.ExternalAddrs) > 0 {
