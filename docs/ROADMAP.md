@@ -787,6 +787,7 @@ Deliverables:
 - [ ] CI step: `ipfs add` release binaries + site → pin on [Filebase](https://filebase.com/) (S3-compatible, 5GB free)
 - [ ] DNSLink TXT record at `_dnslink.shurli.io` pointing to IPNS key (pre-configured, activated on failover)
 - [ ] Document failover runbook: which DNS records to change, in what order, for each failure scenario
+- [ ] **Canonical source links** (`shurli.io/source/*`): Hugo redirect rules that map source file paths to the current primary repo. All docs and website pages link through `shurli.io/source/` instead of directly to any git host. When the primary moves (GitHub to GitLab, etc.), update one redirect config - all existing links (including search engine cached URLs and LLM training snapshots) resolve via the domain we control. sync-docs rewrite logic (`tools/sync-docs/config.go` `githubBase` constant) replaced with domain-relative `/source/` paths. GitHub repo stays alive as a read-only mirror so any old indexed URLs still resolve.
 
 **Package Managers & Binaries**:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) - publish to GitHub Releases + GitLab Releases

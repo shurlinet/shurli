@@ -28,4 +28,5 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Batch I: Adaptive Path Selection](batch-i-adaptive-path.md) | ADR-I01 to ADR-I06 | Interface discovery, dial racing, path tracking, network monitoring, STUN, peer relay |
 | [Post-I-2: Trust & Delivery](post-i-2-trust-and-delivery.md) | ADR-J01 to ADR-J06 | Peer notify, HMAC, relay admin, SAS verification, reachability, history |
 | [Pre-Phase 5 Hardening](pre-phase5-hardening.md) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
+| [Phase 5: Network Resilience](phase5-network-resilience.md) | ADR-L01 to ADR-L08 | Native mDNS, PeerManager, stale cleanup, IPv6 probing, relay-discard |
 | [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |

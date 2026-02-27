@@ -6,7 +6,7 @@ description: "Startup race fix, stale address detection, systemd/launchd service
 <!-- Auto-synced from docs/engineering-journal/pre-phase5-hardening.md by sync-docs - do not edit directly -->
 
 
-Bug fixes from cross-network testing, CGNAT detection improvements, and service deployment across three nodes.
+Bug fixes from cross-network testing, CGNAT detection improvements, and systemd/launchd service deployment.
 
 ---
 
@@ -44,16 +44,15 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 ### ADR-K03: systemd and launchd Service Deployment
 
-**Context**: All three nodes were running via `nohup` in the background. This meant: no automatic restart on crash, no watchdog monitoring, no boot-time startup, and log management via terminal scrollback. For infrastructure that's meant to be always-on, this is unacceptable.
+**Context**: Running Shurli via `nohup` or bare terminal means no automatic restart on crash, no watchdog monitoring, no boot-time startup, and log management via terminal scrollback. For infrastructure that's meant to be always-on, this is unacceptable.
 
-**Decision**: Deploy proper service management on all three nodes:
+**Decision**: Ship service files for both major platforms so any node (relay or daemon) gets proper process management:
 
-- **Relay VPS (Linux)**: systemd unit `shurli-relay.service` with `Type=notify`, `WatchdogSec=90`, `Restart=on-failure`, `RestartSec=5`. Binary at `/usr/local/bin/shurli` via symlink to repo. Enabled at boot.
-- **Home-node (Linux)**: systemd unit `shurli-daemon.service` with identical watchdog and restart configuration. Created fresh (no pre-existing service). Enabled at boot.
-- **Client-node (macOS)**: launchd plist `com.shurli.daemon.plist` with `RunAtLoad=true`, `KeepAlive=true`. Binary at `/usr/local/bin/shurli` via symlink.
+- **Linux (systemd)**: Two unit files provided. `shurli-daemon.service` for daemon nodes, `relay-server.service` for relay nodes. Both use `Type=notify`, `WatchdogSec=90`, `Restart=on-failure`, `RestartSec=5`, security hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`), and `LimitNOFILE=65536`.
+- **macOS (launchd)**: `com.shurli.daemon.plist` with `RunAtLoad=true`, `KeepAlive=true`. Logs to `/tmp/shurli-daemon.log`.
 
-All three use the pure-Go `sd_notify` implementation in `https://github.com/shurlinet/shurli/blob/main/internal/watchdog/` (no CGo, no-op on non-systemd). The watchdog checks health every 30s, sends `WATCHDOG=1` to systemd on success. `WatchdogSec=90` (3x interval) triggers restart if health checks stop.
+Both platforms use the pure-Go `sd_notify` implementation in `https://github.com/shurlinet/shurli/blob/main/internal/watchdog/` (no CGo, no-op on non-systemd). The watchdog checks health every 30s, sends `WATCHDOG=1` to systemd on success. `WatchdogSec=90` (3x interval) triggers restart if health checks stop. On macOS, launchd's `KeepAlive` provides equivalent crash recovery.
 
-**Consequences**: All nodes survive crashes, reboots, and power failures. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). `nohup` processes were killed and replaced. Dev workflow: rebuild binary in repo, restart service, symlink means no file copy needed.
+**Consequences**: Nodes survive crashes, reboots, and power failures without manual intervention. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). Dev workflow: rebuild binary, restart service. Symlink from `/usr/local/bin/shurli` to repo means no file copy needed.
 
 **Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `relay-server/relay-server.service`, `https://github.com/shurlinet/shurli/blob/main/internal/watchdog/watchdog.go`

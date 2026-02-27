@@ -563,10 +563,19 @@ Creates a dynamic TCP proxy to a peer's service. Returns a proxy ID and the loca
 {
   "data": {
     "id": "proxy-1",
-    "listen_address": "127.0.0.1:2222"
+    "listen_address": "127.0.0.1:2222",
+    "path_type": "DIRECT",
+    "address": "/ip4/10.0.1.50/tcp/9100"
   }
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Proxy ID (use for disconnect) |
+| `listen_address` | string | Local TCP address the proxy listens on |
+| `path_type` | string | Connection path: `DIRECT` or `RELAYED` (omitted if unknown) |
+| `address` | string | Remote peer's multiaddr (omitted if unknown) |
 
 After this call, `ssh user@127.0.0.1 -p 2222` connects to the remote peer's SSH service through the P2P tunnel.
 
