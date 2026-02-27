@@ -102,11 +102,13 @@ All subsystems fire in a specific order after a network change:
 
 Steps 1-3 are synchronous and complete in under a millisecond. Steps 4-6 run in background goroutines. The full recovery completes in 5-15 seconds.
 
+## What's been resolved since initial release
+
+1. ~~**CGNAT detection for RFC 1918 carriers.**~~ **Fixed.** `network.force_cgnat: true` config option lets users on carriers using RFC 1918 addresses for CGNAT correctly signal their status. Auto-detection still handles RFC 6598 (`100.64.0.0/10`) automatically.
+
 ## What's still open
 
-1. **CGNAT detection for RFC 1918 carriers.** Mobile carriers using `172.x.x.x` for CGNAT look identical to home networks. Auto-detection only catches RFC 6598 (`100.64.0.0/10`). For these carriers, users can now set `network.force_cgnat: true` in their config to correctly signal CGNAT and cap reachability at Grade D.
-
-2. **Active stream continuity.** When a network change kills the underlying connection, active streams (proxy sessions, file transfers) break. They work again after reconnection, but the in-flight data is lost. QUIC 0-RTT session resumption could make this seamless in a future phase.
+1. **Active stream continuity.** When a network change kills the underlying connection, active streams (proxy sessions, file transfers) break. PeerManager reconnects in 5-15 seconds and new streams work immediately, but in-flight data on the old stream is lost. QUIC 0-RTT session resumption could make this seamless in a future phase.
 
 ## How it was tested
 
