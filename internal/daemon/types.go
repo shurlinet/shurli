@@ -101,6 +101,8 @@ type ConnectRequest struct {
 type ConnectResponse struct {
 	ID            string `json:"id"`
 	ListenAddress string `json:"listen_address"`
+	PathType      string `json:"path_type,omitempty"`
+	Address       string `json:"address,omitempty"`
 }
 
 // ExposeRequest is the body for POST /v1/expose.

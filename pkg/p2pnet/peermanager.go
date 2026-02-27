@@ -118,6 +118,11 @@ type PeerManager struct {
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
 
+	// reconnectNow is a non-blocking trigger that causes the reconnect
+	// loop to run a cycle immediately instead of waiting for the next
+	// 30-second tick. Used after network changes to avoid stale delays.
+	reconnectNow chan struct{}
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -127,11 +132,12 @@ type PeerManager struct {
 // optional (nil-safe) and fires on each successful background reconnection.
 func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect ConnectionRecorder) *PeerManager {
 	return &PeerManager{
-		host:        h,
-		pathDialer:  pd,
-		metrics:     m,
-		onReconnect: onReconnect,
-		peers:       make(map[peer.ID]*ManagedPeer),
+		host:         h,
+		pathDialer:   pd,
+		metrics:      m,
+		onReconnect:  onReconnect,
+		peers:        make(map[peer.ID]*ManagedPeer),
+		reconnectNow: make(chan struct{}, 1),
 	}
 }
 
@@ -195,17 +201,98 @@ func (pm *PeerManager) SetWatchlist(peerIDs []peer.ID) {
 	slog.Info("peermanager: watchlist updated", "watched", len(pm.peers))
 }
 
-// OnNetworkChange resets all backoff timers, triggering immediate
-// reconnection attempts on the next loop tick. Called when NetworkMonitor
-// detects interface changes (new IP, lost IP, WiFi switch, etc.).
+// OnNetworkChange resets all backoff timers and triggers an immediate
+// reconnect cycle. Called when NetworkMonitor detects interface changes
+// (new IP, lost IP, WiFi switch, etc.).
+//
+// For stale connection cleanup, call CloseStaleConnections separately
+// with the removed IPs before calling this method.
 func (pm *PeerManager) OnNetworkChange() {
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	for _, mp := range pm.peers {
 		mp.BackoffUntil = time.Time{}
 		mp.ConsecFailures = 0
 	}
+	pm.mu.Unlock()
+
 	slog.Info("peermanager: backoffs reset (network change)")
+
+	// Trigger immediate reconnect cycle (non-blocking send).
+	select {
+	case pm.reconnectNow <- struct{}{}:
+	default:
+		// Already pending, no need to queue another.
+	}
+}
+
+// CloseStaleConnections closes connections to watched peers whose local
+// address matches a removed IP. When a network interface disappears
+// (WiFi switch, USB LAN unplug), connections bound to that interface are
+// dead but libp2p may not detect it for minutes (TCP keepalive timeout).
+// Closing them immediately lets the reconnect loop redial via the new
+// active interface.
+func (pm *PeerManager) CloseStaleConnections(removedIPs []string) {
+	if len(removedIPs) == 0 {
+		return
+	}
+
+	removed := make(map[string]struct{}, len(removedIPs))
+	for _, ip := range removedIPs {
+		removed[ip] = struct{}{}
+	}
+
+	var closed int
+	pm.mu.RLock()
+	watchedPeers := make(map[peer.ID]struct{}, len(pm.peers))
+	for pid := range pm.peers {
+		watchedPeers[pid] = struct{}{}
+	}
+	pm.mu.RUnlock()
+
+	for pid := range watchedPeers {
+		conns := pm.host.Network().ConnsToPeer(pid)
+		for _, c := range conns {
+			localIP := extractIPFromMultiaddrObj(c.LocalMultiaddr())
+			if localIP == "" {
+				continue
+			}
+			if _, stale := removed[localIP]; stale {
+				short := pid.String()
+				if len(short) > 16 {
+					short = short[:16] + "..."
+				}
+				slog.Info("peermanager: closing stale connection",
+					"peer", short,
+					"localIP", localIP,
+					"remote", c.RemoteMultiaddr())
+				c.Close()
+				closed++
+			}
+		}
+	}
+
+	if closed > 0 {
+		slog.Info("peermanager: closed stale connections", "count", closed)
+		pm.incMetric("stale_close")
+	}
+}
+
+// extractIPFromMultiaddrObj extracts the IP address string from a
+// multiaddr. Returns "" if no IP component is found.
+func extractIPFromMultiaddrObj(addr ma.Multiaddr) string {
+	if addr == nil {
+		return ""
+	}
+	var ip string
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_IP4, ma.P_IP6:
+			ip = c.Value()
+			return false // stop after first IP
+		}
+		return true
+	})
+	return ip
 }
 
 // GetManagedPeers returns a snapshot of all watched peers and their state.
@@ -294,6 +381,8 @@ func (pm *PeerManager) eventLoop() {
 
 // reconnectLoop periodically dials disconnected watched peers with
 // exponential backoff. See package-level constants for tuning parameters.
+// Also responds to immediate triggers via reconnectNow channel (used
+// after network changes to avoid waiting for the next 30s tick).
 func (pm *PeerManager) reconnectLoop() {
 	defer pm.wg.Done()
 
@@ -307,6 +396,8 @@ func (pm *PeerManager) reconnectLoop() {
 		case <-pm.ctx.Done():
 			return
 		case <-ticker.C:
+			pm.runReconnectCycle(sem)
+		case <-pm.reconnectNow:
 			pm.runReconnectCycle(sem)
 		}
 	}
@@ -408,6 +499,15 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 
 	pm.mu.Lock()
 	if err != nil {
+		// If the peer was connected by another mechanism (mDNS) while
+		// we were dialing, don't count this as a failure.
+		if mp.Connected {
+			pm.mu.Unlock()
+			slog.Debug("peermanager: reconnect failed but peer already connected",
+				"peer", short)
+			return
+		}
+
 		mp.ConsecFailures++
 		mp.LastDialError = err.Error()
 
@@ -426,6 +526,22 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 			"peer", short,
 			"failures", mp.ConsecFailures,
 			"backoff", backoff.Round(time.Second))
+		return
+	}
+
+	// If we got a relay connection but a direct connection already
+	// exists (established by mDNS while we were dialing), discard
+	// the relay. Direct is always preferred over relay.
+	if result.PathType == "RELAYED" && !allConnsRelayed(pm.host.Network().ConnsToPeer(target)) {
+		pm.mu.Unlock()
+		// Close the relay connection we just established.
+		for _, c := range pm.host.Network().ConnsToPeer(target) {
+			if c.Stat().Limited {
+				c.Close()
+			}
+		}
+		slog.Info("peermanager: discarded relay (direct already active)",
+			"peer", short)
 		return
 	}
 

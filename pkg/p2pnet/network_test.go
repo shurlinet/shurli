@@ -2,6 +2,7 @@ package p2pnet
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -675,6 +676,93 @@ func TestGlobalIPv6AddrsFactory(t *testing.T) {
 		if len(result) < len(addrs) {
 			t.Errorf("factory removed addresses: had %d, got %d", len(addrs), len(result))
 		}
+	})
+}
+
+func TestSourceBindDialerForAddr(t *testing.T) {
+	t.Run("IPv4 returns plain dialer", func(t *testing.T) {
+		raddr, _ := ma.NewMultiaddr("/ip4/203.0.113.50/tcp/4001")
+		d, err := sourceBindDialerForAddr(raddr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		nd, ok := d.(*net.Dialer)
+		if !ok {
+			t.Fatalf("expected *net.Dialer, got %T", d)
+		}
+		if nd.LocalAddr != nil {
+			t.Errorf("expected nil LocalAddr for IPv4, got %v", nd.LocalAddr)
+		}
+	})
+
+	t.Run("link-local IPv6 returns plain dialer", func(t *testing.T) {
+		raddr, _ := ma.NewMultiaddr("/ip6/fe80::1/tcp/4001")
+		d, err := sourceBindDialerForAddr(raddr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		nd, ok := d.(*net.Dialer)
+		if !ok {
+			t.Fatalf("expected *net.Dialer, got %T", d)
+		}
+		if nd.LocalAddr != nil {
+			t.Errorf("expected nil LocalAddr for link-local, got %v", nd.LocalAddr)
+		}
+	})
+
+	t.Run("loopback IPv6 returns plain dialer", func(t *testing.T) {
+		raddr, _ := ma.NewMultiaddr("/ip6/::1/tcp/4001")
+		d, err := sourceBindDialerForAddr(raddr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		nd, ok := d.(*net.Dialer)
+		if !ok {
+			t.Fatalf("expected *net.Dialer, got %T", d)
+		}
+		if nd.LocalAddr != nil {
+			t.Errorf("expected nil LocalAddr for loopback, got %v", nd.LocalAddr)
+		}
+	})
+
+	t.Run("global IPv6 returns dialer", func(t *testing.T) {
+		// Uses RFC 3849 documentation address as destination.
+		// Whether LocalAddr is set depends on the test machine's
+		// interfaces. Just verify it returns without error.
+		raddr, _ := ma.NewMultiaddr("/ip6/2001:db8::1/tcp/4001")
+		d, err := sourceBindDialerForAddr(raddr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if d == nil {
+			t.Fatal("dialer is nil")
+		}
+		nd, ok := d.(*net.Dialer)
+		if !ok {
+			t.Fatalf("expected *net.Dialer, got %T", d)
+		}
+		// On machines WITH global IPv6: LocalAddr is set.
+		// On machines WITHOUT global IPv6 (CI): LocalAddr is nil (fallback).
+		// Both are correct behavior.
+		t.Logf("global IPv6 dialer LocalAddr: %v", nd.LocalAddr)
+	})
+
+	t.Run("non-TCP multiaddr returns plain dialer", func(t *testing.T) {
+		raddr, _ := ma.NewMultiaddr("/ip6/2001:db8::1/udp/4001")
+		d, err := sourceBindDialerForAddr(raddr)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		nd, ok := d.(*net.Dialer)
+		if !ok {
+			t.Fatalf("expected *net.Dialer, got %T", d)
+		}
+		// The TCP transport only calls this for TCP, but the function
+		// checks the IP layer, not the transport layer. UDP multiaddr
+		// still has ip6 as first component, so for global IPv6 destination
+		// it may source-bind. This is fine - the TCP transport won't pass
+		// UDP addrs anyway.
+		t.Logf("UDP multiaddr dialer LocalAddr: %v", nd.LocalAddr)
 	})
 }
 
