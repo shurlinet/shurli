@@ -289,6 +289,131 @@ func TestExtractIPv6TCPAddr(t *testing.T) {
 	}
 }
 
+func TestCloseStaleConnections(t *testing.T) {
+	netA := newListeningNetwork(t)
+	netB := newListeningNetwork(t)
+
+	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pm.Start(ctx)
+	defer pm.Close()
+
+	// Connect A to B.
+	connectNetworks(t, netA, netB)
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify connected.
+	conns := netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Fatal("expected at least one connection")
+	}
+
+	// Get the local IP from the connection.
+	localIP := extractIPFromMultiaddrObj(conns[0].LocalMultiaddr())
+	if localIP == "" {
+		t.Fatal("expected non-empty local IP from connection")
+	}
+
+	// Close stale connections matching that IP.
+	pm.CloseStaleConnections([]string{localIP})
+	time.Sleep(200 * time.Millisecond)
+
+	// Connection should be gone.
+	conns = netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) != 0 {
+		t.Errorf("expected 0 connections after stale close, got %d", len(conns))
+	}
+}
+
+func TestCloseStaleConnections_NoMatchPreserved(t *testing.T) {
+	netA := newListeningNetwork(t)
+	netB := newListeningNetwork(t)
+
+	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pm.Start(ctx)
+	defer pm.Close()
+
+	// Connect A to B.
+	connectNetworks(t, netA, netB)
+	time.Sleep(200 * time.Millisecond)
+
+	conns := netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Fatal("expected at least one connection")
+	}
+
+	// Close with a non-matching IP should not close anything.
+	pm.CloseStaleConnections([]string{"203.0.113.99"})
+	time.Sleep(200 * time.Millisecond)
+
+	conns = netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Error("expected connection preserved when IP doesn't match")
+	}
+}
+
+func TestCloseStaleConnections_EmptyRemoved(t *testing.T) {
+	netA := newListeningNetwork(t)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+
+	// Should be a no-op, no panic.
+	pm.CloseStaleConnections(nil)
+	pm.CloseStaleConnections([]string{})
+}
+
+func TestOnNetworkChange_TriggersImmediateReconnect(t *testing.T) {
+	netA := newListeningNetwork(t)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+
+	// Verify the channel receives a signal after OnNetworkChange.
+	pm.OnNetworkChange()
+
+	select {
+	case <-pm.reconnectNow:
+		// Good, got the signal.
+	default:
+		t.Error("expected reconnectNow signal after OnNetworkChange")
+	}
+}
+
+func TestExtractIPFromMultiaddrObj(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{"ipv4", "/ip4/127.0.0.1/tcp/4001", "127.0.0.1"},
+		{"ipv6", "/ip6/2001:db8::1/tcp/4001", "2001:db8::1"},
+		{"ipv4 with p2p", "/ip4/203.0.113.1/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN", "203.0.113.1"},
+		{"nil addr", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.addr == "" {
+				if got := extractIPFromMultiaddrObj(nil); got != "" {
+					t.Errorf("got %q, want empty for nil", got)
+				}
+				return
+			}
+			addr, err := ma.NewMultiaddr(tt.addr)
+			if err != nil {
+				t.Fatalf("bad test multiaddr: %v", err)
+			}
+			if got := extractIPFromMultiaddrObj(addr); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAllConnsRelayed(t *testing.T) {
 	// Empty slice should return false (no connections = not relayed).
 	if allConnsRelayed(nil) {

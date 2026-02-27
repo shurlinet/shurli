@@ -203,6 +203,21 @@ func firstConnAddr(h host.Host, peerID peer.ID) string {
 	return ""
 }
 
+// PeerConnInfo returns the path type ("DIRECT" or "RELAYED") and best remote
+// address for an existing connection to a peer. Prefers direct connections.
+func PeerConnInfo(h host.Host, peerID peer.ID) (pathType string, addr string) {
+	conns := h.Network().ConnsToPeer(peerID)
+	for _, conn := range conns {
+		if !conn.Stat().Limited {
+			return string(PathDirect), conn.RemoteMultiaddr().String()
+		}
+	}
+	if len(conns) > 0 {
+		return string(PathRelayed), conns[0].RemoteMultiaddr().String()
+	}
+	return "", ""
+}
+
 // ClassifyMultiaddr determines path type and extracts transport and IP version
 // from a multiaddr string. Used by PathTracker and status display.
 func ClassifyMultiaddr(addr string) (pathType PathType, transport string, ipVersion string) {

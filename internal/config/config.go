@@ -19,7 +19,17 @@ type HomeNodeConfig struct {
 	Protocols ProtocolsConfig `yaml:"protocols"`
 	Services  ServicesConfig  `yaml:"services,omitempty"`
 	Names     NamesConfig     `yaml:"names,omitempty"`
+	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
+}
+
+// CLIConfig holds settings for CLI subcommand behavior.
+type CLIConfig struct {
+	// AllowStandalone permits subcommands (proxy, ping, traceroute) to create
+	// their own P2P host when no daemon is running. Default: false (daemon required).
+	// This is a debug/development option. In normal use, the daemon manages
+	// all connections and subcommands talk to it via the local API.
+	AllowStandalone bool `yaml:"allow_standalone,omitempty"`
 }
 
 // ClientNodeConfig represents configuration for the client node
@@ -78,6 +88,7 @@ type IdentityConfig struct {
 type NetworkConfig struct {
 	ListenAddresses          []string `yaml:"listen_addresses"`
 	ForcePrivateReachability bool     `yaml:"force_private_reachability"`
+	ForceCGNAT               bool     `yaml:"force_cgnat,omitempty"`
 	ResourceLimitsEnabled    bool     `yaml:"resource_limits_enabled"`
 }
 

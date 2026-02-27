@@ -15,17 +15,19 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runProxy(args []string) {
 	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
+	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 3 {
-		fmt.Println("Usage: shurli proxy [--config <path>] <target> <service> <local-port>")
+		fmt.Println("Usage: shurli proxy [--config <path>] [--standalone] <target> <service> <local-port>")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli proxy home ssh 2222")
@@ -38,11 +40,70 @@ func runProxy(args []string) {
 	serviceName := remaining[1]
 	localPort := remaining[2]
 
+	// Try daemon first (faster, uses daemon's managed connection with
+	// PeerManager path upgrades, mDNS, IPv6 probing).
+	if !*standaloneFlag {
+		if client := tryDaemonClient(); client != nil {
+			runProxyViaDaemon(client, target, serviceName, localPort)
+			return
+		}
+	}
+
+	// Standalone P2P host (no daemon running, or --standalone forced)
+	runProxyStandalone(target, serviceName, localPort, *configFlag, *standaloneFlag)
+}
+
+// runProxyViaDaemon creates a TCP proxy through the running daemon.
+// The daemon's host handles the P2P connection, so the proxy benefits from
+// PeerManager's automatic path upgrades (relay to direct).
+func runProxyViaDaemon(client *daemon.Client, target, service, port string) {
+	listenAddr := fmt.Sprintf("localhost:%s", port)
+
+	fmt.Printf("=== TCP Proxy via P2P (daemon) ===\n")
+	fmt.Printf("Service: %s\n", service)
+	fmt.Println()
+
+	// Show verification badge
+	showVerificationBadge(client, target)
+
+	fmt.Println("Connecting to target peer...")
+	resp, err := client.Connect(target, service, listenAddr)
+	if err != nil {
+		fatal("Failed to create proxy: %v", err)
+	}
+
+	if resp.PathType != "" {
+		fmt.Printf("Connected [%s] via %s\n", resp.PathType, resp.Address)
+	} else {
+		fmt.Println("Connected")
+	}
+	fmt.Println()
+	fmt.Printf("TCP proxy listening on %s\n", resp.ListenAddress)
+	fmt.Println()
+	fmt.Println("Connect to the service:")
+	fmt.Printf("   %s -> %s service on target\n", resp.ListenAddress, service)
+	fmt.Println("\nPress Ctrl+C to stop.")
+	fmt.Println()
+
+	// Block until Ctrl+C
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	fmt.Println("\nShutting down...")
+	if err := client.Disconnect(resp.ID); err != nil {
+		log.Printf("Disconnect error: %v", err)
+	}
+}
+
+// runProxyStandalone creates a TCP proxy with its own P2P host.
+// Used when no daemon is running (debug/development mode).
+func runProxyStandalone(target, serviceName, localPort, configPath string, forceStandalone bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Find and load config
-	cfgFile, err := config.FindConfigFile(*configFlag)
+	cfgFile, err := config.FindConfigFile(configPath)
 	if err != nil {
 		fatal("Config error: %v", err)
 	}
@@ -52,7 +113,17 @@ func runProxy(args []string) {
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
-	fmt.Printf("=== TCP Proxy via P2P ===\n")
+	// Check if standalone mode is allowed
+	if !forceStandalone && !cfg.CLI.AllowStandalone {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli proxy --standalone %s %s %s\n", target, serviceName, localPort)
+		osExit(1)
+	}
+
+	fmt.Printf("=== TCP Proxy via P2P (standalone) ===\n")
 	fmt.Printf("Config: %s\n", cfgFile)
 	fmt.Printf("Service: %s\n", serviceName)
 	fmt.Println()

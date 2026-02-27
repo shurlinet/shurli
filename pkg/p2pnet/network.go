@@ -145,7 +145,7 @@ func New(cfg *Config) (*Network, error) {
 	hostOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.Transport(libp2pquic.NewTransport),
-		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(tcp.NewTCPTransport, tcp.WithDialerForAddr(sourceBindDialerForAddr)),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
 	}
@@ -262,6 +262,46 @@ func New(cfg *Config) (*Network, error) {
 	}
 
 	return net, nil
+}
+
+// sourceBindDialerForAddr returns a source-bound TCP dialer for global IPv6
+// destinations. This fixes macOS routing on systems where disconnected VPN
+// apps (Mullvad, ExpressVPN, ProtonVPN, etc.) create utun interfaces with
+// default IPv6 routes that capture all unbound traffic, even when the VPN
+// is not connected.
+//
+// For global IPv6 destinations: binds to the local global IPv6 address so
+// the kernel routes through the real interface (e.g., USB LAN) instead of
+// the dead utun interface.
+//
+// For all other destinations (IPv4, link-local, loopback): returns a plain
+// net.Dialer with no source binding, preserving default behavior.
+func sourceBindDialerForAddr(raddr ma.Multiaddr) (tcp.ContextDialer, error) {
+	first, _ := ma.SplitFirst(raddr)
+	if first == nil || first.Protocol().Code != ma.P_IP6 {
+		return &net.Dialer{}, nil
+	}
+
+	ip := net.ParseIP(first.Value())
+	if ip == nil || !isGlobalIPv6(ip) {
+		return &net.Dialer{}, nil
+	}
+
+	// Destination is global IPv6. Source-bind to our global IPv6 so the
+	// kernel routes through the real interface, bypassing utun defaults.
+	summary, err := DiscoverInterfaces()
+	if err != nil || !summary.HasGlobalIPv6 || len(summary.GlobalIPv6Addrs) == 0 {
+		return &net.Dialer{}, nil
+	}
+
+	localIP := net.ParseIP(summary.GlobalIPv6Addrs[0])
+	if localIP == nil {
+		return &net.Dialer{}, nil
+	}
+
+	return &net.Dialer{
+		LocalAddr: &net.TCPAddr{IP: localIP},
+	}, nil
 }
 
 // globalIPv6AddrsFactory ensures global IPv6 addresses from all network

@@ -25,16 +25,18 @@ func runPing(args []string) {
 	fs.IntVar(count, "n", 0, "alias for -c")
 	intervalStr := fs.String("interval", "1s", "interval between pings")
 	jsonFlag := fs.Bool("json", false, "output as JSON (one line per ping)")
+	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli ping [--config <path>] [-c N] [--interval 1s] [--json] <target>")
+		fmt.Println("Usage: shurli ping [--config <path>] [-c N] [--interval 1s] [--json] [--standalone] <target>")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  -c, -n N       Number of pings (0 = continuous, default)")
 		fmt.Println("  --interval 1s  Time between pings (default: 1s)")
 		fmt.Println("  --json         Output each ping as a JSON line")
+		fmt.Println("  --standalone   Use direct P2P without daemon (debug)")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli ping home-server")
@@ -54,7 +56,7 @@ func runPing(args []string) {
 	// Skip daemon for continuous ping (count=0) because the daemon's HTTP
 	// API collects all results before responding. The direct P2P path below
 	// streams results via a channel and handles Ctrl+C correctly.
-	if *count != 0 {
+	if !*standaloneFlag && *count != 0 {
 		if client := tryDaemonClient(); client != nil {
 			runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
 			return
@@ -82,6 +84,17 @@ func runPing(args []string) {
 		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
+
+	// Check if standalone mode is allowed.
+	// Continuous ping (count=0) is exempt because the daemon API can't stream.
+	if !*standaloneFlag && *count != 0 && !cfg.CLI.AllowStandalone {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli ping --standalone %s -c %d\n", target, *count)
+		osExit(1)
+	}
 
 	// Create P2P network
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
