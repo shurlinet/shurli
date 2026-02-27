@@ -147,6 +147,18 @@ func (g *AuthorizedPeerGater) IsAuthorized(p peer.ID) bool {
 	return g.authorizedPeers[p]
 }
 
+// GetAuthorizedPeerIDs returns a slice of all currently authorized peer IDs.
+// Used by PeerManager to build the reconnection watchlist.
+func (g *AuthorizedPeerGater) GetAuthorizedPeerIDs() []peer.ID {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	ids := make([]peer.ID, 0, len(g.authorizedPeers))
+	for pid := range g.authorizedPeers {
+		ids = append(ids, pid)
+	}
+	return ids
+}
+
 // SetDecisionCallback sets a callback invoked on every inbound auth decision.
 // This is used by the observability layer to record metrics and audit events
 // without creating a circular import from internal/auth to pkg/p2pnet.

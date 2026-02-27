@@ -319,6 +319,11 @@ go vet ./...
 You can also build directly with Go:
 
 ```bash
+# Optional: enable native mDNS for LAN discovery (recommended)
+# macOS: automatic (uses built-in mDNSResponder)
+# Linux: sudo apt install libavahi-compat-libdnssd-dev
+# Without this, falls back to pure-Go mDNS (works but less reliable)
+
 # Build shurli
 go build -o shurli ./cmd/shurli
 
@@ -557,7 +562,7 @@ MIT
 
 # Network Diagnostic Tools
 
-Shurli provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
+Shurli provides P2P network diagnostic commands that mirror familiar system utilities. These route through the running daemon by default, using the daemon's managed connections for optimal path selection and zero bootstrap overhead.
 
 ## Table of Contents
 
@@ -575,11 +580,7 @@ P2P `ping` - measures round-trip time and connection path to a peer.
 ### Usage
 
 ```bash
-# Standalone (creates temp host, pings, exits)
-shurli ping <peer> [-c N] [--interval 1s] [--json] [--config path]
-
-# Via daemon (reuses existing host - faster)
-shurli daemon ping <peer> [-c N] [--interval 1s] [--json]
+shurli ping <peer> [-c N] [--interval 1s] [--json] [--standalone] [--config path]
 ```
 
 ### Behavior
@@ -654,14 +655,7 @@ P2P `traceroute` - shows the network path to a peer with per-hop latency.
 ### Usage
 
 ```bash
-# Standalone
-shurli traceroute <peer> [--json] [--config path]
-
-# Via daemon API
-curl -X POST -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     -d '{"peer":"home-server"}' \
-     --unix-socket ~/.config/shurli/shurli.sock \
-     http://localhost/v1/traceroute
+shurli traceroute <peer> [--json] [--standalone] [--config path]
 ```
 
 ### Path Visualization
@@ -763,28 +757,44 @@ names:
 
 ---
 
-## Standalone vs Daemon
+## Daemon-First Architecture
 
-All network tools work in two modes:
+All network commands route through the running daemon by default. The daemon manages P2P connections with PeerManager, which automatically upgrades paths (relay to direct), handles mDNS LAN discovery, and recovers from network changes.
 
-| Mode | Command | Speed | When to Use |
-|------|---------|-------|-------------|
-| Standalone | `shurli ping home-server` | Slower (creates temp host, bootstraps DHT) | One-off diagnostics, daemon not running |
-| Daemon | `shurli daemon ping home-server` | Faster (reuses existing host + connections) | Repeated diagnostics, scripting |
+| Mode | How | Speed | Path Upgrades |
+|------|-----|-------|---------------|
+| Daemon (default) | Subcommand talks to daemon via Unix socket API | Instant (no bootstrap) | Yes (PeerManager) |
+| Standalone | `--standalone` flag or `cli.allow_standalone` config | 5-15s bootstrap | No |
 
-### Standalone Startup
+### Why Daemon-First
 
-When running standalone, the tool:
+Standalone subcommands create their own temporary P2P host with no PeerManager, no mDNS, no IPv6 probing. If the remote peer restarts, a standalone proxy reconnects via relay and stays there, even when a direct path is available. The daemon's managed connection handles all of this automatically.
 
-1. Loads config to find relay addresses, bootstrap peers, and names
-2. Creates a temporary libp2p host
-3. Bootstraps into the DHT (client mode)
-4. Connects to relay servers
-5. Finds the target peer via DHT or relay fallback
-6. Runs the diagnostic
-7. Shuts down the host
+### Standalone Mode (Debug Only)
 
-This takes 5-15 seconds for initial setup. The daemon mode skips all of this.
+Standalone mode is disabled by default. To enable it:
+
+**One-off** (CLI flag):
+```bash
+shurli ping --standalone home-server
+shurli proxy --standalone home ssh 2222
+shurli traceroute --standalone home-server
+```
+
+**Persistent** (config file):
+```yaml
+cli:
+  allow_standalone: true
+```
+
+When standalone is disabled and no daemon is running, the command prints:
+```
+Daemon not running. Start it with:
+  shurli daemon
+
+Or use --standalone flag for direct P2P (debug):
+  shurli ping --standalone home-server
+```
 
 ### Shared Logic
 
@@ -792,6 +802,10 @@ Both modes use the same underlying functions:
 - `p2pnet.PingPeer()` - streaming ping with configurable count and interval
 - `p2pnet.ComputePingStats()` - min/avg/max/loss statistics
 - `p2pnet.TracePeer()` - connection path analysis
+
+### Known Limitation
+
+Continuous ping (`shurli ping home-server` without `-c`) requires standalone mode because the daemon's HTTP API collects all results before responding and cannot stream. Use `-c N` for daemon-routed pings.
 
 ---
 
@@ -807,7 +821,7 @@ Both modes use the same underlying functions:
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-27
 
 
 ---
@@ -931,7 +945,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 29 panels across 6 sections.
+You'll immediately see the dashboard with 29 panels (23 visualizations + 6 row headers) across 6 sections.
 
 ## Dashboard sections
 
@@ -1723,10 +1737,19 @@ Creates a dynamic TCP proxy to a peer's service. Returns a proxy ID and the loca
 {
   "data": {
     "id": "proxy-1",
-    "listen_address": "127.0.0.1:2222"
+    "listen_address": "127.0.0.1:2222",
+    "path_type": "DIRECT",
+    "address": "/ip4/10.0.1.50/tcp/9100"
   }
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Proxy ID (use for disconnect) |
+| `listen_address` | string | Local TCP address the proxy listens on |
+| `path_type` | string | Connection path: `DIRECT` or `RELAYED` (omitted if unknown) |
+| `address` | string | Remote peer's multiaddr (omitted if unknown) |
 
 After this call, `ssh user@127.0.0.1 -p 2222` connects to the remote peer's SSH service through the P2P tunnel.
 
@@ -1999,19 +2022,19 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 4C Complete)](#current-architecture-phase-4c-complete) - what's built and working
-- [Target Architecture (Phase 6+)](#target-architecture-phase-6) - planned additions
+- [Current Architecture (Phase 5 Complete)](#current-architecture-phase-5-complete) - what's built and working
+- [Target Architecture (Phase 8+)](#target-architecture-phase-8) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 10)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 9)
+- [Federation Model](#federation-model) - planned (Phase 12)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 11)
 
 ---
 
-## Current Architecture (Phase 4C Complete)
+## Current Architecture (Phase 5 Complete)
 
 ### Component Overview
 
@@ -2021,7 +2044,7 @@ Shurli/
 │   ├── shurli/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
 │   │   │                    #   proxy, whoami, auth, relay, config, service,
-│   │   │                    #   invite, join, status, init, version)
+│   │   │                    #   invite, join, verify, status, init, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
@@ -2062,6 +2085,11 @@ Shurli/
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
+│   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
+│   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
+│   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
+│   ├── peermanager.go       # Background reconnection with exponential backoff
+│   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
@@ -2072,6 +2100,7 @@ Shurli/
 │   │   ├── loader.go           # Load, validate, resolve paths, find config
 │   │   ├── archive.go          # Last-known-good archive/rollback (atomic writes)
 │   │   ├── confirm.go          # Commit-confirmed pattern (apply/confirm/enforce)
+│   │   ├── snapshot.go         # TimeMachine-style config snapshots
 │   │   └── errors.go           # Sentinel errors (ErrConfigNotFound, ErrNoArchive, etc.)
 │   ├── auth/                # SSH-style authentication
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
@@ -2176,7 +2205,7 @@ echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
 
 ---
 
-## Target Architecture (Phase 6+)
+## Target Architecture (Phase 8+)
 
 ### Planned Additions
 
@@ -2188,12 +2217,12 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 8: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 10: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 6: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 10: Network peering
+│   ├── interfaces.go        # 🆕 Phase 8: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 12: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -2201,10 +2230,10 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 6: File transfer plugin
-│   └── tun/                 # 🆕 Phase 8: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 8: File transfer plugin
+│   └── tun/                 # 🆕 Phase 10: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 9: Mobile apps
+├── mobile/                  # 🆕 Phase 11: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -2217,7 +2246,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 8)** - not yet implemented. See [Roadmap Phase 8](ROADMAP.md) for details.
+> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -2236,15 +2265,26 @@ To avoid code duplication, the P2P lifecycle is extracted into `serve_common.go`
 ```go
 // serveRuntime holds the shared P2P lifecycle state.
 type serveRuntime struct {
-    network    *p2pnet.Network
-    config     *config.HomeNodeConfig
-    configFile string
-    gater      *auth.AuthorizedPeerGater  // nil if gating disabled
-    authKeys   string                      // path to authorized_keys
-    ctx        context.Context
-    cancel     context.CancelFunc
-    version    string
-    startTime  time.Time
+    network          *p2pnet.Network
+    config           *config.HomeNodeConfig
+    configFile       string
+    gater            *auth.AuthorizedPeerGater // nil if gating disabled
+    authKeys         string                    // path to authorized_keys
+    ctx              context.Context
+    cancel           context.CancelFunc
+    version          string
+    startTime        time.Time
+    kdht             *dht.IpfsDHT             // peer discovery from daemon API
+    ifSummary        *p2pnet.InterfaceSummary  // interface discovery (IPv4/IPv6)
+    pathDialer       *p2pnet.PathDialer        // parallel dial racing
+    pathTracker      *p2pnet.PathTracker       // per-peer path quality tracking
+    stunProber       *p2pnet.STUNProber        // NAT type detection
+    mdnsDiscovery    *p2pnet.MDNSDiscovery     // LAN discovery (nil when disabled)
+    peerManager      *p2pnet.PeerManager       // background reconnection with backoff
+    netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
+    peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
+    metrics          *p2pnet.Metrics           // nil when telemetry disabled
+    peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
 
@@ -2259,10 +2299,15 @@ type RuntimeInfo interface {
     Network() *p2pnet.Network
     ConfigFile() string
     AuthKeysPath() string
-    GaterForHotReload() GaterReloader  // nil if gating disabled
+    GaterForHotReload() GaterReloader            // nil if gating disabled
     Version() string
     StartTime() time.Time
     PingProtocolID() string
+    ConnectToPeer(ctx context.Context, peerID peer.ID) error
+    Interfaces() *p2pnet.InterfaceSummary        // nil before discovery
+    PathTracker() *p2pnet.PathTracker             // nil before bootstrap
+    STUNResult() *p2pnet.STUNResult               // nil before probe
+    IsRelaying() bool                             // true if peer relay enabled
 }
 ```
 
@@ -2391,7 +2436,7 @@ Custom shurli metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels (23 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -2511,7 +2556,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 6/11)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 11](ROADMAP.md).
+> **Planned (Phase 8/13)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 13](ROADMAP.md).
 
 ---
 
@@ -2552,7 +2597,7 @@ The ACL check runs in the stream handler before dialing the local TCP service, s
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 10)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 10](ROADMAP.md).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 12](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -2573,13 +2618,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 8/11.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 10/13.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](images/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 8/11)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 10/13)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -2595,7 +2640,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](ROADMAP.md).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md).
 
 ### Relay Peering
 
@@ -2605,7 +2650,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 9)** - not yet implemented. See [Roadmap Phase 9](ROADMAP.md).
+> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 11](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -2649,7 +2694,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 12+.
+> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 14+.
 
 ---
 
@@ -2794,8 +2839,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-25
-**Architecture Version**: 3.2 (Post-I-2 peer-notify, relay admin socket, HMAC proofs, CGNAT detection, cross-network hardening)
+**Last Updated**: 2026-02-26
+**Architecture Version**: 3.3 (Phase 5: mDNS, PeerManager, NetIntel presence + gossip forwarding)
 
 
 ---
@@ -2913,7 +2958,8 @@ Ensure `force_private_reachability` is set for CGNAT:
 
 ```yaml
 network:
-  force_private_reachability: true  # CRITICAL for CGNAT (Starlink, etc.)
+  force_private_reachability: true  # CRITICAL for CGNAT (satellite ISP, etc.)
+  # force_cgnat: true  # Set if your carrier uses RFC 1918 addresses for CGNAT
 ```
 
 ### Start the server
@@ -3991,7 +4037,7 @@ Many ISPs now provide globally routable public IPv6 addresses. IPv6 has no NAT -
 
 Shurli already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests IPv4 and IPv6 reachability independently, so a node behind IPv4 CGNAT but with public IPv6 will correctly identify that its IPv6 addresses are directly reachable.
 
-**Expected impact**: As IPv6 adoption grows (currently ~45% globally, higher on mobile networks), the percentage of connections requiring relay will decrease. For networks where both peers have IPv6, relay is already unnecessary today.
+**Expected impact**: As IPv6 adoption grows (currently ~49% globally, higher on mobile networks), the percentage of connections requiring relay will decrease. For networks where both peers have IPv6, relay is already unnecessary today. Shurli's Phase 5 IPv6 path probing already achieves this: cross-ISP DIRECT connections at 23ms via IPv6 when both peers have public addresses.
 
 ---
 
@@ -4004,11 +4050,19 @@ Shurli detects CGNAT by checking local interfaces for RFC 6598 addresses (`100.6
 | Detection method | What it catches | What it misses |
 |-----------------|-----------------|----------------|
 | RFC 6598 (`100.64.0.0/10`) on local interface | Standard CGNAT deployments | Mobile carriers using RFC 1918 (`172.x.x.x`) for CGNAT |
+| `network.force_cgnat: true` in config | Any CGNAT (user-declared) | Nothing (explicit override) |
 | STUN external IP differs from local IP | Any NAT layer | Can't distinguish CGNAT from regular NAT |
 
-The limitation: mobile carriers that assign RFC 1918 addresses (like `172.20.x.x`) for CGNAT look identical to regular home networks. There's no clean way to detect this without active probing against a known endpoint. In testing, a 5G carrier using `172.20.10.x` was graded as "hole-punchable" even though most hole-punch attempts failed.
+**For carriers using RFC 1918 addresses for CGNAT**: some mobile carriers assign addresses like `172.20.x.x` which look identical to a regular home network. Auto-detection cannot distinguish these. If you know your carrier uses CGNAT, set `force_cgnat: true` in your config:
 
-The grade is honest about what it knows and what it doesn't. When CGNAT is detected, the grade says so. When it can't be detected, the grade reflects STUN results and the user sees the outcome in their actual connection path (direct vs relayed).
+```yaml
+network:
+  force_cgnat: true
+```
+
+This caps reachability at Grade D and skips hole-punch attempts that would fail through the outer carrier NAT.
+
+The grade is honest about what it knows and what it doesn't. When CGNAT is detected (or forced), the grade says so. When it can't be detected and isn't forced, the grade reflects STUN results and the user sees the outcome in their actual connection path (direct vs relayed).
 
 ---
 
@@ -4103,7 +4157,7 @@ The grade is computed from interface discovery (which IPs are available) and STU
 
 The grade helps you understand *why* a connection goes through the relay instead of direct. A peer with grade D behind CGNAT connecting to a peer with grade A on public IPv6 will likely go direct via the grade-A peer's address. Two grade-D peers will relay.
 
-**CGNAT grade capping**: STUN can report "hole-punchable" when a port-restricted NAT sits behind CGNAT, because STUN only sees the inner NAT. The outer CGNAT will still drop unsolicited inbound packets. The grade computation overrides STUN's false optimism by capping at grade D whenever CGNAT is detected on a local interface (RFC 6598 `100.64.0.0/10`). Mobile carriers using RFC 1918 addresses for CGNAT cannot be detected this way.
+**CGNAT grade capping**: STUN can report "hole-punchable" when a port-restricted NAT sits behind CGNAT, because STUN only sees the inner NAT. The outer CGNAT will still drop unsolicited inbound packets. The grade computation overrides STUN's false optimism by capping at grade D whenever CGNAT is detected on a local interface (RFC 6598 `100.64.0.0/10`) or forced via `network.force_cgnat: true` in config. The config override exists for mobile carriers that use RFC 1918 addresses for CGNAT, where auto-detection is impossible.
 
 ---
 
@@ -4231,7 +4285,7 @@ No v2 of DCUtR, but continuous refinement:
 
 **Source**: [Large Scale NAT Traversal Measurement Study](https://arxiv.org/html/2510.27500v1), [libp2p Hole Punching blog](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 
-### What Shurli has done (Phase 4C - shipped)
+### What Shurli has done (through Phase 5 - shipped)
 
 | Optimization | Status |
 |-------------|--------|
@@ -4254,8 +4308,16 @@ No v2 of DCUtR, but continuous refinement:
 | **Startup race fix** | Done (Pre-Phase 5: handlers registered before DHT bootstrap) |
 | **Stale address detection** | Done (Pre-Phase 5: `[stale?]` labels after network change) |
 | **systemd/launchd services** | Done (Pre-Phase 5: `shurli service install/start/stop/status`) |
+| **Native mDNS via dns_sd.h** | Done (Phase 5: CGo binding to platform mDNS daemon, zeroconf fallback) |
+| **PeerManager lifecycle** | Done (Phase 5: watchlist, reconnect loop, exponential backoff, event-driven state) |
+| **Stale connection cleanup** | Done (Phase 5: match connection local IPs against removed interfaces, instant close) |
+| **Immediate reconnect trigger** | Done (Phase 5: `reconnectNow` channel wakes loop after network change) |
+| **IPv6 path probing** | Done (Phase 5: source-bound TCP probes bypass macOS utun, cross-ISP DIRECT at 23ms) |
+| **mDNS LAN-first connect** | Done (Phase 5: private IPv4 subnet filter, peerstore ordering, ForceDirectDial) |
+| **Relay-discard logic** | Done (Phase 5: PeerManager discards relay when mDNS direct exists) |
+| **Automatic WiFi transition** | Done (Phase 5: no daemon restart on any network switch, 5-15s recovery) |
 
-These changes brought connection setup closer to 3-10 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
+Connection setup: 3-10 seconds via parallel dial racing. WiFi transition: 5-15 seconds automatic recovery. Connection priority: LAN (mDNS) > Direct IPv6 (path probing) > Relay (fallback). Tested on 5 physical networks.
 
 ---
 
@@ -4345,7 +4407,7 @@ This is a future optimization for Shurli's QUIC transport - particularly valuabl
 
 ### Why Go is right for now
 
-Go's simplicity enabled rapid iteration through 7 phases of development. The libp2p Go ecosystem is the most mature, with the most examples and documentation. For a project with 1-100 concurrent connections (typical home use), Go's performance is more than adequate.
+Go's simplicity enabled rapid iteration across 5 major development phases (14+ batches). The libp2p Go ecosystem is the most mature, with the most examples and documentation. For a project with 1-100 concurrent connections (typical home use), Go's performance is more than adequate.
 
 ### When Rust becomes worth it
 
@@ -4379,6 +4441,7 @@ The reachability grade combines two data sources: interface discovery and STUN p
 - Global unicast IPv6 -> public
 - Public IPv4 (not RFC 1918 / RFC 6598) -> public
 - RFC 6598 (`100.64.0.0/10`) -> CGNAT flag set
+- `network.force_cgnat: true` in config -> CGNAT flag set (for RFC 1918 carriers)
 - Everything else -> private/local
 
 **STUN probing** uses Google's public STUN servers to determine NAT behavior. It reports the external IP, port allocation strategy, and filtering behavior.
@@ -4429,7 +4492,68 @@ Each daemon maintains a local `peer_history.json` file tracking interaction data
 
 ---
 
-**Last Updated**: 2026-02-25
+## How does automatic WiFi transition work?
+
+When you switch WiFi networks (or plug/unplug Ethernet), Shurli automatically adapts the connection path. No daemon restart, no manual intervention.
+
+### The sequence (under 500ms to start, 5-15s to complete)
+
+1. **Network change detection** (~500ms): The NetworkMonitor polls interfaces and diffs against the previous snapshot. When IPs appear or disappear, it fires callbacks.
+
+2. **Stale connection cleanup** (immediate): `CloseStaleConnections()` matches each connection's local IP against the removed IPs from the network change. Connections on the disappeared interface are closed instantly instead of waiting for TCP keepalive timeout (which can take minutes).
+
+3. **Backoff reset + immediate reconnect** (immediate): `OnNetworkChange()` zeroes all backoff timers and sends on the `reconnectNow` channel, which wakes the reconnect loop immediately instead of waiting for the next 30-second tick.
+
+4. **mDNS re-browse** (5-10s): `BrowseNow()` triggers immediate LAN discovery. If the new network has a peer on the same LAN, mDNS connects directly using private IPv4.
+
+5. **IPv6 path probing** (3-10s, background): `ProbeAndUpgradeRelayed()` checks if any relayed peer is reachable via direct IPv6 through a secondary interface (e.g., USB LAN with public IPv6).
+
+### Connection priority table
+
+Shurli enforces a strict priority order:
+
+```
+LAN (mDNS, private IPv4)  >  Direct IPv6 (path probing)  >  Relay (fallback)
+```
+
+- Same LAN as peer: DIRECT via mDNS at ~23ms
+- Different network with public IPv6: DIRECT via IPv6 probing
+- No IPv6, behind CGNAT: RELAYED via VPS relay at ~180ms
+
+The priority is enforced automatically. If you switch from a relay network to a LAN with the peer, mDNS discovers the peer and establishes direct. If PeerManager simultaneously establishes a relay connection, it detects the existing direct connection and discards the relay.
+
+### What happens to active connections?
+
+Active streams (ping, proxy, file transfer) will break during the transition. The underlying TCP/QUIC connection is gone when the interface disappears. After reconnection (5-15 seconds), new streams work normally.
+
+Future optimization: QUIC 0-RTT session resumption could make this seamless by resuming encrypted sessions across network changes.
+
+---
+
+## How does mDNS LAN discovery filter addresses?
+
+mDNS discovers all of a peer's addresses (typically 14: private IPv4, public IPv6, ULA, loopback, across TCP and QUIC). But "discovered via mDNS" means "same LAN," so most of those addresses are wrong for LAN communication.
+
+### The problem with using all addresses
+
+`host.Connect()` uses every address in the peerstore, not just what you pass in `pi.Addrs`. Adding all 14 addresses before connecting causes the swarm to try unreachable ones:
+- Public IPv6 on satellite networks (client isolation blocks inter-client IPv6)
+- ULA addresses (fd00::/8, also blocked by client isolation)
+- Loopback (127.0.0.1, obviously wrong)
+
+Each unreachable address burns a 5-second timeout. The LAN connection that should take milliseconds takes over a minute.
+
+### The filter: private IPv4 on matching subnets
+
+`filterLANAddrs()` keeps only multiaddrs whose first component is IPv4 and whose IP falls within a local interface's CIDR subnet. For example, if your Mac is on `10.1.226.144/16`, only peer addresses in `10.1.0.0/16` pass the filter.
+
+Result: 14 addresses become 2 (one TCP, one QUIC on the LAN IPv4). Connect completes in milliseconds.
+
+The full address set is added to the peerstore AFTER the connect succeeds, so other subsystems (identify exchange, path tracker) still have the complete picture.
+
+---
+
+**Last Updated**: 2026-02-27
 
 
 ---
@@ -4464,6 +4588,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Batch I: Adaptive Path Selection](batch-i-adaptive-path.md) | ADR-I01 to ADR-I06 | Interface discovery, dial racing, path tracking, network monitoring, STUN, peer relay |
 | [Post-I-2: Trust & Delivery](post-i-2-trust-and-delivery.md) | ADR-J01 to ADR-J06 | Peer notify, HMAC, relay admin, SAS verification, reachability, history |
 | [Pre-Phase 5 Hardening](pre-phase5-hardening.md) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
+| [Phase 5: Network Resilience](phase5-network-resilience.md) | ADR-L01 to ADR-L08 | Native mDNS, PeerManager, stale cleanup, IPv6 probing, relay-discard |
 | [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |
 
 
@@ -5436,7 +5561,7 @@ Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verif
 
 # Pre-Phase 5 Hardening
 
-Bug fixes from cross-network testing, CGNAT detection improvements, and service deployment across three nodes.
+Bug fixes from cross-network testing, CGNAT detection improvements, and systemd/launchd service deployment.
 
 ---
 
@@ -5474,19 +5599,272 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 ### ADR-K03: systemd and launchd Service Deployment
 
-**Context**: All three nodes were running via `nohup` in the background. This meant: no automatic restart on crash, no watchdog monitoring, no boot-time startup, and log management via terminal scrollback. For infrastructure that's meant to be always-on, this is unacceptable.
+**Context**: Running Shurli via `nohup` or bare terminal means no automatic restart on crash, no watchdog monitoring, no boot-time startup, and log management via terminal scrollback. For infrastructure that's meant to be always-on, this is unacceptable.
 
-**Decision**: Deploy proper service management on all three nodes:
+**Decision**: Ship service files for both major platforms so any node (relay or daemon) gets proper process management:
 
-- **Relay VPS (Linux)**: systemd unit `shurli-relay.service` with `Type=notify`, `WatchdogSec=90`, `Restart=on-failure`, `RestartSec=5`. Binary at `/usr/local/bin/shurli` via symlink to repo. Enabled at boot.
-- **Home-node (Linux)**: systemd unit `shurli-daemon.service` with identical watchdog and restart configuration. Created fresh (no pre-existing service). Enabled at boot.
-- **Client-node (macOS)**: launchd plist `com.shurli.daemon.plist` with `RunAtLoad=true`, `KeepAlive=true`. Binary at `/usr/local/bin/shurli` via symlink.
+- **Linux (systemd)**: Two unit files provided. `shurli-daemon.service` for daemon nodes, `relay-server.service` for relay nodes. Both use `Type=notify`, `WatchdogSec=90`, `Restart=on-failure`, `RestartSec=5`, security hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`), and `LimitNOFILE=65536`.
+- **macOS (launchd)**: `com.shurli.daemon.plist` with `RunAtLoad=true`, `KeepAlive=true`. Logs to `/tmp/shurli-daemon.log`.
 
-All three use the pure-Go `sd_notify` implementation in `internal/watchdog/` (no CGo, no-op on non-systemd). The watchdog checks health every 30s, sends `WATCHDOG=1` to systemd on success. `WatchdogSec=90` (3x interval) triggers restart if health checks stop.
+Both platforms use the pure-Go `sd_notify` implementation in `internal/watchdog/` (no CGo, no-op on non-systemd). The watchdog checks health every 30s, sends `WATCHDOG=1` to systemd on success. `WatchdogSec=90` (3x interval) triggers restart if health checks stop. On macOS, launchd's `KeepAlive` provides equivalent crash recovery.
 
-**Consequences**: All nodes survive crashes, reboots, and power failures. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). `nohup` processes were killed and replaced. Dev workflow: rebuild binary in repo, restart service, symlink means no file copy needed.
+**Consequences**: Nodes survive crashes, reboots, and power failures without manual intervention. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). Dev workflow: rebuild binary, restart service. Symlink from `/usr/local/bin/shurli` to repo means no file copy needed.
 
 **Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `relay-server/relay-server.service`, `internal/watchdog/watchdog.go`
+
+
+---
+
+# Phase 5: Network Resilience
+
+mDNS native discovery, PeerManager lifecycle management, IPv6 path probing, stale connection cleanup, and automatic WiFi transition. Tested on 5 physical networks.
+
+---
+
+### ADR-L01: Native mDNS via dns_sd.h (Replace Pure-Go Multicast)
+
+**Context**: The pure-Go zeroconf Browse implementation competes with the OS mDNS daemon for the multicast socket on port 5353. On macOS, mDNSResponder owns that port; on Linux, avahi does. Binding a raw socket alongside the system daemon causes silent failures: discoveries stop arriving after minutes of operation.
+
+**Alternatives considered**:
+- **Pure-Go zeroconf Browse** - Cross-platform but fights the OS daemon. Worked intermittently, failed under sustained use.
+- **Shell out to dns-sd / avahi-browse** - Avoids socket conflict but adds process management overhead and output parsing.
+- **CGo binding to dns_sd.h** - Uses the OS daemon via IPC. Cooperates instead of competing. Requires CGo build.
+
+**Decision**: CGo binding to `dns_sd.h` with zeroconf fallback. `mdns_browse_native.go` (build tag `cgo && (darwin || linux)`) calls `DNSServiceBrowse` and `DNSServiceQueryRecord` via the platform's DNS-SD API. `mdns_browse_fallback.go` (build tag `!cgo || !(darwin || linux)`) uses zeroconf Browse. Registration stays on zeroconf for both paths (zeroconf's `RegisterProxy` works reliably for advertising).
+
+**Consequences**: Native browse cooperates with mDNSResponder/avahi via IPC instead of competing for port 5353. Requires `libavahi-compat-libdnssd-dev` on Linux (CI updated). Cross-compilation without CGo falls back to zeroconf. Platform-specific code isolated behind build tags.
+
+**Reference**: `pkg/p2pnet/mdns_browse_native.go`, `pkg/p2pnet/mdns_browse_fallback.go`, `pkg/p2pnet/mdns.go`
+
+---
+
+### ADR-L02: PeerManager Reconnect Loop with Exponential Backoff
+
+**Context**: Before PeerManager, reconnection was ad-hoc. If a peer disconnected (WiFi switch, network outage), nothing automatically reconnected. The user had to restart the daemon.
+
+**Alternatives considered**:
+- **Application-level keepalive with manual reconnect** - Simple but reactive. No backoff, floods the network on outages.
+- **libp2p AutoRelay only** - Handles relay connections but not direct path management. No visibility into peer lifecycle.
+
+**Decision**: `PeerManager` with three goroutines: `eventLoop` (libp2p event bus subscriber), `reconnectLoop` (30s ticker + immediate trigger), and `probeLoop` (2-minute IPv6 probe cycle). Exponential backoff: 30s base, doubles per failure, capped at 15 minutes. Watchlist populated from `authorized_keys` via the gater. Max 3 concurrent dials. `PathDialer` races DHT vs relay for each attempt.
+
+Key design choices:
+- **Watchlist, not all peers**: only authorized peers get reconnected. Relay, bootstrap, and DHT peers are transient.
+- **Event-driven state**: `EvtPeerConnectednessChanged` updates `ManagedPeer.Connected` immediately, no polling.
+- **Callback bridge**: `ConnectionRecorder` callback bridges `pkg/p2pnet` to `internal/reputation` without import cycles.
+
+**Consequences**: Automatic reconnection to all authorized peers. Backoff prevents network flooding. Reconnect time: 3-10 seconds for relay, 5-15 seconds for direct via probing.
+
+**Reference**: `pkg/p2pnet/peermanager.go` (constants, `PeerManager`, `ManagedPeer`, `reconnectLoop`, `attemptReconnect`)
+
+---
+
+### ADR-L03: Stale Connection Cleanup on Interface Removal
+
+**Context**: When WiFi switches (e.g., switching between cellular hotspots), the old network interface disappears. Connections bound to the old interface's IP are dead, but libp2p doesn't detect this for minutes (TCP keepalive timeout). During this window, `host.Connect()` returns early ("already connected"), the reconnect loop skips the peer, and the user sees no connectivity.
+
+**Alternatives considered**:
+- **Reduce TCP keepalive timeout** - Faster detection but still minutes, not seconds. Also affects healthy connections.
+- **Close ALL connections on network change** - Too aggressive. Disrupts connections on interfaces that didn't change.
+- **Match connection local IPs against removed IPs** - Surgical. Only closes connections on the disappeared interface.
+
+**Decision**: `CloseStaleConnections(removedIPs []string)` iterates all connections to watched peers, extracts the local IP via `extractIPFromMultiaddrObj()`, and closes any whose local IP matches a removed address. Called from the network change handler BEFORE `OnNetworkChange()` resets backoffs.
+
+**Consequences**: Dead connections are removed within 500ms of interface disappearance (network change debounce time). The subsequent `OnNetworkChange()` triggers immediate reconnect through the new active interface. Tested: WiFi switch from DIRECT to RELAYED completes in ~5 seconds.
+
+**Reference**: `pkg/p2pnet/peermanager.go` (`CloseStaleConnections`, `extractIPFromMultiaddrObj`), `cmd/shurli/serve_common.go` (wiring)
+
+---
+
+### ADR-L04: Immediate Reconnect Trigger (reconnectNow Channel)
+
+**Context**: `OnNetworkChange()` reset backoff timers, but the reconnect loop runs on a 30-second ticker. After a WiFi switch, the user waits up to 30 seconds for reconnection even though backoffs are cleared.
+
+**Decision**: Added `reconnectNow chan struct{}` (buffered capacity 1). `OnNetworkChange()` sends on this channel after resetting backoffs. `reconnectLoop()` selects on both the ticker and `reconnectNow`. Non-blocking send: if a trigger is already pending, the second one is dropped.
+
+**Consequences**: Reconnection starts within milliseconds of network change detection instead of waiting for the next 30s tick. Combined with stale connection cleanup, the full WiFi-switch-to-reconnect cycle completes in 5-15 seconds.
+
+**Reference**: `pkg/p2pnet/peermanager.go` (`reconnectNow` field, `OnNetworkChange`, `reconnectLoop`)
+
+---
+
+### ADR-L05: IPv6 Path Probing with Source-Bound TCP
+
+**Context**: When a machine has USB LAN (public IPv6) plugged in alongside WiFi (CGNAT, no IPv6), a direct IPv6 path to the home-node exists through USB LAN. But libp2p doesn't try it: the peer is already connected via relay, and `host.Connect()` returns early.
+
+Additionally, macOS utun interfaces (iCloud Private Relay, disconnected VPNs) can claim the default IPv6 route but don't forward public traffic. An unbound dial picks the utun and fails silently.
+
+**Alternatives considered**:
+- **Rely on libp2p's address sorting** - libp2p prefers QUIC over TCP and IPv6 over IPv4, but won't close an existing relay to try direct.
+- **Unbound TCP probe** - Works when utun isn't present. Fails when utun claims the default route.
+- **Source-bound TCP probe per local IPv6** - Explicitly binds to each global IPv6 address. Forces the kernel to route through the correct interface regardless of utun.
+
+**Decision**: `ProbeAndUpgradeRelayed()` runs after every network change and on a 2-minute timer. For each relayed peer with IPv6 in the peerstore:
+1. Collect all local global IPv6 addresses from `DiscoverInterfaces()`
+2. For each peer IPv6 target, for each local IPv6 source: `net.Dialer{LocalAddr: &net.TCPAddr{IP: localIP}}` with 3s timeout
+3. If probe succeeds: `ForceDirectDial` to establish direct alongside relay, then sweep relay connections for 90 seconds
+
+The 90-second relay sweep (`closeRelayConns`) handles the remote peer's reconnect loop re-establishing relay. It checks every 10 seconds and stops early if the direct connection is lost.
+
+DHT `FindPeer` refreshes addresses for peers missing IPv6 in the peerstore.
+
+**Consequences**: Cross-ISP DIRECT connections via secondary interfaces. Tested: USB LAN (IPv6) to satellite home-node, RELAYED 180ms to DIRECT 23ms via IPv6 QUIC. Source binding bypasses macOS utun route hijacking.
+
+**Reference**: `pkg/p2pnet/peermanager.go` (`ProbeAndUpgradeRelayed`, `probeAndUpgrade`, `probeLoop`, `closeRelayConns`)
+
+---
+
+### ADR-L06: mDNS LAN-First Address Filtering
+
+**Context**: When mDNS discovers a peer on the LAN, it receives all 14 of the peer's multiaddrs (private IPv4, public IPv6, ULA, loopback). Adding all 14 to the peerstore before `host.Connect()` causes the swarm to try every address, including unreachable ones. On satellite WiFi (and similar consumer routers with client isolation), inter-client IPv6/ULA is blocked, so 12 of 14 addresses timeout (5s each). The LAN connection takes over a minute instead of seconds.
+
+Worse, `host.Connect()` uses ALL peerstore addresses, not just the `pi.Addrs` field. Adding addresses to the peerstore "pollutes" the dial attempt.
+
+**Alternatives considered**:
+- **Add all addresses, let libp2p sort** - libp2p's smart dialing helps but still tries unreachable IPv6/ULA, burning connection timeout budget.
+- **Add only the first IPv4** - Too restrictive. Misses valid TCP and QUIC addresses on the same IPv4.
+- **Filter to private IPv4 on matching subnets** - mDNS = same LAN. Private IPv4 is the universal LAN signal. Subnet matching prevents cross-LAN false positives.
+
+**Decision**: `filterLANAddrs()` returns only multiaddrs whose first component is IPv4 and whose IP falls within a `localIPv4Subnets()` CIDR. Only these LAN addrs are added to the peerstore before `host.Connect()`. The full address set is added AFTER connect succeeds.
+
+Why IPv4 only: many consumer routers (satellite ISPs, etc.) give all WiFi clients the same IPv6 prefix but block inter-client IPv6 traffic (client isolation). ULA (fd00::/8) has the same problem. Private IPv4 (10.x, 192.168.x) is the one reliable LAN signal across all consumer routers.
+
+**Consequences**: mDNS connect drops from 14 addresses (60+ second timeout budget) to 2 addresses (~2 second budget). LAN connection at 23ms in testing. Full address set still available after connect for identify exchange.
+
+**Reference**: `pkg/p2pnet/mdns.go` (`filterLANAddrs`, `localIPv4Subnets`, `HandlePeerFound`)
+
+---
+
+### ADR-L07: Relay-Discard in PeerManager (mDNS Priority)
+
+**Context**: mDNS connects to a LAN peer directly using `ForceDirectDial`. But PeerManager's reconnect loop was already mid-dial when mDNS triggered. PeerManager establishes relay, mDNS sweeps relay, PeerManager re-establishes relay on next tick. Cat-and-mouse: direct and relay fight each other.
+
+**Alternatives considered**:
+- **Global lock between mDNS and PeerManager** - Prevents concurrent access but adds complexity and deadlock risk.
+- **Priority flag in PeerManager** - Skip reconnect if mDNS is active. Requires cross-component coordination.
+- **Check-on-completion** - After PeerManager dials relay, check if direct already exists. Discard relay if so.
+
+**Decision**: Two changes:
+1. **PeerManager relay-discard**: in `attemptReconnect`, after `DialPeer` returns a RELAYED result, check `allConnsRelayed()`. If a non-limited (direct) connection exists, close the relay connections and return without recording the relay as a successful reconnect.
+2. **PeerManager skip-on-connected**: if `DialPeer` returns an error but `mp.Connected` is already true (set by mDNS via the event bus), don't count it as a failure.
+
+Combined with mDNS's 30-second relay sweep and `ForceDirectDial`, this eliminates the race. The priority table is enforced: LAN direct always wins over relay.
+
+**Consequences**: On a LAN with both mDNS direct and relay available, the pattern is: PeerManager tries relay, gets it, sees direct exists, discards relay. Logs show "peermanager: discarded relay (direct already active)" every ~30 seconds. Correct behavior: direct is stable, relay attempts are harmless.
+
+**Reference**: `pkg/p2pnet/peermanager.go` (`attemptReconnect` relay-discard block), `pkg/p2pnet/mdns.go` (relay sweep goroutine)
+
+---
+
+### ADR-L08: Network Change Orchestration Sequence
+
+**Context**: A network change (WiFi switch) triggers multiple subsystems: stale connection cleanup, PeerManager backoff reset, mDNS re-browse, IPv6 probe, STUN re-probe, NetIntel re-announce. The order matters: stale connections must close before reconnect triggers, and mDNS must re-browse before probes fire.
+
+**Decision**: Fixed sequence in the network change callback in `serve_common.go`:
+1. `CloseStaleConnections(change.Removed)` - kill dead connections
+2. `OnNetworkChange()` - reset backoffs + trigger immediate reconnect
+3. `BrowseNow()` - mDNS re-browse for LAN peers
+4. `ProbeAndUpgradeRelayed()` (goroutine) - IPv6 probing in background
+5. `AnnounceNow()` - NetIntel state update
+6. STUN re-probe (goroutine) - external address detection
+
+Steps 1-3 are synchronous (fast, <1ms each). Steps 4-6 are async (seconds to complete).
+
+**Consequences**: Full WiFi switch recovery in 5-15 seconds. No dependency issues between subsystems. Each subsystem handles its own error cases independently.
+
+**Reference**: `cmd/shurli/serve_common.go` (network change callback, lines 476-520)
+
+---
+
+## Hardware Test Results (2026-02-27)
+
+The Phase 5 features were validated through 5+ hours of physical testing across 5 networks:
+
+| Transition | Result | Time |
+|------------|--------|------|
+| Cellular (CGNAT) to 5G hotspot | RELAYED to DIRECT | ~5s |
+| 5G hotspot to Cellular (CGNAT) | DIRECT to RELAYED | ~35s |
+| Cellular (CGNAT) to Satellite WiFi (LAN) | RELAYED to DIRECT (mDNS) | ~10-15s |
+| Satellite WiFi to Cellular (CGNAT) | DIRECT to RELAYED | ~5s |
+| Cellular (CGNAT) to USB LAN (IPv6) | RELAYED to DIRECT (IPv6) | ~8s |
+| USB LAN unplug to Cellular (CGNAT) | DIRECT to RELAYED | ~5s |
+| Terrestrial WiFi to Satellite WiFi | DIRECT to DIRECT | ~5s |
+
+All transitions automatic, no daemon restart needed. Connection priority table enforced: LAN (mDNS) > Direct IPv6 (path probing) > Relay (fallback).
+
+---
+
+### ADR-L09: Daemon-Mediated Subcommands (Eliminate Standalone P2P Hosts)
+
+**Context**: Subcommands (`proxy`, `ping`, `traceroute`) created their own standalone libp2p hosts when connecting to peers. This caused a critical bug: when the remote daemon restarted, a standalone proxy reconnected via relay and stayed there permanently, even though the daemon had a direct path available. The standalone host has no PeerManager, no mDNS, no IPv6 probing, no path upgrades. It's blind to the network. Additionally, each standalone invocation burns 5-15 seconds bootstrapping a temporary DHT client and creates redundant connections to the same peer.
+
+**Alternatives considered**:
+- **Keep standalone as primary** - Every subcommand manages its own P2P stack. Simple but fundamentally broken: no path management, no connection reuse, blind to network changes.
+- **Daemon required, no fallback** - All subcommands refuse to work without daemon. Clean but removes the ability to debug when the daemon itself is broken.
+- **Daemon-first with gated fallback** - Try daemon API first. Standalone only if explicitly enabled via config (`cli.allow_standalone: true`) or CLI flag (`--standalone`).
+
+**Decision**: Daemon-first with gated standalone fallback. All network subcommands now:
+1. Try the daemon's REST API first (via Unix socket)
+2. If daemon isn't running and `--standalone` flag or `cli.allow_standalone` config is set, fall back to standalone
+3. Otherwise, error with "daemon not running" and clear instructions
+
+The `proxy` command was the last holdout: it always created a standalone host. Now it uses `POST /v1/connect` to create TCP proxies through the daemon's managed connection. `ConnectResponse` was extended with `path_type` and `address` fields so the CLI can display connection info.
+
+New config section:
+```yaml
+cli:
+  allow_standalone: false  # default: daemon required
+```
+
+**Consequences**:
+- Proxy traffic automatically benefits from PeerManager's path upgrades (relay to direct)
+- No more stuck-on-relay proxy sessions after remote daemon restart
+- Zero bootstrap latency for subcommands (daemon is already connected)
+- One connection per peer (daemon's), not N from N subcommands
+- Standalone code preserved behind config gate for debugging the daemon itself
+- Continuous ping (count=0) still requires standalone because daemon HTTP API can't stream
+
+**Reference**: `cmd/shurli/cmd_proxy.go` (daemon-first pattern), `internal/daemon/handlers.go` (path info in ConnectResponse), `internal/config/config.go` (CLIConfig), `pkg/p2pnet/pathdialer.go` (PeerConnInfo helper)
+
+---
+
+### ADR-L10: CLI Standalone Gating (Config + Flag Override)
+
+**Context**: After ADR-L09, standalone mode is disabled by default. But developers and advanced users need an escape hatch for debugging connectivity without a running daemon.
+
+**Decision**: Two override mechanisms:
+1. **Config**: `cli.allow_standalone: true` in `config.yaml` - persistent setting for development environments
+2. **CLI flag**: `--standalone` on `proxy`, `ping`, `traceroute` - one-off override without editing config
+
+The `--standalone` flag also skips the daemon check entirely (useful for testing standalone behavior even when daemon is running).
+
+**Consequences**: Default is "daemon required" for all users. Developers set the config flag. One-off debugging uses `--standalone`. No accidental standalone sessions that create blind P2P hosts.
+
+**Reference**: `cmd/shurli/cmd_proxy.go`, `cmd/shurli/cmd_ping.go`, `cmd/shurli/cmd_traceroute.go` (standalone gates), `internal/config/config.go` (CLIConfig)
+
+---
+
+### ADR-L11: Explicit CGNAT Override (force_cgnat Config)
+
+**Context**: `DetectCGNAT()` checks local interfaces for RFC 6598 addresses (100.64.0.0/10), the only reliable client-side signal for carrier-grade NAT. But some mobile carriers assign RFC 1918 addresses (e.g., 172.16-31.x.x) for their CGNAT. These addresses are indistinguishable from a regular home network. On those carriers, auto-detection fails silently: STUN classifies the NAT as port-restricted or address-restricted, reachability reports Grade B/C, and the node wastes time attempting hole-punches that will never succeed through the outer carrier NAT.
+
+**Alternatives considered**:
+- **Active probing** (traceroute to STUN, count hops) - Unreliable. Many carriers block ICMP/traceroute.
+- **External service lookup** (query IP geolocation for ISP type) - Privacy violation. Requires external API call.
+- **Heuristic** (symmetric NAT + private IP = CGNAT) - High false positive rate. Symmetric NAT exists on enterprise networks too.
+
+**Decision**: `network.force_cgnat: true` config option. Same pattern as the existing `force_private_reachability` flag. When set, `DetectCGNAT()` immediately sets `BehindCGNAT = true` before checking interfaces. This caps reachability at Grade D and tells PeerManager not to waste cycles on hole-punch attempts.
+
+Config-level (not CLI flag) because CGNAT is a property of the network the node sits on, not a per-command setting.
+
+```yaml
+network:
+  force_cgnat: true
+```
+
+**Consequences**: Users on RFC 1918 mobile carriers can correctly signal their CGNAT status. Reachability grade accurately reflects Grade D. Hole-punch attempts are skipped. The node goes straight to relay, saving connection time. Auto-detection still works for RFC 6598 carriers when the flag is false (default).
+
+**Reference**: `pkg/p2pnet/stunprober.go` (`DetectCGNAT`), `cmd/shurli/serve_common.go` (passes config flag), `internal/config/config.go` (`NetworkConfig.ForceCGNAT`)
 
 
 ---
@@ -5762,6 +6140,145 @@ After setup, your relay-server directory looks like:
 
 ---
 
+## Manual Installation (Any Linux/Unix)
+
+The `setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
+
+### Prerequisites
+
+**Go** (version from `go.mod`, currently 1.26.0+):
+```bash
+# Download from https://go.dev/dl/
+wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+```
+
+**Native mDNS library** (optional, enables LAN peer discovery):
+
+| Distribution | Package | Install |
+|-------------|---------|---------|
+| Debian/Ubuntu | `libavahi-compat-libdnssd-dev` | `sudo apt install libavahi-compat-libdnssd-dev` |
+| Fedora/RHEL/CentOS | `avahi-compat-libdns_sd-devel` | `sudo dnf install avahi-compat-libdns_sd-devel` |
+| Arch Linux | `avahi` | `sudo pacman -S avahi` |
+| Alpine Linux | `avahi-compat-libdns_sd` | `sudo apk add avahi-compat-libdns_sd avahi-dev` |
+| openSUSE | `avahi-compat-mDNSResponder-devel` | `sudo zypper install avahi-compat-mDNSResponder-devel` |
+| FreeBSD | `avahi-libdns` | `sudo pkg install avahi-libdns` |
+| macOS | Built-in | No install needed (dns_sd is in libSystem) |
+
+Without this library, Shurli falls back to pure-Go mDNS (works but less reliable on systems with a running mDNS daemon). Build with `CGO_ENABLED=0` to explicitly use the fallback.
+
+**QR code tool** (optional, for `setup.sh --check` display):
+
+| Distribution | Package |
+|-------------|---------|
+| Debian/Ubuntu | `qrencode` |
+| Fedora/RHEL | `qrencode` |
+| Arch | `qrencode` |
+| Alpine | `libqrencode` |
+| macOS | `brew install qrencode` |
+
+### Build
+
+```bash
+git clone https://github.com/shurlinet/shurli.git
+cd Shurli
+
+# Full build with optimizations
+go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+
+# Verify
+./relay-server/shurli version
+```
+
+### Configure
+
+```bash
+cd relay-server
+cp ../configs/relay-server.sample.yaml relay-server.yaml
+# Edit relay-server.yaml if needed (defaults: port 7777, gating enabled)
+```
+
+### Create service user (if running as a service)
+
+```bash
+sudo useradd -r -m -s /bin/bash shurli
+sudo chown -R shurli:shurli /path/to/Shurli/relay-server
+```
+
+### Network tuning (QUIC performance)
+
+```bash
+# Increase UDP buffer sizes for QUIC
+echo 'net.core.rmem_max=7500000' | sudo tee -a /etc/sysctl.conf
+echo 'net.core.wmem_max=7500000' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+### Firewall
+
+Open port 7777 for TCP and UDP:
+
+| Firewall | Commands |
+|----------|----------|
+| ufw (Ubuntu) | `sudo ufw allow 7777/tcp && sudo ufw allow 7777/udp` |
+| firewalld (Fedora/RHEL) | `sudo firewall-cmd --permanent --add-port=7777/tcp && sudo firewall-cmd --permanent --add-port=7777/udp && sudo firewall-cmd --reload` |
+| iptables | `sudo iptables -A INPUT -p tcp --dport 7777 -j ACCEPT && sudo iptables -A INPUT -p udp --dport 7777 -j ACCEPT` |
+| nftables | Add `tcp dport 7777 accept` and `udp dport 7777 accept` to your input chain |
+| pf (FreeBSD/macOS) | Add `pass in proto { tcp, udp } to port 7777` to `/etc/pf.conf` |
+
+Also check your VPS provider's security groups/firewall rules in their web console.
+
+### Install systemd service
+
+```bash
+# Copy and customize the service template
+sudo cp relay-server.service /etc/systemd/system/shurli-relay.service
+
+# Edit to match your paths and user
+sudo nano /etc/systemd/system/shurli-relay.service
+# Key fields: User=shurli, WorkingDirectory=/path/to/relay-server, ExecStart=/path/to/shurli relay serve
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now shurli-relay
+```
+
+For **non-systemd** systems (Alpine with OpenRC, FreeBSD with rc.d, etc.), create a service script that runs:
+
+```bash
+/path/to/shurli relay serve --config /path/to/relay-server.yaml
+```
+
+The binary is self-contained. It reads config from the working directory or the path specified by `--config`.
+
+### Log rotation
+
+For systemd systems, limit journal size:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+echo -e "[Journal]\nSystemMaxUse=500M\nMaxFileSec=7day" | sudo tee /etc/systemd/journald.conf.d/shurli-relay.conf
+sudo systemctl restart systemd-journald
+```
+
+### Verify
+
+```bash
+# Check service is running
+sudo systemctl status shurli-relay
+
+# Check it's listening
+ss -tlnp | grep 7777
+
+# Check logs
+sudo journalctl -u shurli-relay -n 20
+
+# Or run the health check script (even on non-Ubuntu, it reports useful info)
+bash setup.sh --check
+```
+
+---
+
 ## Troubleshooting
 
 | Issue | Solution |
@@ -5773,6 +6290,8 @@ After setup, your relay-server directory looks like:
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
 | Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
+| `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
+| CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |
 
 
 ---

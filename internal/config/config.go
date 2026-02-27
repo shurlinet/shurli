@@ -19,7 +19,17 @@ type HomeNodeConfig struct {
 	Protocols ProtocolsConfig `yaml:"protocols"`
 	Services  ServicesConfig  `yaml:"services,omitempty"`
 	Names     NamesConfig     `yaml:"names,omitempty"`
+	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
+}
+
+// CLIConfig holds settings for CLI subcommand behavior.
+type CLIConfig struct {
+	// AllowStandalone permits subcommands (proxy, ping, traceroute) to create
+	// their own P2P host when no daemon is running. Default: false (daemon required).
+	// This is a debug/development option. In normal use, the daemon manages
+	// all connections and subcommands talk to it via the local API.
+	AllowStandalone bool `yaml:"allow_standalone,omitempty"`
 }
 
 // ClientNodeConfig represents configuration for the client node
@@ -78,6 +88,7 @@ type IdentityConfig struct {
 type NetworkConfig struct {
 	ListenAddresses          []string `yaml:"listen_addresses"`
 	ForcePrivateReachability bool     `yaml:"force_private_reachability"`
+	ForceCGNAT               bool     `yaml:"force_cgnat,omitempty"`
 	ResourceLimitsEnabled    bool     `yaml:"resource_limits_enabled"`
 }
 
@@ -94,9 +105,30 @@ type RelayConfig struct {
 
 // DiscoveryConfig holds DHT discovery configuration
 type DiscoveryConfig struct {
-	Rendezvous     string   `yaml:"rendezvous"`
-	Network        string   `yaml:"network,omitempty"`  // DHT namespace for private networks (empty = global)
-	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	Rendezvous       string        `yaml:"rendezvous"`
+	Network          string        `yaml:"network,omitempty"`            // DHT namespace for private networks (empty = global)
+	BootstrapPeers   []string      `yaml:"bootstrap_peers"`
+	MDNSEnabled      *bool         `yaml:"mdns_enabled,omitempty"`      // LAN peer discovery (default: true)
+	NetIntelEnabled  *bool         `yaml:"net_intel_enabled,omitempty"` // Presence announcements (default: true)
+	AnnounceInterval time.Duration `yaml:"announce_interval,omitempty"` // How often to push state (default: 5m)
+}
+
+// IsMDNSEnabled returns whether mDNS local discovery is enabled.
+// Defaults to true when not explicitly set in config.
+func (d *DiscoveryConfig) IsMDNSEnabled() bool {
+	if d.MDNSEnabled == nil {
+		return true
+	}
+	return *d.MDNSEnabled
+}
+
+// IsNetIntelEnabled returns whether network intelligence presence
+// announcements are enabled. Defaults to true when not explicitly set.
+func (d *DiscoveryConfig) IsNetIntelEnabled() bool {
+	if d.NetIntelEnabled == nil {
+		return true
+	}
+	return *d.NetIntelEnabled
 }
 
 // RelayDiscoveryConfig holds relay server discovery configuration

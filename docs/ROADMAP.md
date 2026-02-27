@@ -217,11 +217,11 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | Post-I-2 | **Peer Introduction Protocol** | Relay pushes peer introductions to daemons, HMAC group commitment, interaction history, relay admin socket | ✅ DONE |
 | Pre-Phase 5 | **Cross-Network Hardening** | 8 bug fixes from live cross-network testing, CGNAT detection, stale address diagnostics, systemd/launchd service setup | ✅ DONE |
 | **Phase 5** | **Network Intelligence** | |
-| 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers | Planned |
-| 5-L | PeerManager / AddrMan | Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX) | Planned |
-| 5-M | GossipSub | libp2p PubSub broadcast layer for PEX transport, address change announcements, network event propagation. Scale-aware: direct PEX at <10 peers, GossipSub at 10+ | Planned |
-| N | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. Requires trustless ZKP in Go (Halo 2 or equivalent) - none exists yet. Active watch. | Watching |
-| J | **Visual Channel** | "Constellation Code" - animated visual pairing | Future |
+| 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers, dedup + concurrency limiting | ✅ DONE |
+| 5-L | PeerManager | Background reconnection of authorized peers, exponential backoff, event-bus driven connect/disconnect tracking, network-change backoff reset | ✅ DONE |
+| 5-M | Network Intelligence (Presence) | Three-layer transport: direct push + gossip forwarding + future GossipSub. Peers exchange reachability grade, NAT type, IPv4/IPv6 flags, CGNAT status. `/shurli/presence/1.0.0` protocol | ✅ DONE |
+| **Phase 6** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
+| **Phase 7** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
 
 **Deliverables**:
 
@@ -255,7 +255,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`shurli status` command** - show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required - instant. *(Batch E)*
 
-**Auto-Upgrade Groundwork** (full implementation in Phase 7):
+**Auto-Upgrade Groundwork** (full implementation in Phase 9):
 - [x] **Build version embedding** - compile with `-ldflags "-X main.version=..."` so every binary knows its version. `shurli version` / `shurli --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** - set `UserAgent` to `shurli/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D - serve/proxy/ping; Batch E - invite/join)*
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
@@ -358,7 +358,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 10 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 12 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -575,7 +575,7 @@ After Phase 5 observability and PeerManager provide the data:
 
 ---
 
-### Phase 6: Plugin Architecture, SDK & First Plugins
+### Phase 8: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -691,7 +691,7 @@ Waiting for transfers...
 
 ---
 
-### Phase 7: Distribution & Launch
+### Phase 9: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
@@ -787,6 +787,7 @@ Deliverables:
 - [ ] CI step: `ipfs add` release binaries + site → pin on [Filebase](https://filebase.com/) (S3-compatible, 5GB free)
 - [ ] DNSLink TXT record at `_dnslink.shurli.io` pointing to IPNS key (pre-configured, activated on failover)
 - [ ] Document failover runbook: which DNS records to change, in what order, for each failure scenario
+- [ ] **Canonical source links** (`shurli.io/source/*`): Hugo redirect rules that map source file paths to the current primary repo. All docs and website pages link through `shurli.io/source/` instead of directly to any git host. When the primary moves (GitHub to GitLab, etc.), update one redirect config - all existing links (including search engine cached URLs and LLM training snapshots) resolve via the domain we control. sync-docs rewrite logic (`tools/sync-docs/config.go` `githubBase` constant) replaced with domain-relative `/source/` paths. GitHub repo stays alive as a read-only mirror so any old indexed URLs still resolve.
 
 **Package Managers & Binaries**:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) - publish to GitHub Releases + GitLab Releases
@@ -855,14 +856,14 @@ services:
 
 ---
 
-### Phase 8: Desktop Gateway Daemon + Private DNS
+### Phase 10: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
-**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 6.
+**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 8.
 
 **Deliverables**:
 
@@ -929,7 +930,7 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 9: Mobile Applications
+### Phase 11: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -976,7 +977,7 @@ Once connected:
 
 ---
 
-### Phase 10: Federation - Network Peering
+### Phase 12: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -1035,12 +1036,12 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 11: Advanced Naming Systems (Optional)
+### Phase 13: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 6.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 8.
 
 **Deliverables**:
 - [ ] Built-in resolvers:
@@ -1130,7 +1131,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 
 ---
 
-## Phase 12+: Ecosystem & Polish
+## Phase 14+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1163,32 +1164,31 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 - VRF-based fair relay assignment (needed only with multiple competing relays)
 - Erlay / Minisketch set reconciliation (bandwidth savings only above 8+ peers)
 
-**Batch N: ZKP Privacy Layer** (after PeerManager/AddrMan) - STATUS: WATCHING
+**Phase 6: ZKP Privacy Layer** - STATUS: PLANNED
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
-**Status: Active Watch (2026-02-23)**
+**Implementation: gnark PLONK + Ethereum KZG ceremony (2026-02-26)**
 
-The four use cases are confirmed and the architecture is designed. Implementation is deferred until a trustless (no ceremony) ZKP proving system exists in Go. We will not compromise on the trust model by using systems that require a trusted setup ceremony, and we will not introduce FFI/CGo dependencies to call Rust libraries (violates single-binary sovereignty).
+The four use cases are confirmed and the architecture is designed. Implementation will use [gnark](https://github.com/Consensys/gnark) PLONK with Ethereum's KZG trusted setup ceremony (141,416 participants). gnark is production-ready, pure Go, and maintained by ConsenSys. The KZG ceremony's 1-of-141,416 honest participant assumption is practically secure for Shurli's use cases.
 
-**Why waiting**: Halo 2 (Zcash's IPA-based proving system) achieves true zero-trust ZKPs with no ceremony. But it exists only in Rust. No Go implementation, port, binding, or proposal exists. Nobody is working on one (verified 2026-02-23 across GitHub, gnark issues, Zcash forums, Ethereum grants, and PSE grants). The alternative (gnark PLONK + Ethereum KZG ceremony with 141,416 participants) is practically secure but still relies on a trust assumption. Halo 2 is mathematically superior: trust math only, not participants.
+**Why gnark PLONK + KZG**: Pure Go, production-ready, actively maintained, no FFI dependencies. Preserves single-binary sovereignty. The Ethereum KZG ceremony (141,416 participants) provides a strong trust foundation. For Shurli's authorization proofs, the practical security of "1 of 141K participants was honest" is more than sufficient.
 
-**What we considered and rejected**:
-- **Ring signatures**: Equivalent to a complex card-shuffling game. Metadata analysis can narrow down the signer. zk-SNARKs provide mathematically absolute privacy (dark room - nobody can see anything). Ring signatures are not zero-knowledge.
-- **gnark PLONK + Ethereum KZG**: Production-ready in pure Go, 141K-participant ceremony. Practically secure but requires trusting that 1 of 141K participants was honest. Not mathematically zero-trust.
-- **Halo 2 via FFI (Rust CGo bindings)**: Technically possible but introduces Rust toolchain dependency, cross-compilation complexity, two-language audit surface, and loss of `go build` simplicity. Violates sovereignty principle.
-- **gnark Vortex**: ConsenSys's experimental lattice-based transparent setup. Not production-ready. Different cryptographic approach than IPA. Worth watching.
+**What we evaluated**:
+- **Ring signatures**: Metadata analysis can narrow down the signer. zk-SNARKs provide mathematically absolute privacy. Ring signatures are not zero-knowledge.
+- **Halo 2 via FFI (Rust CGo bindings)**: Achieves trustless ZKPs (no ceremony), but introduces Rust toolchain dependency, cross-compilation complexity, and two-language audit surface. Violates sovereignty principle.
+- **gnark Vortex**: ConsenSys's experimental lattice-based transparent setup. Not production-ready. Worth watching as a future upgrade path.
 
 **What we're watching** (checked after each phase completion):
-1. **gnark IPA/Halo 2 backend** - ConsenSys has no current plans, but Vortex (lattice-based transparent setup) is in development
-2. **Native Go Halo 2 implementation** - zero activity as of 2026-02-23
-3. **Rust halo2 CGo bindings** - zero activity as of 2026-02-23
-4. **Any new trustless ZKP library in Go**
+1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-02-26.
+2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
+3. **gnark IPA backend** - ConsenSys has no current plans, but would enable Halo 2-style proofs.
+4. **Any new trustless ZKP library in Go** - would be evaluated as a potential upgrade from KZG ceremony.
 
-**The four use cases** (ready to implement when the right tool arrives):
+**The four use cases**:
 - [ ] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key. ConnectionGater validates the proof, never learns which peer connected. Eliminates peer ID as a tracking vector.
 - [ ] **Anonymous relay authorization** - prove relay access rights without revealing identity to the relay. Relay validates membership proof, routes traffic, builds no connection graph.
-- [ ] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Batch L).
+- [ ] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Phase 5-L).
 - [ ] **Private DHT namespace membership** - prove "I belong to the same namespace as you" without revealing the namespace name to non-members. Narrowest use case (exposure only to directly-dialed peers), implemented last.
 
 **Architecture decisions** (stable regardless of proving system):
@@ -1197,10 +1197,10 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 - ZK circuit proves: "I know a value pk such that Hash(pk) is a leaf in the tree with root R." Verifier sees root + proof only.
 - For ~500 members: ~10K-50K constraints, ~100-500ms proof generation, ~500-1000 byte proofs, ~2-5ms verification.
 
-**Background: Zcash trusted setup evolution** (context for why we insist on trustless):
+**Background: Zcash trusted setup evolution** (context for the upgrade path we're watching):
 - Sprout (2016): Groth16, 6 participants. Legitimate trust concern.
 - Sapling (2018): Powers of Tau, 90+ participants. 1-of-90 honest assumption.
-- Orchard/NU5 (2022): Halo 2 - NO trusted setup. IPA-based (Pedersen commitments). No toxic waste. Trust math only. This is the standard we're waiting for in Go.
+- Orchard/NU5 (2022): Halo 2 - NO trusted setup. IPA-based (Pedersen commitments). No toxic waste. Trust math only. If this arrives in Go, it's a strict upgrade from our KZG approach.
 
 **RLN - Anonymous Relay Rate-Limiting** (Future - after ZKP Privacy Layer):
 
@@ -1238,16 +1238,18 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 4A: Core Library + UX | ✅ 2-3 weeks | Complete |
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
-| **Phase 5: Network Intelligence** | 📋 4-6 weeks | Planned |
-| Phase 6: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
-| Phase 7: Distribution & Launch | 📋 1-2 weeks | Planned |
-| Phase 8: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 9: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 10: Federation | 📋 2-3 weeks | Planned |
-| Phase 11: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 12+: Ecosystem | 📋 Ongoing | Conceptual |
+| **Phase 5: Network Intelligence** | ✅ | Complete (5-K mDNS, 5-L PeerManager, 5-M Presence) |
+| **Phase 6: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
+| Phase 7: Visual Channel | 📋 | Planned ("Constellation Code") |
+| Phase 8: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 9: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 10: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 11: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 12: Federation | 📋 2-3 weeks | Planned |
+| Phase 13: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 14+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (mDNS, PeerManager, GossipSub) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ZKP privacy layer -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -1307,7 +1309,17 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Network change triggers re-upgrade from relay to direct (the Batch I finding)
 - GossipSub broadcasts address changes to all peers within seconds
 
-**Phase 6 Success**:
+**Phase 6 Success** (ZKP Privacy Layer):
+- Anonymous set membership proof for authorized_keys (gnark PLONK + Ethereum KZG)
+- Peers prove authorization without revealing which key they hold
+- Anonymous relay authorization for peer relays
+- Privacy-preserving reputation proofs (score above threshold without revealing exact score)
+
+**Phase 7 Success** (Visual Channel):
+- "Constellation Code" animated visual pairing works between devices
+- Pairing verified visually without reading text codes
+
+**Phase 8 Success** (Plugins, SDK):
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
@@ -1320,7 +1332,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Python SDK works: `pip install shurli-sdk` → connect to remote service in <10 lines
 - `shurli invite --headless` outputs JSON; `shurli join --from-env` reads env vars
 
-**Phase 7 Success**:
+**Phase 9 Success** (Distribution & Launch):
 - `shurli.io` serves a Hugo documentation site with landing page, guides, and install instructions
 - Site auto-deploys on push to `main` via GitHub Actions
 - `shurli.io/llms.txt` returns markdown index; `shurli.io/llms-full.txt` returns full site content - AI agents can understand the project in ~200 tokens
@@ -1345,33 +1357,31 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Containerized deployment guide published with working Docker compose examples
 - Python SDK available on PyPI
 
-**Phase 8 Success**:
+**Phase 10 Success** (Desktop Gateway + Private DNS):
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 9 Success**:
+**Phase 11 Success** (Mobile Apps):
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 10 Success**:
+**Phase 12 Success** (Federation):
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 11 Success**:
+**Phase 13 Success** (Advanced Naming):
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
 ---
 
-**Last Updated**: 2026-02-25
-**Current Phase**: Phase 4C Complete (including Post-I-2 and Pre-Phase 5 Hardening). Phase 5 next.
-**Phases**: 1-4C (complete), 5 (Network Intelligence), 6-11 (planned), 12+ (ecosystem)
-**Next Milestone**: Phase 5 - mDNS (5-K), PeerManager (5-L), GossipSub (5-M)
-**Future milestones**: Phase 5 (Network Intelligence) -> Phase 6 (Plugins) -> Phase 7 (Distribution)
-**Research**: N (ZKP Privacy - watching for trustless ZKP in Go) -> J (Visual Channel - future)
+**Last Updated**: 2026-02-26
+**Current Phase**: Phase 5 Complete. Phase 6 (ZKP Privacy Layer) next.
+**Phases**: 1-5 (complete), 6-13 (planned), 14+ (ecosystem)
+**Next Milestone**: Phase 6 - ZKP Privacy Layer (gnark PLONK + Ethereum KZG)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

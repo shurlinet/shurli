@@ -833,11 +833,17 @@ echo
 
 # --- 2. Install qrencode for QR code display in --check ---
 if ! command -v qrencode &>/dev/null; then
-    echo "[2/8] Installing qrencode..."
-    run_sudo apt-get install -y -qq qrencode > /dev/null 2>&1
+    echo "[2/8] Installing qrencode and mDNS library..."
+    run_sudo apt-get install -y -qq qrencode libavahi-compat-libdnssd-dev > /dev/null 2>&1
     echo "  qrencode installed (used by --check for QR codes)"
+    echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
 else
     echo "[2/8] qrencode already installed"
+    # Ensure mDNS library is present even if qrencode was already installed
+    if ! dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1; then
+        run_sudo apt-get install -y -qq libavahi-compat-libdnssd-dev > /dev/null 2>&1
+        echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+    fi
 fi
 echo
 

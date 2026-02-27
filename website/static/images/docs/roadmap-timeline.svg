@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 690" font-family="system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 740" font-family="system-ui, -apple-system, sans-serif">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#141316"/>
@@ -12,7 +12,7 @@
       <stop offset="0%" style="stop-color:#2a2518"/>
       <stop offset="100%" style="stop-color:#1f1c14"/>
     </linearGradient>
-    <linearGradient id="futureGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+<linearGradient id="futureGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#1a1a2e"/>
       <stop offset="100%" style="stop-color:#151525"/>
     </linearGradient>
@@ -26,8 +26,8 @@
   </defs>
 
   <!-- Background -->
-  <rect width="900" height="690" rx="12" fill="url(#bg)"/>
-  <rect x="0.5" y="0.5" width="899" height="689" rx="12" fill="none" stroke="#222124" stroke-width="1"/>
+  <rect width="900" height="740" rx="12" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="899" height="739" rx="12" fill="none" stroke="#222124" stroke-width="1"/>
 
   <!-- Title -->
   <text x="450" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#c0caf5">Development Timeline</text>
@@ -37,12 +37,12 @@
   <text x="675" y="66" text-anchor="middle" font-size="12" font-weight="600" fill="#e0af68">PLANNED</text>
 
   <!-- Divider line -->
-  <line x1="450" y1="55" x2="450" y2="670" stroke="#222124" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="450" y1="55" x2="450" y2="720" stroke="#222124" stroke-width="1" stroke-dasharray="4,4"/>
 
   <!-- ===================== LEFT COLUMN: COMPLETED ===================== -->
 
   <!-- Timeline line (left) -->
-  <line x1="60" y1="90" x2="60" y2="530" stroke="#9ece6a" stroke-width="2" opacity="0.3"/>
+  <line x1="60" y1="90" x2="60" y2="610" stroke="#9ece6a" stroke-width="2" opacity="0.3"/>
 
   <!-- Phase 1 -->
   <circle cx="60" cy="105" r="6" fill="#9ece6a"/>
@@ -83,104 +83,102 @@
   <circle cx="60" cy="368" r="8" fill="#9ece6a"/>
   <rect x="80" y="343" width="340" height="58" rx="8" fill="url(#doneGrad)" stroke="#9ece6a" stroke-width="1.5"/>
   <text x="94" y="362" font-size="11" font-weight="700" fill="#c0caf5">Phase 4C: Core Hardening + Security</text>
-  <text x="94" y="378" font-size="9" fill="#a9b1d6">Batches A-I + Post-I-1: reliability, daemon,</text>
+  <text x="94" y="378" font-size="9" fill="#a9b1d6">Batches A-I + Post-I: reliability, daemon,</text>
   <text x="94" y="392" font-size="9" fill="#a9b1d6">observability, PAKE, adaptive path, relay pairing</text>
   <text x="400" y="370" text-anchor="end" font-size="9" font-weight="700" fill="#9ece6a" font-family="ui-monospace, monospace">6-8 weeks</text>
 
+  <!-- Phase 5 (Network Intelligence) -->
+  <circle cx="60" cy="440" r="8" fill="#9ece6a"/>
+  <rect x="80" y="415" width="340" height="58" rx="8" fill="url(#doneGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="94" y="434" font-size="11" font-weight="700" fill="#c0caf5">Phase 5: Network Intelligence</text>
+  <text x="94" y="450" font-size="9" fill="#a9b1d6">5-K: native mDNS, 5-L: PeerManager,</text>
+  <text x="94" y="464" font-size="9" fill="#a9b1d6">5-M: NetIntel presence + gossip forwarding</text>
+  <text x="400" y="442" text-anchor="end" font-size="9" font-weight="700" fill="#9ece6a" font-family="ui-monospace, monospace">4-6 weeks</text>
+
   <!-- "You are here" marker -->
-  <circle cx="60" cy="440" r="10" fill="none" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
-  <circle cx="60" cy="440" r="4" fill="#e8729a"/>
-  <text x="80" y="444" font-size="11" font-weight="700" fill="#e8729a">You are here</text>
+  <circle cx="60" cy="510" r="10" fill="none" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <circle cx="60" cy="510" r="4" fill="#e8729a"/>
+  <text x="80" y="514" font-size="11" font-weight="700" fill="#e8729a">You are here</text>
 
   <!-- Connector arrow from left to right column -->
-  <path d="M 200 455 Q 450 470 500 105" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
+  <path d="M 200 525 Q 450 540 500 105" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
 
   <!-- ===================== RIGHT COLUMN: PLANNED ===================== -->
 
   <!-- Timeline line (right) -->
-  <line x1="510" y1="90" x2="510" y2="650" stroke="#e0af68" stroke-width="2" opacity="0.3" stroke-dasharray="4,3"/>
+  <line x1="510" y1="90" x2="510" y2="700" stroke="#e0af68" stroke-width="2" opacity="0.3" stroke-dasharray="4,3"/>
 
-  <!-- Phase 5 header -->
-  <text x="544" y="95" font-size="10" font-weight="700" fill="#e0af68" font-family="ui-monospace, monospace">PHASE 5: NETWORK INTELLIGENCE</text>
+  <!-- Phase 6: ZKP Privacy (Planned) -->
+  <circle cx="510" cy="110" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="93" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="111" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: ZKP Privacy Layer</text>
+  <text x="544" y="127" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
+  <text x="850" y="118" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
 
-  <!-- 5-K: mDNS -->
-  <circle cx="510" cy="120" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="105" width="340" height="36" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="121" font-size="10" font-weight="600" fill="#c0caf5">5-K: mDNS Local Discovery</text>
-  <text x="544" y="134" font-size="9" fill="#a9b1d6">Zero-config LAN peer discovery</text>
-  <text x="850" y="127" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">&lt;1 week</text>
+  <!-- Phase 7: Visual Channel -->
+  <circle cx="510" cy="160" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="143" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="161" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: Visual Channel</text>
+  <text x="544" y="177" font-size="9" fill="#a9b1d6">"Constellation Code" - animated visual pairing</text>
+  <text x="850" y="168" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">TBD</text>
 
-  <!-- 5-L: PeerManager -->
-  <circle cx="510" cy="160" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="145" width="340" height="36" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="161" font-size="10" font-weight="600" fill="#c0caf5">5-L: PeerManager / AddrMan</text>
-  <text x="544" y="174" font-size="9" fill="#a9b1d6">Bitcoin-inspired scoring, persistent peer table</text>
-  <text x="850" y="167" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
+  <!-- Phase 8: Plugins -->
+  <circle cx="510" cy="210" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="193" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="211" font-size="11" font-weight="600" fill="#c0caf5">Phase 8: Plugins, SDK + First Plugins</text>
+  <text x="544" y="227" font-size="9" fill="#a9b1d6">Plugin architecture, file sharing, WoL</text>
+  <text x="850" y="218" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
 
-  <!-- 5-M: GossipSub -->
-  <circle cx="510" cy="200" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="185" width="340" height="36" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="201" font-size="10" font-weight="600" fill="#c0caf5">5-M: GossipSub Intelligence</text>
-  <text x="544" y="214" font-size="9" fill="#a9b1d6">PubSub broadcast, address announcements</text>
-  <text x="850" y="207" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">1-2 weeks</text>
+  <!-- Phase 9: Distribution -->
+  <circle cx="510" cy="260" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="243" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="261" font-size="11" font-weight="600" fill="#c0caf5">Phase 9: Distribution + Launch</text>
+  <text x="544" y="277" font-size="9" fill="#a9b1d6">Use-case content (GPU, IoT, gaming)</text>
+  <text x="850" y="268" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">1-2 weeks</text>
 
-  <!-- Phase 6 -->
-  <circle cx="510" cy="250" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="233" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="251" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: Plugins, SDK + First Plugins</text>
-  <text x="544" y="267" font-size="9" fill="#a9b1d6">Plugin architecture, file sharing, WoL</text>
-  <text x="850" y="258" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
+  <!-- Phase 10: Desktop Gateway -->
+  <circle cx="510" cy="310" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="293" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="311" font-size="11" font-weight="600" fill="#c0caf5">Phase 10: Desktop Gateway + Private DNS</text>
+  <text x="544" y="327" font-size="9" fill="#a9b1d6">Transparent access, DNS resolution</text>
+  <text x="850" y="318" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
 
-  <!-- Phase 7 -->
-  <circle cx="510" cy="300" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="283" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="301" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: Distribution + Launch</text>
-  <text x="544" y="317" font-size="9" fill="#a9b1d6">Use-case content (GPU, IoT, gaming)</text>
-  <text x="850" y="308" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">1-2 weeks</text>
+  <!-- Phase 11: Mobile -->
+  <circle cx="510" cy="360" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="343" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="361" font-size="11" font-weight="600" fill="#c0caf5">Phase 11: Mobile Apps</text>
+  <text x="544" y="377" font-size="9" fill="#a9b1d6">iOS + Android native clients</text>
+  <text x="850" y="368" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
 
-  <!-- Phase 8 -->
-  <circle cx="510" cy="350" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="333" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="351" font-size="11" font-weight="600" fill="#c0caf5">Phase 8: Desktop Gateway + Private DNS</text>
-  <text x="544" y="367" font-size="9" fill="#a9b1d6">Transparent access, DNS resolution</text>
-  <text x="850" y="358" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
+  <!-- Phase 12: Federation -->
+  <circle cx="510" cy="410" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="393" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="411" font-size="11" font-weight="600" fill="#c0caf5">Phase 12: Federation</text>
+  <text x="544" y="427" font-size="9" fill="#a9b1d6">Cross-network peer group interop</text>
+  <text x="850" y="418" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
 
-  <!-- Phase 9 -->
-  <circle cx="510" cy="400" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="383" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="401" font-size="11" font-weight="600" fill="#c0caf5">Phase 9: Mobile Apps</text>
-  <text x="544" y="417" font-size="9" fill="#a9b1d6">iOS + Android native clients</text>
-  <text x="850" y="408" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
+  <!-- Phase 13 (Optional) -->
+  <circle cx="510" cy="460" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="443" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="461" font-size="11" font-weight="600" fill="#a9b1d6">Phase 13: Advanced Naming</text>
+  <text x="544" y="477" font-size="9" fill="#565f89">Optional - blockchain/distributed naming</text>
+  <text x="850" y="468" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">2-3 weeks</text>
 
-  <!-- Phase 10 -->
-  <circle cx="510" cy="450" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="433" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="451" font-size="11" font-weight="600" fill="#c0caf5">Phase 10: Federation</text>
-  <text x="544" y="467" font-size="9" fill="#a9b1d6">Cross-network peer group interop</text>
-  <text x="850" y="458" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
-
-  <!-- Phase 11 (Optional) -->
-  <circle cx="510" cy="500" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="483" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="501" font-size="11" font-weight="600" fill="#a9b1d6">Phase 11: Advanced Naming</text>
-  <text x="544" y="517" font-size="9" fill="#565f89">Optional - blockchain/distributed naming</text>
-  <text x="850" y="508" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">2-3 weeks</text>
-
-  <!-- Phase 12+ (Conceptual) -->
-  <circle cx="510" cy="550" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="533" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="551" font-size="11" font-weight="600" fill="#a9b1d6">Phase 12+: Ecosystem</text>
-  <text x="544" y="567" font-size="9" fill="#565f89">Ongoing - community, integrations, growth</text>
-  <text x="850" y="558" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
+  <!-- Phase 14+ (Conceptual) -->
+  <circle cx="510" cy="510" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="493" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="511" font-size="11" font-weight="600" fill="#a9b1d6">Phase 14+: Ecosystem</text>
+  <text x="544" y="527" font-size="9" fill="#565f89">Ongoing - community, integrations, growth</text>
+  <text x="850" y="518" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
 
   <!-- Legend -->
-  <rect x="30" y="645" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
-  <circle cx="70" cy="660" r="5" fill="#9ece6a"/>
-  <text x="82" y="664" font-size="9" fill="#a9b1d6">Complete</text>
-  <circle cx="170" cy="660" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <text x="182" y="664" font-size="9" fill="#a9b1d6">Planned</text>
-  <circle cx="270" cy="660" r="5" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <text x="282" y="664" font-size="9" fill="#a9b1d6">Future / Optional</text>
-  <circle cx="410" cy="660" r="5" fill="#e8729a" filter="url(#glow)"/>
-  <text x="422" y="664" font-size="9" fill="#a9b1d6">Current position</text>
+  <rect x="30" y="695" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
+  <circle cx="70" cy="710" r="5" fill="#9ece6a"/>
+  <text x="82" y="714" font-size="9" fill="#a9b1d6">Complete</text>
+  <circle cx="190" cy="710" r="5" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="202" y="714" font-size="9" fill="#a9b1d6">Planned</text>
+  <circle cx="300" cy="710" r="5" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="312" y="714" font-size="9" fill="#a9b1d6">Future / Optional</text>
+  <circle cx="450" cy="710" r="5" fill="#e8729a" filter="url(#glow)"/>
+  <text x="462" y="714" font-size="9" fill="#a9b1d6">Current position</text>
 </svg>

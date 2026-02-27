@@ -10,6 +10,7 @@ Everything you need to know about Shurli, from getting started to deep architect
   {{< card link="network-tools" title="Network Tools" subtitle="Ping, traceroute, and resolve" icon="wifi" >}}
   {{< card link="faq" title="FAQ" subtitle="Security, comparisons, troubleshooting" icon="question-mark-circle" >}}
   {{< card link="trust" title="Trust & Security" subtitle="Threat model, vuln reporting, audit history" icon="shield-check" >}}
+  {{< card link="daemon-service" title="Daemon Service" subtitle="Run as a system service on Linux or macOS" icon="cog" >}}
   {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay server" icon="server" >}}
   {{< card link="monitoring" title="Monitoring" subtitle="Prometheus, Grafana, and audit logging" icon="chart-bar" >}}
   {{< card link="daemon-api" title="Daemon API" subtitle="REST API reference for the daemon" icon="terminal" >}}

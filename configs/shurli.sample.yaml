@@ -28,9 +28,15 @@ network:
     - "/ip6/::/udp/0/quic-v1"
 
   # Force libp2p to treat this node as private (behind NAT)
-  # Set to true for "shurli daemon" behind CGNAT (e.g., Starlink)
+  # Set to true for "shurli daemon" behind CGNAT (e.g., satellite ISP)
   # Set to false for clients
   force_private_reachability: false
+
+  # Force CGNAT detection for carriers using RFC 1918 addresses.
+  # Auto-detection works for RFC 6598 (100.64.0.0/10) but some mobile
+  # carriers use 172.x.x.x which looks identical to a home network.
+  # Set to true if you know you're behind carrier-grade NAT.
+  # force_cgnat: false
 
   # Enable libp2p resource manager (bounds connections, streams, memory).
   # Recommended for long-running daemons. Auto-scales based on system resources.
@@ -47,6 +53,9 @@ discovery:
   # Rendezvous string for DHT discovery (must match between peers)
   rendezvous: "shurli-default-network"
   bootstrap_peers: []
+  # mdns_enabled: true  # LAN peer discovery (default: true)
+  # net_intel_enabled: true     # Share network state with peers (default: true)
+  # announce_interval: "5m"     # How often to push state (default: 5m)
 
 security:
   # Peer ID allowlist (relative to config directory)
@@ -78,6 +87,12 @@ protocols:
 # Map friendly names to peer IDs (used by proxy and ping)
 names: {}
 #  home: "12D3KooW..."
+
+# CLI behavior (subcommand settings)
+# cli:
+#   # Allow subcommands to create their own P2P connections when no daemon
+#   # is running. Default: false (daemon required). Debug/development only.
+#   allow_standalone: false
 
 # Observability (disabled by default, opt-in)
 # telemetry:
