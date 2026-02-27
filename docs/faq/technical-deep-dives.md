@@ -48,7 +48,7 @@ No v2 of DCUtR, but continuous refinement:
 
 **Source**: [Large Scale NAT Traversal Measurement Study](https://arxiv.org/html/2510.27500v1), [libp2p Hole Punching blog](https://blog.ipfs.tech/2022-01-20-libp2p-hole-punching/)
 
-### What Shurli has done (Phase 4C - shipped)
+### What Shurli has done (through Phase 5 - shipped)
 
 | Optimization | Status |
 |-------------|--------|
@@ -71,8 +71,16 @@ No v2 of DCUtR, but continuous refinement:
 | **Startup race fix** | Done (Pre-Phase 5: handlers registered before DHT bootstrap) |
 | **Stale address detection** | Done (Pre-Phase 5: `[stale?]` labels after network change) |
 | **systemd/launchd services** | Done (Pre-Phase 5: `shurli service install/start/stop/status`) |
+| **Native mDNS via dns_sd.h** | Done (Phase 5: CGo binding to platform mDNS daemon, zeroconf fallback) |
+| **PeerManager lifecycle** | Done (Phase 5: watchlist, reconnect loop, exponential backoff, event-driven state) |
+| **Stale connection cleanup** | Done (Phase 5: match connection local IPs against removed interfaces, instant close) |
+| **Immediate reconnect trigger** | Done (Phase 5: `reconnectNow` channel wakes loop after network change) |
+| **IPv6 path probing** | Done (Phase 5: source-bound TCP probes bypass macOS utun, cross-ISP DIRECT at 23ms) |
+| **mDNS LAN-first connect** | Done (Phase 5: private IPv4 subnet filter, peerstore ordering, ForceDirectDial) |
+| **Relay-discard logic** | Done (Phase 5: PeerManager discards relay when mDNS direct exists) |
+| **Automatic WiFi transition** | Done (Phase 5: no daemon restart on any network switch, 5-15s recovery) |
 
-These changes brought connection setup closer to 3-10 seconds via parallel dial racing, while keeping the self-sovereign architecture. Connection warmup and stream pooling remain as future optimizations.
+Connection setup: 3-10 seconds via parallel dial racing. WiFi transition: 5-15 seconds automatic recovery. Connection priority: LAN (mDNS) > Direct IPv6 (path probing) > Relay (fallback). Tested on 5 physical networks.
 
 ---
 
@@ -162,7 +170,7 @@ This is a future optimization for Shurli's QUIC transport - particularly valuabl
 
 ### Why Go is right for now
 
-Go's simplicity enabled rapid iteration through 7 phases of development. The libp2p Go ecosystem is the most mature, with the most examples and documentation. For a project with 1-100 concurrent connections (typical home use), Go's performance is more than adequate.
+Go's simplicity enabled rapid iteration across 5 major development phases (14+ batches). The libp2p Go ecosystem is the most mature, with the most examples and documentation. For a project with 1-100 concurrent connections (typical home use), Go's performance is more than adequate.
 
 ### When Rust becomes worth it
 
@@ -196,6 +204,7 @@ The reachability grade combines two data sources: interface discovery and STUN p
 - Global unicast IPv6 -> public
 - Public IPv4 (not RFC 1918 / RFC 6598) -> public
 - RFC 6598 (`100.64.0.0/10`) -> CGNAT flag set
+- `network.force_cgnat: true` in config -> CGNAT flag set (for RFC 1918 carriers)
 - Everything else -> private/local
 
 **STUN probing** uses Google's public STUN servers to determine NAT behavior. It reports the external IP, port allocation strategy, and filtering behavior.
@@ -246,4 +255,65 @@ Each daemon maintains a local `peer_history.json` file tracking interaction data
 
 ---
 
-**Last Updated**: 2026-02-25
+## How does automatic WiFi transition work?
+
+When you switch WiFi networks (or plug/unplug Ethernet), Shurli automatically adapts the connection path. No daemon restart, no manual intervention.
+
+### The sequence (under 500ms to start, 5-15s to complete)
+
+1. **Network change detection** (~500ms): The NetworkMonitor polls interfaces and diffs against the previous snapshot. When IPs appear or disappear, it fires callbacks.
+
+2. **Stale connection cleanup** (immediate): `CloseStaleConnections()` matches each connection's local IP against the removed IPs from the network change. Connections on the disappeared interface are closed instantly instead of waiting for TCP keepalive timeout (which can take minutes).
+
+3. **Backoff reset + immediate reconnect** (immediate): `OnNetworkChange()` zeroes all backoff timers and sends on the `reconnectNow` channel, which wakes the reconnect loop immediately instead of waiting for the next 30-second tick.
+
+4. **mDNS re-browse** (5-10s): `BrowseNow()` triggers immediate LAN discovery. If the new network has a peer on the same LAN, mDNS connects directly using private IPv4.
+
+5. **IPv6 path probing** (3-10s, background): `ProbeAndUpgradeRelayed()` checks if any relayed peer is reachable via direct IPv6 through a secondary interface (e.g., USB LAN with public IPv6).
+
+### Connection priority table
+
+Shurli enforces a strict priority order:
+
+```
+LAN (mDNS, private IPv4)  >  Direct IPv6 (path probing)  >  Relay (fallback)
+```
+
+- Same LAN as peer: DIRECT via mDNS at ~23ms
+- Different network with public IPv6: DIRECT via IPv6 probing
+- No IPv6, behind CGNAT: RELAYED via VPS relay at ~180ms
+
+The priority is enforced automatically. If you switch from a relay network to a LAN with the peer, mDNS discovers the peer and establishes direct. If PeerManager simultaneously establishes a relay connection, it detects the existing direct connection and discards the relay.
+
+### What happens to active connections?
+
+Active streams (ping, proxy, file transfer) will break during the transition. The underlying TCP/QUIC connection is gone when the interface disappears. After reconnection (5-15 seconds), new streams work normally.
+
+Future optimization: QUIC 0-RTT session resumption could make this seamless by resuming encrypted sessions across network changes.
+
+---
+
+## How does mDNS LAN discovery filter addresses?
+
+mDNS discovers all of a peer's addresses (typically 14: private IPv4, public IPv6, ULA, loopback, across TCP and QUIC). But "discovered via mDNS" means "same LAN," so most of those addresses are wrong for LAN communication.
+
+### The problem with using all addresses
+
+`host.Connect()` uses every address in the peerstore, not just what you pass in `pi.Addrs`. Adding all 14 addresses before connecting causes the swarm to try unreachable ones:
+- Public IPv6 on satellite networks (client isolation blocks inter-client IPv6)
+- ULA addresses (fd00::/8, also blocked by client isolation)
+- Loopback (127.0.0.1, obviously wrong)
+
+Each unreachable address burns a 5-second timeout. The LAN connection that should take milliseconds takes over a minute.
+
+### The filter: private IPv4 on matching subnets
+
+`filterLANAddrs()` keeps only multiaddrs whose first component is IPv4 and whose IP falls within a local interface's CIDR subnet. For example, if your Mac is on `10.1.226.144/16`, only peer addresses in `10.1.0.0/16` pass the filter.
+
+Result: 14 addresses become 2 (one TCP, one QUIC on the LAN IPv4). Connect completes in milliseconds.
+
+The full address set is added to the peerstore AFTER the connect succeeds, so other subsystems (identify exchange, path tracker) still have the complete picture.
+
+---
+
+**Last Updated**: 2026-02-27

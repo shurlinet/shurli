@@ -251,7 +251,7 @@ func TestPingThroughRelay(t *testing.T) {
 	t.Log("Pinging node-a from node-b...")
 	// Config is at default location (~/.config/shurli/config.yaml), no --config needed.
 	out, stderr, err := dockerExecWithTimeout("node-b", 90*time.Second,
-		"shurli", "ping", "--json", "-c", "2", "home")
+		"shurli", "ping", "--standalone", "--json", "-c", "2", "home")
 	if err != nil {
 		t.Fatalf("node-b ping failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)
 	}
