@@ -1,6 +1,6 @@
 ---
 title: "Dev Tooling"
-weight: 15
+weight: 16
 description: "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."
 ---
 <!-- Auto-synced from docs/engineering-journal/dev-tooling.md by sync-docs - do not edit directly -->

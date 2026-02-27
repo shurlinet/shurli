@@ -84,7 +84,7 @@ The grade is computed from interface discovery (which IPs are available) and STU
 
 The grade helps you understand *why* a connection goes through the relay instead of direct. A peer with grade D behind CGNAT connecting to a peer with grade A on public IPv6 will likely go direct via the grade-A peer's address. Two grade-D peers will relay.
 
-**CGNAT grade capping**: STUN can report "hole-punchable" when a port-restricted NAT sits behind CGNAT, because STUN only sees the inner NAT. The outer CGNAT will still drop unsolicited inbound packets. The grade computation overrides STUN's false optimism by capping at grade D whenever CGNAT is detected on a local interface (RFC 6598 `100.64.0.0/10`). Mobile carriers using RFC 1918 addresses for CGNAT cannot be detected this way.
+**CGNAT grade capping**: STUN can report "hole-punchable" when a port-restricted NAT sits behind CGNAT, because STUN only sees the inner NAT. The outer CGNAT will still drop unsolicited inbound packets. The grade computation overrides STUN's false optimism by capping at grade D whenever CGNAT is detected on a local interface (RFC 6598 `100.64.0.0/10`) or forced via `network.force_cgnat: true` in config. The config override exists for mobile carriers that use RFC 1918 addresses for CGNAT, where auto-detection is impossible.
 
 ---
 

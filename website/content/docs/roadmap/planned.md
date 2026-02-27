@@ -166,6 +166,9 @@ The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. 
 | Release binaries | GitHub Releases | GitLab Releases (GoReleaser) | Pinned on Filebase |
 | Static site | GitHub Pages | GitLab Pages | Pinned + DNSLink ready |
 | DNS failover | CNAME -> GitHub Pages | Manual flip to GitLab Pages | Manual flip to Cloudflare IPFS gateway |
+| Source links | `shurli.io/source/*` redirects | Same URLs, different target | Same URLs, different target |
+
+All documentation source references (code paths in engineering journal, architecture docs, etc.) link through `shurli.io/source/` instead of directly to any git host. When the primary moves, update one redirect config. Old search engine cached URLs and LLM training snapshots still resolve through the domain we control.
 
 **Package Managers & Binaries**:
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)

@@ -6,7 +6,7 @@ description: "P2P network diagnostic commands: ping, traceroute, and resolve. Wo
 <!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs - do not edit directly -->
 
 
-Shurli provides P2P network diagnostic commands that mirror familiar system utilities. These work both standalone (create a temporary P2P host) and through the daemon API (use the existing host for faster operation).
+Shurli provides P2P network diagnostic commands that mirror familiar system utilities. These route through the running daemon by default, using the daemon's managed connections for optimal path selection and zero bootstrap overhead.
 
 ## Table of Contents
 
@@ -24,11 +24,7 @@ P2P `ping` - measures round-trip time and connection path to a peer.
 ### Usage
 
 ```bash
-# Standalone (creates temp host, pings, exits)
-shurli ping <peer> [-c N] [--interval 1s] [--json] [--config path]
-
-# Via daemon (reuses existing host - faster)
-shurli daemon ping <peer> [-c N] [--interval 1s] [--json]
+shurli ping <peer> [-c N] [--interval 1s] [--json] [--standalone] [--config path]
 ```
 
 ### Behavior
@@ -103,14 +99,7 @@ P2P `traceroute` - shows the network path to a peer with per-hop latency.
 ### Usage
 
 ```bash
-# Standalone
-shurli traceroute <peer> [--json] [--config path]
-
-# Via daemon API
-curl -X POST -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     -d '{"peer":"home-server"}' \
-     --unix-socket ~/.config/shurli/shurli.sock \
-     http://localhost/v1/traceroute
+shurli traceroute <peer> [--json] [--standalone] [--config path]
 ```
 
 ### Path Visualization
@@ -212,28 +201,44 @@ names:
 
 ---
 
-## Standalone vs Daemon
+## Daemon-First Architecture
 
-All network tools work in two modes:
+All network commands route through the running daemon by default. The daemon manages P2P connections with PeerManager, which automatically upgrades paths (relay to direct), handles mDNS LAN discovery, and recovers from network changes.
 
-| Mode | Command | Speed | When to Use |
-|------|---------|-------|-------------|
-| Standalone | `shurli ping home-server` | Slower (creates temp host, bootstraps DHT) | One-off diagnostics, daemon not running |
-| Daemon | `shurli daemon ping home-server` | Faster (reuses existing host + connections) | Repeated diagnostics, scripting |
+| Mode | How | Speed | Path Upgrades |
+|------|-----|-------|---------------|
+| Daemon (default) | Subcommand talks to daemon via Unix socket API | Instant (no bootstrap) | Yes (PeerManager) |
+| Standalone | `--standalone` flag or `cli.allow_standalone` config | 5-15s bootstrap | No |
 
-### Standalone Startup
+### Why Daemon-First
 
-When running standalone, the tool:
+Standalone subcommands create their own temporary P2P host with no PeerManager, no mDNS, no IPv6 probing. If the remote peer restarts, a standalone proxy reconnects via relay and stays there, even when a direct path is available. The daemon's managed connection handles all of this automatically.
 
-1. Loads config to find relay addresses, bootstrap peers, and names
-2. Creates a temporary libp2p host
-3. Bootstraps into the DHT (client mode)
-4. Connects to relay servers
-5. Finds the target peer via DHT or relay fallback
-6. Runs the diagnostic
-7. Shuts down the host
+### Standalone Mode (Debug Only)
 
-This takes 5-15 seconds for initial setup. The daemon mode skips all of this.
+Standalone mode is disabled by default. To enable it:
+
+**One-off** (CLI flag):
+```bash
+shurli ping --standalone home-server
+shurli proxy --standalone home ssh 2222
+shurli traceroute --standalone home-server
+```
+
+**Persistent** (config file):
+```yaml
+cli:
+  allow_standalone: true
+```
+
+When standalone is disabled and no daemon is running, the command prints:
+```
+Daemon not running. Start it with:
+  shurli daemon
+
+Or use --standalone flag for direct P2P (debug):
+  shurli ping --standalone home-server
+```
 
 ### Shared Logic
 
@@ -241,6 +246,10 @@ Both modes use the same underlying functions:
 - `p2pnet.PingPeer()` - streaming ping with configurable count and interval
 - `p2pnet.ComputePingStats()` - min/avg/max/loss statistics
 - `p2pnet.TracePeer()` - connection path analysis
+
+### Known Limitation
+
+Continuous ping (`shurli ping home-server` without `-c`) requires standalone mode because the daemon's HTTP API collects all results before responding and cannot stream. Use `-c N` for daemon-routed pings.
 
 ---
 
@@ -256,4 +265,4 @@ Both modes use the same underlying functions:
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-02-27
