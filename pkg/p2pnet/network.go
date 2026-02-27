@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
@@ -143,7 +145,7 @@ func New(cfg *Config) (*Network, error) {
 	hostOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.Transport(libp2pquic.NewTransport),
-		libp2p.Transport(tcp.NewTCPTransport),
+		libp2p.Transport(tcp.NewTCPTransport, tcp.WithDialerForAddr(sourceBindDialerForAddr)),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
 	}
@@ -165,6 +167,14 @@ func New(cfg *Config) (*Network, error) {
 	if cfg.Config != nil && len(cfg.Config.Network.ListenAddresses) > 0 {
 		hostOpts = append(hostOpts, libp2p.ListenAddrStrings(cfg.Config.Network.ListenAddresses...))
 	}
+
+	// Ensure global IPv6 addresses from all interfaces are advertised.
+	// libp2p's default address manager only includes addresses from the
+	// OS default route interface. When a secondary interface (e.g., USB
+	// LAN) has global IPv6 but the primary (e.g., 5G WiFi) does not,
+	// those addresses are silently dropped. This factory adds them back
+	// so identify/DHT advertise the full address set to peers.
+	hostOpts = append(hostOpts, libp2p.AddrsFactory(globalIPv6AddrsFactory))
 
 	// Add relay support if enabled
 	if cfg.EnableRelay {
@@ -252,6 +262,138 @@ func New(cfg *Config) (*Network, error) {
 	}
 
 	return net, nil
+}
+
+// sourceBindDialerForAddr returns a source-bound TCP dialer for global IPv6
+// destinations. This fixes macOS routing on systems where disconnected VPN
+// apps (Mullvad, ExpressVPN, ProtonVPN, etc.) create utun interfaces with
+// default IPv6 routes that capture all unbound traffic, even when the VPN
+// is not connected.
+//
+// For global IPv6 destinations: binds to the local global IPv6 address so
+// the kernel routes through the real interface (e.g., USB LAN) instead of
+// the dead utun interface.
+//
+// For all other destinations (IPv4, link-local, loopback): returns a plain
+// net.Dialer with no source binding, preserving default behavior.
+func sourceBindDialerForAddr(raddr ma.Multiaddr) (tcp.ContextDialer, error) {
+	first, _ := ma.SplitFirst(raddr)
+	if first == nil || first.Protocol().Code != ma.P_IP6 {
+		return &net.Dialer{}, nil
+	}
+
+	ip := net.ParseIP(first.Value())
+	if ip == nil || !isGlobalIPv6(ip) {
+		return &net.Dialer{}, nil
+	}
+
+	// Destination is global IPv6. Source-bind to our global IPv6 so the
+	// kernel routes through the real interface, bypassing utun defaults.
+	summary, err := DiscoverInterfaces()
+	if err != nil || !summary.HasGlobalIPv6 || len(summary.GlobalIPv6Addrs) == 0 {
+		return &net.Dialer{}, nil
+	}
+
+	localIP := net.ParseIP(summary.GlobalIPv6Addrs[0])
+	if localIP == nil {
+		return &net.Dialer{}, nil
+	}
+
+	return &net.Dialer{
+		LocalAddr: &net.TCPAddr{IP: localIP},
+	}, nil
+}
+
+// globalIPv6AddrsFactory ensures global IPv6 addresses from all network
+// interfaces are included in the host's advertised address set.
+//
+// libp2p's default address manager (interfaceAddrs.Filtered) only returns
+// addresses from the OS default route interface. When the default route is
+// 5G WiFi (no global IPv6) but a secondary interface like USB LAN has
+// global IPv6, those addresses are silently dropped. Peers never learn
+// about the IPv6 path through identify or DHT.
+//
+// This factory detects missing global IPv6 and adds it back by extracting
+// the listen port from the loopback IPv6 entry (which shares the same
+// wildcard socket) and constructing addresses for each global IPv6.
+func globalIPv6AddrsFactory(addrs []ma.Multiaddr) []ma.Multiaddr {
+	// Check if global IPv6 is already present in the address set.
+	for _, a := range addrs {
+		first, _ := ma.SplitFirst(a)
+		if first == nil || first.Protocol().Code != ma.P_IP6 {
+			continue
+		}
+		maddr, err := manet.ToNetAddr(a)
+		if err != nil {
+			continue
+		}
+		tcpAddr, ok := maddr.(*net.TCPAddr)
+		if !ok {
+			continue
+		}
+		if tcpAddr.IP != nil && isGlobalIPv6(tcpAddr.IP) {
+			return addrs // Already has global IPv6, nothing to add.
+		}
+	}
+
+	// Extract IPv6 TCP and QUIC listen ports from loopback entries.
+	// The wildcard listen /ip6/::/tcp/0 binds [::]:PORT, so loopback
+	// and all other IPv6 interfaces share the same port.
+	var tcpPort, quicPort string
+	for _, a := range addrs {
+		first, _ := ma.SplitFirst(a)
+		if first == nil || first.Protocol().Code != ma.P_IP6 {
+			continue
+		}
+		if first.Value() != "::1" {
+			continue
+		}
+		ma.ForEach(a, func(c ma.Component) bool {
+			switch c.Protocol().Code {
+			case ma.P_TCP:
+				if tcpPort == "" {
+					tcpPort = c.Value()
+				}
+			case ma.P_UDP:
+				if quicPort == "" {
+					quicPort = c.Value()
+				}
+			}
+			return true
+		})
+	}
+
+	if tcpPort == "" && quicPort == "" {
+		return addrs // No IPv6 listeners at all.
+	}
+
+	// Discover global IPv6 addresses from all interfaces.
+	summary, err := DiscoverInterfaces()
+	if err != nil || !summary.HasGlobalIPv6 {
+		return addrs
+	}
+
+	// Add each global IPv6 with the wildcard socket ports.
+	for _, ip6 := range summary.GlobalIPv6Addrs {
+		if tcpPort != "" {
+			addr, err := ma.NewMultiaddr("/ip6/" + ip6 + "/tcp/" + tcpPort)
+			if err == nil {
+				addrs = append(addrs, addr)
+			}
+		}
+		if quicPort != "" {
+			addr, err := ma.NewMultiaddr("/ip6/" + ip6 + "/udp/" + quicPort + "/quic-v1")
+			if err == nil {
+				addrs = append(addrs, addr)
+			}
+		}
+	}
+
+	slog.Debug("addrs-factory: added global IPv6",
+		"ipv6_count", len(summary.GlobalIPv6Addrs),
+		"tcpPort", tcpPort, "quicPort", quicPort)
+
+	return addrs
 }
 
 // Host returns the underlying libp2p host

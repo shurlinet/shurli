@@ -242,6 +242,59 @@ Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin gener
 
 Zero new dependencies. Binary size unchanged at 28MB.
 
+### Post-I-2: Peer Introduction Protocol
+
+Relay-mediated peer introduction with HMAC group commitment. When a new peer joins via relay pairing, the relay pushes introductions to existing peers in the same group.
+
+- [x] `/shurli/peer-notify/1.0.0` protocol for relay-pushed introductions
+- [x] HMAC-SHA256(token, groupID) proves token possession during pairing
+- [x] Relay notifies all group members when a new peer joins
+
+### Pre-Phase 5 Hardening
+
+8 cross-network bug fixes discovered during live hardware testing. Fixed before Phase 5 implementation.
+
+- [x] 5 NoDaemon test isolation fixes (tests conflicting with live daemon)
+- [x] 3 stale Homebrew tap references updated (satindergrewal -> shurlinet)
+- [x] Cross-network connectivity verified across 3 machines
+
+---
+
+## Phase 5: Network Intelligence
+
+Smarter peer discovery, lifecycle management, and network-wide presence. Three sub-phases: mDNS for instant LAN discovery, PeerManager for reliable reconnection, and NetIntel for presence announcements with gossip forwarding.
+
+### 5-K: mDNS Local Discovery
+
+Zero-config peer discovery on the local network. When two Shurli nodes are on the same LAN, mDNS finds them without DHT lookups or relay bootstrap. Uses platform-native DNS-SD APIs (dns_sd.h via CGo on macOS/Linux) to cooperate with the system mDNS daemon instead of competing for the multicast socket.
+
+- [x] zeroconf.RegisterProxy for mDNS service advertising (dnsaddr= TXT records)
+- [x] Platform-native browse via dns_sd.h (mDNSResponder on macOS, avahi on Linux)
+- [x] Zeroconf fallback for Windows, FreeBSD, and CGO_ENABLED=0 builds
+- [x] mDNS-discovered peers checked against authorized_keys (ConnectionGater enforces)
+- [x] Config option: `discovery.mdns_enabled: true` (default: true)
+- [x] Explicit DHT routing table refresh on network change events
+- [x] Dedup, semaphore-limited concurrent connects, 10-minute address TTL
+
+### 5-L: PeerManager
+
+Background reconnection of authorized peers with exponential backoff. Watches the authorized_keys file for changes and maintains connections to all known peers.
+
+- [x] Periodic sweep of authorized peers with configurable interval (default: 30s)
+- [x] Exponential backoff per peer (30s -> 60s -> 120s -> 300s max)
+- [x] Authorized_keys file watcher with debounced reload
+- [x] Graceful shutdown with in-flight connection draining
+
+### 5-M: NetIntel (Network Intelligence Presence)
+
+Lightweight presence protocol using direct streams. Each peer publishes its presence (addresses, capabilities, uptime) to connected peers at regular intervals. Gossip forwarding with TTL propagates presence through the network without requiring direct connections to every peer.
+
+- [x] `/shurli/netintel/1.0.0` stream protocol for presence announcements
+- [x] Periodic publish (default: 5 minutes) with immediate publish on address change
+- [x] Gossip forwarding: fanout=3, maxHops=3, dedup by message hash
+- [x] In-memory peer presence table with 15-minute TTL
+- [x] GossipSub activation deferred until go-libp2p-pubsub supports go-libp2p v0.47+
+
 ### Industry References
 
 - **Juniper JunOS `commit confirmed`**: Apply config, auto-revert if not confirmed. Prevents lockout on remote devices.

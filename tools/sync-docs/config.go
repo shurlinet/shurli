@@ -50,7 +50,8 @@ var journalEntries = []journalEntry{
 	{"batch-i-adaptive-path.md", 12, "Batch I - Adaptive Path Selection", "Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, every-peer-is-a-relay."},
 	{"post-i-2-trust-and-delivery.md", 13, "Post-I-2 - Trust & Delivery", "Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verification, reachability grades, sovereign interaction history."},
 	{"pre-phase5-hardening.md", 14, "Pre-Phase 5 Hardening", "Startup race fix, stale address detection, systemd/launchd service deployment."},
-	{"dev-tooling.md", 15, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
+	{"phase5-network-resilience.md", 15, "Phase 5 - Network Resilience", "Native mDNS via dns_sd.h, PeerManager lifecycle, stale connection cleanup, IPv6 path probing, mDNS LAN-first connect, relay-discard logic."},
+	{"dev-tooling.md", 16, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).

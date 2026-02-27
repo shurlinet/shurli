@@ -37,16 +37,14 @@ func Run(ctx context.Context, cfg Config, checks []HealthCheck) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			allHealthy := true
 			for _, hc := range checks {
 				if err := hc.Check(); err != nil {
 					slog.Warn("health check failed", "check", hc.Name, "error", err)
-					allHealthy = false
 				}
 			}
-			if allHealthy {
-				Watchdog()
-			}
+			// Always heartbeat. The watchdog proves "I'm alive",
+			// not "all checks pass". Health issues are logged above.
+			Watchdog()
 		}
 	}
 }

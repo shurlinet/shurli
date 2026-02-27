@@ -58,6 +58,18 @@ type serveRuntime struct {
 	// STUN prober for NAT type detection and external address discovery
 	stunProber *p2pnet.STUNProber
 
+	// mDNS local discovery (nil when disabled)
+	mdnsDiscovery *p2pnet.MDNSDiscovery
+
+	// Peer lifecycle management (background reconnection with backoff)
+	peerManager *p2pnet.PeerManager
+
+	// Network intelligence presence protocol (nil when disabled)
+	netIntel *p2pnet.NetIntel
+
+	// Routing discovery for DHT re-advertising on network change
+	routingDiscovery *drouting.RoutingDiscovery
+
 	// Peer relay (auto-enabled when public IP detected)
 	peerRelay *p2pnet.PeerRelay
 
@@ -352,6 +364,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Advertise ourselves on the DHT using a rendezvous string
 	routingDiscovery := drouting.NewRoutingDiscovery(kdht)
+	rt.routingDiscovery = routingDiscovery
 	fmt.Printf("Advertising on rendezvous: %s\n", cfg.Discovery.Rendezvous)
 
 	// Keep advertising in the background
@@ -374,6 +387,64 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Initialize path tracker for per-peer connection visibility
 	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
 	go rt.pathTracker.Start(rt.ctx)
+
+	// Initialize PeerManager for background reconnection of authorized peers.
+	rt.peerManager = p2pnet.NewPeerManager(h, rt.pathDialer, rt.metrics,
+		func(peerID, pathType string, latencyMs float64) {
+			if rt.peerHistory != nil {
+				rt.peerHistory.RecordConnection(peerID, pathType, latencyMs)
+			}
+		},
+	)
+	if rt.gater != nil {
+		rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
+	}
+	rt.peerManager.Start(rt.ctx)
+
+	// Start network intelligence presence protocol (default: enabled).
+	// Shares reachability, NAT type, and capability info with connected peers
+	// via direct push + gossip forwarding (Layer 1 + Layer 2 transport).
+	if cfg.Discovery.IsNetIntelEnabled() {
+		announceInterval := cfg.Discovery.AnnounceInterval // 0 = default
+		rt.netIntel = p2pnet.NewNetIntel(h, rt.metrics,
+			// PeerFilter: only share with and cache from authorized peers.
+			// When public network mode lands, this callback gets a second
+			// branch for open-network peers. No change to NetIntel itself.
+			func(pid peer.ID) bool {
+				if rt.gater == nil {
+					return true
+				}
+				return rt.gater.IsAuthorized(pid)
+			},
+			// NodeStateProvider: build announcement from current runtime state.
+			func() *p2pnet.NodeAnnouncement {
+				ann := &p2pnet.NodeAnnouncement{
+					Version:   1,
+					UptimeSec: int64(time.Since(rt.startTime).Seconds()),
+					PeerCount: len(h.Network().Peers()),
+					Timestamp: time.Now().Unix(),
+				}
+				if rt.ifSummary != nil {
+					ann.HasIPv4 = rt.ifSummary.HasGlobalIPv4
+					ann.HasIPv6 = rt.ifSummary.HasGlobalIPv6
+				}
+				var stunResult *p2pnet.STUNResult
+				if rt.stunProber != nil {
+					stunResult = rt.stunProber.Result()
+					if stunResult != nil {
+						ann.NATType = string(stunResult.NATType)
+						ann.BehindCGNAT = stunResult.BehindCGNAT
+					}
+				}
+				grade := p2pnet.ComputeReachabilityGrade(rt.ifSummary, stunResult)
+				ann.Grade = grade.Grade
+				return ann
+			},
+			announceInterval,
+		)
+		rt.netIntel.Start(rt.ctx)
+		fmt.Println("Network intelligence (presence) enabled")
+	}
 
 	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
 	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
@@ -402,6 +473,37 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerRelay.AutoDetect(newSummary)
 		}
 
+		// Close connections on interfaces that just disappeared. Without
+		// this, dead sockets sit until TCP keepalive timeout (minutes),
+		// blocking reconnection through the new active interface.
+		if rt.peerManager != nil && len(change.Removed) > 0 {
+			rt.peerManager.CloseStaleConnections(change.Removed)
+		}
+
+		// Reset backoffs and trigger immediate reconnect cycle.
+		if rt.peerManager != nil {
+			rt.peerManager.OnNetworkChange()
+		}
+
+		// Trigger immediate mDNS re-browse. If we just returned to a LAN
+		// where a peer exists, mDNS will discover it and upgrade the path
+		// from RELAYED to DIRECT without waiting for the next 30s cycle.
+		if rt.mdnsDiscovery != nil {
+			rt.mdnsDiscovery.BrowseNow()
+		}
+
+		// Probe direct paths through newly available interfaces.
+		// If a relayed peer is reachable via IPv6 on a secondary
+		// interface (e.g., USB LAN), upgrade to direct.
+		if rt.peerManager != nil {
+			go rt.peerManager.ProbeAndUpgradeRelayed()
+		}
+
+		// Re-announce network state immediately so peers get fresh capabilities.
+		if rt.netIntel != nil {
+			rt.netIntel.AnnounceNow()
+		}
+
 		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
 			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
 
@@ -414,10 +516,28 @@ func (rt *serveRuntime) Bootstrap() error {
 				if err != nil {
 					fmt.Printf("Warning: STUN re-probe failed: %v\n", err)
 				} else {
-					result.DetectCGNAT()
+					result.DetectCGNAT(rt.config.Network.ForceCGNAT)
 				}
 			}()
 		}
+
+		// Re-bootstrap DHT and re-advertise on network change.
+		// Our addresses changed; DHT peers need the update.
+		go func() {
+			if rt.kdht != nil {
+				refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
+				defer refreshCancel()
+				if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
+					slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
+				} else {
+					slog.Info("netmonitor: DHT re-bootstrapped after network change")
+				}
+			}
+			if rt.routingDiscovery != nil {
+				rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
+				slog.Info("netmonitor: re-advertised on rendezvous")
+			}
+		}()
 
 		// Delayed stale-address check: after libp2p has time to update,
 		// warn if it still advertises addresses for removed interfaces.
@@ -452,7 +572,7 @@ func (rt *serveRuntime) Bootstrap() error {
 			return
 		}
 		// Check for CGNAT after probe completes.
-		result.DetectCGNAT()
+		result.DetectCGNAT(rt.config.Network.ForceCGNAT)
 
 		fmt.Printf("NAT type: %s", result.NATType)
 		if len(result.ExternalAddrs) > 0 {
@@ -465,6 +585,18 @@ func (rt *serveRuntime) Bootstrap() error {
 		}
 		fmt.Println()
 	}()
+
+	// Start mDNS local discovery (default: enabled).
+	// Discovered peers go through ConnectionGater; no auth bypass.
+	if cfg.Discovery.IsMDNSEnabled() {
+		rt.mdnsDiscovery = p2pnet.NewMDNSDiscovery(h, rt.metrics)
+		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
+			slog.Warn("mdns: failed to start", "error", err)
+			rt.mdnsDiscovery = nil
+		} else {
+			fmt.Println("mDNS local discovery enabled")
+		}
+	}
 
 	// Initialize peer relay (auto-enables if this host has a public IP).
 	// The existing ConnectionGater restricts who can use this relay.
@@ -652,6 +784,11 @@ func (rt *serveRuntime) SetupPeerNotify() {
 			} else {
 				rt.gater.UpdateAuthorizedPeers(newPeers)
 				slog.Info("peer-notify: gater reloaded", "peers", len(newPeers))
+
+				// Update PeerManager watchlist with newly introduced peers.
+				if rt.peerManager != nil {
+					rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
+				}
 			}
 		}
 	})
@@ -913,6 +1050,15 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	if rt.peerRelay != nil {
 		rt.peerRelay.Disable()
+	}
+	if rt.mdnsDiscovery != nil {
+		rt.mdnsDiscovery.Close()
+	}
+	if rt.peerManager != nil {
+		rt.peerManager.Close()
+	}
+	if rt.netIntel != nil {
+		rt.netIntel.Close()
 	}
 	if rt.metricsServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -45,14 +45,21 @@ func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
 		return nil
 	}
-	return &gaterReloader{gater: rt.gater, authKeysPath: rt.authKeys}
+	return &gaterReloader{
+		gater:        rt.gater,
+		authKeysPath: rt.authKeys,
+		peerManager:  rt.peerManager,
+	}
 }
 
 // gaterReloader implements daemon.GaterReloader by re-reading the
 // authorized_keys file and updating the live connection gater.
+// Also syncs PeerManager's watchlist so newly authorized peers
+// are immediately reconnected.
 type gaterReloader struct {
 	gater        *auth.AuthorizedPeerGater
 	authKeysPath string
+	peerManager  *p2pnet.PeerManager // nil-safe
 }
 
 func (g *gaterReloader) ReloadFromFile() error {
@@ -61,6 +68,9 @@ func (g *gaterReloader) ReloadFromFile() error {
 		return fmt.Errorf("failed to reload authorized_keys: %w", err)
 	}
 	g.gater.UpdateAuthorizedPeers(peers)
+	if g.peerManager != nil {
+		g.peerManager.SetWatchlist(g.gater.GetAuthorizedPeerIDs())
+	}
 	return nil
 }
 

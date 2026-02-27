@@ -452,11 +452,21 @@ func stunBytesEqual(a, b []byte) bool {
 	return true
 }
 
-// DetectCGNAT checks local network interfaces for RFC 6598 CGNAT addresses
-// (100.64.0.0/10) and sets BehindCGNAT accordingly. This is the only reliable
-// client-side signal for carrier-grade NAT. Mobile carriers using RFC 1918
-// addresses (172.16-31.x.x) cannot be distinguished from regular home networks.
-func (r *STUNResult) DetectCGNAT() {
+// DetectCGNAT checks for carrier-grade NAT. It first respects the force flag
+// (for carriers using RFC 1918 addresses where auto-detection is impossible),
+// then checks local interfaces for RFC 6598 CGNAT addresses (100.64.0.0/10).
+//
+// Mobile carriers using 172.16-31.x.x for CGNAT cannot be distinguished from
+// regular home networks. Users on those carriers should set force_cgnat: true
+// in their config.
+func (r *STUNResult) DetectCGNAT(forceCGNAT bool) {
+	if forceCGNAT {
+		r.BehindCGNAT = true
+		r.CGNATNote = "CGNAT forced via config (network.force_cgnat: true)"
+		slog.Info("stun: CGNAT forced by config")
+		return
+	}
+
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return

@@ -252,7 +252,7 @@ Many ISPs now provide globally routable public IPv6 addresses. IPv6 has no NAT -
 
 Shurli already supports IPv6 through libp2p's transport layer. AutoNAT v2 tests IPv4 and IPv6 reachability independently, so a node behind IPv4 CGNAT but with public IPv6 will correctly identify that its IPv6 addresses are directly reachable.
 
-**Expected impact**: As IPv6 adoption grows (currently ~45% globally, higher on mobile networks), the percentage of connections requiring relay will decrease. For networks where both peers have IPv6, relay is already unnecessary today.
+**Expected impact**: As IPv6 adoption grows (currently ~49% globally, higher on mobile networks), the percentage of connections requiring relay will decrease. For networks where both peers have IPv6, relay is already unnecessary today. Shurli's Phase 5 IPv6 path probing already achieves this: cross-ISP DIRECT connections at 23ms via IPv6 when both peers have public addresses.
 
 ---
 
@@ -265,11 +265,19 @@ Shurli detects CGNAT by checking local interfaces for RFC 6598 addresses (`100.6
 | Detection method | What it catches | What it misses |
 |-----------------|-----------------|----------------|
 | RFC 6598 (`100.64.0.0/10`) on local interface | Standard CGNAT deployments | Mobile carriers using RFC 1918 (`172.x.x.x`) for CGNAT |
+| `network.force_cgnat: true` in config | Any CGNAT (user-declared) | Nothing (explicit override) |
 | STUN external IP differs from local IP | Any NAT layer | Can't distinguish CGNAT from regular NAT |
 
-The limitation: mobile carriers that assign RFC 1918 addresses (like `172.20.x.x`) for CGNAT look identical to regular home networks. There's no clean way to detect this without active probing against a known endpoint. In testing, a 5G carrier using `172.20.10.x` was graded as "hole-punchable" even though most hole-punch attempts failed.
+**For carriers using RFC 1918 addresses for CGNAT**: some mobile carriers assign addresses like `172.20.x.x` which look identical to a regular home network. Auto-detection cannot distinguish these. If you know your carrier uses CGNAT, set `force_cgnat: true` in your config:
 
-The grade is honest about what it knows and what it doesn't. When CGNAT is detected, the grade says so. When it can't be detected, the grade reflects STUN results and the user sees the outcome in their actual connection path (direct vs relayed).
+```yaml
+network:
+  force_cgnat: true
+```
+
+This caps reachability at Grade D and skips hole-punch attempts that would fail through the outer carrier NAT.
+
+The grade is honest about what it knows and what it doesn't. When CGNAT is detected (or forced), the grade says so. When it can't be detected and isn't forced, the grade reflects STUN results and the user sees the outcome in their actual connection path (direct vs relayed).
 
 ---
 
