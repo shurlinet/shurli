@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-weight: 8
+weight: 11
 description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
 ---
 <!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs - do not edit directly -->
