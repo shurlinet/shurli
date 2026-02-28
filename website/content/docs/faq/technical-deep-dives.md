@@ -194,8 +194,8 @@ At scale - when a relay server handles thousands of concurrent circuits, or when
 ### The hybrid strategy
 
 Shurli's planned approach:
-1. **Now through Phase 7**: Ship in Go. Fix goroutine lifecycle, tune GC, add observability.
-2. **Phase 8+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
+1. **Now through Phase 8**: Ship in Go. Fix goroutine lifecycle, tune GC, add observability.
+2. **Phase 9+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
 3. **Long-term**: Re-evaluate full Rust migration only if market demands 100x throughput and there's engineering capacity for it.
 
 **Sources**: [Rust vs Go (Bitfield)](https://bitfieldconsulting.com/posts/rust-vs-go), [Go GC Guide](https://tip.golang.org/doc/gc-guide), [Iroh roadmap](https://www.iroh.computer/roadmap)
