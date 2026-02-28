@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 320" width="720" height="320">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="720" height="320" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="360" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">What Happens When You Switch WiFi</text>
+  <text x="360" y="40" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Six steps fire automatically. Steps 1-3 complete in under a millisecond. Full recovery: 5-15 seconds.</text>
+
+  <!-- Trigger -->
+  <rect x="20" y="56" width="140" height="44" rx="8" fill="url(#cardGrad)" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="90" y="74" font-family="system-ui, sans-serif" font-size="18" fill="#f7768e" text-anchor="middle">&#x1F4F6;</text>
+  <text x="90" y="92" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" text-anchor="middle" font-weight="600">WiFi changes</text>
+
+  <!-- Arrow -->
+  <line x1="160" y1="78" x2="180" y2="78" stroke="#f7768e" stroke-width="1.5"/>
+  <polygon points="177,74 183,78 177,82" fill="#f7768e"/>
+
+  <!-- Step 1 -->
+  <rect x="184" y="56" width="152" height="44" rx="6" fill="url(#cardGrad)" stroke="#e8729a" stroke-width="1"/>
+  <text x="196" y="74" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" font-weight="700">1</text>
+  <text x="212" y="74" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">Kill dead connections</text>
+  <text x="212" y="88" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">CloseStaleConnections()</text>
+
+  <!-- Step 2 -->
+  <rect x="346" y="56" width="152" height="44" rx="6" fill="url(#cardGrad)" stroke="#e8729a" stroke-width="1"/>
+  <text x="358" y="74" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" font-weight="700">2</text>
+  <text x="374" y="74" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">Reset + reconnect now</text>
+  <text x="374" y="88" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">OnNetworkChange() channel</text>
+
+  <!-- Step 3 -->
+  <rect x="508" y="56" width="152" height="44" rx="6" fill="url(#cardGrad)" stroke="#e8729a" stroke-width="1"/>
+  <text x="520" y="74" font-family="system-ui, sans-serif" font-size="10" fill="#e8729a" font-weight="700">3</text>
+  <text x="536" y="74" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">mDNS re-browse</text>
+  <text x="536" y="88" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">BrowseNow() - LAN peers</text>
+
+  <!-- Arrows 1->2->3 -->
+  <line x1="336" y1="78" x2="346" y2="78" stroke="#565f89" stroke-width="1"/>
+  <line x1="498" y1="78" x2="508" y2="78" stroke="#565f89" stroke-width="1"/>
+
+  <!-- Sync label -->
+  <rect x="184" y="106" width="476" height="16" rx="3" fill="#1e1d20" stroke="#e8729a" stroke-width="0.5"/>
+  <text x="422" y="117" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle">Synchronous - completes in &lt; 1ms</text>
+
+  <!-- Background goroutines -->
+  <!-- Step 4 -->
+  <rect x="80" y="138" width="180" height="56" rx="6" fill="url(#cardGrad)" stroke="#73daca" stroke-width="1"/>
+  <text x="92" y="158" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" font-weight="700">4</text>
+  <text x="108" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">IPv6 path probing</text>
+  <text x="108" y="174" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">ProbeAndUpgradeRelayed()</text>
+  <text x="108" y="186" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">Source-bound to physical interface</text>
+
+  <!-- Step 5 -->
+  <rect x="270" y="138" width="180" height="56" rx="6" fill="url(#cardGrad)" stroke="#73daca" stroke-width="1"/>
+  <text x="282" y="158" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" font-weight="700">5</text>
+  <text x="298" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">NetIntel announce</text>
+  <text x="298" y="174" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">AnnounceNow()</text>
+  <text x="298" y="186" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">Updates presence for peers</text>
+
+  <!-- Step 6 -->
+  <rect x="460" y="138" width="180" height="56" rx="6" fill="url(#cardGrad)" stroke="#73daca" stroke-width="1"/>
+  <text x="472" y="158" font-family="system-ui, sans-serif" font-size="10" fill="#73daca" font-weight="700">6</text>
+  <text x="488" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">STUN re-probe</text>
+  <text x="488" y="174" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">External address detection</text>
+  <text x="488" y="186" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">Reachability grade update</text>
+
+  <!-- Async label -->
+  <rect x="80" y="200" width="560" height="16" rx="3" fill="#1e1d20" stroke="#73daca" stroke-width="0.5"/>
+  <text x="360" y="211" font-family="system-ui, sans-serif" font-size="8" fill="#73daca" text-anchor="middle">Background goroutines - complete in 5-15 seconds</text>
+
+  <!-- Result -->
+  <rect x="80" y="230" width="560" height="72" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="360" y="252" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" text-anchor="middle" font-weight="700">&#x2705;  Connected on best available path</text>
+  <text x="360" y="270" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">LAN peer nearby? Direct at 2ms. Public IPv6? Direct at 23ms. Behind CGNAT? Relay at 180ms.</text>
+  <text x="360" y="286" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">Every metric tracked via Prometheus: interface changes, STUN probes, mDNS discovery, reconnections.</text>
+  <text x="360" y="298" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Zero daemon restarts. Zero user intervention. Zero packet loss through the transition.</text>
+</svg>
