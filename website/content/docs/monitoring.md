@@ -1,6 +1,6 @@
 ---
 title: "Monitoring"
-weight: 6
+weight: 9
 description: "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
 ---
 <!-- Auto-synced from docs/MONITORING.md by sync-docs - do not edit directly -->

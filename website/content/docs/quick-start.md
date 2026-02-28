@@ -73,3 +73,13 @@ Shurli is experimental software under active development. It is built with signi
 - You are responsible for evaluating whether Shurli is suitable for your use case
 
 If you discover a bug, please [open an issue](https://github.com/shurlinet/shurli/issues). Every report makes the project more reliable for everyone.
+
+## Next steps
+
+Now that you're connected, follow the setup journey:
+
+1. [Relay Setup](../relay-setup/) - deploy your own relay server on a VPS
+2. [Securing Your Relay](../relay-security/) - vault, 2FA, auto-seal, remote unseal
+3. [Inviting Peers](../inviting-peers/) - pairing codes and async invite deposits
+4. [Managing Your Network](../managing-network/) - roles, permissions, day-to-day operations
+5. [Monitoring](../monitoring/) - Prometheus and Grafana dashboards

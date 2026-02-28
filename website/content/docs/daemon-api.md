@@ -1,6 +1,6 @@
 ---
 title: "Daemon API"
-weight: 7
+weight: 10
 description: "REST API reference for the Shurli daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
 ---
 <!-- Auto-synced from docs/DAEMON-API.md by sync-docs - do not edit directly -->
