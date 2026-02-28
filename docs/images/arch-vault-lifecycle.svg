@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500">
+  <defs>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="greenFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="amberFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a2e1e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c2216;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cryptoFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="500" rx="12" fill="#141316"/>
+
+  <!-- Title -->
+  <text x="450" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Vault Lifecycle: Sealed / Unsealed Relay Operation</text>
+  <text x="450" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Watch-only when sealed. Full operations when unsealed. Auto-reseal on timeout.</text>
+
+  <!-- Phase 6 badge -->
+  <rect x="735" y="8" width="150" height="22" rx="11" fill="#9ece6a" opacity="0.15" stroke="#9ece6a" stroke-width="1"/>
+  <text x="810" y="23" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">COMPLETE - Phase 6</text>
+
+  <!-- ====== STARTUP BOX ====== -->
+  <rect x="60" y="80" width="130" height="44" rx="10" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.5"/>
+  <text x="125" y="100" font-family="system-ui, sans-serif" font-size="12" fill="#da1c5c" text-anchor="middle" font-weight="600">STARTUP</text>
+  <text x="125" y="115" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">shurli daemon</text>
+
+  <!-- Arrow: Startup -> Sealed -->
+  <line x1="190" y1="102" x2="260" y2="102" stroke="#e8729a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="256,97 256,107 265,102" fill="#e8729a"/>
+  <text x="225" y="95" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">boot</text>
+
+  <!-- ====== SEALED BOX (Watch-Only) ====== -->
+  <rect x="270" y="63" width="290" height="135" rx="10" fill="url(#greenFill)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="415" y="85" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" text-anchor="middle" font-weight="600">SEALED (Watch-Only)</text>
+
+  <!-- Watch-only badge -->
+  <rect x="488" y="72" width="65" height="18" rx="9" fill="#9ece6a" opacity="0.12" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="520" y="85" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">watch-only</text>
+
+  <text x="415" y="106" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">Routes relay traffic</text>
+  <text x="415" y="122" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">Serves peer introductions</text>
+  <text x="415" y="138" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">Monitors network health</text>
+  <text x="415" y="158" font-family="SF Mono, monospace" font-size="10" fill="#f7768e" text-anchor="middle">CANNOT authorize new peers</text>
+  <text x="415" y="174" font-family="SF Mono, monospace" font-size="10" fill="#f7768e" text-anchor="middle">CANNOT process invites</text>
+
+  <!-- ====== Arrow: Sealed -> Unsealed ====== -->
+  <line x1="415" y1="198" x2="415" y2="248" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="410,245 420,245 415,253" fill="#e0af68"/>
+
+  <!-- Unlock label -->
+  <rect x="445" y="205" width="210" height="36" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="550" y="220" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle">Passphrase + 2FA</text>
+  <text x="550" y="234" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">/shurli/relay-unseal/1.0.0</text>
+
+  <!-- ====== UNSEALED BOX (Full Operations) ====== -->
+  <rect x="270" y="258" width="290" height="150" rx="10" fill="url(#amberFill)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="415" y="280" font-family="system-ui, sans-serif" font-size="13" fill="#e0af68" text-anchor="middle" font-weight="600">UNSEALED (Full Operations)</text>
+
+  <!-- Time-bounded badge -->
+  <rect x="478" y="267" width="75" height="18" rx="9" fill="#e0af68" opacity="0.12" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="515" y="280" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" text-anchor="middle" font-weight="600">time-bounded</text>
+
+  <text x="415" y="300" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6" text-anchor="middle">All sealed-mode operations PLUS:</text>
+  <text x="415" y="318" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle">Process invite deposits</text>
+  <text x="415" y="336" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle">Authorize new peers</text>
+  <text x="415" y="354" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle">Admin operations</text>
+  <text x="415" y="372" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle">Modify invite permissions</text>
+
+  <!-- ====== Arrow: Unsealed -> Sealed (reseal loop) ====== -->
+  <!-- Right side vertical line going up -->
+  <line x1="660" y1="333" x2="660" y2="130" stroke="#9ece6a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <!-- Horizontal from unsealed to right -->
+  <line x1="560" y1="333" x2="660" y2="333" stroke="#9ece6a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <!-- Horizontal from right to sealed -->
+  <line x1="660" y1="130" x2="564" y2="130" stroke="#9ece6a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <polygon points="568,125 568,135 560,130" fill="#9ece6a"/>
+
+  <!-- Reseal labels -->
+  <rect x="665" y="210" width="155" height="36" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="742" y="224" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">Auto-reseal on timeout</text>
+  <text x="742" y="238" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">OR manual seal command</text>
+
+  <!-- ====== Crypto Stack at Bottom ====== -->
+  <rect x="60" y="430" width="780" height="55" rx="8" fill="#1e1d20" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
+  <text x="450" y="448" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Cryptographic Stack</text>
+
+  <!-- Argon2id -->
+  <rect x="80" y="455" width="120" height="22" rx="6" fill="url(#cryptoFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="140" y="470" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">Argon2id KDF</text>
+
+  <!-- Arrow -->
+  <line x1="200" y1="466" x2="240" y2="466" stroke="#e8729a" stroke-width="1.2"/>
+  <polygon points="236,462 236,470 244,466" fill="#e8729a"/>
+
+  <!-- XChaCha20 -->
+  <rect x="248" y="455" width="170" height="22" rx="6" fill="url(#cryptoFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="333" y="470" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">XChaCha20-Poly1305</text>
+
+  <!-- Arrow -->
+  <line x1="418" y1="466" x2="458" y2="466" stroke="#e8729a" stroke-width="1.2"/>
+  <polygon points="454,462 454,470 462,466" fill="#e8729a"/>
+
+  <!-- Root Key -->
+  <rect x="466" y="455" width="100" height="22" rx="6" fill="url(#cryptoFill)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="516" y="470" font-family="SF Mono, monospace" font-size="9" fill="#da1c5c" text-anchor="middle" font-weight="600">Root Key</text>
+
+  <!-- Optional 2FA badges -->
+  <rect x="610" y="452" width="60" height="18" rx="9" fill="#bb9af7" opacity="0.12" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="640" y="465" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">TOTP</text>
+
+  <rect x="680" y="452" width="70" height="18" rx="9" fill="#bb9af7" opacity="0.12" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="715" y="465" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">YubiKey</text>
+
+  <text x="645" y="480" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">optional second factor</text>
+</svg>

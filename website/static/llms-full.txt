@@ -945,7 +945,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 29 panels (23 visualizations + 6 row headers) across 6 sections.
+You'll immediately see the dashboard with 37 panels (31 visualizations + 6 row headers) across 6 sections.
 
 ## Dashboard sections
 
@@ -2028,6 +2028,10 @@ This document describes the technical architecture of Shurli, from current imple
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
+  - [Role-Based Access Control (Phase 6)](#role-based-access-control-phase-6) - admin/member tiers
+  - [Macaroon Capability Tokens (Phase 6)](#macaroon-capability-tokens-phase-6) - HMAC-chain bearer tokens
+  - [Passphrase-Sealed Vault (Phase 6)](#passphrase-sealed-vault-phase-6) - relay key protection
+  - [Async Invite Deposits (Phase 6)](#async-invite-deposits-phase-6) - client-deposit invites
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
 - [Federation Model](#federation-model) - planned (Phase 12)
 - [Mobile Architecture](#mobile-architecture) - planned (Phase 11)
@@ -2063,6 +2067,8 @@ Shurli/
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
 │   │   ├── cmd_relay_pair.go  # Relay pairing code generation
+│   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
+│   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
@@ -2102,10 +2108,11 @@ Shurli/
 │   │   ├── confirm.go          # Commit-confirmed pattern (apply/confirm/enforce)
 │   │   ├── snapshot.go         # TimeMachine-style config snapshots
 │   │   └── errors.go           # Sentinel errors (ErrConfigNotFound, ErrNoArchive, etc.)
-│   ├── auth/                # SSH-style authentication
+│   ├── auth/                # SSH-style authentication + role-based access
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
 │   │   ├── gater.go            # ConnectionGater implementation
 │   │   ├── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI commands)
+│   │   ├── roles.go            # Role-based access control (admin/member)
 │   │   └── errors.go           # Sentinel errors
 │   ├── daemon/              # Daemon API server + client
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
@@ -2120,12 +2127,25 @@ Shurli/
 │   ├── invite/              # Invite code encoding + PAKE handshake
 │   │   ├── code.go          # Binary -> base32 with dash grouping
 │   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
-│   ├── relay/               # Relay pairing, admin socket, peer introductions
+│   ├── macaroon/            # HMAC-chain capability tokens
+│   │   ├── macaroon.go      # Macaroon struct, HMAC chaining, verify, encode/decode
+│   │   └── caveat.go        # Caveat language parser (7 types: service, group, action, etc.)
+│   ├── totp/                # RFC 6238 time-based one-time passwords
+│   │   └── totp.go          # Generate, Validate (with skew), NewSecret, provisioning URI
+│   ├── vault/               # Passphrase-sealed relay key vault
+│   │   └── vault.go         # Argon2id KDF + XChaCha20-Poly1305, seal/unseal, seed recovery
+│   ├── deposit/             # Macaroon-backed async invite deposits
+│   │   ├── store.go         # DepositStore: create, consume, revoke, add caveat, cleanup
+│   │   └── errors.go        # ErrDepositNotFound, Consumed, Revoked, Expired
+│   ├── yubikey/             # Yubikey HMAC-SHA1 challenge-response
+│   │   └── challenge.go     # ykman CLI integration (IsAvailable, ChallengeResponse)
+│   ├── relay/               # Relay pairing, admin socket, peer introductions, vault unseal
 │   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
 │   │   ├── pairing.go       # Relay pairing protocol (/shurli/relay-pair/1.0.0)
 │   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/shurli/peer-notify/1.0.0)
-│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair)
-│   │   └── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair, vault, invites)
+│   │   ├── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   │   └── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   ├── reputation/           # Peer interaction tracking
 │   │   └── history.go       # Append-only interaction log per peer (foundation for PeerManager)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
@@ -2436,7 +2456,7 @@ Custom shurli metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels (23 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 37 panels (31 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -2594,6 +2614,80 @@ services:
 ```
 
 The ACL check runs in the stream handler before dialing the local TCP service, so rejected peers never trigger a connection to the backend.
+
+### Role-Based Access Control (Phase 6)
+
+> **Status: Implemented**
+
+Three-tier access model for relay operations:
+
+- **Tier 0 (Relay Operator)**: Unix socket access. Full control via admin endpoints.
+- **Tier 1 (Network Admin)**: First peer paired with relay auto-promoted to `role=admin`. Can create/revoke invites, unseal relay remotely.
+- **Tier 2 (Member)**: Standard authorized peer. Can use relay services but cannot create invites (unless invite policy is `open`).
+
+Roles are stored as `role=admin` or `role=member` attributes in `authorized_keys`. The first peer paired with a relay is automatically promoted to admin if no admins exist.
+
+**Reference**: `internal/auth/roles.go`, `internal/auth/manage.go`, `internal/relay/pairing.go`
+
+### Macaroon Capability Tokens (Phase 6)
+
+> **Status: Implemented**
+
+HMAC-chain bearer tokens for invite permissions. Each caveat in the chain produces a new HMAC-SHA256 signature, making caveat removal cryptographically impossible.
+
+Key properties:
+- **Attenuation-only**: holders can add restrictions (caveats), never remove them
+- **Offline verification**: any party with the root key can verify without network calls
+- **Compact**: base64-encoded JSON, suitable for CLI and QR codes
+
+Supported caveat types: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`.
+
+**Reference**: `internal/macaroon/macaroon.go`, `internal/macaroon/caveat.go`
+
+### Passphrase-Sealed Vault (Phase 6)
+
+> **Status: Implemented**
+
+![Vault seal/unseal lifecycle: sealed (watch-only) at startup, unseal with passphrase + optional 2FA, auto-reseal on timeout](images/arch-vault-lifecycle.svg)
+
+The relay's root key material (used for macaroon minting) is protected by a passphrase-sealed vault. Two operational modes:
+
+**Sealed (default after restart)**:
+- Routes circuit relay traffic for existing peers
+- Serves existing peer introductions
+- Cannot authorize new peers or process invite deposits
+
+**Unsealed (time-bounded)**:
+- All sealed-mode operations plus new peer authorization
+- Processes invite deposits and join requests
+- Auto-reseals after configurable timeout
+
+**Crypto stack**:
+- KDF: Argon2id (time=3, memory=64MB, threads=4, keyLen=32)
+- Encryption: XChaCha20-Poly1305
+- 2FA: TOTP (RFC 6238) and/or Yubikey HMAC-SHA1
+
+**Seed recovery**: hex-encoded 32-byte root key (24 words). Reconstructs vault with new passphrase.
+
+**Remote unseal**: `/shurli/relay-unseal/1.0.0` P2P protocol. Admin-only (role check), rate-limited (3 attempts/min/peer).
+
+**Reference**: `internal/vault/vault.go`, `internal/relay/unseal.go`, `internal/totp/totp.go`, `internal/yubikey/challenge.go`
+
+### Async Invite Deposits (Phase 6)
+
+> **Status: Implemented**
+
+![Invite deposit lifecycle: admin creates deposit, deposit sits on relay, joiner consumes asynchronously](images/arch-invite-deposit.svg)
+
+Client-deposit invites ("contact card" model). Admin creates an invite deposit on the relay and walks away. The joining peer consumes it later, without the admin needing to be online.
+
+**Attenuation-only model**: the invite code is the authentication (immutable token). Permissions are mutable caveats on the deposit macaroon. Admins can restrict or revoke before consumption, but can never widen permissions (HMAC chain enforces this cryptographically).
+
+Deposit states: `pending` -> `consumed` | `revoked` | `expired`
+
+**Relay admin endpoints**: `POST /v1/invite` (create), `GET /v1/invite` (list), `DELETE /v1/invite/{id}` (revoke), `PATCH /v1/invite/{id}` (add caveats).
+
+**Reference**: `internal/deposit/store.go`, `cmd/shurli/cmd_relay_invite.go`
 
 ### Federation Trust Model
 
@@ -2778,6 +2872,12 @@ Validated at four points:
 - ✅ SYN/UDP flood on relay (iptables rate limiting, SYN cookies, conntrack tuning)
 - ✅ IP spoofing on relay (reverse path filtering via rp_filter)
 - ✅ Runaway relay process (systemd cgroup limits: memory, CPU, tasks)
+- ✅ Unauthorized admin operations (role-based access control + HMAC chain)
+- ✅ Root key exposure at rest (Argon2id + XChaCha20-Poly1305 vault)
+- ✅ Root key exposure in memory (auto-reseal timeout, explicit zeroing)
+- ✅ Invite code bruteforce (8-byte deposit ID, rate limiting)
+- ✅ Permission escalation on invites (HMAC chain attenuation-only, cryptographic enforcement)
+- ✅ Remote unseal bruteforce (3 attempts/min/peer rate limiting, admin-only)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
@@ -2839,8 +2939,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-26
-**Architecture Version**: 3.3 (Phase 5: mDNS, PeerManager, NetIntel presence + gossip forwarding)
+**Last Updated**: 2026-02-28
+**Architecture Version**: 3.4 (Phase 6: ACL, Relay Security, Client Invites)
 
 
 ---
@@ -3709,7 +3809,7 @@ Where Shurli goes further than Ethereum's usage:
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-Shurli ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 29 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+Shurli ships with Prometheus metrics (libp2p built-in + custom proxy/auth/holepunch counters), structured audit logging, and a pre-built Grafana dashboard with 37 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
 
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
@@ -4173,7 +4273,9 @@ Architecture: same pattern as the daemon API socket.
 |----------|-------|
 | Transport | Unix domain socket (`<config-dir>/relay-admin.sock`) |
 | Auth | 32-byte random hex cookie, `0600` permissions, rotated per restart |
-| Endpoints | `POST /v1/pair`, `GET /v1/pair`, `DELETE /v1/pair/{id}` |
+| Pairing | `POST /v1/pair`, `GET /v1/pair`, `DELETE /v1/pair/{id}` |
+| Invites | `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}` |
+| Vault | `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`, `POST /v1/vault/init`, `GET /v1/vault/totp-uri` |
 | Cookie comparison | `subtle.ConstantTimeCompare` (timing-safe) |
 | Body limits | `MaxBytesReader` (4096 bytes) |
 | Pairing count cap | Max 100 per request |
@@ -4202,7 +4304,73 @@ When using invite codes (v2 format), the inviter's namespace is encoded in the c
 
 ---
 
-**Last Updated**: 2026-02-25
+## How do admin and member roles work?
+
+Shurli uses a two-role model on the `authorized_keys` file: `admin` and `member`.
+
+**Admins** can create invites, manage peers, modify invite permissions, and remotely unseal the relay vault. **Members** can connect, use services, and verify peers, but cannot create invites or manage the network.
+
+The first peer to join via relay pairing is automatically promoted to admin (if no admin exists yet). All subsequent peers join as members. Role assignment uses the existing `authorized_keys` attribute system: `role=admin` or `role=member`. Backward compatible: peers without a role attribute default to member.
+
+**Invite policy** controls who can create invites:
+- `admin-only` (default): only admins can create invite deposits
+- `open`: any member can create invites (useful for self-organizing groups)
+
+Configure in `config.yaml`:
+```yaml
+relay_security:
+  invite_policy: "admin-only"
+```
+
+---
+
+## How do macaroon-backed invites work?
+
+Phase 6 replaced synchronous pairing with async invite deposits. An admin creates an invite deposit on the relay. The joining peer can consume it later, even if the admin is offline.
+
+Each invite deposit contains a **macaroon** - an HMAC-chain capability token. The admin can add restrictions (caveats) to the macaroon before consumption, but can never widen permissions. Permissions are attenuation-only: mistakes can be corrected (restrict or revoke), but never made worse.
+
+The HMAC chain enforces this cryptographically. Adding a caveat chains a new HMAC on top of the previous signature. Removing a caveat would require the previous signature, which is destroyed by the chain. No trust needed - the math prevents it.
+
+**Creating an invite:**
+```bash
+shurli relay invite create --caveat "action=connect" --ttl 3600
+# Creates a macaroon-backed invite that expires in 1 hour
+# Joining peer can only connect (not create further invites)
+```
+
+**Restricting before consumption:**
+```bash
+shurli relay invite modify <id> --add-caveat "peers_max=3"
+# Now the invite can only onboard 3 peers
+```
+
+7 caveat types are supported: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`. Unknown caveats are rejected (fail-closed).
+
+---
+
+## How does the sealed vault protect the relay?
+
+The relay's root key (used for minting macaroon tokens) is encrypted at rest and in memory. When the vault is **sealed**, the relay operates in watch-only mode: it routes traffic for existing peers but cannot authorize new ones or process invite deposits.
+
+**Unsealing** requires a passphrase (derived via Argon2id: time=3, memory=64MB, threads=4) and optionally a TOTP code or Yubikey touch. After unsealing, the relay can process invites and authorize new peers. It auto-reseals after a configurable timeout.
+
+**Crypto stack:**
+- **KDF**: Argon2id (passphrase to encryption key)
+- **Encryption**: XChaCha20-Poly1305 (root key at rest)
+- **2FA**: TOTP (RFC 6238) and/or Yubikey HMAC-SHA1 (optional)
+- **Memory**: `subtle.XORBytes` zeroing on seal (best-effort, Go GC caveat)
+- **Recovery**: hex seed phrase reconstructs root key if passphrase is lost
+
+The vault persists as a JSON file (`vault.json`) with encrypted root key, salt, nonce, and configuration. The plaintext root key only exists in memory while unsealed.
+
+**Remote unseal**: admins can unseal the relay over the P2P network from any device. The `/shurli/relay-unseal/1.0.0` protocol uses a binary wire format, checks admin role, and rate-limits to 3 attempts per minute per peer.
+
+Inspired by operators who chose to shut down rather than compromise their users: the relay must never betray its users. Sealed by default. Watch-only when locked. Seed recovery when all else fails.
+
+---
+
+**Last Updated**: 2026-02-28
 
 
 ---
@@ -4562,6 +4730,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Pre-Phase 5 Hardening](pre-phase5-hardening.md) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
 | [Phase 5: Network Resilience](phase5-network-resilience.md) | ADR-L01 to ADR-L08 | Native mDNS, PeerManager, stale cleanup, IPv6 probing, relay-discard |
 | [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |
+| [Phase 6: ACL + Relay Security + Client Invites](phase6-acl-relay-security.md) | ADR-M01 to ADR-M08 | Roles, macaroons, invite deposits, sealed vault, remote unseal, 2FA |
 
 
 ---
@@ -5883,6 +6052,186 @@ Architecture:
 **Consequences**: Single source of truth for relay config. Operators get `--backup` and `--restore` flags for free. The bash script still handles system-level tasks (apt, systemd, firewall) where bash is the right tool.
 
 **Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`relay-server/setup.sh`](https://github.com/shurlinet/shurli/blob/main/relay-server/setup.sh)
+
+
+---
+
+# Phase 6: ACL, Relay Security, and Client Invites
+
+Role-based access control, HMAC-chain macaroon tokens, async invite deposits with attenuation-only permissions, passphrase-sealed vault, remote P2P unseal, TOTP two-factor, and Yubikey HMAC-SHA1.
+
+---
+
+### ADR-M01: Role-Based Access Control on authorized_keys
+
+**Context**: All authorized peers are equal. There is no distinction between the peer who created the network and a peer who just joined via invite. Without roles, any authorized peer could create invites, modify settings, or act as an administrator. This breaks the trust hierarchy that a real network needs.
+
+**Alternatives considered**:
+- **Separate ACL database** - Adds a persistence dependency and fragments authority into two sources of truth (authorized_keys + ACL DB). Harder to audit, harder to back up, more things to break.
+- **JWT-based roles** - Requires issuer infrastructure (key management, token signing, rotation). Overkill for a peer-to-peer system with no central server.
+
+**Decision**: Add `admin`/`member` role attribute directly on existing `authorized_keys` entries. `internal/auth/roles.go` (65 lines) defines `RoleAdmin` and `RoleMember` constants, plus `GetPeerRole()`, `SetPeerRole()`, `IsAdmin()`, and `CountAdmins()`. First peer is auto-promoted to admin when `CountAdmins()` returns 0, which handles fresh network bootstrapping. Backward compatible: any entry missing a role attribute defaults to `member`. Implementation reuses the existing `parseLine()`/`formatLine()` and `SetPeerAttr()` functions from `manage.go`, so the authorized_keys file format gains a new attribute without any structural change.
+
+**Consequences**: Single source of truth for both identity and permissions. No new files, no new persistence layer. Trade-off: roles are flat (admin/member), not hierarchical. If we need finer granularity later, macaroon caveats (ADR-M02) handle it at the capability layer.
+
+**Reference**: `internal/auth/roles.go`, `internal/auth/roles_test.go`
+
+---
+
+### ADR-M02: Macaroon HMAC-Chain Capability Tokens
+
+**Context**: The invite system needs delegatable, attenuable permissions. An admin creates an invite token, but that token should carry specific constraints: which group, how many peers can join, when it expires, what services they can access. A flat ACL cannot express these constraints, and bolting fields onto authorized_keys would turn it into a schema nightmare.
+
+**Alternatives considered**:
+- **JWTs** - Require issuer infrastructure (signing key management, validation endpoints). Cannot be attenuated offline after issuance. The holder cannot further restrict a JWT without re-signing it.
+- **OAuth scopes** - Centralized model. Requires a token server. Fundamentally incompatible with peer-to-peer, offline-first operation.
+- **Custom signed tokens** - Reinventing macaroons poorly. The HMAC-chain construction is well-studied; no reason to design a worse version.
+
+**Decision**: HMAC-SHA256 chain construction. `internal/macaroon/macaroon.go` (139 lines) defines the `Macaroon` struct with Location, ID, Caveats, and Signature fields. Core functions: `New()`, `AddFirstPartyCaveat()`, `Verify()`, `Clone()`, `Encode()`/`Decode()` (JSON), and `EncodeBase64()`/`DecodeBase64()`. Verification recomputes the full chain from the root key and performs constant-time signature comparison via `hmac.Equal`. Zero external dependencies: stdlib `crypto/hmac` and `crypto/sha256` only.
+
+`internal/macaroon/caveat.go` (129 lines) defines 7 caveat types: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, and `network`. `DefaultVerifier()` evaluates caveats against a `VerifyContext` struct. Unknown caveat types are rejected (fail-closed), so future caveat additions cannot bypass old verifiers.
+
+Reference implementation: LND macaroons use the same HMAC-SHA256 chaining pattern, proven at scale in Lightning Network infrastructure.
+
+**Consequences**: Tokens are self-contained, offline-verifiable, and attenuable by any holder. Trade-off: first-party caveats only (no third-party discharge). Third-party caveats would require a discharge protocol, which is unnecessary at current scale.
+
+**Reference**: `internal/macaroon/macaroon.go`, `internal/macaroon/caveat.go`, `internal/macaroon/macaroon_test.go`, `internal/macaroon/caveat_test.go`
+
+---
+
+### ADR-M03: Async Invite Deposits ("Contact Card" Model)
+
+**Context**: The existing PAKE invite (Phase 4) requires both peers to be online simultaneously. The admin runs `shurli invite create`, gets a code, sends it to the joining peer, who runs `shurli join` within a time window. If the joining peer is asleep, at work, or in a different timezone, the invite expires and the admin has to repeat the ceremony. This blocks adoption.
+
+**Alternatives considered**:
+- **Keep synchronous PAKE** - Works but is fragile. Requires real-time coordination between two humans. Every failed attempt wastes both parties' time.
+- **Email-based tokens** - Requires email infrastructure (SMTP, delivery verification). Breaks sovereignty: now you depend on an email provider.
+- **DHT-stored invites** - Unauthenticated peers cannot write to the private DHT. Storing secrets on the DHT exposes them to any node that discovers the key.
+
+**Decision**: Store-and-forward "deposit" model. `internal/deposit/store.go` (235 lines) defines the `InviteDeposit` struct with ID, Macaroon, CreatedBy, ExpiresAt, Status, ConsumedBy, and ConsumedAt fields. The `DepositStore` provides Create, Get, Consume, Revoke, AddCaveat, List, CleanExpired, and Count operations. Four-state lifecycle: `pending` -> `consumed` | `revoked` | `expired`. Thread-safe with `sync.RWMutex`. IDs are 16-byte random hex. Storage is in-memory now; the interface supports persistence later without changing the API.
+
+`internal/deposit/errors.go` defines `ErrDepositNotFound`, `ErrDepositConsumed`, `ErrDepositRevoked`, and `ErrDepositExpired` for unambiguous error handling.
+
+Relay admin endpoints: POST `/v1/invite` (create), GET `/v1/invite` (list), DELETE `/v1/invite` (revoke), PATCH `/v1/invite` (modify). CLI: `shurli relay invite create/list/revoke/modify`.
+
+**Consequences**: Invites persist until consumed, revoked, or expired. No real-time coordination needed. The joining peer can redeem hours or days later. Trade-off: in-memory storage means invites are lost on relay restart. Acceptable for now; persistence is an interface swap, not an architecture change.
+
+**Reference**: `internal/deposit/store.go`, `internal/deposit/store_test.go`, `internal/deposit/errors.go`, `cmd/shurli/cmd_relay_invite.go`
+
+---
+
+### ADR-M04: Attenuation-Only Permission Model
+
+**Context**: An admin creates an invite with broad permissions (full service access, unlimited peer count). Then realizes the joining peer should only have access to one service, or should not be able to delegate further. The admin needs to narrow the invite's permissions without revoking and re-creating it from scratch.
+
+**Alternatives considered**:
+- **Mutable permission fields** - No cryptographic guarantee that permissions were not widened. An attacker (or a bug) could escalate permissions by editing the token.
+- **Immutable invites only** - Forces a revoke-and-recreate workflow for every correction. Poor UX, especially when the invite code has already been shared with the joining peer.
+
+**Decision**: The macaroon HMAC chain enforces attenuation-only by construction. `AddFirstPartyCaveat()` computes a new HMAC over the previous signature and the new caveat. The previous signature is consumed (overwritten) by the chain. Removing a caveat would require recovering the previous signature, which is computationally infeasible. This means permissions can only be narrowed, never widened.
+
+The deposit's `AddCaveat()` method checks `Status == StatusPending` before modifying, so consumed or revoked invites cannot be altered. CLI: `shurli relay invite modify <id> --add-caveat <k=v>`.
+
+Permissions are attenuation-only: mistakes can always be corrected (restrict further or revoke entirely), but never made worse. The cryptography enforces the policy, not application logic.
+
+**Consequences**: Admins can iteratively tighten an invite after sharing the ID. The joining peer always gets the most restricted version. Trade-off: if the admin over-restricts, the only fix is revoke and create a new invite. This is intentional: loosening permissions should require a deliberate act, not an edit.
+
+**Reference**: `internal/macaroon/macaroon.go:AddFirstPartyCaveat`, `internal/deposit/store.go:AddCaveat`
+
+---
+
+### ADR-M05: Passphrase-Sealed Relay Vault
+
+**Context**: The relay stores a root key for macaroon minting. In plaintext memory, this key is exposed if the process is compromised (memory dump, core file, debugger attach). Worse, when the relay restarts, it comes up with full capabilities immediately. There is no "locked" state where the relay can route traffic but cannot authorize new peers.
+
+**Alternatives considered**:
+- **HSM/TPM** - Not available on typical VPS instances. Even when available, requires platform-specific drivers and setup.
+- **Environment variables** - Visible in `/proc/<pid>/environ` on Linux. No sealed state concept. Still plaintext in memory after read.
+- **OS keychain** - Platform-specific (Keychain on macOS, Secret Service on Linux). No watch-only mode. Cannot enforce "sealed until operator acts."
+
+**Decision**: `internal/vault/vault.go` (454 lines) implements a passphrase-sealed vault with optional TOTP. Key derivation: Argon2id with time=3, memory=64MB, threads=4, keyLen=32. Encryption: XChaCha20-Poly1305 for root key at rest. The `SealedData` struct is persisted as JSON.
+
+Two operational modes:
+- **Sealed** (default on start): watch-only. The relay routes traffic, serves existing connections, but cannot mint new macaroons or authorize new peers.
+- **Unsealed**: full operations. Time-bounded with auto-reseal after a configurable duration.
+
+`Seal()` zeros the key material via `subtle.XORBytes`. `RecoverFromSeed()` provides disaster recovery when the passphrase is lost.
+
+Inspired by operators who chose to shut down rather than compromise their users: the relay must never betray its users. Sealed by default. Watch-only when locked. Seed recovery when all else fails.
+
+All crypto dependencies already exist in go.mod: `golang.org/x/crypto` (Argon2id) and `chacha20poly1305` (already used in PAKE invite). Zero new dependencies.
+
+Known limitation: Go's garbage collector cannot guarantee deterministic memory zeroing. The `subtle.XORBytes` overwrite is best-effort. If the GC copies the key before zeroing, a memory dump could still recover it. Seed recovery is the escape hatch for the operator; the zeroing is defense-in-depth, not a guarantee.
+
+**Consequences**: Relay restarts in watch-only mode. Operator must actively unseal to authorize. Compromise of a sealed relay yields encrypted root key material, not plaintext. Trade-off: operator must be available to unseal after every restart (mitigated by ADR-M07 remote unseal).
+
+**Reference**: `internal/vault/vault.go`, `internal/vault/vault_test.go`, `internal/vault/errors.go`
+
+---
+
+### ADR-M06: TOTP Two-Factor (RFC 6238, Zero Dependencies)
+
+**Context**: Passphrase alone is single-factor. If an attacker compromises VPS SSH keys, they can read the passphrase from shell history or shoulder-surf it from a script. A second factor eliminates this class of attack without adding external service dependencies.
+
+**Alternatives considered**:
+- **SMS codes** - Requires an SMS provider (Twilio, etc.). Breaks sovereignty: now the relay's security depends on a third-party API and a phone number.
+- **Push notifications** - Requires push infrastructure (APNs, FCM). Same sovereignty problem as SMS, plus adds mobile app dependency.
+- **Hardware token only** - Not everyone has a YubiKey. Making it the only 2FA option excludes most operators.
+
+**Decision**: `internal/totp/totp.go` (126 lines) implements RFC 6238 with HMAC-SHA1. Core functions: `Generate()` computes the current TOTP, `Validate()` checks with a configurable skew window (skew=1 means +/- 30 seconds, handling VPS clock drift). `NewSecret()` generates 20 bytes minimum per RFC 4226. `FormatProvisioningURI()` outputs an `otpauth://` URI compatible with Google Authenticator, Authy, and any standard TOTP app.
+
+Zero external dependencies: stdlib `crypto/hmac` and `crypto/sha1` only.
+
+The TOTP secret is encrypted alongside the root key in the vault (ADR-M05). Decrypted only during unseal. Zeroed on seal.
+
+**Consequences**: Two-factor unseal with no external services. Any standard TOTP app works. Trade-off: TOTP is time-based, so VPS clock accuracy matters. The skew window handles reasonable drift (up to 30 seconds). Operators with badly drifting clocks can increase skew or use YubiKey (ADR-M08) instead.
+
+**Reference**: `internal/totp/totp.go`, `internal/totp/totp_test.go`
+
+---
+
+### ADR-M07: Remote Unseal Over P2P (Binary Wire Protocol)
+
+**Context**: After a restart, the relay is sealed (ADR-M05). The operator needs to unseal it. But operators are not always at a terminal with SSH access. They might be on a phone behind CGNAT, on a tablet at a cafe, or simply away from their SSH setup. The relay needs an unseal path that works from any admin peer over the existing P2P network.
+
+**Alternatives considered**:
+- **HTTP API over public internet** - Exposes the unseal endpoint to the entire internet. Even with rate limiting, this is an unnecessary attack surface.
+- **SSH tunnel** - Defeats the purpose. If the operator has SSH access, they can unseal directly. The whole point is to handle the case where SSH is unavailable.
+- **JSON over libp2p stream** - Parsing overhead, harder to validate field lengths. JSON parsers accept arbitrarily large inputs by default, making resource exhaustion attacks easier.
+
+**Decision**: Custom binary wire protocol on `/shurli/relay-unseal/1.0.0`. `internal/relay/unseal.go` (235 lines) defines the format:
+
+Request: `[1 version][2 BE passphrase-len][N passphrase][1 TOTP-len][M TOTP]`
+Response: `[1 status][1 msg-len][N message]`
+
+The handler checks `auth.IsAdmin()` before processing any request. Rate limited to 3 attempts per minute per peer. 30-second read deadline prevents slow-loris attacks. The handler is registered even when the relay is sealed, because receiving unseal requests while sealed is the entire purpose.
+
+Client-side helpers: `EncodeUnsealRequest()` and `ReadUnsealResponse()` for CLI integration.
+
+**Consequences**: Admin peers can unseal the relay from any network, including behind CGNAT, over the existing P2P transport. No new ports, no new attack surface beyond the authenticated libp2p stream. Trade-off: the passphrase travels over the P2P connection. This is acceptable because libp2p streams are already encrypted (TLS 1.3 or Noise), and only admin peers can open the stream.
+
+**Reference**: `internal/relay/unseal.go`, `internal/relay/unseal_test.go`
+
+---
+
+### ADR-M08: YubiKey via CLI (Not C HID Bindings)
+
+**Context**: TOTP (ADR-M06) provides software-based 2FA. For operators who want hardware-backed 2FA, YubiKey HMAC-SHA1 challenge-response is the strongest option. But the standard approach (C HID bindings via `ykpers` or `libfido2`) requires CGo, adds build complexity, and creates a platform testing matrix.
+
+**Alternatives considered**:
+- **C HID bindings** - CGo dependency. Build matrix explodes: macOS, Linux, Windows, ARM, AMD64, each needing `libykpers` or `libhidapi`. Cross-compilation becomes painful.
+- **WebAuthn/FIDO2** - Requires a browser context. Not suitable for CLI or headless server operation.
+- **PIV/smart card** - Overkill for challenge-response. Requires PKCS#11 middleware, more complex than the problem warrants.
+
+**Decision**: Shell out to `ykman` CLI via `exec.Command`. `internal/yubikey/challenge.go` (170 lines) implements `IsAvailable()` (checks `ykman` on PATH + YubiKey connected), `ChallengeResponse()` (sends HMAC-SHA1 challenge, returns response), and `ListSlots()` (checks which slots are configured). 15-second timeout for touch-required keys.
+
+Same zero-dep pattern as QR code generation (which shells out to `qrencode`). The binary stays pure Go; external tools are optional enhancements.
+
+Purely optional. If `ykman` is not installed or no YubiKey is connected, `IsAvailable()` returns false with a clear error message. Graceful fallback to TOTP or passphrase-only.
+
+**Consequences**: Hardware 2FA without CGo. Build stays simple. Trade-off: requires `ykman` installed on the operator's machine. This is acceptable because YubiKey users already have `ykman` (it is the standard management tool for their hardware). Operators without `ykman` are not affected; the feature simply does not appear.
+
+**Reference**: `internal/yubikey/challenge.go`, `internal/yubikey/challenge_test.go`
 
 
 ---

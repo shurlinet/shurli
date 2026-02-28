@@ -220,8 +220,9 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers, dedup + concurrency limiting | ✅ DONE |
 | 5-L | PeerManager | Background reconnection of authorized peers, exponential backoff, event-bus driven connect/disconnect tracking, network-change backoff reset | ✅ DONE |
 | 5-M | Network Intelligence (Presence) | Three-layer transport: direct push + gossip forwarding + future GossipSub. Peers exchange reachability grade, NAT type, IPv4/IPv6 flags, CGNAT status. `/shurli/presence/1.0.0` protocol | ✅ DONE |
-| **Phase 6** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
-| **Phase 7** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
+| **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
+| **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
+| **Phase 8** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
 
 **Deliverables**:
 
@@ -283,7 +284,7 @@ Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, ze
 - [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
 - [x] Custom shurli metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
 - [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
-- [x] Grafana dashboard - pre-built JSON dashboard with 29 panels across 6 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+- [x] Grafana dashboard - pre-built JSON dashboard with 37 panels across 6 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, vault seal state, pairing, invite deposits, admin socket, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
 
 Deferred from original Batch H scope (with reasoning):
 - ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
@@ -575,63 +576,84 @@ After Phase 5 observability and PeerManager provide the data:
 
 ---
 
-### Phase 6: ACL, Relay Security & Client Invites
+### Phase 6: ACL, Relay Security & Client Invites ✅ COMPLETE
 
-**Status**: Planned
+**Status**: ✅ Complete
 
 **Goal**: Production-ready access control, relay security, and async client-generated invites. Make the relay safe enough to run unattended and convenient enough to manage remotely. First real-world test: generate an invite code in NZ, send to a friend in AU, close laptop, friend joins when ready.
 
 **Why before ZKP**: ZKP needs a proper authorization model to prove against. You cannot do "prove you're authorized without revealing identity" until authorization itself is well-defined. This phase builds the foundation ZKP (Phase 7) sits on.
 
 **Access Control (Three-Tier Model)**:
-- [ ] `role` attribute on `authorized_keys` entries (`admin` / `member`)
-- [ ] First peer paired with relay automatically gets `role=admin`
-- [ ] Relay checks role on all privileged operations
-- [ ] Invite policy config: `admin-only` (default) / `open` (community relay)
-- [ ] Admin can toggle invite policy from client: `shurli config set invite-policy <value>`
+- [x] `role` attribute on `authorized_keys` entries (`admin` / `member`) - `internal/auth/roles.go`
+- [x] First peer paired with relay automatically gets `role=admin` (if `CountAdmins() == 0`)
+- [x] Relay checks role on privileged operations
+- [x] Invite policy config: `admin-only` (default) / `open` - `internal/config/config.go`
+- [x] Role display in `shurli auth list` with `[admin]`/`[member]` badges
 
 **Client-Deposit Invites ("Contact Card" Model)**:
-- [ ] `shurli invite --name "Dave"` generates invite code, deposits on relay, returns immediately (no waiting)
-- [ ] Relay stores token in `TokenStore` with inviter's peer ID
-- [ ] Joiner runs `shurli join <code>` any time (inviter can be offline)
-- [ ] Relay validates token, authorizes joiner, stores peer introduction
-- [ ] Relay delivers introduction to inviter on reconnect (store-and-forward via `/shurli/peer-notify/1.0.0`)
-- [ ] Authenticated deposit protocol: relay verifies depositor is admin (or any member if policy=open) before accepting
-- [ ] `shurli invite modify <nonce> --service <new-permissions>` - change permissions on a pending invite without changing the code
-- [ ] `shurli invite revoke <nonce>` - kill a pending invite (code becomes dead)
-- [ ] Invite code = authentication ("you were invited"). Permissions = mutable on relay until consumed. Code never changes.
+- [x] `shurli relay invite create` generates macaroon-backed invite deposit
+- [x] Relay stores deposit in `DepositStore` with macaroon, caveats, TTL
+- [x] Joiner can consume deposit any time (inviter can be offline) - async model
+- [x] `shurli relay invite modify <id> --add-caveat <k=v>` - add restrictions before consumption (attenuation-only)
+- [x] `shurli relay invite revoke <id>` - kill pending invite
+- [x] `shurli relay invite list` - list all deposits with status
+- [x] Deposit states: pending, consumed, revoked, expired
+- [x] Auto-expiry with configurable TTL, lazy expiration on access
+- [x] `CleanExpired()` removes old deposits
 
 **Macaroon Capability Tokens**:
-- [ ] HMAC-chain bearer tokens for invite codes and permissions
-- [ ] Attenuation: holders can create weaker tokens, never stronger (cryptographic enforcement)
-- [ ] Caveat language: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`
-- [ ] Nonce-based revocation (blacklist consumed/revoked token nonces)
-- [ ] Root macaroon per node (admin token), derived macaroons for invites and delegated access
-- [ ] Evolution path documented in code: macaroons (now) -> UCANs (when open network needs public-key verification)
+- [x] HMAC-chain bearer tokens - `internal/macaroon/macaroon.go`
+- [x] Attenuation: holders can add caveats (restrictions), never remove (cryptographic enforcement)
+- [x] Caveat language: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network` - `internal/macaroon/caveat.go`
+- [x] `DefaultVerifier()` with fail-closed design
+- [x] JSON + Base64 encode/decode for wire transport
+- [x] 22 tests (macaroon) + 10 tests (caveat)
 
-**Relay Security (Passphrase-Sealed Pattern)**:
-- [ ] Encrypted config and `authorized_keys` at rest (XChaCha20-Poly1305)
-- [ ] Passphrase-based unlock with Argon2id key derivation
-- [ ] Timeout-based auto-lock: relay unseals for N hours, then auto-reseals (master key wiped from memory)
-- [ ] Watch-only (sealed) mode: relay routes traffic for existing peers but cannot authorize new ones
-- [ ] BIP39-style seed phrase for relay identity recovery (24 words regenerate all keys)
-- [ ] BIP32-style hierarchical key derivation from seed (per-peer, per-group keys)
+**Relay Security (Passphrase-Sealed Vault)**:
+- [x] Argon2id KDF (time=3, memory=64MB, threads=4) + XChaCha20-Poly1305 encryption - `internal/vault/vault.go`
+- [x] Sealed/unsealed modes (watch-only when sealed)
+- [x] Auto-reseal after configurable timeout
+- [x] Hex-encoded seed phrase for identity recovery (32 bytes as 24 hex-pair words)
+- [x] Root key zeroed from memory on seal (`crypto/subtle.XORBytes`)
+- [x] 14 vault tests including create/save/load/unseal/seal cycle
+- [x] Vault CLI: `shurli relay vault init`, `seal`, `unseal`, `status`
 
 **Remote Unseal Over P2P**:
-- [ ] `/shurli/relay-unseal/1.0.0` protocol: admin unseals relay from client node, no SSH needed
-- [ ] Admin peer ID stored in relay base config (unencrypted, it is a public key)
-- [ ] Sealed relay accepts P2P connections in watch-only mode, adds unseal handler for admin only
-- [ ] Authentication: libp2p peer ID (automatic) + passphrase + 2FA
-- [ ] Rate limiting and lockout on unseal attempts
+- [x] `/shurli/relay-unseal/1.0.0` protocol - `internal/relay/unseal.go`
+- [x] Binary wire format: `[1 version] [2 BE passphrase-len] [N passphrase] [1 TOTP-len] [M TOTP]`
+- [x] Admin-only check via `auth.IsAdmin()` before processing
+- [x] iOS-style escalating lockout: 4 free attempts, then 1m/5m/15m/1h(x3), permanent block
+- [x] Prometheus metrics: `shurli_vault_unseal_total{result}`, `shurli_vault_unseal_locked_peers` gauge
+- [x] `shurli relay unseal --remote <name|peer-id|multiaddr>` for P2P unseal from client (short name resolution)
+- [x] 11 unseal tests (wire format, lockout escalation, permanent block, message formatting)
 
 **Two-Factor Authentication**:
-- [ ] TOTP (RFC 6238) as baseline - works with any authenticator app or Yubikey TOTP slot
-- [ ] Yubikey HMAC-SHA1 challenge-response as stronger option (phishing-proof, touch-required)
-- [ ] Relay config stores which 2FA method the admin uses
+- [x] TOTP (RFC 6238) - `internal/totp/totp.go` with skew window, 11 tests including RFC test vectors
+- [x] Yubikey HMAC-SHA1 challenge-response - `internal/yubikey/challenge.go` via `ykman` CLI, 6 tests
+- [x] Vault stores which 2FA methods are enabled
+- [x] `otpauth://` provisioning URI for authenticator app setup
+
+**New relay admin endpoints** (9 total):
+- `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`
+- `POST /v1/vault/init`, `GET /v1/vault/totp-uri`
+- `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}`
+
+**New P2P protocol**: `/shurli/relay-unseal/1.0.0`
+
+**New files** (19 files, ~3,655 lines):
+- `internal/auth/roles.go` + `roles_test.go`
+- `internal/macaroon/macaroon.go` + `macaroon_test.go` + `caveat.go` + `caveat_test.go`
+- `internal/totp/totp.go` + `totp_test.go`
+- `internal/vault/vault.go` + `vault_test.go`
+- `internal/deposit/store.go` + `store_test.go` + `errors.go`
+- `internal/relay/unseal.go` + `unseal_test.go`
+- `internal/yubikey/challenge.go` + `challenge_test.go`
+- `cmd/shurli/cmd_relay_vault.go` + `cmd_relay_invite.go`
 
 **Threat Model (Analyzed)**:
 - Admin peer ID forgery: impossible (libp2p cryptographic identity)
-- Stolen admin key: rate limits + audit log + key rotation + mandatory 2FA
+- Stolen admin key: escalating lockout + permanent block + audit log + key rotation + mandatory 2FA
 - Invite code bruteforce: 8-byte token (2^64 possibilities), rate limit, lockout, TTL
 - Sybil attack on open relay: per-peer invite quota, total caps, admin revoke, cooldown
 - Invite flooding DoS: TTL-based cleanup, per-peer and total caps
@@ -647,9 +669,9 @@ After Phase 5 observability and PeerManager provide the data:
 - UCANs: future evolution path when public-key-only verification is needed (Phase 7+ ZKP)
 - Studied enterprise seal/unseal patterns vs offline key management: passphrase-sealed pattern wins for solo operator (timeout auto-lock, watch-only, seed recovery)
 
-**Authorization Model Evolution** (documented, not built yet):
+**Authorization Model Evolution**:
 ```
-Phase 6 (now):  Macaroons for invites + authorized_keys for gating (coexist)
+Phase 6 (done):  Macaroons for invites + authorized_keys for gating (coexist)
 Phase 7+ (ZKP): Macaroons could become the primary auth token
 Future:          authorized_keys becomes optional cache layer
 ```
@@ -662,7 +684,7 @@ Future:          authorized_keys becomes optional cache layer
 
 **Goal**: Zero-knowledge proof authorization. Peers prove they hold valid capabilities (macaroons) without revealing their identity or specific permissions to the relay. Built on gnark (PLONK + KZG).
 
-**Dependency**: Requires Phase 6 macaroon authorization model as the capability system ZKP proves against.
+**Dependency**: Requires Phase 6 macaroon authorization model (now complete) as the capability system ZKP proves against.
 
 ---
 
@@ -1259,7 +1281,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 - VRF-based fair relay assignment (needed only with multiple competing relays)
 - Erlay / Minisketch set reconciliation (bandwidth savings only above 8+ peers)
 
-**Phase 6: ZKP Privacy Layer** - STATUS: PLANNED
+**Phase 7: ZKP Privacy Layer** - STATUS: PLANNED
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
@@ -1334,7 +1356,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
 | **Phase 5: Network Intelligence** | ✅ | Complete (5-K mDNS, 5-L PeerManager, 5-M Presence) |
-| **Phase 6: ACL + Relay Security + Client Invites** | 📋 | Planned (Macaroons, passphrase-sealed security pattern, remote unseal) |
+| **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
 | Phase 8: Visual Channel | 📋 | Planned ("Constellation Code") |
 | Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
@@ -1345,7 +1367,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (macaroons, sealed/unsealed, remote management) -> ZKP privacy layer (builds on ACL model) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (builds on ACL model) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -1486,7 +1508,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 ---
 
 **Last Updated**: 2026-02-28
-**Current Phase**: Phase 5 Complete. Phase 6 (ACL + Relay Security + Client Invites) next.
-**Phases**: 1-5 (complete), 6-14 (planned), 15+ (ecosystem)
-**Next Milestone**: Phase 6 - ACL, Relay Security & Client Invites (Macaroons, passphrase-sealed security pattern, remote unseal)
+**Current Phase**: Phase 6 Complete. Phase 7 (ZKP Privacy Layer) next.
+**Phases**: 1-6 (complete), 7-14 (planned), 15+ (ecosystem)
+**Next Milestone**: Phase 7 - ZKP Privacy Layer (gnark PLONK + Ethereum KZG, anonymous auth, anonymous relay, privacy-preserving reputation)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
