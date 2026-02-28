@@ -173,6 +173,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	kdht, err = dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
+		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
 	)
 	if err != nil {
 		log.Printf("DHT init failed (relay-only mode): %v", err)
