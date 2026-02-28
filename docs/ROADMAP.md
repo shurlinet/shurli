@@ -609,7 +609,7 @@ After Phase 5 observability and PeerManager provide the data:
 - [ ] Root macaroon per node (admin token), derived macaroons for invites and delegated access
 - [ ] Evolution path documented in code: macaroons (now) -> UCANs (when open network needs public-key verification)
 
-**Relay Security (Bitcoin Wallet Pattern)**:
+**Relay Security (Passphrase-Sealed Pattern)**:
 - [ ] Encrypted config and `authorized_keys` at rest (XChaCha20-Poly1305)
 - [ ] Passphrase-based unlock with Argon2id key derivation
 - [ ] Timeout-based auto-lock: relay unseals for N hours, then auto-reseals (master key wiped from memory)
@@ -645,7 +645,7 @@ After Phase 5 observability and PeerManager provide the data:
 - Studied certificate-based models: groups-in-identity concept, P2P verification. Rejected god-key CA and manual revocation patterns
 - Macaroon HMAC chain: proven pattern for offline attenuation and compact bearer tokens
 - UCANs: future evolution path when public-key-only verification is needed (Phase 7+ ZKP)
-- Studied enterprise seal/unseal patterns vs cryptocurrency wallet security: wallet pattern wins for solo operator (timeout auto-lock, watch-only, seed recovery)
+- Studied enterprise seal/unseal patterns vs offline key management: passphrase-sealed pattern wins for solo operator (timeout auto-lock, watch-only, seed recovery)
 
 **Authorization Model Evolution** (documented, not built yet):
 ```
@@ -919,7 +919,7 @@ Deliverables:
 - [ ] Relay version announcement - relay broadcasts its version to connected peers via libp2p Identify `UserAgent`. Peers see "relay running v1.2.0, you have v1.1.0, run `shurli upgrade`"
 
 **Use-Case Guides & Launch Content**:
-- [ ] Guide: OpenClaw Gateway - *"Remote Access to OpenClaw Gateway in 60 Seconds"* (one-command setup with `--openclaw`, no Tailscale account or port forwarding needed)
+- [ ] Guide: OpenClaw Gateway - *"Remote Access to OpenClaw Gateway in 60 Seconds"* (one-command setup with `--openclaw`, no VPN account or port forwarding needed)
 - [ ] Guide: GPU inference - *"Access your home GPU from anywhere through Starlink CGNAT"*
 - [ ] Guide: IoT/smart home remote access (Home Assistant, cameras behind CGNAT)
 - [ ] Guide: Media server sharing (Jellyfin/Plex with friends via invite flow)
@@ -1187,11 +1187,9 @@ Format: laptop.grewal.eth
 
 ### Privacy Narrative - Shurli's Moat
 
-Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
+Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign alternative** for people who care about owning their network.
 
-> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues).*
-
-| | **Shurli** | **Tailscale** |
+| | **Shurli** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -1199,14 +1197,14 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 | **Key custody** | You generate, you store, you control | Keys managed via their control plane |
 | **Source** | Fully open, self-hosted | Open source client, proprietary control plane |
 
-> *"Tailscale for people who don't want to trust a company with their network topology."*
+> *"For people who don't want to trust a company with their network topology."*
 
 ### Target Audiences (in order of receptiveness)
 
 1. **r/selfhosted** - Already run services at home, hate port forwarding, value self-sovereignty
 2. **Starlink/CGNAT users** - Actively searching for solutions to reach home machines
 3. **AI/ML hobbyists** - Home GPU + remote access is exactly their problem
-4. **Privacy-conscious developers** - Won't use Tailscale because of the coordination server
+4. **Privacy-conscious developers** - Won't use centralized VPN services because of the coordination server
 
 ### Launch Strategy
 
@@ -1214,7 +1212,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 2. **r/selfhosted post**: Focus on SSH + XRDP + GPU inference through CGNAT
 3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
 4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
-5. **Comparisons**: Honest Shurli vs Tailscale / Zerotier / Netbird posts
+5. **Comparisons**: Honest architectural comparison posts
 
 ### Community Infrastructure (set up at or before launch)
 
@@ -1320,7 +1318,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 
 **Performance & Language**:
 - [ ] Selective Rust rewrite of hot paths - proxy loop, relay forwarding, SOCKS5 gateway via FFI. Zero GC, zero-copy, ~1.5x throughput improvement. Evaluate when performance metrics justify it.
-- [ ] Rust QUIC library evaluation - [Iroh](https://github.com/n0-computer/iroh) (QUIC multipath, ~90% NAT traversal), [Quinn](https://github.com/quinn-rs/quinn) (pure Rust), [s2n-quic](https://github.com/aws/s2n-quic) (AWS, formally verified)
+- [ ] Rust QUIC library evaluation - QUIC-based P2P libraries (QUIC multipath, ~90% NAT traversal), pure Rust QUIC implementations, formally verified QUIC (AWS s2n-quic)
 - [ ] Go GC tuning - profile at 100+ concurrent proxies, set GOGC, evaluate memory allocation patterns in proxy loop
 
 ---
@@ -1336,7 +1334,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
 | **Phase 5: Network Intelligence** | ✅ | Complete (5-K mDNS, 5-L PeerManager, 5-M Presence) |
-| **Phase 6: ACL + Relay Security + Client Invites** | 📋 | Planned (Macaroons, Bitcoin wallet pattern, remote unseal) |
+| **Phase 6: ACL + Relay Security + Client Invites** | 📋 | Planned (Macaroons, passphrase-sealed security pattern, remote unseal) |
 | **Phase 7: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
 | Phase 8: Visual Channel | 📋 | Planned ("Constellation Code") |
 | Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
@@ -1410,7 +1408,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Phase 6 Success** (ACL + Relay Security + Client Invites):
 - Client-generated invite code works async: generate in NZ, friend joins in AU hours later
 - Macaroon capability tokens with attenuation: admin can delegate limited invite permission
-- Relay sealed/unsealed with Bitcoin wallet pattern: watch-only when sealed, full ops when unsealed
+- Relay sealed/unsealed with passphrase-sealed security pattern: watch-only when sealed, full ops when unsealed
 - Remote unseal over P2P: no SSH needed for daily relay management
 - TOTP + Yubikey challenge-response 2FA on relay unseal
 - Seed phrase recovery: 24 words regenerate relay identity and all keys
@@ -1490,5 +1488,5 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Last Updated**: 2026-02-28
 **Current Phase**: Phase 5 Complete. Phase 6 (ACL + Relay Security + Client Invites) next.
 **Phases**: 1-5 (complete), 6-14 (planned), 15+ (ecosystem)
-**Next Milestone**: Phase 6 - ACL, Relay Security & Client Invites (Macaroons, Bitcoin wallet pattern, remote unseal)
+**Next Milestone**: Phase 6 - ACL, Relay Security & Client Invites (Macaroons, passphrase-sealed security pattern, remote unseal)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

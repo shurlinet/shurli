@@ -44,7 +44,7 @@
   <text x="305" y="122" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Shurli: Explicit dismissals</text>
   <text x="305" y="140" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Musk: Challenge requirements</text>
   <text x="305" y="158" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Jobs: Say no to 1,000 things</text>
-  <text x="305" y="182" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ Birthday/Nostr/Iroh: rejected</text>
+  <text x="305" y="182" fill="#565f89" font-family="SF Mono, monospace" font-size="8">→ Alternatives evaluated, rejected</text>
 
   <!-- Right: Mission (all three agree) -->
   <rect x="540" y="55" width="220" height="140" rx="12" fill="url(#nodeGrad)" stroke="#9ece6a" stroke-width="1.5"/>

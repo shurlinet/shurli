@@ -19,7 +19,7 @@ After Phase 5 PeerManager provides the data:
 
 ## Phase 6: ACL + Relay Security + Client Invites - STATUS: PLANNED
 
-Production-ready access control, relay security, and async client-generated invites. Three-tier access model (relay operator / network admin / member), capability-based invite tokens with delegation, and a sealed/unsealed relay security model inspired by cryptocurrency wallet patterns.
+Production-ready access control, relay security, and async client-generated invites. Three-tier access model (relay operator / network admin / member), capability-based invite tokens with delegation, and a sealed/unsealed relay security model inspired by offline key management patterns (passphrase unlock, timeout auto-lock, seed phrase recovery).
 
 **Access Control**:
 - [ ] `admin`/`member` roles on `authorized_keys` entries
@@ -38,7 +38,7 @@ Production-ready access control, relay security, and async client-generated invi
 - [ ] Nonce-based revocation
 - [ ] Evolution path documented: capability tokens now, public-key-verifiable tokens (UCANs) when open network needs it
 
-**Relay Security (Cryptocurrency Wallet Pattern)**:
+**Relay Security (Passphrase-Sealed Pattern)**:
 - [ ] Encrypted config and authorized peer list at rest
 - [ ] Passphrase-based unlock with timeout auto-lock (relay unseals for N hours, then auto-reseals)
 - [ ] Watch-only (sealed) mode: relay routes traffic for existing peers but cannot authorize new ones
@@ -357,11 +357,9 @@ curl http://desktop.bob:8080
 
 ### Privacy Narrative - Shurli's Moat
 
-Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
+Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign alternative** for people who care about owning their network.
 
-> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues).*
-
-| | **Shurli** | **Tailscale** |
+| | **Shurli** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -374,7 +372,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 1. **r/selfhosted** - Already run services at home, hate port forwarding, value self-sovereignty
 2. **Starlink/CGNAT users** - Actively searching for solutions to reach home machines
 3. **AI/ML hobbyists** - Home GPU + remote access is exactly their problem
-4. **Privacy-conscious developers** - Won't use Tailscale because of the coordination server
+4. **Privacy-conscious developers** - Won't use centralized VPN services because of the coordination server
 
 ### Community Infrastructure (set up at or before launch)
 
