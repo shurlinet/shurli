@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 440" width="700" height="440">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="440" rx="12" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="16" fill="#c0caf5" text-anchor="middle" font-weight="700">Phase 6: Your Relay Is Now a Fortress</text>
+  <text x="350" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Roles, macaroon tokens, sealed vault, async invites, remote unseal, 2FA. 19 files, 83 tests, 0 new deps.</text>
+
+  <!-- ==================== ROW 1: Before vs After ==================== -->
+
+  <!-- BEFORE card -->
+  <rect x="20" y="62" width="320" height="108" rx="8" fill="url(#cardGrad)" stroke="#f7768e" stroke-width="1"/>
+  <text x="180" y="82" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" font-weight="600">Before Phase 6</text>
+
+  <text x="36" y="102" font-family="system-ui, sans-serif" font-size="14" fill="#f7768e">&#x274C;</text>
+  <text x="54" y="102" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Everyone equal. No owner, no rules.</text>
+  <text x="36" y="120" font-family="system-ui, sans-serif" font-size="14" fill="#f7768e">&#x274C;</text>
+  <text x="54" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Both people must be online to invite.</text>
+  <text x="36" y="138" font-family="system-ui, sans-serif" font-size="14" fill="#f7768e">&#x274C;</text>
+  <text x="54" y="138" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Relay starts wide open after every restart.</text>
+  <text x="36" y="156" font-family="system-ui, sans-serif" font-size="14" fill="#f7768e">&#x274C;</text>
+  <text x="54" y="156" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Single-factor auth only.</text>
+
+  <!-- AFTER card -->
+  <rect x="360" y="62" width="320" height="108" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="520" y="82" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="600">After Phase 6</text>
+
+  <text x="376" y="102" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a">&#x2705;</text>
+  <text x="394" y="102" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Admin runs the show. Members follow rules.</text>
+  <text x="376" y="120" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a">&#x2705;</text>
+  <text x="394" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Leave an invite. Friend joins when ready.</text>
+  <text x="376" y="138" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a">&#x2705;</text>
+  <text x="394" y="138" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Relay starts locked. Operator unlocks it.</text>
+  <text x="376" y="156" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a">&#x2705;</text>
+  <text x="394" y="156" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Passphrase + authenticator app + YubiKey.</text>
+
+  <!-- ==================== ROW 2: Three main concepts ==================== -->
+
+  <!-- Card 1: Access Control (Who Gets In + What They Can Do) -->
+  <rect x="20" y="186" width="215" height="250" rx="8" fill="url(#cardGrad)" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="128" y="208" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">Who Gets In</text>
+  <text x="128" y="220" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Three layers, each doing one job</text>
+
+  <!-- Layer 1: Guest list -->
+  <rect x="30" y="230" width="195" height="52" rx="4" fill="#222124" stroke="#fbb040" stroke-width="0.6"/>
+  <text x="42" y="248" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" font-weight="600">Guest List</text>
+  <text x="42" y="261" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Only approved devices can connect</text>
+  <text x="42" y="274" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">authorized_keys + ConnectionGater</text>
+
+  <!-- Layer 2: Smart keys -->
+  <rect x="30" y="288" width="195" height="52" rx="4" fill="#222124" stroke="#9ece6a" stroke-width="0.6"/>
+  <text x="42" y="306" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" font-weight="600">Smart Keys</text>
+  <text x="42" y="319" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Each key says what you can do</text>
+  <text x="42" y="332" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">HMAC-SHA256 macaroons, 7 caveat types</text>
+
+  <!-- Layer 3: Roles -->
+  <rect x="30" y="346" width="195" height="52" rx="4" fill="#222124" stroke="#bb9af7" stroke-width="0.6"/>
+  <text x="42" y="364" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" font-weight="600">Owner vs Tenant</text>
+  <text x="42" y="377" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Admin makes rules. Members use it.</text>
+  <text x="42" y="390" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">admin / member roles, auto-promoted</text>
+
+  <!-- Restriction rule -->
+  <text x="128" y="416" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle" font-weight="600">Keys: restrict only, never expand</text>
+  <text x="128" y="428" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">Enforced by cryptography, not software</text>
+
+  <!-- Card 2: Sealed Vault -->
+  <rect x="248" y="186" width="200" height="250" rx="8" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="0.8"/>
+  <text x="348" y="208" font-family="system-ui, sans-serif" font-size="11" fill="#fbb040" text-anchor="middle" font-weight="600">The Safe</text>
+  <text x="348" y="220" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Passphrase-sealed vault</text>
+
+  <!-- Vault visual: locked -->
+  <rect x="264" y="232" width="68" height="68" rx="6" fill="#2a2218" stroke="#fbb040" stroke-width="1"/>
+  <text x="298" y="264" font-family="system-ui, sans-serif" font-size="26" fill="#fbb040" text-anchor="middle">&#x1F512;</text>
+  <text x="298" y="290" font-family="system-ui, sans-serif" font-size="8" fill="#fbb040" text-anchor="middle" font-weight="600">Locked</text>
+
+  <!-- Arrow -->
+  <text x="348" y="270" font-family="system-ui, sans-serif" font-size="16" fill="#565f89" text-anchor="middle">&#x2192;</text>
+
+  <!-- Vault visual: unlocked -->
+  <rect x="364" y="232" width="68" height="68" rx="6" fill="#1a2e1a" stroke="#9ece6a" stroke-width="1"/>
+  <text x="398" y="264" font-family="system-ui, sans-serif" font-size="26" fill="#9ece6a" text-anchor="middle">&#x1F513;</text>
+  <text x="398" y="290" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">Unlocked</text>
+
+  <!-- Descriptions -->
+  <text x="298" y="316" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Safe to leave running</text>
+  <text x="298" y="328" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Routes traffic</text>
+  <text x="298" y="340" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">No new authorizations</text>
+
+  <text x="398" y="316" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Full operations</text>
+  <text x="398" y="328" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Time-bounded</text>
+  <text x="398" y="340" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Relocks automatically</text>
+
+  <!-- Crypto details -->
+  <rect x="260" y="354" width="176" height="14" rx="2" fill="#222124"/>
+  <text x="348" y="364" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">Argon2id + XChaCha20-Poly1305</text>
+
+  <!-- Remote unseal -->
+  <text x="348" y="384" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle" font-weight="600">Unlock from your phone over P2P</text>
+  <text x="348" y="396" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">No SSH needed. Works behind CGNAT.</text>
+  <text x="348" y="408" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Binary wire protocol, escalating lockout</text>
+  <text x="348" y="420" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">4 free, then 1m/5m/15m/1h, permanent block</text>
+
+  <!-- Card 3: Async Invites -->
+  <rect x="461" y="186" width="219" height="250" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="570" y="208" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="600">Leave-a-Message Invites</text>
+  <text x="570" y="220" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Async deposit model, macaroon-backed</text>
+
+  <!-- Step 1 -->
+  <circle cx="483" cy="244" r="10" fill="#bb9af7"/>
+  <text x="483" y="248" font-family="system-ui, sans-serif" font-size="9" fill="#141316" text-anchor="middle" font-weight="700">1</text>
+  <text x="500" y="240" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">Create an invite</text>
+  <text x="500" y="252" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">With rules: "proxy only, max 1 peer"</text>
+  <text x="500" y="264" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">Macaroon token with caveats + TTL</text>
+
+  <!-- Connector -->
+  <line x1="483" y1="255" x2="483" y2="274" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- Step 2 -->
+  <circle cx="483" cy="284" r="10" fill="#fbb040"/>
+  <text x="483" y="288" font-family="system-ui, sans-serif" font-size="9" fill="#141316" text-anchor="middle" font-weight="700">2</text>
+  <text x="500" y="280" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">It sits on the relay</text>
+  <text x="500" y="292" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">Tighten rules or cancel any time</text>
+  <text x="500" y="304" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">States: pending, consumed, revoked, expired</text>
+
+  <!-- Connector -->
+  <line x1="483" y1="295" x2="483" y2="314" stroke="#565f89" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- Step 3 -->
+  <circle cx="483" cy="324" r="10" fill="#9ece6a"/>
+  <text x="483" y="328" font-family="system-ui, sans-serif" font-size="9" fill="#141316" text-anchor="middle" font-weight="700">3</text>
+  <text x="500" y="320" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" font-weight="600">Friend joins when ready</text>
+  <text x="500" y="332" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">Hours or days later. You can be offline.</text>
+  <text x="500" y="344" font-family="system-ui, sans-serif" font-size="7" fill="#565f89">128-bit token, single-use, rate limited</text>
+
+  <!-- Bottom note -->
+  <text x="570" y="370" font-family="system-ui, sans-serif" font-size="8" fill="#e8729a" text-anchor="middle" font-weight="600">No more "both be online at the same time"</text>
+  <text x="570" y="384" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Works across timezones. Works while you sleep.</text>
+
+  <!-- 2FA badge -->
+  <rect x="473" y="394" width="194" height="34" rx="4" fill="#222124" stroke="#bb9af7" stroke-width="0.5"/>
+  <text x="570" y="408" font-family="system-ui, sans-serif" font-size="8" fill="#bb9af7" text-anchor="middle">2FA: TOTP (RFC 6238) + YubiKey</text>
+  <text x="570" y="422" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Authenticator app or hardware key. Optional.</text>
+</svg>

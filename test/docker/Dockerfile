@@ -2,7 +2,7 @@
 # Builds a coverage-instrumented binary so Docker tests contribute to
 # overall coverage via GOCOVERDIR + `go tool covdata merge`.
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -cover -o /shurli ./cmd/shurli
 
 # --- Relay server image ---
 FROM alpine:3.21 AS relay
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates curl
 COPY --from=builder /shurli /usr/local/bin/shurli
 RUN mkdir -p /covdata
 WORKDIR /data

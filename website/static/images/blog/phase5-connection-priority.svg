@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 280" width="680" height="280">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="680" height="280" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="340" y="26" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">Connection Priority: Best Path Always Wins</text>
+  <text x="340" y="42" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Higher priority paths automatically replace lower ones. No configuration needed.</text>
+
+  <!-- Priority 1: LAN -->
+  <rect x="20" y="60" width="640" height="56" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="2"/>
+  <text x="40" y="84" font-family="system-ui, sans-serif" font-size="22" fill="#9ece6a">&#x1F3E0;</text>
+  <text x="72" y="80" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" font-weight="700">1. LAN (Same Network)</text>
+  <text x="72" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Discovered via mDNS. Private IPv4 on matching subnet. Fastest possible path.</text>
+  <text x="560" y="80" font-family="system-ui, sans-serif" font-size="16" fill="#9ece6a" text-anchor="end" font-weight="700">~2ms</text>
+  <text x="560" y="96" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="end">native dns_sd.h</text>
+  <rect x="580" y="68" width="66" height="22" rx="4" fill="#1a2e1a" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="613" y="83" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">DIRECT</text>
+
+  <!-- Arrow -->
+  <text x="340" y="130" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">&#x25BC; if not on same network</text>
+
+  <!-- Priority 2: Direct IPv6 -->
+  <rect x="20" y="140" width="640" height="56" rx="8" fill="url(#cardGrad)" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="40" y="164" font-family="system-ui, sans-serif" font-size="22" fill="#7aa2f7">&#x1F310;</text>
+  <text x="72" y="160" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" font-weight="700">2. Direct IPv6 (Cross-Network)</text>
+  <text x="72" y="176" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Detected by source-bound TCP probes. Upgrades relay connections automatically.</text>
+  <text x="560" y="160" font-family="system-ui, sans-serif" font-size="16" fill="#7aa2f7" text-anchor="end" font-weight="700">~23ms</text>
+  <text x="560" y="176" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="end">ProbeAndUpgradeRelayed()</text>
+  <rect x="580" y="148" width="66" height="22" rx="4" fill="#1a2230" stroke="#7aa2f7" stroke-width="0.8"/>
+  <text x="613" y="163" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">DIRECT</text>
+
+  <!-- Arrow -->
+  <text x="340" y="210" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">&#x25BC; if behind CGNAT (no public IP)</text>
+
+  <!-- Priority 3: Relay -->
+  <rect x="20" y="218" width="640" height="56" rx="8" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="1"/>
+  <text x="40" y="242" font-family="system-ui, sans-serif" font-size="22" fill="#fbb040">&#x1F504;</text>
+  <text x="72" y="238" font-family="system-ui, sans-serif" font-size="12" fill="#fbb040" font-weight="700">3. Relay (Fallback)</text>
+  <text x="72" y="254" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5">Circuit relay v2 through a peer with a public IP. Works behind any NAT.</text>
+  <text x="560" y="238" font-family="system-ui, sans-serif" font-size="16" fill="#fbb040" text-anchor="end" font-weight="700">~180ms</text>
+  <text x="560" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="end">always available</text>
+  <rect x="580" y="226" width="66" height="22" rx="4" fill="#2e2210" stroke="#fbb040" stroke-width="0.8"/>
+  <text x="613" y="241" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" text-anchor="middle" font-weight="600">RELAYED</text>
+</svg>

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 318" width="680" height="318">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="680" height="318" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="340" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">Async Invites: Leave a Message, Friend Joins Later</text>
+  <text x="340" y="40" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">No more "both be online at the same time." Works across timezones. Works while you sleep.</text>
+
+  <!-- Timeline bar -->
+  <line x1="60" y1="72" x2="620" y2="72" stroke="#3a3840" stroke-width="2"/>
+
+  <!-- Time markers -->
+  <text x="100" y="65" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Evening</text>
+  <text x="300" y="65" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Overnight</text>
+  <text x="500" y="65" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Next morning</text>
+
+  <!-- Admin lane -->
+  <rect x="20" y="82" width="640" height="22" rx="0" fill="#1a1528" opacity="0.5"/>
+  <text x="36" y="97" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" font-weight="600">You (admin)</text>
+
+  <!-- Relay lane -->
+  <rect x="20" y="104" width="640" height="22" rx="0" fill="#1a2518" opacity="0.5"/>
+  <text x="36" y="119" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" font-weight="600">Your relay</text>
+
+  <!-- Friend lane -->
+  <rect x="20" y="126" width="640" height="22" rx="0" fill="#2a2218" opacity="0.5"/>
+  <text x="36" y="141" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" font-weight="600">Your friend</text>
+
+  <!-- Step 1: Admin creates invite -->
+  <circle cx="140" cy="93" r="6" fill="#bb9af7"/>
+  <line x1="140" y1="99" x2="140" y2="109" stroke="#bb9af7" stroke-width="1.5"/>
+  <circle cx="140" cy="115" r="4" fill="#9ece6a"/>
+  <text x="140" y="165" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">1. Create invite</text>
+  <text x="140" y="178" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Set rules and expiry</text>
+  <text x="140" y="190" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">Macaroon token + TTL</text>
+  <text x="140" y="202" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">POST /v1/invite</text>
+
+  <!-- Step 2: Admin sends code (any channel) -->
+  <circle cx="220" cy="93" r="6" fill="#bb9af7"/>
+  <text x="220" y="165" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">2. Share code</text>
+  <text x="220" y="178" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Text, email, paper</text>
+  <text x="220" y="190" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">16-byte hex token</text>
+
+  <!-- Step 2.5: Admin modifies (optional) -->
+  <circle cx="300" cy="93" r="6" fill="#bb9af7" opacity="0.6"/>
+  <line x1="300" y1="99" x2="300" y2="109" stroke="#bb9af7" stroke-width="1" stroke-dasharray="3,2"/>
+  <circle cx="300" cy="115" r="4" fill="#9ece6a" opacity="0.6"/>
+  <text x="300" y="165" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">3. Tighten rules?</text>
+  <text x="300" y="178" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Optional: add more</text>
+  <text x="300" y="190" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">restrictions before use</text>
+  <text x="300" y="202" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">PATCH /v1/invite/{id}</text>
+
+  <!-- Admin goes to sleep / offline indicator -->
+  <rect x="345" y="84" width="80" height="16" rx="3" fill="#222124" stroke="#565f89" stroke-width="0.5"/>
+  <text x="385" y="95" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">&#x1F634; Offline / asleep</text>
+
+  <!-- Relay holds the deposit -->
+  <rect x="180" y="106" width="280" height="16" rx="3" fill="#1a2e1a" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="320" y="117" font-family="system-ui, sans-serif" font-size="7.5" fill="#9ece6a" text-anchor="middle">Invite deposit waiting... (status: pending)</text>
+
+  <!-- Friend wakes up and joins -->
+  <circle cx="500" cy="137" r="6" fill="#fbb040"/>
+  <line x1="500" y1="131" x2="500" y2="109" stroke="#fbb040" stroke-width="1.5"/>
+  <circle cx="500" cy="115" r="4" fill="#9ece6a"/>
+  <text x="500" y="165" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" text-anchor="middle" font-weight="600">4. Friend joins</text>
+  <text x="500" y="178" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Consumes the deposit</text>
+  <text x="500" y="190" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Gets the permissions you set</text>
+  <text x="500" y="202" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">Single-use, then consumed</text>
+
+  <!-- Deposit consumed -->
+  <rect x="500" y="106" width="140" height="16" rx="3" fill="#2a2218" stroke="#fbb040" stroke-width="0.5"/>
+  <text x="570" y="117" font-family="system-ui, sans-serif" font-size="7.5" fill="#fbb040" text-anchor="middle">Deposit consumed &#x2705;</text>
+
+  <!-- Bottom: What can go wrong + safety -->
+  <rect x="20" y="216" width="200" height="92" rx="6" fill="url(#cardGrad)" stroke="#f7768e" stroke-width="0.6"/>
+  <text x="120" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" text-anchor="middle" font-weight="600">&#x1F6E1;  Safety nets</text>
+  <text x="120" y="250" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Invite expired? Create a new one.</text>
+  <text x="120" y="264" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Changed your mind? Revoke it.</text>
+  <text x="120" y="278" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">Gave too much access? Tighten it.</text>
+  <text x="120" y="292" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">DELETE /v1/invite/{id} to revoke</text>
+
+  <!-- Deposit lifecycle states -->
+  <rect x="240" y="216" width="200" height="92" rx="6" fill="url(#cardGrad)" stroke="#565f89" stroke-width="0.6"/>
+  <text x="340" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">&#x1F504;  Invite lifecycle</text>
+
+  <rect x="254" y="244" width="70" height="18" rx="3" fill="#1a2e1a" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="289" y="257" font-family="system-ui, sans-serif" font-size="7.5" fill="#9ece6a" text-anchor="middle">pending</text>
+
+  <rect x="254" y="268" width="70" height="18" rx="3" fill="#1a1528" stroke="#bb9af7" stroke-width="0.5"/>
+  <text x="289" y="281" font-family="system-ui, sans-serif" font-size="7.5" fill="#bb9af7" text-anchor="middle">consumed</text>
+
+  <rect x="340" y="244" width="70" height="18" rx="3" fill="#2a1818" stroke="#f7768e" stroke-width="0.5"/>
+  <text x="375" y="257" font-family="system-ui, sans-serif" font-size="7.5" fill="#f7768e" text-anchor="middle">revoked</text>
+
+  <rect x="340" y="268" width="70" height="18" rx="3" fill="#2a2218" stroke="#fbb040" stroke-width="0.5"/>
+  <text x="375" y="281" font-family="system-ui, sans-serif" font-size="7.5" fill="#fbb040" text-anchor="middle">expired</text>
+
+  <!-- Before vs After -->
+  <rect x="460" y="216" width="200" height="92" rx="6" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="0.6"/>
+  <text x="560" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">&#x26A1;  The difference</text>
+  <text x="560" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#f7768e" text-anchor="middle">Before: "Hey, run this command NOW"</text>
+  <text x="560" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle">After: "Here's a code, use it whenever"</text>
+  <text x="560" y="286" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">128-bit random ID, thread-safe store</text>
+  <text x="560" y="298" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Lazy expiry on access, no background ticker</text>
+</svg>
