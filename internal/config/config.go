@@ -140,12 +140,17 @@ type RelayDiscoveryConfig struct {
 type SecurityConfig struct {
 	AuthorizedKeysFile     string `yaml:"authorized_keys_file"`
 	EnableConnectionGating bool   `yaml:"enable_connection_gating"`
+	InvitePolicy           string `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
 }
 
 // RelaySecurityConfig holds relay server security configuration
 type RelaySecurityConfig struct {
 	AuthorizedKeysFile     string `yaml:"authorized_keys_file"`
 	EnableConnectionGating bool   `yaml:"enable_connection_gating"`
+	InvitePolicy           string `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
+	VaultFile              string `yaml:"vault_file,omitempty"`    // path to sealed vault JSON (empty = no vault)
+	RequireTOTP            bool   `yaml:"require_totp,omitempty"`  // require TOTP for vault unseal
+	AutoSealMinutes        int    `yaml:"auto_seal_minutes,omitempty"` // auto-seal after N minutes (0 = disabled)
 }
 
 // RelayResourcesConfig holds relay v2 resource limit configuration.

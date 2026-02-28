@@ -317,6 +317,345 @@ func TestPingThroughRelay(t *testing.T) {
 	t.Log("Ping through relay verified successfully.")
 }
 
+// ─── Phase 6: Vault, Invite Deposits, Sealed Relay ───────────────────────────
+
+// adminCurl calls the relay admin Unix socket with curl.
+// Returns stdout, HTTP status code, error.
+func adminCurl(method, path, body string) (string, int, error) {
+	cookie, _, err := dockerExec("relay", "cat", "/data/.relay-admin.cookie")
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to read admin cookie: %w", err)
+	}
+	cookie = strings.TrimSpace(cookie)
+
+	args := []string{
+		"curl", "-s", "-w", "\n%{http_code}",
+		"--unix-socket", "/data/.relay-admin.sock",
+		"-X", method,
+		"-H", "Authorization: Bearer " + cookie,
+		"-H", "Content-Type: application/json",
+	}
+	if body != "" {
+		args = append(args, "-d", body)
+	}
+	args = append(args, "http://relay-admin"+path)
+
+	out, stderr, err := dockerExecWithTimeout("relay", 10*time.Second, args...)
+	if err != nil {
+		return "", 0, fmt.Errorf("curl failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)
+	}
+
+	// Parse HTTP status from the last line (curl -w "\n%{http_code}")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 1 {
+		return "", 0, fmt.Errorf("empty curl output")
+	}
+	statusLine := lines[len(lines)-1]
+	var status int
+	fmt.Sscanf(statusLine, "%d", &status)
+
+	// Body is everything except the last line
+	respBody := ""
+	if len(lines) > 1 {
+		respBody = strings.Join(lines[:len(lines)-1], "\n")
+	}
+
+	return respBody, status, nil
+}
+
+func TestVaultInitSealUnseal(t *testing.T) {
+	// ── Step 1: Check vault status (should be uninitialized) ──
+	t.Log("Checking initial vault status...")
+	body, status, err := adminCurl("GET", "/v1/seal-status", "")
+	if err != nil {
+		t.Fatalf("seal-status failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("seal-status returned %d: %s", status, body)
+	}
+
+	var sealStatus struct {
+		Initialized bool `json:"initialized"`
+		Sealed      bool `json:"sealed"`
+	}
+	if err := json.Unmarshal([]byte(body), &sealStatus); err != nil {
+		t.Fatalf("failed to parse seal-status: %v\nbody: %s", err, body)
+	}
+	if sealStatus.Initialized {
+		t.Log("Vault already initialized (previous test run?), skipping init")
+	} else {
+		// ── Step 2: Initialize vault ──
+		t.Log("Initializing vault...")
+		body, status, err = adminCurl("POST", "/v1/vault/init",
+			`{"passphrase":"test-passphrase-docker","enable_totp":false,"auto_seal_minutes":0}`)
+		if err != nil {
+			t.Fatalf("vault init failed: %v", err)
+		}
+		if status != 200 {
+			t.Fatalf("vault init returned %d: %s", status, body)
+		}
+
+		var initResp struct {
+			SeedPhrase string `json:"seed_phrase"`
+		}
+		if err := json.Unmarshal([]byte(body), &initResp); err != nil {
+			t.Fatalf("failed to parse init response: %v", err)
+		}
+		if initResp.SeedPhrase == "" {
+			t.Error("seed phrase is empty")
+		}
+		t.Logf("Vault initialized, seed phrase length: %d chars", len(initResp.SeedPhrase))
+	}
+
+	// ── Step 3: Verify vault is unsealed after init ──
+	body, status, err = adminCurl("GET", "/v1/seal-status", "")
+	if err != nil {
+		t.Fatalf("seal-status failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(body), &sealStatus); err != nil {
+		t.Fatalf("failed to parse seal-status: %v", err)
+	}
+	if sealStatus.Sealed {
+		t.Error("vault should be unsealed after init")
+	}
+
+	// ── Step 4: Seal the vault ──
+	t.Log("Sealing vault...")
+	_, status, err = adminCurl("POST", "/v1/seal", "")
+	if err != nil {
+		t.Fatalf("seal failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("seal returned %d", status)
+	}
+
+	// Verify sealed
+	body, _, err = adminCurl("GET", "/v1/seal-status", "")
+	if err != nil {
+		t.Fatalf("seal-status failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(body), &sealStatus); err != nil {
+		t.Fatalf("failed to parse seal-status: %v", err)
+	}
+	if !sealStatus.Sealed {
+		t.Error("vault should be sealed after seal command")
+	}
+
+	// ── Step 5: Unseal with wrong passphrase (should fail 403) ──
+	t.Log("Testing unseal with wrong passphrase...")
+	_, status, err = adminCurl("POST", "/v1/unseal",
+		`{"passphrase":"wrong-passphrase"}`)
+	if err != nil {
+		t.Fatalf("unseal failed: %v", err)
+	}
+	if status != 403 {
+		t.Errorf("wrong passphrase should return 403, got %d", status)
+	}
+
+	// ── Step 6: Unseal with correct passphrase ──
+	t.Log("Unsealing with correct passphrase...")
+	_, status, err = adminCurl("POST", "/v1/unseal",
+		`{"passphrase":"test-passphrase-docker"}`)
+	if err != nil {
+		t.Fatalf("unseal failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("correct passphrase unseal returned %d", status)
+	}
+
+	// Verify unsealed
+	body, _, err = adminCurl("GET", "/v1/seal-status", "")
+	if err != nil {
+		t.Fatalf("seal-status failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(body), &sealStatus); err != nil {
+		t.Fatalf("failed to parse seal-status: %v", err)
+	}
+	if sealStatus.Sealed {
+		t.Error("vault should be unsealed after correct unseal")
+	}
+
+	t.Log("Vault init/seal/unseal verified successfully.")
+}
+
+func TestSealedRelayBlocksMutations(t *testing.T) {
+	// Seal the vault first.
+	_, status, err := adminCurl("POST", "/v1/seal", "")
+	if err != nil {
+		t.Fatalf("seal failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("seal returned %d", status)
+	}
+
+	// ── Try to create pairing while sealed (should return 503) ──
+	t.Log("Attempting pairing creation while sealed...")
+	body, status, err := adminCurl("POST", "/v1/pair", `{"count":1}`)
+	if err != nil {
+		t.Fatalf("pair request failed: %v", err)
+	}
+	if status != 503 {
+		t.Errorf("pairing while sealed should return 503, got %d: %s", status, body)
+	}
+
+	// ── Try to create invite deposit while sealed (should return 503) ──
+	t.Log("Attempting invite creation while sealed...")
+	body, status, err = adminCurl("POST", "/v1/invite", `{"caveats":["service=test"]}`)
+	if err != nil {
+		t.Fatalf("invite request failed: %v", err)
+	}
+	if status != 503 {
+		t.Errorf("invite while sealed should return 503, got %d: %s", status, body)
+	}
+
+	// ── Read-only operations should still work ──
+	t.Log("Verifying read-only operations work while sealed...")
+	_, status, err = adminCurl("GET", "/v1/invite", "")
+	if err != nil {
+		t.Fatalf("list invites failed: %v", err)
+	}
+	if status != 200 {
+		t.Errorf("list invites while sealed should return 200, got %d", status)
+	}
+
+	// ── Unseal to restore state for subsequent tests ──
+	_, status, err = adminCurl("POST", "/v1/unseal",
+		`{"passphrase":"test-passphrase-docker"}`)
+	if err != nil {
+		t.Fatalf("unseal failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("unseal returned %d", status)
+	}
+
+	t.Log("Sealed relay mutation blocking verified successfully.")
+}
+
+func TestInviteDepositCRUD(t *testing.T) {
+	// ── Step 1: Create invite deposit with caveats ──
+	t.Log("Creating invite deposit...")
+	body, status, err := adminCurl("POST", "/v1/invite",
+		`{"caveats":["service=proxy","action=connect"],"ttl_seconds":3600}`)
+	if err != nil {
+		t.Fatalf("create invite failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("create invite returned %d: %s", status, body)
+	}
+
+	var createResp struct {
+		ID       string `json:"id"`
+		Macaroon string `json:"macaroon"`
+		Status   string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(body), &createResp); err != nil {
+		t.Fatalf("failed to parse create response: %v\nbody: %s", err, body)
+	}
+	if createResp.ID == "" {
+		t.Error("deposit ID is empty")
+	}
+	if createResp.Macaroon == "" {
+		t.Error("macaroon is empty")
+	}
+	if createResp.Status != "pending" {
+		t.Errorf("expected status 'pending', got %q", createResp.Status)
+	}
+	depositID := createResp.ID
+	t.Logf("Created deposit: %s", depositID)
+
+	// ── Step 2: List invites ──
+	t.Log("Listing invites...")
+	body, status, err = adminCurl("GET", "/v1/invite", "")
+	if err != nil {
+		t.Fatalf("list invites failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("list invites returned %d: %s", status, body)
+	}
+
+	var invites []struct {
+		ID      string `json:"id"`
+		Status  string `json:"status"`
+		Caveats int    `json:"caveats"`
+	}
+	if err := json.Unmarshal([]byte(body), &invites); err != nil {
+		t.Fatalf("failed to parse list response: %v", err)
+	}
+
+	found := false
+	var caveatCount int
+	for _, inv := range invites {
+		if inv.ID == depositID {
+			found = true
+			caveatCount = inv.Caveats
+			break
+		}
+	}
+	if !found {
+		t.Errorf("deposit %s not found in list", depositID)
+	}
+	if caveatCount != 2 {
+		t.Errorf("expected 2 caveats, got %d", caveatCount)
+	}
+
+	// ── Step 3: Modify invite (add caveat, attenuation-only) ──
+	t.Log("Modifying invite (adding caveat)...")
+	body, status, err = adminCurl("PATCH", "/v1/invite/"+depositID,
+		`{"add_caveats":["peers_max=5"]}`)
+	if err != nil {
+		t.Fatalf("modify invite failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("modify invite returned %d: %s", status, body)
+	}
+
+	// Verify caveat count increased
+	body, _, err = adminCurl("GET", "/v1/invite", "")
+	if err != nil {
+		t.Fatalf("list invites failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(body), &invites); err != nil {
+		t.Fatalf("failed to parse list response: %v", err)
+	}
+	for _, inv := range invites {
+		if inv.ID == depositID {
+			if inv.Caveats != 3 {
+				t.Errorf("expected 3 caveats after modification, got %d", inv.Caveats)
+			}
+			break
+		}
+	}
+
+	// ── Step 4: Revoke invite ──
+	t.Log("Revoking invite...")
+	_, status, err = adminCurl("DELETE", "/v1/invite/"+depositID, "")
+	if err != nil {
+		t.Fatalf("revoke invite failed: %v", err)
+	}
+	if status != 200 {
+		t.Fatalf("revoke invite returned %d", status)
+	}
+
+	// Verify revoked status
+	body, _, err = adminCurl("GET", "/v1/invite", "")
+	if err != nil {
+		t.Fatalf("list invites failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(body), &invites); err != nil {
+		t.Fatalf("failed to parse list response: %v", err)
+	}
+	for _, inv := range invites {
+		if inv.ID == depositID {
+			if inv.Status != "revoked" {
+				t.Errorf("expected status 'revoked', got %q", inv.Status)
+			}
+			break
+		}
+	}
+
+	t.Log("Invite deposit CRUD verified successfully.")
+}
+
 // ─── Coverage Collection ─────────────────────────────────────────────────────
 
 // collectDockerCoverage gracefully stops all shurli processes inside Docker
@@ -552,6 +891,7 @@ func setupNode(container, relayAddr string) error {
 
 // generateRelayConfig returns a minimal relay config for testing.
 // Connection gating is DISABLED so we don't need to pre-authorize node peer IDs.
+// Vault file is configured to enable Phase 6 vault/invite features.
 func generateRelayConfig() string {
 	return `# Relay config for integration testing (gating disabled)
 version: 1
@@ -566,6 +906,7 @@ network:
 security:
   authorized_keys_file: "relay_authorized_keys"
   enable_connection_gating: false
+  vault_file: "vault.json"
 
 health:
   enabled: true

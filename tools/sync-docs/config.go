@@ -52,6 +52,7 @@ var journalEntries = []journalEntry{
 	{"pre-phase5-hardening.md", 14, "Pre-Phase 5 Hardening", "Startup race fix, stale address detection, systemd/launchd service deployment."},
 	{"phase5-network-resilience.md", 15, "Phase 5 - Network Resilience", "Native mDNS via dns_sd.h, PeerManager lifecycle, stale connection cleanup, IPv6 path probing, mDNS LAN-first connect, relay-discard logic."},
 	{"dev-tooling.md", 16, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
+	{"phase6-acl-relay-security.md", 17, "Phase 6 - ACL + Relay Security", "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).
