@@ -311,6 +311,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	kdht, err := dht.New(rt.ctx, h,
 		dht.Mode(dht.ModeAutoServer),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
+		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
 	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)

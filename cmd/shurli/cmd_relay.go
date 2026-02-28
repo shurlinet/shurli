@@ -57,6 +57,16 @@ func runRelay(args []string) {
 		runRelayInfo(serverConfigFile)
 	case "pair":
 		runRelayPair(args[1:], serverConfigFile)
+	case "invite":
+		runRelayInvite(args[1:], serverConfigFile)
+	case "vault":
+		runRelayVault(args[1:], serverConfigFile)
+	case "seal":
+		runRelaySeal(nil, serverConfigFile)
+	case "unseal":
+		runRelayUnseal(args[1:], serverConfigFile)
+	case "seal-status":
+		runRelaySealStatus(nil, serverConfigFile)
 	case "config":
 		runRelayServerConfig(args[1:], serverConfigFile)
 	case "version":

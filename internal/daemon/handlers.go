@@ -284,11 +284,16 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]AuthEntry, 0, len(peers))
 	for _, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = auth.RoleMember
+		}
 		e := AuthEntry{
 			PeerID:   p.PeerID.String(),
 			Comment:  p.Comment,
 			Verified: p.Verified,
 			Group:    p.Group,
+			Role:     role,
 		}
 		if !p.ExpiresAt.IsZero() {
 			e.ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
@@ -335,6 +340,19 @@ func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set role if specified (default: member)
+	role := req.Role
+	if role == "" {
+		role = auth.RoleMember
+	}
+	if role != auth.RoleAdmin && role != auth.RoleMember {
+		respondError(w, http.StatusBadRequest, "role must be \"admin\" or \"member\"")
+		return
+	}
+	if err := auth.SetPeerRole(authPath, req.PeerID, role); err != nil {
+		slog.Error("failed to set peer role", "error", err)
+	}
+
 	// Hot-reload gater
 	if err := s.reloadGater(); err != nil {
 		slog.Error("failed to reload gater after adding peer", "error", err)
@@ -342,7 +360,7 @@ func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("authorized peer added via API", "peer", req.PeerID[:16]+"...")
+	slog.Info("authorized peer added via API", "peer", req.PeerID[:16]+"...", "role", role)
 	respondJSON(w, http.StatusOK, map[string]string{"status": "added"})
 }
 
