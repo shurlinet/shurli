@@ -42,7 +42,7 @@
   <!-- ===================== LEFT COLUMN: COMPLETED ===================== -->
 
   <!-- Timeline line (left) -->
-  <line x1="60" y1="90" x2="60" y2="610" stroke="#9ece6a" stroke-width="2" opacity="0.3"/>
+  <line x1="60" y1="90" x2="60" y2="680" stroke="#9ece6a" stroke-width="2" opacity="0.3"/>
 
   <!-- Phase 1 -->
   <circle cx="60" cy="105" r="6" fill="#9ece6a"/>
@@ -95,32 +95,33 @@
   <text x="94" y="464" font-size="9" fill="#a9b1d6">5-M: NetIntel presence + gossip forwarding</text>
   <text x="400" y="442" text-anchor="end" font-size="9" font-weight="700" fill="#9ece6a" font-family="ui-monospace, monospace">4-6 weeks</text>
 
+  <!-- Phase 6: ACL + Relay Security (COMPLETE) -->
+  <circle cx="60" cy="510" r="8" fill="#9ece6a"/>
+  <rect x="80" y="493" width="340" height="58" rx="8" fill="url(#doneGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="94" y="512" font-size="11" font-weight="700" fill="#c0caf5">Phase 6: ACL + Relay Security</text>
+  <text x="94" y="528" font-size="9" fill="#a9b1d6">Roles, macaroons, sealed vault, async invites,</text>
+  <text x="94" y="542" font-size="9" fill="#a9b1d6">remote unseal, TOTP, Yubikey</text>
+  <text x="400" y="520" text-anchor="end" font-size="9" font-weight="700" fill="#9ece6a" font-family="ui-monospace, monospace">1 day</text>
+
   <!-- "You are here" marker -->
-  <circle cx="60" cy="510" r="10" fill="none" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
-  <circle cx="60" cy="510" r="4" fill="#e8729a"/>
-  <text x="80" y="514" font-size="11" font-weight="700" fill="#e8729a">You are here</text>
+  <circle cx="60" cy="580" r="10" fill="none" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <circle cx="60" cy="580" r="4" fill="#e8729a"/>
+  <text x="80" y="584" font-size="11" font-weight="700" fill="#e8729a">You are here</text>
 
   <!-- Connector arrow from left to right column -->
-  <path d="M 200 525 Q 450 540 500 105" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
+  <path d="M 200 595 Q 450 610 500 105" fill="none" stroke="#e8729a" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
 
   <!-- ===================== RIGHT COLUMN: PLANNED ===================== -->
 
   <!-- Timeline line (right) -->
   <line x1="510" y1="90" x2="510" y2="700" stroke="#e0af68" stroke-width="2" opacity="0.3" stroke-dasharray="4,3"/>
 
-  <!-- Phase 6: ACL + Relay Security (Planned) -->
+  <!-- Phase 7: ZKP Privacy -->
   <circle cx="510" cy="105" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
   <rect x="530" y="88" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="106" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: ACL + Relay Security</text>
-  <text x="544" y="122" font-size="9" fill="#a9b1d6">Capability tokens, sealed relay, client invites</text>
+  <text x="544" y="106" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: ZKP Privacy Layer</text>
+  <text x="544" y="122" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
   <text x="850" y="113" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
-
-  <!-- Phase 7: ZKP Privacy -->
-  <circle cx="510" cy="152" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="135" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="153" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: ZKP Privacy Layer</text>
-  <text x="544" y="169" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
-  <text x="850" y="160" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
 
   <!-- Phase 8: Visual Channel -->
   <circle cx="510" cy="199" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>

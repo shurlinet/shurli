@@ -1,7 +1,7 @@
 ---
 title: "Planned & Future"
 weight: 2
-description: "Upcoming phases and future work: ACL and relay security, ZKP privacy, plugins, distribution, mobile, federation, and beyond."
+description: "Upcoming phases: ZKP privacy, visual pairing, plugins, distribution, mobile, federation, and beyond."
 ---
 
 ## Relay Decentralization
@@ -17,42 +17,11 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## Phase 6: ACL + Relay Security + Client Invites - STATUS: PLANNED
-
-Production-ready access control, relay security, and async client-generated invites. Three-tier access model (relay operator / network admin / member), capability-based invite tokens with delegation, and a sealed/unsealed relay security model inspired by offline key management patterns (passphrase unlock, timeout auto-lock, seed phrase recovery).
-
-**Access Control**:
-- [ ] `admin`/`member` roles on `authorized_keys` entries
-- [ ] Configurable invite policy: `admin-only` (default) or `open` (community relay)
-- [ ] First peer paired with relay automatically gets `role=admin`
-
-**Client-Deposit Invites ("Contact Card" Model)**:
-- [ ] `shurli invite --name "Dave"` generates invite code, deposits on relay, returns immediately
-- [ ] Joiner runs `shurli join <code>` any time (inviter can be offline)
-- [ ] Relay delivers peer introduction to inviter on reconnect (store-and-forward)
-- [ ] `shurli invite modify <nonce>` - change permissions on a pending invite without changing the code
-- [ ] `shurli invite revoke <nonce>` - kill a pending invite
-
-**Capability Tokens (Macaroon HMAC chain)**:
-- [ ] Bearer tokens with offline attenuation (holders create weaker tokens, never stronger)
-- [ ] Nonce-based revocation
-- [ ] Evolution path documented: capability tokens now, public-key-verifiable tokens (UCANs) when open network needs it
-
-**Relay Security (Passphrase-Sealed Pattern)**:
-- [ ] Encrypted config and authorized peer list at rest
-- [ ] Passphrase-based unlock with timeout auto-lock (relay unseals for N hours, then auto-reseals)
-- [ ] Watch-only (sealed) mode: relay routes traffic for existing peers but cannot authorize new ones
-- [ ] Seed phrase recovery (24 words regenerate all keys)
-- [ ] Remote unseal over P2P: admin unlocks relay from client node, no SSH needed
-- [ ] Two-factor auth: TOTP (baseline) + hardware key challenge-response (stronger option)
-
----
-
 ## Phase 7: ZKP Privacy Layer - STATUS: PLANNED
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove they hold valid capabilities without revealing their identity or specific permissions.
 
-**Dependency**: Requires Phase 6 capability token model as the authorization system ZKP proves against.
+**Dependency**: Requires Phase 6 macaroon authorization model (now complete) as the capability system ZKP proves against.
 
 **Implementation: gnark PLONK + Ethereum KZG ceremony (2026-02-26)**
 

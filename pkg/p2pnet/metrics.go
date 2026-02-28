@@ -56,6 +56,26 @@ type Metrics struct {
 	// Interface metrics
 	InterfaceCount *prometheus.GaugeVec
 
+	// Vault metrics (seal state, unseal attempts, lockout)
+	VaultSealed            prometheus.Gauge
+	VaultSealOpsTotal      *prometheus.CounterVec
+	VaultUnsealTotal       *prometheus.CounterVec
+	VaultUnsealLockedPeers prometheus.Gauge
+
+	// Deposit metrics (invite lifecycle)
+	DepositOpsTotal *prometheus.CounterVec
+	DepositPending  prometheus.Gauge
+
+	// Pairing metrics (relay-mediated pairing)
+	PairingTotal *prometheus.CounterVec
+
+	// Macaroon metrics (token verification)
+	MacaroonVerifyTotal *prometheus.CounterVec
+
+	// Admin socket metrics
+	AdminRequestTotal          *prometheus.CounterVec
+	AdminRequestDurationSeconds *prometheus.HistogramVec
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -222,6 +242,79 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"ip_version"},
 		),
 
+		VaultSealed: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_vault_sealed",
+				Help: "Current vault seal state (1 = sealed, 0 = unsealed).",
+			},
+		),
+		VaultSealOpsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_vault_seal_operations_total",
+				Help: "Total vault seal/unseal transitions by trigger.",
+			},
+			[]string{"trigger"},
+		),
+		VaultUnsealTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_vault_unseal_total",
+				Help: "Total remote vault unseal attempts by result.",
+			},
+			[]string{"result"},
+		),
+		VaultUnsealLockedPeers: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_vault_unseal_locked_peers",
+				Help: "Number of peers currently locked out or permanently blocked from remote unseal.",
+			},
+		),
+
+		DepositOpsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_deposit_operations_total",
+				Help: "Total invite deposit operations by type.",
+			},
+			[]string{"operation"},
+		),
+		DepositPending: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_deposit_pending",
+				Help: "Number of pending (unconsumed) invite deposits.",
+			},
+		),
+
+		PairingTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_pairing_total",
+				Help: "Total relay-mediated pairing attempts by result.",
+			},
+			[]string{"result"},
+		),
+
+		MacaroonVerifyTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_macaroon_verify_total",
+				Help: "Total macaroon verification attempts by result.",
+			},
+			[]string{"result"},
+		),
+
+		AdminRequestTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_admin_request_total",
+				Help: "Total admin socket requests by endpoint and status.",
+			},
+			[]string{"endpoint", "status"},
+		),
+		AdminRequestDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_admin_request_duration_seconds",
+				Help:    "Duration of admin socket requests in seconds.",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"endpoint"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_info",
@@ -250,6 +343,16 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.NetIntelSentTotal,
 		m.NetIntelReceivedTotal,
 		m.InterfaceCount,
+		m.VaultSealed,
+		m.VaultSealOpsTotal,
+		m.VaultUnsealTotal,
+		m.VaultUnsealLockedPeers,
+		m.DepositOpsTotal,
+		m.DepositPending,
+		m.PairingTotal,
+		m.MacaroonVerifyTotal,
+		m.AdminRequestTotal,
+		m.AdminRequestDurationSeconds,
 		m.BuildInfo,
 	)
 

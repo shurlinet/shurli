@@ -134,7 +134,9 @@ Architecture: same pattern as the daemon API socket.
 |----------|-------|
 | Transport | Unix domain socket (`<config-dir>/relay-admin.sock`) |
 | Auth | 32-byte random hex cookie, `0600` permissions, rotated per restart |
-| Endpoints | `POST /v1/pair`, `GET /v1/pair`, `DELETE /v1/pair/{id}` |
+| Pairing | `POST /v1/pair`, `GET /v1/pair`, `DELETE /v1/pair/{id}` |
+| Invites | `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}` |
+| Vault | `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`, `POST /v1/vault/init`, `GET /v1/vault/totp-uri` |
 | Cookie comparison | `subtle.ConstantTimeCompare` (timing-safe) |
 | Body limits | `MaxBytesReader` (4096 bytes) |
 | Pairing count cap | Max 100 per request |
@@ -163,4 +165,70 @@ When using invite codes (v2 format), the inviter's namespace is encoded in the c
 
 ---
 
-**Last Updated**: 2026-02-25
+## How do admin and member roles work?
+
+Shurli uses a two-role model on the `authorized_keys` file: `admin` and `member`.
+
+**Admins** can create invites, manage peers, modify invite permissions, and remotely unseal the relay vault. **Members** can connect, use services, and verify peers, but cannot create invites or manage the network.
+
+The first peer to join via relay pairing is automatically promoted to admin (if no admin exists yet). All subsequent peers join as members. Role assignment uses the existing `authorized_keys` attribute system: `role=admin` or `role=member`. Backward compatible: peers without a role attribute default to member.
+
+**Invite policy** controls who can create invites:
+- `admin-only` (default): only admins can create invite deposits
+- `open`: any member can create invites (useful for self-organizing groups)
+
+Configure in `config.yaml`:
+```yaml
+relay_security:
+  invite_policy: "admin-only"
+```
+
+---
+
+## How do macaroon-backed invites work?
+
+Phase 6 replaced synchronous pairing with async invite deposits. An admin creates an invite deposit on the relay. The joining peer can consume it later, even if the admin is offline.
+
+Each invite deposit contains a **macaroon** - an HMAC-chain capability token. The admin can add restrictions (caveats) to the macaroon before consumption, but can never widen permissions. Permissions are attenuation-only: mistakes can be corrected (restrict or revoke), but never made worse.
+
+The HMAC chain enforces this cryptographically. Adding a caveat chains a new HMAC on top of the previous signature. Removing a caveat would require the previous signature, which is destroyed by the chain. No trust needed - the math prevents it.
+
+**Creating an invite:**
+```bash
+shurli relay invite create --caveat "action=connect" --ttl 3600
+# Creates a macaroon-backed invite that expires in 1 hour
+# Joining peer can only connect (not create further invites)
+```
+
+**Restricting before consumption:**
+```bash
+shurli relay invite modify <id> --add-caveat "peers_max=3"
+# Now the invite can only onboard 3 peers
+```
+
+7 caveat types are supported: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`. Unknown caveats are rejected (fail-closed).
+
+---
+
+## How does the sealed vault protect the relay?
+
+The relay's root key (used for minting macaroon tokens) is encrypted at rest and in memory. When the vault is **sealed**, the relay operates in watch-only mode: it routes traffic for existing peers but cannot authorize new ones or process invite deposits.
+
+**Unsealing** requires a passphrase (derived via Argon2id: time=3, memory=64MB, threads=4) and optionally a TOTP code or Yubikey touch. After unsealing, the relay can process invites and authorize new peers. It auto-reseals after a configurable timeout.
+
+**Crypto stack:**
+- **KDF**: Argon2id (passphrase to encryption key)
+- **Encryption**: XChaCha20-Poly1305 (root key at rest)
+- **2FA**: TOTP (RFC 6238) and/or Yubikey HMAC-SHA1 (optional)
+- **Memory**: `subtle.XORBytes` zeroing on seal (best-effort, Go GC caveat)
+- **Recovery**: hex seed phrase reconstructs root key if passphrase is lost
+
+The vault persists as a JSON file (`vault.json`) with encrypted root key, salt, nonce, and configuration. The plaintext root key only exists in memory while unsealed.
+
+**Remote unseal**: admins can unseal the relay over the P2P network from any device. The `/shurli/relay-unseal/1.0.0` protocol uses a binary wire format, checks admin role, and enforces iOS-style escalating lockout: 4 free attempts, then 1 minute, 5 minutes, 15 minutes, 1 hour (x3), then permanent block requiring SSH access to reset.
+
+Inspired by operators who chose to shut down rather than compromise their users: the relay must never betray its users. Sealed by default. Watch-only when locked. Seed recovery when all else fails.
+
+---
+
+**Last Updated**: 2026-02-28

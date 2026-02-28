@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" width="700" height="400">
+  <defs>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="pinkFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="blueFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="700" height="400" rx="12" fill="#141316"/>
+
+  <!-- Title -->
+  <text x="350" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Three-Tier Access Control</text>
+  <text x="350" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Role-based relay operations with escalating privileges</text>
+
+  <!-- Phase 6 badge -->
+  <rect x="538" y="8" width="150" height="22" rx="11" fill="#9ece6a" opacity="0.15" stroke="#9ece6a" stroke-width="1"/>
+  <text x="613" y="23" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">COMPLETE - Phase 6</text>
+
+  <!-- ====== TIER 0: Relay Operator ====== -->
+  <rect x="80" y="65" width="480" height="85" rx="10" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1.5"/>
+
+  <!-- Tier label -->
+  <text x="100" y="85" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" font-weight="600">TIER 0</text>
+  <text x="100" y="100" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Relay Operator</text>
+
+  <!-- Capabilities -->
+  <text x="230" y="85" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Unix socket access</text>
+  <text x="230" y="100" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Full admin endpoints (9 new)</text>
+  <text x="230" y="115" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Vault init / seal / unseal</text>
+  <text x="230" y="130" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Direct host access</text>
+
+  <!-- Localhost badge -->
+  <rect x="448" y="72" width="100" height="18" rx="9" fill="#bb9af7" opacity="0.12" stroke="#bb9af7" stroke-width="0.8"/>
+  <text x="498" y="85" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">localhost only</text>
+
+  <!-- ====== TIER 1: Network Admin ====== -->
+  <rect x="80" y="165" width="480" height="85" rx="10" fill="url(#pinkFill)" stroke="#da1c5c" stroke-width="1.5"/>
+
+  <!-- Tier label -->
+  <text x="100" y="185" font-family="system-ui, sans-serif" font-size="12" fill="#da1c5c" font-weight="600">TIER 1</text>
+  <text x="100" y="200" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Network Admin</text>
+
+  <!-- Capabilities -->
+  <text x="230" y="185" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">First peer auto-promoted</text>
+  <text x="230" y="200" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Create / revoke invites</text>
+  <text x="230" y="215" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Remote unseal (/shurli/relay-unseal/1.0.0)</text>
+  <text x="230" y="230" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Modify invite permissions</text>
+
+  <!-- Role badge -->
+  <rect x="448" y="172" width="100" height="18" rx="9" fill="#da1c5c" opacity="0.12" stroke="#da1c5c" stroke-width="0.8"/>
+  <text x="498" y="185" font-family="SF Mono, monospace" font-size="8" fill="#da1c5c" text-anchor="middle" font-weight="600">role=admin</text>
+
+  <!-- ====== TIER 2: Member ====== -->
+  <rect x="80" y="265" width="480" height="75" rx="10" fill="url(#blueFill)" stroke="#7aa2f7" stroke-width="1.5"/>
+
+  <!-- Tier label -->
+  <text x="100" y="285" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" font-weight="600">TIER 2</text>
+  <text x="100" y="300" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Member</text>
+
+  <!-- Capabilities -->
+  <text x="230" y="285" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Standard relay operations</text>
+  <text x="230" y="300" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Connect via relay</text>
+  <text x="230" y="315" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">Receive introductions</text>
+
+  <!-- Role badge -->
+  <rect x="448" y="272" width="100" height="18" rx="9" fill="#7aa2f7" opacity="0.12" stroke="#7aa2f7" stroke-width="0.8"/>
+  <text x="498" y="285" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle" font-weight="600">role=member</text>
+
+  <!-- ====== Right side: Privilege arrow ====== -->
+  <line x1="590" y1="80" x2="590" y2="320" stroke="#565f89" stroke-width="1.2" opacity="0.5"/>
+  <polygon points="586,316 594,316 590,325" fill="#565f89"/>
+
+  <!-- Arrow labels -->
+  <text x="630" y="85" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">Most</text>
+  <text x="635" y="98" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">privileged</text>
+
+  <text x="630" y="310" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Least</text>
+  <text x="635" y="323" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">privileged</text>
+
+  <!-- ====== Bottom: Invite policy toggle ====== -->
+  <rect x="80" y="355" width="480" height="35" rx="8" fill="#1e1d20" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
+  <text x="95" y="377" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" font-weight="600">Invite policy:</text>
+
+  <!-- admin-only badge -->
+  <rect x="195" y="362" width="95" height="20" rx="6" fill="#e0af68" opacity="0.12" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="243" y="376" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">admin-only</text>
+
+  <text x="310" y="377" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Tier 0 + 1 create invites</text>
+
+  <!-- Divider -->
+  <line x1="395" y1="360" x2="395" y2="385" stroke="#565f89" stroke-width="0.8" opacity="0.3"/>
+
+  <!-- open badge -->
+  <rect x="410" y="362" width="55" height="20" rx="6" fill="#9ece6a" opacity="0.12" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="438" y="376" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">open</text>
+
+  <text x="528" y="377" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">Tier 2 can also create invites</text>
+</svg>
