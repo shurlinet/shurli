@@ -381,3 +381,7 @@ bash setup.sh --check
 | Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
 | `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
 | CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |
+
+---
+
+**Next step**: [Securing Your Relay](../relay-security/) - initialize the vault, set up 2FA, and configure auto-seal so your relay starts locked after every restart.

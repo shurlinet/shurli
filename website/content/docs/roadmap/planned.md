@@ -1,7 +1,7 @@
 ---
 title: "Planned & Future"
 weight: 2
-description: "Upcoming phases and future work: network intelligence, ZKP privacy, plugins, distribution, mobile, federation, and beyond."
+description: "Upcoming phases: ZKP privacy, visual pairing, plugins, distribution, mobile, federation, and beyond."
 ---
 
 ## Relay Decentralization
@@ -17,9 +17,11 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## Phase 6: ZKP Privacy Layer - STATUS: PLANNED
+## Phase 7: ZKP Privacy Layer - STATUS: PLANNED
 
-Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
+Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove they hold valid capabilities without revealing their identity or specific permissions.
+
+**Dependency**: Requires Phase 6 macaroon authorization model (now complete) as the capability system ZKP proves against.
 
 **Implementation: gnark PLONK + Ethereum KZG ceremony (2026-02-26)**
 
@@ -56,7 +58,7 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 
 ---
 
-## Phase 7: Visual Channel - "Constellation Code"
+## Phase 8: Visual Channel - "Constellation Code"
 
 **Timeline**: TBD
 
@@ -64,7 +66,7 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 
 ---
 
-## Phase 8: Plugin Architecture, SDK & First Plugins
+## Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 
@@ -135,7 +137,7 @@ net.OnEvent(func(e p2pnet.Event) {
 
 ---
 
-## Phase 9: Distribution & Launch
+## Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 
@@ -209,7 +211,7 @@ services:
 
 ---
 
-## Phase 10: Desktop Gateway Daemon + Private DNS
+## Phase 11: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 
@@ -242,7 +244,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 11: Mobile Applications
+## Phase 12: Mobile Applications
 
 **Timeline**: 3-4 weeks
 
@@ -265,7 +267,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 12: Federation - Network Peering
+## Phase 13: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 
@@ -303,7 +305,7 @@ curl http://desktop.bob:8080
 
 ---
 
-## Phase 13: Advanced Naming Systems (Optional)
+## Phase 14: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 
@@ -324,11 +326,9 @@ curl http://desktop.bob:8080
 
 ### Privacy Narrative - Shurli's Moat
 
-Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
+Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign alternative** for people who care about owning their network.
 
-> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues).*
-
-| | **Shurli** | **Tailscale** |
+| | **Shurli** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -341,7 +341,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 1. **r/selfhosted** - Already run services at home, hate port forwarding, value self-sovereignty
 2. **Starlink/CGNAT users** - Actively searching for solutions to reach home machines
 3. **AI/ML hobbyists** - Home GPU + remote access is exactly their problem
-4. **Privacy-conscious developers** - Won't use Tailscale because of the coordination server
+4. **Privacy-conscious developers** - Won't use centralized VPN services because of the coordination server
 
 ### Community Infrastructure (set up at or before launch)
 
@@ -401,18 +401,20 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 
 **Phase 4C**: CI on every push, >60% overall coverage, relay resource limits, auto-recovery within 30s, commit-confirmed prevents lockout, QUIC transport default
 
-**Phase 6**: ZKP proves group membership without revealing identity
+**Phase 6**: Client-generated async invites work, relay sealed/unsealed with auto-lock, remote unseal over P2P, admin/member roles enforced
 
-**Phase 7**: Animated visual pairing replaces emoji fingerprints
+**Phase 7**: ZKP proves capability token possession without revealing identity
 
-**Phase 8**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 8**: Animated visual pairing replaces emoji fingerprints
 
-**Phase 9**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
+**Phase 9**: Third-party plugins work, file transfer between peers, SDK published
 
-**Phase 10**: Gateway works in all 3 modes, private DNS resolves only within P2P network
+**Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
-**Phase 11**: iOS app approved, Android app published, QR invite flow works
+**Phase 11**: Gateway works in all 3 modes, private DNS resolves only within P2P network
 
-**Phase 12**: Two networks federate, cross-network routing works
+**Phase 12**: iOS app approved, Android app published, QR invite flow works
 
-**Phase 13**: 3+ naming backends working, plugin API documented
+**Phase 13**: Two networks federate, cross-network routing works
+
+**Phase 14**: 3+ naming backends working, plugin API documented

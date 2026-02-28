@@ -2,7 +2,7 @@
 
 > Shurli connects devices through firewalls and CGNAT using encrypted P2P tunnels with SSH-style authentication. Single Go binary, zero cloud dependency, works behind any NAT. Built on libp2p (same stack as Ethereum, Filecoin, Polkadot). Currently at Phase 4C Complete: daemon mode, relay server, invite/join pairing, TCP proxy, private DHT, self-healing config, 80% test coverage.
 
-Shurli is a self-sovereign alternative to Tailscale/ZeroTier for people who want no accounts, no telemetry, and no coordination server. Every connection is end-to-end encrypted via the Noise protocol. The relay sees ciphertext only.
+Shurli is a self-sovereign alternative to centralized VPN tools for people who want no accounts, no telemetry, and no coordination server. Every connection is end-to-end encrypted via the Noise protocol. The relay sees ciphertext only.
 
 Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pairing via invite codes, daemon mode with 14-endpoint REST API over Unix socket, P2P ping/traceroute/resolve, config self-healing with commit-confirmed pattern, systemd watchdog integration.
 
@@ -15,7 +15,7 @@ Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pai
 - [FAQ](https://shurli.io/docs/faq/): How NAT traversal works, Circuit Relay v2, symmetric NAT, security model, comparison context
 - [Relay Setup](https://shurli.io/docs/relay-setup/): Deploy your own relay server on a VPS - setup script, systemd service, security checklist, troubleshooting
 - [Testing](https://shurli.io/docs/testing/): Unit tests, Docker integration tests, coverage reporting
-- [Roadmap](https://shurli.io/docs/roadmap/): Full multi-phase plan - Phase 5 (network intelligence: mDNS, PeerManager, GossipSub), Phase 6 (plugins/SDK), Phase 7 (distribution), Phase 8 (gateway), Phase 9 (mobile), Phase 10 (federation), Phase 11 (naming)
+- [Roadmap](https://shurli.io/docs/roadmap/): Full multi-phase plan - Phase 5 (network intelligence: mDNS, PeerManager, GossipSub) complete. Phase 6 (ACL + relay security), Phase 7 (ZKP privacy), Phase 8 (visual channel), Phase 9 (plugins/SDK), Phase 10 (distribution), Phase 11 (gateway), Phase 12 (mobile), Phase 13 (federation), Phase 14 (naming)
 
 ## Code
 

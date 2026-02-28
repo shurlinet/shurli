@@ -52,10 +52,10 @@ The improvements come from upgrading everything *around* the relay - see the nex
 6. **Configurable** - When you run your own relay, you set your own resource limits
 
 The only area where alternatives genuinely outperform Circuit Relay v2:
-- **Connection speed**: Iroh (1-3s) and Tailscale (<1s) are faster than Circuit Relay v2 (5-15s) due to persistent relay connections
-- **Hole-punch success for regular NAT**: Iroh (~90%) and Tailscale (~92%) beat DCUtR (~70%) - but this doesn't matter for symmetric NAT
+- **Connection speed**: Persistent relay services (1-3s) and vendor-operated relays (<1s) are faster than Circuit Relay v2 (5-15s) due to always-on connections
+- **Hole-punch success for regular NAT**: QUIC-based P2P libraries (~90%+) and vendor-operated relays (~92%) beat DCUtR (~70%) - but this doesn't matter for symmetric NAT
 
-For Starlink CGNAT with a self-hosted relay, Circuit Relay v2 is **functionally equivalent** to Iroh and Tailscale in relay quality.
+For Starlink CGNAT with a self-hosted relay, Circuit Relay v2 is **functionally equivalent** to other relay approaches in relay quality.
 
 ---
 
@@ -82,17 +82,17 @@ Public relays are designed as a **trampoline** - they help two peers find each o
 
 Conceptually yes - both are "someone else's relay you use for free." But the implementation differs significantly:
 
-| | **IPFS public relays** | **Iroh's relays** |
+| | **IPFS public relays** | **Vendor-operated persistent relays** |
 |---|---|---|
-| **Operator** | Thousands of random IPFS peers | n0 team (Iroh's company) |
-| **Architecture** | Decentralized - any public node can be a relay | Centralized - Iroh runs them |
+| **Operator** | Thousands of random IPFS peers | A specific company or team |
+| **Architecture** | Decentralized - any public node can be a relay | Centralized - vendor runs them |
 | **Data limit** | 128 KB per session | No hard cap |
 | **Time limit** | 2 minutes | Persistent connection |
-| **Purpose** | Trampoline for hole-punch coordination | Actual traffic fallback (like Tailscale's DERP) |
+| **Purpose** | Trampoline for hole-punch coordination | Actual traffic fallback (like vendor relay servers) |
 | **Reliability** | Random node could vanish anytime | Operated infrastructure |
-| **Protocol** | libp2p Circuit Relay v2 | Custom protocol (UDP-over-HTTP) |
+| **Protocol** | libp2p Circuit Relay v2 | Custom protocols (e.g., UDP-over-HTTP) |
 
-Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem** - meant to carry real traffic when hole-punching fails. IPFS's public relays are just for the initial handshake.
+Vendor-operated persistent relays are designed to carry real traffic when hole-punching fails. IPFS's public relays are just for the initial handshake.
 
 ---
 
@@ -101,8 +101,8 @@ Iroh's relays are essentially **Tailscale's DERP servers for the Iroh ecosystem*
 For Starlink/CGNAT (symmetric NAT) users, hole-punching **always fails**. Traffic must stay on the relay for the entire session. This means:
 
 1. **Public IPFS relays** - Connection drops after 2 minutes or 128 KB. Unusable.
-2. **Iroh's relays** - Would work, but you depend on Iroh's infrastructure and lose sovereignty.
-3. **Tailscale's DERP** - Would work, but requires a Tailscale account and their control plane.
+2. **Vendor-operated relays** - Would work, but you depend on a third party's infrastructure and lose sovereignty.
+3. **Centralized VPN relays** - Would work, but requires an account with a centralized service and their control plane.
 4. **Your own relay** - Works indefinitely, unlimited data, you control everything.
 
 Shurli's self-hosted relay ($5/month VPS) is the only option that provides **both** unlimited traffic **and** full sovereignty.
@@ -111,7 +111,7 @@ Shurli's self-hosted relay ($5/month VPS) is the only option that provides **bot
 
 ## Why does symmetric NAT break hole-punching?
 
-Nebula uses **lighthouse nodes** (like STUN servers) to help peers discover each other's public IP:port. Then it attempts direct hole-punching.
+Some mesh overlay tools use **lighthouse nodes** (like STUN servers) to help peers discover each other's public IP:port. Then they attempt direct hole-punching.
 
 With symmetric NAT (CGNAT), the mapped port **changes for every destination**:
 
@@ -119,7 +119,7 @@ With symmetric NAT (CGNAT), the mapped port **changes for every destination**:
 
 The port the lighthouse tells Peer B to use was allocated for the lighthouse connection, not Peer B. The hole-punch fails.
 
-**Nebula has no relay fallback.** If hole-punching fails, the connection simply doesn't work. Tailscale falls back to DERP. Shurli falls back to circuit relay. Nebula has nothing.
+**Tools without relay fallback simply fail.** If hole-punching fails, the connection does not work. Centralized VPN tools fall back to vendor relay servers. Shurli falls back to circuit relay. Certificate-based mesh tools without relay support have nothing.
 
 ---
 
@@ -203,14 +203,14 @@ An open service is an open door with a bouncer inside. A Shurli relay is a door 
 
 ### Comparison with other relay architectures
 
-| Feature | **Shurli** | **Tailscale DERP** | **IPFS public relay** |
+| Feature | **Shurli** | **Vendor-operated relay** | **IPFS public relay** |
 |---------|------------|-------------------|---------------------|
-| **Who can use it** | Explicit allowlist (authorized_keys) | Any Tailscale account holder | Anyone |
+| **Who can use it** | Explicit allowlist (authorized_keys) | Any account holder | Anyone |
 | **Authentication** | ConnectionGater (peer ID) | WireGuard keys | None |
 | **Resource limits** | Per-peer, per-IP, per-ASN | Not published | 128 KB / 2 min |
 | **E2E encryption** | Noise (Ed25519) | WireGuard (Curve25519) | Noise |
 | **Relay sees content** | No | No | No |
-| **Self-hosted** | Yes | No (Tailscale operates) | N/A (public nodes) |
+| **Self-hosted** | Yes | No (vendor operates) | N/A (public nodes) |
 
 ### The path forward
 

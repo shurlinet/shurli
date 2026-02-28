@@ -32,8 +32,10 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
+	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
@@ -167,6 +169,7 @@ func runRelayServe(args []string) {
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeServer),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
+		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
 	)
 	if err != nil {
 		fatal("DHT error: %v", err)
@@ -206,11 +209,68 @@ func runRelayServe(args []string) {
 		relayAddrStr = "" // non-fatal: admin socket still works, code encoding will fail
 	}
 	adminSrv := relay.NewAdminServer(tokenStore, gater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
+
+	// Load vault if configured. When sealed, the relay starts in watch-only mode:
+	// existing peers can use the relay, but no new peers can be authorized.
+	var relayVault *vault.Vault
+	if cfg.Security.VaultFile != "" {
+		if _, statErr := os.Stat(cfg.Security.VaultFile); statErr == nil {
+			v, loadErr := vault.Load(cfg.Security.VaultFile)
+			if loadErr != nil {
+				fatal("Failed to load vault: %v", loadErr)
+			}
+			relayVault = v
+			adminSrv.SetVault(v, cfg.Security.VaultFile)
+			fmt.Printf("Vault loaded from %s (sealed, watch-only mode)\n", cfg.Security.VaultFile)
+		} else {
+			// Vault file doesn't exist yet - will be created via `vault init`
+			adminSrv.SetVault(nil, cfg.Security.VaultFile)
+			fmt.Printf("Vault not initialized (run 'shurli relay vault init')\n")
+		}
+	}
+
+	// Wire up invite deposit store. The root key comes from the vault dynamically
+	// (available only when unsealed). The deposit store itself is always available.
+	adminSrv.SetDepositStore(deposit.NewDepositStore())
+
 	if err := adminSrv.Start(); err != nil {
 		slog.Error("failed to start admin socket", "err", err)
 		// Non-fatal: relay still functions, just no CLI pairing
 	} else {
 		defer adminSrv.Stop()
+	}
+
+	// Register remote unseal protocol (available even when sealed - that's the point).
+	var unsealHandler *relay.UnsealHandler
+	if relayVault != nil {
+		unsealHandler = relay.NewUnsealHandler(relayVault, cfg.Security.AuthorizedKeysFile)
+		h.SetStreamHandler(protocol.ID(relay.UnsealProtocol), func(s network.Stream) {
+			unsealHandler.HandleStream(s)
+		})
+		slog.Info("unseal protocol registered", "protocol", relay.UnsealProtocol)
+	}
+
+	// Vault auto-seal goroutine: re-seals the vault after the configured timeout.
+	if relayVault != nil {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if relayVault.ShouldAutoSeal() {
+						relayVault.Seal()
+						if adminSrv.Metrics != nil {
+							adminSrv.Metrics.VaultSealOpsTotal.WithLabelValues("auto_seal").Inc()
+							adminSrv.Metrics.VaultSealed.Set(1)
+						}
+						slog.Info("vault auto-sealed after timeout")
+					}
+				}
+			}
+		}()
 	}
 
 	// Reconnect notifier: push peer introductions when authorized peers reconnect.
@@ -317,6 +377,24 @@ func runRelayServe(args []string) {
 		relayMetrics = p2pnet.NewMetrics(version, runtime.Version())
 		slog.Info("telemetry: metrics enabled", "addr", cfg.Telemetry.Metrics.ListenAddress)
 	}
+	// Wire metrics to Phase 6 components (nil-safe: if metrics disabled, handlers work without them).
+	if relayMetrics != nil {
+		if unsealHandler != nil {
+			unsealHandler.Metrics = relayMetrics
+		}
+		adminSrv.Metrics = relayMetrics
+		pairingHandler.Metrics = relayMetrics
+
+		// Set initial vault seal state gauge.
+		if relayVault != nil {
+			if relayVault.IsSealed() {
+				relayMetrics.VaultSealed.Set(1)
+			} else {
+				relayMetrics.VaultSealed.Set(0)
+			}
+		}
+	}
+
 	var relayAudit *p2pnet.AuditLogger
 	if cfg.Telemetry.Audit.Enabled {
 		relayAudit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
@@ -529,10 +607,14 @@ func doRelayListPeers(configFile string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "  (none)")
 	} else {
 		for _, p := range peers {
+			role := p.Role
+			if role == "" {
+				role = "member"
+			}
 			if p.Comment != "" {
-				fmt.Fprintf(stdout, "  %s  # %s\n", p.PeerID, p.Comment)
+				fmt.Fprintf(stdout, "  %s  [%s]  # %s\n", p.PeerID, role, p.Comment)
 			} else {
-				fmt.Fprintf(stdout, "  %s\n", p.PeerID)
+				fmt.Fprintf(stdout, "  %s  [%s]\n", p.PeerID, role)
 			}
 		}
 	}
@@ -790,6 +872,13 @@ func printRelayServeUsage() {
 	fmt.Println("  list-peers                          List authorized peers")
 	fmt.Println("  config validate                     Validate relay config without starting")
 	fmt.Println("  config rollback                     Restore last-known-good config")
+	fmt.Println()
+	fmt.Println("Vault (relay security):")
+	fmt.Println("  vault init [--totp] [--auto-seal N] Initialize passphrase-sealed vault")
+	fmt.Println("  vault status                        Show vault seal status")
+	fmt.Println("  seal                                Seal vault (watch-only mode)")
+	fmt.Println("  unseal                              Unseal vault")
+	fmt.Println("  seal-status                         Show vault seal status (shorthand)")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli relay add /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")

@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-weight: 8
+weight: 11
 description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
 ---
 <!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs - do not edit directly -->
@@ -16,6 +16,10 @@ This document describes the technical architecture of Shurli, from current imple
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
+  - [Role-Based Access Control (Phase 6)](#role-based-access-control-phase-6) - admin/member tiers
+  - [Macaroon Capability Tokens (Phase 6)](#macaroon-capability-tokens-phase-6) - HMAC-chain bearer tokens
+  - [Passphrase-Sealed Vault (Phase 6)](#passphrase-sealed-vault-phase-6) - relay key protection
+  - [Async Invite Deposits (Phase 6)](#async-invite-deposits-phase-6) - client-deposit invites
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
 - [Federation Model](#federation-model) - planned (Phase 12)
 - [Mobile Architecture](#mobile-architecture) - planned (Phase 11)
@@ -51,6 +55,8 @@ Shurli/
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
 │   │   ├── cmd_relay_pair.go  # Relay pairing code generation
+│   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
+│   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
@@ -90,10 +96,11 @@ Shurli/
 │   │   ├── confirm.go          # Commit-confirmed pattern (apply/confirm/enforce)
 │   │   ├── snapshot.go         # TimeMachine-style config snapshots
 │   │   └── errors.go           # Sentinel errors (ErrConfigNotFound, ErrNoArchive, etc.)
-│   ├── auth/                # SSH-style authentication
+│   ├── auth/                # SSH-style authentication + role-based access
 │   │   ├── authorized_keys.go  # Parser + ConnectionGater loader
 │   │   ├── gater.go            # ConnectionGater implementation
 │   │   ├── manage.go           # AddPeer/RemovePeer/ListPeers (shared by CLI commands)
+│   │   ├── roles.go            # Role-based access control (admin/member)
 │   │   └── errors.go           # Sentinel errors
 │   ├── daemon/              # Daemon API server + client
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
@@ -108,12 +115,25 @@ Shurli/
 │   ├── invite/              # Invite code encoding + PAKE handshake
 │   │   ├── code.go          # Binary -> base32 with dash grouping
 │   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
-│   ├── relay/               # Relay pairing, admin socket, peer introductions
+│   ├── macaroon/            # HMAC-chain capability tokens
+│   │   ├── macaroon.go      # Macaroon struct, HMAC chaining, verify, encode/decode
+│   │   └── caveat.go        # Caveat language parser (7 types: service, group, action, etc.)
+│   ├── totp/                # RFC 6238 time-based one-time passwords
+│   │   └── totp.go          # Generate, Validate (with skew), NewSecret, provisioning URI
+│   ├── vault/               # Passphrase-sealed relay key vault
+│   │   └── vault.go         # Argon2id KDF + XChaCha20-Poly1305, seal/unseal, seed recovery
+│   ├── deposit/             # Macaroon-backed async invite deposits
+│   │   ├── store.go         # DepositStore: create, consume, revoke, add caveat, cleanup
+│   │   └── errors.go        # ErrDepositNotFound, Consumed, Revoked, Expired
+│   ├── yubikey/             # Yubikey HMAC-SHA1 challenge-response
+│   │   └── challenge.go     # ykman CLI integration (IsAvailable, ChallengeResponse)
+│   ├── relay/               # Relay pairing, admin socket, peer introductions, vault unseal
 │   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
 │   │   ├── pairing.go       # Relay pairing protocol (/shurli/relay-pair/1.0.0)
 │   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/shurli/peer-notify/1.0.0)
-│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair)
-│   │   └── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair, vault, invites)
+│   │   ├── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
+│   │   └── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   ├── reputation/           # Peer interaction tracking
 │   │   └── history.go       # Append-only interaction log per peer (foundation for PeerManager)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
@@ -404,7 +424,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics:
+Custom shurli metrics (30 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -414,6 +434,26 @@ Custom shurli metrics:
 - `shurli_holepunch_duration_seconds{result}` - hole punch timing
 - `shurli_daemon_requests_total{method, path, status}` - API request counts
 - `shurli_daemon_request_duration_seconds{method, path, status}` - API latency
+- `shurli_path_dial_total{path_type, result}` - path dial attempts
+- `shurli_path_dial_duration_seconds{path_type}` - path dial timing
+- `shurli_connected_peers{path_type, transport, ip_version}` - connected peer count
+- `shurli_network_change_total{change_type}` - network interface changes
+- `shurli_stun_probe_total{result}` - STUN probe results
+- `shurli_mdns_discovered_total{result}` - mDNS discovery events
+- `shurli_peermanager_reconnect_total{result}` - reconnection attempts
+- `shurli_netintel_sent_total{result}` - presence announcements sent
+- `shurli_netintel_received_total{result}` - presence announcements received
+- `shurli_interface_count{ip_version}` - network interface count
+- `shurli_vault_sealed` - vault seal state (1=sealed, 0=unsealed)
+- `shurli_vault_seal_operations_total{trigger}` - seal/unseal transitions by trigger
+- `shurli_vault_unseal_total{result}` - remote unseal attempts
+- `shurli_vault_unseal_locked_peers` - peers in lockout or permanently blocked
+- `shurli_deposit_operations_total{operation}` - invite deposit lifecycle
+- `shurli_deposit_pending` - pending unconsumed deposits
+- `shurli_pairing_total{result}` - relay-mediated pairing attempts
+- `shurli_macaroon_verify_total{result}` - macaroon token verifications
+- `shurli_admin_request_total{endpoint, status}` - admin socket request counts
+- `shurli_admin_request_duration_seconds{endpoint}` - admin socket latency
 - `shurli_info{version, go_version}` - build information
 
 **Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
@@ -424,7 +464,7 @@ Custom shurli metrics:
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 29 panels (23 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, hole punch success rates, API latency, and system metrics. 37 panels (31 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -582,6 +622,80 @@ services:
 ```
 
 The ACL check runs in the stream handler before dialing the local TCP service, so rejected peers never trigger a connection to the backend.
+
+### Role-Based Access Control (Phase 6)
+
+> **Status: Implemented**
+
+Three-tier access model for relay operations:
+
+- **Tier 0 (Relay Operator)**: Unix socket access. Full control via admin endpoints.
+- **Tier 1 (Network Admin)**: First peer paired with relay auto-promoted to `role=admin`. Can create/revoke invites, unseal relay remotely.
+- **Tier 2 (Member)**: Standard authorized peer. Can use relay services but cannot create invites (unless invite policy is `open`).
+
+Roles are stored as `role=admin` or `role=member` attributes in `authorized_keys`. The first peer paired with a relay is automatically promoted to admin if no admins exist.
+
+**Reference**: `internal/auth/roles.go`, `internal/auth/manage.go`, `internal/relay/pairing.go`
+
+### Macaroon Capability Tokens (Phase 6)
+
+> **Status: Implemented**
+
+HMAC-chain bearer tokens for invite permissions. Each caveat in the chain produces a new HMAC-SHA256 signature, making caveat removal cryptographically impossible.
+
+Key properties:
+- **Attenuation-only**: holders can add restrictions (caveats), never remove them
+- **Offline verification**: any party with the root key can verify without network calls
+- **Compact**: base64-encoded JSON, suitable for CLI and QR codes
+
+Supported caveat types: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`.
+
+**Reference**: `internal/macaroon/macaroon.go`, `internal/macaroon/caveat.go`
+
+### Passphrase-Sealed Vault (Phase 6)
+
+> **Status: Implemented**
+
+![Vault seal/unseal lifecycle: sealed (watch-only) at startup, unseal with passphrase + optional 2FA, auto-reseal on timeout](/images/docs/arch-vault-lifecycle.svg)
+
+The relay's root key material (used for macaroon minting) is protected by a passphrase-sealed vault. Two operational modes:
+
+**Sealed (default after restart)**:
+- Routes circuit relay traffic for existing peers
+- Serves existing peer introductions
+- Cannot authorize new peers or process invite deposits
+
+**Unsealed (time-bounded)**:
+- All sealed-mode operations plus new peer authorization
+- Processes invite deposits and join requests
+- Auto-reseals after configurable timeout
+
+**Crypto stack**:
+- KDF: Argon2id (time=3, memory=64MB, threads=4, keyLen=32)
+- Encryption: XChaCha20-Poly1305
+- 2FA: TOTP (RFC 6238) and/or Yubikey HMAC-SHA1
+
+**Seed recovery**: hex-encoded 32-byte root key (24 words). Reconstructs vault with new passphrase.
+
+**Remote unseal**: `/shurli/relay-unseal/1.0.0` P2P protocol. Admin-only (role check), iOS-style escalating lockout (4 free attempts, then 1m/5m/15m/1h, permanent block). Prometheus metrics: `shurli_vault_sealed`, `shurli_vault_seal_operations_total{trigger}`, `shurli_vault_unseal_total{result}`, `shurli_vault_unseal_locked_peers`.
+
+**Reference**: `internal/vault/vault.go`, `internal/relay/unseal.go`, `internal/totp/totp.go`, `internal/yubikey/challenge.go`
+
+### Async Invite Deposits (Phase 6)
+
+> **Status: Implemented**
+
+![Invite deposit lifecycle: admin creates deposit, deposit sits on relay, joiner consumes asynchronously](/images/docs/arch-invite-deposit.svg)
+
+Client-deposit invites ("contact card" model). Admin creates an invite deposit on the relay and walks away. The joining peer consumes it later, without the admin needing to be online.
+
+**Attenuation-only model**: the invite code is the authentication (immutable token). Permissions are mutable caveats on the deposit macaroon. Admins can restrict or revoke before consumption, but can never widen permissions (HMAC chain enforces this cryptographically).
+
+Deposit states: `pending` -> `consumed` | `revoked` | `expired`
+
+**Relay admin endpoints**: `POST /v1/invite` (create), `GET /v1/invite` (list), `DELETE /v1/invite/{id}` (revoke), `PATCH /v1/invite/{id}` (add caveats).
+
+**Reference**: `internal/deposit/store.go`, `cmd/shurli/cmd_relay_invite.go`
 
 ### Federation Trust Model
 
@@ -766,6 +880,12 @@ Validated at four points:
 - ✅ SYN/UDP flood on relay (iptables rate limiting, SYN cookies, conntrack tuning)
 - ✅ IP spoofing on relay (reverse path filtering via rp_filter)
 - ✅ Runaway relay process (systemd cgroup limits: memory, CPU, tasks)
+- ✅ Unauthorized admin operations (role-based access control + HMAC chain)
+- ✅ Root key exposure at rest (Argon2id + XChaCha20-Poly1305 vault)
+- ✅ Root key exposure in memory (auto-reseal timeout, explicit zeroing)
+- ✅ Invite code bruteforce (8-byte deposit ID, rate limiting)
+- ✅ Permission escalation on invites (HMAC chain attenuation-only, cryptographic enforcement)
+- ✅ Remote unseal bruteforce (iOS-style escalating lockout: 4 free, 1m/5m/15m/1h, permanent block, admin-only)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
@@ -827,5 +947,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-26
-**Architecture Version**: 3.3 (Phase 5: mDNS, PeerManager, NetIntel presence + gossip forwarding)
+**Last Updated**: 2026-02-28
+**Architecture Version**: 3.4 (Phase 6: ACL, Relay Security, Client Invites)
