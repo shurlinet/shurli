@@ -165,6 +165,153 @@ func (c *AdminClient) RevokeGroup(id string) error {
 	return nil
 }
 
+// Unseal sends a passphrase (and optional TOTP code) to unseal the relay vault.
+func (c *AdminClient) Unseal(passphrase, totpCode string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"passphrase": passphrase,
+		"totp_code":  totpCode,
+	})
+
+	data, status, err := c.do("POST", "/v1/unseal", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// Seal re-seals the relay vault.
+func (c *AdminClient) Seal() error {
+	data, status, err := c.do("POST", "/v1/seal", nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// SealStatus returns the current seal status of the relay vault.
+func (c *AdminClient) SealStatus() (*SealStatusResponse, error) {
+	data, status, err := c.do("GET", "/v1/seal-status", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+
+	var resp SealStatusResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &resp, nil
+}
+
+// InitVault creates a new vault on the relay.
+func (c *AdminClient) InitVault(passphrase string, enableTOTP bool, autoSealMins int) (*VaultInitResponse, error) {
+	reqBody, _ := json.Marshal(VaultInitRequest{
+		Passphrase:   passphrase,
+		EnableTOTP:   enableTOTP,
+		AutoSealMins: autoSealMins,
+	})
+
+	data, status, err := c.do("POST", "/v1/vault/init", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+
+	var resp VaultInitResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &resp, nil
+}
+
+// CreateInvite creates a macaroon-backed invite deposit.
+func (c *AdminClient) CreateInvite(caveats []string, ttlSec int) (map[string]string, error) {
+	reqBody, _ := json.Marshal(map[string]any{
+		"caveats":     caveats,
+		"ttl_seconds": ttlSec,
+	})
+
+	data, status, err := c.do("POST", "/v1/invite", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
+// ListInvites returns all invite deposits.
+func (c *AdminClient) ListInvites() ([]map[string]any, error) {
+	data, status, err := c.do("GET", "/v1/invite", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+
+	var resp []map[string]any
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
+// RevokeInvite revokes a pending invite deposit.
+func (c *AdminClient) RevokeInvite(id string) error {
+	data, status, err := c.do("DELETE", "/v1/invite/"+id, nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// ModifyInvite adds caveats to a pending invite deposit (attenuation only).
+func (c *AdminClient) ModifyInvite(id string, addCaveats []string) error {
+	reqBody, _ := json.Marshal(map[string]any{
+		"add_caveats": addCaveats,
+	})
+
+	data, status, err := c.do("PATCH", "/v1/invite/"+id, strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// parseAdminError extracts an error message from an admin API error response.
+func parseAdminError(data []byte, status int) error {
+	var errResp map[string]string
+	if json.Unmarshal(data, &errResp) == nil {
+		if msg, ok := errResp["error"]; ok {
+			return fmt.Errorf("relay: %s", msg)
+		}
+	}
+	return fmt.Errorf("relay returned HTTP %d", status)
+}
+
 // parseTimeStr parses common time formats.
 func parseTimeStr(s string) (time.Time, error) {
 	// Try RFC3339 first, then other common formats.

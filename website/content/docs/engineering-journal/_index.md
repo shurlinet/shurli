@@ -36,3 +36,4 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Pre-Phase 5 Hardening](pre-phase5-hardening/) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
 | [Phase 5: Network Resilience](phase5-network-resilience/) | ADR-L01 to ADR-L08 | Native mDNS, PeerManager, stale cleanup, IPv6 probing, relay-discard |
 | [Dev Tooling](dev-tooling/) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |
+| [Phase 6: ACL + Relay Security + Client Invites](phase6-acl-relay-security/) | ADR-M01 to ADR-M08 | Roles, macaroons, invite deposits, sealed vault, remote unseal, 2FA |

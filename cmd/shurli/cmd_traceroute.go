@@ -151,6 +151,7 @@ func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeC
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
+		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
 	)
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)

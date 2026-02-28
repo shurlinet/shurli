@@ -8,7 +8,7 @@ The principles, inspirations, and decision-making framework behind Shurli's deve
 
 ## How it started
 
-Shurli started when Satinder wanted to access OpenClaw from outside his home network. Every alternative meant routing through someone else's infrastructure to reach his own data. Tailscale would have worked, but it requires an online account and the free tier has limits. So he tried a different approach: "I'll just code the simplest silly tool using AI and see if it works." It worked. Features grew naturally from real needs, one at a time. The principles emerged from development conversations, not a predetermined manifesto.
+Shurli started when Satinder wanted to access OpenClaw from outside his home network. Every alternative meant routing through someone else's infrastructure to reach his own data. A centralized VPN tool would have worked, but it requires an online account and free tiers have limits. So he tried a different approach: "I'll just code the simplest silly tool using AI and see if it works." It worked. Features grew naturally from real needs, one at a time. The principles emerged from development conversations, not a predetermined manifesto.
 
 For the full origin story, see the [blog post](/blog/development-philosophy/).
 

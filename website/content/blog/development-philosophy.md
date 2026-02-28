@@ -26,7 +26,7 @@ When OpenClaw came out, Satinder had a simple question: how do I access it from 
 
 The alternatives existed. Use a third-party app. Use a remote access service. But every option meant routing through someone else's infrastructure to reach his own data. That gap felt wrong. Your machine, your data, your network - why should accessing it require someone else's permission?
 
-Tailscale was the obvious technical solution. Great tool, well-supported. But it requires signing up for an online service, and the free tier has limits. Paid plans unlock more. For someone running on a dedicated Starlink connection behind CGNAT, who just wants to reach their own machine on their own terms, that felt like too many strings for a simple need.
+A centralized VPN tool was the obvious technical solution. Well-supported options exist. But they require signing up for an online service, and free tiers have limits. Paid plans unlock more. For someone running on a dedicated Starlink connection behind CGNAT, who just wants to reach their own machine on their own terms, that felt like too many strings for a simple need.
 
 So: "I'll just code the simplest silly tool using AI and see if it works."
 
@@ -134,7 +134,7 @@ And separately, from a [2019 Starship presentation](https://spaceflightnow.com/2
 
 ### What we adopted
 
-The overlap was useful. Shurli's "eliminate, don't optimize" aligns directly with Step 2. The explicit dismissals of ideas (Birthday attacks, Nostr fallback, Iroh, mesh data relay, each rejected with documented reasoning) maps to Step 1. The batch system that delivers working code before automating follows Steps 4 and 5 in order.
+The overlap was useful. Shurli's "eliminate, don't optimize" aligns directly with Step 2. The explicit dismissals of ideas (Birthday attacks, alternative protocols, alternative transports, mesh data relay, each rejected with documented reasoning) maps to Step 1. The batch system that delivers working code before automating follows Steps 4 and 5 in order.
 
 We adopted the 5-step process as a batch review checklist. Before every development batch, we now ask: Are these requirements justified? What can we delete? Are we optimizing something that shouldn't exist?
 

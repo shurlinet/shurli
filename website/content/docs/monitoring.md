@@ -1,6 +1,6 @@
 ---
 title: "Monitoring"
-weight: 6
+weight: 9
 description: "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
 ---
 <!-- Auto-synced from docs/MONITORING.md by sync-docs - do not edit directly -->
@@ -123,7 +123,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 29 panels (23 visualizations + 6 row headers) across 6 sections.
+You'll immediately see the dashboard with 37 panels (31 visualizations + 6 row headers) across 6 sections.
 
 ## Dashboard sections
 
@@ -197,6 +197,16 @@ Go runtime health:
 | `shurli_holepunch_duration_seconds` | Histogram | result | Hole punch attempt duration |
 | `shurli_daemon_requests_total` | Counter | method, path, status | API request counts |
 | `shurli_daemon_request_duration_seconds` | Histogram | method, path, status | API request latency |
+| `shurli_vault_sealed` | Gauge | - | Vault seal state (1=sealed, 0=unsealed) |
+| `shurli_vault_seal_operations_total` | Counter | trigger | Seal/unseal transitions by trigger |
+| `shurli_vault_unseal_total` | Counter | result | Remote unseal attempts |
+| `shurli_vault_unseal_locked_peers` | Gauge | - | Peers in lockout or permanently blocked |
+| `shurli_deposit_operations_total` | Counter | operation | Invite deposit lifecycle |
+| `shurli_deposit_pending` | Gauge | - | Pending unconsumed deposits |
+| `shurli_pairing_total` | Counter | result | Relay-mediated pairing attempts |
+| `shurli_macaroon_verify_total` | Counter | result | Macaroon token verifications |
+| `shurli_admin_request_total` | Counter | endpoint, status | Admin socket request counts |
+| `shurli_admin_request_duration_seconds` | Histogram | endpoint | Admin socket latency |
 | `shurli_info` | Gauge | version, go_version | Build information |
 
 ### libp2p built-in metrics (free, no extra code)

@@ -18,6 +18,7 @@ type PeerEntry struct {
 	ExpiresAt time.Time // zero = never expires
 	Verified  string    // empty = unverified, otherwise fingerprint prefix
 	Group     string    // pairing group ID (empty = manually added or invited)
+	Role      string    // "admin" or "member" (empty = member, backward compatible)
 }
 
 // sanitizeComment strips characters that could corrupt the authorized_keys
@@ -77,7 +78,7 @@ func formatLine(peerIDStr string, attrs map[string]string, comment string) strin
 	var b strings.Builder
 	b.WriteString(peerIDStr)
 
-	// Write attributes in stable order: expires, verified, then others alphabetically
+	// Write attributes in stable order: expires, verified, role, then others alphabetically
 	writeAttr := func(key string) {
 		if v, ok := attrs[key]; ok {
 			b.WriteString("  ")
@@ -88,8 +89,9 @@ func formatLine(peerIDStr string, attrs map[string]string, comment string) strin
 	}
 	writeAttr("expires")
 	writeAttr("verified")
+	writeAttr("role")
 	for k, v := range attrs {
-		if k == "expires" || k == "verified" {
+		if k == "expires" || k == "verified" || k == "role" {
 			continue
 		}
 		b.WriteString("  ")
@@ -330,6 +332,9 @@ func ListPeers(authKeysPath string) ([]PeerEntry, error) {
 		}
 		if v, ok := attrs["group"]; ok {
 			entry.Group = v
+		}
+		if v, ok := attrs["role"]; ok {
+			entry.Role = v
 		}
 
 		entries = append(entries, entry)

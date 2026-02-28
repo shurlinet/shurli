@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // Protocol ID for relay pairing.
@@ -42,6 +43,7 @@ type PairingHandler struct {
 	Store        *TokenStore
 	AuthKeysPath string
 	Gater        GaterInterface
+	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
 }
 
 // GaterInterface is the subset of AuthorizedPeerGater needed by pairing.
@@ -92,6 +94,7 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	group, idx, err := ph.Store.ValidateAndUse(token[:], remotePeer, name)
 	if err != nil {
 		slog.Warn("pairing: validation failed", "peer", short)
+		ph.recordPairing("failure")
 		writeError(s)
 		return "", ""
 	}
@@ -120,6 +123,15 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 
 	// Annotate peer with group ID for introduction delivery.
 	auth.SetPeerAttr(ph.AuthKeysPath, remotePeer.String(), "group", group.ID)
+
+	// Auto-assign role: first peer becomes admin, all others become members.
+	adminCount, _ := auth.CountAdmins(ph.AuthKeysPath)
+	if adminCount == 0 {
+		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleAdmin)
+		slog.Info("pairing: first peer promoted to admin", "peer", short)
+	} else {
+		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleMember)
+	}
 
 	// Promote from probation in the gater.
 	if ph.Gater != nil {
@@ -151,6 +163,7 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 			resp = append(resp, encodePeerInfo(p)...)
 		}
 		s.Write(resp)
+		ph.recordPairing("success")
 		slog.Info("pairing: group complete", "group", group.ID, "peers", len(peers)+1)
 		return remotePeer, group.ID
 	}
@@ -162,7 +175,15 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 		resp = append(resp, encodePeerInfo(p)...)
 	}
 	s.Write(resp)
+	ph.recordPairing("success")
 	return remotePeer, group.ID
+}
+
+// recordPairing increments the pairing counter. Nil-safe.
+func (ph *PairingHandler) recordPairing(result string) {
+	if ph.Metrics != nil {
+		ph.Metrics.PairingTotal.WithLabelValues(result).Inc()
+	}
 }
 
 // writeError sends a uniform error response.

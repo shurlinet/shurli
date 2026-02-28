@@ -41,10 +41,10 @@ func printAuthUsage() {
 	fmt.Println("Usage: shurli auth <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  add      <peer-id> [--comment \"label\"]   Authorize a peer")
-	fmt.Println("  list                                     List authorized peers")
-	fmt.Println("  remove   <peer-id>                       Revoke a peer's access")
-	fmt.Println("  validate [file]                          Validate authorized_keys format")
+	fmt.Println("  add      <peer-id> [--comment \"label\"] [--role admin|member]   Authorize a peer")
+	fmt.Println("  list                                                          List authorized peers")
+	fmt.Println("  remove   <peer-id>                                            Revoke a peer's access")
+	fmt.Println("  validate [file]                                               Validate authorized_keys format")
 	fmt.Println()
 	fmt.Println("All commands support --config <path> and --file <path>.")
 }
@@ -86,12 +86,17 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 	configFlag := fs.String("config", "", "path to config file")
 	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
 	commentFlag := fs.String("comment", "", "optional comment for this peer")
+	roleFlag := fs.String("role", "member", "peer role: admin or member")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth add <peer-id> [--comment \"label\"]")
+		return fmt.Errorf("usage: shurli auth add <peer-id> [--comment \"label\"] [--role admin|member]")
+	}
+
+	if *roleFlag != auth.RoleAdmin && *roleFlag != auth.RoleMember {
+		return fmt.Errorf("invalid role %q: must be \"admin\" or \"member\"", *roleFlag)
 	}
 
 	peerIDStr := fs.Arg(0)
@@ -104,10 +109,15 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 		return fmt.Errorf("failed to add peer: %w", err)
 	}
 
+	if err := auth.SetPeerRole(authKeysPath, peerIDStr, *roleFlag); err != nil {
+		return fmt.Errorf("failed to set role: %w", err)
+	}
+
 	termcolor.Green("Authorized peer: %s", peerIDStr[:min(16, len(peerIDStr))]+"...")
 	if *commentFlag != "" {
 		fmt.Fprintf(stdout, "  Comment: %s\n", *commentFlag)
 	}
+	fmt.Fprintf(stdout, "  Role: %s\n", *roleFlag)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
 	return nil
 }
@@ -147,10 +157,21 @@ func doAuthList(args []string, stdout io.Writer) error {
 	for i, entry := range entries {
 		short := entry.PeerID.String()[:16] + "..."
 		full := entry.PeerID.String()
+
+		// Display role badge inline with the peer
+		role := entry.Role
+		if role == "" {
+			role = auth.RoleMember
+		}
+		roleBadge := "[member]"
+		if role == auth.RoleAdmin {
+			roleBadge = "[admin]"
+		}
+
 		if entry.Comment != "" {
-			fmt.Fprintf(stdout, "  %d. %s  # %s\n", i+1, short, entry.Comment)
+			fmt.Fprintf(stdout, "  %d. %s %s  # %s\n", i+1, short, roleBadge, entry.Comment)
 		} else {
-			fmt.Fprintf(stdout, "  %d. %s\n", i+1, short)
+			fmt.Fprintf(stdout, "  %d. %s %s\n", i+1, short, roleBadge)
 		}
 
 		// Show attributes on the detail line.

@@ -190,7 +190,7 @@ Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary me
 - [x] libp2p built-in metrics exposed (swarm, hole-punch, AutoNAT, relay, rcmgr)
 - [x] Custom shurli metrics (proxy bytes/connections/duration, auth counters, hole-punch stats, API timing)
 - [x] Audit logging - structured JSON via slog for security events
-- [x] Grafana dashboard - 29 panels across 6 sections
+- [x] Grafana dashboard - 37 panels across 6 sections
 
 ### Pre-Batch I Items
 
@@ -309,3 +309,75 @@ Lightweight presence protocol using direct streams. Each peer publishes its pres
 - **DCUtR**: [Specification](https://github.com/libp2p/specs/blob/master/relay/DCUtR.md) - Direct Connection Upgrade through Relay (hole punching coordination)
 - **AutoNAT v2**: [Specification](https://github.com/libp2p/specs/blob/master/autonat/autonat-v2.md) - per-address reachability testing with amplification prevention
 - **Hole Punching Measurement**: [Study](https://arxiv.org/html/2510.27500v1) - 4.4M traversal attempts, 85K+ networks, 167 countries, ~70% success rate
+
+---
+
+## Phase 6: ACL + Relay Security + Client Invites
+
+Production-ready access control, relay security hardening, and async client-generated invites. 7 batches, 19 new files, ~3,655 lines of new code. The relay can now be sealed at rest, unsealed remotely, and invite permissions are cryptographically attenuation-only.
+
+### 6-A: Role-Based Access Control
+
+Three-tier access model for relay operations:
+
+- [x] `role` attribute on `authorized_keys` entries (`admin` / `member`)
+- [x] First peer paired with relay auto-promoted to `role=admin` (if no admins exist)
+- [x] Role display in `shurli auth list` with `[admin]`/`[member]` badges
+- [x] Invite policy config: `admin-only` (default) / `open`
+
+### 6-B: Macaroon Core Library
+
+HMAC-chain capability tokens. Zero external dependencies (stdlib `crypto/hmac`, `crypto/sha256`).
+
+- [x] `Macaroon` struct with New, AddFirstPartyCaveat, Verify, Clone, Encode/Decode
+- [x] Caveat language parser with 7 types: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`
+- [x] `DefaultVerifier()` with fail-closed design
+- [x] Attenuation-only: each caveat chains a new HMAC-SHA256, making removal cryptographically impossible
+- [x] 22 macaroon tests + 10 caveat tests
+
+### 6-C: Macaroon Integration + Attenuation-Only Invites
+
+Async invite deposits with attenuation-only permissions.
+
+- [x] `DepositStore` with Create/Get/Consume/Revoke/AddCaveat/List/CleanExpired/Count
+- [x] Deposit states: pending, consumed, revoked, expired (with auto-expiry on access)
+- [x] 4 new relay admin endpoints for invite management
+- [x] CLI: `shurli relay invite create/list/revoke/modify`
+- [x] Attenuation-only: admin can restrict or revoke before consumption, but can never widen permissions
+
+### 6-D: TOTP Library
+
+RFC 6238 time-based one-time passwords. Zero external dependencies.
+
+- [x] Generate, Validate (with skew window), NewSecret, FormatProvisioningURI
+- [x] 11 tests including RFC 6238 test vectors
+
+### 6-E: Passphrase-Sealed Relay Vault
+
+Protects relay root key material at rest.
+
+- [x] Argon2id KDF (time=3, memory=64MB, threads=4) + XChaCha20-Poly1305 encryption
+- [x] Sealed (watch-only): routes traffic, serves introductions, cannot authorize new peers
+- [x] Unsealed (time-bounded): full operations, processes invite deposits, auto-reseals on timeout
+- [x] Hex-encoded seed phrase recovery (32 bytes as 24 hex-pair words)
+- [x] Root key zeroed from memory on seal
+- [x] 5 new relay admin endpoints for vault management
+- [x] CLI: `shurli relay vault init/seal/unseal/status`
+- [x] 14 vault tests
+
+### 6-F: Remote Unseal Over P2P
+
+Admin can unseal the relay remotely without SSH.
+
+- [x] `/shurli/relay-unseal/1.0.0` P2P protocol
+- [x] Admin-only access check, iOS-style escalating lockout (4 free, 1m/5m/15m/1h, permanent block)
+- [x] Prometheus metrics: `shurli_vault_unseal_total{result}`, `shurli_vault_unseal_locked_peers` gauge
+- [x] CLI: `shurli relay unseal --remote <name|peer-id|multiaddr>` (short name resolution)
+- [x] 11 unseal tests (wire format, lockout escalation, permanent block, message formatting)
+
+### 6-G: Yubikey HMAC-SHA1
+
+Optional hardware 2FA via ykman CLI (zero C dependencies).
+
+- [x] Availability detection, challenge-response, graceful fallback
+- [x] 6 tests

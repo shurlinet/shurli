@@ -220,8 +220,9 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | 5-K | mDNS Local Discovery | Zero-config LAN peer discovery, instant same-network detection, no DHT/relay needed for local peers, dedup + concurrency limiting | ✅ DONE |
 | 5-L | PeerManager | Background reconnection of authorized peers, exponential backoff, event-bus driven connect/disconnect tracking, network-change backoff reset | ✅ DONE |
 | 5-M | Network Intelligence (Presence) | Three-layer transport: direct push + gossip forwarding + future GossipSub. Peers exchange reachability grade, NAT type, IPv4/IPv6 flags, CGNAT status. `/shurli/presence/1.0.0` protocol | ✅ DONE |
-| **Phase 6** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
-| **Phase 7** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
+| **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
+| **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
+| **Phase 8** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
 
 **Deliverables**:
 
@@ -255,7 +256,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`shurli status` command** - show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required - instant. *(Batch E)*
 
-**Auto-Upgrade Groundwork** (full implementation in Phase 9):
+**Auto-Upgrade Groundwork** (full implementation in Phase 10):
 - [x] **Build version embedding** - compile with `-ldflags "-X main.version=..."` so every binary knows its version. `shurli version` / `shurli --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** - set `UserAgent` to `shurli/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D - serve/proxy/ping; Batch E - invite/join)*
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
@@ -283,7 +284,7 @@ Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, ze
 - [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
 - [x] Custom shurli metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
 - [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
-- [x] Grafana dashboard - pre-built JSON dashboard with 29 panels across 6 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+- [x] Grafana dashboard - pre-built JSON dashboard with 37 panels across 6 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, vault seal state, pairing, invite deposits, admin socket, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
 
 Deferred from original Batch H scope (with reasoning):
 - ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
@@ -358,7 +359,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 12 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 13 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -575,7 +576,125 @@ After Phase 5 observability and PeerManager provide the data:
 
 ---
 
-### Phase 8: Plugin Architecture, SDK & First Plugins
+### Phase 6: ACL, Relay Security & Client Invites ✅ COMPLETE
+
+**Status**: ✅ Complete
+
+**Goal**: Production-ready access control, relay security, and async client-generated invites. Make the relay safe enough to run unattended and convenient enough to manage remotely. First real-world test: generate an invite code in NZ, send to a friend in AU, close laptop, friend joins when ready.
+
+**Why before ZKP**: ZKP needs a proper authorization model to prove against. You cannot do "prove you're authorized without revealing identity" until authorization itself is well-defined. This phase builds the foundation ZKP (Phase 7) sits on.
+
+**Access Control (Three-Tier Model)**:
+- [x] `role` attribute on `authorized_keys` entries (`admin` / `member`) - `internal/auth/roles.go`
+- [x] First peer paired with relay automatically gets `role=admin` (if `CountAdmins() == 0`)
+- [x] Relay checks role on privileged operations
+- [x] Invite policy config: `admin-only` (default) / `open` - `internal/config/config.go`
+- [x] Role display in `shurli auth list` with `[admin]`/`[member]` badges
+
+**Client-Deposit Invites ("Contact Card" Model)**:
+- [x] `shurli relay invite create` generates macaroon-backed invite deposit
+- [x] Relay stores deposit in `DepositStore` with macaroon, caveats, TTL
+- [x] Joiner can consume deposit any time (inviter can be offline) - async model
+- [x] `shurli relay invite modify <id> --add-caveat <k=v>` - add restrictions before consumption (attenuation-only)
+- [x] `shurli relay invite revoke <id>` - kill pending invite
+- [x] `shurli relay invite list` - list all deposits with status
+- [x] Deposit states: pending, consumed, revoked, expired
+- [x] Auto-expiry with configurable TTL, lazy expiration on access
+- [x] `CleanExpired()` removes old deposits
+
+**Macaroon Capability Tokens**:
+- [x] HMAC-chain bearer tokens - `internal/macaroon/macaroon.go`
+- [x] Attenuation: holders can add caveats (restrictions), never remove (cryptographic enforcement)
+- [x] Caveat language: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network` - `internal/macaroon/caveat.go`
+- [x] `DefaultVerifier()` with fail-closed design
+- [x] JSON + Base64 encode/decode for wire transport
+- [x] 22 tests (macaroon) + 10 tests (caveat)
+
+**Relay Security (Passphrase-Sealed Vault)**:
+- [x] Argon2id KDF (time=3, memory=64MB, threads=4) + XChaCha20-Poly1305 encryption - `internal/vault/vault.go`
+- [x] Sealed/unsealed modes (watch-only when sealed)
+- [x] Auto-reseal after configurable timeout
+- [x] Hex-encoded seed phrase for identity recovery (32 bytes as 24 hex-pair words)
+- [x] Root key zeroed from memory on seal (`crypto/subtle.XORBytes`)
+- [x] 14 vault tests including create/save/load/unseal/seal cycle
+- [x] Vault CLI: `shurli relay vault init`, `seal`, `unseal`, `status`
+
+**Remote Unseal Over P2P**:
+- [x] `/shurli/relay-unseal/1.0.0` protocol - `internal/relay/unseal.go`
+- [x] Binary wire format: `[1 version] [2 BE passphrase-len] [N passphrase] [1 TOTP-len] [M TOTP]`
+- [x] Admin-only check via `auth.IsAdmin()` before processing
+- [x] iOS-style escalating lockout: 4 free attempts, then 1m/5m/15m/1h(x3), permanent block
+- [x] Prometheus metrics: `shurli_vault_unseal_total{result}`, `shurli_vault_unseal_locked_peers` gauge
+- [x] `shurli relay unseal --remote <name|peer-id|multiaddr>` for P2P unseal from client (short name resolution)
+- [x] 11 unseal tests (wire format, lockout escalation, permanent block, message formatting)
+
+**Two-Factor Authentication**:
+- [x] TOTP (RFC 6238) - `internal/totp/totp.go` with skew window, 11 tests including RFC test vectors
+- [x] Yubikey HMAC-SHA1 challenge-response - `internal/yubikey/challenge.go` via `ykman` CLI, 6 tests
+- [x] Vault stores which 2FA methods are enabled
+- [x] `otpauth://` provisioning URI for authenticator app setup
+
+**New relay admin endpoints** (9 total):
+- `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`
+- `POST /v1/vault/init`, `GET /v1/vault/totp-uri`
+- `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}`
+
+**New P2P protocol**: `/shurli/relay-unseal/1.0.0`
+
+**New files** (19 files, ~3,655 lines):
+- `internal/auth/roles.go` + `roles_test.go`
+- `internal/macaroon/macaroon.go` + `macaroon_test.go` + `caveat.go` + `caveat_test.go`
+- `internal/totp/totp.go` + `totp_test.go`
+- `internal/vault/vault.go` + `vault_test.go`
+- `internal/deposit/store.go` + `store_test.go` + `errors.go`
+- `internal/relay/unseal.go` + `unseal_test.go`
+- `internal/yubikey/challenge.go` + `challenge_test.go`
+- `cmd/shurli/cmd_relay_vault.go` + `cmd_relay_invite.go`
+
+**Threat Model (Analyzed)**:
+- Admin peer ID forgery: impossible (libp2p cryptographic identity)
+- Stolen admin key: escalating lockout + permanent block + audit log + key rotation + mandatory 2FA
+- Invite code bruteforce: 8-byte token (2^64 possibilities), rate limit, lockout, TTL
+- Sybil attack on open relay: per-peer invite quota, total caps, admin revoke, cooldown
+- Invite flooding DoS: TTL-based cleanup, per-peer and total caps
+- MITM on deposit: non-issue (libp2p Noise encryption)
+- Replay attack: unique tokens, duplicate rejection, single-use enforcement
+- Server compromise while sealed: encrypted data at rest, master key not in memory
+- Server compromise while unsealed: master key in memory (bounded by timeout)
+
+**Design Influences** (full analysis in private memory):
+- Studied centralized ACL models: policy tests, autogroups, deny-by-default patterns. Rejected centralized control planes (sovereignty violation)
+- Studied certificate-based models: groups-in-identity concept, P2P verification. Rejected god-key CA and manual revocation patterns
+- Macaroon HMAC chain: proven pattern for offline attenuation and compact bearer tokens
+- UCANs: future evolution path when public-key-only verification is needed (Phase 7+ ZKP)
+- Studied enterprise seal/unseal patterns vs offline key management: passphrase-sealed pattern wins for solo operator (timeout auto-lock, watch-only, seed recovery)
+
+**Authorization Model Evolution**:
+```
+Phase 6 (done):  Macaroons for invites + authorized_keys for gating (coexist)
+Phase 7+ (ZKP): Macaroons could become the primary auth token
+Future:          authorized_keys becomes optional cache layer
+```
+
+---
+
+### Phase 7: ZKP Privacy Layer
+
+**Status**: Planned
+
+**Goal**: Zero-knowledge proof authorization. Peers prove they hold valid capabilities (macaroons) without revealing their identity or specific permissions to the relay. Built on gnark (PLONK + KZG).
+
+**Dependency**: Requires Phase 6 macaroon authorization model (now complete) as the capability system ZKP proves against.
+
+---
+
+### Phase 8: Visual Channel "Constellation Code"
+
+**Status**: Planned
+
+---
+
+### Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -691,7 +810,7 @@ Waiting for transfers...
 
 ---
 
-### Phase 9: Distribution & Launch
+### Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
@@ -822,7 +941,7 @@ Deliverables:
 - [ ] Relay version announcement - relay broadcasts its version to connected peers via libp2p Identify `UserAgent`. Peers see "relay running v1.2.0, you have v1.1.0, run `shurli upgrade`"
 
 **Use-Case Guides & Launch Content**:
-- [ ] Guide: OpenClaw Gateway - *"Remote Access to OpenClaw Gateway in 60 Seconds"* (one-command setup with `--openclaw`, no Tailscale account or port forwarding needed)
+- [ ] Guide: OpenClaw Gateway - *"Remote Access to OpenClaw Gateway in 60 Seconds"* (one-command setup with `--openclaw`, no VPN account or port forwarding needed)
 - [ ] Guide: GPU inference - *"Access your home GPU from anywhere through Starlink CGNAT"*
 - [ ] Guide: IoT/smart home remote access (Home Assistant, cameras behind CGNAT)
 - [ ] Guide: Media server sharing (Jellyfin/Plex with friends via invite flow)
@@ -856,14 +975,14 @@ services:
 
 ---
 
-### Phase 10: Desktop Gateway Daemon + Private DNS
+### Phase 11: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
-**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 8.
+**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 9.
 
 **Deliverables**:
 
@@ -930,7 +1049,7 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 11: Mobile Applications
+### Phase 12: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -977,7 +1096,7 @@ Once connected:
 
 ---
 
-### Phase 12: Federation - Network Peering
+### Phase 13: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -1036,12 +1155,12 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 13: Advanced Naming Systems (Optional)
+### Phase 14: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 8.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 9.
 
 **Deliverables**:
 - [ ] Built-in resolvers:
@@ -1090,11 +1209,9 @@ Format: laptop.grewal.eth
 
 ### Privacy Narrative - Shurli's Moat
 
-Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for people who care about owning their network.
+Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign alternative** for people who care about owning their network.
 
-> *Comparison based on publicly available documentation as of 2026-02. Details may be outdated - corrections welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues).*
-
-| | **Shurli** | **Tailscale** |
+| | **Shurli** | **Centralized VPN** |
 |---|---|---|
 | **Accounts** | None - no email, no OAuth | Required (Google, GitHub, etc.) |
 | **Telemetry** | Zero - no data leaves your network | Coordination server sees device graph |
@@ -1102,14 +1219,14 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 | **Key custody** | You generate, you store, you control | Keys managed via their control plane |
 | **Source** | Fully open, self-hosted | Open source client, proprietary control plane |
 
-> *"Tailscale for people who don't want to trust a company with their network topology."*
+> *"For people who don't want to trust a company with their network topology."*
 
 ### Target Audiences (in order of receptiveness)
 
 1. **r/selfhosted** - Already run services at home, hate port forwarding, value self-sovereignty
 2. **Starlink/CGNAT users** - Actively searching for solutions to reach home machines
 3. **AI/ML hobbyists** - Home GPU + remote access is exactly their problem
-4. **Privacy-conscious developers** - Won't use Tailscale because of the coordination server
+4. **Privacy-conscious developers** - Won't use centralized VPN services because of the coordination server
 
 ### Launch Strategy
 
@@ -1117,7 +1234,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 2. **r/selfhosted post**: Focus on SSH + XRDP + GPU inference through CGNAT
 3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
 4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
-5. **Comparisons**: Honest Shurli vs Tailscale / Zerotier / Netbird posts
+5. **Comparisons**: Honest architectural comparison posts
 
 ### Community Infrastructure (set up at or before launch)
 
@@ -1131,7 +1248,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 
 ---
 
-## Phase 14+: Ecosystem & Polish
+## Phase 15+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1164,7 +1281,7 @@ Shurli is not a cheaper Tailscale. It's the **self-sovereign alternative** for p
 - VRF-based fair relay assignment (needed only with multiple competing relays)
 - Erlay / Minisketch set reconciliation (bandwidth savings only above 8+ peers)
 
-**Phase 6: ZKP Privacy Layer** - STATUS: PLANNED
+**Phase 7: ZKP Privacy Layer** - STATUS: PLANNED
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
@@ -1223,7 +1340,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 
 **Performance & Language**:
 - [ ] Selective Rust rewrite of hot paths - proxy loop, relay forwarding, SOCKS5 gateway via FFI. Zero GC, zero-copy, ~1.5x throughput improvement. Evaluate when performance metrics justify it.
-- [ ] Rust QUIC library evaluation - [Iroh](https://github.com/n0-computer/iroh) (QUIC multipath, ~90% NAT traversal), [Quinn](https://github.com/quinn-rs/quinn) (pure Rust), [s2n-quic](https://github.com/aws/s2n-quic) (AWS, formally verified)
+- [ ] Rust QUIC library evaluation - QUIC-based P2P libraries (QUIC multipath, ~90% NAT traversal), pure Rust QUIC implementations, formally verified QUIC (AWS s2n-quic)
 - [ ] Go GC tuning - profile at 100+ concurrent proxies, set GOGC, evaluate memory allocation patterns in proxy loop
 
 ---
@@ -1239,17 +1356,18 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | Phase 4B: Frictionless Onboarding | ✅ 1-2 weeks | Complete |
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
 | **Phase 5: Network Intelligence** | ✅ | Complete (5-K mDNS, 5-L PeerManager, 5-M Presence) |
-| **Phase 6: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
-| Phase 7: Visual Channel | 📋 | Planned ("Constellation Code") |
-| Phase 8: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
-| Phase 9: Distribution & Launch | 📋 1-2 weeks | Planned |
-| Phase 10: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 11: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 12: Federation | 📋 2-3 weeks | Planned |
-| Phase 13: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 14+: Ecosystem | 📋 Ongoing | Conceptual |
+| **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
+| **Phase 7: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
+| Phase 8: Visual Channel | 📋 | Planned ("Constellation Code") |
+| Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 12: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 13: Federation | 📋 2-3 weeks | Planned |
+| Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ZKP privacy layer -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (builds on ACL model) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -1309,17 +1427,26 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Network change triggers re-upgrade from relay to direct (the Batch I finding)
 - GossipSub broadcasts address changes to all peers within seconds
 
-**Phase 6 Success** (ZKP Privacy Layer):
+**Phase 6 Success** (ACL + Relay Security + Client Invites):
+- Client-generated invite code works async: generate in NZ, friend joins in AU hours later
+- Macaroon capability tokens with attenuation: admin can delegate limited invite permission
+- Relay sealed/unsealed with passphrase-sealed security pattern: watch-only when sealed, full ops when unsealed
+- Remote unseal over P2P: no SSH needed for daily relay management
+- TOTP + Yubikey challenge-response 2FA on relay unseal
+- Seed phrase recovery: 24 words regenerate relay identity and all keys
+- Admin/member roles enforced on authorized_keys
+
+**Phase 7 Success** (ZKP Privacy Layer):
 - Anonymous set membership proof for authorized_keys (gnark PLONK + Ethereum KZG)
-- Peers prove authorization without revealing which key they hold
+- Peers prove they hold valid macaroon capabilities without revealing identity or specific permissions
 - Anonymous relay authorization for peer relays
 - Privacy-preserving reputation proofs (score above threshold without revealing exact score)
 
-**Phase 7 Success** (Visual Channel):
+**Phase 8 Success** (Visual Channel):
 - "Constellation Code" animated visual pairing works between devices
 - Pairing verified visually without reading text codes
 
-**Phase 8 Success** (Plugins, SDK):
+**Phase 9 Success** (Plugins, SDK):
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
@@ -1357,31 +1484,31 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Containerized deployment guide published with working Docker compose examples
 - Python SDK available on PyPI
 
-**Phase 10 Success** (Desktop Gateway + Private DNS):
+**Phase 11 Success** (Desktop Gateway + Private DNS):
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 11 Success** (Mobile Apps):
+**Phase 12 Success** (Mobile Apps):
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 12 Success** (Federation):
+**Phase 13 Success** (Federation):
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 13 Success** (Advanced Naming):
+**Phase 14 Success** (Advanced Naming):
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
 ---
 
-**Last Updated**: 2026-02-26
-**Current Phase**: Phase 5 Complete. Phase 6 (ZKP Privacy Layer) next.
-**Phases**: 1-5 (complete), 6-13 (planned), 14+ (ecosystem)
-**Next Milestone**: Phase 6 - ZKP Privacy Layer (gnark PLONK + Ethereum KZG)
+**Last Updated**: 2026-02-28
+**Current Phase**: Phase 6 Complete. Phase 7 (ZKP Privacy Layer) next.
+**Phases**: 1-6 (complete), 7-14 (planned), 15+ (ecosystem)
+**Next Milestone**: Phase 7 - ZKP Privacy Layer (gnark PLONK + Ethereum KZG, anonymous auth, anonymous relay, privacy-preserving reputation)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

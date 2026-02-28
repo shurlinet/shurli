@@ -52,12 +52,14 @@ type AuthEntry struct {
 	Verified  string `json:"verified,omitempty"`   // e.g. "sha256:a1b2c3d4"
 	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, empty = never
 	Group     string `json:"group,omitempty"`      // pairing group ID
+	Role      string `json:"role"`                 // "admin" or "member"
 }
 
 // AuthAddRequest is the body for POST /v1/auth.
 type AuthAddRequest struct {
 	PeerID  string `json:"peer_id"`
 	Comment string `json:"comment,omitempty"`
+	Role    string `json:"role,omitempty"` // "admin" or "member" (default: "member")
 }
 
 // PingRequest is the body for POST /v1/ping.
