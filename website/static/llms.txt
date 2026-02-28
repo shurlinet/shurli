@@ -2,7 +2,7 @@
 
 > Shurli connects devices through firewalls and CGNAT using encrypted P2P tunnels with SSH-style authentication. Single Go binary, zero cloud dependency, works behind any NAT. Built on libp2p (same stack as Ethereum, Filecoin, Polkadot). Currently at Phase 4C Complete: daemon mode, relay server, invite/join pairing, TCP proxy, private DHT, self-healing config, 80% test coverage.
 
-Shurli is a self-sovereign alternative to Tailscale/ZeroTier for people who want no accounts, no telemetry, and no coordination server. Every connection is end-to-end encrypted via the Noise protocol. The relay sees ciphertext only.
+Shurli is a self-sovereign alternative to centralized VPN tools for people who want no accounts, no telemetry, and no coordination server. Every connection is end-to-end encrypted via the Noise protocol. The relay sees ciphertext only.
 
 Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pairing via invite codes, daemon mode with 14-endpoint REST API over Unix socket, P2P ping/traceroute/resolve, config self-healing with commit-confirmed pattern, systemd watchdog integration.
 

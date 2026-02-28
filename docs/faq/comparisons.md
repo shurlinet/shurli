@@ -1,6 +1,6 @@
 # FAQ - Comparisons
 
-> **Note on comparisons**: All technical comparisons in this document are based on publicly available documentation, specifications, and published benchmarks as of the date listed at the bottom. Software evolves - details may be outdated by the time you read this. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues) or pull requests.
+> **Note on comparisons**: All technical comparisons in this document describe architectural approaches and design trade-offs, not critiques of specific products. Software evolves. The focus is on helping you understand where Shurli fits. If you spot an inaccuracy, corrections are welcome via [GitHub issues](https://github.com/shurlinet/shurli/issues) or pull requests.
 
 ## How does Shurli differ from centralized VPN tools?
 
@@ -16,7 +16,7 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 |--------|------------|---------------------------------------|
 | **Foundation** | libp2p (circuit relay v2, DHT, QUIC) | WireGuard (kernel-level crypto) |
 | **Topology** | Client -> Relay -> Server (with DCUtR upgrade to direct) | Full mesh, point-to-point |
-| **NAT Traversal** | Circuit relay + hole-punching (DCUtR) | DERP relay servers + STUN/hole-punching |
+| **NAT Traversal** | Circuit relay + hole-punching (DCUtR) | Vendor relay servers + STUN/hole-punching |
 | **Encryption** | libp2p Noise protocol (Ed25519) | WireGuard (Curve25519) |
 | **Control Plane** | None - fully decentralized (DHT + config files) | Centralized coordination server |
 
@@ -35,8 +35,8 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 | Feature | **Shurli** | **Centralized VPN** |
 |---------|------------|---------------------------------------|
 | **Service tunneling** | SSH, XRDP, generic TCP | Full IP-layer VPN (any protocol) |
-| **Auth model** | SSH-style `authorized_keys` (peer ID allowlist) | SSO (Google, Okta, GitHub), ACLs |
-| **DNS** | Friendly names in config + private DNS on relay (planned) | MagicDNS (auto device names) |
+| **Auth model** | SSH-style `authorized_keys` (peer ID allowlist) | SSO/OAuth, ACLs |
+| **DNS** | Friendly names in config + private DNS on relay (planned) | Auto-assigned device names |
 | **Platforms** | Linux, macOS (Go binary) | Linux, Windows, macOS, iOS, Android, containers |
 | **Setup** | `shurli init` wizard | Download -> sign in -> done |
 | **Admin UI** | CLI only | Web dashboard, admin console |
@@ -55,7 +55,7 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 ### Strengths of the centralized approach
 
 - **IP-layer VPN** - Virtual network interface; any protocol works transparently
-- **Mature ecosystem** - Mobile apps, web dashboard, ACLs, SSO, subnet routing, Funnel
+- **Mature ecosystem** - Mobile apps, web dashboard, ACLs, SSO, subnet routing
 - **Performance** - WireGuard is kernel-level and extremely fast
 - **Scale** - Handles thousands of devices in an organization
 - **Zero config** - "Install and sign in" onboarding
@@ -63,81 +63,53 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 
 ### Self-hosted control planes: a middle ground
 
-Projects like [Headscale](https://github.com/juanfont/headscale) and [NetBird](https://github.com/netbirdio/netbird) offer self-hosted alternatives that eliminate the vendor dependency. You run the coordination server yourself, so there is no third-party account requirement and no external control over your network. However, the architecture still requires a coordination server - it is self-hosted rather than vendor-hosted, but not eliminated. The WireGuard transport layer remains the same, and you still manage a centralized piece of infrastructure. These sit in between: more sovereign than a vendor-hosted control plane, less decentralized than Shurli's DHT-based approach.
+Some open-source projects offer self-hosted coordination servers that eliminate the vendor dependency. You run the coordination server yourself, so there is no third-party account requirement and no external control over your network. However, the architecture still requires a coordination server - it is self-hosted rather than vendor-hosted, but not eliminated. The WireGuard transport layer remains the same, and you still manage a centralized piece of infrastructure. These sit in between: more sovereign than a vendor-hosted control plane, less decentralized than Shurli's DHT-based approach.
 
 ---
 
 ## How does Shurli differ from other P2P and mesh tools?
 
-### Direct competitors
+The P2P networking landscape includes several architectural approaches. Each makes different trade-offs around NAT traversal, relay strategy, onboarding, and sovereignty.
 
-#### Hyprspace - Most similar in the libp2p ecosystem
+### Architecture categories
 
-- **Stack**: Go + libp2p + IPFS DHT (same as Shurli)
-- **What it does**: Lightweight VPN that creates TUN interfaces, uses DHT for discovery, NAT hole-punching via libp2p
-- **Key features**: Virtual IP addresses, IPv6 routing, Service Network (subdomain-based service addressing)
-- **Difference**: Hyprspace operates at the IP layer (TUN/TAP VPN), not TCP service proxy. No invite/onboarding flow, no relay-first architecture.
-- **Link**: https://github.com/hyprspace/hyprspace
+#### libp2p-based overlay networks
 
-#### connet - Similar concept, different stack
+Some projects use the same libp2p stack as Shurli but operate at the IP layer (TUN/TAP VPN) rather than TCP service proxy. They use DHT for discovery and NAT hole-punching via libp2p, with IPv6 routing support. The key architectural difference: IP-layer operation (requiring TUN interfaces and root privileges) vs TCP service proxy (user-space, no special privileges). These typically have no invite/onboarding flow or relay-first architecture.
 
-- **Stack**: Go + QUIC (not libp2p)
-- **What it does**: P2P reverse proxy with NAT traversal, inspired by frp/ngrok/rathole
-- **Key features**: Source + destination clients, QUIC protocol, NAT-PMP support, certificate-based auth
-- **Difference**: Uses QUIC directly instead of libp2p. No DHT discovery, no friendly naming, no init wizard.
-- **Link**: https://github.com/connet-dev/connet
+#### QUIC-native P2P tools
 
-#### SomajitDey/tunnel - Simpler alternative
+Some projects use QUIC directly instead of libp2p, building P2P reverse proxies with NAT traversal inspired by tools like frp, ngrok, or rathole. Without libp2p, they lack DHT discovery, the broader protocol ecosystem, and typically require manual configuration rather than automated onboarding.
 
-- **Stack**: Bash scripts + HTTP relay (piping-server)
-- **What it does**: P2P TCP/UDP port forwarding through an HTTP relay
-- **Difference**: Much simpler (bash scripts), no libp2p, no DHT, no connection gating.
-- **Link**: https://github.com/SomajitDey/tunnel
+#### DHT-assisted hole-punching libraries
 
-### Adjacent projects
+Several P2P networking libraries provide DHT-assisted hole punching as building blocks rather than end-user tools. Their DHT nodes actively assist with hole punching coordination, which can achieve higher success rates in some NAT scenarios because the DHT nodes actively broker the handshake. These power encrypted P2P communication apps and data replication systems.
 
-#### Hyperswarm / Holepunch - DHT-assisted hole punching
+#### QUIC-based P2P connectivity libraries
 
-- **Stack**: Node.js / C, HyperDHT, UTP + TCP
-- **What it does**: P2P networking library powering [Keet](https://keet.io/) (encrypted P2P video/chat). DHT nodes actively assist with hole punching coordination.
-- **Key features**: HyperDHT for discovery and relay-assisted hole punching, Noise protocol encryption, Hypercore for data replication
-- **Difference**: Smaller ecosystem, fewer transports (no QUIC, no WebSocket), no anti-censorship story. Tightly coupled to the Hypercore/Dat ecosystem. Node.js-native (not Go). Hole punching may have higher success rates in some NAT scenarios because DHT nodes actively broker the handshake.
-- **Link**: https://github.com/holepunchto/hyperswarm
+Some Rust-based libraries offer "dial by public key" P2P connectivity with higher NAT traversal success rates than libp2p (~90%+ vs ~70%), using aggressive probing and multiple strategies. These are libraries, not end-user tools. Some have transport adapters for integration with libp2p, allowing their NAT traversal to be used within libp2p-based applications.
 
-#### Iroh - Library competitor to libp2p itself
+#### Certificate-based overlay networks
 
-- **Stack**: Rust, QUIC, custom relay protocol
-- **What it does**: "Dial by public key" - P2P connectivity library with higher NAT traversal success rate than libp2p (~90%+ vs ~70%)
-- **Difference**: A library, not an end-user tool. There's a `libp2p-iroh` transport adapter for using Iroh's NAT traversal within libp2p.
-- **Link**: https://github.com/n0-computer/iroh
+Some projects use a certificate authority model with custom protocols (not WireGuard, not libp2p) to create full mesh overlay networks. Lighthouse nodes help peers discover each other's addresses. The critical limitation: **no relay fallback**. If hole-punching fails (e.g., behind CGNAT or Starlink), the connection simply does not work.
 
-#### Nebula - Different stack, same goal
+#### Self-hosted coordination planes
 
-- **Stack**: Go, custom protocol (not WireGuard, not libp2p)
-- **What it does**: P2P overlay network from Slack, full mesh with lighthouse nodes
-- **Difference**: Certificate-authority model. **No relay fallback** - if hole-punching fails (e.g., CGNAT/Starlink), the connection simply doesn't work.
-- **Link**: https://github.com/slackhq/nebula
+Several projects offer self-hosted alternatives to centralized VPN services, providing open-source coordination servers, management dashboards, and signal servers. These are WireGuard-based, not libp2p. They replicate the architecture of centralized VPN tools with self-hosted infrastructure, rather than building something structurally different.
 
-#### Headscale / NetBird - Self-hosted coordination planes
+### Architecture comparison
 
-- **Headscale**: Open source Tailscale control server - uses official Tailscale clients
-- **NetBird**: Full self-hosted mesh with WireGuard, management service, signal server, relay
-- **Difference**: Both are WireGuard-based, not libp2p. Different philosophy - they replicate Tailscale's architecture with self-hosted infrastructure, Shurli builds something structurally different.
-
-### Comparison table
-
-| Project | Stack | Layer | Relay fallback | CGNAT works | Onboarding | Self-sovereign |
+| Approach | Stack | Layer | Relay fallback | CGNAT works | Onboarding | Self-sovereign |
 |---------|-------|-------|---------------|-------------|------------|----------------|
 | **Shurli** | Go + libp2p | TCP service proxy | Yes (circuit relay v2) | Yes | `init` wizard + invite/join | Yes |
-| **Hyprspace** | Go + libp2p | IP layer (TUN) | Yes (circuit relay) | Yes | Manual config | Yes |
-| **Hyperswarm** | Node.js + HyperDHT | Library | Yes (DHT-assisted) | Yes | API only | Yes |
-| **connet** | Go + QUIC | TCP proxy | Yes (control server) | Partial | Manual config | Yes |
-| **tunnel** | Bash + HTTP | TCP/UDP proxy | Yes (HTTP relay) | Yes | CLI flags | Yes |
-| **Iroh** | Rust + QUIC | Library | Yes (home relay) | Yes | API only | No (uses Iroh's relays) |
-| **Nebula** | Go + custom | IP layer (TUN) | No | No | Certificate CA | Yes |
-| **Tailscale** | Go + WireGuard | IP layer (TUN) | Yes (DERP) | Yes | SSO sign-in | No |
-| **Headscale** | Go + WireGuard | IP layer (TUN) | Yes (DERP) | Yes | SSO sign-in | Partial (self-hosted control) |
-| **NetBird** | Go + WireGuard | IP layer (TUN) | Yes | Yes | Dashboard | Partial (self-hosted control) |
+| **libp2p-based VPN** | Go + libp2p | IP layer (TUN) | Yes (circuit relay) | Yes | Manual config | Yes |
+| **DHT hole-punch library** | Various | Library | Yes (DHT-assisted) | Yes | API only | Yes |
+| **QUIC-native proxy** | Go + QUIC | TCP proxy | Yes (control server) | Partial | Manual config | Yes |
+| **HTTP-relay forwarder** | Scripted | TCP/UDP proxy | Yes (HTTP relay) | Yes | CLI flags | Yes |
+| **QUIC P2P library** | Rust + QUIC | Library | Yes (home relay) | Yes | API only | Partial |
+| **Certificate-based mesh** | Go + custom | IP layer (TUN) | No | No | Certificate CA | Yes |
+| **Centralized VPN** | Go + WireGuard | IP layer (TUN) | Yes (vendor relay) | Yes | SSO sign-in | No |
+| **Self-hosted coordination** | Go + WireGuard | IP layer (TUN) | Yes | Yes | SSO/Dashboard | Partial |
 
 ### Blockchain P2P networks as reference points
 
@@ -155,27 +127,27 @@ These are not competitors but useful reference points. Their P2P stacks solve di
 
 ## How do relay architectures compare?
 
-Three broad approaches to relay design exist in the P2P networking space: self-hosted relays where you control the infrastructure, vendor-operated relays where the service provider runs them, and hybrid approaches that blend elements of both.
+Three broad approaches to relay design exist in the P2P networking space: self-hosted relays where you control the infrastructure, vendor-operated relays where the service provider runs them, and persistent relay services that maintain always-on connections.
 
 ### Hole-punching success (when no relay is needed)
 
 | Protocol | NAT traversal success | Technique |
 |----------|----------------------|-----------|
 | **Circuit Relay v2 + DCUtR** (self-hosted) | ~70% | STUN-like, coordinate via relay, single punch attempt |
-| **Iroh** (hybrid) | ~90%+ | Tailscale-inspired, aggressive probing, multiple strategies |
-| **Tailscale DERP + STUN** (vendor-operated) | ~92-94% | Most mature, years of iteration, birthday attack techniques |
+| **QUIC-based P2P library** (persistent relay) | ~90%+ | Aggressive probing, multiple strategies |
+| **Vendor-operated relay + STUN** | ~92-94% | Most mature, years of iteration, birthday attack techniques |
 | **WireGuard alone** | ~0% behind CGNAT | No relay, no hole-punching |
-| **Nebula** | ~60-70% | Lighthouse-based, no relay fallback |
+| **Lighthouse-based mesh** | ~60-70% | Lighthouse-based, no relay fallback |
 
 **Important**: With Starlink CGNAT (symmetric NAT), hole-punching success is **0% for all of them**. Every single one falls back to relay. The hole-punch success rates only matter for regular NAT (home routers, etc.).
 
 ### Relay quality (when traffic stays on relay)
 
-| | **Circuit Relay v2 (self-hosted)** | **Iroh relay (hybrid)** | **Tailscale DERP (vendor-operated)** |
+| | **Circuit Relay v2 (self-hosted)** | **Persistent relay service** | **Vendor-operated relay** |
 |---|---|---|---|
-| **Throughput** | Your VPS bandwidth | Iroh's servers | Tailscale's servers |
-| **Latency** | Your VPS location | Nearest Iroh relay | Nearest DERP node |
-| **Protocol overhead** | Minimal (libp2p framing) | Minimal (UDP-over-HTTP) | Minimal (DERP framing) |
+| **Throughput** | Your VPS bandwidth | Provider's servers | Provider's servers |
+| **Latency** | Your VPS location | Nearest provider relay | Nearest vendor relay node |
+| **Protocol overhead** | Minimal (libp2p framing) | Minimal (UDP-over-HTTP) | Minimal (vendor framing) |
 | **Encryption** | Noise protocol (libp2p) | QUIC TLS | WireGuard (ChaCha20) |
 | **You control limits** | Yes - unlimited duration/data | No | No |
 | **Relay sees content** | No (end-to-end encrypted) | No (end-to-end encrypted) | No (end-to-end encrypted) |
@@ -187,10 +159,10 @@ All three are roughly equivalent in relay quality. The relay is a dumb pipe forw
 | Protocol | Time to first byte | Why |
 |----------|-------------------|-----|
 | **Circuit Relay v2** (self-hosted) | 5-15 seconds | Connect -> reserve -> DHT lookup -> peer connects -> DCUtR attempt |
-| **Iroh** (hybrid) | 1-3 seconds | Persistent relay connection, peer dials by key, relay forwards immediately |
-| **Tailscale DERP** (vendor-operated) | <1 second | Always-on DERP connection, peer dials by WireGuard key |
+| **Persistent relay service** | 1-3 seconds | Persistent relay connection, peer dials by key, relay forwards immediately |
+| **Vendor-operated relay** | <1 second | Always-on relay connection, peer dials by WireGuard key |
 
-Circuit Relay v2 is slower because it involves a reservation step and DHT lookup. Iroh and Tailscale maintain persistent relay connections.
+Circuit Relay v2 is slower because it involves a reservation step and DHT lookup. Persistent and vendor-operated relays maintain always-on connections.
 
 ---
 
@@ -368,4 +340,4 @@ No P2P tool supports cipher suite negotiation or hybrid classical + post-quantum
 
 ---
 
-**Last Updated**: 2026-02-24
+**Last Updated**: 2026-02-28

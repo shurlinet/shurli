@@ -90,7 +90,7 @@ The network change monitor detects interface changes and triggers three things:
 
 ## Every peer is a relay
 
-Most P2P systems have dedicated relay infrastructure. Tailscale runs DERP relay servers. Iroh uses relay nodes. These require someone to operate and pay for servers.
+Most P2P systems have dedicated relay infrastructure. Centralized VPN services run vendor-operated relay servers. P2P libraries provide their own relay nodes. These require someone to operate and pay for servers.
 
 In Shurli, every peer with a public IP automatically becomes a relay for peers that need one. If your home server has a public IPv6 address (increasingly common with IPv6 adoption at ~49% globally), it serves as a relay for your mobile devices behind CGNAT. No configuration. No extra software. No monthly server bill.
 

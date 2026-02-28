@@ -117,7 +117,7 @@ Foundational technology choices made before the batch system.
 **Alternatives considered**:
 - **TOML** - Good for flat config. Rejected because nested structures (services map, relay addresses) are more natural in YAML.
 - **JSON** - Universal. Rejected because no comments, poor human editability for config files users need to hand-edit.
-- **HCL** - HashiCorp's format. Rejected because it adds a dependency and is unfamiliar to most users.
+- **HCL** - Infrastructure config format. Rejected because it adds a dependency and is unfamiliar to most users.
 - **Flags/env vars only** - Simpler. Rejected because the configuration is too complex for command-line flags alone.
 
 **Decision**: YAML via `gopkg.in/yaml.v3`. Single config file with versioning (`version: 1`), duration strings (`10m`, `1h`), and relative path resolution.

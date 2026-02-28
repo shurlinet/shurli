@@ -162,7 +162,7 @@ This is a future optimization for Shurli's QUIC transport - particularly valuabl
 | Development speed | Fast - the reason Shurli exists today | 2-3x slower initial development |
 | GC pauses at scale | 10s pauses observed at 600K connections | None - no garbage collector |
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
-| libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, Iroh) |
+| libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, QUIC-native libraries) |
 | Formal verification | Limited | Strong (s2n-quic has 300+ Kani harnesses) |
 | Binary size | ~25-28MB | ~5-10MB |
 | Cross-compilation | Trivial (`GOOS=linux GOARCH=arm64`) | Requires target toolchain setup |
@@ -180,8 +180,8 @@ At scale - when a relay server handles thousands of concurrent circuits, or when
 
 | Library | What it does | Why it matters |
 |---------|-------------|----------------|
-| **[Iroh](https://github.com/n0-computer/iroh)** | Rust P2P library, QUIC-native | ~90% NAT traversal success, QUIC multipath, approaching 1.0 |
-| **[Quinn](https://github.com/quinn-rs/quinn)** | Pure Rust QUIC implementation | Used by Iroh, high performance, no C FFI |
+| **QUIC-native P2P library** | Rust P2P library, QUIC-native | ~90% NAT traversal success, QUIC multipath |
+| **Pure Rust QUIC** | QUIC implementation in Rust | High performance, no C FFI, powers P2P libraries |
 | **[s2n-quic](https://github.com/aws/s2n-quic)** | AWS's Rust QUIC | Formal verification with Kani, production-tested in AWS |
 | **[tokio](https://github.com/tokio-rs/tokio)** | Async runtime | LTS until Sept 2026, powers hyper (HTTP/2 + HTTP/3) |
 
@@ -192,7 +192,7 @@ Shurli's planned approach:
 2. **Phase 9+**: Profile hot paths under load. Selectively rewrite proxy loop / relay forwarding in Rust via FFI if performance demands it.
 3. **Long-term**: Re-evaluate full Rust migration only if market demands 100x throughput and there's engineering capacity for it.
 
-**Sources**: [Rust vs Go (Bitfield)](https://bitfieldconsulting.com/posts/rust-vs-go), [Go GC Guide](https://tip.golang.org/doc/gc-guide), [Iroh roadmap](https://www.iroh.computer/roadmap)
+**Sources**: [Rust vs Go (Bitfield)](https://bitfieldconsulting.com/posts/rust-vs-go), [Go GC Guide](https://tip.golang.org/doc/gc-guide)
 
 ---
 
