@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 340" width="680" height="340">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="680" height="340" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="340" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">Three Layers of Access Control</text>
+  <text x="340" y="40" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Each layer does one job. They work together, never overlap.</text>
+
+  <!-- Layer 1: Identity (authorized_keys) -->
+  <rect x="20" y="56" width="200" height="270" rx="8" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="1"/>
+  <text x="120" y="82" font-family="system-ui, sans-serif" font-size="28" fill="#fbb040" text-anchor="middle">&#x1F4CB;</text>
+  <text x="120" y="106" font-family="system-ui, sans-serif" font-size="12" fill="#fbb040" text-anchor="middle" font-weight="700">The Guest List</text>
+  <text x="120" y="122" font-family="system-ui, sans-serif" font-size="9.5" fill="#c0caf5" text-anchor="middle">Who can connect?</text>
+
+  <line x1="40" y1="134" x2="200" y2="134" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="120" y="154" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">Your relay keeps a list of</text>
+  <text x="120" y="168" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">approved devices. Not on</text>
+  <text x="120" y="182" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">the list? Can't connect.</text>
+
+  <line x1="40" y1="196" x2="200" y2="196" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="120" y="214" font-family="system-ui, sans-serif" font-size="8" fill="#fbb040" text-anchor="middle" font-weight="600">Technical</text>
+  <text x="120" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">authorized_keys file</text>
+  <text x="120" y="244" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Peer ID allowlist</text>
+  <text x="120" y="258" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">libp2p ConnectionGater</text>
+  <text x="120" y="278" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Enforced at connection level</text>
+  <text x="120" y="292" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">before any data flows</text>
+
+  <!-- Arrow 1 to 2 -->
+  <text x="234" y="170" font-family="system-ui, sans-serif" font-size="20" fill="#565f89" text-anchor="middle">&#x2192;</text>
+
+  <!-- Layer 2: Permissions (Macaroons) -->
+  <rect x="250" y="56" width="200" height="270" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="350" y="82" font-family="system-ui, sans-serif" font-size="28" fill="#9ece6a" text-anchor="middle">&#x1F511;</text>
+  <text x="350" y="106" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle" font-weight="700">The Smart Key</text>
+  <text x="350" y="122" font-family="system-ui, sans-serif" font-size="9.5" fill="#c0caf5" text-anchor="middle">What can you do?</text>
+
+  <line x1="270" y1="134" x2="430" y2="134" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="350" y="154" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">Each key carries specific</text>
+  <text x="350" y="168" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">rules: "proxy only" or</text>
+  <text x="350" y="182" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">"invite up to 3 people."</text>
+
+  <line x1="270" y1="196" x2="430" y2="196" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="350" y="214" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">Technical</text>
+  <text x="350" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Macaroon HMAC-SHA256 tokens</text>
+  <text x="350" y="244" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">7 caveat types</text>
+  <text x="350" y="258" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Offline-verifiable</text>
+  <text x="350" y="278" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Attenuation-only: restrict</text>
+  <text x="350" y="292" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">but never widen permissions</text>
+
+  <!-- Arrow 2 to 3 -->
+  <text x="464" y="170" font-family="system-ui, sans-serif" font-size="20" fill="#565f89" text-anchor="middle">&#x2192;</text>
+
+  <!-- Layer 3: Authority (Roles) -->
+  <rect x="480" y="56" width="180" height="270" rx="8" fill="url(#cardGrad)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="570" y="82" font-family="system-ui, sans-serif" font-size="28" fill="#bb9af7" text-anchor="middle">&#x1F451;</text>
+  <text x="570" y="106" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="700">The Authority</text>
+  <text x="570" y="122" font-family="system-ui, sans-serif" font-size="9.5" fill="#c0caf5" text-anchor="middle">Who makes the rules?</text>
+
+  <line x1="496" y1="134" x2="644" y2="134" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="570" y="154" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">Admin: creates invites,</text>
+  <text x="570" y="168" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">manages the relay, sets</text>
+  <text x="570" y="182" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">policy. Member: uses it.</text>
+
+  <line x1="496" y1="196" x2="644" y2="196" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="570" y="214" font-family="system-ui, sans-serif" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">Technical</text>
+  <text x="570" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">role=admin / role=member</text>
+  <text x="570" y="244" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">on authorized_keys entries</text>
+  <text x="570" y="258" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">First peer auto-promoted</text>
+  <text x="570" y="278" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Invite policy: admin-only</text>
+  <text x="570" y="292" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">(default) or open</text>
+</svg>

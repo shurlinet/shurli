@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 280" width="680" height="280">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="680" height="280" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="340" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">How Smart Keys Work: Restrict Only, Never Expand</text>
+  <text x="340" y="40" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Each rule you add is permanent. You can tighten a key, but never loosen it.</text>
+
+  <!-- The chain visualization -->
+  <!-- Step 1: Root key -->
+  <rect x="20" y="58" width="120" height="70" rx="6" fill="url(#cardGrad)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="80" y="78" font-family="system-ui, sans-serif" font-size="20" fill="#bb9af7" text-anchor="middle">&#x1F510;</text>
+  <text x="80" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">Master Key</text>
+  <text x="80" y="110" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Full access</text>
+  <text x="80" y="122" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">HMAC(root_key, id)</text>
+
+  <!-- Arrow -->
+  <line x1="140" y1="93" x2="160" y2="93" stroke="#9ece6a" stroke-width="1.5" marker-end="url(#arrowG)"/>
+  <text x="150" y="83" font-family="system-ui, sans-serif" font-size="7" fill="#9ece6a" text-anchor="middle">+ rule</text>
+
+  <!-- Step 2: Add caveat 1 -->
+  <rect x="160" y="58" width="140" height="70" rx="6" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="230" y="78" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a" text-anchor="middle">&#x1F511; + &#x1F6AB;</text>
+  <text x="230" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">"Proxy only"</text>
+  <text x="230" y="110" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Can't access SSH or files</text>
+  <text x="230" y="122" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">service=proxy caveat</text>
+
+  <!-- Arrow -->
+  <line x1="300" y1="93" x2="320" y2="93" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="310" y="83" font-family="system-ui, sans-serif" font-size="7" fill="#9ece6a" text-anchor="middle">+ rule</text>
+
+  <!-- Step 3: Add caveat 2 -->
+  <rect x="320" y="58" width="140" height="70" rx="6" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="390" y="78" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a" text-anchor="middle">&#x1F511; + &#x1F6AB;&#x1F6AB;</text>
+  <text x="390" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">"Expires March 15"</text>
+  <text x="390" y="110" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Proxy only AND time-limited</text>
+  <text x="390" y="122" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">expires=2026-03-15T00:00:00Z</text>
+
+  <!-- Arrow -->
+  <line x1="460" y1="93" x2="480" y2="93" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="470" y="83" font-family="system-ui, sans-serif" font-size="7" fill="#9ece6a" text-anchor="middle">+ rule</text>
+
+  <!-- Step 4: Add caveat 3 -->
+  <rect x="480" y="58" width="180" height="70" rx="6" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="570" y="78" font-family="system-ui, sans-serif" font-size="14" fill="#9ece6a" text-anchor="middle">&#x1F511; + &#x1F6AB;&#x1F6AB;&#x1F6AB;</text>
+  <text x="570" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">"Max 1 person"</text>
+  <text x="570" y="110" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Proxy, until March 15, for 1 person</text>
+  <text x="570" y="122" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">peers_max=1 caveat</text>
+
+  <!-- The "Can't remove" section -->
+  <rect x="20" y="142" width="640" height="52" rx="6" fill="#2a1818" stroke="#f7768e" stroke-width="0.8"/>
+
+  <text x="340" y="160" font-family="system-ui, sans-serif" font-size="10" fill="#f7768e" text-anchor="middle" font-weight="600">&#x1F6D1;  What you CAN'T do: remove a rule once added</text>
+  <text x="340" y="176" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5" text-anchor="middle">Each rule is baked into the key's cryptographic chain. Removing one would break the math.</text>
+  <text x="340" y="188" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">HMAC chain: sig_n = HMAC(sig_n-1, caveat_n). Reversing HMAC-SHA256 is computationally infeasible.</text>
+
+  <!-- The "Why this matters" section -->
+  <rect x="20" y="206" width="310" height="62" rx="6" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="0.6"/>
+  <text x="175" y="224" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">&#x2705;  What this means for you</text>
+  <text x="175" y="240" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5" text-anchor="middle">Mistakes get corrected (restrict more), never worse.</text>
+  <text x="175" y="254" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5" text-anchor="middle">An admin who over-shares can always tighten up.</text>
+  <text x="175" y="266" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Or revoke entirely and start fresh.</text>
+
+  <!-- The "How the math works" section -->
+  <rect x="350" y="206" width="310" height="62" rx="6" fill="url(#cardGrad)" stroke="#565f89" stroke-width="0.6"/>
+  <text x="505" y="224" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">&#x1F52C;  How the math works</text>
+  <text x="505" y="240" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">sig_0 = HMAC(root_key, identifier)</text>
+  <text x="505" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">sig_1 = HMAC(sig_0, "service=proxy")</text>
+  <text x="505" y="264" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">sig_2 = HMAC(sig_1, "expires=2026-03-15...")</text>
+</svg>

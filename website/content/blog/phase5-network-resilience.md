@@ -19,6 +19,12 @@ This was Shurli before Phase 5. The daemon detected network changes but couldn't
 
 Phase 5 fixes all of this. Seven transition scenarios tested on five physical networks. Every single one recovers automatically. Zero daemon restarts.
 
+## What this means for you
+
+Imagine you're working from home on your laptop, connected to your home network. You grab your laptop and walk to a cafe. Your laptop switches to your phone's hotspot. Before Phase 5, your Shurli connection would die and you'd have to restart. Now it reconnects automatically in 5-15 seconds. Walk back home, connect to WiFi again: automatic. Plug in an Ethernet adapter at a desk: automatic. Unplug it: automatic.
+
+You never think about it. Your connection just works, on whatever network you're on, using the fastest available path.
+
 ## The numbers
 
 | Transition | Path change | Recovery time |
@@ -35,17 +41,19 @@ The worst-case transition (5G hotspot to cellular CGNAT) takes ~35 seconds becau
 
 ## Connection priority table
 
-Shurli now enforces a strict priority order. Higher priority paths always win:
+Shurli enforces a strict priority order. Higher priority paths always win. If you're on the same LAN as your peer, you get LAN speed. If you're across the internet with IPv6, you get a direct connection. If you're behind carrier NAT with no public IP, relay keeps you connected.
 
-```
-1. LAN (mDNS, private IPv4)     ~23ms
-2. Direct IPv6 (path probing)   ~23ms
-3. Relay (fallback)             ~180ms
-```
+![Connection Priority: Best Path Always Wins](/images/blog/phase5-connection-priority.svg)
 
-If you're on the same LAN as your peer, you get a direct connection at LAN latency. If you're on a different network with public IPv6, you get a direct connection via IPv6 probing. If you have no IPv6 and you're behind CGNAT, you fall back to relay.
+The priority isn't just a suggestion. When PeerManager establishes a relay connection but mDNS has already connected directly, PeerManager detects the existing direct connection and immediately discards the relay. The relay never gets used. Direct always wins.
 
-The priority isn't just a suggestion. When PeerManager establishes a relay connection but mDNS has already connected directly, PeerManager detects the existing direct connection and immediately discards the relay. The relay never gets used.
+## What happens when you switch WiFi
+
+All six steps fire automatically in a specific order. You don't trigger anything. The daemon watches your network interfaces and reacts within milliseconds.
+
+![What Happens When You Switch WiFi](/images/blog/phase5-recovery-sequence.svg)
+
+Steps 1-3 are synchronous and complete in under a millisecond. Steps 4-6 run in background goroutines. The full recovery completes in 5-15 seconds.
 
 ## What shipped
 
@@ -102,6 +110,23 @@ All subsystems fire in a specific order after a network change:
 
 Steps 1-3 are synchronous and complete in under a millisecond. Steps 4-6 run in background goroutines. The full recovery completes in 5-15 seconds.
 
+## Observability: every transition is measured
+
+Every network event fires a Prometheus metric. You can watch transitions happen in real time on your Grafana dashboard, or query historical patterns to understand your network's behavior.
+
+| What happens | What gets measured |
+|--------------|--------------------|
+| WiFi switches | `shurli_interface_changes_total` - counts every interface add/remove |
+| LAN peer found | `shurli_mdns_discoveries_total` - mDNS browse results |
+| Direct path discovered | `shurli_dial_attempts_total{path="direct"}` |
+| Relay fallback used | `shurli_dial_attempts_total{path="relay"}` |
+| Connection re-established | `shurli_reconnections_total` - PeerManager reconnect events |
+| External address detected | `shurli_stun_probes_total` - STUN results by grade |
+| Peers connected | `shurli_connected_peers` - gauge by path type and transport |
+| Presence announced | `shurli_presence_announcements_total` - NetIntel state updates |
+
+All metrics are nil-safe: if Prometheus is disabled (the default), the network code works identically with zero overhead. Enable with `--metrics-addr`. The pre-built [Grafana dashboard](/docs/monitoring/) ships with 37 panels covering all network events.
+
 ## What's been resolved since initial release
 
 1. ~~**CGNAT detection for RFC 1918 carriers.**~~ **Fixed.** `network.force_cgnat: true` config option lets users on carriers using RFC 1918 addresses for CGNAT correctly signal their status. Auto-detection still handles RFC 6598 (`100.64.0.0/10`) automatically.
@@ -124,13 +149,14 @@ The testing methodology: switch WiFi on the laptop, report what you switched to,
 
 ## Impact
 
-| Metric | Before Phase 5 | After Phase 5 |
-|--------|----------------|---------------|
-| WiFi switch recovery | Manual restart | 5-15 seconds, automatic |
-| LAN peer connection | 60+ seconds (address timeout) | 2-3 seconds (filtered) |
-| Cross-ISP IPv6 direct | Not attempted | 23ms via USB LAN |
-| Relay-to-direct upgrade | Not detected | Automatic via mDNS + probing |
-| mDNS reliability | Intermittent (socket conflict) | Stable (native dns_sd.h) |
-| Networks tested | 4 | 5 |
-| Transition scenarios verified | 0 | 7 |
-| New dependencies added | - | 0 |
+| | Before Phase 5 | After Phase 5 |
+|--|----------------|---------------|
+| **WiFi switch recovery** | Manual restart | 5-15 seconds, automatic |
+| **LAN peer connection** | 60+ seconds (address timeout) | 2-3 seconds (filtered) |
+| **Cross-ISP IPv6 direct** | Not attempted | 23ms via USB LAN |
+| **Relay-to-direct upgrade** | Not detected | Automatic via mDNS + probing |
+| **mDNS reliability** | Intermittent (socket conflict) | Stable (native dns_sd.h) |
+| **Observability** | Log grep only | 10 Prometheus metrics, Grafana dashboard |
+| **Networks tested** | 4 | 5 |
+| **Transition scenarios verified** | 0 | 7 |
+| **New dependencies added** | | 0 |

@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320" width="680" height="320">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="680" height="320" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="340" y="24" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">The Vault: Locked by Default, Unlocked on Demand</text>
+  <text x="340" y="40" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Your relay starts locked after every restart. You unlock it when you need to. It relocks itself.</text>
+
+  <!-- State 1: Boot -->
+  <rect x="20" y="58" width="100" height="90" rx="8" fill="url(#cardGrad)" stroke="#565f89" stroke-width="1"/>
+  <text x="70" y="82" font-family="system-ui, sans-serif" font-size="22" fill="#565f89" text-anchor="middle">&#x1F504;</text>
+  <text x="70" y="102" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle" font-weight="600">Restart</text>
+  <text x="70" y="116" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Server reboots,</text>
+  <text x="70" y="128" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">power outage, update</text>
+
+  <!-- Arrow Boot → Sealed -->
+  <line x1="120" y1="103" x2="148" y2="103" stroke="#fbb040" stroke-width="1.5"/>
+  <text x="140" y="96" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" text-anchor="middle">&#x25B6;</text>
+
+  <!-- State 2: Sealed (big, prominent) -->
+  <rect x="148" y="52" width="180" height="210" rx="8" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="1.5"/>
+  <text x="238" y="86" font-family="system-ui, sans-serif" font-size="26" fill="#fbb040" text-anchor="middle">&#x1F512;</text>
+  <text x="238" y="108" font-family="system-ui, sans-serif" font-size="14" fill="#fbb040" text-anchor="middle" font-weight="700">LOCKED</text>
+  <text x="238" y="124" font-family="system-ui, sans-serif" font-size="9" fill="#c0caf5" text-anchor="middle">Safe to leave running unattended</text>
+
+  <line x1="164" y1="136" x2="312" y2="136" stroke="#3a3840" stroke-width="0.5"/>
+
+  <text x="172" y="156" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">&#x2705;</text>
+  <text x="186" y="156" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">Routes traffic normally</text>
+  <text x="172" y="172" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">&#x2705;</text>
+  <text x="186" y="172" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">Serves existing connections</text>
+  <text x="172" y="188" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">&#x2705;</text>
+  <text x="186" y="188" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">Read-only operations</text>
+  <text x="172" y="204" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e">&#x274C;</text>
+  <text x="186" y="204" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">No new invites or auth</text>
+  <text x="172" y="220" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e">&#x274C;</text>
+  <text x="186" y="220" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">No new peer approvals</text>
+
+  <text x="238" y="248" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle" font-style="italic">Root key encrypted at rest</text>
+  <text x="238" y="258" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">Argon2id + XChaCha20-Poly1305</text>
+
+  <!-- Arrow Sealed → Unsealed -->
+  <line x1="328" y1="103" x2="358" y2="103" stroke="#9ece6a" stroke-width="1.5"/>
+
+  <!-- Auto-reseal arrow (drawn early so later elements paint on top) -->
+  <path d="M 518 80 C 560 80, 560 160, 328 160" fill="none" stroke="#fbb040" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <text x="600" y="110" font-family="system-ui, sans-serif" font-size="7.5" fill="#fbb040" text-anchor="middle">Auto-relocks</text>
+  <text x="600" y="122" font-family="system-ui, sans-serif" font-size="7.5" fill="#fbb040" text-anchor="middle">after timeout</text>
+  <text x="600" y="134" font-family="system-ui, sans-serif" font-size="7" fill="#565f89" text-anchor="middle">(configurable)</text>
+
+  <!-- State 3: Unsealed -->
+  <rect x="358" y="52" width="160" height="56" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="438" y="76" font-family="system-ui, sans-serif" font-size="20" fill="#9ece6a" text-anchor="middle">&#x1F513;</text>
+  <text x="438" y="96" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="700">UNLOCKED</text>
+
+  <!-- Unlock method (drawn after arrow so it covers the dashed line) -->
+  <rect x="330" y="120" width="120" height="48" rx="4" fill="#1a2e1a" stroke="#9ece6a" stroke-width="0.6"/>
+  <text x="390" y="136" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">To unlock, provide:</text>
+  <text x="390" y="148" font-family="system-ui, sans-serif" font-size="7.5" fill="#c0caf5" text-anchor="middle">Passphrase</text>
+  <text x="390" y="160" font-family="system-ui, sans-serif" font-size="7.5" fill="#c0caf5" text-anchor="middle">+ App code or YubiKey</text>
+
+  <!-- Remote unseal section -->
+  <rect x="20" y="272" width="640" height="38" rx="6" fill="url(#cardGrad)" stroke="#e8729a" stroke-width="0.6"/>
+  <text x="40" y="296" font-family="system-ui, sans-serif" font-size="20" fill="#e8729a">&#x1F4F1;</text>
+  <text x="64" y="290" font-family="system-ui, sans-serif" font-size="9" fill="#e8729a" font-weight="600">Unlock from anywhere:</text>
+  <text x="190" y="290" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5">Use your phone, tablet, or any admin device over the P2P network. No SSH needed.</text>
+  <text x="64" y="304" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89">/shurli/relay-unseal/1.0.0 protocol. Binary wire format. Admin-only. Escalating lockout: 4 free, then 1m/5m/15m/1h, permanent block.</text>
+
+  <!-- What if hacked while locked? -->
+  <rect x="358" y="178" width="302" height="82" rx="6" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="0.6"/>
+  <text x="509" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#fbb040" text-anchor="middle" font-weight="600">&#x1F6E1;  What if the server is hacked while locked?</text>
+  <text x="509" y="216" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5" text-anchor="middle">The attacker gets encrypted data. Not the key.</text>
+  <text x="509" y="232" font-family="system-ui, sans-serif" font-size="8.5" fill="#c0caf5" text-anchor="middle">They can't mint new tokens or approve new peers.</text>
+  <text x="509" y="248" font-family="system-ui, sans-serif" font-size="7.5" fill="#565f89" text-anchor="middle">Root key zeroed from memory on seal (crypto/subtle.XORBytes, best-effort)</text>
+</svg>
