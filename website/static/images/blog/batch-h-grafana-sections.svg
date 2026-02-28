@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" width="720" height="360">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="720" height="360" rx="10" fill="url(#bgGrad)"/>
+
+  <text x="360" y="26" font-family="system-ui, sans-serif" font-size="13" fill="#c0caf5" text-anchor="middle" font-weight="700">Grafana Dashboard: 37 Panels Across 6 Sections</text>
+  <text x="360" y="42" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Import the JSON, point at Prometheus, and see everything. Pre-built, zero configuration.</text>
+
+  <!-- Row 1: Overview, Proxy, Security -->
+  <!-- Overview -->
+  <rect x="20" y="58" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#7aa2f7" stroke-width="1.5"/>
+  <text x="130" y="80" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="700">Overview</text>
+  <text x="130" y="96" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">5 panels</text>
+  <line x1="40" y1="104" x2="220" y2="104" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="36" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Version + uptime</text>
+  <text x="36" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Active connections</text>
+  <text x="36" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Total bytes transferred</text>
+  <text x="36" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Auth allow/deny summary</text>
+
+  <!-- Proxy -->
+  <rect x="250" y="58" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#73daca" stroke-width="1.5"/>
+  <text x="360" y="80" font-family="system-ui, sans-serif" font-size="11" fill="#73daca" text-anchor="middle" font-weight="700">Proxy Throughput</text>
+  <text x="360" y="96" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">6 panels</text>
+  <line x1="270" y1="104" x2="450" y2="104" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="266" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Bytes/sec per service</text>
+  <text x="266" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Active connections gauge</text>
+  <text x="266" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Connection rate</text>
+  <text x="266" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Session duration percentiles</text>
+
+  <!-- Security -->
+  <rect x="480" y="58" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="590" y="80" font-family="system-ui, sans-serif" font-size="11" fill="#e8729a" text-anchor="middle" font-weight="700">Security</text>
+  <text x="590" y="96" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">10 panels</text>
+  <line x1="500" y1="104" x2="680" y2="104" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="496" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="120" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Auth allow/deny rate</text>
+  <text x="496" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="134" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Vault seal state (LOCKED/UNLOCKED)</text>
+  <text x="496" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="148" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Pairing attempts</text>
+  <text x="496" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="162" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Deposit ops + pending count</text>
+
+  <!-- Row 2: Hole Punch, Daemon API, System -->
+  <!-- Hole Punch -->
+  <rect x="20" y="192" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#fbb040" stroke-width="1.5"/>
+  <text x="130" y="214" font-family="system-ui, sans-serif" font-size="11" fill="#fbb040" text-anchor="middle" font-weight="700">Hole Punch</text>
+  <text x="130" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">4 panels</text>
+  <line x1="40" y1="238" x2="220" y2="238" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="36" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Attempt counts</text>
+  <text x="36" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Success rate gauge</text>
+  <text x="36" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Duration percentiles</text>
+  <text x="36" y="296" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="48" y="296" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Cumulative success/fail</text>
+
+  <!-- Daemon API -->
+  <rect x="250" y="192" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="360" y="214" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="700">Daemon API</text>
+  <text x="360" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">3 panels</text>
+  <line x1="270" y1="238" x2="450" y2="238" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="266" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Request rate by path</text>
+  <text x="266" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Latency percentiles (p50/p95/p99)</text>
+  <text x="266" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="278" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Status code breakdown</text>
+
+  <!-- System -->
+  <rect x="480" y="192" width="220" height="120" rx="8" fill="url(#cardGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="590" y="214" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="700">System</text>
+  <text x="590" y="230" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5" text-anchor="middle">3 panels</text>
+  <line x1="500" y1="238" x2="680" y2="238" stroke="#3a3840" stroke-width="0.5"/>
+  <text x="496" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="254" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Memory usage</text>
+  <text x="496" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="268" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">Goroutines + GC rate</text>
+  <text x="496" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a">&#x25CF;</text>
+  <text x="508" y="282" font-family="system-ui, sans-serif" font-size="8" fill="#c0caf5">File descriptors + CPU</text>
+
+  <!-- Total -->
+  <text x="360" y="340" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">31 visualization panels + 6 row headers = 37 total. Import JSON, connect Prometheus, done.</text>
+</svg>
