@@ -108,68 +108,75 @@
   <!-- Timeline line (right) -->
   <line x1="510" y1="90" x2="510" y2="700" stroke="#e0af68" stroke-width="2" opacity="0.3" stroke-dasharray="4,3"/>
 
-  <!-- Phase 6: ZKP Privacy (Planned) -->
-  <circle cx="510" cy="110" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="93" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="111" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: ZKP Privacy Layer</text>
-  <text x="544" y="127" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
-  <text x="850" y="118" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
+  <!-- Phase 6: ACL + Relay Security (Planned) -->
+  <circle cx="510" cy="105" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="88" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="106" font-size="11" font-weight="600" fill="#c0caf5">Phase 6: ACL + Relay Security</text>
+  <text x="544" y="122" font-size="9" fill="#a9b1d6">Capability tokens, sealed relay, client invites</text>
+  <text x="850" y="113" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
 
-  <!-- Phase 7: Visual Channel -->
-  <circle cx="510" cy="160" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="143" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="161" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: Visual Channel</text>
-  <text x="544" y="177" font-size="9" fill="#a9b1d6">"Constellation Code" - animated visual pairing</text>
-  <text x="850" y="168" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">TBD</text>
+  <!-- Phase 7: ZKP Privacy -->
+  <circle cx="510" cy="152" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="135" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="153" font-size="11" font-weight="600" fill="#c0caf5">Phase 7: ZKP Privacy Layer</text>
+  <text x="544" y="169" font-size="9" fill="#a9b1d6">Anonymous auth, anonymous relay, private reputation</text>
+  <text x="850" y="160" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">Planned</text>
 
-  <!-- Phase 8: Plugins -->
-  <circle cx="510" cy="210" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="193" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="211" font-size="11" font-weight="600" fill="#c0caf5">Phase 8: Plugins, SDK + First Plugins</text>
-  <text x="544" y="227" font-size="9" fill="#a9b1d6">Plugin architecture, file sharing, WoL</text>
-  <text x="850" y="218" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
+  <!-- Phase 8: Visual Channel -->
+  <circle cx="510" cy="199" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="182" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="200" font-size="11" font-weight="600" fill="#c0caf5">Phase 8: Visual Channel</text>
+  <text x="544" y="216" font-size="9" fill="#a9b1d6">"Constellation Code" - animated visual pairing</text>
+  <text x="850" y="207" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">TBD</text>
 
-  <!-- Phase 9: Distribution -->
-  <circle cx="510" cy="260" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="243" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="261" font-size="11" font-weight="600" fill="#c0caf5">Phase 9: Distribution + Launch</text>
-  <text x="544" y="277" font-size="9" fill="#a9b1d6">Use-case content (GPU, IoT, gaming)</text>
-  <text x="850" y="268" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">1-2 weeks</text>
+  <!-- Phase 9: Plugins -->
+  <circle cx="510" cy="246" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="229" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="247" font-size="11" font-weight="600" fill="#c0caf5">Phase 9: Plugins, SDK + First Plugins</text>
+  <text x="544" y="263" font-size="9" fill="#a9b1d6">Plugin architecture, file sharing, WoL</text>
+  <text x="850" y="254" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
 
-  <!-- Phase 10: Desktop Gateway -->
-  <circle cx="510" cy="310" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="293" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="311" font-size="11" font-weight="600" fill="#c0caf5">Phase 10: Desktop Gateway + Private DNS</text>
-  <text x="544" y="327" font-size="9" fill="#a9b1d6">Transparent access, DNS resolution</text>
-  <text x="850" y="318" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
+  <!-- Phase 10: Distribution -->
+  <circle cx="510" cy="293" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="276" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="294" font-size="11" font-weight="600" fill="#c0caf5">Phase 10: Distribution + Launch</text>
+  <text x="544" y="310" font-size="9" fill="#a9b1d6">Use-case content (GPU, IoT, gaming)</text>
+  <text x="850" y="301" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">1-2 weeks</text>
 
-  <!-- Phase 11: Mobile -->
-  <circle cx="510" cy="360" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="343" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="361" font-size="11" font-weight="600" fill="#c0caf5">Phase 11: Mobile Apps</text>
-  <text x="544" y="377" font-size="9" fill="#a9b1d6">iOS + Android native clients</text>
-  <text x="850" y="368" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
+  <!-- Phase 11: Desktop Gateway -->
+  <circle cx="510" cy="340" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="323" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="341" font-size="11" font-weight="600" fill="#c0caf5">Phase 11: Desktop Gateway + Private DNS</text>
+  <text x="544" y="357" font-size="9" fill="#a9b1d6">Transparent access, DNS resolution</text>
+  <text x="850" y="348" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
 
-  <!-- Phase 12: Federation -->
-  <circle cx="510" cy="410" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="393" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="411" font-size="11" font-weight="600" fill="#c0caf5">Phase 12: Federation</text>
-  <text x="544" y="427" font-size="9" fill="#a9b1d6">Cross-network peer group interop</text>
-  <text x="850" y="418" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
+  <!-- Phase 12: Mobile -->
+  <circle cx="510" cy="387" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="370" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="388" font-size="11" font-weight="600" fill="#c0caf5">Phase 12: Mobile Apps</text>
+  <text x="544" y="404" font-size="9" fill="#a9b1d6">iOS + Android native clients</text>
+  <text x="850" y="395" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">3-4 weeks</text>
 
-  <!-- Phase 13 (Optional) -->
-  <circle cx="510" cy="460" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="443" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="461" font-size="11" font-weight="600" fill="#a9b1d6">Phase 13: Advanced Naming</text>
-  <text x="544" y="477" font-size="9" fill="#565f89">Optional - blockchain/distributed naming</text>
-  <text x="850" y="468" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">2-3 weeks</text>
+  <!-- Phase 13: Federation -->
+  <circle cx="510" cy="434" r="6" fill="none" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="417" width="340" height="42" rx="8" fill="url(#plannedGrad)" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="435" font-size="11" font-weight="600" fill="#c0caf5">Phase 13: Federation</text>
+  <text x="544" y="451" font-size="9" fill="#a9b1d6">Cross-network peer group interop</text>
+  <text x="850" y="442" text-anchor="end" font-size="9" font-weight="600" fill="#e0af68" font-family="ui-monospace, monospace">2-3 weeks</text>
 
-  <!-- Phase 14+ (Conceptual) -->
-  <circle cx="510" cy="510" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
-  <rect x="530" y="493" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
-  <text x="544" y="511" font-size="11" font-weight="600" fill="#a9b1d6">Phase 14+: Ecosystem</text>
-  <text x="544" y="527" font-size="9" fill="#565f89">Ongoing - community, integrations, growth</text>
-  <text x="850" y="518" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
+  <!-- Phase 14 (Optional) -->
+  <circle cx="510" cy="481" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="464" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="482" font-size="11" font-weight="600" fill="#a9b1d6">Phase 14: Advanced Naming</text>
+  <text x="544" y="498" font-size="9" fill="#565f89">Optional - blockchain/distributed naming</text>
+  <text x="850" y="489" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">2-3 weeks</text>
+
+  <!-- Phase 15+ (Conceptual) -->
+  <circle cx="510" cy="528" r="6" fill="none" stroke="#565f89" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <rect x="530" y="511" width="340" height="42" rx="8" fill="url(#futureGrad)" stroke="#565f89" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="544" y="529" font-size="11" font-weight="600" fill="#a9b1d6">Phase 15+: Ecosystem</text>
+  <text x="544" y="545" font-size="9" fill="#565f89">Ongoing - community, integrations, growth</text>
+  <text x="850" y="536" text-anchor="end" font-size="9" font-weight="600" fill="#565f89" font-family="ui-monospace, monospace">Ongoing</text>
 
   <!-- Legend -->
   <rect x="30" y="695" width="840" height="30" rx="6" fill="none" stroke="#222124" stroke-width="1"/>
