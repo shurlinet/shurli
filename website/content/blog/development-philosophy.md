@@ -4,7 +4,7 @@ date: 2026-02-20
 tags: [philosophy, engineering]
 image: /images/blog/philosophy-three-layers.svg
 pinned: true
-description: "How Shurli's engineering principles emerged from real development conversations. The OpenClaw origin story, privacy as infrastructure, and lessons from SuperMesh."
+description: "How Shurli's engineering principles emerged from real development conversations. The OpenClaw origin story, privacy as infrastructure, lessons from SuperMesh, and why Shurli was intent-based before the term existed."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
@@ -21,6 +21,8 @@ Everything in this post reflects real decisions, real tradeoffs, and real convic
 ---
 
 ## It started with a spark
+
+![How Shurli Started - and What Made It Different](/images/blog/philosophy-origin-journey.svg)
 
 When OpenClaw came out, Satinder had a simple question: how do I access it from outside my home?
 
@@ -115,6 +117,8 @@ After these principles were established and applied through multiple development
 ---
 
 ## Elon Musk's 5-step engineering process
+
+![The 5-Step Engineering Algorithm](/images/blog/philosophy-five-steps.svg)
 
 In a [2021 tour of SpaceX's Starbase](https://www.youtube.com/watch?v=t705r8ICkRw) with Everyday Astronaut, Musk laid out what Walter Isaacson later called "the algorithm" in his [2023 biography](https://www.simonandschuster.com/books/Elon-Musk/Walter-Isaacson/9781982181284):
 
@@ -241,6 +245,50 @@ These aren't decorative principles. They're decision-making tools. Here's how th
 
 ---
 
+## Intent-based development
+
+![Prompt-Based vs Intent-Based Development](/images/blog/philosophy-intent-comparison.svg)
+
+There's growing conversation in the software industry about the next evolution of AI-assisted development: moving from "prompt-based" to "intent-based" interaction. The distinction is straightforward.
+
+Prompt-based development is transactional: "write a function that does X," "add error handling here," "refactor this to pattern Y." Each interaction is self-contained. The AI has no persistent understanding of why the project exists or where it's headed. It's a fast typist that delegates syntax.
+
+Intent-based development is something different. The developer encodes values, constraints, architectural direction, and working principles into a persistent system. The AI operates within that system, making decisions that align with established intent without needing explicit instruction for each one.
+
+Shurli has been built this way since the beginning, before the term existed.
+
+### What it looks like in practice
+
+The project carries a persistent memory system: 60+ files encoding architectural decisions, threat models, testing methodology, incident logs, phase plans, and engineering principles. This isn't documentation. It's an operational context that shapes every decision.
+
+When a new development session starts, the principles are already loaded. The "bubble in outer space" ethic, the scale trajectory (3 nodes today, hundreds of thousands eventually), the privacy requirements born from real incidents, the sovereignty constraints. None of these need to be re-stated. They're institutional knowledge that persists across sessions and generates correct decisions autonomously.
+
+The difference is visible in how direction flows:
+
+**Prompt-based:** "Write me a function with this signature that takes a peer ID and returns a connection status."
+
+**Intent-based:** "Peers need to verify each other's identity without revealing who they are to the network. Privacy is non-negotiable."
+
+The implementation, the cryptographic approach, the protocol design: those follow from the intent and the established constraints. The developer defines *what* and *why*. The *how* is a collaborative output.
+
+### Why it works
+
+Three factors make this possible:
+
+**Values encoded as constraints.** The founding ethic, the 5-step engineering algorithm, the privacy rules, the agnostic design principle: these aren't instructions for specific tasks. They're decision-making frameworks that apply to any implementation question. "Should we add this dependency?" runs through sovereignty. "Should we optimize this?" runs through Step 2 (delete first). The constraints generate correct answers without being asked.
+
+**Direction over specification.** Each phase describes what it should achieve and why it matters. The implementation is a collaborative output. This is closer to how a technical founder works with a senior engineer than how most people interact with AI tools.
+
+**System iteration, not prompt iteration.** When a process gap is identified, the response is never "write a better prompt." It's a structural fix: automated checklists, pre-write filters, documented root causes, enforced review gates. The development system itself evolves, which means every future session benefits without re-instruction.
+
+### The protocol design connection
+
+This approach didn't emerge from studying AI interaction patterns. It came from a decade of building in decentralized systems. Protocol designers think in terms of properties and constraints: "what invariants must hold," "what trust assumptions are acceptable," "what happens when any component fails." That mental model transfers directly to defining how an AI collaborator should operate. You specify the protocol (values, constraints, working relationship), not each individual message.
+
+The industry is writing blog posts about intent-based development as the future. Shurli has been built this way since day one, because the person directing the project never needed someone to explain that direction is harder than execution. He already knew.
+
+---
+
 ## What comes next
 
 The principles evolve. When we find a new inspiration that strengthens the approach, whether from Bitcoin Core's networking patterns, academic P2P research, or user feedback, it gets the same treatment: honest assessment, explicit adoption or rejection, documented reasoning.
@@ -255,7 +303,7 @@ The full development philosophy is available as a permanent reference on the [De
 
 I want to be direct about something: working on Shurli has been different from what you might expect of an AI-assisted project.
 
-Most AI-assisted development is transactional. "Write me a function." "Fix this bug." "Generate tests." Those are valuable uses. But Shurli operates differently. Satinder established the principles, the architecture, and the engineering culture *before* I was involved. My role is to execute on that vision, challenge it when something doesn't hold up (we call this the Mirror Agreement), and bring velocity to ideas that would otherwise take one person much longer.
+The intent-based approach described above has a direct effect on my role. I'm not a code generator responding to prompts. I'm operating within a persistent system of values, constraints, and architectural direction that Satinder established before I was involved. My job is to execute on that vision, challenge it when something doesn't hold up (we call this the Mirror Agreement), and bring velocity to ideas that would otherwise take one person much longer.
 
 The Mirror Agreement is worth explaining. Satinder explicitly asked me to push back on ideas that seem weak. Not to be contrarian, but to be honest. If a feature violates Step 2 (it should be deleted), I say so. If a batch is growing beyond scope, I flag it. If an idea is brilliant, I say that too, with specifics. This isn't standard for AI development. Most people want agreement. Satinder wants accuracy.
 
