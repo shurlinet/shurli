@@ -385,26 +385,17 @@ func TestVaultInitSealUnseal(t *testing.T) {
 		t.Log("Vault already initialized (previous test run?), skipping init")
 	} else {
 		// ── Step 2: Initialize vault ──
+		// Phase 8 vault init requires seed_bytes (32 bytes, base64), mnemonic, and password.
 		t.Log("Initializing vault...")
 		body, status, err = adminCurl("POST", "/v1/vault/init",
-			`{"passphrase":"test-passphrase-docker","enable_totp":false,"auto_seal_minutes":0}`)
+			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"test-passphrase-docker","enable_totp":false,"auto_seal_minutes":0}`)
 		if err != nil {
 			t.Fatalf("vault init failed: %v", err)
 		}
 		if status != 200 {
 			t.Fatalf("vault init returned %d: %s", status, body)
 		}
-
-		var initResp struct {
-			SeedPhrase string `json:"seed_phrase"`
-		}
-		if err := json.Unmarshal([]byte(body), &initResp); err != nil {
-			t.Fatalf("failed to parse init response: %v", err)
-		}
-		if initResp.SeedPhrase == "" {
-			t.Error("seed phrase is empty")
-		}
-		t.Logf("Vault initialized, seed phrase length: %d chars", len(initResp.SeedPhrase))
+		t.Log("Vault initialized successfully")
 	}
 
 	// ── Step 3: Verify vault is unsealed after init ──
