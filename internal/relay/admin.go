@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -8,18 +9,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/vault"
+	"github.com/shurlinet/shurli/internal/zkp"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -27,6 +34,8 @@ import (
 type AdminGaterInterface interface {
 	SetEnrollmentMode(enabled bool, limit int, timeout time.Duration)
 	IsEnrollmentEnabled() bool
+	UpdateAuthorizedPeers(authorizedPeers map[peer.ID]bool)
+	GetAuthorizedPeerIDs() []peer.ID
 }
 
 // PairRequest is the JSON body for POST /v1/pair.
@@ -46,15 +55,16 @@ type PairResponse struct {
 
 // VaultInitRequest is the JSON body for POST /v1/vault/init.
 type VaultInitRequest struct {
-	Passphrase   string `json:"passphrase"`
+	SeedBytes    []byte `json:"seed_bytes"`     // BIP39 entropy from unified seed
+	Mnemonic     string `json:"mnemonic"`       // BIP39 phrase for seed hash verification
+	Password     string `json:"password"`
 	EnableTOTP   bool   `json:"enable_totp"`
 	AutoSealMins int    `json:"auto_seal_minutes"`
 }
 
 // VaultInitResponse is the JSON response for POST /v1/vault/init.
 type VaultInitResponse struct {
-	SeedPhrase string `json:"seed_phrase"`
-	TOTPUri    string `json:"totp_uri,omitempty"`
+	TOTPUri string `json:"totp_uri,omitempty"`
 }
 
 // UnsealRequest is the JSON body for POST /v1/unseal.
@@ -81,6 +91,9 @@ type AdminServer struct {
 	vault        *vault.Vault
 	vaultPath    string // where to persist vault on disk
 	deposits     *deposit.DepositStore
+	zkpAuth      *ZKPAuthHandler
+	motdHandler  *MOTDHandler
+	shutdownFunc func() // called by goodbye/shutdown endpoint
 	relayAddr    string
 	namespace    string
 	httpServer   *http.Server
@@ -88,6 +101,8 @@ type AdminServer struct {
 	socketPath   string
 	cookiePath   string
 	authToken    string
+	authKeysPath string          // path to authorized_keys for hot-reload
+	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
 }
 
@@ -113,6 +128,72 @@ func (s *AdminServer) SetVault(v *vault.Vault, vaultPath string) {
 // is retrieved from the vault dynamically when needed (unsealed state only).
 func (s *AdminServer) SetDepositStore(ds *deposit.DepositStore) {
 	s.deposits = ds
+}
+
+// SetZKPAuth attaches the ZKP auth handler for tree-rebuild and tree-info endpoints.
+func (s *AdminServer) SetZKPAuth(h *ZKPAuthHandler) {
+	s.zkpAuth = h
+}
+
+// SetMOTDHandler attaches the MOTD handler for motd/goodbye endpoints.
+func (s *AdminServer) SetMOTDHandler(h *MOTDHandler) {
+	s.motdHandler = h
+}
+
+// SetShutdownFunc sets the callback invoked by POST /v1/goodbye/shutdown.
+func (s *AdminServer) SetShutdownFunc(fn func()) {
+	s.shutdownFunc = fn
+}
+
+// SetAuthKeysPath sets the path to the authorized_keys file for hot-reload.
+func (s *AdminServer) SetAuthKeysPath(path string) {
+	s.authKeysPath = path
+}
+
+// buildMux creates the HTTP route table. Called once by Start() and reused
+// by HandleRemoteRequest so that the remote admin protocol dispatches to
+// the same handler functions as the local Unix socket.
+func (s *AdminServer) buildMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/pair", s.requireUnsealedOr(s.handleCreatePair))
+	mux.HandleFunc("GET /v1/pair", s.handleListPairs)
+	mux.HandleFunc("DELETE /v1/pair/{id}", s.handleRevokePair)
+
+	// Invite deposit endpoints (require unsealed vault for mutation)
+	mux.HandleFunc("POST /v1/invite", s.requireUnsealedOr(s.handleCreateInvite))
+	mux.HandleFunc("GET /v1/invite", s.handleListInvites)
+	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleRevokeInvite)
+	mux.HandleFunc("PATCH /v1/invite/{id}", s.requireUnsealedOr(s.handleModifyInvite))
+
+	// Vault management endpoints (always available, even when sealed)
+	mux.HandleFunc("POST /v1/unseal", s.handleUnseal)
+	mux.HandleFunc("POST /v1/seal", s.handleSeal)
+	mux.HandleFunc("GET /v1/seal-status", s.handleSealStatus)
+	mux.HandleFunc("POST /v1/vault/init", s.handleVaultInit)
+	mux.HandleFunc("GET /v1/vault/totp-uri", s.handleVaultTOTPUri)
+
+	// Auth hot-reload endpoint
+	mux.HandleFunc("POST /v1/auth/reload", s.handleAuthReload)
+
+	// ZKP tree management endpoints
+	mux.HandleFunc("POST /v1/zkp/tree-rebuild", s.requireUnsealedOr(s.handleZKPTreeRebuild))
+	mux.HandleFunc("GET /v1/zkp/tree-info", s.handleZKPTreeInfo)
+
+	// ZKP circuit parameter distribution (public data, no vault-gate needed).
+	// Clients fetch these to generate proofs locally.
+	mux.HandleFunc("GET /v1/zkp/proving-key", s.handleZKPProvingKey)
+	mux.HandleFunc("GET /v1/zkp/verifying-key", s.handleZKPVerifyingKey)
+
+	// MOTD and goodbye endpoints
+	mux.HandleFunc("GET /v1/motd", s.handleGetMOTD)
+	mux.HandleFunc("PUT /v1/motd", s.handleSetMOTD)
+	mux.HandleFunc("DELETE /v1/motd", s.handleClearMOTD)
+	mux.HandleFunc("GET /v1/goodbye", s.handleGetGoodbye)
+	mux.HandleFunc("PUT /v1/goodbye", s.handleSetGoodbye)
+	mux.HandleFunc("DELETE /v1/goodbye", s.handleRetractGoodbye)
+	mux.HandleFunc("POST /v1/goodbye/shutdown", s.handleGoodbyeShutdown)
+
+	return mux
 }
 
 // Start creates the Unix socket, writes the cookie file, and starts serving.
@@ -143,27 +224,10 @@ func (s *AdminServer) Start() error {
 	}
 
 	s.listener = listener
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/pair", s.requireUnsealedOr(s.handleCreatePair))
-	mux.HandleFunc("GET /v1/pair", s.handleListPairs)
-	mux.HandleFunc("DELETE /v1/pair/{id}", s.handleRevokePair)
-
-	// Invite deposit endpoints (require unsealed vault for mutation)
-	mux.HandleFunc("POST /v1/invite", s.requireUnsealedOr(s.handleCreateInvite))
-	mux.HandleFunc("GET /v1/invite", s.handleListInvites)
-	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleRevokeInvite)
-	mux.HandleFunc("PATCH /v1/invite/{id}", s.requireUnsealedOr(s.handleModifyInvite))
-
-	// Vault management endpoints (always available, even when sealed)
-	mux.HandleFunc("POST /v1/unseal", s.handleUnseal)
-	mux.HandleFunc("POST /v1/seal", s.handleSeal)
-	mux.HandleFunc("GET /v1/seal-status", s.handleSealStatus)
-	mux.HandleFunc("POST /v1/vault/init", s.handleVaultInit)
-	mux.HandleFunc("GET /v1/vault/totp-uri", s.handleVaultTOTPUri)
+	s.internalMux = s.buildMux()
 
 	s.httpServer = &http.Server{
-		Handler:      s.authMiddleware(mux),
+		Handler:      s.authMiddleware(s.internalMux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -176,6 +240,34 @@ func (s *AdminServer) Start() error {
 
 	slog.Info("relay admin API listening", "socket", s.socketPath)
 	return nil
+}
+
+// HandleRemoteRequest dispatches a request to the internal mux without
+// going through the cookie auth middleware. Used by RemoteAdminHandler
+// where authentication is done via libp2p peer identity instead.
+// Returns the HTTP status code and response body bytes.
+func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte) (int, []byte) {
+	if s.internalMux == nil {
+		s.internalMux = s.buildMux()
+	}
+
+	var reqBody io.Reader
+	if len(body) > 0 {
+		reqBody = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequest(method, "http://relay-admin"+path, reqBody)
+	if err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": "invalid request"})
+		return http.StatusBadRequest, resp
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	s.internalMux.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.Bytes()
 }
 
 // Stop gracefully shuts down the server and cleans up socket/cookie files.
@@ -593,7 +685,7 @@ func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.vault.Unseal(req.Passphrase, req.TOTPCode); err != nil {
 		switch {
-		case errors.Is(err, vault.ErrInvalidPassphrase):
+		case errors.Is(err, vault.ErrInvalidPassword):
 			respondAdminError(w, http.StatusForbidden, "invalid passphrase")
 		case errors.Is(err, vault.ErrInvalidTOTP):
 			respondAdminError(w, http.StatusForbidden, "invalid TOTP code")
@@ -652,12 +744,16 @@ func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Passphrase == "" {
-		respondAdminError(w, http.StatusBadRequest, "passphrase required")
+	if req.Password == "" {
+		respondAdminError(w, http.StatusBadRequest, "password required")
+		return
+	}
+	if len(req.SeedBytes) == 0 {
+		respondAdminError(w, http.StatusBadRequest, "seed_bytes required")
 		return
 	}
 
-	v, seedPhrase, err := vault.Create(req.Passphrase, req.EnableTOTP, req.AutoSealMins)
+	v, err := vault.Create(req.SeedBytes, req.Mnemonic, req.Password, req.EnableTOTP, req.AutoSealMins)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create vault: %v", err))
 		return
@@ -672,7 +768,7 @@ func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
 
 	s.vault = v
 
-	resp := VaultInitResponse{SeedPhrase: seedPhrase}
+	var resp VaultInitResponse
 	if req.EnableTOTP {
 		uri, _ := v.TOTPProvisioningURI(s.relayAddr)
 		resp.TOTPUri = uri
@@ -701,6 +797,286 @@ func (s *AdminServer) handleVaultTOTPUri(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"uri": uri})
+}
+
+// --- Auth hot-reload endpoint ---
+
+func (s *AdminServer) handleAuthReload(w http.ResponseWriter, r *http.Request) {
+	if s.gater == nil {
+		respondAdminError(w, http.StatusBadRequest, "connection gating is not enabled")
+		return
+	}
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	peers, err := auth.LoadAuthorizedKeys(s.authKeysPath)
+	if err != nil {
+		respondAdminError(w, http.StatusInternalServerError,
+			fmt.Sprintf("failed to reload authorized_keys: %v", err))
+		return
+	}
+
+	s.gater.UpdateAuthorizedPeers(peers)
+
+	// Rebuild ZKP Merkle tree if enabled (new peers change the tree).
+	if s.zkpAuth != nil {
+		if err := s.zkpAuth.RebuildTree(); err != nil {
+			slog.Warn("auth reload: zkp tree rebuild failed", "err", err)
+		}
+	}
+
+	slog.Info("authorized_keys reloaded via admin socket", "peers", len(peers))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "reloaded",
+		"peers":  len(peers),
+	})
+}
+
+// ZKPTreeInfoResponse is the JSON response for GET /v1/zkp/tree-info.
+type ZKPTreeInfoResponse struct {
+	Ready     bool   `json:"ready"`
+	Root      string `json:"root,omitempty"`
+	LeafCount int    `json:"leaf_count,omitempty"`
+	Depth     int    `json:"depth,omitempty"`
+}
+
+func (s *AdminServer) handleZKPTreeRebuild(w http.ResponseWriter, r *http.Request) {
+	if s.zkpAuth == nil {
+		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
+		return
+	}
+
+	if err := s.zkpAuth.RebuildTree(); err != nil {
+		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("tree rebuild failed: %v", err))
+		return
+	}
+
+	root, leafCount, depth, _ := s.zkpAuth.TreeInfo()
+	slog.Info("zkp tree rebuilt via admin socket", "leaves", leafCount, "depth", depth)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":     "rebuilt",
+		"leaf_count": leafCount,
+		"depth":      depth,
+		"root":       fmt.Sprintf("%x", root),
+	})
+}
+
+func (s *AdminServer) handleZKPTreeInfo(w http.ResponseWriter, r *http.Request) {
+	if s.zkpAuth == nil {
+		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
+		return
+	}
+
+	root, leafCount, depth, ok := s.zkpAuth.TreeInfo()
+	resp := ZKPTreeInfoResponse{Ready: ok}
+	if ok {
+		resp.Root = fmt.Sprintf("%x", root)
+		resp.LeafCount = leafCount
+		resp.Depth = depth
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// maxProvingKeySize is the upper bound for a PLONK proving key file (5 MB).
+// Actual size is ~2 MB; this guards against corrupted or replaced files.
+const maxProvingKeySize = 5 * 1024 * 1024
+
+// maxVerifyingKeySize is the upper bound for a PLONK verifying key file (256 KB).
+// Actual size is ~34 KB; this guards against corrupted or replaced files.
+const maxVerifyingKeySize = 256 * 1024
+
+func (s *AdminServer) handleZKPProvingKey(w http.ResponseWriter, r *http.Request) {
+	if s.zkpAuth == nil {
+		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
+		return
+	}
+	path := zkp.ProvingKeyPath(s.zkpAuth.KeysDir())
+	fi, err := os.Stat(path)
+	if err != nil {
+		respondAdminError(w, http.StatusNotFound, "proving key not found")
+		return
+	}
+	if fi.Size() > maxProvingKeySize {
+		respondAdminError(w, http.StatusInternalServerError, "proving key file exceeds size limit")
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename=provingKey.bin")
+	http.ServeFile(w, r, path)
+}
+
+func (s *AdminServer) handleZKPVerifyingKey(w http.ResponseWriter, r *http.Request) {
+	if s.zkpAuth == nil {
+		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
+		return
+	}
+	path := zkp.VerifyingKeyPath(s.zkpAuth.KeysDir())
+	fi, err := os.Stat(path)
+	if err != nil {
+		respondAdminError(w, http.StatusNotFound, "verifying key not found")
+		return
+	}
+	if fi.Size() > maxVerifyingKeySize {
+		respondAdminError(w, http.StatusInternalServerError, "verifying key file exceeds size limit")
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename=verifyingKey.bin")
+	http.ServeFile(w, r, path)
+}
+
+// --- MOTD and goodbye endpoints ---
+
+// MOTDStatusResponse is the JSON response for GET /v1/motd and GET /v1/goodbye.
+type MOTDStatusResponse struct {
+	MOTD           string `json:"motd"`
+	Goodbye        string `json:"goodbye"`
+	GoodbyeActive  bool   `json:"goodbye_active"`
+}
+
+func (s *AdminServer) handleGetMOTD(w http.ResponseWriter, _ *http.Request) {
+	resp := MOTDStatusResponse{}
+	if s.motdHandler != nil {
+		resp.MOTD = s.motdHandler.MOTD()
+		resp.Goodbye = s.motdHandler.Goodbye()
+		resp.GoodbyeActive = s.motdHandler.HasActiveGoodbye()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *AdminServer) handleSetMOTD(w http.ResponseWriter, r *http.Request) {
+	if s.motdHandler == nil {
+		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
+		return
+	}
+
+	var req struct {
+		Message string `json:"message"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Message == "" {
+		respondAdminError(w, http.StatusBadRequest, "message required")
+		return
+	}
+
+	s.motdHandler.SetMOTD(req.Message)
+	slog.Info("motd set via admin", "len", len(req.Message))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
+}
+
+func (s *AdminServer) handleClearMOTD(w http.ResponseWriter, _ *http.Request) {
+	if s.motdHandler == nil {
+		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
+		return
+	}
+	s.motdHandler.ClearMOTD()
+	slog.Info("motd cleared via admin")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+func (s *AdminServer) handleGetGoodbye(w http.ResponseWriter, _ *http.Request) {
+	resp := MOTDStatusResponse{}
+	if s.motdHandler != nil {
+		resp.MOTD = s.motdHandler.MOTD()
+		resp.Goodbye = s.motdHandler.Goodbye()
+		resp.GoodbyeActive = s.motdHandler.HasActiveGoodbye()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *AdminServer) handleSetGoodbye(w http.ResponseWriter, r *http.Request) {
+	if s.motdHandler == nil {
+		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
+		return
+	}
+
+	var req struct {
+		Message string `json:"message"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Message == "" {
+		respondAdminError(w, http.StatusBadRequest, "message required")
+		return
+	}
+
+	if err := s.motdHandler.SetGoodbye(req.Message); err != nil {
+		respondAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	slog.Info("goodbye set via admin", "msg", req.Message)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
+}
+
+func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, _ *http.Request) {
+	if s.motdHandler == nil {
+		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
+		return
+	}
+
+	if err := s.motdHandler.RetractGoodbye(); err != nil {
+		respondAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	slog.Info("goodbye retracted via admin")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "retracted"})
+}
+
+func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Request) {
+	if s.motdHandler == nil {
+		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
+		return
+	}
+
+	var req struct {
+		Message string `json:"message"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Message == "" {
+		req.Message = "Relay shutting down"
+	}
+
+	if err := s.motdHandler.SetGoodbye(req.Message); err != nil {
+		respondAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	slog.Info("goodbye shutdown initiated via admin", "msg", req.Message)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "goodbye_sent_shutting_down"})
+
+	// Trigger shutdown asynchronously so the response can be sent first.
+	if s.shutdownFunc != nil {
+		go func() {
+			time.Sleep(2 * time.Second) // allow goodbye delivery
+			s.shutdownFunc()
+		}()
+	}
 }
 
 func respondAdminError(w http.ResponseWriter, status int, msg string) {

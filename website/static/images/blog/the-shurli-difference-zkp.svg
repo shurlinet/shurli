@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="treeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="proofFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="800" height="300" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Zero-Knowledge Anonymous Authentication</text>
+
+  <!-- Left: Merkle tree -->
+  <rect x="30" y="50" width="260" height="180" rx="10" fill="url(#treeFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="160" y="70" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">Poseidon2 Merkle Tree</text>
+
+  <!-- Tree structure -->
+  <!-- Root -->
+  <circle cx="160" cy="95" r="8" fill="#bb9af7" opacity="0.3" stroke="#bb9af7" stroke-width="1"/>
+  <!-- Level 1 -->
+  <line x1="160" y1="103" x2="110" y2="120" stroke="#bb9af7" stroke-width="0.8" opacity="0.6"/>
+  <line x1="160" y1="103" x2="210" y2="120" stroke="#bb9af7" stroke-width="0.8" opacity="0.6"/>
+  <circle cx="110" cy="125" r="6" fill="#bb9af7" opacity="0.2" stroke="#bb9af7" stroke-width="0.8"/>
+  <circle cx="210" cy="125" r="6" fill="#bb9af7" opacity="0.2" stroke="#bb9af7" stroke-width="0.8"/>
+  <!-- Level 2 -->
+  <line x1="110" y1="131" x2="80" y2="148" stroke="#bb9af7" stroke-width="0.6" opacity="0.4"/>
+  <line x1="110" y1="131" x2="140" y2="148" stroke="#bb9af7" stroke-width="0.6" opacity="0.4"/>
+  <line x1="210" y1="131" x2="180" y2="148" stroke="#bb9af7" stroke-width="0.6" opacity="0.4"/>
+  <line x1="210" y1="131" x2="240" y2="148" stroke="#bb9af7" stroke-width="0.6" opacity="0.4"/>
+  <!-- Leaves -->
+  <circle cx="80" cy="153" r="5" fill="#565f89" opacity="0.3" stroke="#565f89" stroke-width="0.8"/>
+  <circle cx="140" cy="153" r="5" fill="#9ece6a" opacity="0.5" stroke="#9ece6a" stroke-width="1.2"/>
+  <circle cx="180" cy="153" r="5" fill="#565f89" opacity="0.3" stroke="#565f89" stroke-width="0.8"/>
+  <circle cx="240" cy="153" r="5" fill="#565f89" opacity="0.3" stroke="#565f89" stroke-width="0.8"/>
+  <!-- Highlight "you are here" -->
+  <text x="140" y="173" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a" text-anchor="middle">your key</text>
+
+  <!-- Labels -->
+  <text x="160" y="195" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">All authorized public keys</text>
+  <text x="160" y="207" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">as leaves (depth 20)</text>
+  <text x="160" y="222" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">capacity: 1,048,576 peers</text>
+
+  <!-- Arrow: proves membership -->
+  <line x1="300" y1="140" x2="400" y2="140" stroke="#da1c5c" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="395,134 395,146 408,140" fill="#da1c5c"/>
+
+  <!-- Center: What's proven vs hidden -->
+  <rect x="310" y="165" width="170" height="65" rx="6" fill="url(#proofFill)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="395" y="181" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">Proof proves:</text>
+  <text x="395" y="195" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">"I am in the authorized set"</text>
+  <text x="395" y="212" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle" font-weight="600">Without revealing: which one</text>
+
+  <!-- Right: Relay sees -->
+  <rect x="420" y="55" width="350" height="100" rx="10" fill="url(#nodeFill)" stroke="#565f89" stroke-width="1"/>
+
+  <!-- Standard auth (crossed out) -->
+  <rect x="440" y="68" width="150" height="34" rx="6" fill="#2c1624" stroke="#f7768e" stroke-width="0.8" opacity="0.6"/>
+  <text x="515" y="82" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" text-anchor="middle" opacity="0.6">Standard auth</text>
+  <text x="515" y="95" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle" opacity="0.6">Relay sees: peer_id=Qm3x...</text>
+  <line x1="445" y1="82" x2="585" y2="82" stroke="#f7768e" stroke-width="1" opacity="0.6"/>
+
+  <!-- ZKP auth -->
+  <rect x="440" y="108" width="310" height="34" rx="6" fill="#162c24" stroke="#9ece6a" stroke-width="1"/>
+  <text x="508" y="122" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">ZKP auth</text>
+  <text x="640" y="122" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">Relay sees: authorized=true</text>
+  <text x="640" y="135" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">identity=unknown</text>
+
+  <!-- Performance metrics -->
+  <rect x="60" y="250" width="680" height="34" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.8"/>
+  <text x="130" y="271" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">520-byte proof</text>
+  <text x="245" y="271" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="340" y="271" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">~350ms generate</text>
+  <text x="445" y="271" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="540" y="271" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">2-3ms verify</text>
+  <text x="645" y="271" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="715" y="271" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">elliptic curve</text>
+</svg>

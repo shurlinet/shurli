@@ -1,37 +1,40 @@
-// Package vault implements a passphrase-sealed key vault for the Shurli relay.
+// Package vault implements a password-sealed key vault for the Shurli relay.
 //
 // The vault protects the relay's root key material (used for macaroon minting).
 // When sealed, the relay operates in watch-only mode: it routes traffic for
-// existing peers but cannot authorize new ones. Unsealing requires a passphrase
+// existing peers but cannot authorize new ones. Unsealing requires a password
 // (and optionally a TOTP code), then auto-reseals after a configurable timeout.
 //
-// Crypto: Argon2id for passphrase KDF, XChaCha20-Poly1305 for encryption.
-// Recovery: BIP39-compatible 24-word seed phrase regenerates the root key.
+// The vault root key is derived from the unified BIP39 seed via HKDF domain
+// separation ("shurli/vault/v1"), ensuring one seed backup covers identity,
+// vault, and ZKP keys.
+//
+// Crypto: Argon2id for password KDF, XChaCha20-Poly1305 for encryption.
+// Recovery: BIP39 24-word seed phrase re-derives the root key via HKDF.
 package vault
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/totp"
 )
 
 var (
 	ErrVaultSealed         = errors.New("vault is sealed")
 	ErrVaultAlreadyUnsealed = errors.New("vault is already unsealed")
-	ErrInvalidPassphrase   = errors.New("invalid passphrase")
+	ErrInvalidPassword   = errors.New("invalid password")
 	ErrInvalidTOTP         = errors.New("invalid TOTP code")
 	ErrInvalidSeed         = errors.New("invalid seed phrase")
 	ErrVaultNotInitialized = errors.New("vault not initialized")
@@ -46,7 +49,6 @@ const (
 	argonKeyLen  = 32
 	saltLen      = 16
 	rootKeyLen   = 32
-	seedWordCount = 24
 )
 
 // SealedData is the on-disk representation of the vault.
@@ -76,32 +78,38 @@ type Vault struct {
 	autoSealMins int
 }
 
-// Create initializes a new vault with a passphrase and optional TOTP.
-// Returns the vault (unsealed) and the seed phrase for recovery.
-func Create(passphrase string, enableTOTP bool, autoSealMins int) (*Vault, string, error) {
-	// Generate root key
-	rootKey := make([]byte, rootKeyLen)
-	if _, err := rand.Read(rootKey); err != nil {
-		return nil, "", fmt.Errorf("failed to generate root key: %w", err)
+// Create initializes a new vault from seed entropy and a password.
+// The root key is derived from seedBytes via HKDF("shurli/vault/v1"),
+// ensuring the same BIP39 seed that derives the identity key also
+// derives the vault key (different HKDF domain = cryptographic independence).
+//
+// The caller is responsible for seed generation and display (done at shurli init).
+// The mnemonic parameter is the BIP39 phrase used to compute SeedHash for
+// recovery verification.
+func Create(seedBytes []byte, mnemonic, password string, enableTOTP bool, autoSealMins int) (*Vault, error) {
+	// Derive vault root key from seed via HKDF.
+	rootKey, err := identity.DeriveVaultKey(seedBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive vault key: %w", err)
 	}
 
-	// Generate seed phrase from root key
-	seedPhrase := encodeSeedPhrase(rootKey)
-	seedHash := sha256.Sum256([]byte(seedPhrase))
+	// Hash the mnemonic for recovery verification.
+	seedHash := sha256.Sum256([]byte(mnemonic))
 
-	// Generate salt
+	// Generate salt for Argon2id.
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
-		return nil, "", fmt.Errorf("failed to generate salt: %w", err)
+		return nil, fmt.Errorf("failed to generate salt: %w", err)
 	}
 
-	// Derive encryption key from passphrase
-	encKey := argon2.IDKey([]byte(passphrase), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	// Derive encryption key from password.
+	encKey := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	defer zeroBytes(encKey)
 
-	// Encrypt root key
+	// Encrypt root key.
 	encryptedKey, nonce, err := encrypt(encKey, rootKey)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to encrypt root key: %w", err)
+		return nil, fmt.Errorf("failed to encrypt root key: %w", err)
 	}
 
 	sd := &SealedData{
@@ -117,11 +125,11 @@ func Create(passphrase string, enableTOTP bool, autoSealMins int) (*Vault, strin
 	if enableTOTP {
 		totpSecret, err := totp.NewSecret(20)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to generate TOTP secret: %w", err)
+			return nil, fmt.Errorf("failed to generate TOTP secret: %w", err)
 		}
 		encTOTP, totpNonce, err := encrypt(encKey, totpSecret)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to encrypt TOTP secret: %w", err)
+			return nil, fmt.Errorf("failed to encrypt TOTP secret: %w", err)
 		}
 		sd.TOTPEnabled = true
 		sd.TOTPSecret = encTOTP
@@ -138,7 +146,7 @@ func Create(passphrase string, enableTOTP bool, autoSealMins int) (*Vault, strin
 		autoSealMins: autoSealMins,
 	}
 
-	return v, seedPhrase, nil
+	return v, nil
 }
 
 // Load reads a vault from disk in sealed state.
@@ -183,8 +191,8 @@ func (v *Vault) Save(path string) error {
 	return nil
 }
 
-// Unseal decrypts the root key using the passphrase and validates the TOTP code.
-func (v *Vault) Unseal(passphrase, totpCode string) error {
+// Unseal decrypts the root key using the password and validates the TOTP code.
+func (v *Vault) Unseal(password, totpCode string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -197,20 +205,21 @@ func (v *Vault) Unseal(passphrase, totpCode string) error {
 		return ErrVaultNotInitialized
 	}
 
-	// Derive key from passphrase
-	encKey := argon2.IDKey([]byte(passphrase), sd.Salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	// Derive key from password
+	encKey := argon2.IDKey([]byte(password), sd.Salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	defer zeroBytes(encKey)
 
 	// Decrypt root key
 	rootKey, err := decrypt(encKey, sd.EncryptedKey, sd.Nonce)
 	if err != nil {
-		return ErrInvalidPassphrase
+		return ErrInvalidPassword
 	}
 
 	// Decrypt and validate TOTP if enabled
 	if sd.TOTPEnabled {
 		totpSecret, err := decrypt(encKey, sd.TOTPSecret, sd.TOTPNonce)
 		if err != nil {
-			return ErrInvalidPassphrase
+			return ErrInvalidPassword
 		}
 
 		cfg := &totp.Config{Secret: totpSecret}
@@ -321,29 +330,40 @@ func (v *Vault) ShouldAutoSeal() bool {
 	return time.Since(v.unsealedAt) > time.Duration(v.autoSealMins)*time.Minute
 }
 
-// RecoverFromSeed reconstructs a vault from a seed phrase and new passphrase.
-func RecoverFromSeed(seedPhrase, newPassphrase string, enableTOTP bool, autoSealMins int) (*Vault, error) {
-	rootKey, err := decodeSeedPhrase(seedPhrase)
+// RecoverFromSeed reconstructs a vault from a BIP39 mnemonic and new password.
+// The mnemonic is converted to seed bytes, then the vault root key is derived
+// via HKDF("shurli/vault/v1"). This produces the same root key as the original
+// Create() call with the same seed.
+func RecoverFromSeed(mnemonic, newPassword string, enableTOTP bool, autoSealMins int) (*Vault, error) {
+	seedBytes, err := identity.SeedFromMnemonic(mnemonic)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidSeed, err)
 	}
+	defer zeroBytes(seedBytes)
 
-	// Generate new salt
+	rootKey, err := identity.DeriveVaultKey(seedBytes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to derive vault key", ErrInvalidSeed)
+	}
+	// rootKey stored in Vault.rootKey; zeroed when Vault.Seal() is called.
+
+	// Generate new salt.
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return nil, fmt.Errorf("failed to generate salt: %w", err)
 	}
 
-	// Derive new encryption key
-	encKey := argon2.IDKey([]byte(newPassphrase), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	// Derive new encryption key from password.
+	encKey := argon2.IDKey([]byte(newPassword), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	defer zeroBytes(encKey)
 
-	// Encrypt root key with new passphrase
+	// Encrypt root key with new password.
 	encryptedKey, nonce, err := encrypt(encKey, rootKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt root key: %w", err)
 	}
 
-	seedHash := sha256.Sum256([]byte(encodeSeedPhrase(rootKey)))
+	seedHash := sha256.Sum256([]byte(mnemonic))
 
 	sd := &SealedData{
 		Version:      1,
@@ -378,6 +398,76 @@ func RecoverFromSeed(seedPhrase, newPassphrase string, enableTOTP bool, autoSeal
 		unsealedAt:   time.Now(),
 		autoSealMins: autoSealMins,
 	}, nil
+}
+
+// ChangePassword re-encrypts the vault root key with a new password.
+// The vault must be unsealed (root key in memory) for this to work.
+// After changing, the vault remains unsealed.
+func (v *Vault) ChangePassword(oldPassword, newPassword string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.sealed || v.rootKey == nil {
+		return ErrVaultSealed
+	}
+	if v.sealedData == nil {
+		return ErrVaultNotInitialized
+	}
+
+	// Reject same password.
+	if oldPassword == newPassword {
+		return fmt.Errorf("new password must be different from current password")
+	}
+
+	// Verify old password by attempting decryption.
+	oldEncKey := argon2.IDKey([]byte(oldPassword), v.sealedData.Salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	defer zeroBytes(oldEncKey)
+	if _, err := decrypt(oldEncKey, v.sealedData.EncryptedKey, v.sealedData.Nonce); err != nil {
+		return ErrInvalidPassword
+	}
+
+	// Generate new salt.
+	newSalt := make([]byte, saltLen)
+	if _, err := rand.Read(newSalt); err != nil {
+		return fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	// Derive new encryption key.
+	newEncKey := argon2.IDKey([]byte(newPassword), newSalt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	defer zeroBytes(newEncKey)
+
+	// Re-encrypt root key.
+	encryptedKey, nonce, err := encrypt(newEncKey, v.rootKey)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt root key: %w", err)
+	}
+
+	// Re-encrypt TOTP secret if enabled.
+	if v.sealedData.TOTPEnabled && v.totpConfig != nil {
+		encTOTP, totpNonce, err := encrypt(newEncKey, v.totpConfig.Secret)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt TOTP secret: %w", err)
+		}
+		v.sealedData.TOTPSecret = encTOTP
+		v.sealedData.TOTPNonce = totpNonce
+	}
+
+	v.sealedData.Salt = newSalt
+	v.sealedData.EncryptedKey = encryptedKey
+	v.sealedData.Nonce = nonce
+
+	// Persist if we have a file path.
+	if v.filePath != "" {
+		data, err := json.MarshalIndent(v.sealedData, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal vault: %w", err)
+		}
+		if err := os.WriteFile(v.filePath, data, 0600); err != nil {
+			return fmt.Errorf("failed to write vault file: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // --- Crypto helpers ---
@@ -415,39 +505,3 @@ func zeroBytes(b []byte) {
 	subtle.XORBytes(b, b, b)
 }
 
-// --- Seed phrase encoding ---
-// Encodes 32 bytes as 24 hex-pair words (simple, deterministic, no wordlist dependency).
-// Each "word" is a 2-character hex string. Recovery-friendly: unambiguous, no typos.
-
-func encodeSeedPhrase(key []byte) string {
-	words := make([]string, len(key))
-	for i, b := range key {
-		words[i] = hex.EncodeToString([]byte{b})
-	}
-	return strings.Join(words, " ")
-}
-
-func decodeSeedPhrase(phrase string) ([]byte, error) {
-	words := strings.Fields(phrase)
-	if len(words) != seedWordCount {
-		// Also accept 32 words (full key bytes)
-		if len(words) != rootKeyLen {
-			return nil, fmt.Errorf("expected %d words, got %d", rootKeyLen, len(words))
-		}
-	}
-
-	key := make([]byte, 0, len(words))
-	for _, w := range words {
-		b, err := hex.DecodeString(w)
-		if err != nil {
-			return nil, fmt.Errorf("invalid seed word %q: %w", w, err)
-		}
-		key = append(key, b...)
-	}
-
-	if len(key) != rootKeyLen {
-		return nil, fmt.Errorf("decoded key length %d, expected %d", len(key), rootKeyLen)
-	}
-
-	return key, nil
-}

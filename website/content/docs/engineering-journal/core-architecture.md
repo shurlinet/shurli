@@ -20,7 +20,7 @@ Foundational technology choices made before the batch system.
 
 **Decision**: Go. Single binary compilation, excellent cross-platform support, mature libp2p ecosystem, and fast compilation for rapid iteration.
 
-**Consequences**: Larger binary size (~28MB stripped) compared to Rust. Accepted because distribution simplicity outweighs binary size for a CLI tool. Binary size is actively monitored and optimized (see `binary-optimization` practices).
+**Consequences**: Larger binary size (~37 MB stripped, Go 1.26) compared to Rust. Accepted because distribution simplicity outweighs binary size for a CLI tool. ~88% is Go stdlib (FIPS crypto + runtime); Shurli's own code is under 1%. Binary size is actively monitored after every phase delivery.
 
 **Reference**: `go.mod`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/main.go`
 

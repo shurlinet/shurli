@@ -138,19 +138,28 @@ type RelayDiscoveryConfig struct {
 
 // SecurityConfig holds security-related configuration
 type SecurityConfig struct {
-	AuthorizedKeysFile     string `yaml:"authorized_keys_file"`
-	EnableConnectionGating bool   `yaml:"enable_connection_gating"`
-	InvitePolicy           string `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
+	AuthorizedKeysFile     string    `yaml:"authorized_keys_file"`
+	EnableConnectionGating bool      `yaml:"enable_connection_gating"`
+	InvitePolicy           string    `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
+	ZKP                    ZKPConfig `yaml:"zkp,omitempty"`
+}
+
+// ZKPConfig holds zero-knowledge proof configuration.
+type ZKPConfig struct {
+	Enabled      bool   `yaml:"enabled"`                   // master toggle (default: false)
+	SRSCacheDir  string `yaml:"srs_cache_dir,omitempty"`   // KZG SRS cache (default: ~/.shurli/zkp/)
+	MaxTreeDepth int    `yaml:"max_tree_depth,omitempty"`  // Merkle tree depth (default: 20, supports ~1M peers)
 }
 
 // RelaySecurityConfig holds relay server security configuration
 type RelaySecurityConfig struct {
-	AuthorizedKeysFile     string `yaml:"authorized_keys_file"`
-	EnableConnectionGating bool   `yaml:"enable_connection_gating"`
-	InvitePolicy           string `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
-	VaultFile              string `yaml:"vault_file,omitempty"`    // path to sealed vault JSON (empty = no vault)
-	RequireTOTP            bool   `yaml:"require_totp,omitempty"`  // require TOTP for vault unseal
-	AutoSealMinutes        int    `yaml:"auto_seal_minutes,omitempty"` // auto-seal after N minutes (0 = disabled)
+	AuthorizedKeysFile     string    `yaml:"authorized_keys_file"`
+	EnableConnectionGating bool      `yaml:"enable_connection_gating"`
+	InvitePolicy           string    `yaml:"invite_policy,omitempty"`     // "admin-only" (default) or "open"
+	VaultFile              string    `yaml:"vault_file,omitempty"`        // path to sealed vault JSON (empty = no vault)
+	RequireTOTP            bool      `yaml:"require_totp,omitempty"`      // require TOTP for vault unseal
+	AutoSealMinutes        int       `yaml:"auto_seal_minutes,omitempty"` // auto-seal after N minutes (0 = disabled)
+	ZKP                    ZKPConfig `yaml:"zkp,omitempty"`
 }
 
 // RelayResourcesConfig holds relay v2 resource limit configuration.

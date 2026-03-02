@@ -131,6 +131,7 @@ Architecture: same pattern as the daemon API socket.
 | Pairing | `POST /v1/pair`, `GET /v1/pair`, `DELETE /v1/pair/{id}` |
 | Invites | `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}` |
 | Vault | `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`, `POST /v1/vault/init`, `GET /v1/vault/totp-uri` |
+| Auth | `POST /v1/auth/reload` (hot-reload authorized_keys and rebuild ZKP Merkle tree) |
 | Cookie comparison | `subtle.ConstantTimeCompare` (timing-safe) |
 | Body limits | `MaxBytesReader` (4096 bytes) |
 | Pairing count cap | Max 100 per request |
