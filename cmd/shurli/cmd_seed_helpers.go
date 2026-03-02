@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/subtle"
 	"fmt"
@@ -14,6 +15,23 @@ import (
 	"github.com/shurlinet/shurli/internal/identity"
 )
 
+// stdinReader buffers non-TTY stdin reads. Package-level to prevent
+// double-buffering when readPassword is called multiple times (password + confirm).
+var stdinReader *bufio.Reader
+
+// stdinReadLine reads a single line from stdin without terminal echo.
+// Used when stdin is not a TTY (piped input, systemd, Docker).
+func stdinReadLine() (string, error) {
+	if stdinReader == nil {
+		stdinReader = bufio.NewReader(os.Stdin)
+	}
+	line, err := stdinReader.ReadString('\n')
+	if err != nil && (err != io.EOF || line == "") {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
 // zeroBytes securely zeroes a byte slice. Used to clear seed material
 // in CLI commands after key derivation completes.
 func zeroBytes(b []byte) {
@@ -23,14 +41,27 @@ func zeroBytes(b []byte) {
 const minPasswordLen = 8
 
 // readPassword prompts for a password with no echo. Returns the password string.
+// When stdin is not a TTY (piped input, systemd, Docker), reads a line from
+// stdin directly. This follows the standard Unix pattern used by ssh-keygen,
+// gpg, and openssl for non-interactive password input.
 func readPassword(prompt string, stdout io.Writer) (string, error) {
 	fmt.Fprint(stdout, prompt)
-	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(stdout) // newline after hidden input
-	if err != nil {
-		return "", fmt.Errorf("reading password: %w", err)
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		pw, err := term.ReadPassword(fd)
+		fmt.Fprintln(stdout) // newline after hidden input
+		if err != nil {
+			return "", fmt.Errorf("reading password: %w", err)
+		}
+		return string(pw), nil
 	}
-	return string(pw), nil
+	// Non-TTY stdin (piped input, systemd, Docker): read line directly.
+	// No echo suppression needed - there is no terminal to echo on.
+	line, err := stdinReadLine()
+	if err != nil {
+		return "", fmt.Errorf("reading password from stdin: %w", err)
+	}
+	return line, nil
 }
 
 // readPasswordConfirm prompts for a password and confirmation.
@@ -123,14 +154,25 @@ func pickRandomPositions(total, n int) ([]int, error) {
 // readSeedPhrase prompts for a BIP39 seed phrase with no echo.
 // The input is hidden (like password entry) to prevent shoulder surfing
 // and avoid exposing the mnemonic in terminal scrollback.
+// Falls back to line-based stdin reading when stdin is not a TTY.
 func readSeedPhrase(stdout io.Writer) (string, error) {
 	fmt.Fprint(stdout, "Seed phrase (hidden): ")
-	phraseBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(stdout) // newline after hidden input
-	if err != nil {
-		return "", fmt.Errorf("reading seed phrase: %w", err)
+	fd := int(os.Stdin.Fd())
+	var phrase string
+	if term.IsTerminal(fd) {
+		phraseBytes, err := term.ReadPassword(fd)
+		fmt.Fprintln(stdout) // newline after hidden input
+		if err != nil {
+			return "", fmt.Errorf("reading seed phrase: %w", err)
+		}
+		phrase = strings.TrimSpace(string(phraseBytes))
+	} else {
+		line, err := stdinReadLine()
+		if err != nil {
+			return "", fmt.Errorf("reading seed phrase from stdin: %w", err)
+		}
+		phrase = strings.TrimSpace(line)
 	}
-	phrase := strings.TrimSpace(string(phraseBytes))
 	if phrase == "" {
 		return "", fmt.Errorf("seed phrase cannot be empty")
 	}
