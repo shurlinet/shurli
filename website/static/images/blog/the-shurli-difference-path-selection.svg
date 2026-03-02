@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="800" height="240">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="240" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Automatic Path Selection</text>
+
+  <!-- Peer A -->
+  <rect x="30" y="65" width="100" height="130" rx="10" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <circle cx="80" cy="95" r="14" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="80" y="99" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" text-anchor="middle">A</text>
+  <text x="80" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6" text-anchor="middle">Your</text>
+  <text x="80" y="132" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6" text-anchor="middle">Device</text>
+
+  <!-- Peer B -->
+  <rect x="670" y="65" width="100" height="130" rx="10" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <circle cx="720" cy="95" r="14" fill="none" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="720" y="99" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle">B</text>
+  <text x="720" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6" text-anchor="middle">Remote</text>
+  <text x="720" y="132" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6" text-anchor="middle">Peer</text>
+
+  <!-- Path 1: LAN (top, green, solid) -->
+  <line x1="130" y1="80" x2="670" y2="80" stroke="#9ece6a" stroke-width="2"/>
+  <circle cx="400" cy="80" r="3" fill="#9ece6a"/>
+  <rect x="270" y="68" width="260" height="18" rx="4" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="290" y="81" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" font-weight="700">1</text>
+  <text x="302" y="81" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" font-weight="600">LAN (local broadcast)</text>
+  <text x="395" y="81" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">same network, auto-discovered</text>
+
+  <!-- Path 2: Direct IPv6 -->
+  <line x1="130" y1="110" x2="670" y2="110" stroke="#7aa2f7" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <rect x="270" y="98" width="260" height="18" rx="4" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="0.8"/>
+  <text x="290" y="111" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" font-weight="700">2</text>
+  <text x="302" y="111" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" font-weight="600">Direct IPv6</text>
+  <text x="385" y="111" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">path probing confirms reachability</text>
+
+  <!-- Path 3: Direct IPv4 (hole-punch) -->
+  <line x1="130" y1="140" x2="670" y2="140" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <rect x="270" y="128" width="260" height="18" rx="4" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="290" y="141" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" font-weight="700">3</text>
+  <text x="302" y="141" font-family="system-ui, sans-serif" font-size="9" fill="#e0af68" font-weight="600">Direct IPv4 (hole-punch)</text>
+  <text x="425" y="141" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">hole punch or public IP</text>
+
+  <!-- Path 4: Relay (bottom, red, dotted) -->
+  <path d="M130,170 Q400,200 670,170" fill="none" stroke="#f7768e" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <rect x="270" y="178" width="260" height="18" rx="4" fill="url(#nodeFill)" stroke="#f7768e" stroke-width="0.8"/>
+  <text x="290" y="191" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" font-weight="700">4</text>
+  <text x="302" y="191" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" font-weight="600">Relay</text>
+  <text x="350" y="191" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">fallback through Shurli relay server</text>
+
+  <!-- Relay icon -->
+  <rect x="388" y="200" width="24" height="12" rx="2" fill="url(#nodeFill)" stroke="#f7768e" stroke-width="0.8"/>
+  <circle cx="406" cy="206" r="2" fill="#f7768e"/>
+
+  <!-- Bottom note -->
+  <text x="400" y="230" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Continuous re-evaluation. WiFi switch, network change, NAT state change - Shurli adapts automatically.</text>
+</svg>

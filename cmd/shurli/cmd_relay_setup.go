@@ -158,7 +158,8 @@ func displayExistingSetup(dir string, hasConfig, hasKey, hasAuth bool, sm *confi
 
 	if hasKey {
 		keyPath := filepath.Join(dir, "relay_node.key")
-		peerID, err := identity.PeerIDFromKeyFile(keyPath)
+		pw, _ := resolvePassword(dir)
+		peerID, err := identity.PeerIDFromKeyFile(keyPath, pw)
 		if err == nil {
 			fmt.Fprintf(stdout, "    relay_node.key        (peer ID: %s)\n", peerID)
 		} else {

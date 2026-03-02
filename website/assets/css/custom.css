@@ -539,6 +539,56 @@
   color: #fbb040;
 }
 
+/* Pinned blog posts - side-by-side row */
+
+.shurli-pinned-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  margin-bottom: 2rem;
+  align-items: stretch;
+}
+
+.shurli-pinned-row .shurli-blog-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.shurli-pinned-row .shurli-blog-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.shurli-pinned-row .shurli-blog-card-image-wrap {
+  aspect-ratio: 16 / 9;
+}
+
+.shurli-pinned-row .shurli-blog-card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shurli-pinned-row .shurli-blog-card-desc {
+  flex: 1;
+}
+
+.shurli-pinned-row .shurli-blog-card-title {
+  font-size: 1.2rem;
+}
+
+@media (max-width: 640px) {
+  .shurli-pinned-row {
+    grid-template-columns: 1fr;
+  }
+  .shurli-pinned-row .shurli-blog-card-title {
+    font-size: 1.5rem;
+  }
+}
+
 /* Pinned blog post */
 
 .shurli-pinned-badge {

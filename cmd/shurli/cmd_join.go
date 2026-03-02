@@ -494,7 +494,8 @@ func loadOrCreateConfig(explicitConfig, relayAddr, networkNS string) (string, *c
 
 	// Generate identity
 	keyFile := filepath.Join(configDir, "identity.key")
-	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile)
+	pw, _ := resolvePassword(configDir)
+	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile, pw)
 	if err != nil {
 		fatal("Failed to generate identity: %v", err)
 	}

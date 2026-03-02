@@ -76,6 +76,24 @@ type Metrics struct {
 	AdminRequestTotal          *prometheus.CounterVec
 	AdminRequestDurationSeconds *prometheus.HistogramVec
 
+	// ZKP metrics (Phase 7: anonymous relay authorization)
+	ZKPProveTotal                *prometheus.CounterVec
+	ZKPProveDurationSeconds      *prometheus.HistogramVec
+	ZKPVerifyTotal               *prometheus.CounterVec
+	ZKPVerifyDurationSeconds     *prometheus.HistogramVec
+	ZKPAuthTotal                 *prometheus.CounterVec
+	ZKPTreeRebuildTotal          *prometheus.CounterVec
+	ZKPTreeRebuildDurationSeconds *prometheus.HistogramVec
+	ZKPTreeLeaves                prometheus.Gauge
+	ZKPChallengesPending         prometheus.Gauge
+
+	// ZKP range proof metrics (Phase 7-C: private reputation)
+	ZKPRangeProveTotal           *prometheus.CounterVec
+	ZKPRangeProveDuration        *prometheus.HistogramVec
+	ZKPRangeVerifyTotal          *prometheus.CounterVec
+	ZKPRangeVerifyDuration       *prometheus.HistogramVec
+	ZKPAnonAnnouncementsTotal    *prometheus.CounterVec
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -315,6 +333,109 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"endpoint"},
 		),
 
+		ZKPProveTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_prove_total",
+				Help: "Total ZKP membership proof generations by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPProveDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_zkp_prove_duration_seconds",
+				Help:    "Duration of ZKP proof generation in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.1, 2, 8), // 100ms to ~12s
+			},
+			[]string{"result"},
+		),
+		ZKPVerifyTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_verify_total",
+				Help: "Total ZKP proof verifications by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPVerifyDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_zkp_verify_duration_seconds",
+				Help:    "Duration of ZKP proof verification in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.001, 2, 8), // 1ms to ~128ms
+			},
+			[]string{"result"},
+		),
+		ZKPAuthTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_auth_total",
+				Help: "Total ZKP relay auth attempts by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPTreeRebuildTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_tree_rebuild_total",
+				Help: "Total Merkle tree rebuilds by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPTreeRebuildDurationSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_zkp_tree_rebuild_duration_seconds",
+				Help:    "Duration of Merkle tree rebuild in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.001, 2, 10), // 1ms to ~1s
+			},
+			[]string{"result"},
+		),
+		ZKPTreeLeaves: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_zkp_tree_leaves",
+				Help: "Number of leaves in the current ZKP Merkle tree.",
+			},
+		),
+		ZKPChallengesPending: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_zkp_challenges_pending",
+				Help: "Number of active (unconsumed) ZKP challenge nonces.",
+			},
+		),
+
+		ZKPRangeProveTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_range_prove_total",
+				Help: "Total ZKP range proof generations by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPRangeProveDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_zkp_range_prove_duration_seconds",
+				Help:    "Duration of ZKP range proof generation in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.1, 2, 8), // 100ms to ~12s
+			},
+			[]string{"result"},
+		),
+		ZKPRangeVerifyTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_range_verify_total",
+				Help: "Total ZKP range proof verifications by result.",
+			},
+			[]string{"result"},
+		),
+		ZKPRangeVerifyDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "shurli_zkp_range_verify_duration_seconds",
+				Help:    "Duration of ZKP range proof verification in seconds.",
+				Buckets: prometheus.ExponentialBuckets(0.001, 2, 8), // 1ms to ~128ms
+			},
+			[]string{"result"},
+		),
+		ZKPAnonAnnouncementsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_zkp_anon_announcements_total",
+				Help: "Total anonymous NetIntel announcements by result (sent, received, rejected).",
+			},
+			[]string{"result"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_info",
@@ -353,6 +474,20 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.MacaroonVerifyTotal,
 		m.AdminRequestTotal,
 		m.AdminRequestDurationSeconds,
+		m.ZKPProveTotal,
+		m.ZKPProveDurationSeconds,
+		m.ZKPVerifyTotal,
+		m.ZKPVerifyDurationSeconds,
+		m.ZKPAuthTotal,
+		m.ZKPTreeRebuildTotal,
+		m.ZKPTreeRebuildDurationSeconds,
+		m.ZKPTreeLeaves,
+		m.ZKPChallengesPending,
+		m.ZKPRangeProveTotal,
+		m.ZKPRangeProveDuration,
+		m.ZKPRangeVerifyTotal,
+		m.ZKPRangeVerifyDuration,
+		m.ZKPAnonAnnouncementsTotal,
 		m.BuildInfo,
 	)
 

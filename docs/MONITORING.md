@@ -117,7 +117,7 @@ Open `http://localhost:3000` (default login: `admin` / `admin`).
 4. Select your Prometheus data source when prompted
 5. Click **Import**
 
-You'll immediately see the dashboard with 37 panels (31 visualizations + 6 row headers) across 6 sections.
+You'll immediately see the dashboard with 56 panels (45 visualizations + 11 row headers) across 11 sections.
 
 ## Dashboard sections
 

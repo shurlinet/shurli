@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500">
+  <defs>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cryptoFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="greenFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="amberFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a2e1e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c2216;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="500" rx="12" fill="#141316"/>
+
+  <!-- Title -->
+  <text x="450" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Poseidon2 Merkle Tree Structure</text>
+  <text x="450" y="46" font-family="system-ui, sans-serif" font-size="10" fill="#565f89" text-anchor="middle">Deterministic membership tree. Sorted leaves, power-of-2 padding, snark-friendly hash.</text>
+
+  <!-- Phase 7 badge -->
+  <rect x="735" y="8" width="150" height="22" rx="11" fill="#9ece6a" opacity="0.15" stroke="#9ece6a" stroke-width="1"/>
+  <text x="810" y="23" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">COMPLETE - Phase 7</text>
+
+  <!-- ====== ROOT (top) ====== -->
+  <rect x="320" y="70" width="260" height="50" rx="10" fill="url(#cryptoFill)" stroke="#da1c5c" stroke-width="1.5"/>
+  <text x="450" y="90" font-family="system-ui, sans-serif" font-size="12" fill="#da1c5c" text-anchor="middle" font-weight="600">Merkle Root (32 bytes)</text>
+  <text x="450" y="108" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle">Published on-chain or shared in-band</text>
+
+  <!-- ====== INTERMEDIATE NODES (level 1) ====== -->
+  <!-- Left intermediate -->
+  <rect x="140" y="180" width="230" height="44" rx="8" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="255" y="200" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">Poseidon2(left, right)</text>
+  <text x="255" y="216" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">intermediate hash</text>
+
+  <!-- Right intermediate -->
+  <rect x="530" y="180" width="230" height="44" rx="8" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="645" y="200" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">Poseidon2(left, right)</text>
+  <text x="645" y="216" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">intermediate hash</text>
+
+  <!-- Lines: Root -> Intermediates -->
+  <line x1="380" y1="120" x2="255" y2="180" stroke="#e8729a" stroke-width="1.5" filter="url(#glow)"/>
+  <line x1="520" y1="120" x2="645" y2="180" stroke="#e8729a" stroke-width="1.5" filter="url(#glow)"/>
+
+  <!-- ====== LEAF NODES (bottom of tree) ====== -->
+  <!-- Leaf A -->
+  <rect x="50" y="290" width="170" height="60" rx="8" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.2"/>
+  <text x="135" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#da1c5c" text-anchor="middle" font-weight="600">Peer A</text>
+  <rect x="145" y="299" width="55" height="16" rx="8" fill="#da1c5c" opacity="0.12" stroke="#da1c5c" stroke-width="0.8"/>
+  <text x="173" y="310" font-family="SF Mono, monospace" font-size="8" fill="#da1c5c" text-anchor="middle" font-weight="600">admin</text>
+  <text x="135" y="328" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Poseidon2(pubkey[0..31], role)</text>
+  <text x="135" y="342" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">leaf hash: 0x3a1f...c7e2</text>
+
+  <!-- Leaf B -->
+  <rect x="240" y="290" width="170" height="60" rx="8" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="325" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Peer B</text>
+  <rect x="335" y="299" width="60" height="16" rx="8" fill="#7aa2f7" opacity="0.12" stroke="#7aa2f7" stroke-width="0.8"/>
+  <text x="365" y="310" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle" font-weight="600">member</text>
+  <text x="325" y="328" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Poseidon2(pubkey[0..31], role)</text>
+  <text x="325" y="342" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">leaf hash: 0x5d82...a1b4</text>
+
+  <!-- Leaf C -->
+  <rect x="490" y="290" width="170" height="60" rx="8" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="575" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="600">Peer C</text>
+  <rect x="585" y="299" width="60" height="16" rx="8" fill="#7aa2f7" opacity="0.12" stroke="#7aa2f7" stroke-width="0.8"/>
+  <text x="615" y="310" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle" font-weight="600">member</text>
+  <text x="575" y="328" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Poseidon2(pubkey[0..31], role)</text>
+  <text x="575" y="342" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">leaf hash: 0x7f09...e3d6</text>
+
+  <!-- Leaf D -->
+  <rect x="680" y="290" width="170" height="60" rx="8" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1.2"/>
+  <text x="765" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#da1c5c" text-anchor="middle" font-weight="600">Peer D</text>
+  <rect x="775" y="299" width="55" height="16" rx="8" fill="#da1c5c" opacity="0.12" stroke="#da1c5c" stroke-width="0.8"/>
+  <text x="803" y="310" font-family="SF Mono, monospace" font-size="8" fill="#da1c5c" text-anchor="middle" font-weight="600">admin</text>
+  <text x="765" y="328" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Poseidon2(pubkey[0..31], role)</text>
+  <text x="765" y="342" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">leaf hash: 0xb4c1...28fa</text>
+
+  <!-- Lines: Intermediates -> Leaves -->
+  <line x1="200" y1="224" x2="135" y2="290" stroke="#e8729a" stroke-width="1.2" filter="url(#glow)"/>
+  <line x1="310" y1="224" x2="325" y2="290" stroke="#e8729a" stroke-width="1.2" filter="url(#glow)"/>
+  <line x1="590" y1="224" x2="575" y2="290" stroke="#e8729a" stroke-width="1.2" filter="url(#glow)"/>
+  <line x1="700" y1="224" x2="765" y2="290" stroke="#e8729a" stroke-width="1.2" filter="url(#glow)"/>
+
+  <!-- ====== Side annotation ====== -->
+  <rect x="30" y="155" width="85" height="40" rx="6" fill="url(#greenFill)" stroke="#9ece6a" stroke-width="0.8"/>
+  <text x="73" y="172" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">Sorted by</text>
+  <text x="73" y="185" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">leaf hash</text>
+
+  <!-- Arrow from annotation -->
+  <line x1="115" y1="175" x2="140" y2="195" stroke="#9ece6a" stroke-width="1" stroke-dasharray="4,3"/>
+  <polygon points="136,192 140,200 144,192" fill="#9ece6a"/>
+
+  <!-- Deterministic root label -->
+  <rect x="700" y="90" width="150" height="30" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="775" y="104" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" text-anchor="middle" font-weight="600">Deterministic root</text>
+  <text x="775" y="114" font-family="SF Mono, monospace" font-size="7" fill="#565f89" text-anchor="middle">same peers = same root</text>
+
+  <!-- Arrow from label to root -->
+  <line x1="700" y1="100" x2="580" y2="95" stroke="#e0af68" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- ====== Bottom bar ====== -->
+  <rect x="60" y="380" width="780" height="55" rx="8" fill="#1e1d20" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
+  <text x="450" y="398" font-family="system-ui, sans-serif" font-size="11" fill="#c0caf5" text-anchor="middle" font-weight="600">Tree Properties</text>
+
+  <!-- Max depth -->
+  <rect x="80" y="407" width="170" height="22" rx="6" fill="url(#cryptoFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="165" y="422" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">Max depth: 20</text>
+
+  <!-- Arrow -->
+  <line x1="250" y1="418" x2="275" y2="418" stroke="#e8729a" stroke-width="1.2"/>
+  <polygon points="271,414 271,422 279,418" fill="#e8729a"/>
+
+  <!-- Capacity -->
+  <rect x="283" y="407" width="170" height="22" rx="6" fill="url(#greenFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="368" y="422" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">Supports 1M+ peers</text>
+
+  <!-- Arrow -->
+  <line x1="453" y1="418" x2="478" y2="418" stroke="#e8729a" stroke-width="1.2"/>
+  <polygon points="474,414 474,422 482,418" fill="#e8729a"/>
+
+  <!-- Padding -->
+  <rect x="486" y="407" width="200" height="22" rx="6" fill="url(#amberFill)" stroke="#e0af68" stroke-width="1"/>
+  <text x="586" y="422" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">Power-of-2 zero padding</text>
+
+  <!-- Hash badge -->
+  <rect x="706" y="407" width="120" height="22" rx="6" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="766" y="422" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">Poseidon2 hash</text>
+
+  <!-- Bottom explanation -->
+  <text x="450" y="455" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Sorted by leaf hash for deterministic root. Power-of-2 padding with zero hashes ensures consistent tree shape.</text>
+
+  <!-- ====== Poseidon2 note ====== -->
+  <text x="450" y="480" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Poseidon2: SNARK-friendly algebraic hash over BN254 field. ~8x fewer constraints than SHA-256 inside a circuit.</text>
+</svg>

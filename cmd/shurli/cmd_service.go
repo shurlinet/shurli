@@ -191,7 +191,7 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 	termcolor.Green("Added service: %s -> %s", name, address)
 	fmt.Fprintf(stdout, "Config: %s\n", cfgFile)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Restart 'shurli daemon' to apply.")
+	tryDaemonServiceReload(stdout, name, address, true)
 	return nil
 }
 
@@ -355,7 +355,7 @@ func doServiceSetEnabled(args []string, enabled bool, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Config: %s\n", cfgFile)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Restart 'shurli daemon' to apply.")
+	tryDaemonServiceReload(stdout, name, svc.LocalAddress, enabled)
 	return nil
 }
 
@@ -468,6 +468,28 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 	termcolor.Green("Removed service: %s", name)
 	fmt.Fprintf(stdout, "Config: %s\n", cfgFile)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Restart 'shurli daemon' to apply.")
+	tryDaemonServiceReload(stdout, name, "", false)
 	return nil
+}
+
+// tryDaemonServiceReload attempts to apply a service change to a running daemon.
+// If expose is true and localAddress is non-empty, exposes the service.
+// If expose is false, unexposes it. Falls back to a message if daemon is not running.
+func tryDaemonServiceReload(stdout io.Writer, name, localAddress string, expose bool) {
+	client := tryDaemonClient()
+	if client == nil {
+		fmt.Fprintln(stdout, "Daemon not running. Changes saved to config.")
+		return
+	}
+	if expose && localAddress != "" {
+		if err := client.Expose(name, localAddress); err != nil {
+			fmt.Fprintf(stdout, "Warning: config saved but live apply failed: %v\n", err)
+			fmt.Fprintln(stdout, "Restart 'shurli daemon' to apply.")
+			return
+		}
+	} else {
+		// Unexpose - ignore errors (service may not be running)
+		_ = client.Unexpose(name)
+	}
+	fmt.Fprintln(stdout, "Applied immediately (live reload).")
 }

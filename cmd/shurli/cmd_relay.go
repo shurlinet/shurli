@@ -71,6 +71,22 @@ func runRelay(args []string) {
 		runRelayServerConfig(args[1:], serverConfigFile)
 	case "version":
 		runRelayServerVersion()
+	case "zkp-test":
+		if err := runRelayZKPTest(args[1:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+	case "zkp-setup":
+		if err := runRelayZKPSetup(args[1:], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+	case "motd":
+		runRelayMOTD(args[1:], serverConfigFile)
+	case "goodbye":
+		runRelayGoodbye(args[1:], serverConfigFile)
+	case "recover":
+		runRelayRecover(args[1:], serverConfigFile)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown relay command: %s\n\n", args[0])

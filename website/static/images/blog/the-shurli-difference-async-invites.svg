@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220" width="800" height="220">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="adminFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="depositFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="peerFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="220" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Async Invites (No Simultaneous Online Requirement)</text>
+
+  <!-- Timeline -->
+  <line x1="60" y1="130" x2="740" y2="130" stroke="#565f89" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- Step 1: Admin creates -->
+  <rect x="40" y="55" width="170" height="60" rx="8" fill="url(#adminFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <circle cx="68" cy="77" r="10" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="68" y="81" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle">A</text>
+  <text x="140" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#7aa2f7" text-anchor="middle" font-weight="600">Admin creates invite</text>
+  <text x="125" y="100" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">macaroon-backed token</text>
+  <!-- Timestamp -->
+  <text x="125" y="150" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Monday 9:00</text>
+
+  <!-- Arrow 1 -->
+  <line x1="220" y1="85" x2="280" y2="85" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="275,79 275,91 288,85" fill="#bb9af7"/>
+
+  <!-- Step 2: Deposit stored -->
+  <rect x="290" y="55" width="200" height="60" rx="8" fill="url(#depositFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <!-- Envelope icon -->
+  <rect x="310" y="70" width="20" height="14" rx="2" fill="none" stroke="#bb9af7" stroke-width="1.2"/>
+  <polyline points="310,70 320,80 330,70" fill="none" stroke="#bb9af7" stroke-width="1"/>
+  <text x="405" y="82" font-family="system-ui, sans-serif" font-size="10" fill="#bb9af7" text-anchor="middle" font-weight="600">Deposit stored on relay</text>
+  <text x="390" y="100" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">waiting, restriction-only edits OK</text>
+  <!-- Timestamp -->
+  <text x="390" y="150" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">hours or days pass...</text>
+
+  <!-- Arrow 2 -->
+  <line x1="500" y1="85" x2="560" y2="85" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="555,79 555,91 568,85" fill="#9ece6a"/>
+
+  <!-- Step 3: Invitee retrieves -->
+  <rect x="570" y="55" width="190" height="60" rx="8" fill="url(#peerFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <circle cx="598" cy="77" r="10" fill="none" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="598" y="81" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle">B</text>
+  <text x="690" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#9ece6a" text-anchor="middle" font-weight="600">Invitee retrieves</text>
+  <text x="680" y="100" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">comes online, claims invite</text>
+  <!-- Timestamp -->
+  <text x="665" y="150" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Thursday 14:30</text>
+
+  <!-- Key property -->
+  <rect x="180" y="170" width="440" height="34" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.8"/>
+  <text x="200" y="191" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" font-weight="600">Key property:</text>
+  <text x="310" y="191" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">admin can tighten or revoke pending invites at any time. Never loosen.</text>
+</svg>
