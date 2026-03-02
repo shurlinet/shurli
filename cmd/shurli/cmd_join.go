@@ -108,9 +108,13 @@ func runJoin(args []string) {
 	}
 	outln()
 
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(configDir)
+
 	// Create P2P network (no connection gating for joining)
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
 		EnableRelay:        true,
@@ -290,9 +294,13 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 		}
 	}
 
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(configDir)
+
 	// Create P2P network (no connection gating for joining).
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
 		EnableRelay:        true,

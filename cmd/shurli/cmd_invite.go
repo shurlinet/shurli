@@ -63,9 +63,13 @@ func runInvite(args []string) {
 		fatal("Failed to generate token: %v", err)
 	}
 
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+
 	// Create P2P network (no connection gating - we need the joiner to reach us)
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
 		EnableRelay:        true,
