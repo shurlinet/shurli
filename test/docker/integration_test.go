@@ -108,7 +108,7 @@ func TestRelayHealthy(t *testing.T) {
 func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 1: Set up node-a ──
 	t.Log("Setting up node-a...")
-	if err := setupNode("node-a", relayMultiaddr); err != nil {
+	if err := setupNode("node-a", relayMultiaddr, testMnemonicA); err != nil {
 		t.Fatalf("node-a setup failed: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestInviteJoinFlow(t *testing.T) {
 
 	// ── Step 2: Set up node-b ──
 	t.Log("Setting up node-b...")
-	if err := setupNode("node-b", relayMultiaddr); err != nil {
+	if err := setupNode("node-b", relayMultiaddr, testMnemonicB); err != nil {
 		t.Fatalf("node-b setup failed: %v", err)
 	}
 
@@ -858,7 +858,13 @@ func extractRelayPeerID() (string, error) {
 	return "", fmt.Errorf("could not find relay peer ID in logs within 30s.\nRelay output:\n%s", out)
 }
 
-func setupNode(container, relayAddr string) error {
+// Valid BIP39 test mnemonics (deterministic, different entropy).
+const (
+	testMnemonicA = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+	testMnemonicB = "length abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon awesome"
+)
+
+func setupNode(container, relayAddr, mnemonic string) error {
 	cfg := generateNodeConfig(relayAddr)
 
 	// Write config.
@@ -874,6 +880,16 @@ func setupNode(container, relayAddr string) error {
 	if err := writeFileInContainer(container, "/root/.config/shurli/authorized_keys",
 		"# authorized_keys - Peer ID allowlist (one per line)\n"); err != nil {
 		return fmt.Errorf("failed to write authorized_keys: %w", err)
+	}
+
+	// Create identity + session token via shurli recover.
+	// Pipes: line 1 = seed phrase, line 2 = password, line 3 = password confirm.
+	recoverCmd := fmt.Sprintf(
+		"printf '%s\\ntestpassword\\ntestpassword\\n' | shurli recover --dir /root/.config/shurli",
+		mnemonic)
+	_, stderr, err := dockerExec(container, "sh", "-c", recoverCmd)
+	if err != nil {
+		return fmt.Errorf("failed to create identity via recover: %v\nstderr: %s", err, stderr)
 	}
 
 	return nil

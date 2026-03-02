@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/libp2p/go-libp2p/core/peer"
-
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
@@ -39,13 +37,9 @@ func doWhoami(args []string, stdout io.Writer) error {
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-	priv, err := p2pnet.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
+	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		return fmt.Errorf("failed to load identity: %w", err)
-	}
-	peerID, err := peer.IDFromPrivateKey(priv)
-	if err != nil {
-		return fmt.Errorf("failed to derive peer ID: %w", err)
 	}
 
 	fmt.Fprintln(stdout, peerID.String())
