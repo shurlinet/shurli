@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="800" height="240">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9a70c0" />
+    </marker>
+  </defs>
+
+  <rect width="800" height="240" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="25" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">MOTD Wire Format: /shurli/relay-motd/1.0.0</text>
+
+  <!-- Wire frame blocks -->
+  <rect x="30" y="50" width="60" height="45" rx="4" fill="#2c2a2e" stroke="#888" stroke-width="1" />
+  <text x="60" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#aaa">0x01</text>
+  <text x="60" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#666">version</text>
+
+  <rect x="100" y="50" width="70" height="45" rx="4" fill="#2d2545" stroke="#9a70c0" stroke-width="1" />
+  <text x="135" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#9a70c0">type</text>
+  <text x="135" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7a50a0">1 byte</text>
+
+  <rect x="180" y="50" width="80" height="45" rx="4" fill="#2c2a2e" stroke="#888" stroke-width="1" />
+  <text x="220" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#aaa">msg len</text>
+  <text x="220" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#666">2 bytes BE</text>
+
+  <rect x="270" y="50" width="180" height="45" rx="4" fill="#2d4561" stroke="#7aa2d0" stroke-width="1" />
+  <text x="360" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#7aa2d0">message</text>
+  <text x="360" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#5a82b0">N bytes (max 280)</text>
+
+  <rect x="460" y="50" width="100" height="45" rx="4" fill="#3a2e1e" stroke="#e0a050" stroke-width="1" />
+  <text x="510" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#e0a050">timestamp</text>
+  <text x="510" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#b89040">8 bytes BE</text>
+
+  <rect x="570" y="50" width="200" height="45" rx="4" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1" />
+  <text x="670" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">Ed25519 signature</text>
+  <text x="670" y="84" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7aaa4a">64 bytes</text>
+
+  <!-- Message types -->
+  <text x="40" y="125" text-anchor="start" font-family="SF Mono, monospace" font-size="11" fill="#888">Message Types:</text>
+
+  <rect x="40" y="138" width="220" height="30" rx="4" fill="#2d2545" stroke="#9a70c0" stroke-width="1" />
+  <text x="150" y="158" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9a70c0">0x01 MOTD (24h dedup)</text>
+
+  <rect x="280" y="138" width="220" height="30" rx="4" fill="#2d2545" stroke="#9a70c0" stroke-width="1" />
+  <text x="390" y="158" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9a70c0">0x02 Goodbye (persisted)</text>
+
+  <rect x="520" y="138" width="220" height="30" rx="4" fill="#2d2545" stroke="#9a70c0" stroke-width="1" />
+  <text x="630" y="158" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9a70c0">0x03 Retract (cancels bye)</text>
+
+  <!-- Defense in depth -->
+  <text x="40" y="195" text-anchor="start" font-family="SF Mono, monospace" font-size="11" fill="#888">Defense in Depth:</text>
+
+  <text x="40" y="215" text-anchor="start" font-family="SF Mono, monospace" font-size="8" fill="#555">URL strip | Email strip | Non-ASCII remove | Control char strip | 280-char truncate | Timestamp bounds (5min future, 7d past)</text>
+  <text x="40" y="230" text-anchor="start" font-family="SF Mono, monospace" font-size="8" fill="#555">Ed25519 signature verification | Relay public key from Noise handshake | Per-relay dedup (24h)</text>
+</svg>

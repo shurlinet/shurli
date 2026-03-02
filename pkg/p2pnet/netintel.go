@@ -154,6 +154,13 @@ type NodeAnnouncement struct {
 	PeerCount  int    `json:"peer_count"` // Number of connected peers
 	Timestamp  int64  `json:"ts"`         // Unix timestamp of announcement
 	Hops       int    `json:"hops"`       // 0 = direct from originator, incremented on each forward
+
+	// Anonymous mode (Phase 7): when true, From is empty and the announcement
+	// is authenticated via a ZKP membership proof instead of peer identity.
+	// Recipients verify the proof against the Merkle root to confirm the sender
+	// is an authorized member without learning which member.
+	AnonymousMode bool   `json:"anon,omitempty"`     // true = From is empty, ZKPProof is set
+	ZKPProof      []byte `json:"zkp_proof,omitempty"` // serialized PLONK membership proof
 }
 
 // PeerFilter decides whether a peer should receive announcements and

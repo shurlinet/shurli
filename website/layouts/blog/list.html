@@ -18,6 +18,7 @@
         {{- $paginator := .Paginate $unpinned $pagerSize -}}
 
         {{- if and (gt (len $pinned) 0) (eq $paginator.PageNumber 1) }}
+          <div class="shurli-pinned-row">
           {{- range $pinned }}
             {{- $postTitle := .Title -}}
             <a href="{{ .RelPermalink }}" class="shurli-blog-card shurli-blog-card-pinned">
@@ -50,6 +51,7 @@
               </div>
             </a>
           {{ end -}}
+          </div>
         {{- end }}
 
         {{/* Render remaining posts with pagination */}}

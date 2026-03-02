@@ -36,7 +36,8 @@ func doWhoami(args []string, stdout io.Writer) error {
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
-	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile)
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		return fmt.Errorf("failed to load identity: %w", err)
 	}

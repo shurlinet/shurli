@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="cryptoFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="greenFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="pinkFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#1e1020;stop-opacity:0.9" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="400" rx="12" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="450" y="32" font-family="system-ui, sans-serif" font-size="18" fill="#c0caf5" text-anchor="middle" font-weight="700">Prove You Belong Without Saying Who You Are</text>
+  <text x="450" y="52" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">Phase 7: Zero-Knowledge Privacy Layer</text>
+
+  <!-- ====== LEFT: Anonymous Peers behind Shield ====== -->
+
+  <!-- Shield shape -->
+  <path d="M130,95 L190,80 L250,95 L250,180 C250,220 190,250 190,250 C190,250 130,220 130,180 Z" fill="url(#shieldGrad)" stroke="#da1c5c" stroke-width="1.5"/>
+
+  <!-- Peer silhouettes (abstract figures) -->
+  <!-- Peer 1 -->
+  <circle cx="160" cy="125" r="10" fill="none" stroke="#e8729a" stroke-width="1.2" opacity="0.7"/>
+  <line x1="160" y1="135" x2="160" y2="160" stroke="#e8729a" stroke-width="1.2" opacity="0.7"/>
+  <line x1="148" y1="145" x2="172" y2="145" stroke="#e8729a" stroke-width="1.2" opacity="0.7"/>
+
+  <!-- Peer 2 -->
+  <circle cx="190" cy="115" r="10" fill="none" stroke="#bb9af7" stroke-width="1.2" opacity="0.7"/>
+  <line x1="190" y1="125" x2="190" y2="150" stroke="#bb9af7" stroke-width="1.2" opacity="0.7"/>
+  <line x1="178" y1="135" x2="202" y2="135" stroke="#bb9af7" stroke-width="1.2" opacity="0.7"/>
+
+  <!-- Peer 3 -->
+  <circle cx="220" cy="125" r="10" fill="none" stroke="#7aa2f7" stroke-width="1.2" opacity="0.7"/>
+  <line x1="220" y1="135" x2="220" y2="160" stroke="#7aa2f7" stroke-width="1.2" opacity="0.7"/>
+  <line x1="208" y1="145" x2="232" y2="145" stroke="#7aa2f7" stroke-width="1.2" opacity="0.7"/>
+
+  <!-- Peer 4 -->
+  <circle cx="175" cy="165" r="8" fill="none" stroke="#e0af68" stroke-width="1.2" opacity="0.5"/>
+  <line x1="175" y1="173" x2="175" y2="192" stroke="#e0af68" stroke-width="1.2" opacity="0.5"/>
+  <line x1="165" y1="181" x2="185" y2="181" stroke="#e0af68" stroke-width="1.2" opacity="0.5"/>
+
+  <!-- Lock icon on shield -->
+  <rect x="182" y="205" width="16" height="12" rx="2" fill="#da1c5c" opacity="0.8"/>
+  <path d="M185,205 L185,200 C185,196 195,196 195,200 L195,205" fill="none" stroke="#da1c5c" stroke-width="1.5" opacity="0.8"/>
+
+  <!-- Label under shield -->
+  <text x="190" y="272" font-family="system-ui, sans-serif" font-size="11" fill="#da1c5c" text-anchor="middle" font-weight="600">Anonymous Peers</text>
+  <text x="190" y="286" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Identity protected</text>
+
+  <!-- ====== CENTER: Proof Arrow ====== -->
+
+  <!-- Main arrow line -->
+  <line x1="290" y1="165" x2="580" y2="165" stroke="#e8729a" stroke-width="2" filter="url(#glow)"/>
+  <polygon points="575,157 575,173 590,165" fill="#e8729a"/>
+
+  <!-- Proof box on arrow -->
+  <rect x="370" y="140" width="140" height="30" rx="8" fill="url(#cryptoFill)" stroke="#da1c5c" stroke-width="1.2"/>
+  <text x="440" y="160" font-family="SF Mono, monospace" font-size="11" fill="#da1c5c" text-anchor="middle" font-weight="600">520-byte proof</text>
+
+  <!-- Zero-Knowledge label below arrow -->
+  <text x="440" y="190" font-family="system-ui, sans-serif" font-size="12" fill="#c0caf5" text-anchor="middle" font-weight="600">Zero-Knowledge Proof</text>
+
+  <!-- What's proven -->
+  <rect x="340" y="200" width="200" height="58" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.6"/>
+  <text x="440" y="217" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="middle" font-weight="600">Proven:</text>
+  <text x="440" y="232" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">Membership + Role + Reputation</text>
+  <text x="440" y="247" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle" font-weight="600">Hidden: identity, score, pubkey</text>
+
+  <!-- ====== RIGHT: Relay Server with Checkmark ====== -->
+
+  <!-- Relay server box -->
+  <rect x="620" y="100" width="180" height="130" rx="10" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1.5"/>
+
+  <!-- Server icon (simple rack) -->
+  <rect x="680" y="120" width="60" height="14" rx="3" fill="#38353b" stroke="#bb9af7" stroke-width="0.8"/>
+  <circle cx="730" cy="127" r="3" fill="#9ece6a"/>
+  <rect x="680" y="138" width="60" height="14" rx="3" fill="#38353b" stroke="#bb9af7" stroke-width="0.8"/>
+  <circle cx="730" cy="145" r="3" fill="#9ece6a"/>
+  <rect x="680" y="156" width="60" height="14" rx="3" fill="#38353b" stroke="#bb9af7" stroke-width="0.8"/>
+  <circle cx="730" cy="163" r="3" fill="#7aa2f7"/>
+
+  <!-- Green checkmark circle -->
+  <circle cx="670" cy="195" r="14" fill="#9ece6a" opacity="0.15" stroke="#9ece6a" stroke-width="1.5"/>
+  <polyline points="662,195 668,201 678,189" fill="none" stroke="#9ece6a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="696" y="199" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" font-weight="600">Verified</text>
+
+  <!-- Label under relay -->
+  <text x="710" y="248" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="600">Relay Server</text>
+  <text x="710" y="262" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">Knows: authorized</text>
+  <text x="710" y="274" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle">Knows NOT: who</text>
+
+  <!-- ====== Subtitle ====== -->
+  <text x="450" y="310" font-family="system-ui, sans-serif" font-size="11" fill="#a9b1d6" text-anchor="middle">Membership + Role + Reputation - all proven without revealing identity</text>
+
+  <!-- ====== Bottom metrics bar ====== -->
+  <rect x="60" y="330" width="780" height="55" rx="8" fill="#1e1d20" stroke="#565f89" stroke-width="0.8" opacity="0.6"/>
+
+  <!-- Metrics -->
+  <rect x="80" y="342" width="155" height="22" rx="6" fill="url(#purpleFill)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="158" y="357" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">22,364 constraints</text>
+
+  <rect x="250" y="342" width="120" height="22" rx="6" fill="url(#cryptoFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="310" y="357" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">520B proofs</text>
+
+  <rect x="385" y="342" width="130" height="22" rx="6" fill="url(#pinkFill)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="450" y="357" font-family="SF Mono, monospace" font-size="9" fill="#da1c5c" text-anchor="middle" font-weight="600">~350ms auth</text>
+
+  <rect x="530" y="342" width="170" height="22" rx="6" fill="url(#greenFill)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="615" y="357" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">14 Prometheus metrics</text>
+
+  <rect x="715" y="342" width="110" height="22" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1"/>
+  <text x="770" y="357" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">0 new deps</text>
+
+  <!-- Bottom tagline -->
+  <text x="450" y="378" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">PLONK + KZG on BN254 curve. gnark circuit compiler. Poseidon2 Merkle tree. Pure Go.</text>
+</svg>

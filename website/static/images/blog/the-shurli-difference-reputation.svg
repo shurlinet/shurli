@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="800" height="240">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="scoreFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="proofFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="240" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Private Reputation (Range Proofs)</text>
+
+  <!-- Left: Score computation -->
+  <rect x="30" y="50" width="220" height="140" rx="10" fill="url(#scoreFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="140" y="70" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">Reputation Score (0-100)</text>
+
+  <!-- Score bar -->
+  <rect x="50" y="82" width="180" height="12" rx="3" fill="#1e1d20"/>
+  <rect x="50" y="82" width="144" height="12" rx="3" fill="#9ece6a" opacity="0.4"/>
+  <text x="200" y="92" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">80</text>
+
+  <!-- Four metrics -->
+  <text x="60" y="112" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7">availability</text>
+  <rect x="140" y="104" width="80" height="8" rx="2" fill="#1e1d20"/>
+  <rect x="140" y="104" width="72" height="8" rx="2" fill="#7aa2f7" opacity="0.4"/>
+
+  <text x="60" y="126" font-family="SF Mono, monospace" font-size="8" fill="#e0af68">latency</text>
+  <rect x="140" y="118" width="80" height="8" rx="2" fill="#1e1d20"/>
+  <rect x="140" y="118" width="60" height="8" rx="2" fill="#e0af68" opacity="0.4"/>
+
+  <text x="60" y="140" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7">path diversity</text>
+  <rect x="140" y="132" width="80" height="8" rx="2" fill="#1e1d20"/>
+  <rect x="140" y="132" width="64" height="8" rx="2" fill="#bb9af7" opacity="0.4"/>
+
+  <text x="60" y="154" font-family="SF Mono, monospace" font-size="8" fill="#da1c5c">tenure</text>
+  <rect x="140" y="146" width="80" height="8" rx="2" fill="#1e1d20"/>
+  <rect x="140" y="146" width="76" height="8" rx="2" fill="#da1c5c" opacity="0.4"/>
+
+  <text x="140" y="180" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">locally observable, deterministic</text>
+
+  <!-- Arrow -->
+  <line x1="260" y1="120" x2="320" y2="120" stroke="#bb9af7" stroke-width="1.5"/>
+  <polygon points="315,114 315,126 328,120" fill="#bb9af7"/>
+  <text x="290" y="112" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">ZK proof</text>
+
+  <!-- Middle: Range proof -->
+  <rect x="330" y="55" width="200" height="130" rx="10" fill="url(#proofFill)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="430" y="75" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">Range Proof</text>
+
+  <!-- Threshold visualization -->
+  <rect x="350" y="90" width="160" height="30" rx="4" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.6"/>
+  <text x="430" y="109" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle">"my score >= 70"</text>
+
+  <!-- What's hidden -->
+  <rect x="350" y="128" width="160" height="20" rx="4" fill="url(#nodeFill)" stroke="#f7768e" stroke-width="0.6"/>
+  <text x="430" y="142" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle">exact score: hidden</text>
+
+  <text x="430" y="170" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">26,584 constraints</text>
+  <text x="430" y="182" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">520-byte proof</text>
+
+  <!-- Arrow -->
+  <line x1="540" y1="120" x2="600" y2="120" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="595,114 595,126 608,120" fill="#9ece6a"/>
+
+  <!-- Right: Verifier sees -->
+  <rect x="610" y="55" width="160" height="130" rx="10" fill="url(#nodeFill)" stroke="#565f89" stroke-width="1.2"/>
+  <text x="690" y="75" font-family="SF Mono, monospace" font-size="9" fill="#c0caf5" text-anchor="middle" font-weight="600">Verifier Sees</text>
+
+  <!-- Checkmark -->
+  <circle cx="690" cy="110" r="18" fill="#9ece6a" opacity="0.1" stroke="#9ece6a" stroke-width="1.2"/>
+  <polyline points="680,110 687,117 700,102" fill="none" stroke="#9ece6a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="690" y="143" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">score >= 70</text>
+  <text x="690" y="158" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle">NOT: score = 80</text>
+  <text x="690" y="173" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" text-anchor="middle">NOT: which peer</text>
+
+  <!-- Bottom note -->
+  <text x="400" y="220" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Same zero-knowledge proving system as membership proofs. Cryptographic hash tree with threshold comparison.</text>
+</svg>

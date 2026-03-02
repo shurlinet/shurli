@@ -70,7 +70,7 @@ This isn't a quality standard. It's the reason the project exists the way it doe
 
 A new user goes from nothing to connected in two commands: `shurli init` and `shurli join <code>`. Everything else is optional.
 
-Onboarding friction killed CJDNS and [Yggdrasil](https://yggdrasil-network.github.io/). If setup requires editing config files, understanding NAT, or running multiple services, most people never finish. Every feature in Shurli is tested against this constraint: does it add a step? Then it needs to justify its existence or be automated away.
+Onboarding friction limited adoption of overlay networks like CJDNS and Yggdrasil. If setup requires editing config files, understanding NAT, or running multiple services, most people never finish. Every feature in Shurli is tested against this constraint: does it add a step? Then it needs to justify its existence or be automated away.
 
 ### 3. Lead with outcomes, not protocol
 

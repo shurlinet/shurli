@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220" width="800" height="220">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="seedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="keyFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="220" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">BIP39 Seed Management</text>
+
+  <!-- Seed phrase -->
+  <rect x="30" y="48" width="240" height="120" rx="10" fill="url(#seedFill)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="150" y="68" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">24-Word Seed Phrase</text>
+
+  <!-- Word grid (3x4 sample) -->
+  <text x="55" y="88" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">1. abandon</text>
+  <text x="130" y="88" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">2. ability</text>
+  <text x="200" y="88" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">3. able</text>
+  <text x="55" y="102" font-family="SF Mono, monospace" font-size="8" fill="#565f89">4. ...</text>
+  <text x="130" y="102" font-family="SF Mono, monospace" font-size="8" fill="#565f89">5. ...</text>
+  <text x="200" y="102" font-family="SF Mono, monospace" font-size="8" fill="#565f89">6. ...</text>
+  <text x="55" y="116" font-family="SF Mono, monospace" font-size="8" fill="#565f89">...</text>
+  <text x="200" y="116" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">24. zoo</text>
+
+  <text x="150" y="142" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7" text-anchor="middle">same phrase on any device</text>
+  <text x="150" y="155" font-family="system-ui, sans-serif" font-size="8" fill="#7aa2f7" text-anchor="middle">= same keys</text>
+
+  <!-- Arrow: derives -->
+  <line x1="280" y1="108" x2="340" y2="108" stroke="#e0af68" stroke-width="1.5"/>
+  <polygon points="335,102 335,114 348,108" fill="#e0af68"/>
+  <text x="310" y="98" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" text-anchor="middle">derive</text>
+
+  <!-- Keys output -->
+  <rect x="350" y="48" width="200" height="120" rx="10" fill="url(#keyFill)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="450" y="68" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">Zero-Knowledge Keys</text>
+
+  <!-- Key icon -->
+  <circle cx="400" cy="100" r="8" fill="none" stroke="#9ece6a" stroke-width="1.2"/>
+  <line x1="408" y1="100" x2="440" y2="100" stroke="#9ece6a" stroke-width="1.2"/>
+  <line x1="430" y1="100" x2="430" y2="108" stroke="#9ece6a" stroke-width="1.2"/>
+  <line x1="440" y1="100" x2="440" y2="108" stroke="#9ece6a" stroke-width="1.2"/>
+
+  <text x="450" y="128" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">deterministic derivation</text>
+  <text x="450" y="142" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">no manual file copying</text>
+  <text x="450" y="156" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="middle">pure Go standard library</text>
+
+  <!-- Two distribution models -->
+  <rect x="580" y="48" width="190" height="55" rx="8" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="1"/>
+  <text x="675" y="66" font-family="SF Mono, monospace" font-size="8" fill="#7aa2f7" text-anchor="middle" font-weight="600">Model A: Seed-based</text>
+  <text x="675" y="80" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">Enter phrase on each device</text>
+  <text x="675" y="93" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">maximum sovereignty</text>
+
+  <rect x="580" y="113" width="190" height="55" rx="8" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="675" y="131" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">Model B: API-based</text>
+  <text x="675" y="145" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">Download keys from relay</text>
+  <text x="675" y="158" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">maximum convenience</text>
+
+  <!-- Bottom note -->
+  <rect x="100" y="182" width="600" height="24" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.6"/>
+  <text x="400" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">No external BIP39 dependency. Operators choose distribution model based on their trust model.</text>
+</svg>

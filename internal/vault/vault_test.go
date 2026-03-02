@@ -7,17 +7,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/totp"
 )
 
-func TestCreateAndUnseal(t *testing.T) {
-	v, seed, err := Create("test-passphrase", false, 0)
+// testSeed generates a BIP39 seed for testing.
+func testSeed(t *testing.T) ([]byte, string) {
+	t.Helper()
+	mnemonic, entropy, err := identity.GenerateSeed()
+	if err != nil {
+		t.Fatalf("GenerateSeed: %v", err)
+	}
+	return entropy, mnemonic
+}
+
+// testCreate is a helper that creates a vault with a test seed.
+func testCreate(t *testing.T, password string, enableTOTP bool, autoSealMins int) (*Vault, string) {
+	t.Helper()
+	seedBytes, mnemonic := testSeed(t)
+	v, err := Create(seedBytes, mnemonic, password, enableTOTP, autoSealMins)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if seed == "" {
-		t.Fatal("seed phrase should not be empty")
-	}
+	return v, mnemonic
+}
+
+func TestCreateAndUnseal(t *testing.T) {
+	v, _ := testCreate(t, "test-password", false, 0)
 	if v.IsSealed() {
 		t.Fatal("newly created vault should be unsealed")
 	}
@@ -32,10 +48,7 @@ func TestCreateAndUnseal(t *testing.T) {
 }
 
 func TestSealAndUnseal(t *testing.T) {
-	v, _, err := Create("my-passphrase", false, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "my-password", false, 0)
 
 	// Remember the root key
 	originalKey, _ := v.RootKey()
@@ -48,13 +61,13 @@ func TestSealAndUnseal(t *testing.T) {
 		t.Fatal("vault should be sealed")
 	}
 
-	_, err = v.RootKey()
+	_, err := v.RootKey()
 	if !errors.Is(err, ErrVaultSealed) {
 		t.Fatalf("expected ErrVaultSealed, got: %v", err)
 	}
 
 	// Unseal
-	if err := v.Unseal("my-passphrase", ""); err != nil {
+	if err := v.Unseal("my-password", ""); err != nil {
 		t.Fatalf("Unseal: %v", err)
 	}
 
@@ -74,29 +87,23 @@ func TestSealAndUnseal(t *testing.T) {
 	}
 }
 
-func TestUnsealWrongPassphrase(t *testing.T) {
-	v, _, err := Create("correct-passphrase", false, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestUnsealWrongPassword(t *testing.T) {
+	v, _ := testCreate(t, "correct-password", false, 0)
 
 	v.Seal()
 
-	err = v.Unseal("wrong-passphrase", "")
-	if !errors.Is(err, ErrInvalidPassphrase) {
-		t.Fatalf("expected ErrInvalidPassphrase, got: %v", err)
+	err := v.Unseal("wrong-password", "")
+	if !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("expected ErrInvalidPassword, got: %v", err)
 	}
 
 	if !v.IsSealed() {
-		t.Fatal("vault should remain sealed after wrong passphrase")
+		t.Fatal("vault should remain sealed after wrong password")
 	}
 }
 
 func TestUnsealWithTOTP(t *testing.T) {
-	v, _, err := Create("passphrase", true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", true, 0)
 
 	// Get TOTP config while unsealed
 	totpCfg := v.totpConfig
@@ -110,20 +117,17 @@ func TestUnsealWithTOTP(t *testing.T) {
 	v.Seal()
 
 	// Unseal with correct TOTP
-	if err := v.Unseal("passphrase", code); err != nil {
+	if err := v.Unseal("password123", code); err != nil {
 		t.Fatalf("Unseal with TOTP: %v", err)
 	}
 }
 
 func TestUnsealWithWrongTOTP(t *testing.T) {
-	v, _, err := Create("passphrase", true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", true, 0)
 
 	v.Seal()
 
-	err = v.Unseal("passphrase", "000000")
+	err := v.Unseal("password123", "000000")
 	if !errors.Is(err, ErrInvalidTOTP) {
 		t.Fatalf("expected ErrInvalidTOTP, got: %v", err)
 	}
@@ -133,10 +137,7 @@ func TestSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vault.json")
 
-	v, _, err := Create("passphrase", false, 30)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", false, 30)
 
 	originalKey, _ := v.RootKey()
 	keyCopy := make([]byte, len(originalKey))
@@ -165,7 +166,7 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	// Unseal and verify key matches
-	if err := loaded.Unseal("passphrase", ""); err != nil {
+	if err := loaded.Unseal("password123", ""); err != nil {
 		t.Fatalf("Unseal loaded: %v", err)
 	}
 	loadedKey, _ := loaded.RootKey()
@@ -177,7 +178,10 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestSeedRecovery(t *testing.T) {
-	v, seed, err := Create("old-passphrase", false, 0)
+	seedBytes, mnemonic := testSeed(t)
+
+	// Create vault from seed.
+	v, err := Create(seedBytes, mnemonic, "old-password", false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,8 +190,8 @@ func TestSeedRecovery(t *testing.T) {
 	keyCopy := make([]byte, len(originalKey))
 	copy(keyCopy, originalKey)
 
-	// Recover from seed with new passphrase
-	recovered, err := RecoverFromSeed(seed, "new-passphrase", false, 0)
+	// Recover from the same mnemonic with a new password.
+	recovered, err := RecoverFromSeed(mnemonic, "new-password", false, 0)
 	if err != nil {
 		t.Fatalf("RecoverFromSeed: %v", err)
 	}
@@ -199,25 +203,22 @@ func TestSeedRecovery(t *testing.T) {
 		}
 	}
 
-	// Verify the recovered vault can be sealed and unsealed with the new passphrase
+	// Verify the recovered vault can be sealed and unsealed with the new password.
 	recovered.Seal()
-	if err := recovered.Unseal("new-passphrase", ""); err != nil {
+	if err := recovered.Unseal("new-password", ""); err != nil {
 		t.Fatalf("Unseal recovered: %v", err)
 	}
 }
 
 func TestSeedRecoveryInvalid(t *testing.T) {
-	_, err := RecoverFromSeed("not a valid seed", "passphrase", false, 0)
+	_, err := RecoverFromSeed("not a valid seed", "password123", false, 0)
 	if !errors.Is(err, ErrInvalidSeed) {
 		t.Fatalf("expected ErrInvalidSeed, got: %v", err)
 	}
 }
 
 func TestAutoSeal(t *testing.T) {
-	v, _, err := Create("passphrase", false, 1) // 1 minute auto-seal
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", false, 1) // 1 minute auto-seal
 
 	// Should not auto-seal immediately
 	if v.ShouldAutoSeal() {
@@ -235,10 +236,7 @@ func TestAutoSeal(t *testing.T) {
 }
 
 func TestAutoSealDisabled(t *testing.T) {
-	v, _, err := Create("passphrase", false, 0) // 0 = no auto-seal
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", false, 0) // 0 = no auto-seal
 
 	v.mu.Lock()
 	v.unsealedAt = time.Now().Add(-24 * time.Hour)
@@ -250,22 +248,16 @@ func TestAutoSealDisabled(t *testing.T) {
 }
 
 func TestDoubleUnseal(t *testing.T) {
-	v, _, err := Create("passphrase", false, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", false, 0)
 
-	err = v.Unseal("passphrase", "")
+	err := v.Unseal("password123", "")
 	if !errors.Is(err, ErrVaultAlreadyUnsealed) {
 		t.Fatalf("expected ErrVaultAlreadyUnsealed, got: %v", err)
 	}
 }
 
 func TestMemoryZeroing(t *testing.T) {
-	v, _, err := Create("passphrase", false, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", false, 0)
 
 	key, _ := v.RootKey()
 	// Take a reference to the underlying array
@@ -287,10 +279,7 @@ func TestMemoryZeroing(t *testing.T) {
 }
 
 func TestTOTPProvisioningURI(t *testing.T) {
-	v, _, err := Create("passphrase", true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", true, 0)
 
 	uri, err := v.TOTPProvisioningURI("relay.example.com")
 	if err != nil {
@@ -303,15 +292,76 @@ func TestTOTPProvisioningURI(t *testing.T) {
 }
 
 func TestTOTPProvisioningURISealed(t *testing.T) {
-	v, _, err := Create("passphrase", true, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	v, _ := testCreate(t, "password123", true, 0)
 
 	v.Seal()
 
-	_, err = v.TOTPProvisioningURI("relay.example.com")
+	_, err := v.TOTPProvisioningURI("relay.example.com")
 	if err == nil {
 		t.Error("should error when sealed")
+	}
+}
+
+func TestChangePassword(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.json")
+
+	v, _ := testCreate(t, "old-password", false, 0)
+	if err := v.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	originalKey, _ := v.RootKey()
+	keyCopy := make([]byte, len(originalKey))
+	copy(keyCopy, originalKey)
+
+	// Change password.
+	if err := v.ChangePassword("old-password", "new-password"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// Vault should still be unsealed.
+	if v.IsSealed() {
+		t.Fatal("vault should remain unsealed after password change")
+	}
+
+	// Seal and unseal with new password.
+	v.Seal()
+	if err := v.Unseal("new-password", ""); err != nil {
+		t.Fatalf("Unseal with new password: %v", err)
+	}
+
+	// Old password should fail.
+	v.Seal()
+	if err := v.Unseal("old-password", ""); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("expected ErrInvalidPassword with old password, got: %v", err)
+	}
+
+	// Root key should be unchanged.
+	v.Unseal("new-password", "")
+	key, _ := v.RootKey()
+	for i := range keyCopy {
+		if key[i] != keyCopy[i] {
+			t.Fatalf("root key changed after password change at byte %d", i)
+		}
+	}
+}
+
+func TestChangePasswordWrongOld(t *testing.T) {
+	v, _ := testCreate(t, "correct-password", false, 0)
+
+	err := v.ChangePassword("wrong-password", "new-password")
+	if !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("expected ErrInvalidPassword, got: %v", err)
+	}
+}
+
+func TestChangePasswordSealed(t *testing.T) {
+	v, _ := testCreate(t, "password123", false, 0)
+	v.Seal()
+
+	err := v.ChangePassword("password123", "new-password")
+	if !errors.Is(err, ErrVaultSealed) {
+		t.Fatalf("expected ErrVaultSealed, got: %v", err)
 	}
 }
