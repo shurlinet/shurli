@@ -46,7 +46,8 @@ func doStatus(args []string, stdout io.Writer) error {
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	// Peer ID
-	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile)
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		fmt.Fprintf(stdout, "Peer ID:  error (%v)\n", err)
 	} else {

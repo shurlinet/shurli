@@ -175,7 +175,7 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 	// Attempt unseal.
 	if err := h.Vault.Unseal(passphrase, totpCode); err != nil {
 		switch {
-		case errors.Is(err, vault.ErrInvalidPassphrase):
+		case errors.Is(err, vault.ErrInvalidPassword):
 			h.recordFailure(remotePeer)
 			failures := h.getFailures(remotePeer)
 			slog.Warn("unseal: invalid passphrase", "peer", short, "failures", failures)

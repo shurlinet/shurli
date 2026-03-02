@@ -146,7 +146,7 @@ Empty or missing `network` field = global DHT (`/shurli/kad/1.0.0`). Zero breaki
 | New files | 5 (Makefile, pake.go, pake_test.go, network.go, network_test.go) |
 | Modified files | 19 |
 | New tests | 30+ (19 PAKE + 11 invite code + namespace validation + DHT prefix) |
-| New ADRs | 4 (Ia01, Ia02, Ib01, Ib02, Ic01) |
+| New ADRs | 5 (Ia01, Ia02, Ib01, Ib02, Ic01) |
 | Binary size | Unchanged (28MB) |
 | New dependencies | 0 (golang.org/x/crypto promoted from indirect to direct) |
 

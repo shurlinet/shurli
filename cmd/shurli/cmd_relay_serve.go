@@ -50,11 +50,9 @@ func runRelayServe(args []string) {
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
 			configFile = args[i+1]
-			break
 		}
 		if strings.HasPrefix(arg, "--config=") {
 			configFile = strings.TrimPrefix(arg, "--config=")
-			break
 		}
 	}
 
@@ -84,9 +82,63 @@ func runRelayServe(args []string) {
 	fmt.Printf("Authentication: %v\n", cfg.Security.EnableConnectionGating)
 	fmt.Println()
 
-	priv, err := identity.LoadOrCreateIdentity(cfg.Identity.KeyFile)
-	if err != nil {
-		fatal("Identity error: %v", err)
+	relayConfigDir := filepath.Dir(configFile)
+
+	var priv crypto.PrivKey
+	if _, statErr := os.Stat(cfg.Identity.KeyFile); statErr == nil {
+		// Existing key file: load it with session token or interactive prompt.
+		pw, err := resolvePasswordInteractive(relayConfigDir, os.Stdout)
+		if err != nil {
+			fatal("Identity error: %v", err)
+		}
+		priv, err = identity.LoadIdentity(cfg.Identity.KeyFile, pw)
+		if err != nil {
+			fatal("Identity error: %v", err)
+		}
+		// Create session token if missing (enables systemd auto-start).
+		if !identity.SessionExists(relayConfigDir) {
+			if err := identity.CreateSession(relayConfigDir, pw); err != nil {
+				slog.Warn("failed to create session token", "err", err)
+			} else {
+				fmt.Println("Session token created (auto-start enabled).")
+			}
+		}
+	} else {
+		// No key file: generate BIP39 seed on first run.
+		// For recovery from an existing seed, use: shurli relay recover
+		mnemonic, entropy, err := identity.GenerateSeed()
+		if err != nil {
+			fatal("Failed to generate seed: %v", err)
+		}
+		fmt.Println("=== RELAY SEED PHRASE ===")
+		fmt.Println("Write this down and store it securely. This is the ONLY way to")
+		fmt.Println("recover your relay identity and vault if this server is lost.")
+		fmt.Println()
+		fmt.Printf("  %s\n", mnemonic)
+		fmt.Println()
+		fmt.Println("===========================")
+		fmt.Println()
+
+		// Prompt for new password to protect the identity key.
+		fmt.Println("Set a password to protect the relay identity:")
+		pw, pwErr := readPasswordConfirm("Password: ", "Confirm: ", os.Stdout)
+		if pwErr != nil {
+			fatal("Password error: %v", pwErr)
+		}
+
+		priv, err = identity.DeriveIdentityKey(entropy)
+		if err != nil {
+			fatal("Failed to derive identity key: %v", err)
+		}
+		if err := identity.SaveIdentity(cfg.Identity.KeyFile, priv, pw); err != nil {
+			fatal("Failed to save identity: %v", err)
+		}
+		// Create session token for systemd auto-start.
+		if err := identity.CreateSession(relayConfigDir, pw); err != nil {
+			slog.Warn("failed to create session token", "err", err)
+		} else {
+			fmt.Println("Session token created (auto-start enabled).")
+		}
 	}
 
 	// Load authorized keys if connection gating is enabled
@@ -203,12 +255,17 @@ func runRelayServe(args []string) {
 	// Start admin socket for relay pair CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
 	adminCookiePath := filepath.Join(filepath.Dir(configFile), ".relay-admin.cookie")
-	relayAddrStr, err := buildRelayAddrFromConfig(cfg)
+	relayPeerID, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		fatal("Failed to derive peer ID: %v", err)
+	}
+	relayAddrStr, err := buildRelayAddr(cfg, relayPeerID)
 	if err != nil {
 		slog.Warn("admin socket: could not build relay addr for code encoding", "err", err)
 		relayAddrStr = "" // non-fatal: admin socket still works, code encoding will fail
 	}
 	adminSrv := relay.NewAdminServer(tokenStore, gater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
+	adminSrv.SetAuthKeysPath(cfg.Security.AuthorizedKeysFile)
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
 	// existing peers can use the relay, but no new peers can be authorized.
@@ -240,14 +297,59 @@ func runRelayServe(args []string) {
 		defer adminSrv.Stop()
 	}
 
-	// Register remote unseal protocol (available even when sealed - that's the point).
-	var unsealHandler *relay.UnsealHandler
-	if relayVault != nil {
-		unsealHandler = relay.NewUnsealHandler(relayVault, cfg.Security.AuthorizedKeysFile)
-		h.SetStreamHandler(protocol.ID(relay.UnsealProtocol), func(s network.Stream) {
-			unsealHandler.HandleStream(s)
-		})
-		slog.Info("unseal protocol registered", "protocol", relay.UnsealProtocol)
+	// Register remote admin protocol (replaces the old /shurli/relay-unseal/1.0.0 protocol).
+	// Available even when sealed - admin peers can unseal, check status, etc.
+	remoteAdminHandler := relay.NewRemoteAdminHandler(adminSrv, cfg.Security.AuthorizedKeysFile)
+	h.SetStreamHandler(protocol.ID(relay.RemoteAdminProtocol), func(s network.Stream) {
+		remoteAdminHandler.HandleStream(s)
+	})
+	slog.Info("remote admin protocol registered", "protocol", relay.RemoteAdminProtocol)
+
+	// Initialize MOTD handler for relay operator announcements.
+	goodbyeFile := filepath.Join(filepath.Dir(configFile), ".relay-goodbye.json")
+	motdHandler := relay.NewMOTDHandler(h, priv, goodbyeFile)
+	adminSrv.SetMOTDHandler(motdHandler)
+
+	// Wire shutdown func: goodbye/shutdown admin endpoint triggers graceful process exit.
+	shutdownCh := make(chan struct{}, 1)
+	adminSrv.SetShutdownFunc(func() {
+		select {
+		case shutdownCh <- struct{}{}:
+		default:
+		}
+	})
+
+	// Start MOTD notifier: pushes MOTD/goodbye to peers as they connect.
+	go motdHandler.RunMOTDNotifier(ctx)
+	slog.Info("motd handler initialized", "protocol", relay.MOTDProtocol)
+
+	// Register ZKP anonymous auth protocol (Phase 7).
+	var zkpAuthHandler *relay.ZKPAuthHandler
+	if cfg.Security.ZKP.Enabled {
+		keysDir := cfg.Security.ZKP.SRSCacheDir
+		if keysDir == "" {
+			home, _ := os.UserHomeDir()
+			keysDir = filepath.Join(home, ".shurli", "zkp")
+		}
+
+		var zkpErr error
+		zkpAuthHandler, zkpErr = relay.NewZKPAuthHandler(cfg.Security.AuthorizedKeysFile, keysDir)
+		if zkpErr != nil {
+			slog.Error("zkp auth handler failed to initialize", "err", zkpErr)
+			fmt.Printf("WARNING: ZKP auth disabled: %v\n", zkpErr)
+		} else {
+			h.SetStreamHandler(protocol.ID(relay.ZKPAuthProtocol), func(s network.Stream) {
+				zkpAuthHandler.HandleStream(s)
+			})
+			adminSrv.SetZKPAuth(zkpAuthHandler)
+			// Build initial tree from authorized_keys.
+			if err := zkpAuthHandler.RebuildTree(); err != nil {
+				slog.Warn("zkp: initial tree build failed (rebuild via admin API)", "err", err)
+			}
+			// Start periodic challenge cleanup goroutine.
+			zkpAuthHandler.Challenges().StartCleanup(ctx)
+			slog.Info("zkp auth protocol registered", "protocol", relay.ZKPAuthProtocol)
+		}
 	}
 
 	// Vault auto-seal goroutine: re-seals the vault after the configured timeout.
@@ -379,11 +481,13 @@ func runRelayServe(args []string) {
 	}
 	// Wire metrics to Phase 6 components (nil-safe: if metrics disabled, handlers work without them).
 	if relayMetrics != nil {
-		if unsealHandler != nil {
-			unsealHandler.Metrics = relayMetrics
-		}
 		adminSrv.Metrics = relayMetrics
+		remoteAdminHandler.SetMetrics(relayMetrics)
 		pairingHandler.Metrics = relayMetrics
+		if zkpAuthHandler != nil {
+			zkpAuthHandler.Metrics = relayMetrics
+		}
+		motdHandler.SetMetrics(relayMetrics)
 
 		// Set initial vault seal state gauge.
 		if relayVault != nil {
@@ -469,9 +573,16 @@ func runRelayServe(args []string) {
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	<-ch
+
+	// Wait for OS signal or admin-initiated shutdown.
+	select {
+	case sig := <-ch:
+		fmt.Printf("\nReceived %s, shutting down...\n", sig)
+	case <-shutdownCh:
+		fmt.Println("\nAdmin-initiated shutdown (goodbye sent to peers)...")
+	}
+
 	watchdog.Stopping()
-	fmt.Println("\nShutting down...")
 	if healthServer != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		healthServer.Shutdown(shutdownCtx)
@@ -554,7 +665,7 @@ func doRelayAuthorize(args []string, configFile string, stdout io.Writer) error 
 	}
 	fmt.Fprintf(stdout, "File:       %s\n", authKeysPath)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Restart relay to apply: sudo systemctl restart shurli-relay")
+	tryRelayAuthReload(configFile, stdout)
 	return nil
 }
 
@@ -581,8 +692,24 @@ func doRelayDeauthorize(args []string, configFile string, stdout io.Writer) erro
 
 	fmt.Fprintf(stdout, "Deauthorized: %s\n", peerID[:min(16, len(peerID))]+"...")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Restart relay to apply: sudo systemctl restart shurli-relay")
+	tryRelayAuthReload(configFile, stdout)
 	return nil
+}
+
+// tryRelayAuthReload attempts to hot-reload the relay's authorized_keys via admin socket.
+// If the relay is not running or reload fails, prints an appropriate message.
+func tryRelayAuthReload(configFile string, stdout io.Writer) {
+	client, err := relayAdminClient(configFile)
+	if err != nil {
+		fmt.Fprintln(stdout, "Relay not running. Changes saved, will apply on next start.")
+		return
+	}
+	if err := client.AuthReload(); err != nil {
+		fmt.Fprintf(stdout, "Warning: file updated but live reload failed: %v\n", err)
+		fmt.Fprintln(stdout, "Restart relay to apply: sudo systemctl restart shurli-relay")
+		return
+	}
+	fmt.Fprintln(stdout, "Applied immediately (live reload).")
 }
 
 func runRelayDeauthorize(args []string, configFile string) {
@@ -768,7 +895,7 @@ func doRelayServerConfigRollback(configFile string, stdout io.Writer) error {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 	fmt.Fprintf(stdout, "Restored %s from last-known-good archive\n", configFile)
-	fmt.Fprintln(stdout, "You can now restart the relay.")
+	fmt.Fprintln(stdout, "Config restored. Restart relay to apply all changes.")
 	return nil
 }
 
@@ -879,6 +1006,14 @@ func printRelayServeUsage() {
 	fmt.Println("  seal                                Seal vault (watch-only mode)")
 	fmt.Println("  unseal                              Unseal vault")
 	fmt.Println("  seal-status                         Show vault seal status (shorthand)")
+	fmt.Println()
+	fmt.Println("Operator announcements:")
+	fmt.Println("  motd set <message>                  Set MOTD (shown to connecting peers)")
+	fmt.Println("  motd clear                          Clear MOTD")
+	fmt.Println("  motd status                         Show MOTD and goodbye status")
+	fmt.Println("  goodbye set <message>               Set goodbye (pushed to all peers)")
+	fmt.Println("  goodbye retract                     Retract a goodbye announcement")
+	fmt.Println("  goodbye shutdown [message]          Send goodbye and shut down relay")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli relay add /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")

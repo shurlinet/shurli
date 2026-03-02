@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="seedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a2e1e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c2216;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="keyFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="adminFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="motdFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sessionFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="400" rx="12" fill="url(#bgGrad)" />
+
+  <!-- Title -->
+  <text x="450" y="40" text-anchor="middle" font-family="SF Mono, Menlo, monospace" font-size="22" fill="#c0bdc5" font-weight="bold">Phase 8: One Seed to Rule Them All</text>
+
+  <!-- BIP39 Seed (center top) -->
+  <rect x="310" y="60" width="280" height="55" rx="8" fill="url(#seedFill)" stroke="#e0a050" stroke-width="1.5" />
+  <text x="450" y="82" text-anchor="middle" font-family="SF Mono, monospace" font-size="12" fill="#e0a050" font-weight="bold">BIP39 SEED</text>
+  <text x="450" y="102" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#b89040">24 words - one backup for everything</text>
+
+  <!-- HKDF Lines -->
+  <line x1="370" y1="115" x2="170" y2="155" stroke="#555" stroke-width="1.5" stroke-dasharray="4,3" />
+  <line x1="450" y1="115" x2="450" y2="155" stroke="#555" stroke-width="1.5" stroke-dasharray="4,3" />
+  <line x1="530" y1="115" x2="730" y2="155" stroke="#555" stroke-width="1.5" stroke-dasharray="4,3" />
+
+  <!-- HKDF Labels -->
+  <text x="280" y="140" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#666">HKDF("identity/v1")</text>
+  <text x="450" y="140" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#666">HKDF("vault/v1")</text>
+  <text x="650" y="140" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#666">SRS derivation</text>
+
+  <!-- Identity Key -->
+  <rect x="70" y="155" width="200" height="48" rx="6" fill="url(#keyFill)" stroke="#9ece6a" stroke-width="1" />
+  <text x="170" y="175" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" font-weight="bold">Ed25519 Identity</text>
+  <text x="170" y="193" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#7aaa4a">Argon2id + XChaCha20 encrypted</text>
+
+  <!-- Vault Key -->
+  <rect x="350" y="155" width="200" height="48" rx="6" fill="url(#keyFill)" stroke="#9ece6a" stroke-width="1" />
+  <text x="450" y="175" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" font-weight="bold">Vault Root Key</text>
+  <text x="450" y="193" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#7aaa4a">Relay sealed vault</text>
+
+  <!-- ZKP Keys -->
+  <rect x="630" y="155" width="200" height="48" rx="6" fill="url(#keyFill)" stroke="#9ece6a" stroke-width="1" />
+  <text x="730" y="175" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" font-weight="bold">ZKP Proving Keys</text>
+  <text x="730" y="193" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#7aaa4a">PLONK circuit keys cached</text>
+
+  <!-- Divider -->
+  <line x1="40" y1="225" x2="860" y2="225" stroke="#333" stroke-width="1" />
+  <text x="450" y="248" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#555">REMOTE ADMIN + OPERATOR ANNOUNCEMENTS</text>
+
+  <!-- Admin Laptop -->
+  <rect x="40" y="265" width="180" height="65" rx="6" fill="url(#adminFill)" stroke="#7aa2d0" stroke-width="1" />
+  <text x="130" y="287" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#7aa2d0" font-weight="bold">Admin Laptop</text>
+  <text x="130" y="303" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#5a82b0">shurli relay ... --remote</text>
+  <text x="130" y="318" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#4a7290">19 admin endpoints</text>
+
+  <!-- Arrow -->
+  <line x1="220" y1="297" x2="310" y2="297" stroke="#7aa2d0" stroke-width="1.5" marker-end="url(#arrowBlue)" />
+  <text x="265" y="290" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#5a82b0">P2P encrypted</text>
+
+  <!-- Relay -->
+  <rect x="310" y="260" width="280" height="75" rx="8" fill="url(#adminFill)" stroke="#7aa2d0" stroke-width="1.5" />
+  <text x="450" y="282" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#7aa2d0" font-weight="bold">Relay Server</text>
+  <text x="450" y="300" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#5a82b0">/shurli/relay-admin/1.0.0</text>
+  <text x="450" y="316" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#4a7290">vault | invites | pairing | ZKP | MOTD</text>
+  <text x="450" y="328" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#4a7290">admin role check at stream open</text>
+
+  <!-- Arrow to peers -->
+  <line x1="590" y1="297" x2="650" y2="280" stroke="#9a70c0" stroke-width="1.5" marker-end="url(#arrowPurple)" />
+  <line x1="590" y1="297" x2="650" y2="297" stroke="#9a70c0" stroke-width="1.5" marker-end="url(#arrowPurple)" />
+  <line x1="590" y1="297" x2="650" y2="314" stroke="#9a70c0" stroke-width="1.5" marker-end="url(#arrowPurple)" />
+
+  <!-- MOTD/Goodbye -->
+  <rect x="660" y="262" width="200" height="30" rx="5" fill="url(#motdFill)" stroke="#9a70c0" stroke-width="1" />
+  <text x="760" y="282" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9a70c0">MOTD (Ed25519 signed)</text>
+
+  <rect x="660" y="297" width="200" height="30" rx="5" fill="url(#motdFill)" stroke="#9a70c0" stroke-width="1" />
+  <text x="760" y="317" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9a70c0">Goodbye (persisted)</text>
+
+  <!-- Session Token -->
+  <rect x="40" y="348" width="250" height="38" rx="6" fill="url(#sessionFill)" stroke="#c06080" stroke-width="1" />
+  <text x="165" y="365" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#c06080" font-weight="bold">Session Token (machine-bound)</text>
+  <text x="165" y="379" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#a04060">HKDF(installRandom, machineID, "session/v1")</text>
+
+  <!-- Stats bar -->
+  <text x="450" y="385" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#555">24 new files | 56 tests | 2 new P2P protocols | 19 remote endpoints</text>
+
+  <!-- Arrow markers -->
+  <defs>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7aa2d0" />
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9a70c0" />
+    </marker>
+  </defs>
+</svg>

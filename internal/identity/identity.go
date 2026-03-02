@@ -25,49 +25,64 @@ func CheckKeyFilePermissions(path string) error {
 	return nil
 }
 
-// LoadOrCreateIdentity loads an existing identity from a file or creates a new one.
-func LoadOrCreateIdentity(path string) (crypto.PrivKey, error) {
-	// Try to load existing key
-	if data, err := os.ReadFile(path); err == nil {
-		// Check permissions before using the key
-		if err := CheckKeyFilePermissions(path); err != nil {
-			return nil, err
-		}
-		priv, err := crypto.UnmarshalPrivateKey(data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal key from %s: %w", path, err)
-		}
-		return priv, nil
+// LoadIdentity loads an encrypted identity key from disk.
+// The file MUST be in SHRL format. Raw (unencrypted) keys are rejected.
+func LoadIdentity(path, password string) (crypto.PrivKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading identity key: %w", err)
 	}
 
-	// Generate new key
+	if err := CheckKeyFilePermissions(path); err != nil {
+		return nil, err
+	}
+
+	if !IsEncrypted(data) {
+		return nil, ErrNotEncrypted
+	}
+
+	return DecryptKey(data, password)
+}
+
+// SaveIdentity encrypts and saves a private key to disk in SHRL format.
+func SaveIdentity(path string, privKey crypto.PrivKey, password string) error {
+	data, err := EncryptKey(privKey, password)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// LoadOrCreateIdentity loads an existing SHRL-encrypted identity or creates a new one.
+// When creating, generates a random Ed25519 key (no seed derivation).
+// For seed-derived keys, use DeriveIdentityKey + SaveIdentity directly.
+func LoadOrCreateIdentity(path, password string) (crypto.PrivKey, error) {
+	if _, err := os.Stat(path); err == nil {
+		return LoadIdentity(path, password)
+	}
+
+	// Generate new key.
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate keypair: %w", err)
+		return nil, fmt.Errorf("generating keypair: %w", err)
 	}
 
-	// Marshal and save
-	data, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal private key: %w", err)
-	}
-
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return nil, fmt.Errorf("failed to save key to %s: %w", path, err)
+	if err := SaveIdentity(path, priv, password); err != nil {
+		return nil, err
 	}
 
 	return priv, nil
 }
 
-// PeerIDFromKeyFile loads (or creates) a key file and returns the derived peer ID.
-func PeerIDFromKeyFile(path string) (peer.ID, error) {
-	priv, err := LoadOrCreateIdentity(path)
+// PeerIDFromKeyFile loads an encrypted key file and returns the derived peer ID.
+func PeerIDFromKeyFile(path, password string) (peer.ID, error) {
+	priv, err := LoadIdentity(path, password)
 	if err != nil {
 		return "", err
 	}
 	id, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
-		return "", fmt.Errorf("failed to derive peer ID: %w", err)
+		return "", fmt.Errorf("deriving peer ID: %w", err)
 	}
 	return id, nil
 }

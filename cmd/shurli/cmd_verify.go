@@ -72,7 +72,8 @@ func runVerify(args []string) {
 	}
 
 	// Load our own identity.
-	ourPeerID, err := identity.PeerIDFromKeyFile(cfg.Identity.KeyFile)
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+	ourPeerID, err := identity.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		fatal("Failed to load identity: %v", err)
 	}

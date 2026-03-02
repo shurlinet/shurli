@@ -221,8 +221,9 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | 5-L | PeerManager | Background reconnection of authorized peers, exponential backoff, event-bus driven connect/disconnect tracking, network-change backoff reset | ✅ DONE |
 | 5-M | Network Intelligence (Presence) | Three-layer transport: direct push + gossip forwarding + future GossipSub. Peers exchange reachability grade, NAT type, IPv4/IPv6 flags, CGNAT status. `/shurli/presence/1.0.0` protocol | ✅ DONE |
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
-| **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | Planned |
-| **Phase 8** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
+| **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
+| **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
+| **Phase 9** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
 
 **Deliverables**:
 
@@ -256,13 +257,13 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`shurli status` command** - show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required - instant. *(Batch E)*
 
-**Auto-Upgrade Groundwork** (full implementation in Phase 10):
+**Auto-Upgrade Groundwork** (full implementation in Phase 11):
 - [x] **Build version embedding** - compile with `-ldflags "-X main.version=..."` so every binary knows its version. `shurli version` / `shurli --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** - set `UserAgent` to `shurli/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D - serve/proxy/ping; Batch E - invite/join)*
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
-- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 15 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown. CLI client auto-reads cookie. *(Batch F)*
+- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 18 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** - `shurli invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `shurli join --non-interactive` reads invite code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:
@@ -284,7 +285,7 @@ Prometheus metrics (not OpenTelemetry SDK - libp2p emits Prometheus natively, ze
 - [x] Resource manager stats tracer - `rcmgr.WithTraceReporter()` enables per-connection/stream/memory metrics on the rcmgr Grafana dashboard
 - [x] Custom shurli metrics - proxy bytes/connections/duration per service, auth allow/deny counters, hole-punch counters/histograms (enhanced from existing tracer), daemon API request timing, build info gauge
 - [x] Audit logging - structured JSON via slog for security events: auth allow/deny decisions, service ACL denials, daemon API access, auth changes via API. Opt-in via `telemetry.audit.enabled`
-- [x] Grafana dashboard - pre-built JSON dashboard with 37 panels across 6 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System) covering proxy throughput, auth decisions, vault seal state, pairing, invite deposits, admin socket, hole punch stats, API latency, and system metrics. Import-ready for any Grafana instance.
+- [x] Grafana dashboard - pre-built JSON dashboard with 56 panels across 11 sections (Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, ZKP Tree Operations) covering proxy throughput, auth decisions, vault seal state, pairing, invite deposits, admin socket, hole punch stats, API latency, ZKP operations, and system metrics. Import-ready for any Grafana instance.
 
 Deferred from original Batch H scope (with reasoning):
 - ~~OpenTelemetry SDK integration~~ - Replaced by Prometheus directly. libp2p uses Prometheus natively; adding OTel SDK would add ~4MB binary size, 35% CPU overhead for traces, and a translation layer for zero benefit. The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can forward metrics to any OTel backend later without changing instrumentation code
@@ -359,7 +360,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 13 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 14 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -532,36 +533,35 @@ Priority areas (all hit or exceeded targets):
 
 **Goal**: Smarter peer discovery, scoring, and communication. mDNS for instant LAN discovery, Bitcoin-inspired peer management for reliable connections, and PubSub broadcast for network-wide awareness. Includes relay decentralization groundwork.
 
-**Status**: 📋 Planned
+**Status**: ✅ DONE
 
-### 5-K: mDNS Local Discovery
+### 5-K: mDNS Local Discovery ✅ DONE
 
 Zero-config peer discovery on the local network. When two Shurli nodes are on the same LAN, mDNS finds them in milliseconds without DHT lookups or relay bootstrap. Directly addresses the latency gap observed during Batch I live testing: LAN-connected peers currently route through the relay first, then upgrade to direct. With mDNS, they discover each other instantly.
 
-- [ ] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
-- [ ] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
-- [ ] Combine with DHT discovery - mDNS for local, DHT for remote. Both feed into PathDialer
-- [ ] Config option: `discovery.mdns_enabled: true` (default: true, disable for server-only nodes)
-- [ ] Explicit DHT routing table refresh on network change events - trigger `RefreshRoutingTable()` from NetworkMonitor callbacks (currently runs on internal timer only, can go stale in small private networks)
-- [ ] Test: two hosts on same LAN discover each other via mDNS within 5 seconds without relay
+- [x] Enable libp2p mDNS discovery (`github.com/libp2p/go-libp2p/p2p/discovery/mdns`) - already in the dependency tree, zero binary size impact
+- [x] Integrate with existing peer authorization - mDNS-discovered peers still checked against `authorized_keys` (ConnectionGater enforces, no bypass)
+- [x] Combine with DHT discovery - mDNS for local, DHT for remote. Both feed into PathDialer
+- [x] Config option: `discovery.mdns_enabled: true` (default: true, disable for server-only nodes)
+- [x] Explicit DHT routing table refresh on network change events - trigger `RefreshRoutingTable()` from NetworkMonitor callbacks (currently runs on internal timer only, can go stale in small private networks)
+- [x] Test: two hosts on same LAN discover each other via mDNS within 5 seconds without relay
 
 Quick win. One libp2p option on host construction + NetworkMonitor integration. Prerequisite: none. Zero new dependencies.
 
-### 5-L: PeerManager / AddrMan
+### 5-L: PeerManager / AddrMan ✅ DONE
 
 Bitcoin-inspired peer management, dimming star scoring, persistent peer table, peerstore metadata, bandwidth tracking, DHT refresh on network change, gossip discovery (PEX). Top priority after mDNS. Motivated by the "no re-upgrade from relay to direct after network change" finding from Batch I live testing.
 
-### 5-M: GossipSub Network Intelligence
+### 5-M: Network Intelligence (Presence) ✅ DONE
 
-libp2p's built-in PubSub broadcast layer (GossipSub v1.1, already in the dependency tree). Currently all Shurli communication is point-to-point. GossipSub adds a broadcast channel where peers share network knowledge collectively. Scale-aware design: direct PEX streams (L) at <10 peers, GossipSub transport at 10+ peers.
+Three-layer presence transport: direct push + gossip forwarding + future GossipSub. Peers exchange reachability grade, NAT type, IPv4/IPv6 flags, and CGNAT status via the `/shurli/presence/1.0.0` protocol. Direct push handles current-scale networks; gossip forwarding propagates presence to peers-of-peers; GossipSub activation deferred until networks exceed 10+ peers (overhead exceeds utility below that threshold).
 
-- [ ] **GossipSub topic per namespace** - `/shurli/<namespace>/gossip/1.0.0`. Peers subscribe on connect. Only authorized peers can publish (ConnectionGater + GossipSub peer scoring).
-- [ ] **Address change broadcast** - when a peer's external address changes (detected by NetworkMonitor + STUN re-probe), it announces once via GossipSub. Every connected peer hears it immediately instead of waiting for DHT re-discovery. Directly addresses the "no re-upgrade from relay to direct after network change" finding.
-- [ ] **PEX transport upgrade** - PEX messages (L format) carried over GossipSub instead of direct streams. Reduces per-peer connection overhead for peer exchange in larger networks.
-- [ ] **PeerManager observation sharing** - peers share aggregated scoring observations. "Peer X has been bright-tier for 7 days" vs "Peer X has been dimming for 3 days." Enables network-level peer quality assessment.
-- [ ] **Scale-aware activation** - GossipSub mesh management (GRAFT, PRUNE, IHAVE, IWANT) has overhead that exceeds utility below 10 peers. Implementation includes an activation threshold: direct PEX below 10 connected peers, GossipSub at 10+.
+- [x] **Presence protocol** - `/shurli/presence/1.0.0`. Peers exchange network capability snapshots (reachability grade, NAT type, IPv4/IPv6 flags, CGNAT status) on connect and on network change.
+- [x] **Direct push** - point-to-point presence delivery to all connected peers. Immediate propagation at current network scale.
+- [x] **Gossip forwarding** - peers-of-peers receive presence updates via forwarding. Extends reach beyond direct connections without full PubSub overhead.
+- [x] **Future GossipSub activation point** - GossipSub mesh management (GRAFT, PRUNE, IHAVE, IWANT) deferred until networks reach 10+ peers where broadcast overhead is justified. Architecture ready for upgrade.
 
-Dependency: Requires PeerManager (5-L) for Tried table data. Zero new dependencies (libp2p GossipSub is already in the module).
+Dependency: Requires PeerManager (5-L) for peer lifecycle data. GossipSub deferred (go-libp2p-pubsub pins go-libp2p v0.39.1, incompatible with our v0.47.0).
 
 ### Relay Decentralization
 
@@ -634,10 +634,11 @@ After Phase 5 observability and PeerManager provide the data:
 - [x] Vault stores which 2FA methods are enabled
 - [x] `otpauth://` provisioning URI for authenticator app setup
 
-**New relay admin endpoints** (9 total):
+**New relay admin endpoints** (10 total):
 - `POST /v1/unseal`, `POST /v1/seal`, `GET /v1/seal-status`
 - `POST /v1/vault/init`, `GET /v1/vault/totp-uri`
 - `POST /v1/invite`, `GET /v1/invite`, `DELETE /v1/invite/{id}`, `PATCH /v1/invite/{id}`
+- `POST /v1/auth/reload` (hot-reload authorized_keys + ZKP tree)
 
 **New P2P protocol**: `/shurli/relay-unseal/1.0.0`
 
@@ -678,9 +679,9 @@ Future:          authorized_keys becomes optional cache layer
 
 ---
 
-### Phase 7: ZKP Privacy Layer
+### Phase 7: ZKP Privacy Layer ✅ COMPLETE
 
-**Status**: Planned
+**Status**: ✅ Complete
 
 **Goal**: Zero-knowledge proof authorization. Peers prove they hold valid capabilities (macaroons) without revealing their identity or specific permissions to the relay. Built on gnark (PLONK + KZG).
 
@@ -688,13 +689,61 @@ Future:          authorized_keys becomes optional cache layer
 
 ---
 
-### Phase 8: Visual Channel "Constellation Code"
+### Phase 8: Identity Security + Remote Admin
+
+**Status**: ✅ Complete
+
+**Goal**: Unify all cryptographic material under one BIP39 seed phrase, encrypt identity keys at rest, enable full relay administration over P2P, and add operator announcement capabilities.
+
+**Deliverables**:
+
+**Unified Seed Architecture**:
+- [x] Single BIP39 seed phrase (24 words) derives identity key, vault key, and ZKP SRS via HKDF domain separation
+- [x] `shurli init` generates seed, confirms via quiz, derives and encrypts identity key
+- [x] `shurli recover` reconstructs identity from seed phrase (hidden input, no echo)
+- [x] `shurli recover --relay` also recovers vault and ZKP keys from same seed
+
+**Encrypted Identity**:
+- [x] All nodes encrypt identity.key at rest: Argon2id KDF + XChaCha20-Poly1305 (SHRL format)
+- [x] `shurli change-password` re-encrypts with new password
+- [x] Legacy unencrypted key files detected and user prompted to encrypt
+
+**Remote Admin Protocol** (`/shurli/relay-admin/1.0.0`):
+- [x] Full relay management over encrypted P2P connections (24+ admin API endpoints)
+- [x] All relay admin commands support `--remote <addr>` for remote operation
+- [x] Admin role check at stream open (non-admins rejected before data exchange)
+- [x] Rate limiting (5 requests/second per peer)
+- [x] Vault init is LOCAL ONLY (seed material never travels over the network)
+
+**MOTD and Goodbye** (`/shurli/relay-motd/1.0.0`):
+- [x] Signed operator announcements (Ed25519) with 3 message types: MOTD, goodbye, retract
+- [x] MOTD: 280-char limit, deduped per-relay (24h), pushed on peer connect
+- [x] Goodbye: persistent farewell, cached by clients, survives restarts
+- [x] Retract: cancels a goodbye (relay is back)
+- [x] Messages sanitized: URL/email stripping, non-ASCII removal, 280-char truncation
+- [x] Timestamp validation: reject future (>5min) and stale (>7d) messages
+
+**Session Tokens**:
+- [x] Machine-bound session tokens for password-free daemon restarts
+- [x] `shurli session refresh` / `shurli session destroy`
+- [x] `shurli lock` / `shurli unlock` gate sensitive operations without destroying session
+
+**CLI Enhancements**:
+- [x] `shurli doctor [--fix]` - health check + auto-fix (completions, man page, config)
+- [x] `shurli completion <bash|zsh|fish>` - shell completion scripts
+- [x] `shurli man` - troff man page (display, install, uninstall)
+
+**Key Files**: `internal/identity/seed.go`, `internal/identity/encrypted.go`, `internal/identity/session.go`, `internal/relay/remote_admin.go`, `internal/relay/remote_admin_client.go`, `internal/relay/motd.go`, `internal/relay/motd_client.go`, `cmd/shurli/cmd_lock.go`, `cmd/shurli/cmd_doctor.go`
+
+---
+
+### Phase 9: Visual Channel "Constellation Code"
 
 **Status**: Planned
 
 ---
 
-### Phase 9: Plugin Architecture, SDK & First Plugins
+### Phase 10: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -749,7 +798,7 @@ Future:          authorized_keys becomes optional cache layer
 - [ ] Service tags in config: `tags: [gpu, inference]` - categorize services for discovery
 
 **Python SDK** (`shurli-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API (15 endpoints already implemented)
+- [ ] Thin wrapper around daemon Unix socket API (18 endpoints already implemented)
 - [ ] `pip install shurli-sdk`
 - [ ] Core operations: connect, expose_service, discover_services, proxy, status
 - [ ] Async support (asyncio) for integration with event-driven applications
@@ -810,7 +859,7 @@ Waiting for transfers...
 
 ---
 
-### Phase 10: Distribution & Launch
+### Phase 11: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
@@ -975,14 +1024,14 @@ services:
 
 ---
 
-### Phase 11: Desktop Gateway Daemon + Private DNS
+### Phase 12: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
-**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 9.
+**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 10.
 
 **Deliverables**:
 
@@ -1049,7 +1098,7 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 12: Mobile Applications
+### Phase 13: Mobile Applications
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -1096,7 +1145,7 @@ Once connected:
 
 ---
 
-### Phase 13: Federation - Network Peering
+### Phase 14: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -1155,12 +1204,12 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 14: Advanced Naming Systems (Optional)
+### Phase 15: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 9.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 10.
 
 **Deliverables**:
 - [ ] Built-in resolvers:
@@ -1248,7 +1297,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 15+: Ecosystem & Polish
+## Phase 16+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1281,7 +1330,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 - VRF-based fair relay assignment (needed only with multiple competing relays)
 - Erlay / Minisketch set reconciliation (bandwidth savings only above 8+ peers)
 
-**Phase 7: ZKP Privacy Layer** - STATUS: PLANNED
+**Phase 7: ZKP Privacy Layer** - STATUS: DONE
 
 Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove group membership, relay authorization, and reputation without revealing their identity.
 
@@ -1303,10 +1352,10 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 4. **Any new trustless ZKP library in Go** - would be evaluated as a potential upgrade from KZG ceremony.
 
 **The four use cases**:
-- [ ] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key. ConnectionGater validates the proof, never learns which peer connected. Eliminates peer ID as a tracking vector.
-- [ ] **Anonymous relay authorization** - prove relay access rights without revealing identity to the relay. Relay validates membership proof, routes traffic, builds no connection graph.
-- [ ] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Phase 5-L).
-- [ ] **Private DHT namespace membership** - prove "I belong to the same namespace as you" without revealing the namespace name to non-members. Narrowest use case (exposure only to directly-dialed peers), implemented last.
+- [x] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key. ConnectionGater validates the proof, never learns which peer connected. Eliminates peer ID as a tracking vector.
+- [x] **Anonymous relay authorization** - prove relay access rights without revealing identity to the relay. Relay validates membership proof, routes traffic, builds no connection graph.
+- [x] **Privacy-preserving reputation** - prove reputation above a threshold without revealing exact score, join date, or relay history. Prevents reputation data from becoming a surveillance tool. Builds on PeerManager scoring (Phase 5-L).
+- [x] **Private DHT namespace membership** - prove "I belong to the same namespace as you" without revealing the namespace name to non-members. Narrowest use case (exposure only to directly-dialed peers), implemented last.
 
 **Architecture decisions** (stable regardless of proving system):
 - Hash-based membership: MiMC/Poseidon(ed25519_pubkey) as Merkle leaf. Avoids Ed25519 curve mismatch with SNARK-native fields (~600x overhead if Ed25519 arithmetic done inside circuit).
@@ -1319,14 +1368,26 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 - Sapling (2018): Powers of Tau, 90+ participants. 1-of-90 honest assumption.
 - Orchard/NU5 (2022): Halo 2 - NO trusted setup. IPA-based (Pedersen commitments). No toxic waste. Trust math only. If this arrives in Go, it's a strict upgrade from our KZG approach.
 
-**RLN - Anonymous Relay Rate-Limiting** (Future - after ZKP Privacy Layer):
+**RLN - Anonymous Relay Rate-Limiting** (eligible now - ZKP Privacy Layer complete):
 
 Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Secret Sharing: each member's secret defines a line; revealing 1 point per epoch = anonymous; revealing 2+ points = secret reconstructable, spammer auto-detected. No judge, no blockchain needed. Waku (Status.im) uses RLN; libp2p community discussion active (specs issue #374).
+
+**Seam already in code**: `internal/zkp/rln_seam.go` defines the types and interface. Ready for circuit implementation.
 
 - [ ] Reimplement RLN in pure Go using gnark primitives (avoids Rust FFI dependency from Waku's go-zerokit-rln)
 - [ ] Anonymous relay reservation rate-limiting (relay validates ZK proof, doesn't know who's connecting)
 - [ ] Off-chain membership tree (relay operator maintains from authorized_keys, no blockchain)
 - [ ] Global spammer detection (nullifier exposure propagates across relays)
+
+**Anonymous NetIntel** (future - requires pubsub):
+
+Anonymous presence and network intelligence announcements. Peers share reachability grade, NAT type, and connection quality without revealing identity. Extends the existing `/shurli/presence/1.0.0` protocol with ZKP membership proofs.
+
+**Dependency**: Requires go-libp2p-pubsub to catch up to go-libp2p v0.47.0+ (currently pinned to v0.39.1). Direct push works today; gossip forwarding for anonymous announcements needs pubsub.
+
+- [ ] ZKP-authenticated presence announcements (prove membership without revealing peer ID)
+- [ ] Anonymous reachability grade sharing (network health without identity exposure)
+- [ ] Gossip-based anonymous forwarding (when pubsub dependency resolves)
 
 **Protocol & Security Evolution**:
 - [ ] MASQUE relay transport ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) - HTTP/3 relay alternative to Circuit Relay v2. Looks like standard HTTPS to DPI, supports 0-RTT session resumption for instant reconnection. Could coexist with Circuit Relay v2 as user-selectable relay transport.
@@ -1357,17 +1418,18 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 | **Phase 4C: Core Hardening & Security** | ✅ 6-8 weeks | Complete (Batches A-I, Post-I-1, Post-I-2, Pre-Phase 5 Hardening) |
 | **Phase 5: Network Intelligence** | ✅ | Complete (5-K mDNS, 5-L PeerManager, 5-M Presence) |
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
-| **Phase 7: ZKP Privacy Layer** | 📋 | Planned (gnark PLONK + Ethereum KZG) |
-| Phase 8: Visual Channel | 📋 | Planned ("Constellation Code") |
-| Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
-| Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
-| Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 12: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 13: Federation | 📋 2-3 weeks | Planned |
-| Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
+| **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
+| **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
+| Phase 9: Visual Channel | 📋 | Planned ("Constellation Code") |
+| Phase 10: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 11: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 12: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 13: Mobile Apps | 📋 3-4 weeks | Planned |
+| Phase 14: Federation | 📋 2-3 weeks | Planned |
+| Phase 15: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 16+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (builds on ACL model) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
 
 ---
 
@@ -1425,7 +1487,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - mDNS discovers LAN peers within 5 seconds without relay
 - PeerManager tracks and scores peers, persists across restarts
 - Network change triggers re-upgrade from relay to direct (the Batch I finding)
-- GossipSub broadcasts address changes to all peers within seconds
+- Presence protocol exchanges reachability data via direct push + gossip forwarding
 
 **Phase 6 Success** (ACL + Relay Security + Client Invites):
 - Client-generated invite code works async: generate in NZ, friend joins in AU hours later
@@ -1442,11 +1504,19 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Anonymous relay authorization for peer relays
 - Privacy-preserving reputation proofs (score above threshold without revealing exact score)
 
-**Phase 8 Success** (Visual Channel):
+**Phase 8 Success** (Identity Security + Remote Admin):
+- Single BIP39 seed derives identity, vault, and ZKP keys (one backup covers everything)
+- Identity keys encrypted at rest on all nodes (Argon2id + XChaCha20-Poly1305)
+- Full relay management over P2P (24+ admin endpoints, no SSH required for daily ops)
+- MOTD/goodbye announcements signed and verified (Ed25519), defense against prompt injection
+- Session tokens allow password-free daemon restarts, lock/unlock gates sensitive ops
+- `shurli doctor` validates installation health and auto-fixes issues
+
+**Phase 9 Success** (Visual Channel):
 - "Constellation Code" animated visual pairing works between devices
 - Pairing verified visually without reading text codes
 
-**Phase 9 Success** (Plugins, SDK):
+**Phase 10 Success** (Plugins, SDK):
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
@@ -1459,7 +1529,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Python SDK works: `pip install shurli-sdk` → connect to remote service in <10 lines
 - `shurli invite --headless` outputs JSON; `shurli join --from-env` reads env vars
 
-**Phase 9 Success** (Distribution & Launch):
+**Phase 11 Success** (Distribution & Launch):
 - `shurli.io` serves a Hugo documentation site with landing page, guides, and install instructions
 - Site auto-deploys on push to `main` via GitHub Actions
 - `shurli.io/llms.txt` returns markdown index; `shurli.io/llms-full.txt` returns full site content - AI agents can understand the project in ~200 tokens
@@ -1484,31 +1554,31 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Containerized deployment guide published with working Docker compose examples
 - Python SDK available on PyPI
 
-**Phase 11 Success** (Desktop Gateway + Private DNS):
+**Phase 12 Success** (Desktop Gateway + Private DNS):
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 12 Success** (Mobile Apps):
+**Phase 13 Success** (Mobile Apps):
 - iOS app approved by Apple
 - Android app published on Play Store
 - QR code invite flow works mobile → desktop
 
-**Phase 13 Success** (Federation):
+**Phase 14 Success** (Federation):
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 14 Success** (Advanced Naming):
+**Phase 15 Success** (Advanced Naming):
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
 ---
 
-**Last Updated**: 2026-02-28
-**Current Phase**: Phase 6 Complete. Phase 7 (ZKP Privacy Layer) next.
-**Phases**: 1-6 (complete), 7-14 (planned), 15+ (ecosystem)
-**Next Milestone**: Phase 7 - ZKP Privacy Layer (gnark PLONK + Ethereum KZG, anonymous auth, anonymous relay, privacy-preserving reputation)
+**Last Updated**: 2026-03-02
+**Current Phase**: Phase 8 Complete. Phase 9 (Visual Channel "Constellation Code") next.
+**Phases**: 1-8 (complete), 9-15 (planned), 16+ (ecosystem)
+**Next Milestone**: Phase 9 - Visual Channel "Constellation Code" (animated visual pairing)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

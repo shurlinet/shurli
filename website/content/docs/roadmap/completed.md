@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, and full Phase 4C hardening."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, and Phase 8 Identity Security + Remote Admin."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -172,7 +172,7 @@ Inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik:
 **Batch F - Daemon Mode**:
 - [x] `shurli daemon` - long-running P2P host with Unix socket HTTP API
 - [x] Cookie-based authentication (32-byte random hex, `0600` permissions, rotated per restart)
-- [x] 15 API endpoints with JSON + plain text format negotiation
+- [x] 18 API endpoints with JSON + plain text format negotiation
 - [x] Auth hot-reload, dynamic proxy management
 - [x] P2P ping, traceroute, resolve - standalone + daemon API
 - [x] Service files: systemd + launchd
@@ -180,7 +180,7 @@ Inspired by Juniper JunOS, Cisco IOS, Kubernetes, systemd, MikroTik:
 **Batch G - Test Coverage & Documentation**:
 Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary merged into shurli.
 - [x] 96 test functions covering CLI commands
-- [x] All 15 API handlers tested
+- [x] All 18 API handlers tested
 - [x] Docker integration tests with coverage
 - [x] Engineering journal with 43 ADRs
 - [x] Website with Hugo + Hextra, 10 blog posts, 40+ SVG diagrams
@@ -190,7 +190,7 @@ Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary me
 - [x] libp2p built-in metrics exposed (swarm, hole-punch, AutoNAT, relay, rcmgr)
 - [x] Custom shurli metrics (proxy bytes/connections/duration, auth counters, hole-punch stats, API timing)
 - [x] Audit logging - structured JSON via slog for security events
-- [x] Grafana dashboard - 37 panels across 6 sections
+- [x] Grafana dashboard - 56 panels across 11 sections
 
 ### Pre-Batch I Items
 
@@ -381,3 +381,147 @@ Optional hardware 2FA via ykman CLI (zero C dependencies).
 
 - [x] Availability detection, challenge-response, graceful fallback
 - [x] 6 tests
+
+---
+
+## Phase 7: ZKP Privacy Layer
+
+Zero-knowledge proof privacy layer using gnark PLONK on BN254. Peers prove "I'm authorized" without the relay learning which peer they are. 27 new files, 18 modified, ~91 tests. Two new dependencies: gnark v0.14.0, gnark-crypto v0.19.0 (pure Go).
+
+### 7-A: ZKP Foundation
+
+Poseidon2 Merkle tree, membership circuit, prover/verifier, key management.
+
+- [x] Native + circuit Poseidon2 hash wrappers (BN254 parameters: width=2, 6 full rounds, 50 partial)
+- [x] Sorted Merkle tree builder with power-of-2 padding, max depth 20 (1M+ peers)
+- [x] PLONK membership circuit: 22,784 SCS constraints, 520-byte proofs
+- [x] Root extension for trees with depth < 20 (pad through unused levels)
+- [x] KZG SRS generation with filesystem caching
+- [x] Proving key (~2 MB) and verifying key (~33.5 KB) serialization
+- [x] High-level prover and verifier with public-only witness support
+- [x] 37 tests + 7 benchmarks across 5 test files
+- [x] ZKPConfig added to SecurityConfig and RelaySecurityConfig
+
+### 7-B: Anonymous Relay Authorization
+
+Challenge-response protocol for anonymous authentication over libp2p streams.
+
+- [x] `/shurli/zkp-auth/1.0.0` binary wire protocol (4-phase handshake)
+- [x] Single-use challenge nonces with 30-second TTL, cryptographic randomness
+- [x] Relay ZKP handler with stream processing and deadline management
+- [x] Client-side ZKP auth (stream-based proof generation)
+- [x] `POST /v1/zkp/tree-rebuild` admin endpoint (vault-gated)
+- [x] `GET /v1/zkp/tree-info` admin endpoint (always available)
+- [x] 9 new Prometheus metrics (prove, verify, auth, tree, challenges)
+- [x] 15 tests (7 challenge store + 8 wire protocol)
+
+### 7-C: Private Reputation
+
+Range proofs on peer reputation scores. Prove "my score >= threshold" without revealing the exact score.
+
+- [x] Deterministic `ComputeScore`: 0-100, four components (availability, latency, path diversity, tenure)
+- [x] Range proof circuit: 27,004 SCS constraints (+4,220 over membership for range comparison)
+- [x] `AnonymousMode` and `ZKPProof` fields on `NodeAnnouncement`
+- [x] RLN extension point: types + interface for future anonymous rate limiting
+- [x] 5 new Prometheus metrics (range prove/verify, anonymous announcements)
+- [x] 25 tests (14 scoring + 11 range proof including 2 end-to-end PLONK)
+
+### 7-D: BIP39 Seed-Derived Deterministic Keys
+
+Deterministic PLONK key generation from BIP39 seed phrases. Solves the key incompatibility problem discovered during physical testing.
+
+- [x] Pure-stdlib BIP39: generate, validate, seed derivation (256-bit entropy, 24-word mnemonic)
+- [x] `SetupKeysFromSeed`: `SHA256(mnemonic)` -> gnark `WithToxicSeed` -> deterministic SRS -> same keys anywhere
+- [x] `shurli relay zkp-setup` command with `--seed` flag and interactive prompt
+- [x] `GET /v1/zkp/proving-key` and `GET /v1/zkp/verifying-key` relay API endpoints
+- [x] ProvingKey/VerifyingKey naming convention (renamed from PK/VK throughout)
+- [x] 14 tests (11 BIP39 + 3 seed determinism)
+
+### Phase 7 Key Numbers
+
+| Metric | Value |
+|--------|-------|
+| Membership circuit constraints | 22,784 SCS |
+| Range proof circuit constraints | 27,004 SCS |
+| Proof size | 520 bytes |
+| Full auth round-trip (internet) | ~1.8s proving + 2-3ms verification |
+| Prove time | ~1.8s |
+| Verify time | ~2-3ms |
+| Circuit compile | ~70ms |
+| Proving key | ~2 MB |
+| Verifying key | ~33.5 KB |
+| New Prometheus metrics | 14 |
+| New/modified files | 27 new, 18 modified |
+| Tests | ~91 |
+
+---
+
+## Phase 8: Identity Security + Remote Admin
+
+Unified BIP39 seed architecture, encrypted identity keys, session tokens, full remote admin over P2P, and MOTD/goodbye protocol. 22+ new files, 27+ modified files. Physically tested across 3 nodes (MacBook, home-node, relay VPS).
+
+### 8-A: Unified BIP39 Seed
+
+One 24-word mnemonic derives everything via HKDF domain separation.
+
+- [x] BIP39 24-word mnemonic generation (256-bit entropy)
+- [x] HKDF domain separation: `shurli/identity/v1` -> Ed25519 key, `shurli/vault/v1` -> vault root key
+- [x] SRS derivation from seed -> ZKP keys (deterministic PLONK setup)
+- [x] `shurli recover --seed` recovers identity from seed phrase
+- [x] `shurli relay recover` recovers relay identity + vault + session from seed
+
+### 8-B: SHRL Encrypted Identity
+
+All identity keys are password-encrypted at rest. No unencrypted keys.
+
+- [x] SHRL format: `[SHRL][version:1][salt:16][nonce:24][ciphertext]`
+- [x] Argon2id KDF (time=3, memory=64MB, threads=4) + XChaCha20-Poly1305
+- [x] Old raw `identity.key` files rejected with clear error message
+- [x] `shurli change-password` re-encrypts with new password (atomic write)
+- [x] Same-password rejection on change-password
+
+### 8-C: Session Tokens
+
+Machine-bound auto-decrypt for daemon auto-start without password.
+
+- [x] SHRS format with machine-bound encryption (HKDF from install-random + machine ID)
+- [x] `shurli lock` - runtime daemon state only, does NOT delete .session
+- [x] `shurli unlock` - verify password, unlock sensitive ops
+- [x] `shurli session refresh` - rotate token with fresh crypto material
+- [x] `shurli session destroy` - revoke auto-start on this machine
+- [x] macOS machine ID via IOPlatformUUID (ioreg), Linux via /etc/machine-id
+
+### 8-D: Remote Admin over P2P
+
+All 24 relay admin endpoints accessible over libp2p streams.
+
+- [x] `/shurli/relay-admin/1.0.0` protocol (replaces relay-unseal protocol)
+- [x] `--remote <peer-id|name|multiaddr>` flag on all relay subcommands
+- [x] Admin role check via authorized_keys
+- [x] Local-only path blocklist (vault-init and totp-uri blocked over P2P)
+- [x] Relay auto-generates BIP39 seed on first `relay serve`
+
+### 8-E: MOTD/Goodbye Protocol
+
+Ed25519-signed relay operator announcements.
+
+- [x] `/shurli/relay-motd/1.0.0` protocol
+- [x] Wire format: `[version][type][msg-len][msg][timestamp][Ed25519 signature]`
+- [x] 3-stage goodbye lifecycle: set, retract, shutdown (with grace period)
+- [x] Client-side signature verification, timestamp bounds, sanitization
+- [x] Persisted goodbyes with signature re-verification on load
+- [x] Auto-push to newly connected peers
+
+### 8-F: CLI Enhancements
+
+- [x] `shurli doctor` - health check + auto-fix (completions, man page, config)
+- [x] `shurli completion` - bash, zsh, fish (user-local install by default)
+- [x] `shurli man` - troff man page (user-local install by default)
+- [x] `--skip-seed-confirm` flag (skips quiz, keeps mandatory password)
+
+### Phase 8 Physical Testing
+
+34 verification items across 3 sessions on 3 physical nodes:
+- 30 physically tested (ALL PASS)
+- 4 covered by unit tests only
+- 2 bugs found and fixed (same-password acceptance, completion/man sudo requirement)

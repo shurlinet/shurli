@@ -10,6 +10,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/shurlinet/shurli/internal/identity"
 )
 
 // writeTestConfigWithNames creates a config with a name mapping and returns the config path.
@@ -17,17 +19,16 @@ func writeTestConfigWithNames(t *testing.T, names map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Write identity key
+	// Write SHRL-encrypted identity key + session token.
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
 	if err != nil {
 		t.Fatalf("generate key pair: %v", err)
 	}
-	data, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
+	if err := identity.SaveIdentity(filepath.Join(dir, "identity.key"), priv, testPassword); err != nil {
+		t.Fatalf("save identity: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "identity.key"), data, 0600); err != nil {
-		t.Fatalf("write identity key: %v", err)
+	if err := identity.CreateSession(dir, testPassword); err != nil {
+		t.Fatalf("create session: %v", err)
 	}
 
 	// Write authorized_keys
