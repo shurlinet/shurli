@@ -17,23 +17,15 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## Phase 7: ZKP Privacy Layer - STATUS: COMPLETE
+## ZKP Watching List
 
-Moved to [Completed Work](/docs/roadmap/completed/#phase-7-zkp-privacy-layer). Zero-knowledge membership proofs, anonymous relay authorization, private reputation range proofs, and BIP39 deterministic key management. 27 new files, 18 modified, ~91 tests.
-
-**What we're watching** (checked after each phase completion):
+Checked after each phase completion:
 1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
 2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
 3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
 
-**Remaining for future phases**:
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
-
----
-
-## Phase 8: Identity Security + Remote Admin - STATUS: COMPLETE
-
-Moved to [Completed Work](/docs/roadmap/completed/#phase-8-identity-security--remote-admin). Unified BIP39 seed, encrypted identity keys, session tokens, remote admin over P2P, MOTD/goodbye protocol. 22+ new files, 34 verification items all PASS.
+**Deferred from Phase 7**:
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 14 federation work)
 
 ---
 
