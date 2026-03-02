@@ -169,9 +169,16 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		})
 	}
 
+	// Resolve identity password for SHRL-encrypted key.
+	pw, err := resolvePassword(filepath.Dir(cfgFile))
+	if err != nil {
+		return nil, fmt.Errorf("identity key is encrypted but no session token found.\n  Run 'shurli init' to create an identity.\n  (%w)", err)
+	}
+
 	// Create P2P network
 	netCfg := &p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Gater:              rt.gater,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + ver,
@@ -676,6 +683,28 @@ func (rt *serveRuntime) SetupPingPong() {
 			s.Write([]byte("unknown\n"))
 		}
 		s.Close()
+	})
+}
+
+// SetupMOTDClient registers the MOTD client stream handler so the daemon
+// can receive MOTD and goodbye announcements from relays.
+func (rt *serveRuntime) SetupMOTDClient() {
+	h := rt.network.Host()
+	configDir := filepath.Dir(rt.configFile)
+
+	motdClient := relay.NewMOTDClient(func(msg relay.MOTDMessage) {
+		switch msg.Type {
+		case 0x01: // MOTD
+			fmt.Printf("\n[RELAY MOTD] %s\n", msg.Message)
+		case 0x02: // Goodbye
+			fmt.Printf("\n[RELAY GOODBYE] %s\n", msg.Message)
+		case 0x03: // Retract
+			fmt.Printf("\n[RELAY] Goodbye retracted\n")
+		}
+	}, configDir)
+
+	h.SetStreamHandler(protocol.ID(relay.MOTDProtocol), func(s network.Stream) {
+		motdClient.HandleStream(s)
 	})
 }
 

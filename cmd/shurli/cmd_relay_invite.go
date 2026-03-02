@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/termcolor"
 )
 
@@ -45,14 +43,16 @@ func doRelayInviteCreate(args []string, configFile string, stdout io.Writer) err
 	fs.SetOutput(io.Discard)
 	caveatFlag := fs.String("caveat", "", "comma-separated caveats (e.g. 'service=proxy,action=connect')")
 	ttlFlag := fs.Int("ttl", 0, "deposit TTL in seconds (0 = never expires)")
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	client, err := inviteAdminClient(configFile)
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	var caveats []string
 	if *caveatFlag != "" {
@@ -88,11 +88,17 @@ func runRelayInviteList(args []string, configFile string) {
 	}
 }
 
-func doRelayInviteList(_ []string, configFile string, stdout io.Writer) error {
-	client, err := inviteAdminClient(configFile)
+func doRelayInviteList(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay invite list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	fs.Parse(args)
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	invites, err := client.ListInvites()
 	if err != nil {
@@ -138,15 +144,21 @@ func runRelayInviteRevoke(args []string, configFile string) {
 }
 
 func doRelayInviteRevoke(args []string, configFile string, stdout io.Writer) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: shurli relay invite revoke <id>")
-	}
-	id := args[0]
+	fs := flag.NewFlagSet("relay invite revoke", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	fs.Parse(args)
 
-	client, err := inviteAdminClient(configFile)
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: shurli relay invite revoke <id> [--remote <addr>]")
+	}
+	id := fs.Arg(0)
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	if err := client.RevokeInvite(id); err != nil {
 		return fmt.Errorf("revoke failed: %w", err)
@@ -168,12 +180,13 @@ func doRelayInviteModify(args []string, configFile string, stdout io.Writer) err
 	fs := flag.NewFlagSet("relay invite modify", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	addCaveat := fs.String("add-caveat", "", "caveat to add (semicolon-separated for multiple)")
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: shurli relay invite modify <id> --add-caveat <k=v>")
+		return fmt.Errorf("usage: shurli relay invite modify <id> --add-caveat <k=v> [--remote <addr>]")
 	}
 	id := fs.Arg(0)
 
@@ -183,10 +196,11 @@ func doRelayInviteModify(args []string, configFile string, stdout io.Writer) err
 
 	caveats := strings.Split(*addCaveat, ";")
 
-	client, err := inviteAdminClient(configFile)
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	if err := client.ModifyInvite(id, caveats); err != nil {
 		return fmt.Errorf("modify failed: %w", err)
@@ -195,13 +209,6 @@ func doRelayInviteModify(args []string, configFile string, stdout io.Writer) err
 	termcolor.Green("Invite %s modified: added %d caveat(s).", id, len(caveats))
 	fmt.Fprintln(stdout)
 	return nil
-}
-
-func inviteAdminClient(configFile string) (*relay.AdminClient, error) {
-	dir := filepath.Dir(configFile)
-	socketPath := filepath.Join(dir, ".relay-admin.sock")
-	cookiePath := filepath.Join(dir, ".relay-admin.cookie")
-	return relay.NewAdminClient(socketPath, cookiePath)
 }
 
 func truncateID(s string) string {

@@ -212,9 +212,11 @@ func (c *AdminClient) SealStatus() (*SealStatusResponse, error) {
 }
 
 // InitVault creates a new vault on the relay.
-func (c *AdminClient) InitVault(passphrase string, enableTOTP bool, autoSealMins int) (*VaultInitResponse, error) {
+func (c *AdminClient) InitVault(seedBytes []byte, mnemonic, password string, enableTOTP bool, autoSealMins int) (*VaultInitResponse, error) {
 	reqBody, _ := json.Marshal(VaultInitRequest{
-		Passphrase:   passphrase,
+		SeedBytes:    seedBytes,
+		Mnemonic:     mnemonic,
+		Password:     password,
 		EnableTOTP:   enableTOTP,
 		AutoSealMins: autoSealMins,
 	})
@@ -292,6 +294,156 @@ func (c *AdminClient) ModifyInvite(id string, addCaveats []string) error {
 	})
 
 	data, status, err := c.do("PATCH", "/v1/invite/"+id, strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// ZKPTreeRebuild triggers a Merkle tree rebuild from authorized_keys.
+func (c *AdminClient) ZKPTreeRebuild() (map[string]any, error) {
+	data, status, err := c.do("POST", "/v1/zkp/tree-rebuild", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	return resp, nil
+}
+
+// ZKPTreeInfo returns the current ZKP Merkle tree state.
+func (c *AdminClient) ZKPTreeInfo() (*ZKPTreeInfoResponse, error) {
+	data, status, err := c.do("GET", "/v1/zkp/tree-info", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp ZKPTreeInfoResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	return &resp, nil
+}
+
+// ZKPProvingKey downloads the PLONK proving key from the relay.
+// Returns the raw binary key data (~2 MB).
+func (c *AdminClient) ZKPProvingKey() ([]byte, error) {
+	data, status, err := c.do("GET", "/v1/zkp/proving-key", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	return data, nil
+}
+
+// ZKPVerifyingKey downloads the PLONK verifying key from the relay.
+// Returns the raw binary key data (~34 KB).
+func (c *AdminClient) ZKPVerifyingKey() ([]byte, error) {
+	data, status, err := c.do("GET", "/v1/zkp/verifying-key", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	return data, nil
+}
+
+// AuthReload triggers a hot-reload of the relay's authorized_keys and gater.
+// Also rebuilds the ZKP Merkle tree if ZKP auth is enabled.
+func (c *AdminClient) AuthReload() error {
+	data, status, err := c.do("POST", "/v1/auth/reload", nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// GetMOTDStatus returns the current MOTD and goodbye status.
+func (c *AdminClient) GetMOTDStatus() (*MOTDStatusResponse, error) {
+	data, status, err := c.do("GET", "/v1/motd", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp MOTDStatusResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &resp, nil
+}
+
+// SetMOTD sets the relay's MOTD message.
+func (c *AdminClient) SetMOTD(message string) error {
+	reqBody, _ := json.Marshal(map[string]string{"message": message})
+	data, status, err := c.do("PUT", "/v1/motd", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// ClearMOTD clears the relay's MOTD message.
+func (c *AdminClient) ClearMOTD() error {
+	data, status, err := c.do("DELETE", "/v1/motd", nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// SetGoodbye sets a goodbye announcement (pushed to all connected peers).
+func (c *AdminClient) SetGoodbye(message string) error {
+	reqBody, _ := json.Marshal(map[string]string{"message": message})
+	data, status, err := c.do("PUT", "/v1/goodbye", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// RetractGoodbye retracts an active goodbye announcement.
+func (c *AdminClient) RetractGoodbye() error {
+	data, status, err := c.do("DELETE", "/v1/goodbye", nil)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// GoodbyeShutdown sets a goodbye and triggers relay shutdown.
+func (c *AdminClient) GoodbyeShutdown(message string) error {
+	reqBody, _ := json.Marshal(map[string]string{"message": message})
+	data, status, err := c.do("POST", "/v1/goodbye/shutdown", strings.NewReader(string(reqBody)))
 	if err != nil {
 		return err
 	}

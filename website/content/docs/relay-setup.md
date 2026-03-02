@@ -65,11 +65,13 @@ cp ../configs/relay-server.sample.yaml relay-server.yaml
 nano relay-server.yaml
 ```
 
-Then restart the service to pick up config changes:
+Then restart the service to pick up config changes (config-level changes like ports, transport, and ZKP enablement require a restart):
 
 ```bash
 sudo systemctl restart shurli-relay
 ```
+
+> **Note**: Auth changes (`shurli relay authorize` / `shurli relay deauthorize`) apply immediately via live reload - no restart needed.
 
 ### Add peers to the relay
 
@@ -105,9 +107,11 @@ nano relay_authorized_keys
 12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6  # client-node
 ```
 
-Restart the service after manual changes:
+After manual edits, trigger a live reload:
 
 ```bash
+shurli relay authorize <any-peer-id>   # triggers reload of the full file
+# Or restart if you prefer:
 sudo systemctl restart shurli-relay
 ```
 
@@ -381,7 +385,3 @@ bash setup.sh --check
 | Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
 | `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
 | CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |
-
----
-
-**Next step**: [Securing Your Relay](../relay-security/) - initialize the vault, set up 2FA, and configure auto-seal so your relay starts locked after every restart.

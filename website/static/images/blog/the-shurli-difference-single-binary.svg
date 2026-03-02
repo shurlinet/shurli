@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220" width="800" height="220">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="binaryFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="crossedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:0.4" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="220" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Single Binary, Zero Cloud</text>
+
+  <!-- Central binary -->
+  <rect x="300" y="48" width="200" height="100" rx="12" fill="url(#binaryFill)" stroke="#9ece6a" stroke-width="1.5"/>
+  <!-- Terminal prompt -->
+  <text x="320" y="72" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">$ ./shurli</text>
+  <text x="320" y="88" font-family="SF Mono, monospace" font-size="9" fill="#a9b1d6">~37 MB stripped</text>
+  <text x="320" y="102" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Go single module</text>
+  <text x="320" y="116" font-family="SF Mono, monospace" font-size="8" fill="#565f89">16 subcommands</text>
+  <text x="320" y="130" font-family="SF Mono, monospace" font-size="8" fill="#565f89">linux/amd64, linux/arm64</text>
+  <text x="320" y="142" font-family="SF Mono, monospace" font-size="8" fill="#565f89">darwin/arm64</text>
+
+  <!-- Not needed items (crossed out) - left column -->
+  <rect x="30" y="50" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="35" y1="64" x2="265" y2="64" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="40" y="69" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">cloud accounts</text>
+  <text x="190" y="69" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">0 required</text>
+
+  <rect x="30" y="84" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="35" y1="98" x2="265" y2="98" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="40" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">third-party auth</text>
+  <text x="190" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">0 required</text>
+
+  <rect x="30" y="118" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="35" y1="132" x2="265" y2="132" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="40" y="137" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">API keys</text>
+  <text x="190" y="137" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">0 required</text>
+
+  <!-- Not needed - right column -->
+  <rect x="530" y="50" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="535" y1="64" x2="765" y2="64" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="540" y="69" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">subscriptions</text>
+  <text x="690" y="69" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">0 required</text>
+
+  <rect x="530" y="84" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="535" y1="98" x2="765" y2="98" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="540" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">Docker containers</text>
+  <text x="690" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">not required</text>
+
+  <rect x="530" y="118" width="240" height="28" rx="6" fill="url(#crossedFill)" stroke="#f7768e" stroke-width="0.6" opacity="0.7"/>
+  <line x1="535" y1="132" x2="765" y2="132" stroke="#f7768e" stroke-width="0.8" opacity="0.5"/>
+  <text x="540" y="137" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">external services</text>
+  <text x="690" y="137" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" opacity="0.6">0 required</text>
+
+  <!-- Deployment targets -->
+  <rect x="100" y="164" width="600" height="42" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.8"/>
+  <text x="175" y="183" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">systemd</text>
+  <text x="280" y="183" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="360" y="183" font-family="SF Mono, monospace" font-size="9" fill="#7aa2f7" text-anchor="middle" font-weight="600">launchd</text>
+  <text x="440" y="183" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="530" y="183" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">$5/mo virtual server</text>
+  <text x="640" y="183" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">|</text>
+  <text x="710" y="183" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle" font-weight="600">Docker OK</text>
+  <text x="400" y="200" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Service files included. Cross-compiles to Linux (amd64, arm64) and macOS (arm64).</text>
+</svg>

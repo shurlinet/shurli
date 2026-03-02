@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // mockGater implements AdminGaterInterface for testing.
@@ -33,6 +35,14 @@ func (m *mockGater) IsEnrollmentEnabled() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.enrollmentEnabled
+}
+
+func (m *mockGater) UpdateAuthorizedPeers(authorizedPeers map[peer.ID]bool) {
+	// no-op for tests
+}
+
+func (m *mockGater) GetAuthorizedPeerIDs() []peer.ID {
+	return nil
 }
 
 func tempPaths(t *testing.T) (socketPath, cookiePath string) {

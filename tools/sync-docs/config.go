@@ -24,14 +24,20 @@ var docEntries = []docEntry{
 	{"NETWORK-TOOLS.md", "network-tools.md", 2, "Network Tools", "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."},
 	// FAQ.md removed - FAQ is now split into sub-pages under docs/faq/.
 	// Synced via faqEntries below, same pattern as journalEntries.
-	{"MONITORING.md", "monitoring.md", 6, "Monitoring", "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."},
-	{"DAEMON-API.md", "daemon-api.md", 7, "Daemon API", "REST API reference for the Shurli daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."},
-	{"ARCHITECTURE.md", "architecture.md", 8, "Architecture", "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."},
+	// Weights 6-10 are reserved for manual user journey guides:
+	// relay-security(6), inviting-peers(7), managing-network(8), zkp-setup(9), zkp-anonymous-auth(10)
+	// Weight 11: Architecture (core reference, right after user journey chain)
+	// Weight 12: Engineering Journal (_index.md)
+	{"MONITORING.md", "monitoring.md", 13, "Monitoring", "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."},
+	{"DAEMON-API.md", "daemon-api.md", 14, "Daemon API", "REST API reference for the Shurli daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."},
+	{"ARCHITECTURE.md", "architecture.md", 11, "Architecture", "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."},
 	// ROADMAP.md is excluded from auto-sync. The website splits it into 3 pages
 	// under website/content/docs/roadmap/ (overview, completed, planned) for better
 	// readability. The source docs/ROADMAP.md stays as one file for GitHub readers.
 	// When ROADMAP.md changes, update the website pages manually.
-	{"TESTING.md", "testing.md", 10, "Testing", "Test strategy for Shurli: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."},
+	// Weight 15: Roadmap (_index.md, manual)
+	// Weight 16: Development Philosophy (manual)
+	{"TESTING.md", "testing.md", 17, "Testing", "Test strategy for Shurli: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."},
 }
 
 // Ordered by weight. README.md becomes _index.md.
@@ -53,6 +59,7 @@ var journalEntries = []journalEntry{
 	{"phase5-network-resilience.md", 15, "Phase 5 - Network Resilience", "Native mDNS via dns_sd.h, PeerManager lifecycle, stale connection cleanup, IPv6 path probing, mDNS LAN-first connect, relay-discard logic."},
 	{"dev-tooling.md", 16, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
 	{"phase6-acl-relay-security.md", 17, "Phase 6 - ACL + Relay Security", "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."},
+	{"phase7-zkp-privacy.md", 18, "Phase 7 - ZKP Privacy Layer", "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).

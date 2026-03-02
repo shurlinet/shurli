@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/qr"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runInit(args []string) {
@@ -29,6 +30,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/shurli)")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
+	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -83,8 +85,6 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	var relayAddr string
 	if isFullMultiaddr(relayInput) {
-		// Validate the multiaddr before embedding in config YAML.
-		// A malformed string with quotes or newlines would corrupt the config.
 		if _, err := ma.NewMultiaddr(relayInput); err != nil {
 			return fmt.Errorf("invalid multiaddr: %w", err)
 		}
@@ -114,12 +114,62 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout)
 
-	// Generate identity
-	keyFile := filepath.Join(configDir, "identity.key")
+	// Generate BIP39 seed
 	fmt.Fprintln(stdout, "Generating identity...")
-	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile)
+	fmt.Fprintln(stdout)
+
+	mnemonic, entropy, err := identity.GenerateSeed()
 	if err != nil {
-		return fmt.Errorf("failed to generate identity: %w", err)
+		return fmt.Errorf("failed to generate seed: %w", err)
+	}
+	words := strings.Fields(mnemonic)
+
+	fmt.Fprintln(stdout, "=== SEED PHRASE ===")
+	fmt.Fprintln(stdout, "Write this down and store it securely. This is the ONLY way to")
+	fmt.Fprintln(stdout, "recover your identity if you lose this device.")
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "  %s\n", mnemonic)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "===========================")
+	fmt.Fprintln(stdout)
+
+	// Seed backup confirmation quiz.
+	if err := confirmSeedBackup(stdout, reader, words, *skipSeedConfirm); err != nil {
+		return fmt.Errorf("seed backup: %w", err)
+	}
+	if !*skipSeedConfirm {
+		fmt.Fprintln(stdout, "Seed backup confirmed.")
+		fmt.Fprintln(stdout)
+	}
+
+	// Derive identity key from seed.
+	privKey, err := identity.DeriveIdentityKey(entropy)
+	if err != nil {
+		return fmt.Errorf("failed to derive identity key: %w", err)
+	}
+
+	// Set identity password (interactive).
+	fmt.Fprintln(stdout, "Set a password to protect your identity:")
+	password, pwErr := readPasswordConfirm("Password: ", "Confirm: ", stdout)
+	if pwErr != nil {
+		return pwErr
+	}
+	fmt.Fprintln(stdout)
+
+	// Save encrypted identity.key.
+	keyFile := filepath.Join(configDir, "identity.key")
+	if err := identity.SaveIdentity(keyFile, privKey, password); err != nil {
+		return fmt.Errorf("failed to save identity: %w", err)
+	}
+
+	// Create session token for auto-start.
+	if err := identity.CreateSession(configDir, password); err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+
+	peerID, err := peer.IDFromPrivateKey(privKey)
+	if err != nil {
+		return fmt.Errorf("failed to derive peer ID: %w", err)
 	}
 	fmt.Fprintf(stdout, "Your Peer ID: %s\n", peerID)
 	fmt.Fprintln(stdout, "(Share this with peers who need to authorize you)")
@@ -152,9 +202,14 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		fmt.Fprint(stdout, q.ToSmallString(false))
 	}
 
+	// Install shell completions and man page.
+	setupShellEnvironment(stdout)
+
 	fmt.Fprintln(stdout, "Next steps:")
 	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
 	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --name home")
 	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "If anything looks wrong later, run: shurli doctor")
 	return nil
 }

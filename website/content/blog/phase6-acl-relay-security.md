@@ -160,7 +160,7 @@ Your relay holds a secret key used to create invite tokens. Before Phase 6, that
 
 ### Disaster recovery
 
-When you first set up the vault with `shurli relay vault init`, you get a seed phrase: 32 random bytes displayed as 24 hex pairs. This seed can reconstruct your relay's identity if the passphrase is ever lost. Write it down. Store it offline. It's the last resort.
+When you first set up your identity with `shurli init`, you get a 24-word BIP39 seed phrase (the same standard used by cryptocurrency wallets). This seed deterministically derives both your identity key and your vault root key via HKDF with separate domain separators. One seed recovers everything. Write it down. Store it offline. It's the last resort.
 
 Inspired by operators who chose to shut down rather than compromise their users.
 

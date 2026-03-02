@@ -2,21 +2,18 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"golang.org/x/term"
 )
@@ -35,6 +32,8 @@ func runRelayVault(args []string, configFile string) {
 		runRelayUnseal(args[1:], configFile)
 	case "status":
 		runRelaySealStatus(args[1:], configFile)
+	case "change-password":
+		runRelayVaultChangePassword(args[1:], configFile)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown vault command: %s\n\n", args[0])
 		printRelayVaultUsage()
@@ -49,7 +48,7 @@ func runRelayVaultInit(args []string, configFile string) {
 	}
 }
 
-func doRelayVaultInit(args []string, configFile string, stdout io.Writer, stdin io.Reader) error {
+func doRelayVaultInit(args []string, configFile string, stdout io.Writer, _ io.Reader) error {
 	fs := flag.NewFlagSet("relay vault init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	enableTOTP := fs.Bool("totp", false, "enable TOTP 2FA for unseal")
@@ -58,13 +57,13 @@ func doRelayVaultInit(args []string, configFile string, stdout io.Writer, stdin 
 		return err
 	}
 
-	// Connect to running relay
+	// Vault init is local-only. Seed material never leaves this machine.
 	client, err := relayAdminClient(configFile)
 	if err != nil {
 		return err
 	}
 
-	// Check if already initialized
+	// Check if already initialized.
 	status, err := client.SealStatus()
 	if err != nil {
 		return fmt.Errorf("failed to get seal status: %w", err)
@@ -73,13 +72,31 @@ func doRelayVaultInit(args []string, configFile string, stdout io.Writer, stdin 
 		return fmt.Errorf("vault is already initialized")
 	}
 
-	// Read passphrase (with confirmation)
-	passphrase, err := readPassphraseConfirm(stdout, stdin)
+	// Read seed phrase interactively with hidden input.
+	mnemonic, err := readSeedPhrase(stdout)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.InitVault(passphrase, *enableTOTP, *autoSealMins)
+	// Validate the mnemonic.
+	if err := identity.ValidateMnemonic(mnemonic); err != nil {
+		return fmt.Errorf("invalid seed phrase: %w", err)
+	}
+
+	// Convert mnemonic to seed bytes.
+	seedBytes, err := identity.SeedFromMnemonic(mnemonic)
+	if err != nil {
+		return fmt.Errorf("failed to decode seed: %w", err)
+	}
+	defer zeroBytes(seedBytes)
+
+	// Read vault password (with confirmation).
+	password, err := readVaultPasswordConfirm(stdout)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.InitVault(seedBytes, mnemonic, password, *enableTOTP, *autoSealMins)
 	if err != nil {
 		return fmt.Errorf("vault init failed: %w", err)
 	}
@@ -87,15 +104,8 @@ func doRelayVaultInit(args []string, configFile string, stdout io.Writer, stdin 
 	fmt.Fprintln(stdout)
 	termcolor.Green("Vault initialized successfully!")
 	fmt.Fprintln(stdout)
-
-	// Display seed phrase prominently
-	fmt.Fprintln(stdout, "=== RECOVERY SEED PHRASE ===")
-	fmt.Fprintln(stdout, "Write this down and store it securely. It is the ONLY way to")
-	fmt.Fprintln(stdout, "recover your vault if you forget the passphrase.")
-	fmt.Fprintln(stdout)
-	fmt.Fprintf(stdout, "  %s\n", resp.SeedPhrase)
-	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "============================")
+	fmt.Fprintln(stdout, "The vault root key was derived from your seed phrase.")
+	fmt.Fprintln(stdout, "Your seed phrase backup covers both identity and vault recovery.")
 
 	if resp.TOTPUri != "" {
 		fmt.Fprintln(stdout)
@@ -113,17 +123,25 @@ func doRelayVaultInit(args []string, configFile string, stdout io.Writer, stdin 
 }
 
 func runRelaySeal(args []string, configFile string) {
-	if err := doRelaySeal(configFile, os.Stdout); err != nil {
+	if err := doRelaySeal(args, configFile, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(1)
 	}
 }
 
-func doRelaySeal(configFile string, stdout io.Writer) error {
-	client, err := relayAdminClient(configFile)
+func doRelaySeal(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay seal", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	if err := client.Seal(); err != nil {
 		return fmt.Errorf("seal failed: %w", err)
@@ -174,8 +192,8 @@ func doRelayUnseal(args []string, configFile string, stdout io.Writer, stdin io.
 		return nil
 	}
 
-	// Read passphrase
-	passphrase, err := readPassphrase(stdout, "Passphrase: ")
+	// Read vault password.
+	passphrase, err := readVaultPassword(stdout, "Vault password: ")
 	if err != nil {
 		return err
 	}
@@ -237,10 +255,10 @@ func resolveRelayAddr(input string, cfg *config.NodeConfig) (string, error) {
 	return "", fmt.Errorf("resolved %q to peer %s but no matching relay address in config", input, peerIDStr)
 }
 
-// doRemoteUnseal unseals a relay vault over P2P using the /shurli/relay-unseal/1.0.0 protocol.
+// doRemoteUnseal unseals a relay vault over P2P using the /shurli/relay-admin/1.0.0 protocol.
 func doRemoteUnseal(relayAddr string, promptTOTP bool, _ string, stdout io.Writer, stdin io.Reader) error {
-	// Read passphrase
-	passphrase, err := readPassphrase(stdout, "Passphrase: ")
+	// Read vault password.
+	password, err := readVaultPassword(stdout, "Vault password: ")
 	if err != nil {
 		return err
 	}
@@ -256,89 +274,40 @@ func doRemoteUnseal(relayAddr string, promptTOTP bool, _ string, stdout io.Write
 		totpCode = strings.TrimSpace(line)
 	}
 
-	// Build request payload
-	reqData := relay.EncodeUnsealRequest(passphrase, totpCode)
-
-	// Load config (needed for identity, relay addresses, and name resolution)
-	_, cfg := resolveConfigFile("")
-
-	// Resolve the relay address: accepts a full multiaddr, a name, or a raw peer ID.
-	resolvedAddr, err := resolveRelayAddr(relayAddr, cfg)
+	conn, err := connectRemoteRelay(relayAddr)
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
-	// Use standalone host to connect to relay and open unseal stream
-	fmt.Fprintf(stdout, "Connecting to relay: %s\n", truncateAddr(resolvedAddr))
-
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create P2P host: %w", err)
-	}
-	defer p2pNetwork.Close()
-
-	// Parse the resolved multiaddr to get peer info
-	peerInfo, err := peer.AddrInfoFromString(resolvedAddr)
-	if err != nil {
-		return fmt.Errorf("invalid relay address: %w", err)
+	if err := conn.client.Unseal(password, totpCode); err != nil {
+		return fmt.Errorf("remote unseal failed: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := p2pNetwork.Host().Connect(ctx, *peerInfo); err != nil {
-		return fmt.Errorf("failed to connect to relay: %w", err)
-	}
-
-	stream, err := p2pNetwork.Host().NewStream(ctx, peerInfo.ID, protocol.ID(relay.UnsealProtocol))
-	if err != nil {
-		return fmt.Errorf("failed to open unseal stream: %w", err)
-	}
-	defer stream.Close()
-
-	if _, err := stream.Write(reqData); err != nil {
-		return fmt.Errorf("failed to send unseal request: %w", err)
-	}
-	stream.CloseWrite()
-
-	ok, msg, err := relay.ReadUnsealResponse(stream)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if ok {
-		termcolor.Green("Vault unsealed remotely.")
-		if msg != "" {
-			fmt.Fprintf(stdout, "  %s\n", msg)
-		}
-	} else {
-		return fmt.Errorf("remote unseal failed: %s", msg)
-	}
-
+	termcolor.Green("Vault unsealed remotely.")
 	return nil
 }
 
 func runRelaySealStatus(args []string, configFile string) {
-	if err := doRelaySealStatus(configFile, os.Stdout); err != nil {
+	if err := doRelaySealStatus(args, configFile, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(1)
 	}
 }
 
-func doRelaySealStatus(configFile string, stdout io.Writer) error {
-	client, err := relayAdminClient(configFile)
+func doRelaySealStatus(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay seal-status", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	status, err := client.SealStatus()
 	if err != nil {
@@ -373,45 +342,108 @@ func relayAdminClient(configFile string) (*relay.AdminClient, error) {
 	return relay.NewAdminClient(socketPath, cookiePath)
 }
 
-// readPassphrase reads a passphrase from the terminal without echo.
-func readPassphrase(w io.Writer, prompt string) (string, error) {
+// readVaultPassword reads a vault password from the terminal without echo.
+func readVaultPassword(w io.Writer, prompt string) (string, error) {
 	fmt.Fprint(w, prompt)
 	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(w) // newline after hidden input
 	if err != nil {
-		return "", fmt.Errorf("failed to read passphrase: %w", err)
+		return "", fmt.Errorf("failed to read password: %w", err)
 	}
 	return string(passBytes), nil
 }
 
-// readPassphraseConfirm reads and confirms a passphrase.
-func readPassphraseConfirm(w io.Writer, _ io.Reader) (string, error) {
-	pass1, err := readPassphrase(w, "Enter passphrase: ")
+// readVaultPasswordConfirm reads and confirms a vault password.
+func readVaultPasswordConfirm(w io.Writer) (string, error) {
+	pass1, err := readVaultPassword(w, "Enter vault password: ")
 	if err != nil {
 		return "", err
 	}
 	if len(pass1) < 8 {
-		return "", fmt.Errorf("passphrase must be at least 8 characters")
+		return "", fmt.Errorf("vault password must be at least 8 characters")
 	}
-	pass2, err := readPassphrase(w, "Confirm passphrase: ")
+	pass2, err := readVaultPassword(w, "Confirm vault password: ")
 	if err != nil {
 		return "", err
 	}
 	if pass1 != pass2 {
-		return "", fmt.Errorf("passphrases do not match")
+		return "", fmt.Errorf("passwords do not match")
 	}
 	return pass1, nil
+}
+
+// runRelayVaultChangePassword changes the vault password directly on disk.
+func runRelayVaultChangePassword(args []string, configFile string) {
+	fs := flag.NewFlagSet("relay vault change-password", flag.ExitOnError)
+	totpFlag := fs.Bool("totp", false, "prompt for TOTP code")
+	fs.Parse(args)
+
+	// Load the relay server config to find vault path.
+	cfg, err := config.LoadRelayServerConfig(configFile)
+	if err != nil {
+		fatal("Failed to load relay config: %v", err)
+	}
+
+	vaultPath := cfg.Security.VaultFile
+	if vaultPath == "" {
+		fatal("No vault file configured in relay config")
+	}
+
+	// Load vault from disk (sealed state).
+	v, err := vault.Load(vaultPath)
+	if err != nil {
+		fatal("Failed to load vault: %v", err)
+	}
+
+	// Read current password and unseal.
+	oldPassword, err := readVaultPassword(os.Stdout, "Current vault password: ")
+	if err != nil {
+		fatal("Failed to read password: %v", err)
+	}
+
+	var totpCode string
+	if *totpFlag || v.TOTPEnabled() {
+		fmt.Print("TOTP code: ")
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		totpCode = strings.TrimSpace(line)
+	}
+
+	if err := v.Unseal(oldPassword, totpCode); err != nil {
+		fatal("Failed to unseal vault: %v", err)
+	}
+
+	// Read new password.
+	newPassword, err := readVaultPasswordConfirm(os.Stdout)
+	if err != nil {
+		fatal("Failed to read new password: %v", err)
+	}
+
+	// Change password and save.
+	if err := v.ChangePassword(oldPassword, newPassword); err != nil {
+		fatal("Failed to change password: %v", err)
+	}
+
+	// Save with new encryption.
+	if err := v.Save(vaultPath); err != nil {
+		fatal("Failed to save vault: %v", err)
+	}
+
+	v.Seal()
+	termcolor.Green("Vault password changed successfully.")
 }
 
 func printRelayVaultUsage() {
 	fmt.Println("Usage: shurli relay vault <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  init     [--totp] [--auto-seal N]   Initialize a new vault")
-	fmt.Println("  seal                                 Seal the vault (watch-only mode)")
-	fmt.Println("  unseal   [--remote <multiaddr>]       Unseal the vault (local or remote P2P)")
-	fmt.Println("  status                               Show vault seal status")
+	fmt.Println("  init              [--totp] [--auto-seal N]                  Initialize vault from seed")
+	fmt.Println("  seal                                                       Seal the vault (watch-only)")
+	fmt.Println("  unseal            [--remote <multiaddr>]                    Unseal the vault")
+	fmt.Println("  status                                                     Show vault seal status")
+	fmt.Println("  change-password   [--totp]                                 Change vault password")
 	fmt.Println()
 	fmt.Println("The vault protects the relay's root key material. When sealed,")
 	fmt.Println("the relay routes traffic but cannot authorize new peers.")
+	fmt.Println("The vault root key is derived from your seed phrase (same seed as identity).")
 }

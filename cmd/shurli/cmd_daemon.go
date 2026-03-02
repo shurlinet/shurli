@@ -165,6 +165,7 @@ func runDaemonStart(args []string) {
 	// the relay tries to deliver peer introductions before the handler exists.
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
+	rt.SetupMOTDClient()
 
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()

@@ -92,7 +92,7 @@ What happens when you remove a peer:
 3. When the peer tries to reconnect, the connection gater rejects them
 4. The peer needs a new invite to rejoin
 
-> **Relay server note**: After running `shurli relay authorize` or `shurli relay deauthorize`, restart the relay to apply changes: `sudo systemctl restart shurli-relay`
+> **Relay server note**: `shurli relay authorize` and `shurli relay deauthorize` apply immediately if the relay is running (live reload via admin socket). If the relay is stopped, changes take effect on next start.
 
 ## Adding peers manually
 
@@ -191,12 +191,79 @@ Key configuration fields for network management:
 | Unseal vault | `shurli relay unseal` |
 | Remote unseal | `shurli relay unseal --remote <addr>` |
 | Vault status | `shurli relay seal-status` |
+| Remote unseal | `shurli relay unseal --remote <addr>` |
+| Set MOTD | `shurli relay motd set "message"` |
+| Set goodbye | `shurli relay goodbye set "message"` |
+| Recover identity | `shurli recover` |
+| Change password | `shurli change-password` |
+| Lock daemon | `shurli lock` |
+| Unlock daemon | `shurli unlock` |
+
+## Remote relay management
+
+All relay admin commands support `--remote` for management over encrypted P2P:
+
+```bash
+# Manage vault remotely
+shurli relay vault unseal --remote my-relay
+shurli relay seal-status --remote my-relay
+
+# Manage invites remotely
+shurli relay invite list --remote my-relay
+shurli relay invite create --caveat "role=member" --remote my-relay
+
+# MOTD and goodbye
+shurli relay motd set "Planned maintenance Saturday" --remote my-relay
+shurli relay goodbye set "Migrating to new relay" --remote my-relay
+```
+
+Only admin-role peers can use remote management. The connection uses the `/shurli/relay-admin/1.0.0` protocol over the same encrypted P2P tunnel as regular traffic.
+
+## Operator announcements
+
+### MOTD (message of the day)
+
+Set a short message shown to peers when they connect:
+
+```bash
+shurli relay motd set "Maintenance window: Saturday 2am-4am UTC"
+shurli relay motd status    # Show current MOTD and goodbye
+shurli relay motd clear     # Remove MOTD
+```
+
+### Goodbye (relay decommission)
+
+Notify all peers that the relay is shutting down:
+
+```bash
+# Set goodbye (pushed to all connected peers immediately)
+shurli relay goodbye set "This relay shutting down March 15. Please migrate."
+
+# Changed your mind? Retract it
+shurli relay goodbye retract
+
+# Send goodbye and shut down the relay
+shurli relay goodbye shutdown "Relay decommissioned."
+```
+
+Goodbyes are persistent: clients cache them and display on reconnect attempts. All messages are signed by the relay's Ed25519 key and verified by clients.
+
+> **Security note**: MOTD and goodbye messages are sanitized before display. URLs, email addresses, and non-ASCII characters are stripped. This is defense-in-depth against phishing: a compromised relay cannot use announcements to redirect users to malicious sites.
+
+| Task | Command |
+|------|---------|
+| Set MOTD | `shurli relay motd set "message"` |
+| Clear MOTD | `shurli relay motd clear` |
+| Set goodbye | `shurli relay goodbye set "message"` |
+| Retract goodbye | `shurli relay goodbye retract` |
+| Goodbye + shutdown | `shurli relay goodbye shutdown "message"` |
+| Check status | `shurli relay motd status` |
 
 ## Troubleshooting
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| Peer can't connect | Not in authorized_keys | `shurli relay authorize <peer-id>` and restart relay |
+| Peer can't connect | Not in authorized_keys | `shurli relay authorize <peer-id>` (applies immediately if relay is running) |
 | "vault is sealed" on invite | Vault locked | Unseal: `shurli relay unseal` |
 | TOTP code rejected | Clock skew | Sync your device clock (NTP). TOTP allows +/- 30 seconds |
 | Remote unseal fails | Not an admin, or wrong address | Check role with `shurli auth list`, verify address with `shurli relay info` |
@@ -206,7 +273,10 @@ Key configuration fields for network management:
 | Can't create invites (member) | Invite policy is admin-only | Ask an admin, or change policy to "open" in config |
 | Relay address changed | Server IP changed | Update clients: `shurli relay remove <old>` then `shurli relay add <new>` |
 | Auth file has errors | Malformed peer IDs | Run `shurli auth validate` to find the problem |
+| Remote admin rejected | Not an admin peer | Check role with `shurli auth list` |
+| MOTD not showing | Client dedup (24h) | Same MOTD only shown once per 24h per relay |
+| Goodbye cached after retract | Client not reconnected | Retract is pushed; offline peers clear on next connect |
 
 ---
 
-**Next step**: [Monitoring](../monitoring/) - set up Prometheus and Grafana to see everything your relay is doing in real time.
+**Next step**: [ZKP Privacy Setup](../zkp-setup/) - enable zero-knowledge proof authentication so peers can prove authorization without revealing their identity.

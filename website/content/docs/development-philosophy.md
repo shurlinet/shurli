@@ -1,6 +1,6 @@
 ---
 title: "Development Philosophy"
-weight: 11
+weight: 16
 description: "The principles, inspirations, and decision-making framework behind Shurli. How the project started, why self-sovereignty matters, and lessons from SuperMesh."
 ---
 

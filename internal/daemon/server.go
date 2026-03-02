@@ -69,6 +69,7 @@ type Server struct {
 	mu      sync.Mutex
 	proxies map[string]*activeProxy
 	nextID  int
+	locked  bool // sensitive ops disabled when true (default: true)
 }
 
 // NewServer creates a new daemon API server.
@@ -80,6 +81,7 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 		version:    version,
 		shutdownCh: make(chan struct{}),
 		proxies:    make(map[string]*activeProxy),
+		locked:     true, // sensitive ops locked by default
 	}
 }
 
