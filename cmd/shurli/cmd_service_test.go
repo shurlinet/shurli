@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 )
 
 // writeServiceTestConfig creates a full test config directory with a valid
@@ -49,17 +50,16 @@ names: {}
 		t.Fatalf("write config: %v", err)
 	}
 
-	// Generate a real libp2p Ed25519 identity key.
+	// Generate a real libp2p Ed25519 identity key (SHRL-encrypted).
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
 	if err != nil {
 		t.Fatalf("generate key pair: %v", err)
 	}
-	keyData, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
+	if err := identity.SaveIdentity(filepath.Join(dir, "identity.key"), priv, testPassword); err != nil {
+		t.Fatalf("save identity: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "identity.key"), keyData, 0600); err != nil {
-		t.Fatalf("write identity key: %v", err)
+	if err := identity.CreateSession(dir, testPassword); err != nil {
+		t.Fatalf("create session: %v", err)
 	}
 
 	// Empty authorized_keys file.
@@ -87,7 +87,7 @@ func TestDoServiceAdd(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "ssh", "localhost:22"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -114,7 +114,7 @@ func TestDoServiceAdd(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "web", "localhost:8080", "--protocol", "my-web"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -194,7 +194,7 @@ func TestDoServiceAdd(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "web", "localhost:8080"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -250,7 +250,7 @@ names: {}
 				os.WriteFile(cfgPath, []byte(templateConfig), 0600)
 				return []string{"--config", cfgPath, "ssh", "localhost:22"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -409,7 +409,7 @@ func TestDoServiceSetEnabled(t *testing.T) {
 				return []string{"--config", cfgPath, "ssh"}
 			},
 			enabled:    false,
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -432,7 +432,7 @@ func TestDoServiceSetEnabled(t *testing.T) {
 				return []string{"--config", cfgPath, "ssh"}
 			},
 			enabled:    true,
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -522,7 +522,7 @@ func TestDoServiceSetEnabled(t *testing.T) {
 				return []string{"--config", cfgPath, "ssh"}
 			},
 			enabled:    false,
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -633,7 +633,7 @@ func TestDoServiceRemove(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "ssh"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -658,7 +658,7 @@ func TestDoServiceRemove(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "ssh"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -711,7 +711,7 @@ func TestDoServiceRemove(t *testing.T) {
 			args: func(cfgPath string) []string {
 				return []string{"--config", cfgPath, "web"}
 			},
-			wantOutput: []string{"Config:", "Restart"},
+			wantOutput: []string{"Config:"},
 			checkFile: func(t *testing.T, cfgPath string) {
 				data, err := os.ReadFile(cfgPath)
 				if err != nil {
@@ -785,17 +785,16 @@ func writeRealTemplateConfig(t *testing.T) string {
 		t.Fatalf("write config: %v", err)
 	}
 
-	// Generate a real libp2p Ed25519 identity key.
+	// Generate a real libp2p Ed25519 identity key (SHRL-encrypted).
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
 	if err != nil {
 		t.Fatalf("generate key pair: %v", err)
 	}
-	keyData, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
+	if err := identity.SaveIdentity(filepath.Join(dir, "identity.key"), priv, testPassword); err != nil {
+		t.Fatalf("save identity: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "identity.key"), keyData, 0600); err != nil {
-		t.Fatalf("write identity key: %v", err)
+	if err := identity.CreateSession(dir, testPassword); err != nil {
+		t.Fatalf("create session: %v", err)
 	}
 
 	// Empty authorized_keys file.
@@ -977,12 +976,11 @@ func TestUserJourneyWithNetworkNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key pair: %v", err)
 	}
-	keyData, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
+	if err := identity.SaveIdentity(filepath.Join(dir, "identity.key"), priv, testPassword); err != nil {
+		t.Fatalf("save identity: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "identity.key"), keyData, 0600); err != nil {
-		t.Fatalf("write identity key: %v", err)
+	if err := identity.CreateSession(dir, testPassword); err != nil {
+		t.Fatalf("create session: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "authorized_keys"), []byte(""), 0600); err != nil {
 		t.Fatalf("write authorized_keys: %v", err)

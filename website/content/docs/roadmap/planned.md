@@ -1,7 +1,7 @@
 ---
 title: "Planned & Future"
 weight: 2
-description: "Upcoming phases: ZKP privacy, visual pairing, plugins, distribution, mobile, federation, and beyond."
+description: "Upcoming phases: visual pairing, plugins, distribution, mobile, federation, and beyond."
 ---
 
 ## Relay Decentralization
@@ -17,48 +17,27 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## Phase 7: ZKP Privacy Layer - STATUS: PLANNED
+## Phase 7: ZKP Privacy Layer - STATUS: COMPLETE
 
-Zero-knowledge proofs applied to Shurli's identity and authorization model. Peers prove they hold valid capabilities without revealing their identity or specific permissions.
-
-**Dependency**: Requires Phase 6 macaroon authorization model (now complete) as the capability system ZKP proves against.
-
-**Implementation: gnark PLONK + Ethereum KZG ceremony (2026-02-26)**
-
-The four use cases are confirmed and the architecture is designed. Implementation will use [gnark](https://github.com/Consensys/gnark) PLONK with Ethereum's KZG trusted setup ceremony (141,416 participants). gnark is production-ready, pure Go, and maintained by ConsenSys. The KZG ceremony's 1-of-141,416 honest participant assumption is practically secure for Shurli's use cases.
-
-**Why gnark PLONK + KZG**: Pure Go, production-ready, actively maintained, no FFI dependencies. Preserves single-binary sovereignty. The Ethereum KZG ceremony (141,416 participants) provides a strong trust foundation. For Shurli's authorization proofs, the practical security of "1 of 141K participants was honest" is more than sufficient.
-
-**What we evaluated**:
-- **Ring signatures**: Metadata analysis can narrow down the signer. zk-SNARKs provide mathematically absolute privacy. Ring signatures are not zero-knowledge.
-- **Halo 2 via FFI (Rust CGo bindings)**: Achieves trustless ZKPs (no ceremony), but introduces Rust toolchain dependency, cross-compilation complexity, and two-language audit surface. Violates sovereignty principle.
-- **gnark Vortex**: ConsenSys's experimental lattice-based transparent setup. Not production-ready. Worth watching as a future upgrade path.
+Moved to [Completed Work](/docs/roadmap/completed/#phase-7-zkp-privacy-layer). Zero-knowledge membership proofs, anonymous relay authorization, private reputation range proofs, and BIP39 deterministic key management. 27 new files, 18 modified, ~91 tests.
 
 **What we're watching** (checked after each phase completion):
-1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-02-26.
+1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
 2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
 3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
-4. **Any new trustless ZKP library in Go** - would be evaluated as a potential upgrade from KZG ceremony.
 
-**The four use cases**:
-- [ ] **Anonymous authentication** - prove "I hold a key in the authorized set" without revealing which key
-- [ ] **Anonymous relay authorization** - prove relay access rights without revealing identity
-- [ ] **Privacy-preserving reputation** - prove reputation above threshold without revealing exact score
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name
-
-**Architecture decisions** (stable regardless of proving system):
-- Hash-based membership: MiMC/Poseidon(ed25519_pubkey) as Merkle leaf. Avoids Ed25519 curve mismatch with SNARK-native fields.
-- Merkle tree of identity commitments = the authorized_keys set.
-- ZK circuit proves: "I know a value pk such that Hash(pk) is a leaf in the tree with root R." Verifier sees root + proof only.
-
-**Background: Zcash trusted setup evolution** (context for the upgrade path we're watching):
-- Sprout (2016): Groth16, 6 participants. Legitimate trust concern.
-- Sapling (2018): Powers of Tau, 90+ participants. 1-of-90 honest assumption.
-- Orchard/NU5 (2022): Halo 2 - NO trusted setup. IPA-based (Pedersen commitments). No toxic waste. Trust math only. If this arrives in Go, it's a strict upgrade from our KZG approach.
+**Remaining for future phases**:
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
 
 ---
 
-## Phase 8: Visual Channel - "Constellation Code"
+## Phase 8: Identity Security + Remote Admin - STATUS: COMPLETE
+
+Moved to [Completed Work](/docs/roadmap/completed/#phase-8-identity-security--remote-admin). Unified BIP39 seed, encrypted identity keys, session tokens, remote admin over P2P, MOTD/goodbye protocol. 22+ new files, 34 verification items all PASS.
+
+---
+
+## Phase 9: Visual Channel - "Constellation Code"
 
 **Timeline**: TBD
 
@@ -66,7 +45,7 @@ The four use cases are confirmed and the architecture is designed. Implementatio
 
 ---
 
-## Phase 9: Plugin Architecture, SDK & First Plugins
+## Phase 10: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 
@@ -137,7 +116,7 @@ net.OnEvent(func(e p2pnet.Event) {
 
 ---
 
-## Phase 10: Distribution & Launch
+## Phase 11: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 
@@ -211,7 +190,7 @@ services:
 
 ---
 
-## Phase 11: Desktop Gateway Daemon + Private DNS
+## Phase 12: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 
@@ -244,7 +223,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 12: Mobile Applications
+## Phase 13: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
 
@@ -267,7 +246,7 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 13: Federation - Network Peering
+## Phase 14: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 
@@ -305,7 +284,7 @@ curl http://desktop.bob:8080
 
 ---
 
-## Phase 14: Advanced Naming Systems (Optional)
+## Phase 15: Advanced Naming Systems + Peer ID Prefix (Optional)
 
 **Timeline**: 2-3 weeks
 
@@ -352,7 +331,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 14+: Ecosystem & Polish
+## Phase 16+: Ecosystem & Polish
 
 **Status**: Conceptual
 
@@ -403,18 +382,20 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 **Phase 6**: Client-generated async invites work, relay sealed/unsealed with auto-lock, remote unseal over P2P, admin/member roles enforced
 
-**Phase 7**: ZKP proves capability token possession without revealing identity
+**Phase 7**: ZKP proves membership without revealing identity
 
-**Phase 8**: Animated visual pairing replaces emoji fingerprints
+**Phase 8**: Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye
 
-**Phase 9**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 9**: Animated visual pairing replaces emoji fingerprints
 
-**Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
+**Phase 10**: Third-party plugins work, file transfer between peers, SDK published
 
-**Phase 11**: Gateway works in all 3 modes, private DNS resolves only within P2P network
+**Phase 11**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
-**Phase 12**: iOS app approved, Android app published, QR invite flow works
+**Phase 12**: Gateway works in all 3 modes, private DNS resolves only within P2P network
 
-**Phase 13**: Two networks federate, cross-network routing works
+**Phase 13**: Apple multiplatform app approved, QR invite flow works
 
-**Phase 14**: 3+ naming backends working, plugin API documented
+**Phase 14**: Two networks federate, cross-network routing works
+
+**Phase 15**: 3+ naming backends working, plugin API documented

@@ -306,3 +306,13 @@ func (c *Client) Unexpose(name string) error {
 func (c *Client) Shutdown() error {
 	return c.doJSON("POST", "/v1/shutdown", nil, nil)
 }
+
+// Lock disables sensitive operations on the running daemon.
+func (c *Client) Lock() error {
+	return c.doJSON("POST", "/v1/lock", nil, nil)
+}
+
+// Unlock enables sensitive operations on the running daemon.
+func (c *Client) Unlock() error {
+	return c.doJSON("POST", "/v1/unlock", nil, nil)
+}

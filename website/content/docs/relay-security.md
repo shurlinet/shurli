@@ -207,6 +207,97 @@ The auto-seal timer runs from the moment you unseal. If you need more time:
 | Tested remote unseal from a second device | |
 | Relay restarts into sealed (watch-only) mode | |
 
+## Remote relay management
+
+With Phase 8, all relay admin operations are accessible over the encrypted P2P network. Any admin peer can manage the relay from anywhere, not just via SSH.
+
+### Remote commands
+
+Every relay admin command supports the `--remote` flag:
+
+```bash
+# Remote vault management
+shurli relay vault unseal --remote /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
+shurli relay vault status --remote my-relay
+
+# Remote invite management
+shurli relay invite create --caveat "role=member" --remote my-relay
+shurli relay invite list --remote my-relay
+
+# Remote peer management (coming: auth reload)
+```
+
+The `--remote` flag connects over `/shurli/relay-admin/1.0.0`, an encrypted P2P stream. Same auth model as the local Unix socket: only admin-role peers are allowed. Rate limited to 5 requests/second per peer.
+
+### MOTD and goodbye announcements
+
+Relay operators can send signed messages to connected peers:
+
+```bash
+# Set a message of the day (shown to peers on connect)
+shurli relay motd set "Maintenance window: Saturday 2am-4am UTC"
+shurli relay motd status
+shurli relay motd clear
+
+# Goodbye: persistent farewell for relay decommission
+shurli relay goodbye set "This relay is shutting down March 15. Please migrate to relay.example.com"
+
+# Cancel a goodbye (relay is staying)
+shurli relay goodbye retract
+
+# Send goodbye and shut down the relay
+shurli relay goodbye shutdown "Relay decommissioned. Use relay.example.com"
+```
+
+All MOTD/goodbye messages are:
+- **Signed** by the relay's Ed25519 identity key
+- **Verified** by clients before display (forged messages are silently dropped)
+- **Sanitized**: URLs, emails, and non-ASCII characters are stripped (defense against phishing and prompt injection)
+- **280-char limit** (operator messages should be brief)
+
+Goodbyes are persistent: peers cache them and show them on reconnect attempts. `retract` clears the cached goodbye on all peers.
+
+All MOTD/goodbye commands support `--remote` for remote management.
+
+## Unified seed architecture
+
+Phase 8 introduces a unified BIP39 seed that derives all cryptographic material:
+
+| Key | Derived from | Protected by |
+|-----|-------------|-------------|
+| Identity (Ed25519) | HKDF(seed, "shurli/identity/v1") | Node password (Argon2id) |
+| Vault root key | HKDF(seed, "shurli/vault/v1") | Vault password (Argon2id) |
+| ZKP circuit keys | SRS from seed | Cached as .bin files |
+
+One backup. One seed phrase on paper. Same construction as Bitcoin HD wallets.
+
+### Identity recovery
+
+```bash
+# Recover identity from seed (all nodes)
+shurli recover --seed "word1 word2 ... word24"
+
+# Recover identity + vault + ZKP keys (relay nodes)
+shurli recover --seed "word1 word2 ... word24" --relay
+```
+
+### Password management
+
+```bash
+# Change identity password
+shurli change-password
+
+# Lock daemon (disable sensitive operations)
+shurli lock
+
+# Unlock daemon
+shurli unlock
+
+# Session token management
+shurli session refresh    # Rotate token (same password, fresh crypto)
+shurli session destroy    # Delete token (password required on next start)
+```
+
 ---
 
 **Next step**: [Inviting Peers](../inviting-peers/) - create pairing codes and async invite deposits to bring people onto your network.

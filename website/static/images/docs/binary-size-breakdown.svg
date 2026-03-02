@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 540" width="800" height="540">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="540" rx="12" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="400" y="36" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="600" fill="#c0caf5">Shurli Binary Size Breakdown</text>
+  <text x="400" y="54" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#565f89">37 MB stripped (Go 1.26, darwin/arm64, -ldflags="-s -w" -trimpath)</text>
+
+  <!-- Donut Chart (center 240,260, outer r=150, inner r=55) -->
+  <!-- Arcs computed via trigonometry, starting at top (12 o'clock), clockwise -->
+  <!-- Percentages normalized from nm -size measurements (54 MB debug) -->
+
+  <!-- Go FIPS 140 Crypto: 57.4% (206.6 deg) -->
+  <path d="M240,110 A150,150 0 1,1 173.1,394.2 L215.5,309.2 A55,55 0 1,0 240,205 Z" fill="#6c3483" opacity="0.85"/>
+  <!-- Go Runtime: 26.3% (94.7 deg) -->
+  <path d="M173.1,394.2 A150,150 0 0,1 111.6,182.4 L192.9,231.5 A55,55 0 0,0 215.5,309.2 Z" fill="#2e86c1" opacity="0.85"/>
+  <!-- gnark ZKP: 6.7% (24.1 deg) -->
+  <path d="M111.6,182.4 A150,150 0 0,1 154.6,136.7 L208.7,214.8 A55,55 0 0,0 192.9,231.5 Z" fill="#27ae60" opacity="0.85"/>
+  <!-- QUIC + Protobuf + DNS + Metrics: 3.4% (12.2 deg) -->
+  <path d="M154.6,136.7 A150,150 0 0,1 182.8,121.3 L219.0,209.2 A55,55 0 0,0 208.7,214.8 Z" fill="#3498db" opacity="0.85"/>
+  <!-- libp2p Ecosystem: 3.2% (11.5 deg) -->
+  <path d="M182.8,121.3 A150,150 0 0,1 211.6,112.7 L229.6,206.0 A55,55 0 0,0 219.0,209.2 Z" fill="#e74c3c" opacity="0.85"/>
+  <!-- WebRTC (pion): 2.3% (8.3 deg) -->
+  <path d="M211.6,112.7 A150,150 0 0,1 233.2,110.2 L237.5,205.1 A55,55 0 0,0 229.6,206.0 Z" fill="#f39c12" opacity="0.85"/>
+  <!-- Shurli Application Code: 0.7% (2.5 deg) -->
+  <path d="M233.2,110.2 A150,150 0 0,1 240,110 L240,205 A55,55 0 0,0 237.5,205.1 Z" fill="#00ff88" opacity="0.90"/>
+
+  <!-- Center label -->
+  <circle cx="240" cy="260" r="50" fill="#141316" opacity="0.9"/>
+  <text x="240" y="254" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="16" font-weight="700" fill="#00ff88">37</text>
+  <text x="240" y="272" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="#8a8694">MB</text>
+
+  <!-- Legend (right side) -->
+  <!-- Row 1: Go FIPS crypto -->
+  <rect x="430" y="90" width="14" height="14" rx="3" fill="#6c3483" opacity="0.85"/>
+  <text x="450" y="102" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">Go FIPS 140 Crypto</text>
+  <text x="750" y="102" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">60%</text>
+  <text x="450" y="116" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">32.5 MB - mandatory FIPS module (nearly doubled in Go 1.26)</text>
+
+  <!-- Row 2: Runtime -->
+  <rect x="430" y="135" width="14" height="14" rx="3" fill="#2e86c1" opacity="0.85"/>
+  <text x="450" y="147" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">Go Runtime</text>
+  <text x="750" y="147" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">28%</text>
+  <text x="450" y="161" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">14.9 MB - GC, scheduler, goroutines</text>
+
+  <!-- Row 3: gnark ZKP -->
+  <rect x="430" y="180" width="14" height="14" rx="3" fill="#27ae60" opacity="0.85"/>
+  <text x="450" y="192" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">gnark (ZKP)</text>
+  <text x="750" y="192" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">7%</text>
+  <text x="450" y="206" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">3.8 MB - PLONK prover/verifier, Poseidon2, BN254</text>
+
+  <!-- Row 4: QUIC + Protobuf + DNS + Prometheus -->
+  <rect x="430" y="225" width="14" height="14" rx="3" fill="#3498db" opacity="0.85"/>
+  <text x="450" y="237" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">QUIC + Protobuf + Metrics</text>
+  <text x="750" y="237" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">3%</text>
+  <text x="450" y="251" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">1.9 MB - transport, serialization, Prometheus</text>
+
+  <!-- Row 5: libp2p -->
+  <rect x="430" y="270" width="14" height="14" rx="3" fill="#e74c3c" opacity="0.85"/>
+  <text x="450" y="282" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">libp2p Ecosystem</text>
+  <text x="750" y="282" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">3%</text>
+  <text x="450" y="296" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">1.8 MB - go-libp2p, Kademlia DHT, yamux, routing</text>
+
+  <!-- Row 6: WebRTC -->
+  <rect x="430" y="315" width="14" height="14" rx="3" fill="#f39c12" opacity="0.85"/>
+  <text x="450" y="327" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#e8e6ed">WebRTC (pion)</text>
+  <text x="750" y="327" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#b8b0c8">2%</text>
+  <text x="450" y="341" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">1.3 MB - ICE, DTLS, SCTP, SRTP - NAT traversal</text>
+
+  <!-- Row 7: Shurli code -->
+  <rect x="430" y="360" width="14" height="14" rx="3" fill="#00ff88" opacity="0.90"/>
+  <text x="450" y="372" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#00ff88">Shurli Application Code</text>
+  <text x="750" y="372" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#00ff88">&lt;1%</text>
+  <text x="450" y="386" font-family="Inter, system-ui, sans-serif" font-size="9" fill="#6a6478">0.4 MB across 20+ packages - the actual app</text>
+
+  <!-- Insight box at bottom -->
+  <rect x="30" y="440" width="740" height="80" rx="8" fill="#1e1d20" stroke="#333" stroke-width="1"/>
+  <text x="50" y="462" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#f39c12">Key Insight</text>
+  <text x="50" y="478" font-family="Inter, system-ui, sans-serif" font-size="10" fill="#b8b0c8">88% of binary size is Go stdlib (FIPS crypto + runtime). This nearly doubled from Go 1.24 to Go 1.26 due to</text>
+  <text x="50" y="492" font-family="Inter, system-ui, sans-serif" font-size="10" fill="#b8b0c8">FIPS 140 module expansion. gnark adds 3.8 MB for the full ZKP proving system. Shurli's own code is under 1%.</text>
+  <text x="50" y="506" font-family="Inter, system-ui, sans-serif" font-size="10" fill="#b8b0c8">Size history: 27.6 MB (Go 1.24, pre-Phase 7) -> 37 MB (Go 1.26, Phase 7). +7 MB Go stdlib, +2 MB gnark.</text>
+</svg>

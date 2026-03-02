@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="200" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="28" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">SHRL Encrypted Identity Format</text>
+
+  <!-- File format blocks -->
+  <rect x="30" y="50" width="80" height="50" rx="4" fill="#3a2e1e" stroke="#e0a050" stroke-width="1" />
+  <text x="70" y="72" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#e0a050" font-weight="bold">SHRL</text>
+  <text x="70" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#b89040">magic</text>
+
+  <rect x="120" y="50" width="60" height="50" rx="4" fill="#2c2a2e" stroke="#888" stroke-width="1" />
+  <text x="150" y="72" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#aaa" font-weight="bold">v1</text>
+  <text x="150" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#777">version</text>
+
+  <rect x="190" y="50" width="120" height="50" rx="4" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1" />
+  <text x="250" y="72" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" font-weight="bold">Salt</text>
+  <text x="250" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#7aaa4a">16 bytes random</text>
+
+  <rect x="320" y="50" width="120" height="50" rx="4" fill="#2d4561" stroke="#7aa2d0" stroke-width="1" />
+  <text x="380" y="72" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#7aa2d0" font-weight="bold">Nonce</text>
+  <text x="380" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#5a82b0">24 bytes random</text>
+
+  <rect x="450" y="50" width="320" height="50" rx="4" fill="#3a1e2f" stroke="#c06080" stroke-width="1" />
+  <text x="610" y="72" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#c06080" font-weight="bold">Ciphertext (Ed25519 private key)</text>
+  <text x="610" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#a04060">XChaCha20-Poly1305 AEAD</text>
+
+  <!-- KDF flow below -->
+  <text x="250" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#666">Password</text>
+  <text x="320" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#555">+</text>
+  <text x="380" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#666">Salt</text>
+
+  <line x1="310" y1="138" x2="310" y2="155" stroke="#555" stroke-width="1" />
+  <text x="310" y="148" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#555" transform="translate(40,0)">Argon2id</text>
+
+  <rect x="220" y="158" width="200" height="30" rx="4" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1" />
+  <text x="320" y="178" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">32-byte encryption key</text>
+
+  <!-- Argon2id params -->
+  <text x="560" y="138" text-anchor="start" font-family="SF Mono, monospace" font-size="9" fill="#555">time=3  memory=64MB  threads=4</text>
+  <text x="560" y="155" text-anchor="start" font-family="SF Mono, monospace" font-size="9" fill="#555">keyLen=32  cipher=XChaCha20-Poly1305</text>
+  <text x="560" y="172" text-anchor="start" font-family="SF Mono, monospace" font-size="9" fill="#555">every node, not just relays</text>
+</svg>

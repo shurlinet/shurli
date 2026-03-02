@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260" width="800" height="260">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sealedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="unsealFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="260" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Sealed Vault with Remote P2P Unseal</text>
+
+  <!-- Sealed vault (left) -->
+  <rect x="40" y="50" width="200" height="150" rx="10" fill="url(#sealedFill)" stroke="#f7768e" stroke-width="1.5"/>
+  <!-- Vault door shape -->
+  <rect x="100" y="75" width="80" height="80" rx="40" fill="none" stroke="#f7768e" stroke-width="1.5"/>
+  <circle cx="140" cy="115" r="12" fill="none" stroke="#f7768e" stroke-width="1.2"/>
+  <!-- Lock icon -->
+  <rect x="133" y="112" width="14" height="10" rx="2" fill="#f7768e" opacity="0.8"/>
+  <path d="M136,112 L136,108 C136,104 144,104 144,108 L144,112" fill="none" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="140" y="170" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="middle" font-weight="600">SEALED</text>
+  <text x="140" y="185" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">Routes traffic only</text>
+
+  <!-- Arrow: P2P unseal -->
+  <line x1="260" y1="125" x2="360" y2="125" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <polygon points="355,119 355,131 368,125" fill="#e0af68"/>
+
+  <!-- Admin device (middle) -->
+  <rect x="290" y="55" width="110" height="30" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1"/>
+  <text x="345" y="74" font-family="system-ui, sans-serif" font-size="9" fill="#e0af68" text-anchor="middle" font-weight="600">Admin Device</text>
+  <!-- Factors -->
+  <rect x="270" y="145" width="150" height="50" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.8"/>
+  <text x="345" y="161" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle" font-weight="600">Unseal factors:</text>
+  <text x="345" y="175" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">passphrase + time code (TOTP)</text>
+  <text x="345" y="187" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6" text-anchor="middle">or passphrase + YubiKey</text>
+
+  <!-- Arrow: becomes -->
+  <line x1="400" y1="125" x2="530" y2="125" stroke="#9ece6a" stroke-width="1.5"/>
+  <polygon points="525,119 525,131 538,125" fill="#9ece6a"/>
+  <text x="465" y="117" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">over P2P</text>
+
+  <!-- Unsealed vault (right) -->
+  <rect x="550" y="50" width="210" height="150" rx="10" fill="url(#unsealFill)" stroke="#9ece6a" stroke-width="1.5"/>
+  <!-- Open vault door -->
+  <rect x="615" y="75" width="80" height="80" rx="40" fill="none" stroke="#9ece6a" stroke-width="1.5"/>
+  <circle cx="655" cy="115" r="12" fill="none" stroke="#9ece6a" stroke-width="1.2"/>
+  <!-- Checkmark -->
+  <polyline points="648,115 653,120 662,109" fill="none" stroke="#9ece6a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="655" y="170" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="middle" font-weight="600">UNSEALED</text>
+  <text x="655" y="185" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6" text-anchor="middle">Full operations</text>
+
+  <!-- Lockout policy -->
+  <rect x="80" y="215" width="630" height="30" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.8"/>
+  <text x="100" y="234" font-family="SF Mono, monospace" font-size="8" fill="#e0af68" font-weight="600">Lockout:</text>
+  <text x="155" y="234" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">4 free</text>
+  <text x="200" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">-></text>
+  <text x="220" y="234" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">1m</text>
+  <text x="245" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">-></text>
+  <text x="265" y="234" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">5m</text>
+  <text x="290" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">-></text>
+  <text x="310" y="234" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">15m</text>
+  <text x="345" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">-></text>
+  <text x="370" y="234" font-family="SF Mono, monospace" font-size="8" fill="#a9b1d6">1h (x3)</text>
+  <text x="425" y="234" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">-></text>
+  <text x="460" y="234" font-family="SF Mono, monospace" font-size="8" fill="#f7768e" font-weight="600">permanently blocked</text>
+  <text x="600" y="234" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">Argon2id + XChaCha20-Poly1305. Key zeroed on seal.</text>
+</svg>

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" width="800" height="280">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1820;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141316;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4561;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e2d40;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2545;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e1830;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c1624;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="layer4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#162c24;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="280" rx="12" fill="url(#bgGrad)"/>
+
+  <text x="400" y="28" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Four Layers of Authorization</text>
+
+  <!-- Layer 4: Authority (top - widest) -->
+  <rect x="80" y="45" width="640" height="46" rx="8" fill="url(#layer4)" stroke="#9ece6a" stroke-width="1.2"/>
+  <text x="110" y="64" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" font-weight="700">Layer 4</text>
+  <text x="170" y="64" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" font-weight="600">Authority</text>
+  <text x="110" y="80" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Roles: admin / member. First peer auto-promotes. Invite policy: admin-only or open.</text>
+
+  <!-- Layer 3: Capability Tokens -->
+  <rect x="120" y="97" width="560" height="46" rx="8" fill="url(#layer3)" stroke="#da1c5c" stroke-width="1.2"/>
+  <text x="150" y="116" font-family="SF Mono, monospace" font-size="10" fill="#da1c5c" font-weight="700">Layer 3</text>
+  <text x="210" y="116" font-family="system-ui, sans-serif" font-size="11" fill="#da1c5c" font-weight="600">Capability Tokens (Macaroons)</text>
+  <text x="150" y="132" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Cryptographic token chains. 7 caveat types. Can only restrict, never widen (mathematical guarantee).</text>
+
+  <!-- Layer 2: Allowlisting -->
+  <rect x="160" y="149" width="480" height="46" rx="8" fill="url(#layer2)" stroke="#bb9af7" stroke-width="1.2"/>
+  <text x="190" y="168" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" font-weight="700">Layer 2</text>
+  <text x="250" y="168" font-family="system-ui, sans-serif" font-size="11" fill="#bb9af7" font-weight="600">Allowlisting (authorized_keys)</text>
+  <text x="190" y="184" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Connection gater rejects unauthorized peers before any data flows.</text>
+
+  <!-- Layer 1: Identity (bottom - narrowest, foundation) -->
+  <rect x="200" y="201" width="400" height="46" rx="8" fill="url(#layer1)" stroke="#7aa2f7" stroke-width="1.2"/>
+  <text x="230" y="220" font-family="SF Mono, monospace" font-size="10" fill="#7aa2f7" font-weight="700">Layer 1</text>
+  <text x="290" y="220" font-family="system-ui, sans-serif" font-size="11" fill="#7aa2f7" font-weight="600">Identity (cryptographic keypair)</text>
+  <text x="230" y="236" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Peer ID = public key. Cannot impersonate without private key.</text>
+
+  <!-- Side annotation -->
+  <line x1="60" y1="68" x2="60" y2="224" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="55" y="150" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="end" transform="rotate(-90, 55, 150)">Authentication + Authorization</text>
+
+  <!-- Bottom note -->
+  <text x="400" y="268" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">Each layer builds on the one below. All four enforce simultaneously.</text>
+</svg>

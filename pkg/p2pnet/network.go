@@ -105,6 +105,7 @@ type Network struct {
 // Config for creating a new P2P network
 type Config struct {
 	KeyFile         string
+	KeyPassword     string                       // Password for SHRL-encrypted identity.key
 	AuthorizedKeys  string                       // Path to authorized_keys file (auto-creates gater if Gater is nil)
 	Gater           *auth.AuthorizedPeerGater     // Pre-created gater (for hot-reload support). Takes precedence over AuthorizedKeys.
 	Config          *config.Config
@@ -133,7 +134,7 @@ func New(cfg *Config) (*Network, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Load identity
-	priv, err := LoadOrCreateIdentity(cfg.KeyFile)
+	priv, err := LoadOrCreateIdentity(cfg.KeyFile, cfg.KeyPassword)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to load identity: %w", err)

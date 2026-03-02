@@ -3,13 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/internal/identity"
-	"github.com/shurlinet/shurli/internal/relay"
 )
 
 func runRelayPair(args []string, serverConfigFile string) {
@@ -34,9 +33,14 @@ func runRelayPairCreate(args []string, serverConfigFile string) {
 	ttlFlag := fs.Duration("ttl", time.Hour, "how long codes are valid")
 	expiresFlag := fs.Duration("expires", 0, "authorization expiry for joined peers (0 = never)")
 	nsFlag := fs.String("namespace", "", "DHT namespace (default: from config)")
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
 	fs.Parse(args)
 
-	client := connectRelayAdmin(serverConfigFile)
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, serverConfigFile)
+	if err != nil {
+		fatal("Failed to connect: %v", err)
+	}
+	defer cleanup()
 
 	ttlSec := int(ttlFlag.Seconds())
 	expiresSec := int(expiresFlag.Seconds())
@@ -70,7 +74,11 @@ func runRelayPairCreate(args []string, serverConfigFile string) {
 }
 
 func runRelayPairList(serverConfigFile string) {
-	client := connectRelayAdmin(serverConfigFile)
+	client, cleanup, err := relayAdminClientOrRemote("", serverConfigFile)
+	if err != nil {
+		fatal("Failed to connect: %v", err)
+	}
+	defer cleanup()
 
 	groups, err := client.ListGroups()
 	if err != nil {
@@ -95,7 +103,11 @@ func runRelayPairList(serverConfigFile string) {
 }
 
 func runRelayPairRevoke(groupID, serverConfigFile string) {
-	client := connectRelayAdmin(serverConfigFile)
+	client, cleanup, err := relayAdminClientOrRemote("", serverConfigFile)
+	if err != nil {
+		fatal("Failed to connect: %v", err)
+	}
+	defer cleanup()
 
 	if err := client.RevokeGroup(groupID); err != nil {
 		fatal("Failed to revoke group: %v", err)
@@ -104,28 +116,10 @@ func runRelayPairRevoke(groupID, serverConfigFile string) {
 	fmt.Printf("Pairing group %s revoked.\n", groupID)
 }
 
-// connectRelayAdmin creates an AdminClient connected to the running relay.
-func connectRelayAdmin(serverConfigFile string) *relay.AdminClient {
-	socketPath := filepath.Join(filepath.Dir(serverConfigFile), ".relay-admin.sock")
-	cookiePath := filepath.Join(filepath.Dir(serverConfigFile), ".relay-admin.cookie")
-
-	client, err := relay.NewAdminClient(socketPath, cookiePath)
-	if err != nil {
-		fatal("Relay is not running. Start with: shurli relay serve\n  (%v)", err)
-	}
-	return client
-}
-
-// buildRelayAddrFromConfig constructs a relay multiaddr from the relay server config.
-func buildRelayAddrFromConfig(cfg *config.RelayServerConfig) (string, error) {
+// buildRelayAddr constructs a relay multiaddr from the relay server config and a known peer ID.
+func buildRelayAddr(cfg *config.RelayServerConfig, pid peer.ID) (string, error) {
 	if len(cfg.Network.ListenAddresses) == 0 {
 		return "", fmt.Errorf("no listen addresses in relay config")
-	}
-
-	// Load peer ID from key file.
-	pid, err := identity.PeerIDFromKeyFile(cfg.Identity.KeyFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to load relay identity: %w", err)
 	}
 
 	// Find a suitable listen address (prefer TCP for invite code encoding).

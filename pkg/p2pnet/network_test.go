@@ -423,12 +423,20 @@ func TestAddRelayAddressesForPeer(t *testing.T) {
 
 // --- PeerIDFromKeyFile ---
 
+const testKeyPassword = "test-pw"
+
 func TestPeerIDFromKeyFile(t *testing.T) {
-	t.Run("creates and loads", func(t *testing.T) {
+	t.Run("loads existing key", func(t *testing.T) {
 		dir := t.TempDir()
 		keyFile := filepath.Join(dir, "test.key")
 
-		pid, err := PeerIDFromKeyFile(keyFile)
+		// Create the key first via LoadOrCreateIdentity.
+		_, err := LoadOrCreateIdentity(keyFile, testKeyPassword)
+		if err != nil {
+			t.Fatalf("LoadOrCreateIdentity: %v", err)
+		}
+
+		pid, err := PeerIDFromKeyFile(keyFile, testKeyPassword)
 		if err != nil {
 			t.Fatalf("PeerIDFromKeyFile: %v", err)
 		}
@@ -437,7 +445,7 @@ func TestPeerIDFromKeyFile(t *testing.T) {
 		}
 
 		// Second call should return same peer ID
-		pid2, err := PeerIDFromKeyFile(keyFile)
+		pid2, err := PeerIDFromKeyFile(keyFile, testKeyPassword)
 		if err != nil {
 			t.Fatalf("PeerIDFromKeyFile (reload): %v", err)
 		}
@@ -446,12 +454,10 @@ func TestPeerIDFromKeyFile(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid path", func(t *testing.T) {
-		_, err := PeerIDFromKeyFile("/nonexistent/dir/test.key")
-		if err != nil {
-			// Expected  - can't create key in nonexistent dir.
-			// On some systems this might succeed if the parent exists.
-			// Just verify it doesn't panic.
+	t.Run("nonexistent file", func(t *testing.T) {
+		_, err := PeerIDFromKeyFile("/nonexistent/dir/test.key", testKeyPassword)
+		if err == nil {
+			t.Error("expected error for nonexistent key file")
 		}
 	})
 }

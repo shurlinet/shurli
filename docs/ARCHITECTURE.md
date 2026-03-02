@@ -4,8 +4,8 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 5 Complete)](#current-architecture-phase-5-complete) - what's built and working
-- [Target Architecture (Phase 8+)](#target-architecture-phase-8) - planned additions
+- [Current Architecture (Phase 8 Complete)](#current-architecture-phase-8-complete) - what's built and working
+- [Target Architecture (Phase 10+)](#target-architecture-phase-10) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
@@ -14,13 +14,22 @@ This document describes the technical architecture of Shurli, from current imple
   - [Macaroon Capability Tokens (Phase 6)](#macaroon-capability-tokens-phase-6) - HMAC-chain bearer tokens
   - [Passphrase-Sealed Vault (Phase 6)](#passphrase-sealed-vault-phase-6) - relay key protection
   - [Async Invite Deposits (Phase 6)](#async-invite-deposits-phase-6) - client-deposit invites
+  - [ZKP Privacy Layer (Phase 7)](#zkp-privacy-layer-phase-7) - anonymous membership proofs
+  - [Anonymous Relay Authorization (Phase 7)](#anonymous-relay-authorization-phase-7) - challenge-response auth
+  - [Private Reputation (Phase 7)](#private-reputation-phase-7) - range proofs on scores
+  - [BIP39 Key Management (Phase 7)](#bip39-key-management-phase-7) - deterministic circuit keys
+  - [Unified Seed Architecture (Phase 8)](#unified-seed-architecture-phase-8) - one BIP39 seed for all keys
+  - [Encrypted Identity (Phase 8)](#encrypted-identity-phase-8) - password-protected identity.key for all nodes
+  - [Remote Admin Protocol (Phase 8)](#remote-admin-protocol-phase-8) - full relay management over P2P
+  - [MOTD and Goodbye (Phase 8)](#motd-and-goodbye-phase-8) - signed operator announcements
+  - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 12)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 11)
+- [Federation Model](#federation-model) - planned (Phase 14)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 13)
 
 ---
 
-## Current Architecture (Phase 5 Complete)
+## Current Architecture (Phase 8 Complete)
 
 ### Component Overview
 
@@ -29,8 +38,9 @@ Shurli/
 ├── cmd/
 │   ├── shurli/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
-│   │   │                    #   proxy, whoami, auth, relay, config, service,
-│   │   │                    #   invite, join, verify, status, init, version)
+│   │   │                    #   proxy, whoami, auth, relay, config, service, invite,
+│   │   │                    #   join, verify, status, init, recover, change-password,
+│   │   │                    #   lock, unlock, session, doctor, completion, man, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
@@ -51,9 +61,21 @@ Shurli/
 │   │   ├── cmd_relay_pair.go  # Relay pairing code generation
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
+│   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
+│   │   ├── cmd_relay_motd.go # MOTD/goodbye CLI: set/clear/status, goodbye set/retract/shutdown
+│   │   ├── cmd_relay_remote.go # Remote admin --remote flag dispatcher
+│   │   ├── cmd_relay_recover.go # Relay identity recovery from seed phrase
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
+│   │   ├── cmd_recover.go    # Top-level identity recovery from seed phrase
+│   │   ├── cmd_change_password.go # Top-level password change
+│   │   ├── cmd_lock.go       # Lock/unlock/session commands
+│   │   ├── cmd_seed_helpers.go # Shared seed confirmation quiz + password prompts
+│   │   ├── cmd_doctor.go     # Health check + auto-fix (completions, man page, config)
+│   │   ├── cmd_completion.go # Shell completion scripts (bash, zsh, fish)
+│   │   ├── cmd_man.go        # troff man page (display, install, uninstall)
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
@@ -105,7 +127,11 @@ Shurli/
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
 │   ├── identity/            # Ed25519 identity management (shared by shurli + relay-server)
-│   │   └── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
+│   │   ├── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
+│   │   ├── seed.go          # BIP39 generation, HKDF key derivation, unified seed architecture
+│   │   ├── bip39_wordlist.go # BIP39 2048-word English wordlist
+│   │   ├── encrypted.go     # SHRL encrypted identity format (Argon2id + XChaCha20-Poly1305)
+│   │   └── session.go       # Session tokens: create, read, delete, machine-bound encryption
 │   ├── invite/              # Invite code encoding + PAKE handshake
 │   │   ├── code.go          # Binary -> base32 with dash grouping
 │   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
@@ -121,15 +147,36 @@ Shurli/
 │   │   └── errors.go        # ErrDepositNotFound, Consumed, Revoked, Expired
 │   ├── yubikey/             # Yubikey HMAC-SHA1 challenge-response
 │   │   └── challenge.go     # ykman CLI integration (IsAvailable, ChallengeResponse)
-│   ├── relay/               # Relay pairing, admin socket, peer introductions, vault unseal
+│   ├── relay/               # Relay pairing, admin socket, peer introductions, vault unseal, MOTD
 │   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
 │   │   ├── pairing.go       # Relay pairing protocol (/shurli/relay-pair/1.0.0)
 │   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/shurli/peer-notify/1.0.0)
-│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/pair, vault, invites)
-│   │   ├── admin_client.go  # HTTP client for relay admin socket (fire-and-forget)
-│   │   └── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
-│   ├── reputation/           # Peer interaction tracking
-│   │   └── history.go       # Append-only interaction log per peer (foundation for PeerManager)
+│   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/ endpoints)
+│   │   ├── admin_api.go     # RelayAdminAPI interface (local + remote transparent)
+│   │   ├── admin_client.go  # HTTP client for relay admin socket
+│   │   ├── remote_admin.go  # Remote admin P2P handler (/shurli/relay-admin/1.0.0)
+│   │   ├── remote_admin_client.go # Remote admin client (libp2p stream transport)
+│   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
+│   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
+│   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
+│   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
+│   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
+│   ├── zkp/                   # Zero-knowledge proof privacy layer
+│   │   ├── poseidon2.go       # Native + circuit Poseidon2 hash (BN254)
+│   │   ├── merkle.go          # Sorted Merkle tree, power-of-2 padding
+│   │   ├── membership.go      # PLONK membership circuit (22,784 SCS)
+│   │   ├── range_proof.go     # Range proof circuit (27,004 SCS)
+│   │   ├── challenge.go       # Single-use nonce store (30s TTL)
+│   │   ├── srs.go             # KZG SRS generation + seed-based setup
+│   │   ├── keys.go            # ProvingKey/VerifyingKey serialization
+│   │   ├── prover.go          # High-level prover with root extension
+│   │   ├── verifier.go        # High-level verifier (public-only witness)
+│   │   ├── bip39.go           # BIP39 mnemonic generation + validation
+│   │   ├── rln_seam.go        # Rate-limiting nullifier interface
+│   │   └── errors.go          # Sentinel errors
+│   ├── reputation/            # Peer reputation scoring
+│   │   ├── history.go         # Interaction history tracking
+│   │   └── score.go           # Deterministic 0-100 scoring (4 components)
 │   ├── qr/                  # QR Code encoder for terminal display (inlined from skip2/go-qrcode)
 │   │   ├── qrcode.go        # Public API: New(), Bitmap(), ToSmallString()
 │   │   ├── encoder.go       # Data encoding (numeric, alphanumeric, byte modes)
@@ -142,6 +189,7 @@ Shurli/
 │   ├── validate/            # Input validation helpers
 │   │   ├── service.go        # ServiceName() - DNS-label format for protocol IDs
 │   │   ├── network.go        # Network address validation (multiaddr, IP, port)
+│   │   ├── relay_message.go  # SanitizeRelayMessage() - URL/email strip, ASCII whitelist
 │   │   └── errors.go         # Sentinel errors
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
@@ -207,7 +255,7 @@ echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
 
 ---
 
-## Target Architecture (Phase 8+)
+## Target Architecture (Phase 10+)
 
 ### Planned Additions
 
@@ -219,12 +267,12 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 10: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 12: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 8: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 12: Network peering
+│   ├── interfaces.go        # 🆕 Phase 10: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 14: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -232,10 +280,10 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 8: File transfer plugin
-│   └── tun/                 # 🆕 Phase 10: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 10: File transfer plugin
+│   └── tun/                 # 🆕 Phase 12: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 11: Mobile apps
+├── mobile/                  # 🆕 Phase 13: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -248,7 +296,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 10)** - not yet implemented. See [Roadmap Phase 10](ROADMAP.md) for details.
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -256,7 +304,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 18 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -327,7 +375,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-15 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+18 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -418,7 +466,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics (30 total):
+Custom shurli metrics (44 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -449,6 +497,20 @@ Custom shurli metrics (30 total):
 - `shurli_admin_request_total{endpoint, status}` - admin socket request counts
 - `shurli_admin_request_duration_seconds{endpoint}` - admin socket latency
 - `shurli_info{version, go_version}` - build information
+- `shurli_zkp_prove_total` - ZKP proof generation attempts
+- `shurli_zkp_prove_duration_seconds` - ZKP proof generation timing
+- `shurli_zkp_verify_total` - ZKP proof verification attempts
+- `shurli_zkp_verify_duration_seconds` - ZKP proof verification timing
+- `shurli_zkp_auth_total` - ZKP auth protocol attempts
+- `shurli_zkp_tree_rebuild_total` - Merkle tree rebuild count
+- `shurli_zkp_tree_rebuild_duration_seconds` - Merkle tree rebuild timing
+- `shurli_zkp_tree_leaves` - current Merkle tree leaf count
+- `shurli_zkp_challenges_pending` - active challenge nonces
+- `shurli_zkp_range_prove_total` - range proof generation attempts
+- `shurli_zkp_range_prove_duration_seconds` - range proof generation timing
+- `shurli_zkp_range_verify_total` - range proof verification attempts
+- `shurli_zkp_range_verify_duration_seconds` - range proof verification timing
+- `shurli_zkp_anon_announcements_total` - anonymous NetIntel announcements
 
 **Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
 
@@ -458,7 +520,7 @@ Custom shurli metrics (30 total):
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, and system metrics. 37 panels (31 visualizations + 6 row headers) across 6 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, and System.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, ZKP operations, and system metrics. 56 panels (45 visualizations + 11 row headers) across 11 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, and ZKP Tree Operations.
 
 **Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -578,7 +640,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 8/13)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 13](ROADMAP.md).
+> **Planned (Phase 10/15)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 15](ROADMAP.md).
 
 ---
 
@@ -687,13 +749,193 @@ Client-deposit invites ("contact card" model). Admin creates an invite deposit o
 
 Deposit states: `pending` -> `consumed` | `revoked` | `expired`
 
-**Relay admin endpoints**: `POST /v1/invite` (create), `GET /v1/invite` (list), `DELETE /v1/invite/{id}` (revoke), `PATCH /v1/invite/{id}` (add caveats).
+**Relay admin endpoints**: `POST /v1/invite` (create), `GET /v1/invite` (list), `DELETE /v1/invite/{id}` (revoke), `PATCH /v1/invite/{id}` (add caveats), `POST /v1/auth/reload` (hot-reload authorized_keys + ZKP tree). See also [Anonymous Relay Authorization (Phase 7)](#anonymous-relay-authorization-phase-7) for ZKP endpoints: `POST /v1/zkp/tree-rebuild`, `GET /v1/zkp/tree-info`, `GET /v1/zkp/proving-key`, `GET /v1/zkp/verifying-key`.
 
 **Reference**: `internal/deposit/store.go`, `cmd/shurli/cmd_relay_invite.go`
 
+### ZKP Privacy Layer (Phase 7)
+
+> **Status: Implemented**
+
+![Poseidon2 Merkle tree: sorted leaves, power-of-2 padding, deterministic root](images/arch-zkp-merkle-tree.svg)
+
+Zero-knowledge proof system for anonymous authentication. Peers prove "I'm in the authorized set" without the relay learning which peer they are. Built on gnark v0.14.0 PLONK with BN254 curve.
+
+**Core primitive**: A Poseidon2 Merkle tree of authorized peer keys. Each leaf is `Poseidon2(ed25519_pubkey[0..31], role_encoding, score)` - 34 field elements. Leaves sorted by hash, padded to next power of 2, max depth 20 (supports 1M+ peers).
+
+**Membership circuit** (22,784 SCS constraints):
+- Public inputs: MerkleRoot, Nonce (replay protection), RoleRequired
+- Private inputs: PubKeyBytes[32], RoleEncoding, Score, Path[20], PathBits[20]
+- Constraints: Poseidon2 leaf hash (34 elements), 20-level Merkle path walk, root assertion, conditional role check, nonce binding
+- 520-byte proofs, ~1.8s prove, ~2-3ms verify
+
+**Key management**: Proving key (~2 MB) and verifying key (~33.5 KB) cached to disk. Circuit recompiled on demand (~70ms) - gnark's CCS CBOR deserialization panics on Go 1.26, so serialization is deliberately avoided.
+
+**Dependencies**: gnark v0.14.0, gnark-crypto v0.19.0 (pure Go, no CGo).
+
+**Reference**: `internal/zkp/poseidon2.go`, `internal/zkp/merkle.go`, `internal/zkp/membership.go`, `internal/zkp/prover.go`, `internal/zkp/verifier.go`, `internal/zkp/keys.go`, `internal/zkp/srs.go`
+
+### Anonymous Relay Authorization (Phase 7)
+
+> **Status: Implemented**
+
+![ZKP challenge-response: client proves membership, relay verifies without learning identity](images/arch-zkp-auth-protocol.svg)
+
+Challenge-response protocol for anonymous relay authentication. Binary wire format on libp2p streams.
+
+**Protocol**: `/shurli/zkp-auth/1.0.0`
+
+```
+CLIENT -> RELAY:  [1 version] [1 auth_type] [1 role_required]     (3 bytes)
+RELAY  -> CLIENT: [1 status] [8 nonce BE] [32 root] [1 depth]     (42 bytes)
+CLIENT -> RELAY:  [2 BE proof_len] [N proof_bytes]                 (~522 bytes)
+RELAY  -> CLIENT: [1 status] [1 msg_len] [N message]               (variable)
+```
+
+Auth types: `0x01` membership (any authorized peer), `0x02` role (specific role). Nonces are cryptographically random uint64, single-use, 30-second TTL.
+
+**Admin endpoints** (relay Unix socket):
+- `POST /v1/zkp/tree-rebuild` - rebuild Merkle tree from authorized_keys (vault-gated)
+- `GET /v1/zkp/tree-info` - current tree state (always available)
+- `GET /v1/zkp/proving-key` - download proving key binary (~2 MB)
+- `GET /v1/zkp/verifying-key` - download verifying key binary (~34 KB)
+
+**Prometheus metrics** (9 new): `shurli_zkp_prove_total`, `shurli_zkp_prove_duration_seconds`, `shurli_zkp_verify_total`, `shurli_zkp_verify_duration_seconds`, `shurli_zkp_auth_total`, `shurli_zkp_tree_rebuild_total`, `shurli_zkp_tree_rebuild_duration_seconds`, `shurli_zkp_tree_leaves`, `shurli_zkp_challenges_pending`.
+
+**Reference**: `internal/relay/zkp_auth.go`, `internal/relay/zkp_client.go`, `internal/zkp/challenge.go`
+
+### Private Reputation (Phase 7)
+
+> **Status: Implemented**
+
+![Range proof: prove score >= threshold without revealing exact score](images/arch-zkp-range-proof.svg)
+
+Range proofs on peer reputation scores. Prove "my score is above threshold X" without revealing the exact score.
+
+**Scoring formula** (`ComputeScore` returns 0-100, four equally-weighted components):
+- Availability (0-25): ConnectionCount / maxConnections, linear
+- Latency (0-25): logarithmic decay from 10ms (25) to 5000ms (0)
+- PathDiversity (0-25): 0 types=0, 1=8, 2=16, 3+=25
+- Tenure (0-25): days since FirstSeen / 365, capped at 1.0
+
+**Range proof circuit** (27,004 SCS constraints):
+- Extends membership circuit with `Score` (private, committed in leaf) and `Threshold` (public)
+- Additional constraints: `Score >= Threshold`, `Score <= 100`
+- Same 520-byte proofs, separate PLONK keys
+
+**Trust model**: Score is committed in the Merkle tree leaf hash alongside pubkey and role. The range proof circuit verifies the same score value used in the leaf hash, preventing inflation.
+
+**Anonymous NetIntel**: `NodeAnnouncement` has `AnonymousMode bool` and `ZKPProof []byte` fields. When anonymous, `From` is empty, proof substitutes for identity.
+
+**Prometheus metrics** (5 new): `shurli_zkp_range_prove_total`, `shurli_zkp_range_prove_duration_seconds`, `shurli_zkp_range_verify_total`, `shurli_zkp_range_verify_duration_seconds`, `shurli_zkp_anon_announcements_total`.
+
+**RLN extension point**: `RLNIdentity`, `RLNProof`, `RLNVerifier` interface defined (types only, no circuit). Composable with existing membership proof for future anonymous rate limiting.
+
+**Reference**: `internal/reputation/score.go`, `internal/zkp/range_proof.go`, `internal/zkp/rln_seam.go`, `pkg/p2pnet/netintel.go`
+
+### BIP39 Key Management (Phase 7)
+
+> **Status: Implemented**
+
+Deterministic PLONK key generation from BIP39 seed phrases. One seed per node. Seeds never stored on disk.
+
+**Flow**: `SHA256(mnemonic)` -> gnark `WithToxicSeed` -> deterministic SRS -> same proving/verifying keys on any machine.
+
+**CLI**: `shurli relay zkp-setup` generates a 24-word BIP39 mnemonic, derives SRS, saves proving key and verifying key. `--seed` flag accepts existing mnemonic for deterministic reproduction.
+
+**Key distribution**: Clients download proving key and verifying key from relay via `GET /v1/zkp/proving-key` and `GET /v1/zkp/verifying-key`. No seed sharing between nodes.
+
+**Reference**: `internal/zkp/bip39.go`, `internal/zkp/srs.go`, `cmd/shurli/cmd_relay_zkp.go`
+
+### Unified Seed Architecture (Phase 8)
+
+> **Status: Implemented**
+
+ONE BIP39 seed phrase (24 words) derives all cryptographic material via HKDF domain separation. Same construction as Bitcoin HD wallets.
+
+```
+BIP39 Seed (24 words)           <-- ONE backup. Paper. Offline.
+    |
+    |-- HKDF(seed, "shurli/identity/v1")  --> Ed25519 private key --> Peer ID
+    |                                          (encrypted with password on disk)
+    |
+    |-- HKDF(seed, "shurli/vault/v1")     --> Vault root key (relay only)
+    |                                          (encrypted with vault password)
+    |
+    `-- SRS derivation from seed           --> ZKP proving/verifying keys (relay only)
+                                               (cached as .bin files)
+```
+
+**Security properties**: Identity key and vault key are cryptographically independent (different HKDF domains). Only the seed can derive all key types. Seed is never stored on disk.
+
+**CLI**: `shurli init` generates seed, confirms via quiz, derives identity. `shurli recover` reconstructs from seed. `shurli recover --relay` also recovers vault + ZKP keys.
+
+**Reference**: `internal/identity/seed.go`
+
+### Encrypted Identity (Phase 8)
+
+> **Status: Implemented**
+
+All nodes (not just relays) encrypt their identity key at rest using the SHRL format:
+
+- **KDF**: Argon2id (time=1, memory=64MB, threads=4)
+- **Cipher**: XChaCha20-Poly1305 (24-byte nonce)
+- **File format**: SHRL magic header + version + Argon2id salt + nonce + ciphertext
+
+The key is decrypted at daemon startup with the node password. Raw (unencrypted) identity.key files from older installations are detected and the user is prompted to encrypt.
+
+**CLI**: `shurli change-password` re-encrypts with a new password. Session tokens allow password-free restarts.
+
+**Reference**: `internal/identity/encrypted.go`
+
+### Remote Admin Protocol (Phase 8)
+
+> **Status: Implemented**
+
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 20+ admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+
+**Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
+
+**Security**: Admin role check at stream open (non-admins rejected before any data). Rate limiting (5 requests/second per peer). Same auth model as the local Unix socket.
+
+**CLI**: All relay admin commands support `--remote <addr>` to operate remotely instead of through the local Unix socket. The `relayAdminClientOrRemote()` helper transparently selects the transport.
+
+**Reference**: `internal/relay/remote_admin.go`, `internal/relay/remote_admin_client.go`, `internal/relay/admin_api.go`
+
+### MOTD and Goodbye (Phase 8)
+
+> **Status: Implemented**
+
+Signed operator announcements using the `/shurli/relay-motd/1.0.0` protocol.
+
+**Message types**:
+- **MOTD** (0x01): Short message shown to peers on connect. 280-char limit. Deduped per-relay (24h).
+- **Goodbye** (0x02): Persistent farewell pushed to all connected peers immediately. Cached by clients, survives restarts. Used for planned relay decommission.
+- **Retract** (0x03): Cancels a goodbye (relay is back).
+
+**Wire format**: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 signature]`
+
+**Security**: All messages signed by the relay's Ed25519 identity key. Clients verify signatures before displaying. Messages sanitized by `SanitizeRelayMessage()`: URL stripping, email stripping, non-ASCII removal, 280-char truncation. Defense against prompt injection and phishing.
+
+**Goodbye lifecycle**: `relay goodbye set` pushes to all peers. `relay goodbye retract` clears cached goodbyes. `relay goodbye shutdown` sends goodbye then triggers graceful relay shutdown with 2s delay for message delivery.
+
+**Reference**: `internal/relay/motd.go`, `internal/relay/motd_client.go`, `internal/validate/relay_message.go`
+
+### Session Tokens (Phase 8)
+
+> **Status: Implemented**
+
+Machine-bound session tokens that allow password-free daemon restarts. Same model as ssh-agent: enter password once, work until the token expires or is destroyed.
+
+**Design**: Session token encrypts the identity key with a machine-derived key. Token is bound to the machine (hostname + machine ID) so copying it to another device does not work.
+
+**CLI**: `shurli session refresh` rotates the token. `shurli session destroy` deletes it (password required on next start). `shurli lock` / `shurli unlock` gate sensitive operations without destroying the session.
+
+**Reference**: `internal/identity/session.go`, `cmd/shurli/cmd_lock.go`
+
 ### Federation Trust Model
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 12](ROADMAP.md).
+> **Status: Planned (Phase 14)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -714,13 +956,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 10/13.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 10/15.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](images/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 10/13)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 10/15)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -736,7 +978,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md).
+> **Status: Planned (Phase 14)** - not yet implemented. See [Roadmap Phase 14](ROADMAP.md).
 
 ### Relay Peering
 
@@ -746,7 +988,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 11](ROADMAP.md).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 13](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -791,6 +1033,24 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Bandwidth monitoring and alerts
 
 > Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 14+.
+
+### Binary Size
+
+> **37 MB** stripped (Go 1.26, darwin/arm64, `-ldflags="-s -w" -trimpath`)
+
+![Binary size breakdown: pie chart showing Go FIPS crypto (60%), runtime (28%), gnark ZKP (7%), libp2p (3%), and Shurli application code (0.8%)](/images/docs/binary-size-breakdown.svg)
+
+| Component | Debug Size | Why It Exists |
+|-----------|-----------|---------------|
+| Go FIPS 140 crypto | 32.5 MB (60%) | Go 1.24+ embeds the full FIPS-validated crypto module. Non-optional. Ed25519, AES, SHA, TLS, X.509 |
+| Go runtime | 14.9 MB (28%) | GC, goroutine scheduler, memory allocator |
+| gnark (ZKP) | 3.8 MB (7%) | PLONK prover/verifier, gnark-crypto field arithmetic, Poseidon2 |
+| QUIC + Protobuf + DNS + Metrics | 1.9 MB (3%) | Transport, serialization, resolution, Prometheus |
+| libp2p ecosystem | 1.8 MB (3%) | go-libp2p core, Kademlia DHT, yamux, routing helpers |
+| WebRTC (pion) | 1.3 MB (2%) | ICE, DTLS, SCTP, SRTP for browser-compatible NAT traversal |
+| **Shurli application code** | **0.4 MB (0.8%)** | **p2pnet, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon** |
+
+~88% is Go stdlib (FIPS crypto + runtime). gnark adds 3.8 MB for the full ZKP proving system. Shurli's own code is under 1%. Every dependency serves a specific function: libp2p for P2P networking, pion for NAT traversal, gnark for zero-knowledge proofs, Prometheus for observability. Nothing to cut.
 
 ---
 
@@ -880,6 +1140,9 @@ Validated at four points:
 - ✅ Invite code bruteforce (8-byte deposit ID, rate limiting)
 - ✅ Permission escalation on invites (HMAC chain attenuation-only, cryptographic enforcement)
 - ✅ Remote unseal bruteforce (iOS-style escalating lockout: 4 free, 1m/5m/15m/1h, permanent block, admin-only)
+- ✅ Relay identity correlation (ZKP membership proofs - relay cannot learn which peer authenticated)
+- ✅ ZKP replay attacks (single-use nonces, 30s TTL, cryptographic randomness)
+- ✅ Reputation score inflation (range proofs - prove score >= threshold without revealing exact value)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
@@ -931,6 +1194,7 @@ Validated at four points:
 - Noise protocol (encryption)
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
+- gnark v0.14.0 + gnark-crypto v0.19.0 (PLONK zero-knowledge proofs, BN254 curve, pure Go)
 
 **Why libp2p**: Shurli's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ comparisons](faq/comparisons.md#how-do-p2p-networking-stacks-compare) for detailed comparisons.
 
@@ -941,5 +1205,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-02-28
-**Architecture Version**: 3.4 (Phase 6: ACL, Relay Security, Client Invites)
+**Last Updated**: 2026-03-02
+**Architecture Version**: 4.0 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)

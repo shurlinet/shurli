@@ -1123,3 +1123,19 @@ echo
 # --- Run health check ---
 echo
 run_check
+
+# --- Optional vault initialization ---
+if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
+    echo
+    echo "=== Vault Setup ==="
+    echo "The vault protects your relay's root key material."
+    echo "Without it, the relay starts with full privileges after every reboot."
+    echo
+    read -p "Initialize vault now? [Y/n] " vault_choice
+    vault_choice="${vault_choice:-Y}"
+    if [[ "$vault_choice" =~ ^[Yy] ]]; then
+        "$RELAY_DIR/shurli" relay vault init --auto-seal 30
+    else
+        echo "Skipped. Initialize later with: ./shurli relay vault init"
+    fi
+fi

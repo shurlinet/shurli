@@ -159,7 +159,7 @@ func doConfigRollback(args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Restored %s from last-known-good archive\n", cfgFile)
-	fmt.Fprintln(stdout, "You can now restart shurli daemon.")
+	fmt.Fprintln(stdout, "Config restored. Restart daemon to apply all changes.")
 	return nil
 }
 

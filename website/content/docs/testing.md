@@ -1,6 +1,6 @@
 ---
 title: "Testing"
-weight: 10
+weight: 17
 description: "Test strategy for Shurli: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
 ---
 <!-- Auto-synced from docs/TESTING.md by sync-docs - do not edit directly -->

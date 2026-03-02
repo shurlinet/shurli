@@ -170,7 +170,7 @@ This is a future optimization for Shurli's QUIC transport - particularly valuabl
 | Memory per connection | ~28KB (GC overhead, interface boxing) | ~4-8KB (zero-cost abstractions) |
 | libp2p ecosystem | Mature (go-libp2p, most examples) | Growing (rust-libp2p, QUIC-native libraries) |
 | Formal verification | Limited | Strong (s2n-quic has 300+ Kani harnesses) |
-| Binary size | ~25-28MB | ~5-10MB |
+| Binary size | ~37 MB | ~5-10MB |
 | Cross-compilation | Trivial (`GOOS=linux GOARCH=arm64`) | Requires target toolchain setup |
 | Concurrency model | Goroutines (simple, GC-managed) | async/await (no runtime overhead) |
 

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280" width="800" height="280">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7aa2d0" />
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ece6a" />
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c06060" />
+    </marker>
+  </defs>
+
+  <rect width="800" height="280" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="25" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">Remote Admin: Full Relay Management Over P2P</text>
+
+  <!-- Admin peer (left) -->
+  <rect x="30" y="55" width="180" height="80" rx="6" fill="#2d4561" stroke="#7aa2d0" stroke-width="1.5" />
+  <text x="120" y="78" text-anchor="middle" font-family="SF Mono, monospace" font-size="12" fill="#7aa2d0" font-weight="bold">Admin Peer</text>
+  <text x="120" y="96" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#5a82b0">RemoteAdminClient</text>
+  <text x="120" y="112" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#4a7290">JSON request framing</text>
+  <text x="120" y="125" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#4a7290">19 exported methods</text>
+
+  <!-- Arrow: admin -> relay -->
+  <line x1="210" y1="90" x2="300" y2="90" stroke="#7aa2d0" stroke-width="1.5" marker-end="url(#arr)" />
+  <text x="255" y="82" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#5a82b0">libp2p stream</text>
+
+  <!-- Relay (center) -->
+  <rect x="300" y="45" width="200" height="100" rx="8" fill="#1e2d40" stroke="#7aa2d0" stroke-width="2" />
+  <text x="400" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="12" fill="#7aa2d0" font-weight="bold">Relay Server</text>
+  <text x="400" y="86" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#5a82b0">/shurli/relay-admin/1.0.0</text>
+
+  <!-- Security checks inside relay -->
+  <rect x="315" y="98" width="170" height="16" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="400" y="110" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">admin role check at stream open</text>
+  <rect x="315" y="118" width="170" height="16" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="400" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">rate limit: 5 req/s per peer</text>
+
+  <!-- Non-admin rejected -->
+  <rect x="560" y="60" width="140" height="30" rx="4" fill="#3a1e1e" stroke="#c06060" stroke-width="1" />
+  <text x="630" y="80" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#c06060">non-admin: REJECT</text>
+  <line x1="500" y1="75" x2="560" y2="75" stroke="#c06060" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arrRed)" />
+
+  <!-- Arrow: relay -> local admin socket -->
+  <line x1="400" y1="145" x2="400" y2="170" stroke="#9ece6a" stroke-width="1.5" marker-end="url(#arrGreen)" />
+
+  <!-- Local admin socket -->
+  <rect x="280" y="170" width="240" height="50" rx="6" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1" />
+  <text x="400" y="192" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" font-weight="bold">Local Admin Socket</text>
+  <text x="400" y="210" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#7aaa4a">Unix socket + cookie auth (same as CLI)</text>
+
+  <!-- Endpoints grid below -->
+  <rect x="30" y="235" width="130" height="30" rx="4" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="95" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#aaa">vault: seal/unseal</text>
+
+  <rect x="170" y="235" width="130" height="30" rx="4" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="235" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#aaa">invites: CRUD</text>
+
+  <rect x="310" y="235" width="130" height="30" rx="4" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="375" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#aaa">pairing: groups</text>
+
+  <rect x="450" y="235" width="130" height="30" rx="4" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="515" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#aaa">ZKP: tree ops</text>
+
+  <rect x="590" y="235" width="170" height="30" rx="4" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="675" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#aaa">MOTD: set/clear/goodbye</text>
+
+  <!-- Red X on vault init remote -->
+  <text x="680" y="115" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#c06060">vault init: LOCAL ONLY</text>
+  <text x="680" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#804040">seed never travels over network</text>
+</svg>

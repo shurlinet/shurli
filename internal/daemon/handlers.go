@@ -42,6 +42,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/expose", s.handleExpose)
 	mux.HandleFunc("DELETE /v1/expose/{name}", s.handleUnexpose)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	mux.HandleFunc("POST /v1/lock", s.handleLock)
+	mux.HandleFunc("POST /v1/unlock", s.handleUnlock)
+	mux.HandleFunc("GET /v1/lock", s.handleLockStatus)
 }
 
 // --- Format helpers ---
@@ -729,6 +732,36 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond) // let response flush
 		close(s.shutdownCh)
 	}()
+}
+
+func (s *Server) handleLock(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.locked = true
+	s.mu.Unlock()
+	slog.Info("daemon locked via API")
+	respondJSON(w, http.StatusOK, map[string]string{"status": "locked"})
+}
+
+func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.locked = false
+	s.mu.Unlock()
+	slog.Info("daemon unlocked via API")
+	respondJSON(w, http.StatusOK, map[string]string{"status": "unlocked"})
+}
+
+func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	locked := s.locked
+	s.mu.Unlock()
+	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
+}
+
+// IsLocked returns whether sensitive operations are currently locked.
+func (s *Server) IsLocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.locked
 }
 
 // SocketPath returns the path to the Unix socket.
