@@ -365,15 +365,47 @@ func TestConnectionTag(t *testing.T) {
 
 // --- ConnectToService / DialService ---
 
+// testEchoListener starts a TCP listener that echoes received data back.
+// Returns the listener address. Listener is closed when the test ends.
+func testEchoListener(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("test echo listener: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1024)
+				for {
+					n, err := c.Read(buf)
+					if err != nil {
+						return
+					}
+					c.Write(buf[:n])
+				}
+			}(conn)
+		}
+	}()
+	return ln.Addr().String()
+}
+
 func TestConnectToService(t *testing.T) {
 	netA := newListeningNetwork(t)
 	netB := newListeningNetwork(t)
 	connectNetworks(t, netA, netB)
 
-	// Register an echo service on B (don't need real TCP, just the stream handler)
-	netB.ExposeService("echo", "localhost:1", nil) // won't actually dial TCP in this test
+	// Register an echo service on B with a real TCP backend.
+	addr := testEchoListener(t)
+	netB.ExposeService("echo", addr, nil)
 
-	// Connect from A to B's echo service  - this tests DialService + serviceStream
+	// Connect from A to B's echo service - this tests DialService + serviceStream
 	conn, err := netA.ConnectToServiceContext(context.Background(), netB.Host().ID(), "echo")
 	if err != nil {
 		t.Fatalf("ConnectToService: %v", err)
@@ -561,7 +593,8 @@ func TestConnectToService_DefaultTimeout(t *testing.T) {
 	netB := newListeningNetwork(t)
 	connectNetworks(t, netA, netB)
 
-	netB.ExposeService("echo", "localhost:1", nil)
+	addr := testEchoListener(t)
+	netB.ExposeService("echo", addr, nil)
 
 	conn, err := netA.ConnectToService(netB.PeerID(), "echo")
 	if err != nil {
