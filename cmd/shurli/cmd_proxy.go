@@ -128,9 +128,13 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	fmt.Printf("Service: %s\n", serviceName)
 	fmt.Println()
 
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+
 	// Create P2P network
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
 		EnableRelay:        true,

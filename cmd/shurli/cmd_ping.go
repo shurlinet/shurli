@@ -96,9 +96,13 @@ func runPing(args []string) {
 		osExit(1)
 	}
 
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(filepath.Dir(cfgFile))
+
 	// Create P2P network
 	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
 		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
 		EnableRelay:        true,
