@@ -113,6 +113,38 @@ type ExposeRequest struct {
 	LocalAddress string `json:"local_address"`
 }
 
+// BandwidthStats is returned by GET /v1/bandwidth.
+type BandwidthStats struct {
+	TotalIn  int64                    `json:"total_in"`
+	TotalOut int64                    `json:"total_out"`
+	RateIn   float64                  `json:"rate_in"`
+	RateOut  float64                  `json:"rate_out"`
+	ByPeer   map[string]BandwidthPeer `json:"by_peer,omitempty"`
+}
+
+// BandwidthPeer holds per-peer bandwidth stats.
+type BandwidthPeer struct {
+	TotalIn  int64   `json:"total_in"`
+	TotalOut int64   `json:"total_out"`
+	RateIn   float64 `json:"rate_in"`
+	RateOut  float64 `json:"rate_out"`
+}
+
+// RelayHealthResponse is returned by GET /v1/relay-health.
+type RelayHealthResponse struct {
+	Relays []RelayHealthEntry `json:"relays"`
+}
+
+// RelayHealthEntry is one relay's health status.
+type RelayHealthEntry struct {
+	PeerID      string  `json:"peer_id"`
+	Score       float64 `json:"score"`
+	RTTMs       float64 `json:"rtt_ms"`
+	SuccessRate float64 `json:"success_rate"`
+	ProbeCount  int     `json:"probe_count"`
+	IsStatic    bool    `json:"is_static"`
+}
+
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
 	Error string `json:"error"`

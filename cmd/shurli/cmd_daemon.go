@@ -27,7 +27,9 @@ func (rt *serveRuntime) Version() string                      { return rt.versio
 func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
 func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
-func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker     { return rt.pathTracker }
+func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker         { return rt.pathTracker }
+func (rt *serveRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return rt.bwTracker }
+func (rt *serveRuntime) RelayHealth() *p2pnet.RelayHealth           { return rt.relayHealth }
 func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
 	if rt.stunProber == nil {
 		return nil

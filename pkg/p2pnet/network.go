@@ -122,7 +122,8 @@ type Config struct {
 	ResourceLimitsEnabled bool            // Enable libp2p resource manager (connection/stream/memory limits)
 
 	// Observability
-	Metrics *Metrics // Custom shurli metrics (nil = disabled). When non-nil, libp2p metrics are registered on Metrics.Registry.
+	Metrics          *Metrics          // Custom shurli metrics (nil = disabled). When non-nil, libp2p metrics are registered on Metrics.Registry.
+	BandwidthTracker *BandwidthTracker // Per-peer bandwidth tracking (nil = disabled). Counter() wired into libp2p.BandwidthReporter().
 }
 
 // New creates a new P2P network instance
@@ -158,6 +159,12 @@ func New(cfg *Config) (*Network, error) {
 		hostOpts = append(hostOpts, libp2p.PrometheusRegisterer(cfg.Metrics.Registry))
 	} else {
 		hostOpts = append(hostOpts, libp2p.DisableMetrics())
+	}
+
+	// Bandwidth tracking: wire libp2p's BandwidthCounter as a reporter so
+	// every stream read/write is accounted for per-peer and per-protocol.
+	if cfg.BandwidthTracker != nil {
+		hostOpts = append(hostOpts, libp2p.BandwidthReporter(cfg.BandwidthTracker.Counter()))
 	}
 
 	if cfg.UserAgent != "" {

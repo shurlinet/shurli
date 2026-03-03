@@ -94,6 +94,16 @@ type Metrics struct {
 	ZKPRangeVerifyDuration       *prometheus.HistogramVec
 	ZKPAnonAnnouncementsTotal    *prometheus.CounterVec
 
+	// Per-peer bandwidth (populated by BandwidthTracker)
+	PeerBandwidthBytesTotal     *prometheus.GaugeVec // labels: peer, direction
+	PeerBandwidthRate           *prometheus.GaugeVec // labels: peer, direction
+	ProtocolBandwidthBytesTotal *prometheus.GaugeVec // labels: protocol, direction
+	BandwidthBytesTotal         *prometheus.GaugeVec // labels: direction (aggregate)
+
+	// Relay health (populated by RelayHealth)
+	RelayHealthScore *prometheus.GaugeVec   // labels: peer, is_static
+	RelayProbeTotal  *prometheus.CounterVec // labels: result
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -436,6 +446,50 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"result"},
 		),
 
+		PeerBandwidthBytesTotal: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "shurli_peer_bandwidth_bytes_total",
+				Help: "Total bytes transferred per peer (cumulative, from BandwidthCounter).",
+			},
+			[]string{"peer", "direction"},
+		),
+		PeerBandwidthRate: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "shurli_peer_bandwidth_rate_bytes",
+				Help: "Instantaneous bandwidth rate per peer in bytes/sec (EWMA).",
+			},
+			[]string{"peer", "direction"},
+		),
+		ProtocolBandwidthBytesTotal: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "shurli_protocol_bandwidth_bytes_total",
+				Help: "Total bytes transferred per protocol (cumulative).",
+			},
+			[]string{"protocol", "direction"},
+		),
+		BandwidthBytesTotal: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "shurli_bandwidth_bytes_total",
+				Help: "Aggregate bandwidth bytes total across all peers and protocols.",
+			},
+			[]string{"direction"},
+		),
+
+		RelayHealthScore: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "shurli_relay_health_score",
+				Help: "Health score (0-1) for known relay peers.",
+			},
+			[]string{"peer", "is_static"},
+		),
+		RelayProbeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_relay_probe_total",
+				Help: "Total relay health probes by result.",
+			},
+			[]string{"result"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_info",
@@ -488,6 +542,12 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.ZKPRangeVerifyTotal,
 		m.ZKPRangeVerifyDuration,
 		m.ZKPAnonAnnouncementsTotal,
+		m.PeerBandwidthBytesTotal,
+		m.PeerBandwidthRate,
+		m.ProtocolBandwidthBytesTotal,
+		m.BandwidthBytesTotal,
+		m.RelayHealthScore,
+		m.RelayProbeTotal,
 		m.BuildInfo,
 	)
 

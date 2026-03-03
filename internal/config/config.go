@@ -21,6 +21,32 @@ type HomeNodeConfig struct {
 	Names     NamesConfig     `yaml:"names,omitempty"`
 	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
+	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
+}
+
+// PeerRelayConfig controls whether this node acts as a circuit relay for
+// other authorized peers. When enabled, peers behind NAT can use this node
+// as an alternative to the VPS relay.
+type PeerRelayConfig struct {
+	// Enabled controls relay behavior: "auto" (default) enables relay when a
+	// public IP is detected, "true" forces relay on, "false" forces relay off.
+	Enabled string `yaml:"enabled,omitempty"`
+
+	// Resources overrides the default relay resource limits.
+	Resources PeerRelayResourcesConfig `yaml:"resources,omitempty"`
+}
+
+// PeerRelayResourcesConfig allows tuning peer relay resource limits.
+// Zero values use conservative defaults.
+type PeerRelayResourcesConfig struct {
+	MaxReservations        int    `yaml:"max_reservations,omitempty"`          // default: 4
+	MaxCircuits            int    `yaml:"max_circuits,omitempty"`              // default: 16
+	MaxReservationsPerPeer int    `yaml:"max_reservations_per_peer,omitempty"` // default: 1
+	MaxReservationsPerIP   int    `yaml:"max_reservations_per_ip,omitempty"`   // default: 2
+	MaxReservationsPerASN  int    `yaml:"max_reservations_per_asn,omitempty"`  // default: 4
+	BufferSize             int    `yaml:"buffer_size,omitempty"`               // default: 4096
+	CircuitDuration        string `yaml:"circuit_duration,omitempty"`          // default: "10m"
+	CircuitDataLimit       string `yaml:"circuit_data_limit,omitempty"`        // default: "128KB"
 }
 
 // CLIConfig holds settings for CLI subcommand behavior.
@@ -108,6 +134,7 @@ type DiscoveryConfig struct {
 	Rendezvous       string        `yaml:"rendezvous"`
 	Network          string        `yaml:"network,omitempty"`            // DHT namespace for private networks (empty = global)
 	BootstrapPeers   []string      `yaml:"bootstrap_peers"`
+	DNSSeedDomain    string        `yaml:"dns_seed_domain,omitempty"`   // DNS seed domain (default: seeds.shurli.io)
 	MDNSEnabled      *bool         `yaml:"mdns_enabled,omitempty"`      // LAN peer discovery (default: true)
 	NetIntelEnabled  *bool         `yaml:"net_intel_enabled,omitempty"` // Presence announcements (default: true)
 	AnnounceInterval time.Duration `yaml:"announce_interval,omitempty"` // How often to push state (default: 5m)
