@@ -81,6 +81,7 @@ Shurli/
 │   │   ├── cmd_man.go        # troff man page (display, install, uninstall)
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
@@ -101,6 +102,10 @@ Shurli/
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
+│   ├── relaydiscovery.go    # DHT relay discovery + RelaySource interface + AutoRelay PeerSource
+│   ├── relayhealth.go       # EWMA relay health scoring (success rate, RTT, freshness)
+│   ├── bandwidth.go         # Per-peer/protocol bandwidth tracking (wraps libp2p BandwidthCounter)
+│   ├── dnsseed.go           # DNS seed resolution (_dnsaddr TXT records, IPFS convention)
 │   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
 │   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
@@ -132,7 +137,7 @@ Shurli/
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
-│   ├── identity/            # Ed25519 identity management (shared by shurli + relay-server)
+│   ├── identity/            # Ed25519 identity management (shared by daemon + relay modes)
 │   │   ├── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   │   ├── seed.go          # BIP39 generation, HKDF key derivation, unified seed architecture
 │   │   ├── bip39_wordlist.go # BIP39 2048-word English wordlist
@@ -200,13 +205,14 @@ Shurli/
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
-├── relay-server/            # Deployment artifacts
-│   ├── setup.sh             # Deploy/verify/uninstall (builds shurli, runs relay serve)
-│   └── relay-server.service # systemd unit template (installed as shurli-relay.service)
-│
 ├── deploy/                  # Service management files
 │   ├── shurli-daemon.service   # systemd unit for daemon (Linux)
+│   ├── shurli-relay.service    # systemd unit for relay server (Linux)
 │   └── com.shurli.daemon.plist # launchd plist for daemon (macOS)
+│
+├── tools/                   # Dev and deployment tools
+│   ├── relay-setup.sh          # Relay VPS deploy/verify/uninstall script
+│   └── sync-docs/              # Hugo doc sync pipeline
 │
 ├── configs/                 # Sample configuration files
 │   ├── shurli.sample.yaml
@@ -293,7 +299,7 @@ Shurli/
 │   ├── ios/
 │   └── android/
 │
-└── ...existing (relay-server/, configs, docs, examples)
+└── ...existing (deploy/, tools/, configs, docs, examples)
 ```
 
 ### Service Exposure Architecture
@@ -339,7 +345,10 @@ type serveRuntime struct {
     peerManager      *p2pnet.PeerManager       // background reconnection with backoff
     netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
     peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
+    relayDiscovery   *p2pnet.RelayDiscovery    // static + DHT relay discovery
     metrics          *p2pnet.Metrics           // nil when telemetry disabled
+    bwTracker        *p2pnet.BandwidthTracker  // per-peer bandwidth stats
+    relayHealth      *p2pnet.RelayHealth       // EWMA relay health scoring
     peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```

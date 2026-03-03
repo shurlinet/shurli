@@ -29,7 +29,7 @@ Architecture:
 
 ### ADR-DT02: Relay Setup as Go Subcommand (Replace Bash Section 6.5)
 
-**Context**: `relay-server/setup.sh` section 6.5 generated relay node configuration (192 lines of bash). It duplicated config YAML that already existed in Go's `config_template.go`, creating a maintenance burden where changes had to be made in two places.
+**Context**: `tools/relay-setup.sh` section 6.5 generated relay node configuration (192 lines of bash). It duplicated config YAML that already existed in Go's `config_template.go`, creating a maintenance burden where changes had to be made in two places.
 
 **Alternatives considered**:
 - **Keep bash, import template** - Bash cannot import Go templates. Would require generating a shared file format.
@@ -39,4 +39,34 @@ Architecture:
 
 **Consequences**: Single source of truth for relay config. Operators get `--backup` and `--restore` flags for free. The bash script still handles system-level tasks (apt, systemd, firewall) where bash is the right tool.
 
-**Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`relay-server/setup.sh`](https://github.com/shurlinet/shurli/blob/main/relay-server/setup.sh)
+**Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`tools/relay-setup.sh`](https://github.com/shurlinet/shurli/blob/main/tools/relay-setup.sh)
+
+---
+
+### ADR-DT03: Directory Consolidation (relay-server/ Eliminated)
+
+**Context**: The `relay-server/` directory was a grab-bag: systemd service file, setup script, README, and a gitignored binary. It created confusion about where relay artifacts lived and duplicated the pattern already established by `deploy/` (service files) and `tools/` (scripts). Contributors had to look in three places to find relay-related files.
+
+**Alternatives considered**:
+- **Keep relay-server/, add symlinks** - Preserves backward compatibility but adds indirection. Symlinks confuse `go build` and some CI tools.
+- **Rename to deploy/relay/** - Better grouping but creates a nested directory for three files.
+- **Distribute files to existing directories** - Service file joins `deploy/`, setup script joins `tools/`, relay guide joins `docs/`. Each file goes where its type already lives. Delete `relay-server/` entirely.
+
+**Decision**: Clean cut, no backward compatibility:
+
+| Old location | New location |
+|---|---|
+| `relay-server/relay-server.service` | `deploy/shurli-relay.service` |
+| `relay-server/setup.sh` | `tools/relay-setup.sh` |
+| `relay-server/README.md` | `docs/RELAY-SETUP.md` |
+| `relay-server/relay-server` (binary) | `/usr/local/bin/shurli` (system install) |
+
+Simultaneously, the relay install moved from relative-path (`$RELAY_DIR/shurli`) to FHS-compliant system paths (`/usr/local/bin/shurli` + `/etc/shurli/relay/`). The Makefile gained relay targets (`install-relay`, `uninstall-relay`) alongside existing daemon targets.
+
+The setup script delegates build and install to `make install-relay` instead of running `go build` inline. The service file uses fixed system paths (no sed placeholder substitution).
+
+53+ cross-codebase references updated. Runtime identifiers (`relay-server/<version>` UserAgent, `relay-server.yaml` config filename) left unchanged - these are network protocol identifiers, not file paths.
+
+**Consequences**: One directory deleted. Files live where their type lives. Contributors find service files in `deploy/`, scripts in `tools/`, docs in `docs/`. FHS-compliant installation makes the relay deployable like any standard Linux service. `make install-relay` handles the full lifecycle.
+
+**Reference**: `deploy/shurli-relay.service`, `tools/relay-setup.sh`, `docs/RELAY-SETUP.md`, `Makefile`

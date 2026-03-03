@@ -1,5 +1,5 @@
 # Shurli Makefile
-# Build, test, install, and manage the shurli daemon.
+# Build, test, install, and manage the shurli daemon and relay server.
 
 BINARY     := shurli
 INSTALL_DIR := /usr/local/bin
@@ -15,7 +15,15 @@ LAUNCHD_PLIST   := deploy/com.shurli.daemon.plist
 LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.shurli.daemon.plist
 LAUNCHD_LABEL   := com.shurli.daemon
 
-.PHONY: build test clean install install-service uninstall-service uninstall restart-service sync-docs website check push help
+# Relay server variables
+SERVICE_USER       ?= shurli
+RELAY_DATA_DIR     := /etc/shurli/relay
+RELAY_SERVICE      := deploy/shurli-relay.service
+RELAY_SERVICE_DEST := /etc/systemd/system/shurli-relay.service
+
+.PHONY: build test clean install install-service uninstall-service uninstall restart-service \
+        install-relay install-relay-service uninstall-relay-service uninstall-relay \
+        sync-docs website check push help
 
 ## Build the shurli binary with version embedding.
 build:
@@ -112,6 +120,68 @@ else
 	@echo "Unsupported OS: $(OS)"
 endif
 
+## Build, install the binary, create relay data dir, and set up relay service (Linux only).
+install-relay: build
+ifeq ($(OS),Linux)
+	@echo "Installing relay server to system paths..."
+	@echo "This requires elevated permissions."
+	sudo install -m 755 $(BINARY) $(INSTALL_DIR)/$(BINARY)
+	@echo "Binary installed: $(INSTALL_DIR)/$(BINARY)"
+	@if ! id -u $(SERVICE_USER) >/dev/null 2>&1; then \
+		echo "Creating user '$(SERVICE_USER)'..."; \
+		sudo useradd --system --shell /usr/sbin/nologin --create-home $(SERVICE_USER); \
+		echo "User '$(SERVICE_USER)' created."; \
+	fi
+	sudo mkdir -p $(RELAY_DATA_DIR)
+	sudo chown $(SERVICE_USER):$(SERVICE_USER) $(RELAY_DATA_DIR)
+	@echo "Data directory: $(RELAY_DATA_DIR)"
+	sudo -u $(SERVICE_USER) $(INSTALL_DIR)/$(BINARY) relay setup --dir $(RELAY_DATA_DIR) --non-interactive
+	-sudo chmod 600 $(RELAY_DATA_DIR)/relay-server.yaml $(RELAY_DATA_DIR)/relay_authorized_keys 2>/dev/null
+	@$(MAKE) install-relay-service
+else
+	@echo "Relay install is Linux-only (requires systemd)."
+	@echo "On other platforms, run 'shurli relay serve' manually."
+	@exit 1
+endif
+
+## Install and enable the relay systemd service.
+install-relay-service:
+ifeq ($(OS),Linux)
+	@echo "Installing relay systemd service..."
+	sudo cp $(RELAY_SERVICE) $(RELAY_SERVICE_DEST)
+	sudo systemctl daemon-reload
+	sudo systemctl enable shurli-relay
+	@echo ""
+	@echo "Relay service installed and enabled."
+	@echo "Start with: sudo systemctl start shurli-relay"
+	@echo "Logs:       journalctl -u shurli-relay -f"
+else
+	@echo "Relay service install is Linux-only (requires systemd)."
+	@exit 1
+endif
+
+## Stop and remove the relay systemd service.
+uninstall-relay-service:
+ifeq ($(OS),Linux)
+	@echo "Removing relay systemd service..."
+	-sudo systemctl stop shurli-relay 2>/dev/null
+	-sudo systemctl disable shurli-relay 2>/dev/null
+	-sudo rm -f $(RELAY_SERVICE_DEST)
+	-sudo systemctl daemon-reload
+	@echo "Relay service removed."
+else
+	@echo "Unsupported OS: $(OS)"
+endif
+
+## Remove the relay service and the installed binary (preserves config/keys).
+uninstall-relay: uninstall-relay-service
+	@echo "Removing $(INSTALL_DIR)/$(BINARY)"
+	@echo "This requires elevated permissions."
+	sudo rm -f $(INSTALL_DIR)/$(BINARY)
+	@echo "Uninstall complete."
+	@echo "Config and keys preserved in: $(RELAY_DATA_DIR)"
+	@echo "To remove data: sudo rm -rf $(RELAY_DATA_DIR)"
+
 ## Sync docs/ to website/ with Hugo front matter and link rewriting.
 sync-docs:
 	go run ./tools/sync-docs
@@ -154,16 +224,26 @@ push: check
 help:
 	@echo "Shurli Makefile targets:"
 	@echo ""
-	@echo "  build             Build the shurli binary"
-	@echo "  test              Run all tests with race detection"
-	@echo "  clean             Remove build artifacts"
-	@echo "  install           Build, install binary, and set up service"
-	@echo "  install-service   Install and enable system service"
-	@echo "  uninstall-service Stop and remove system service"
-	@echo "  uninstall         Remove service and binary"
-	@echo "  restart-service   Restart the system service"
-	@echo "  sync-docs         Sync docs/ to website/ content"
-	@echo "  website           Sync docs and start Hugo dev server"
-	@echo "  check             Run local checks from .checks file"
-	@echo "  push              Run checks, then git push"
-	@echo "  help              Show this help"
+	@echo "  build                  Build the shurli binary"
+	@echo "  test                   Run all tests with race detection"
+	@echo "  clean                  Remove build artifacts"
+	@echo ""
+	@echo "  Daemon (home-node / client-node):"
+	@echo "  install                Build, install binary, and set up daemon service"
+	@echo "  install-service        Install and enable daemon system service"
+	@echo "  uninstall-service      Stop and remove daemon system service"
+	@echo "  uninstall              Remove daemon service and binary"
+	@echo "  restart-service        Restart the daemon system service"
+	@echo ""
+	@echo "  Relay server (VPS):"
+	@echo "  install-relay          Build, install binary, create /etc/shurli/relay, set up relay service"
+	@echo "  install-relay-service  Install and enable relay systemd service"
+	@echo "  uninstall-relay-service Stop and remove relay systemd service"
+	@echo "  uninstall-relay        Remove relay service and binary (preserves config/keys)"
+	@echo ""
+	@echo "  Dev tools:"
+	@echo "  sync-docs              Sync docs/ to website/ content"
+	@echo "  website                Sync docs and start Hugo dev server"
+	@echo "  check                  Run local checks from .checks file"
+	@echo "  push                   Run checks, then git push"
+	@echo "  help                   Show this help"

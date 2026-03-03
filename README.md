@@ -85,7 +85,7 @@ shurli join <pairing-code> --name laptop
 
 The relay admin generates codes with `shurli relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
 
-> **Relay server**: All machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `shurli relay serve` to start a relay.
+> **Relay server**: All machines connect through a relay for NAT traversal. See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for deploying your own. Quick install: `make install-relay`
 
 ## Why Shurli exists
 
@@ -290,7 +290,7 @@ A plist is provided at [deploy/com.shurli.daemon.plist](deploy/com.shurli.daemon
 
 ### Relay Server
 
-See [relay-server/README.md](relay-server/README.md) for the full VPS deployment guide (user creation, SSH hardening, firewall, systemd, health checks).
+See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for the full VPS deployment guide (user creation, SSH hardening, firewall, systemd, health checks). Quick install: `make install-relay`
 
 ## Building
 
@@ -423,13 +423,13 @@ internal/
 ├── watchdog/                  # Health monitoring + systemd sd_notify (pure Go)
 ├── qr/                        # QR code generation (zero dependencies)
 └── termcolor/                 # Terminal color output
-relay-server/                  # Deployment artifacts
-├── setup.sh                   # Full VPS setup (build, permissions, systemd, health)
-├── relay-server.service       # systemd unit file
-└── README.md                  # VPS deployment guide
-deploy/                        # Client service files
-├── shurli-daemon.service      # systemd unit for shurli daemon
-└── com.shurli.daemon.plist    # launchd plist for macOS
+deploy/                        # Service files
+├── shurli-daemon.service      # systemd unit for daemon (Linux)
+├── shurli-relay.service       # systemd unit for relay server (Linux)
+└── com.shurli.daemon.plist    # launchd plist for daemon (macOS)
+tools/                         # Dev and deployment tools
+├── relay-setup.sh             # Relay VPS deploy/verify/uninstall script
+└── sync-docs/                 # Hugo doc sync pipeline
 configs/                       # Sample configuration files
 ├── shurli.sample.yaml
 ├── relay-server.sample.yaml
