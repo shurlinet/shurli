@@ -388,7 +388,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 		// Phase 8 vault init requires seed_bytes (32 bytes, base64), mnemonic, and password.
 		t.Log("Initializing vault...")
 		body, status, err = adminCurl("POST", "/v1/vault/init",
-			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"test-passphrase-docker","enable_totp":false,"auto_seal_minutes":0}`)
+			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"testpassword","enable_totp":false,"auto_seal_minutes":0}`)
 		if err != nil {
 			t.Fatalf("vault init failed: %v", err)
 		}
@@ -446,7 +446,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 	// ── Step 6: Unseal with correct passphrase ──
 	t.Log("Unsealing with correct passphrase...")
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"test-passphrase-docker"}`)
+		`{"passphrase":"testpassword"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestSealedRelayBlocksMutations(t *testing.T) {
 
 	// ── Unseal to restore state for subsequent tests ──
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"test-passphrase-docker"}`)
+		`{"passphrase":"testpassword"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
