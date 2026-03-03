@@ -1,0 +1,44 @@
+[Unit]
+Description=Shurli Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WatchdogSec=90
+User=shurli
+Group=shurli
+WorkingDirectory=/etc/shurli/relay
+ExecStart=/usr/local/bin/shurli relay serve
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Allow binding to privileged ports (443) without running as root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=200%
+TasksMax=4096
+
+# Allow read/write only to the data directory (config, keys, logs)
+ReadWritePaths=/etc/shurli/relay
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shurli-relay
+
+[Install]
+WantedBy=multi-user.target

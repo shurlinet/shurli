@@ -1,13 +1,16 @@
-# Daemon Service Deployment
+# Service Deployment
 
-This directory contains service files for running `shurli daemon` as a managed system service. Two platforms are supported:
+This directory contains service files for running Shurli as a managed system service.
 
-| File | Platform | Init system |
-|------|----------|-------------|
-| `shurli-daemon.service` | Linux | systemd |
-| `com.shurli.daemon.plist` | macOS | launchd |
+| File | Mode | Platform | Init system |
+|------|------|----------|-------------|
+| `shurli-daemon.service` | Daemon (home-node / client) | Linux | systemd |
+| `shurli-relay.service` | Relay server (VPS) | Linux | systemd |
+| `com.shurli.daemon.plist` | Daemon (home-node / client) | macOS | launchd |
 
-Both ensure the daemon starts on boot, restarts on crash, and integrates with the platform's logging system.
+All services start on boot, restart on crash, and integrate with the platform's logging system.
+
+> **Full relay setup guide**: See [docs/RELAY-SETUP.md](../docs/RELAY-SETUP.md) for VPS deployment (Go install, firewall, QUIC tuning, health checks). Quick install: `make install-relay`
 
 ---
 

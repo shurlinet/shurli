@@ -1,7 +1,7 @@
 ---
 title: "Phase 8 - Identity & Remote Admin"
-weight: 19
-description: "Unified BIP39 seed, encrypted identity, recovery CLI, remote admin protocol, MOTD/goodbye, session tokens, lock/unlock."
+weight: 20
+description: "Unified BIP39 seed, encrypted identity, session tokens, remote admin over P2P, MOTD/goodbye, relay recovery."
 ---
 <!-- Auto-synced from docs/engineering-journal/phase8-identity-remote-admin.md by sync-docs - do not edit directly -->
 
@@ -22,7 +22,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Why not external files**: Keeping completion scripts as Go constants means they're always in sync with the binary. No separate files to distribute or version.
 
-**Reference**: `cmd/shurli/cmd_completion.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_completion.go`
 
 ---
 
@@ -34,7 +34,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Why troff**: It's the standard. Every Unix system renders it natively. No dependencies.
 
-**Reference**: `cmd/shurli/cmd_man.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_man.go`
 
 ---
 
@@ -44,7 +44,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Decision**: `shurli doctor` checks config, identity key, completions, and man page. `--fix` auto-repairs everything. Reports pass/warn/fail for each check.
 
-**Reference**: `cmd/shurli/cmd_doctor.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_doctor.go`
 
 ---
 
@@ -61,7 +61,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Trade-off**: Seed compromise = total compromise. But that's true of any single-seed system, and one backup is far more likely to be done correctly than two.
 
-**Reference**: `internal/identity/seed.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/identity/seed.go`
 
 ---
 
@@ -77,7 +77,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Backward compatibility**: Raw key files detected by magic header check. User prompted to encrypt on first use.
 
-**Reference**: `internal/identity/encrypted.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/identity/encrypted.go`
 
 ---
 
@@ -89,7 +89,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Why only 2 words**: Balance between verification confidence and user annoyance. Two random positions from 24 words is sufficient to prove the user has the full phrase accessible.
 
-**Reference**: `cmd/shurli/cmd_seed_helpers.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_seed_helpers.go`
 
 ---
 
@@ -104,7 +104,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Why separate passwords**: Identity password is entered frequently (daemon start). Vault password is entered rarely (unseal after reboot). Different risk profiles warrant different credentials.
 
-**Reference**: `cmd/shurli/cmd_change_password.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_change_password.go`
 
 ---
 
@@ -116,7 +116,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Why top-level**: Recovery is critical infrastructure. Burying it under `relay vault recover` makes it invisible to node operators who need it most.
 
-**Reference**: `cmd/shurli/cmd_recover.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_recover.go`
 
 ---
 
@@ -126,7 +126,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Decision**: `shurli change-password` prompts for current password, new password, confirmation. Updates session token if one exists.
 
-**Reference**: `cmd/shurli/cmd_change_password.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_change_password.go`
 
 ---
 
@@ -142,7 +142,7 @@ Phase 8 addresses seven converging problems: two separate seed systems, no backu
 
 **Trade-off**: JSON-over-stream adds ~2KB overhead vs binary protocol. Acceptable for admin operations (not data plane).
 
-**Reference**: `internal/relay/remote_admin.go`, `internal/relay/remote_admin_client.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/remote_admin.go`, `https://github.com/shurlinet/shurli/blob/main/internal/relay/remote_admin_client.go`
 
 ---
 
@@ -171,7 +171,7 @@ Wire format: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 s
 
 **Why 280-char limit**: Operator messages should be brief. Long messages are usually spam or injection attempts.
 
-**Reference**: `internal/relay/motd.go`, `internal/relay/motd_client.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/motd.go`, `https://github.com/shurlinet/shurli/blob/main/internal/relay/motd_client.go`
 
 ---
 
@@ -185,7 +185,7 @@ Wire format: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 s
 
 **Why 2s delay**: Ensures goodbye reaches connected peers before the TCP connections drop.
 
-**Reference**: `internal/relay/motd.go` (`SetGoodbye`, `RetractGoodbye`, `HandleGoodbyeShutdown`)
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/motd.go` (`SetGoodbye`, `RetractGoodbye`, `HandleGoodbyeShutdown`)
 
 ---
 
@@ -204,7 +204,7 @@ Wire format: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 s
 
 **Why strip non-ASCII**: Unicode contains RTL override characters, zero-width joiners, and homoglyphs that enable visual spoofing. ASCII-only eliminates the entire class.
 
-**Reference**: `internal/validate/relay_message.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/validate/relay_message.go`
 
 ---
 
@@ -218,7 +218,7 @@ Wire format: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 s
 
 **Stored goodbye verification**: Clients persist goodbye signatures. On reconnect, the stored goodbye can be re-verified against the relay's public key.
 
-**Reference**: `internal/relay/motd.go` (`buildSignableData`), `internal/relay/motd_client.go` (`VerifyStoredGoodbye`)
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/motd.go` (`buildSignableData`), `https://github.com/shurlinet/shurli/blob/main/internal/relay/motd_client.go` (`VerifyStoredGoodbye`)
 
 ---
 
@@ -235,7 +235,7 @@ The `shutdown` operation requires explicit confirmation for safety (sends to all
 
 **Admin API**: `POST /v1/goodbye/shutdown` triggers async shutdown via `shutdownFunc` channel. The relay's signal handler selects on both OS signals and the admin shutdown channel.
 
-**Reference**: `internal/relay/admin.go` (`handleGoodbyeShutdown`), `cmd/shurli/cmd_relay_serve.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/admin.go` (`handleGoodbyeShutdown`), `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay_serve.go`
 
 ---
 
@@ -252,4 +252,4 @@ Machine binding: token encrypted with key derived from hostname + machine ID. Co
 
 **Why separate lock/unlock from session**: Session is about startup convenience. Lock/unlock is about runtime security. Different concerns, different commands.
 
-**Reference**: `internal/identity/session.go`, `cmd/shurli/cmd_lock.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/identity/session.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_lock.go`
