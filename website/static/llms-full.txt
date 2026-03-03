@@ -7601,7 +7601,7 @@ ufw enable
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli
+cd shurli
 ```
 
 ### Run the setup script
@@ -7693,7 +7693,7 @@ sudo systemctl restart shurli-relay
 Run the health check anytime:
 
 ```bash
-cd ~/Shurli
+cd ~/shurli
 bash tools/relay-setup.sh --check
 ```
 
@@ -7726,7 +7726,7 @@ Everything looks great!
 To remove the systemd service, firewall rules, and system tuning:
 
 ```bash
-cd ~/Shurli
+cd ~/shurli
 bash tools/relay-setup.sh --uninstall
 ```
 
@@ -7741,7 +7741,7 @@ It does **not** delete config, keys, or source code. To fully clean up:
 ```bash
 sudo rm -rf /etc/shurli/relay  # Remove relay data
 sudo rm /usr/local/bin/shurli  # Remove binary
-rm -rf ~/Shurli                # Remove source (only if you want to)
+rm -rf ~/shurli                # Remove source (only if you want to)
 ```
 
 ---
@@ -7764,7 +7764,7 @@ sudo journalctl -u shurli-relay -n 50
 sudo journalctl --disk-usage
 
 # Update relay server (after code changes)
-cd ~/Shurli
+cd ~/shurli
 git pull
 make install-relay
 sudo systemctl restart shurli-relay
@@ -7807,7 +7807,7 @@ After setup, the relay data and binary are installed to system paths:
 Source code (where you cloned the repo):
 
 ```
-~/Shurli/
+~/shurli/
   tools/relay-setup.sh             # Setup + health check script
   deploy/shurli-relay.service      # systemd service file
   configs/relay-server.sample.yaml # Sample configuration
@@ -7857,7 +7857,7 @@ Without this library, Shurli falls back to pure-Go mDNS (works but less reliable
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli
+cd shurli
 
 # Build and install to system paths
 make install-relay
