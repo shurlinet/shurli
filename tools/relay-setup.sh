@@ -1006,7 +1006,7 @@ echo
 
 # --- 5.5. OS-level rate limiting (iptables) ---
 if command -v iptables > /dev/null 2>&1; then
-    echo "[5.5/7] Configuring iptables rate limiting..."
+    echo "[5.5/8] Configuring iptables rate limiting..."
 
     # TCP SYN flood protection
     if ! run_sudo iptables -C INPUT -p tcp --syn -m limit --limit 50/s --limit-burst 100 -j ACCEPT 2>/dev/null; then
