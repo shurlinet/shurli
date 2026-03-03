@@ -383,6 +383,19 @@ func TestVaultInitSealUnseal(t *testing.T) {
 	}
 	if sealStatus.Initialized {
 		t.Log("Vault already initialized (previous test run?), skipping init")
+		// Vault may have auto-sealed since last run. Unseal so subsequent
+		// assertions (Step 3) don't fail on stale seal state.
+		if sealStatus.Sealed {
+			t.Log("Vault sealed, unsealing for test...")
+			_, unsealStatus, unsealErr := adminCurl("POST", "/v1/unseal",
+				`{"passphrase":"testpassword"}`)
+			if unsealErr != nil {
+				t.Fatalf("pre-test unseal failed: %v", unsealErr)
+			}
+			if unsealStatus != 200 {
+				t.Fatalf("pre-test unseal returned %d", unsealStatus)
+			}
+		}
 	} else {
 		// ── Step 2: Initialize vault ──
 		// Phase 8 vault init requires seed_bytes (32 bytes, base64), mnemonic, and password.

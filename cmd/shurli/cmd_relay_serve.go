@@ -231,15 +231,32 @@ func runRelayServe(args []string) {
 	}
 	defer h.Close()
 
-	// Start the relay service with configured resource limits
+	// Start the relay service with configured resource limits.
+	// Circuit ACL controls which peers can relay data through this server.
+	// By default (enable_data_relay: false), only admin peers and peers with
+	// relay_data=true can create circuits. Signaling protocols (relay-pair,
+	// peer-notify, etc.) are direct streams and are unaffected by this ACL.
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
-	_, err = relayv2.New(h, relayv2.WithResources(relayResources), relayv2.WithLimit(relayLimit))
+	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay)
+	_, err = relayv2.New(h,
+		relayv2.WithResources(relayResources),
+		relayv2.WithLimit(relayLimit),
+		relayv2.WithACL(circuitACL),
+	)
 	if err != nil {
 		fatal("Failed to start relay service: %v", err)
 	}
 	fmt.Printf("Relay limits: max_reservations=%d, max_circuits=%d, session=%s, data=%s/direction\n",
 		cfg.Resources.MaxReservations, cfg.Resources.MaxCircuits,
 		cfg.Resources.SessionDuration, cfg.Resources.SessionDataLimit)
+	if cfg.Security.EnableDataRelay {
+		fmt.Println("Data relay: ENABLED (all authorized peers can relay data)")
+	} else {
+		fmt.Println("Data relay: DISABLED (discovery and signaling only)")
+		fmt.Println("  Peers connect directly. No SSH/XRDP data flows through this relay.")
+		fmt.Println("  Exceptions: admin peers, peers with relay_data=true attribute.")
+		fmt.Println("  To enable for all: set enable_data_relay: true in relay-server.yaml")
+	}
 
 	// Bootstrap into the private shurli DHT as a server.
 	// The relay is the primary bootstrap peer - all shurli nodes connect here first
@@ -765,10 +782,14 @@ func doRelayListPeers(configFile string, stdout io.Writer) error {
 			if role == "" {
 				role = "member"
 			}
+			tags := "[" + role + "]"
+			if p.RelayData {
+				tags += " [relay_data]"
+			}
 			if p.Comment != "" {
-				fmt.Fprintf(stdout, "  %s  [%s]  # %s\n", p.PeerID, role, p.Comment)
+				fmt.Fprintf(stdout, "  %s  %s  # %s\n", p.PeerID, tags, p.Comment)
 			} else {
-				fmt.Fprintf(stdout, "  %s  [%s]\n", p.PeerID, role)
+				fmt.Fprintf(stdout, "  %s  %s\n", p.PeerID, tags)
 			}
 		}
 	}

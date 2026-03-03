@@ -182,6 +182,7 @@ type ZKPConfig struct {
 type RelaySecurityConfig struct {
 	AuthorizedKeysFile     string    `yaml:"authorized_keys_file"`
 	EnableConnectionGating bool      `yaml:"enable_connection_gating"`
+	EnableDataRelay        bool      `yaml:"enable_data_relay,omitempty"` // allow circuit data relay (default: false, signaling-only)
 	InvitePolicy           string    `yaml:"invite_policy,omitempty"`     // "admin-only" (default) or "open"
 	VaultFile              string    `yaml:"vault_file,omitempty"`        // path to sealed vault JSON (empty = no vault)
 	RequireTOTP            bool      `yaml:"require_totp,omitempty"`      // require TOTP for vault unseal

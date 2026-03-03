@@ -520,7 +520,7 @@ func loadOrCreateConfig(explicitConfig, relayAddr, networkNS string) (string, *c
 
 	// Write config
 	cfgFile = filepath.Join(configDir, "config.yaml")
-	configContent := nodeConfigTemplate(relayAddr, "shurli join", networkNS)
+	configContent := nodeConfigTemplate([]string{relayAddr}, "shurli join", networkNS)
 
 	if err := os.WriteFile(cfgFile, []byte(configContent), 0600); err != nil {
 		fatal("Failed to write config: %v", err)

@@ -562,3 +562,64 @@ func TestDoConfigConfirm(t *testing.T) {
 		})
 	}
 }
+
+// ----- doConfigSet tests -----
+
+func TestDoConfigSet_BasicKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	// Flags must come before positional args for Go's flag parser
+	err := doConfigSet([]string{"--config", cfgPath, "network.force_private_reachability", "true"}, &stdout)
+	if err != nil {
+		t.Fatalf("doConfigSet failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(cfgPath)
+	got := string(data)
+	if !strings.Contains(got, "force_private_reachability") {
+		t.Errorf("config should contain 'force_private_reachability' after set, got:\n%s", got)
+	}
+	if !strings.Contains(stdout.String(), "Set network.force_private_reachability = true") {
+		t.Errorf("output should confirm the set, got: %s", stdout.String())
+	}
+}
+
+func TestDoConfigSet_CreatesNestedKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "network.force_cgnat", "true"}, &stdout)
+	if err != nil {
+		t.Fatalf("doConfigSet failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "force_cgnat") {
+		t.Errorf("config should contain 'force_cgnat' after set, got:\n%s", data)
+	}
+}
+
+func TestDoConfigSet_MissingArgs(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "only_key"}, &stdout)
+	if err == nil {
+		t.Fatal("expected error for missing value")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Errorf("error should contain usage hint, got: %v", err)
+	}
+}
+
+func TestDoConfigSet_NoArgs(t *testing.T) {
+	var stdout bytes.Buffer
+	err := doConfigSet(nil, &stdout)
+	if err == nil {
+		t.Fatal("expected error for no args")
+	}
+}
