@@ -842,20 +842,22 @@ if [ "$INSTALL_GO" = true ]; then
 fi
 echo
 
-# --- 2. Install qrencode for QR code display in --check ---
-if ! command -v qrencode &>/dev/null; then
-    echo "[2/7] Installing qrencode and mDNS library..."
-    run_sudo apt-get install -y -qq qrencode libavahi-compat-libdnssd-dev > /dev/null 2>&1
-    echo "  qrencode installed (used by --check for QR codes)"
-    echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+# --- 2. Install build dependencies ---
+PKGS_NEEDED=""
+command -v make &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED build-essential"
+command -v qrencode &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED qrencode"
+dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd-dev"
+
+if [ -n "$PKGS_NEEDED" ]; then
+    echo "[2/7] Installing build dependencies:$PKGS_NEEDED ..."
+    run_sudo apt-get install -y -qq $PKGS_NEEDED > /dev/null 2>&1
+    echo "  Installed:$PKGS_NEEDED"
 else
-    echo "[2/7] qrencode already installed"
-    # Ensure mDNS library is present even if qrencode was already installed
-    if ! dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1; then
-        run_sudo apt-get install -y -qq libavahi-compat-libdnssd-dev > /dev/null 2>&1
-        echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
-    fi
+    echo "[2/7] All build dependencies present"
 fi
+command -v qrencode &>/dev/null && echo "  qrencode installed (used by --check for QR codes)"
+dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+command -v make &>/dev/null && echo "  make installed (build system)"
 echo
 
 # --- 3. Tune network buffers for QUIC ---
