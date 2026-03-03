@@ -56,7 +56,7 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 sudo install -m 755 shurli /usr/local/bin/shurli
 sudo mkdir -p /etc/shurli/relay
 shurli relay setup --dir /etc/shurli/relay
-cd /etc/shurli/relay && shurli relay serve
+shurli relay serve
 ```
 
 **Expected output:**
@@ -287,7 +287,7 @@ After initial setup, you can add or remove relay servers:
 
 On the VPS, verify the relay is healthy:
 ```bash
-sudo ./setup.sh --check
+bash tools/relay-setup.sh --check
 ```
 This shows systemd status, peer ID, public IPs, full multiaddrs, and a QR code for easy sharing.
 

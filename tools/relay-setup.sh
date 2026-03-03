@@ -858,6 +858,7 @@ dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEED
 
 if [ -n "$PKGS_NEEDED" ]; then
     echo "[2/8] Installing build dependencies:$PKGS_NEEDED ..."
+    run_sudo apt-get update -qq > /dev/null 2>&1
     run_sudo apt-get install -y -qq $PKGS_NEEDED > /dev/null 2>&1
     echo "  Installed:$PKGS_NEEDED"
 else

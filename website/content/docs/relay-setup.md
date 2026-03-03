@@ -43,7 +43,7 @@ It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
 3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
-4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, configures firewall, tunes QUIC buffers
+4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay (identity + vault are auto-created on first run with a single password), enables the service, configures firewall, tunes QUIC buffers
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
@@ -77,7 +77,6 @@ Generate pairing codes and share them with your peers:
 
 ```bash
 # Generate 3 pairing codes (one per person)
-cd /etc/shurli/relay
 shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
@@ -91,8 +90,7 @@ Pairing codes handle authorization automatically. Everyone who joins with a code
 If you already know the peer IDs, add them directly:
 
 ```bash
-# Using the CLI (run from data directory)
-cd /etc/shurli/relay
+# Using the CLI (works from any directory)
 shurli relay authorize <peer-id> --comment "home-node"
 shurli relay authorize <peer-id> --comment "client-node"
 
@@ -227,6 +225,7 @@ After setup, the relay data and binary are installed to system paths:
 /etc/shurli/relay/
   relay-server.yaml                # Config (created by shurli relay setup)
   relay_node.key                   # Identity key (auto-generated on first run)
+  relay_vault.json                 # Sealed vault (auto-created on first run)
   relay_authorized_keys            # Allowed peer IDs
   backups/                         # Config snapshots (auto-created)
 ```
@@ -293,7 +292,7 @@ make install-relay
 #   1. Builds the binary with version embedding
 #   2. Installs to /usr/local/bin/shurli
 #   3. Creates /etc/shurli/relay/ with config files
-#   4. Installs and enables the systemd service
+#   4. Installs the systemd service (does not enable or start)
 ```
 
 ### Configure
