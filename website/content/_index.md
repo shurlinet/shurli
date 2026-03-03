@@ -139,6 +139,108 @@ layout: hextra-home
 </div>
 
 <!-- ============================================================ -->
+<!-- SECTION: Comparison Table                                     -->
+<!-- ============================================================ -->
+
+<div class="shurli-section">
+  <div class="shurli-section-icon">{{< icon name="scale" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">How Shurli compares</h2>
+  <p class="shurli-section-subtitle">Different architectures make different trade-offs. Here's where Shurli sits.</p>
+
+  <div class="shurli-compare-wrap">
+    <table class="shurli-compare-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th class="shurli-col">Shurli</th>
+          <th>Centralized VPN Services</th>
+          <th>Tunnel / Proxy Services</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Account required</td>
+          <td>None</td>
+          <td>Yes (vendor)</td>
+          <td>Yes (vendor)</td>
+        </tr>
+        <tr>
+          <td>Control plane</td>
+          <td>None (DHT)</td>
+          <td>Vendor server</td>
+          <td>Vendor server</td>
+        </tr>
+        <tr>
+          <td>Identity</td>
+          <td>Your Ed25519 keys</td>
+          <td>Vendor-managed</td>
+          <td>Vendor-managed</td>
+        </tr>
+        <tr>
+          <td>NAT traversal</td>
+          <td>Relay + hole-punching</td>
+          <td>Vendor relays + STUN</td>
+          <td>Vendor tunnels</td>
+        </tr>
+        <tr>
+          <td>Source code</td>
+          <td>Fully open</td>
+          <td>Client open, server proprietary</td>
+          <td>Varies</td>
+        </tr>
+        <tr>
+          <td>Self-hostable</td>
+          <td>Everything</td>
+          <td>Partial</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <td>Data visibility</td>
+          <td>Zero (relay sees nothing)</td>
+          <td>Coordination server sees device graph</td>
+          <td>Tunnel endpoint sees traffic</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="text-align: center;">
+    <a href="docs/faq/comparisons/" class="shurli-compare-link">Detailed comparisons &rarr;</a>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: Who Is This For                                      -->
+<!-- ============================================================ -->
+
+<div class="shurli-section">
+  <div class="shurli-section-icon">{{< icon name="users" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">Who is Shurli for?</h2>
+  <p class="shurli-section-subtitle">Shurli is opinionated. It's built for a specific kind of user.</p>
+
+  <div class="shurli-persona-grid">
+    <div class="shurli-persona-card shurli-persona-for">
+      <div class="shurli-persona-heading">Built for</div>
+      <ul class="shurli-persona-list">
+        <li>Self-hosters who can't reach their servers from outside</li>
+        <li>Privacy-conscious users who refuse vendor accounts</li>
+        <li>Home lab operators behind CGNAT or double NAT</li>
+        <li>Developers exposing local services (Ollama, databases, web apps)</li>
+        <li>Anyone who wants their network under their own control</li>
+      </ul>
+    </div>
+    <div class="shurli-persona-card shurli-persona-not">
+      <div class="shurli-persona-heading">Not designed for</div>
+      <ul class="shurli-persona-list">
+        <li>Teams needing a web dashboard and SSO</li>
+        <li>Users who want mobile apps (not yet available)</li>
+        <li>Organizations requiring full IP-layer VPN</li>
+        <li>People looking for zero-config "install and forget"</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
 <!-- SECTION: Install                                              -->
 <!-- ============================================================ -->
 
@@ -191,6 +293,83 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 {{< /tab >}}
 {{< /tabs >}}
 
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: What's Working Today                                 -->
+<!-- ============================================================ -->
+
+<div class="shurli-section">
+  <div class="shurli-section-icon">{{< icon name="check-circle" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">What's working today</h2>
+  <p class="shurli-section-subtitle">Shurli is experimental, but the core is solid and tested on real networks.</p>
+
+  <div class="shurli-status-grid">
+    <div class="shurli-status-column shurli-status-shipped">
+      <div class="shurli-status-heading shurli-status-shipped">Shipped</div>
+      <ul class="shurli-status-list">
+        <li>Encrypted peer-to-peer connections</li>
+        <li>NAT / CGNAT traversal via relay</li>
+        <li>PAKE encrypted invites</li>
+        <li>Daemon mode with auto-reconnect</li>
+        <li>SSH, RDP, TCP service proxying</li>
+        <li>Zero-knowledge membership proofs</li>
+        <li>Self-hosted relay server</li>
+        <li>macOS + Linux</li>
+      </ul>
+    </div>
+    <div class="shurli-status-column shurli-status-planned">
+      <div class="shurli-status-heading shurli-status-planned">Planned</div>
+      <ul class="shurli-status-list">
+        <li>iOS / Android apps</li>
+        <li>Windows support</li>
+        <li>Plugin SDK</li>
+        <li>Subnet routing</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: FAQ                                                  -->
+<!-- ============================================================ -->
+
+<div class="shurli-section">
+  <div class="shurli-section-icon">{{< icon name="question-mark-circle" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">Frequently asked questions</h2>
+
+  <div class="shurli-faq-list">
+    <details>
+      <summary>How is this different from a VPN?</summary>
+      <div class="shurli-faq-answer">
+        Shurli is not a VPN. It does not create a virtual network interface or route all your traffic. Instead, it tunnels specific services (SSH, RDP, databases, web apps) directly between your devices over encrypted P2P connections. There is no vendor account, no coordination server, and no third party in the path. <a href="docs/faq/comparisons/">See detailed comparisons</a>.
+      </div>
+    </details>
+    <details>
+      <summary>Do I need to open any ports?</summary>
+      <div class="shurli-faq-answer">
+        No. Shurli connects through relay servers that handle NAT traversal automatically. When possible, it upgrades to a direct connection via hole-punching. You never need to touch your router or configure port forwarding.
+      </div>
+    </details>
+    <details>
+      <summary>Is my data safe?</summary>
+      <div class="shurli-faq-answer">
+        Relay servers never see your data. All traffic is end-to-end encrypted using libp2p's Noise protocol with Ed25519 keys. The relay only forwards opaque bytes between peers. Invite codes use PAKE-encrypted handshakes, so even the pairing process leaks nothing.
+      </div>
+    </details>
+    <details>
+      <summary>What services can I access?</summary>
+      <div class="shurli-faq-answer">
+        Anything that runs over TCP: SSH, remote desktop (RDP/VNC), databases, web applications, AI inference servers (Ollama, vLLM), file servers, and more. If it listens on a port, Shurli can tunnel it.
+      </div>
+    </details>
+    <details>
+      <summary>Is it production-ready?</summary>
+      <div class="shurli-faq-answer">
+        Shurli is experimental software. The core networking layer is tested across 5+ physical network types (CGNAT, double NAT, cellular, satellite, direct IPv6), but expect rough edges. It is not recommended for safety-critical or production workloads yet.
+      </div>
+    </details>
   </div>
 </div>
 
