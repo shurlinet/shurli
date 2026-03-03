@@ -68,7 +68,8 @@ else ifeq ($(OS),Darwin)
 	@echo "Installing launchd service..."
 	@mkdir -p $(dir $(LAUNCHD_DEST))
 	cp $(LAUNCHD_PLIST) $(LAUNCHD_DEST)
-	launchctl load $(LAUNCHD_DEST)
+	-launchctl bootout gui/$$(id -u)/$(LAUNCHD_LABEL) 2>/dev/null
+	launchctl bootstrap gui/$$(id -u) $(LAUNCHD_DEST)
 	@echo ""
 	@echo "Service installed and loaded."
 	@echo "Logs: /tmp/shurli-daemon.log"
@@ -90,7 +91,7 @@ ifeq ($(OS),Linux)
 	@echo "Service removed."
 else ifeq ($(OS),Darwin)
 	@echo "Removing launchd service..."
-	-launchctl unload $(LAUNCHD_DEST) 2>/dev/null
+	-launchctl bootout gui/$$(id -u)/$(LAUNCHD_LABEL) 2>/dev/null
 	-rm -f $(LAUNCHD_DEST)
 	@echo "Service removed."
 else

@@ -438,21 +438,25 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	out("Authorized keys: %s\n", authKeysPath)
 	outln()
 
-	// Auto-start daemon.
+	// Auto-start daemon (detached from terminal).
 	outln("Starting daemon...")
-	daemonCmd := exec.Command(os.Args[0], "daemon")
-	daemonCmd.Stdout = os.Stdout
-	daemonCmd.Stderr = os.Stderr
-	if err := daemonCmd.Start(); err != nil {
-		out("Could not auto-start daemon: %v\n", err)
-		out("Start manually with: shurli daemon\n")
-	} else {
-		outln("Daemon started.")
-		if !nonInteractive && len(peers) > 0 {
-			outln()
-			outln("Try:")
-			out("  shurli ping %s\n", sanitizeYAMLName(peers[0].Name))
+	if started := kickServiceDaemon(); !started {
+		// No system service - start manually with output detached.
+		daemonCmd := exec.Command(os.Args[0], "daemon")
+		daemonCmd.Stdout = nil
+		daemonCmd.Stderr = nil
+		daemonCmd.SysProcAttr = detachedProcAttr()
+		if err := daemonCmd.Start(); err != nil {
+			out("Could not auto-start daemon: %v\n", err)
+			out("Start manually with: shurli daemon\n")
+		} else {
+			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonCmd.Process.Pid)
 		}
+	}
+	if !nonInteractive && len(peers) > 0 {
+		outln()
+		outln("Try:")
+		out("  shurli ping %s\n", sanitizeYAMLName(peers[0].Name))
 	}
 }
 
