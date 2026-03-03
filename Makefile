@@ -149,6 +149,11 @@ install-relay-service:
 ifeq ($(OS),Linux)
 	@echo "Installing relay systemd service..."
 	sudo cp $(RELAY_SERVICE) $(RELAY_SERVICE_DEST)
+	@if [ "$(SERVICE_USER)" != "shurli" ]; then \
+		echo "Setting service user to $(SERVICE_USER)..."; \
+		sudo sed -i 's/^User=.*/User=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST); \
+		sudo sed -i 's/^Group=.*/Group=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST); \
+	fi
 	sudo systemctl daemon-reload
 	sudo systemctl enable shurli-relay
 	@echo ""

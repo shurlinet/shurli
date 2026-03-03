@@ -2,7 +2,7 @@
 # Deploy, verify, and uninstall relay server on a VPS (Ubuntu 22.04 / 24.04)
 #
 # Usage:
-#   cd ~/Shurli
+#   cd ~/shurli
 #   bash tools/relay-setup.sh              # Full setup (install + start + verify)
 #   bash tools/relay-setup.sh --check      # Health check only (no changes)
 #   bash tools/relay-setup.sh --uninstall  # Remove service, firewall rules, tuning
@@ -43,7 +43,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="/etc/shurli/relay"
 BINARY="/usr/local/bin/shurli"
 CURRENT_USER="$(whoami)"
-SERVICE_USER="$CURRENT_USER"
+# Service always runs as a dedicated user, not the SSH login user.
+# The Makefile creates this user if it doesn't exist.
+SERVICE_USER="shurli"
 
 # Detect SSH service name (sshd on RHEL/Fedora, ssh on Debian/Ubuntu)
 if systemctl list-unit-files sshd.service &>/dev/null && systemctl list-unit-files sshd.service 2>/dev/null | grep -q sshd; then
@@ -1099,7 +1101,17 @@ if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
     vault_choice="${vault_choice:-Y}"
     if [[ "$vault_choice" =~ ^[Yy] ]]; then
         cd "$DATA_DIR"
-        "$BINARY" relay vault init --auto-seal 30
+        if [ "$CURRENT_USER" = "$SERVICE_USER" ] || [ "$CURRENT_USER" = "root" ]; then
+            # Running as the service user or root - run directly
+            if [ "$CURRENT_USER" = "root" ]; then
+                sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
+            else
+                "$BINARY" relay vault init --auto-seal 30
+            fi
+        else
+            # SSH user differs from service user - use sudo
+            sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
+        fi
     else
         echo "Skipped. Initialize later with: cd $DATA_DIR && shurli relay vault init"
     fi
