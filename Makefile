@@ -144,10 +144,11 @@ else
 	@exit 1
 endif
 
-## Install and enable the relay systemd service.
+## Install the relay systemd service file (does not enable or start).
+## The setup script handles identity creation first, then enables the service.
 install-relay-service:
 ifeq ($(OS),Linux)
-	@echo "Installing relay systemd service..."
+	@echo "Installing relay systemd service file..."
 	sudo cp $(RELAY_SERVICE) $(RELAY_SERVICE_DEST)
 	@if [ "$(SERVICE_USER)" != "shurli" ]; then \
 		echo "Setting service user to $(SERVICE_USER)..."; \
@@ -155,11 +156,9 @@ ifeq ($(OS),Linux)
 		sudo sed -i 's/^Group=.*/Group=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST); \
 	fi
 	sudo systemctl daemon-reload
-	sudo systemctl enable shurli-relay
 	@echo ""
-	@echo "Relay service installed and enabled."
-	@echo "Start with: sudo systemctl start shurli-relay"
-	@echo "Logs:       journalctl -u shurli-relay -f"
+	@echo "Relay service file installed (not yet enabled)."
+	@echo "Run the identity setup, then enable with: sudo systemctl enable --now shurli-relay"
 else
 	@echo "Relay service install is Linux-only (requires systemd)."
 	@exit 1

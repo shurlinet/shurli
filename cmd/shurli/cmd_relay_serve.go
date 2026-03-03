@@ -46,14 +46,20 @@ const relayConfigFile = "relay-server.yaml"
 // former standalone relay-server binary's main() function.
 func runRelayServe(args []string) {
 	// Handle --config flag
-	configFile := relayConfigFile
+	var explicitConfig string
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
-			configFile = args[i+1]
+			explicitConfig = args[i+1]
 		}
 		if strings.HasPrefix(arg, "--config=") {
-			configFile = strings.TrimPrefix(arg, "--config=")
+			explicitConfig = strings.TrimPrefix(arg, "--config=")
 		}
+	}
+
+	// Search standard locations: ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
+	configFile, err := config.FindRelayConfigFile(explicitConfig)
+	if err != nil {
+		fatal("Config not found: %v\n", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,11 +68,13 @@ func runRelayServe(args []string) {
 	fmt.Printf("=== Private libp2p Relay Server (%s) ===\n", version)
 	fmt.Println()
 
-	// Load configuration
+	// Load configuration (paths auto-resolved against config directory)
 	cfg, err := config.LoadRelayServerConfig(configFile)
 	if err != nil {
 		fatal("Failed to load config: %v\n", err)
 	}
+
+	relayConfigDir := filepath.Dir(configFile)
 
 	// Validate configuration
 	if err := config.ValidateRelayServerConfig(cfg); err != nil {
@@ -81,8 +89,6 @@ func runRelayServe(args []string) {
 	fmt.Printf("Loaded configuration from %s\n", configFile)
 	fmt.Printf("Authentication: %v\n", cfg.Security.EnableConnectionGating)
 	fmt.Println()
-
-	relayConfigDir := filepath.Dir(configFile)
 
 	var priv crypto.PrivKey
 	if _, statErr := os.Stat(cfg.Identity.KeyFile); statErr == nil {

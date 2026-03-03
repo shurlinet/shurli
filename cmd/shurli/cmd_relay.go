@@ -21,16 +21,23 @@ func runRelay(args []string) {
 
 	// Extract --config flag for server-side commands (relay serve, authorize, etc.)
 	// These use relay-server.yaml, not shurli.yaml.
-	serverConfigFile := relayConfigFile
+	var explicitConfig string
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
-			serverConfigFile = args[i+1]
+			explicitConfig = args[i+1]
 			break
 		}
 		if strings.HasPrefix(arg, "--config=") {
-			serverConfigFile = strings.TrimPrefix(arg, "--config=")
+			explicitConfig = strings.TrimPrefix(arg, "--config=")
 			break
 		}
+	}
+	// Search standard locations: ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
+	serverConfigFile, err := config.FindRelayConfigFile(explicitConfig)
+	if err != nil {
+		// relay serve and setup handle their own config resolution, so
+		// only fail for commands that actually need an existing config.
+		serverConfigFile = relayConfigFile // fallback for serve/setup
 	}
 
 	switch args[0] {

@@ -21,12 +21,13 @@
 #
 # What the full setup does:
 #   1. Ensures Go meets minimum version from go.mod (installs/upgrades if needed)
-#   2. Installs qrencode (for QR codes in --check)
+#   2. Installs build dependencies (build-essential, qrencode, libavahi)
 #   3. Tunes network buffers for QUIC
 #   4. Configures journald log rotation
 #   5. Opens firewall ports (7777 TCP/UDP)
 #   6. Builds and installs shurli via make (binary to /usr/local/bin, config to /etc/shurli/relay)
-#   7. Installs and starts the systemd service
+#   7. Creates relay identity (interactive password + seed phrase on first run)
+#   8. Starts the systemd service
 #   + Runs health check
 #
 # What --uninstall does:
@@ -807,12 +808,12 @@ version_ge() {
 }
 
 if ! command -v go &> /dev/null; then
-    echo "[1/7] Go not found  - installing go${GO_MIN_VERSION}..."
+    echo "[1/8] Go not found  - installing go${GO_MIN_VERSION}..."
     INSTALL_GO=true
 else
     CURRENT_GO=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?')
     if ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
-        echo "[1/7] Go ${CURRENT_GO} found, but go.mod requires go${GO_MIN_VERSION} or newer."
+        echo "[1/8] Go ${CURRENT_GO} found, but go.mod requires go${GO_MIN_VERSION} or newer."
         echo
         echo "  This will replace /usr/local/go with go${GO_MIN_VERSION}."
         echo "  Proceed? [y/N] "
@@ -823,7 +824,7 @@ else
             echo "  Skipped  - build may fail if Go ${CURRENT_GO} cannot compile this project."
         fi
     else
-        echo "[1/7] Go already installed: go${CURRENT_GO} (minimum: go${GO_MIN_VERSION})"
+        echo "[1/8] Go already installed: go${CURRENT_GO} (minimum: go${GO_MIN_VERSION})"
     fi
 fi
 
@@ -851,11 +852,11 @@ command -v qrencode &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED qrencode"
 dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd-dev"
 
 if [ -n "$PKGS_NEEDED" ]; then
-    echo "[2/7] Installing build dependencies:$PKGS_NEEDED ..."
+    echo "[2/8] Installing build dependencies:$PKGS_NEEDED ..."
     run_sudo apt-get install -y -qq $PKGS_NEEDED > /dev/null 2>&1
     echo "  Installed:$PKGS_NEEDED"
 else
-    echo "[2/7] All build dependencies present"
+    echo "[2/8] All build dependencies present"
 fi
 command -v qrencode &>/dev/null && echo "  qrencode installed (used by --check for QR codes)"
 dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
@@ -863,7 +864,7 @@ command -v make &>/dev/null && echo "  make installed (build system)"
 echo
 
 # --- 3. Tune network buffers for QUIC ---
-echo "[3/7] Tuning network buffers for QUIC..."
+echo "[3/8] Tuning network buffers for QUIC..."
 if ! grep -q 'net.core.rmem_max=7500000' /etc/sysctl.conf 2>/dev/null; then
     echo "net.core.rmem_max=7500000" | run_sudo tee -a /etc/sysctl.conf > /dev/null
     echo "net.core.wmem_max=7500000" | run_sudo tee -a /etc/sysctl.conf > /dev/null
@@ -903,7 +904,7 @@ echo "  Conntrack tuned (131072 max, tw_reuse, fin_timeout=30s)"
 echo
 
 # --- 4. Configure journald log rotation ---
-echo "[4/7] Configuring journald log rotation..."
+echo "[4/8] Configuring journald log rotation..."
 JOURNALD_CONF="/etc/systemd/journald.conf"
 NEEDS_RESTART=false
 
@@ -932,7 +933,7 @@ fi
 echo
 
 # --- 5. Firewall ---
-echo "[5/7] Configuring firewall..."
+echo "[5/8] Configuring firewall..."
 if command -v ufw &> /dev/null; then
     run_sudo ufw allow 7777/tcp comment 'Shurli relay TCP' > /dev/null 2>&1 || true
     run_sudo ufw allow 7777/udp comment 'Shurli relay QUIC' > /dev/null 2>&1 || true
@@ -1027,7 +1028,7 @@ if command -v iptables > /dev/null 2>&1; then
 fi
 
 # --- 6. Build and install via make ---
-echo "[6/7] Building and installing shurli..."
+echo "[6/8] Building and installing shurli..."
 cd "$PROJECT_ROOT"
 
 # Ensure Go is in PATH for make
@@ -1072,14 +1073,67 @@ if ! make install-relay SERVICE_USER="$SERVICE_USER"; then
 fi
 echo
 
-# --- Start or restart ---
-echo "[7/7] Starting service..."
+# --- 7. Interactive identity creation ---
+# The relay needs an encrypted identity key before it can start. This requires
+# a password prompt (TTY), so we run it interactively before handing off to systemd.
+# If the user cancels, the service stays installed but not enabled.
+if [ ! -f "$DATA_DIR/relay_node.key" ]; then
+    echo "[7/8] Creating relay identity..."
+    echo
+    echo "  The relay will start in the foreground so you can:"
+    echo "    1. Set a password for the identity key"
+    echo "    2. Write down the BIP39 seed phrase (ONLY way to recover)"
+    echo "    3. Press Ctrl+C after you see 'Relay server started'"
+    echo
+    echo "  The service will be enabled and started automatically after this step."
+    echo
+    read -p "  Ready? [Y/n] " ready_choice
+    ready_choice="${ready_choice:-Y}"
+    if [[ ! "$ready_choice" =~ ^[Yy] ]]; then
+        echo
+        echo "  Setup paused. The service is installed but NOT enabled."
+        echo "  Re-run this script to continue, or start manually:"
+        echo "    sudo -u $SERVICE_USER $BINARY relay serve"
+        echo "    sudo systemctl enable --now shurli-relay"
+        exit 0
+    fi
+    echo
+
+    # Run relay serve in foreground as the service user.
+    # trap ensures Ctrl+C only kills the relay process, not this script.
+    cd "$DATA_DIR"
+    trap 'true' INT
+    if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+        "$BINARY" relay serve
+    else
+        sudo -u "$SERVICE_USER" "$BINARY" relay serve
+    fi
+    trap - INT
+
+    echo
+    # Verify identity was actually created
+    if [ ! -f "$DATA_DIR/relay_node.key" ]; then
+        echo "  Identity creation was cancelled or failed."
+        echo "  The service is installed but NOT enabled."
+        echo "  Re-run this script to try again."
+        exit 0
+    fi
+    echo "  Identity and session token created."
+    echo
+else
+    echo "[7/8] Identity key already exists, skipping first-run."
+fi
+
+# --- 8. Enable and start service ---
+# Only reached if identity creation succeeded (or key already existed).
+echo "[8/8] Enabling and starting service..."
+run_sudo systemctl enable shurli-relay
 if systemctl is-active --quiet shurli-relay; then
     run_sudo systemctl restart shurli-relay
-    echo "Service restarted."
+    echo "  Service restarted."
 else
     run_sudo systemctl start shurli-relay
-    echo "Service started."
+    echo "  Service enabled and started."
 fi
 
 # Give the service a moment to start
@@ -1100,19 +1154,17 @@ if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
     read -p "Initialize vault now? [Y/n] " vault_choice
     vault_choice="${vault_choice:-Y}"
     if [[ "$vault_choice" =~ ^[Yy] ]]; then
+        # Stop service first - vault init needs exclusive access
+        run_sudo systemctl stop shurli-relay
         cd "$DATA_DIR"
-        if [ "$CURRENT_USER" = "$SERVICE_USER" ] || [ "$CURRENT_USER" = "root" ]; then
-            # Running as the service user or root - run directly
-            if [ "$CURRENT_USER" = "root" ]; then
-                sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
-            else
-                "$BINARY" relay vault init --auto-seal 30
-            fi
+        if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+            "$BINARY" relay vault init --auto-seal 30
         else
-            # SSH user differs from service user - use sudo
             sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
         fi
+        # Restart service after vault init
+        run_sudo systemctl start shurli-relay
     else
-        echo "Skipped. Initialize later with: cd $DATA_DIR && shurli relay vault init"
+        echo "Skipped. Initialize later with: shurli relay vault init"
     fi
 fi
