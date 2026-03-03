@@ -66,6 +66,8 @@ func runRelay(args []string) {
 	}
 
 	switch args[0] {
+	case "show":
+		runRelayServerConfig([]string{"show"}, serverConfigFile)
 	case "setup":
 		runRelaySetup(args[1:])
 	case "serve":

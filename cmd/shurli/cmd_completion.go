@@ -172,12 +172,12 @@ _shurli_completions() {
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove setup serve authorize deauthorize list-peers info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
+    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
     local relay_invite_cmds="create list revoke modify"
     local relay_vault_cmds="init seal unseal status"
     local relay_motd_cmds="set clear status"
     local relay_goodbye_cmds="set retract shutdown status"
-    local relay_config_cmds="validate rollback"
+    local relay_config_cmds="show validate rollback"
     local service_cmds="add list remove enable disable"
     local completion_shells="bash zsh fish"
 
@@ -453,6 +453,7 @@ _shurli() {
         'add:Add a relay server'
         'list:List relay servers'
         'remove:Remove a relay server'
+        'show:Show resolved relay config'
         'setup:Initialize relay server config'
         'serve:Start the relay server'
         'authorize:Allow a peer'
@@ -506,6 +507,7 @@ _shurli() {
 
     local -a relay_config_cmds
     relay_config_cmds=(
+        'show:Show resolved relay config'
         'validate:Validate relay config'
         'rollback:Restore last-known-good config'
     )
@@ -798,6 +800,7 @@ complete -c shurli -n '__shurli_using_subcommand config confirm'  -l config -d '
 complete -c shurli -n '__shurli_using_command relay' -a add         -d 'Add a relay server'
 complete -c shurli -n '__shurli_using_command relay' -a list        -d 'List relay servers'
 complete -c shurli -n '__shurli_using_command relay' -a remove      -d 'Remove a relay server'
+complete -c shurli -n '__shurli_using_command relay' -a show        -d 'Show resolved relay config'
 complete -c shurli -n '__shurli_using_command relay' -a setup       -d 'Initialize relay server config'
 complete -c shurli -n '__shurli_using_command relay' -a serve       -d 'Start the relay server'
 complete -c shurli -n '__shurli_using_command relay' -a authorize   -d 'Allow a peer'
@@ -860,6 +863,7 @@ complete -c shurli -n '__shurli_using_subcommand relay goodbye' -a shutdown -d '
 complete -c shurli -n '__shurli_using_subcommand relay goodbye' -a status   -d 'Show MOTD and goodbye status'
 
 # relay config sub-subcommands
+complete -c shurli -n '__shurli_using_subcommand relay config' -a show     -d 'Show resolved relay config'
 complete -c shurli -n '__shurli_using_subcommand relay config' -a validate -d 'Validate relay config'
 complete -c shurli -n '__shurli_using_subcommand relay config' -a rollback -d 'Restore last-known-good config'
 

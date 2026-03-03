@@ -30,6 +30,8 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/deposit"
@@ -912,17 +914,51 @@ func runRelayServerConfig(args []string, configFile string) {
 		fmt.Println("Usage: shurli relay config <command>")
 		fmt.Println()
 		fmt.Println("Commands:")
+		fmt.Println("  show        Show resolved relay config")
 		fmt.Println("  validate    Validate relay-server.yaml without starting")
 		fmt.Println("  rollback    Restore last-known-good config")
 		osExit(1)
 	}
 	switch args[0] {
+	case "show":
+		runRelayServerConfigShow(configFile)
 	case "validate":
 		runRelayServerConfigValidate(configFile)
 	case "rollback":
 		runRelayServerConfigRollback(configFile)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
+		osExit(1)
+	}
+}
+
+func doRelayServerConfigShow(configFile string, stdout io.Writer) error {
+	cfg, err := config.LoadRelayServerConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %v", err)
+	}
+	if err := config.ValidateRelayServerConfig(cfg); err != nil {
+		fmt.Fprintf(stdout, "WARNING: config has validation errors: %v\n\n", err)
+	}
+
+	fmt.Fprintf(stdout, "# Resolved config from %s\n", configFile)
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	fmt.Fprint(stdout, string(out))
+
+	if config.HasArchive(configFile) {
+		fmt.Fprintf(stdout, "\n# Last-known-good archive: %s\n", config.ArchivePath(configFile))
+	} else {
+		fmt.Fprintf(stdout, "\n# No last-known-good archive (will be created on next successful serve)\n")
+	}
+	return nil
+}
+
+func runRelayServerConfigShow(configFile string) {
+	if err := doRelayServerConfigShow(configFile, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		osExit(1)
 	}
 }
@@ -1056,6 +1092,8 @@ func printRelayServeUsage() {
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")
 	fmt.Println("  deauthorize <peer-id>               Remove a peer's access")
 	fmt.Println("  list-peers                          List authorized peers")
+	fmt.Println("  show                                Show resolved relay config (alias: config show)")
+	fmt.Println("  config show                         Show resolved relay config")
 	fmt.Println("  config validate                     Validate relay config without starting")
 	fmt.Println("  config rollback                     Restore last-known-good config")
 	fmt.Println()

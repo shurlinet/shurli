@@ -446,6 +446,12 @@ Generate one-time pairing codes. Each code allows a new peer to join the
 relay's authorized set. Codes are cryptographically random and expire after
 the TTL.
 .TP
+.B relay show
+Show the resolved relay config (alias for relay config show).
+.TP
+.B relay config show
+Show the resolved relay config with validation warnings and archive status.
+.TP
 .B relay config validate
 Validate the relay config without starting.
 .TP
