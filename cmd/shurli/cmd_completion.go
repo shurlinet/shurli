@@ -171,7 +171,7 @@ _shurli_completions() {
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
-    local config_cmds="validate show rollback apply confirm"
+    local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove setup serve authorize deauthorize list-peers info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
     local relay_invite_cmds="create list revoke modify"
     local relay_vault_cmds="init seal unseal status"
@@ -442,6 +442,7 @@ _shurli() {
     config_cmds=(
         'validate:Validate config'
         'show:Show resolved config'
+        'set:Set a config value'
         'rollback:Restore last-known-good config'
         'apply:Apply config with auto-revert'
         'confirm:Confirm applied config'
@@ -780,12 +781,14 @@ complete -c shurli -n '__shurli_using_subcommand auth validate' -l file    -d 'a
 # --- config subcommands ---
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'
 complete -c shurli -n '__shurli_using_command config' -a show     -d 'Show resolved config'
+complete -c shurli -n '__shurli_using_command config' -a set      -d 'Set a config value'
 complete -c shurli -n '__shurli_using_command config' -a rollback -d 'Restore last-known-good config'
 complete -c shurli -n '__shurli_using_command config' -a apply    -d 'Apply config with auto-revert'
 complete -c shurli -n '__shurli_using_command config' -a confirm  -d 'Confirm applied config'
 
 complete -c shurli -n '__shurli_using_subcommand config validate' -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config show'     -l config -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand config set'      -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config rollback' -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config apply'    -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config apply'    -l confirm-timeout -d 'Auto-revert timeout'

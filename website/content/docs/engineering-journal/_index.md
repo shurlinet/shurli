@@ -40,3 +40,4 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 6: ACL + Relay Security + Client Invites](phase6-acl-relay-security/) | ADR-M01 to ADR-M08 | Roles, macaroons, invite deposits, sealed vault, remote unseal, 2FA |
 | [Phase 7: ZKP Privacy Layer](phase7-zkp-privacy/) | ADR-N01 to ADR-N18 | gnark PLONK, Poseidon2 Merkle tree, membership proofs, range proofs, BIP39 keys |
 | [Phase 8: Identity & Remote Admin](phase8-identity-remote-admin/) | ADR-O01 to ADR-O17 | Unified BIP39 seed, encrypted identity, recovery, remote admin, MOTD, goodbye, session tokens |
+| [Seed Relay Separation & Init Flow](seed-relay-separation/) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
