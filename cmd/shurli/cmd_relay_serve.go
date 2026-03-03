@@ -768,14 +768,25 @@ func runRelayInfo(configFile string) {
 		fatal("Failed to load config: %v", err)
 	}
 
-	// Read identity key (don't auto-create  - info is read-only)
+	// Read identity key (don't auto-create  - info is read-only).
+	// Try raw key first (legacy/tests), then encrypted SHRL with session token.
 	data, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
 		fatal("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)
 	}
-	priv, err := crypto.UnmarshalPrivateKey(data)
+	var priv crypto.PrivKey
+	if identity.IsEncrypted(data) {
+		relayConfigDir := filepath.Dir(configFile)
+		pw, pwErr := resolvePasswordInteractive(relayConfigDir, os.Stdout)
+		if pwErr != nil {
+			fatal("Identity error: %v", pwErr)
+		}
+		priv, err = identity.LoadIdentity(cfg.Identity.KeyFile, pw)
+	} else {
+		priv, err = crypto.UnmarshalPrivateKey(data)
+	}
 	if err != nil {
-		fatal("Invalid identity key: %v", err)
+		fatal("Invalid identity key %s: %v", cfg.Identity.KeyFile, err)
 	}
 	peerID, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
