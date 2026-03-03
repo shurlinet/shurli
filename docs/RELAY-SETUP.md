@@ -71,7 +71,6 @@ Generate pairing codes and share them with your peers:
 
 ```bash
 # Generate 3 pairing codes (one per person)
-cd /etc/shurli/relay
 shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
@@ -85,8 +84,7 @@ Pairing codes handle authorization automatically. Everyone who joins with a code
 If you already know the peer IDs, add them directly:
 
 ```bash
-# Using the CLI (run from data directory)
-cd /etc/shurli/relay
+# Using the CLI (works from any directory)
 shurli relay authorize <peer-id> --comment "home-node"
 shurli relay authorize <peer-id> --comment "client-node"
 
