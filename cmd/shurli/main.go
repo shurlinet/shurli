@@ -137,6 +137,7 @@ func printUsage() {
 	fmt.Println("  relay list-peers                         List authorized peers")
 	fmt.Println("  relay info                               Show peer ID and multiaddrs")
 	fmt.Println("  relay pair [--count N] [--ttl 1h]        Generate pairing codes")
+	fmt.Println("  relay show                               Show resolved relay config")
 	fmt.Println("  relay config validate                    Validate relay config")
 	fmt.Println("  relay config rollback                    Restore last-known-good config")
 	fmt.Println("  relay version                            Show relay version")
