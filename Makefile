@@ -15,8 +15,8 @@ LAUNCHD_PLIST   := deploy/com.shurli.daemon.plist
 LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.shurli.daemon.plist
 LAUNCHD_LABEL   := com.shurli.daemon
 
-# Relay server variables
-SERVICE_USER       ?= shurli
+# Relay server variables (SERVICE_USER defaults to current user, override with make install-relay SERVICE_USER=myuser)
+SERVICE_USER       ?= $(shell whoami)
 RELAY_DATA_DIR     := /etc/shurli/relay
 RELAY_SERVICE      := deploy/shurli-relay.service
 RELAY_SERVICE_DEST := /etc/systemd/system/shurli-relay.service
@@ -128,9 +128,9 @@ ifeq ($(OS),Linux)
 	sudo install -m 755 $(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@echo "Binary installed: $(INSTALL_DIR)/$(BINARY)"
 	@if ! id -u $(SERVICE_USER) >/dev/null 2>&1; then \
-		echo "Creating user '$(SERVICE_USER)'..."; \
-		sudo useradd --system --shell /usr/sbin/nologin --create-home $(SERVICE_USER); \
-		echo "User '$(SERVICE_USER)' created."; \
+		echo "Error: user '$(SERVICE_USER)' does not exist."; \
+		echo "Create it first, or use: make install-relay SERVICE_USER=<existing-user>"; \
+		exit 1; \
 	fi
 	sudo mkdir -p $(RELAY_DATA_DIR)
 	sudo chown $(SERVICE_USER):$(SERVICE_USER) $(RELAY_DATA_DIR)
@@ -154,11 +154,8 @@ install-relay-service:
 ifeq ($(OS),Linux)
 	@echo "Installing relay systemd service file..."
 	sudo cp $(RELAY_SERVICE) $(RELAY_SERVICE_DEST)
-	@if [ "$(SERVICE_USER)" != "shurli" ]; then \
-		echo "Setting service user to $(SERVICE_USER)..."; \
-		sudo sed -i 's/^User=.*/User=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST); \
-		sudo sed -i 's/^Group=.*/Group=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST); \
-	fi
+	sudo sed -i 's/^User=.*/User=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST)
+	sudo sed -i 's/^Group=.*/Group=$(SERVICE_USER)/' $(RELAY_SERVICE_DEST)
 	sudo systemctl daemon-reload
 	@echo ""
 	@echo "Relay service file installed (not yet enabled)."
