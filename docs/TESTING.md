@@ -43,19 +43,20 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 
 ## Step 1: Deploy Relay Server
 
-See [relay-server/README.md](../relay-server/README.md) for the full VPS setup guide.
+See [docs/RELAY-SETUP.md](RELAY-SETUP.md) for the full VPS setup guide.
 
 Quick version:
 
 ```bash
-cd relay-server
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults are fine)
+# Build and install to system paths
+make install-relay
 
-# Build from project root
-cd ..
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
-cd relay-server && ./shurli relay serve
+# Or manually:
+go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
+sudo install -m 755 shurli /usr/local/bin/shurli
+sudo mkdir -p /etc/shurli/relay
+shurli relay setup --dir /etc/shurli/relay
+cd /etc/shurli/relay && shurli relay serve
 ```
 
 **Expected output:**
