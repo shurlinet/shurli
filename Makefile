@@ -15,8 +15,8 @@ LAUNCHD_PLIST   := deploy/com.shurli.daemon.plist
 LAUNCHD_DEST    := $(HOME)/Library/LaunchAgents/com.shurli.daemon.plist
 LAUNCHD_LABEL   := com.shurli.daemon
 
-# Relay server variables (SERVICE_USER defaults to current user, override with make install-relay SERVICE_USER=myuser)
-SERVICE_USER       ?= $(shell whoami)
+# Relay server variables (SERVICE_USER: SUDO_USER if under sudo, else whoami)
+SERVICE_USER       ?= $(or $(SUDO_USER),$(shell whoami))
 RELAY_DATA_DIR     := /etc/shurli/relay
 RELAY_SERVICE      := deploy/shurli-relay.service
 RELAY_SERVICE_DEST := /etc/systemd/system/shurli-relay.service
