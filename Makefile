@@ -134,6 +134,7 @@ ifeq ($(OS),Linux)
 	fi
 	sudo mkdir -p $(RELAY_DATA_DIR)
 	sudo chown $(SERVICE_USER):$(SERVICE_USER) $(RELAY_DATA_DIR)
+	sudo chmod 700 $(RELAY_DATA_DIR)
 	@echo "Data directory: $(RELAY_DATA_DIR)"
 	@if [ -f $(RELAY_DATA_DIR)/relay-server.yaml ]; then \
 		echo "Config already exists, skipping relay setup."; \

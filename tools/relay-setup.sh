@@ -448,6 +448,18 @@ run_check() {
     fi
     echo
 
+    # --- Data directory ---
+    if [ -d "$DATA_DIR" ]; then
+        DIR_PERMS=$(stat -c '%a' "$DATA_DIR" 2>/dev/null || stat -f '%Lp' "$DATA_DIR" 2>/dev/null)
+        if [ "$DIR_PERMS" = "700" ]; then
+            check_pass "Data directory permissions: $DIR_PERMS"
+        else
+            check_warn "Data directory permissions: $DIR_PERMS (expected 700)"
+            echo "         Fix: sudo chmod 700 $DATA_DIR"
+        fi
+    fi
+    echo
+
     # --- Config file ---
     echo "Configuration:"
     if [ -f "$DATA_DIR/relay-server.yaml" ]; then

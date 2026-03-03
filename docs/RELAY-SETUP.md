@@ -46,12 +46,16 @@ ssh newuser@YOUR_VPS_IP
 sudo whoami    # should print: root
 ```
 
-### Configure (as the service user)
+### Configure
+
+Relay commands auto-detect the config at `/etc/shurli/relay/` and auto-escalate to the service user when needed, so you can run them from any directory as any sudo-capable user:
 
 ```bash
-ssh shurli@YOUR_VPS_IP
+# These work from any directory, as any user with sudo access
+shurli relay info
+shurli relay pair --count 3
 
-# Edit if needed (defaults are good - port 7777, gating enabled)
+# Edit config if needed (defaults are good - port 7777, gating enabled)
 sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
@@ -123,19 +127,22 @@ Binary:
   [OK]   shurli binary exists at /usr/local/bin/shurli
   [OK]   shurli is executable
 
+  [OK]   Data directory permissions: 700
+
 Configuration:
   [OK]   relay-server.yaml exists
   [OK]   Connection gating is ENABLED
+  [OK]   relay-server.yaml permissions: 600
   ...
 
 Service:
   [OK]   shurli-relay service is enabled (starts on boot)
   [OK]   shurli-relay service is running
-  [OK]   Service runs as non-root user: shurli
+  [OK]   Service runs as non-root user: peerup
   ...
 
-=== Summary: 25 passed, 0 warnings, 0 failures ===
-Everything looks great!
+=== Summary: 21 passed, 1 warnings, 0 failures ===
+All good, but review [WARN] items for best security.
 ```
 
 ---
@@ -201,6 +208,7 @@ sudo systemctl restart shurli-relay
 | Firewall active | `sudo ufw status` - active, default deny incoming |
 | Only needed ports open | `sudo ufw status` - 22/tcp (SSH) + 7777/tcp+udp |
 | Connection gating on | `grep enable_connection_gating /etc/shurli/relay/relay-server.yaml` - `true` |
+| Data directory permissions | `ls -ld /etc/shurli/relay/` - `drwx------` (700, owner only) |
 | Key file permissions | `ls -la /etc/shurli/relay/relay_node.key` - `-rw-------` (600) |
 | Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` - `500M` |
 | System updates | `sudo apt update && sudo apt upgrade` |
@@ -214,14 +222,17 @@ Or just run: `bash tools/relay-setup.sh --check`
 After setup, the relay data and binary are installed to system paths:
 
 ```
-/usr/local/bin/shurli              # Binary (single binary for all modes)
+/usr/local/bin/shurli                    # Binary (single binary for all modes)
 
-/etc/shurli/relay/
-  relay-server.yaml                # Config (created by shurli relay setup)
-  relay_node.key                   # Identity key (auto-generated on first run)
-  relay_vault.json                 # Sealed vault (auto-created on first run)
-  relay_authorized_keys            # Allowed peer IDs
-  backups/                         # Config snapshots (auto-created)
+/etc/shurli/relay/                       # Data directory (700, owner only)
+  relay-server.yaml                      # Config (created by shurli relay setup)
+  relay_node.key                         # Identity key (auto-generated on first run)
+  relay_vault.json                       # Sealed vault (auto-created on first run)
+  relay_authorized_keys                  # Allowed peer IDs
+  .session                               # Session token (machine-bound)
+  .relay-admin.sock                      # Admin Unix socket (runtime)
+  .relay-admin.cookie                    # Admin auth cookie (runtime)
+  .relay-server.last-good.yaml           # Self-healing: last valid config backup
 ```
 
 Source code (where you cloned the repo):
@@ -296,11 +307,19 @@ make install-relay
 sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
-### Create service user (if not using the setup script)
+### Service user (if not using the setup script)
+
+The relay runs as whatever user you choose. You can use your existing SSH user or create a dedicated one:
 
 ```bash
+# Option A: Use your existing user (recommended for single-admin VPS)
+# No extra setup needed - make install-relay defaults to your user
+
+# Option B: Create a dedicated user
 sudo useradd -r -m -s /bin/bash shurli
 sudo chown -R shurli:shurli /etc/shurli/relay
+sudo chmod 700 /etc/shurli/relay
+make install-relay SERVICE_USER=shurli
 ```
 
 ### Network tuning (QUIC performance)
@@ -329,8 +348,12 @@ Also check your VPS provider's security groups/firewall rules in their web conso
 ### Install systemd service (manual)
 
 ```bash
-# The service file uses fixed paths - no editing needed
 sudo cp deploy/shurli-relay.service /etc/systemd/system/shurli-relay.service
+
+# Update User/Group to match your service user (default in file is "shurli")
+sudo sed -i 's/^User=.*/User=YOUR_USER/' /etc/systemd/system/shurli-relay.service
+sudo sed -i 's/^Group=.*/Group=YOUR_USER/' /etc/systemd/system/shurli-relay.service
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now shurli-relay
 ```
@@ -381,6 +404,7 @@ bash tools/relay-setup.sh --check
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
+| "Permission denied" on relay commands | Relay commands auto-escalate to the config owner via sudo. Ensure your user has passwordless sudo or enter the password when prompted. |
 | Service runs as root | `bash tools/relay-setup.sh --uninstall` then re-run `bash tools/relay-setup.sh` (as root it will guide you through user setup) |
 | `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
 | CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |

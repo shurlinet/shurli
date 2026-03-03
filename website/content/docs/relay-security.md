@@ -42,6 +42,8 @@ Vault initialized (auto-seal: 30 minutes)
 
 **Write the seed phrase on paper. Store it offline.** If you lose both the passphrase and seed, the vault is gone.
 
+All vault and config files live in `/etc/shurli/relay/` (permissions: directory 700, files 600). The self-healing system automatically saves a `.relay-server.last-good.yaml` backup alongside your config on every successful startup. Everything stays inside the same protected directory.
+
 The vault starts unsealed so you can immediately create invites and authorize peers. It auto-seals after 30 minutes of inactivity.
 
 ### Verify
@@ -199,6 +201,8 @@ The auto-seal timer runs from the moment you unseal. If you need more time:
 | Passphrase is strong (8+ characters, not reused) | |
 | Seed phrase written on paper and stored offline | |
 | Seed phrase is NOT stored digitally on the relay | |
+| Data directory is 700 (`sudo chmod 700 /etc/shurli/relay`) | |
+| All config/key files are 600 (owner read/write only) | |
 | TOTP registered in authenticator app (if enabled) | |
 | Auto-seal timeout configured (recommended: 30-60 min) | |
 | Tested seal/unseal cycle before relying on it | |
