@@ -135,6 +135,9 @@ security:
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
+  # Vault protects root key material. Created automatically on first run.
+  vault_file: "relay_vault.json"
+
 # Relay resource limits (defaults shown - uncomment to customize)
 # These control how much relay capacity each peer and session can consume.
 # Tuned for private relays serving 2-10 peers with SSH/XRDP workloads.
