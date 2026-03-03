@@ -155,6 +155,9 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return nil, fmt.Errorf("failed to read config file %s: %w\n  The config is owned by the service user. Try: sudo -u <service-user> shurli relay <command>", path, err)
+		}
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
