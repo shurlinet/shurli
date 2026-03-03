@@ -1,5 +1,10 @@
 package main
 
+import (
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
+)
+
 // HardcodedSeeds are ultimate-fallback bootstrap peers used when config,
 // DNS seeds, and relay addresses are all unavailable.
 // These are multiaddrs of known long-running shurli nodes.
@@ -18,3 +23,22 @@ var HardcodedSeeds = []string{
 // Shurli queries _dnsaddr.<domain> TXT records for peer multiaddrs,
 // following the dnsaddr convention used by IPFS bootstrap.
 const DNSSeedDomain = "seeds.shurli.io"
+
+// SeedPeerIDs returns the set of peer IDs from HardcodedSeeds.
+// Used to identify public seed relays at runtime so data transfer
+// can be blocked through them (signaling-only enforcement).
+func SeedPeerIDs() map[peer.ID]bool {
+	ids := make(map[peer.ID]bool)
+	for _, s := range HardcodedSeeds {
+		maddr, err := ma.NewMultiaddr(s)
+		if err != nil {
+			continue
+		}
+		ai, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		ids[ai.ID] = true
+	}
+	return ids
+}
