@@ -927,6 +927,7 @@ network:
 security:
   authorized_keys_file: "relay_authorized_keys"
   enable_connection_gating: false
+  enable_data_relay: true
   vault_file: "vault.json"
 
 health:
