@@ -135,8 +135,12 @@ ifeq ($(OS),Linux)
 	sudo mkdir -p $(RELAY_DATA_DIR)
 	sudo chown $(SERVICE_USER):$(SERVICE_USER) $(RELAY_DATA_DIR)
 	@echo "Data directory: $(RELAY_DATA_DIR)"
-	sudo -u $(SERVICE_USER) $(INSTALL_DIR)/$(BINARY) relay setup --dir $(RELAY_DATA_DIR) --non-interactive
-	-sudo chmod 600 $(RELAY_DATA_DIR)/relay-server.yaml $(RELAY_DATA_DIR)/relay_authorized_keys 2>/dev/null
+	@if [ -f $(RELAY_DATA_DIR)/relay-server.yaml ]; then \
+		echo "Config already exists, skipping relay setup."; \
+	else \
+		sudo -u $(SERVICE_USER) $(INSTALL_DIR)/$(BINARY) relay setup --dir $(RELAY_DATA_DIR) --non-interactive; \
+		sudo chmod 600 $(RELAY_DATA_DIR)/relay-server.yaml $(RELAY_DATA_DIR)/relay_authorized_keys 2>/dev/null || true; \
+	fi
 	@$(MAKE) install-relay-service
 else
 	@echo "Relay install is Linux-only (requires systemd)."
