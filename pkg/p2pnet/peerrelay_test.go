@@ -16,7 +16,7 @@ func TestPeerRelay_EnableDisable(t *testing.T) {
 	}
 	defer h.Close()
 
-	pr := NewPeerRelay(h, nil)
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{})
 
 	// Not enabled initially
 	if pr.Enabled() {
@@ -62,7 +62,7 @@ func TestPeerRelay_AutoDetect_PublicIP(t *testing.T) {
 	}
 	defer h.Close()
 
-	pr := NewPeerRelay(h, nil)
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{})
 
 	// With global IPv4 - should enable
 	summary := &InterfaceSummary{
@@ -103,7 +103,7 @@ func TestPeerRelay_AutoDetect_PublicIPv6(t *testing.T) {
 	}
 	defer h.Close()
 
-	pr := NewPeerRelay(h, nil)
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{})
 
 	// With global IPv6 only - should enable
 	summary := &InterfaceSummary{
@@ -128,7 +128,7 @@ func TestPeerRelay_AutoDetect_NilSummary(t *testing.T) {
 	}
 	defer h.Close()
 
-	pr := NewPeerRelay(h, nil)
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{})
 
 	// Nil summary should be safe
 	pr.AutoDetect(nil)
@@ -148,7 +148,7 @@ func TestPeerRelay_WithMetrics(t *testing.T) {
 	defer h.Close()
 
 	m := NewMetrics("test", "go1.26")
-	pr := NewPeerRelay(h, m)
+	pr := NewPeerRelay(h, m, PeerRelayConfig{})
 
 	if err := pr.Enable(); err != nil {
 		t.Fatalf("Enable with metrics: %v", err)
@@ -160,15 +160,88 @@ func TestPeerRelay_WithMetrics(t *testing.T) {
 	}
 }
 
-func TestPeerRelayResources_Values(t *testing.T) {
-	// Verify the resource limits are conservative
-	if PeerRelayResources.MaxReservations > 10 {
-		t.Errorf("MaxReservations too high: %d", PeerRelayResources.MaxReservations)
+func TestPeerRelay_DefaultConfig(t *testing.T) {
+	d := DefaultPeerRelayConfig()
+	if d.MaxReservations > 10 {
+		t.Errorf("MaxReservations too high: %d", d.MaxReservations)
 	}
-	if PeerRelayResources.MaxCircuits > 32 {
-		t.Errorf("MaxCircuits too high: %d", PeerRelayResources.MaxCircuits)
+	if d.MaxCircuits > 32 {
+		t.Errorf("MaxCircuits too high: %d", d.MaxCircuits)
 	}
-	if PeerRelayResources.MaxReservationsPerPeer != 1 {
-		t.Errorf("MaxReservationsPerPeer should be 1, got %d", PeerRelayResources.MaxReservationsPerPeer)
+	if d.MaxReservationsPerPeer != 1 {
+		t.Errorf("MaxReservationsPerPeer should be 1, got %d", d.MaxReservationsPerPeer)
+	}
+}
+
+func TestPeerRelay_ForcedEnabled(t *testing.T) {
+	h, err := libp2p.New(
+		libp2p.NoSecurity,
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+	)
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer h.Close()
+
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{Enabled: "true"})
+
+	// With no public IP, "true" should still enable
+	summary := &InterfaceSummary{HasGlobalIPv4: false, HasGlobalIPv6: false}
+	pr.AutoDetect(summary)
+	if !pr.Enabled() {
+		t.Error("forced 'true' should enable even without public IP")
+	}
+
+	pr.Disable()
+}
+
+func TestPeerRelay_ForcedDisabled(t *testing.T) {
+	h, err := libp2p.New(
+		libp2p.NoSecurity,
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+	)
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer h.Close()
+
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{Enabled: "false"})
+
+	// With public IP, "false" should NOT enable
+	summary := &InterfaceSummary{HasGlobalIPv4: true, GlobalIPv4Addrs: []string{"203.0.113.50"}}
+	pr.AutoDetect(summary)
+	if pr.Enabled() {
+		t.Error("forced 'false' should not enable even with public IP")
+	}
+}
+
+func TestPeerRelay_OnStateChange(t *testing.T) {
+	h, err := libp2p.New(
+		libp2p.NoSecurity,
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+	)
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer h.Close()
+
+	pr := NewPeerRelay(h, nil, PeerRelayConfig{})
+
+	var callbackState []bool
+	pr.OnStateChange(func(enabled bool) {
+		callbackState = append(callbackState, enabled)
+	})
+
+	pr.Enable()
+	pr.Disable()
+
+	if len(callbackState) != 2 {
+		t.Fatalf("expected 2 callbacks, got %d", len(callbackState))
+	}
+	if !callbackState[0] {
+		t.Error("first callback should be true (enabled)")
+	}
+	if callbackState[1] {
+		t.Error("second callback should be false (disabled)")
 	}
 }

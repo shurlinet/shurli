@@ -36,9 +36,11 @@ func (m *mockRuntime) StartTime() time.Time            { return m.startTime }
 func (m *mockRuntime) PingProtocolID() string          { return m.pingProto }
 func (m *mockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error { return nil }
 func (m *mockRuntime) Interfaces() *p2pnet.InterfaceSummary             { return nil }
-func (m *mockRuntime) PathTracker() *p2pnet.PathTracker                 { return nil }
-func (m *mockRuntime) STUNResult() *p2pnet.STUNResult                   { return nil }
-func (m *mockRuntime) IsRelaying() bool                                  { return false }
+func (m *mockRuntime) PathTracker() *p2pnet.PathTracker           { return nil }
+func (m *mockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return nil }
+func (m *mockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
+func (m *mockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
+func (m *mockRuntime) IsRelaying() bool                            { return false }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
