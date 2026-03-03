@@ -384,7 +384,12 @@ run_check() {
     # Get authoritative application info from the Go binary (not from logs or YAML grep)
     RELAY_INFO=""
     if [ -x "$BINARY" ] && [ -f "$DATA_DIR/relay-server.yaml" ]; then
-        RELAY_INFO=$(cd "$DATA_DIR" && "$BINARY" relay info 2>/dev/null) || true
+        # Run as service user (key file is 600 owned by SERVICE_USER)
+        if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+            RELAY_INFO=$("$BINARY" relay info 2>/dev/null) || true
+        else
+            RELAY_INFO=$(sudo -u "$SERVICE_USER" "$BINARY" relay info 2>/dev/null) || true
+        fi
     fi
 
     # --- Binary ---
@@ -1154,16 +1159,18 @@ if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
     read -p "Initialize vault now? [Y/n] " vault_choice
     vault_choice="${vault_choice:-Y}"
     if [[ "$vault_choice" =~ ^[Yy] ]]; then
-        # Stop service first - vault init needs exclusive access
-        run_sudo systemctl stop shurli-relay
-        cd "$DATA_DIR"
+        # Vault init talks to the running relay via admin socket.
+        # The service must be running.
+        if ! systemctl is-active --quiet shurli-relay; then
+            echo "  Service is not running. Starting it first..."
+            run_sudo systemctl start shurli-relay
+            sleep 2
+        fi
         if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
             "$BINARY" relay vault init --auto-seal 30
         else
             sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
         fi
-        # Restart service after vault init
-        run_sudo systemctl start shurli-relay
     else
         echo "Skipped. Initialize later with: shurli relay vault init"
     fi
