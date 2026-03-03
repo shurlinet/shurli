@@ -44,9 +44,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="/etc/shurli/relay"
 BINARY="/usr/local/bin/shurli"
 CURRENT_USER="$(whoami)"
-# Service always runs as a dedicated user, not the SSH login user.
-# The Makefile creates this user if it doesn't exist.
-SERVICE_USER="shurli"
+# Service user: detect from installed service file, else default to current user.
+# Overridden interactively during setup (root or non-root flow).
+if [ -f /etc/systemd/system/shurli-relay.service ]; then
+    SERVICE_USER=$(grep '^User=' /etc/systemd/system/shurli-relay.service 2>/dev/null | cut -d= -f2)
+    [ -z "$SERVICE_USER" ] && SERVICE_USER="$CURRENT_USER"
+else
+    SERVICE_USER="$CURRENT_USER"
+fi
 
 # Detect SSH service name (sshd on RHEL/Fedora, ssh on Debian/Ubuntu)
 if systemctl list-unit-files sshd.service &>/dev/null && systemctl list-unit-files sshd.service 2>/dev/null | grep -q sshd; then
@@ -359,6 +364,42 @@ if [ "$CURRENT_USER" = "root" ]; then
         SERVICE_USER="$TARGET_USER"
         echo "Service will run as: $SERVICE_USER"
         echo "Continuing with setup..."
+        echo
+    fi
+else
+    # Non-root: ask which user should run the service (fresh install only).
+    # Skip for --check and --uninstall (SERVICE_USER already detected from service file above).
+    if [ "$1" != "--check" ] && [ "$1" != "--uninstall" ]; then
+        # If the service file already exists, SERVICE_USER was detected at the top.
+        # Only prompt on fresh install (no service file yet).
+        if [ ! -f /etc/systemd/system/shurli-relay.service ]; then
+            echo "Which user should run the relay service?"
+            echo
+            echo "  1) Use current user: $CURRENT_USER (default)"
+            echo "  2) Enter a different username"
+            echo
+            read -p "Choice [1/2] (default: 1): " SVC_CHOICE
+            echo
+
+            case "$SVC_CHOICE" in
+                2)
+                    read -p "Username: " CUSTOM_USER
+                    if [ -z "$CUSTOM_USER" ]; then
+                        echo "Username cannot be empty."
+                        exit 1
+                    fi
+                    if ! id "$CUSTOM_USER" &>/dev/null; then
+                        echo "User '$CUSTOM_USER' does not exist. Create it first or use option 1."
+                        exit 1
+                    fi
+                    SERVICE_USER="$CUSTOM_USER"
+                    ;;
+                *)
+                    SERVICE_USER="$CURRENT_USER"
+                    ;;
+            esac
+        fi
+        echo "Service will run as: $SERVICE_USER"
         echo
     fi
 fi
