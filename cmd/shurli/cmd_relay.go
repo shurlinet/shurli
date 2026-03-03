@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/shurlinet/shurli/internal/config"
@@ -19,8 +22,22 @@ func runRelay(args []string) {
 		osExit(1)
 	}
 
+	// Client-side relay configuration (manages shurli.yaml) - no escalation needed.
+	switch args[0] {
+	case "add":
+		runRelayAdd(args[1:])
+		return
+	case "list":
+		runRelayList(args[1:])
+		return
+	case "remove":
+		runRelayRemove(args[1:])
+		return
+	}
+
+	// --- Server-side commands below (manage relay-server.yaml) ---
+
 	// Extract --config flag for server-side commands (relay serve, authorize, etc.)
-	// These use relay-server.yaml, not shurli.yaml.
 	var explicitConfig string
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
@@ -32,6 +49,7 @@ func runRelay(args []string) {
 			break
 		}
 	}
+
 	// Search standard locations: ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
 	serverConfigFile, err := config.FindRelayConfigFile(explicitConfig)
 	if err != nil {
@@ -40,16 +58,14 @@ func runRelay(args []string) {
 		serverConfigFile = relayConfigFile // fallback for serve/setup
 	}
 
-	switch args[0] {
-	// Client-side relay configuration (manages shurli.yaml)
-	case "add":
-		runRelayAdd(args[1:])
-	case "list":
-		runRelayList(args[1:])
-	case "remove":
-		runRelayRemove(args[1:])
+	// Auto-escalate to the file owner when the config is unreadable due to
+	// permissions (e.g. SSH user is "peerup" but config is owned by "shurli").
+	// This replaces the current process via exec, so it never returns on success.
+	if err == nil {
+		escalateToFileOwner(serverConfigFile, args)
+	}
 
-	// Relay server management (manages relay-server.yaml)
+	switch args[0] {
 	case "setup":
 		runRelaySetup(args[1:])
 	case "serve":
@@ -100,6 +116,70 @@ func runRelay(args []string) {
 		printRelayServeUsage()
 		osExit(1)
 	}
+}
+
+// escalateToFileOwner re-execs the current command as the config file's owner
+// when the current user lacks permission to read it. This handles the common
+// case where the SSH login user differs from the service user (e.g. peerup vs shurli).
+// On success, this function never returns (syscall.Exec replaces the process).
+// On any failure, it returns silently and the normal error path handles it.
+func escalateToFileOwner(configPath string, relayArgs []string) {
+	f, err := os.Open(configPath)
+	if err == nil {
+		f.Close()
+		return // readable, no escalation needed
+	}
+	if !os.IsPermission(err) {
+		return
+	}
+
+	info, statErr := os.Stat(configPath)
+	if statErr != nil {
+		return
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return
+	}
+
+	// Don't re-exec if we're already the file owner or root.
+	uid := os.Getuid()
+	if uid == int(stat.Uid) || uid == 0 {
+		return
+	}
+
+	u, lookupErr := user.LookupId(strconv.Itoa(int(stat.Uid)))
+	if lookupErr != nil {
+		return
+	}
+
+	binary, exeErr := os.Executable()
+	if exeErr != nil {
+		return
+	}
+
+	sudoPath, pathErr := findExecutable("sudo")
+	if pathErr != nil {
+		return
+	}
+
+	// Re-exec: sudo -u <owner> <binary> relay <args...>
+	execArgs := []string{"sudo", "-u", u.Username, binary, "relay"}
+	execArgs = append(execArgs, relayArgs...)
+	syscall.Exec(sudoPath, execArgs, os.Environ())
+	// If exec fails, fall through to normal error handling.
+}
+
+// findExecutable locates an executable in PATH (like exec.LookPath but without
+// importing os/exec just for this).
+func findExecutable(name string) (string, error) {
+	for _, dir := range strings.Split(os.Getenv("PATH"), ":") {
+		path := filepath.Join(dir, name)
+		if info, err := os.Stat(path); err == nil && info.Mode()&0111 != 0 {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("%s not found in PATH", name)
 }
 
 
