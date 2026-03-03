@@ -1149,29 +1149,5 @@ echo
 echo
 run_check
 
-# --- Optional vault initialization ---
-if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
-    echo
-    echo "=== Vault Setup ==="
-    echo "The vault protects your relay's root key material."
-    echo "Without it, the relay starts with full privileges after every reboot."
-    echo
-    read -p "Initialize vault now? [Y/n] " vault_choice
-    vault_choice="${vault_choice:-Y}"
-    if [[ "$vault_choice" =~ ^[Yy] ]]; then
-        # Vault init talks to the running relay via admin socket.
-        # The service must be running.
-        if ! systemctl is-active --quiet shurli-relay; then
-            echo "  Service is not running. Starting it first..."
-            run_sudo systemctl start shurli-relay
-            sleep 2
-        fi
-        if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
-            "$BINARY" relay vault init --auto-seal 30
-        else
-            sudo -u "$SERVICE_USER" "$BINARY" relay vault init --auto-seal 30
-        fi
-    else
-        echo "Skipped. Initialize later with: shurli relay vault init"
-    fi
-fi
+# Vault is initialized automatically during first run (same password, same seed).
+# No separate step needed.

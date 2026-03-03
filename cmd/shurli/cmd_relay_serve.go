@@ -145,6 +145,27 @@ func runRelayServe(args []string) {
 		} else {
 			fmt.Println("Session token created (auto-start enabled).")
 		}
+
+		// Initialize vault using the same seed and password (one-shot setup).
+		vaultPath := cfg.Security.VaultFile
+		if vaultPath == "" {
+			vaultPath = filepath.Join(relayConfigDir, "relay_vault.json")
+		}
+		v, vaultErr := vault.Create(entropy, mnemonic, pw, false, 30)
+		if vaultErr != nil {
+			fmt.Printf("Warning: vault init failed: %v\n", vaultErr)
+			fmt.Println("You can initialize later with: shurli relay vault init")
+		} else {
+			if err := v.Save(vaultPath); err != nil {
+				fmt.Printf("Warning: vault save failed: %v\n", err)
+			} else {
+				fmt.Printf("Vault initialized (auto-seal: 30 minutes)\n")
+				// Update config with vault path if it wasn't set.
+				if cfg.Security.VaultFile == "" {
+					cfg.Security.VaultFile = vaultPath
+				}
+			}
+		}
 	}
 
 	// Load authorized keys if connection gating is enabled
