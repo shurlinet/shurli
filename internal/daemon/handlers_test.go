@@ -42,9 +42,11 @@ func (m *networkMockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error {
 	return nil
 }
 func (m *networkMockRuntime) Interfaces() *p2pnet.InterfaceSummary { return nil }
-func (m *networkMockRuntime) PathTracker() *p2pnet.PathTracker     { return nil }
-func (m *networkMockRuntime) STUNResult() *p2pnet.STUNResult       { return nil }
-func (m *networkMockRuntime) IsRelaying() bool                      { return false }
+func (m *networkMockRuntime) PathTracker() *p2pnet.PathTracker           { return nil }
+func (m *networkMockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return nil }
+func (m *networkMockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
+func (m *networkMockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
+func (m *networkMockRuntime) IsRelaying() bool                            { return false }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

@@ -268,8 +268,8 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 
 **Reliability**:
 - [x] Reconnection with exponential backoff - `DialWithRetry()` wraps proxy dial with 3 retries (1s → 2s → 4s) to recover from transient relay drops
-- [ ] Connection warmup - pre-establish connection to target peer at `shurli proxy` startup (eliminates 5-15s per-session setup latency)
-- [ ] Stream pooling - reuse streams instead of creating fresh ones per TCP connection (eliminates per-connection protocol negotiation)
+- [x] Connection warmup - addressed by `PathDialer.DialPeer()` pre-dial (Batch I) and daemon `ConnectToPeer()` + PeerManager keepalive (Batch F/5-L). Both modes pre-establish peer connection before TCP listener accepts.
+- [x] Stream pooling - addressed by libp2p connection multiplexing (all streams share one peer connection) and Identify protocol caching (eliminates repeated negotiation). Per-stream overhead ~1-5ms.
 - [x] Persistent relay reservation - `serve_common.go` keeps reservation alive with periodic `circuitv2client.Reserve()` at `cfg.Relay.ReservationInterval`. Runs as background goroutine during daemon lifetime.
 - [x] DHT bootstrap in proxy command - Kademlia DHT (client mode) bootstrapped at proxy startup. Async `FindPeer()` discovers target's direct addresses, enabling DCUtR hole-punching (~70% bypass relay entirely).
 - [x] Graceful shutdown - replace `os.Exit(0)` with proper cleanup, context cancellation stops background goroutines
@@ -356,7 +356,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 - [x] All 4 DHT call sites updated (serve_common, relay_serve, traceroute, proxy)
 - [x] Tests: namespace validation, DHT prefix generation, config template with/without namespace
 - [x] ADR-Ic01 documenting protocol-level isolation decision
-- [ ] Invite codes carry namespace (deferred to Pre-I-b: v2 invite codes will encode namespace)
+- [x] Invite codes carry namespace (completed in Pre-I-b: v2 invite codes encode namespace, joiner auto-inherits)
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
@@ -567,11 +567,11 @@ Dependency: Requires PeerManager (5-L) for peer lifecycle data. GossipSub deferr
 
 After Phase 5 observability and PeerManager provide the data:
 
-- [ ] `require_auth` relay service - enable Circuit Relay v2 service on home nodes with `require_auth: true` (only authorized peers can reserve). Config: `relay_service.enabled`, `relay_service.require_auth`, `relay_service.resources.*`. ConnectionGater enforces auth before relay protocol runs
-- [ ] DHT-based relay discovery - authorized relays advertise on DHT under well-known CID. NATted nodes discover peer relays via AutoRelay. No central endpoint
-- [ ] Multi-relay failover - try multiple known relays in order; health-aware selection based on connection quality scores from observability data
-- [ ] Per-peer bandwidth tracking - expose libp2p's internal bandwidth counter per-peer and per-protocol. Feeds into relay quota warnings, PeerManager scoring, and smart relay selection. Critical for SSH/XRDP proxy where relay bandwidth consumption is operationally significant.
-- [ ] Bootstrap decentralization - hardcoded seed peers in binary (ultimate fallback) -> DNS seeds at `shurli.io` -> DHT peer exchange -> fully self-sustaining. Same pattern as Bitcoin
+- [x] `require_auth` relay service - peer relay with config knobs (`peer_relay.enabled`, `peer_relay.resources.*`). Auto-enables on public IP, config-driven forced enable/disable, OnStateChange callback for discovery integration. ConnectionGater enforces auth before relay protocol runs
+- [x] DHT-based relay discovery - peer relays advertise on DHT via `dht.Provide()` under namespace-aware CID. NATted nodes discover relays via `FindProvidersAsync()`. RelaySource interface abstracts static vs dynamic relay addresses. AutoRelay PeerSource integration
+- [x] Multi-relay failover with health-aware selection - RelayHealth tracks per-relay EWMA scores (success rate, RTT, freshness). RelayDiscovery returns health-ranked relay addresses. Background probing every 60s. Degraded relays deprioritized automatically. Prometheus metrics for relay health scores
+- [x] Per-peer bandwidth tracking - BandwidthTracker wraps libp2p's BandwidthCounter. Per-peer, per-protocol, and aggregate stats via Prometheus gauges. Background publish loop (30s). Daemon API: `GET /v1/bandwidth`
+- [x] Bootstrap decentralization - layered bootstrap: config peers > DNS seeds (`_dnsaddr.<domain>` TXT records) > hardcoded seeds > relay addresses. Same pattern as Bitcoin/IPFS. `seeds.go` + `dnsseed.go`
 - [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable Shurli node relays for its authorized peers. No special nodes, no central coordination
 
 ---

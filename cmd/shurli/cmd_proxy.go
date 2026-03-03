@@ -191,7 +191,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 
 	// Connect to target using parallel path racing (DHT + relay simultaneously)
 	fmt.Println("Connecting to target peer...")
-	pd := p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, nil)
+	pd := p2pnet.NewPathDialer(h, kdht, &p2pnet.StaticRelaySource{Addrs: cfg.Relay.Addresses}, nil)
 	connectCtx, connectCancel := context.WithTimeout(ctx, 45*time.Second)
 	result, err := pd.DialPeer(connectCtx, homePeerID)
 	connectCancel()

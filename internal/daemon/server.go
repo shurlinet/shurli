@@ -31,6 +31,8 @@ type RuntimeInfo interface {
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
 	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
 	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
+	BandwidthTracker() *p2pnet.BandwidthTracker              // nil when disabled
+	RelayHealth() *p2pnet.RelayHealth                        // nil when disabled
 	STUNResult() *p2pnet.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
 }

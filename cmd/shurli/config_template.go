@@ -65,6 +65,15 @@ protocols:
 names: {}
 #  home: "PEER_ID_HERE"
 
+# Peer relay (auto-enables when public IP detected):
+# peer_relay:
+#   enabled: "auto"  # "auto", "true", or "false"
+#   resources:
+#     max_reservations: 4
+#     max_circuits: 16
+#     circuit_duration: "10m"
+#     circuit_data_limit: "128KB"
+
 # Observability (disabled by default, opt-in):
 # telemetry:
 #   metrics:

@@ -30,6 +30,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth", s.handleAuthList)
 
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
+	mux.HandleFunc("GET /v1/bandwidth", s.handleBandwidth)
+	mux.HandleFunc("GET /v1/relay-health", s.handleRelayHealth)
 
 	// Mutations
 	mux.HandleFunc("POST /v1/auth", s.handleAuthAdd)
@@ -755,6 +757,99 @@ func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
 	locked := s.locked
 	s.mu.Unlock()
 	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
+}
+
+func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
+	bt := s.runtime.BandwidthTracker()
+	if bt == nil {
+		respondJSON(w, http.StatusOK, BandwidthStats{})
+		return
+	}
+
+	totals := bt.Totals()
+	resp := BandwidthStats{
+		TotalIn:  totals.TotalIn,
+		TotalOut: totals.TotalOut,
+		RateIn:   totals.RateIn,
+		RateOut:  totals.RateOut,
+		ByPeer:   make(map[string]BandwidthPeer),
+	}
+
+	for pid, stats := range bt.AllPeerStats() {
+		short := pid.String()
+		if len(short) > 16 {
+			short = short[:16]
+		}
+		resp.ByPeer[short] = BandwidthPeer{
+			TotalIn:  stats.TotalIn,
+			TotalOut: stats.TotalOut,
+			RateIn:   stats.RateIn,
+			RateOut:  stats.RateOut,
+		}
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "total_in: %d\n", resp.TotalIn)
+		fmt.Fprintf(&sb, "total_out: %d\n", resp.TotalOut)
+		fmt.Fprintf(&sb, "rate_in: %.1f B/s\n", resp.RateIn)
+		fmt.Fprintf(&sb, "rate_out: %.1f B/s\n", resp.RateOut)
+		if len(resp.ByPeer) > 0 {
+			fmt.Fprintf(&sb, "peers: %d\n", len(resp.ByPeer))
+			for peer, stats := range resp.ByPeer {
+				fmt.Fprintf(&sb, "  %s\tin=%d\tout=%d\trate_in=%.1f\trate_out=%.1f\n",
+					peer, stats.TotalIn, stats.TotalOut, stats.RateIn, stats.RateOut)
+			}
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRelayHealth(w http.ResponseWriter, r *http.Request) {
+	rh := s.runtime.RelayHealth()
+	if rh == nil {
+		respondJSON(w, http.StatusOK, RelayHealthResponse{})
+		return
+	}
+
+	ranked := rh.Ranked()
+	resp := RelayHealthResponse{
+		Relays: make([]RelayHealthEntry, len(ranked)),
+	}
+	for i, s := range ranked {
+		short := s.PeerID.String()
+		if len(short) > 16 {
+			short = short[:16]
+		}
+		resp.Relays[i] = RelayHealthEntry{
+			PeerID:      short,
+			Score:       s.Score,
+			RTTMs:       s.RTTMs,
+			SuccessRate: s.SuccessRate,
+			ProbeCount:  s.ProbeCount,
+			IsStatic:    s.IsStatic,
+		}
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "relays: %d\n", len(resp.Relays))
+		for _, e := range resp.Relays {
+			static := ""
+			if e.IsStatic {
+				static = " [static]"
+			}
+			fmt.Fprintf(&sb, "  %s\tscore=%.2f\trtt=%.0fms\tsuccess=%.1f%%\tprobes=%d%s\n",
+				e.PeerID, e.Score, e.RTTMs, e.SuccessRate*100, e.ProbeCount, static)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, resp)
 }
 
 // IsLocked returns whether sensitive operations are currently locked.
