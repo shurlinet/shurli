@@ -183,7 +183,9 @@ func getMachineID() ([]byte, error) {
 		}
 	case "darwin":
 		// Get IOPlatformUUID via ioreg (the authoritative source on macOS).
-		out, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+		// Use full path: ioreg lives in /usr/sbin which may not be in PATH
+		// (e.g. launchd services have a minimal PATH).
+		out, err := exec.Command("/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
 		if err == nil {
 			// Extract IOPlatformUUID from output.
 			for _, line := range bytes.Split(out, []byte("\n")) {
