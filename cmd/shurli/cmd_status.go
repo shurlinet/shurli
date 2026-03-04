@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
@@ -59,6 +60,24 @@ func doStatus(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "Network:  %s\n", cfg.Discovery.Network)
 	} else {
 		fmt.Fprintf(stdout, "Network:  global (default)\n")
+	}
+
+	// Daemon status
+	if c := tryDaemonClient(); c != nil {
+		resp, err := c.Status()
+		if err == nil {
+			grade := ""
+			if resp.Reachability != nil {
+				grade = resp.Reachability.Grade
+			}
+			uptime := (time.Duration(resp.UptimeSeconds) * time.Second).Truncate(time.Second)
+			fmt.Fprintf(stdout, "Daemon:   running (uptime: %s, peers: %d, reachability: %s)\n",
+				uptime, resp.ConnectedPeers, grade)
+		} else {
+			fmt.Fprintln(stdout, "Daemon:   not responding")
+		}
+	} else {
+		fmt.Fprintln(stdout, "Daemon:   not running")
 	}
 	fmt.Fprintln(stdout)
 
