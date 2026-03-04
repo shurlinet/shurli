@@ -172,6 +172,11 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("POST /v1/vault/init", s.handleVaultInit)
 	mux.HandleFunc("GET /v1/vault/totp-uri", s.handleVaultTOTPUri)
 
+	// Peer management endpoints (ACL mutations, no vault required)
+	mux.HandleFunc("GET /v1/peers", s.handleListPeers)
+	mux.HandleFunc("POST /v1/peers/authorize", s.handleAuthorizePeer)
+	mux.HandleFunc("POST /v1/peers/deauthorize", s.handleDeauthorizePeer)
+
 	// Auth hot-reload endpoint
 	mux.HandleFunc("POST /v1/auth/reload", s.handleAuthReload)
 
@@ -797,6 +802,132 @@ func (s *AdminServer) handleVaultTOTPUri(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"uri": uri})
+}
+
+// --- Peer management endpoints ---
+
+func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	peers, err := auth.ListPeers(s.authKeysPath)
+	if err != nil {
+		respondAdminError(w, http.StatusInternalServerError,
+			fmt.Sprintf("failed to list peers: %v", err))
+		return
+	}
+
+	result := make([]AuthorizedPeerInfo, len(peers))
+	for i, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		result[i] = AuthorizedPeerInfo{
+			PeerID:    p.PeerID.String(),
+			Role:      role,
+			Comment:   p.Comment,
+			Verified:  p.Verified,
+			Group:     p.Group,
+			RelayData: p.RelayData,
+		}
+		if !p.ExpiresAt.IsZero() {
+			result[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	var req struct {
+		PeerID  string `json:"peer_id"`
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	if err := auth.AddPeer(s.authKeysPath, req.PeerID, req.Comment); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to authorize peer: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + ZKP tree) like handleAuthReload does.
+	s.reloadAuth()
+
+	slog.Info("peer authorized via admin", "peer_id", req.PeerID[:min(16, len(req.PeerID))]+"...")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "authorized",
+		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	var req struct {
+		PeerID string `json:"peer_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	if err := auth.RemovePeer(s.authKeysPath, req.PeerID); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to deauthorize peer: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + ZKP tree).
+	s.reloadAuth()
+
+	slog.Info("peer deauthorized via admin", "peer_id", req.PeerID[:min(16, len(req.PeerID))]+"...")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "deauthorized",
+		"peer_id": req.PeerID,
+	})
+}
+
+// reloadAuth reloads the gater from authorized_keys and rebuilds the ZKP tree.
+// Shared by handleAuthorizePeer, handleDeauthorizePeer, and handleAuthReload.
+func (s *AdminServer) reloadAuth() {
+	if s.gater == nil || s.authKeysPath == "" {
+		return
+	}
+	peers, err := auth.LoadAuthorizedKeys(s.authKeysPath)
+	if err != nil {
+		slog.Warn("auth reload after peer mutation failed", "err", err)
+		return
+	}
+	s.gater.UpdateAuthorizedPeers(peers)
+	if s.zkpAuth != nil {
+		if err := s.zkpAuth.RebuildTree(); err != nil {
+			slog.Warn("zkp tree rebuild after peer mutation failed", "err", err)
+		}
+	}
 }
 
 // --- Auth hot-reload endpoint ---

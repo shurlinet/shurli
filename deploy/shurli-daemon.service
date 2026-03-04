@@ -11,12 +11,13 @@ Restart=on-failure
 RestartSec=5
 WatchdogSec=90
 User=shurli
+Group=shurli
 
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/shurli/.config/shurli
+ReadWritePaths=/home/shurli/.config/shurli /run/user
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
