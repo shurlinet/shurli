@@ -316,3 +316,58 @@ func (c *Client) Lock() error {
 func (c *Client) Unlock() error {
 	return c.doJSON("POST", "/v1/unlock", nil, nil)
 }
+
+// --- Invite methods ---
+
+// InviteCreate creates a new invite session on the daemon.
+func (c *Client) InviteCreate(name string, ttlSeconds int) (*InviteCreateResponse, error) {
+	req := InviteCreateRequest{Name: name, TTLSeconds: ttlSeconds}
+	body, _ := json.Marshal(req)
+	var resp InviteCreateResponse
+	if err := c.doJSON("POST", "/v1/invite", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// InviteWait long-polls until the invite is joined, expires, or ctx is cancelled.
+func (c *Client) InviteWait(ctx context.Context, id string) (*InviteWaitResponse, error) {
+	url := "http://daemon/v1/invite/" + id + "/wait"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.authToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 400 {
+		var errResp ErrorResponse
+		if json.Unmarshal(data, &errResp) == nil && errResp.Error != "" {
+			return nil, fmt.Errorf("daemon: %s", errResp.Error)
+		}
+		return nil, fmt.Errorf("daemon returned HTTP %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Data InviteWaitResponse `json:"data"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &raw.Data, nil
+}
+
+// InviteCancel cancels an active invite session.
+func (c *Client) InviteCancel(id string) error {
+	return c.doJSON("DELETE", "/v1/invite/"+id, nil, nil)
+}

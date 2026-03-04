@@ -55,10 +55,16 @@ func InstrumentHandler(next http.Handler, metrics *p2pnet.Metrics, audit *p2pnet
 func sanitizePath(path string) string {
 	parts := strings.Split(strings.TrimRight(path, "/"), "/")
 	// Parameterized routes have 4 parts: ["", "v1", resource, param]
-	if len(parts) == 4 && parts[1] == "v1" {
+	if len(parts) >= 4 && parts[1] == "v1" {
 		switch parts[2] {
 		case "auth", "connect", "expose":
 			return "/v1/" + parts[2] + "/:id"
+		case "invite":
+			// /v1/invite/{id}/wait -> /v1/invite/:id/wait
+			if len(parts) == 5 {
+				return "/v1/invite/:id/" + parts[4]
+			}
+			return "/v1/invite/:id"
 		}
 	}
 	return path

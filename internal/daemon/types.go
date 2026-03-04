@@ -145,6 +145,27 @@ type RelayHealthEntry struct {
 	IsStatic    bool    `json:"is_static"`
 }
 
+// InviteCreateRequest is the body for POST /v1/invite.
+type InviteCreateRequest struct {
+	Name       string `json:"name,omitempty"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"` // default 600
+}
+
+// InviteCreateResponse is returned by POST /v1/invite.
+type InviteCreateResponse struct {
+	InviteID string `json:"invite_id"`
+	Code     string `json:"code"`
+	TTL      int    `json:"ttl_seconds"`
+	PeerID   string `json:"peer_id"`
+}
+
+// InviteWaitResponse is returned by GET /v1/invite/{id}/wait.
+type InviteWaitResponse struct {
+	Status     string `json:"status"`                // "joined", "expired", "cancelled"
+	JoinerName string `json:"joiner_name,omitempty"`
+	AuthKeys   string `json:"auth_keys,omitempty"`
+}
+
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
 	Error string `json:"error"`
