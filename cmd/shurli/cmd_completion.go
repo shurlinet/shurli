@@ -172,8 +172,8 @@ _shurli_completions() {
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
-    local relay_invite_cmds="create list revoke modify"
+    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
+    local relay_invite_cmds="create list revoke"
     local relay_vault_cmds="init seal unseal status"
     local relay_motd_cmds="set clear status"
     local relay_goodbye_cmds="set retract shutdown status"
@@ -247,19 +247,13 @@ _shurli_completions() {
                 setup)
                     COMPREPLY=($(compgen -W "--dir --fresh --non-interactive" -- "$cur"))
                     return ;;
-                pair)
-                    COMPREPLY=($(compgen -W "--count --ttl --expires --namespace --list --revoke" -- "$cur"))
-                    return ;;
                 unseal)
                     COMPREPLY=($(compgen -W "--config --remote --totp" -- "$cur"))
                     return ;;
                 invite)
                     case "${words[3]}" in
                         create)
-                            COMPREPLY=($(compgen -W "--caveat --ttl" -- "$cur"))
-                            return ;;
-                        modify)
-                            COMPREPLY=($(compgen -W "--add-caveat" -- "$cur"))
+                            COMPREPLY=($(compgen -W "--ttl --expires --remote" -- "$cur"))
                             return ;;
                         *)
                             COMPREPLY=($(compgen -W "$relay_invite_cmds" -- "$cur"))
@@ -464,8 +458,7 @@ _shurli() {
         'list-peers:List authorized peers'
         'verify:Verify a peer identity (SAS)'
         'info:Show peer ID and multiaddrs'
-        'pair:Generate pairing codes'
-        'invite:Manage invite deposits'
+        'invite:Manage invites'
         'vault:Manage relay vault'
         'seal:Seal vault (watch-only mode)'
         'unseal:Unseal vault'
@@ -480,9 +473,9 @@ _shurli() {
 
     local -a relay_invite_cmds
     relay_invite_cmds=(
-        'create:Create an invite deposit'
-        'list:List invite deposits'
-        'revoke:Revoke a pending invite'
+        'create:Generate an invite code'
+        'list:List active invites'
+        'revoke:Revoke an invite'
         'modify:Add restrictions to an invite'
     )
 
@@ -580,8 +573,6 @@ _shurli() {
                         _arguments '--dir[Relay directory]:dir:_directories' '--fresh[Non-interactive fresh setup]' '--non-interactive[Fail if prompts needed]' ;;
                     authorize|deauthorize|list-peers)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' ;;
-                    pair)
-                        _arguments '--count[Number of codes]:n' '--ttl[Code validity]:duration' '--expires[Auth expiry]:duration' '--namespace[DHT namespace]:ns' '--list[List active groups]' '--revoke[Revoke group]:id' ;;
                     unseal)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' '--totp[Prompt for TOTP code]' ;;
                     invite)
@@ -590,9 +581,7 @@ _shurli() {
                         else
                             case "${words[4]}" in
                                 create)
-                                    _arguments '--caveat[Caveats]:caveats' '--ttl[Deposit TTL (seconds)]:seconds' ;;
-                                modify)
-                                    _arguments '--add-caveat[Caveat to add]:caveat' ;;
+                                    _arguments '--ttl[Code validity]:duration' '--expires[Auth expiry]:duration' '--remote[Relay multiaddr]:addr' ;;
                             esac
                         fi
                         ;;
@@ -814,8 +803,7 @@ complete -c shurli -n '__shurli_using_command relay' -a deauthorize -d 'Remove p
 complete -c shurli -n '__shurli_using_command relay' -a list-peers  -d 'List authorized peers'
 complete -c shurli -n '__shurli_using_command relay' -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n '__shurli_using_command relay' -a info        -d 'Show peer ID and multiaddrs'
-complete -c shurli -n '__shurli_using_command relay' -a pair        -d 'Generate pairing codes'
-complete -c shurli -n '__shurli_using_command relay' -a invite      -d 'Manage invite deposits'
+complete -c shurli -n '__shurli_using_command relay' -a invite      -d 'Manage invites'
 complete -c shurli -n '__shurli_using_command relay' -a vault       -d 'Manage relay vault'
 complete -c shurli -n '__shurli_using_command relay' -a seal        -d 'Seal vault'
 complete -c shurli -n '__shurli_using_command relay' -a unseal      -d 'Unseal vault'
@@ -842,21 +830,14 @@ complete -c shurli -n '__shurli_using_subcommand relay serve'  -l config  -d 'Co
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l dir     -d 'Relay directory'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l fresh   -d 'Non-interactive fresh setup'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l non-interactive -d 'Fail if prompts needed'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l count   -d 'Number of codes'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l ttl     -d 'Code validity'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l expires -d 'Auth expiry'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l namespace -d 'DHT namespace'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l list    -d 'List active groups'
-complete -c shurli -n '__shurli_using_subcommand relay pair'   -l revoke  -d 'Revoke a group'
 complete -c shurli -n '__shurli_using_subcommand relay unseal' -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay unseal' -l remote  -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay unseal' -l totp    -d 'Prompt for TOTP code'
 
 # relay invite sub-subcommands
-complete -c shurli -n '__shurli_using_subcommand relay invite' -a create -d 'Create an invite deposit'
-complete -c shurli -n '__shurli_using_subcommand relay invite' -a list   -d 'List invite deposits'
-complete -c shurli -n '__shurli_using_subcommand relay invite' -a revoke -d 'Revoke a pending invite'
-complete -c shurli -n '__shurli_using_subcommand relay invite' -a modify -d 'Add restrictions'
+complete -c shurli -n '__shurli_using_subcommand relay invite' -a create -d 'Generate an invite code'
+complete -c shurli -n '__shurli_using_subcommand relay invite' -a list   -d 'List active invites'
+complete -c shurli -n '__shurli_using_subcommand relay invite' -a revoke -d 'Revoke an invite'
 
 # relay vault sub-subcommands
 complete -c shurli -n '__shurli_using_subcommand relay vault' -a init   -d 'Initialize vault'

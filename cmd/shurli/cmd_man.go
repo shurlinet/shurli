@@ -244,8 +244,8 @@ and packet loss.
   shurli relay setup
   shurli relay serve
 
-  # Generate a pairing code:
-  shurli relay pair --count 2 --ttl 24h
+  # Generate an invite code:
+  shurli relay invite create --ttl 24h
 
   # On each device, join with the code:
   shurli init
@@ -448,10 +448,15 @@ verified in the relay's authorized_keys on confirmation.
 Display the relay's peer ID, all multiaddrs it is listening on, and a
 QR code for easy mobile pairing.
 .TP
-.B relay pair \fR[\fB--count\fR \fIN\fR] [\fB--ttl\fR \fI1h\fR] [\fB--expires\fR \fIduration\fR]
-Generate one-time pairing codes. Each code allows a new peer to join the
-relay's authorized set. Codes are cryptographically random and expire after
-the TTL.
+.B relay invite create \fR[\fB--ttl\fR \fI1h\fR] [\fB--expires\fR \fIduration\fR] [\fB--remote\fR \fIaddr\fR]
+Generate a single-use invite code. Share the code with the joining peer
+who uses \fBshurli join <code>\fR. Codes expire after the TTL.
+.TP
+.B relay invite list \fR[\fB--remote\fR \fIaddr\fR]
+List active invites with usage status.
+.TP
+.B relay invite revoke \fR\fIid\fR [\fB--remote\fR \fIaddr\fR]
+Revoke an unused invite.
 .TP
 .B relay show
 Show the resolved relay config (alias for relay config show).
