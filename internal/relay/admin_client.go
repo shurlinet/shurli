@@ -361,6 +361,53 @@ func (c *AdminClient) ZKPVerifyingKey() ([]byte, error) {
 	return data, nil
 }
 
+// ListPeers returns all authorized peers from the relay's authorized_keys.
+func (c *AdminClient) ListPeers() ([]AuthorizedPeerInfo, error) {
+	data, status, err := c.do("GET", "/v1/peers", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp []AuthorizedPeerInfo
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
+// AuthorizePeer adds a peer to the relay's authorized_keys and triggers reload.
+func (c *AdminClient) AuthorizePeer(peerID, comment string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+		"comment": comment,
+	})
+	data, status, err := c.do("POST", "/v1/peers/authorize", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// DeauthorizePeer removes a peer from the relay's authorized_keys and triggers reload.
+func (c *AdminClient) DeauthorizePeer(peerID string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+	})
+	data, status, err := c.do("POST", "/v1/peers/deauthorize", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
 // AuthReload triggers a hot-reload of the relay's authorized_keys and gater.
 // Also rebuilds the ZKP Merkle tree if ZKP auth is enabled.
 func (c *AdminClient) AuthReload() error {

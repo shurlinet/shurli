@@ -77,7 +77,7 @@ func runRelay(args []string) {
 	case "deauthorize":
 		runRelayDeauthorize(args[1:], serverConfigFile)
 	case "list-peers":
-		runRelayListPeers(serverConfigFile)
+		runRelayListPeers(args[1:], serverConfigFile)
 	case "info":
 		runRelayInfo(serverConfigFile)
 	case "pair":

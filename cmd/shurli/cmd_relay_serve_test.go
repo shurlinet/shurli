@@ -336,7 +336,7 @@ func TestDoRelayListPeers(t *testing.T) {
 		cfgFile := writeRelayServerTestConfig(t)
 
 		var stdout bytes.Buffer
-		err := doRelayListPeers(cfgFile, &stdout)
+		err := doRelayListPeers(nil, cfgFile, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -360,7 +360,7 @@ func TestDoRelayListPeers(t *testing.T) {
 		}
 
 		var stdout bytes.Buffer
-		err := doRelayListPeers(cfgFile, &stdout)
+		err := doRelayListPeers(nil, cfgFile, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -378,7 +378,7 @@ func TestDoRelayListPeers(t *testing.T) {
 
 	t.Run("missing config returns error", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := doRelayListPeers("/tmp/nonexistent.yaml", &stdout)
+		err := doRelayListPeers(nil, "/tmp/nonexistent.yaml", &stdout)
 		if err == nil {
 			t.Fatal("expected error for missing config")
 		}

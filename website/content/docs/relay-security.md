@@ -222,11 +222,14 @@ Every relay admin command supports the `--remote` flag:
 shurli relay vault unseal --remote /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 shurli relay vault status --remote my-relay
 
+# Remote peer management
+shurli relay list-peers --remote my-relay
+shurli relay authorize 12D3KooW... home-node --remote my-relay
+shurli relay deauthorize 12D3KooW... --remote my-relay
+
 # Remote invite management
 shurli relay invite create --caveat "role=member" --remote my-relay
 shurli relay invite list --remote my-relay
-
-# Remote peer management (coming: auth reload)
 ```
 
 The `--remote` flag connects over `/shurli/relay-admin/1.0.0`, an encrypted P2P stream. Same auth model as the local Unix socket: only admin-role peers are allowed. Rate limited to 5 requests/second per peer.

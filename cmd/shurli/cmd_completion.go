@@ -232,8 +232,11 @@ _shurli_completions() {
                 add)
                     COMPREPLY=($(compgen -W "--config --peer-id" -- "$cur"))
                     return ;;
-                list|list-peers|info|seal|seal-status|version)
+                list|info|seal|seal-status|version)
                     COMPREPLY=($(compgen -W "--config" -- "$cur"))
+                    return ;;
+                authorize|deauthorize|list-peers)
+                    COMPREPLY=($(compgen -W "--config --remote" -- "$cur"))
                     return ;;
                 remove)
                     COMPREPLY=($(compgen -W "--config --force -f" -- "$cur"))
@@ -575,6 +578,8 @@ _shurli() {
                         _arguments '--config[Config file]:file:_files' ;;
                     setup)
                         _arguments '--dir[Relay directory]:dir:_directories' '--fresh[Non-interactive fresh setup]' '--non-interactive[Fail if prompts needed]' ;;
+                    authorize|deauthorize|list-peers)
+                        _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' ;;
                     pair)
                         _arguments '--count[Number of codes]:n' '--ttl[Code validity]:duration' '--expires[Auth expiry]:duration' '--namespace[DHT namespace]:ns' '--list[List active groups]' '--revoke[Revoke group]:id' ;;
                     unseal)
@@ -827,6 +832,12 @@ complete -c shurli -n '__shurli_using_subcommand relay add'    -l peer-id -d 'Re
 complete -c shurli -n '__shurli_using_subcommand relay remove' -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay remove' -l force   -d 'Force removal'
 complete -c shurli -n '__shurli_using_subcommand relay remove' -s f       -d 'Force removal'
+complete -c shurli -n '__shurli_using_subcommand relay authorize'   -l config -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand relay authorize'   -l remote -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l config -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l remote -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l config -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l remote -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay serve'  -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l dir     -d 'Relay directory'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l fresh   -d 'Non-interactive fresh setup'
