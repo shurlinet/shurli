@@ -300,7 +300,7 @@ func runRelayServe(args []string) {
 	})
 	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
 
-	// Start admin socket for relay pair CLI.
+	// Start admin socket for relay CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
 	adminCookiePath := filepath.Join(filepath.Dir(configFile), ".relay-admin.cookie")
 	relayPeerID, err := peer.IDFromPrivateKey(priv)
@@ -692,7 +692,7 @@ func doRelayAuthorize(args []string, configFile string, stdout io.Writer) error 
 	fs := flag.NewFlagSet("relay authorize", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
@@ -753,7 +753,7 @@ func doRelayDeauthorize(args []string, configFile string, stdout io.Writer) erro
 	fs := flag.NewFlagSet("relay deauthorize", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
@@ -819,7 +819,7 @@ func doRelayListPeers(args []string, configFile string, stdout io.Writer) error 
 	fs := flag.NewFlagSet("relay list-peers", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
@@ -1131,6 +1131,37 @@ func buildPublicMultiaddrs(listenAddrs []string, publicIPs []string, peerID peer
 	return result
 }
 
+// buildRelayAddr constructs a relay multiaddr from the relay server config and a known peer ID.
+func buildRelayAddr(cfg *config.RelayServerConfig, pid peer.ID) (string, error) {
+	if len(cfg.Network.ListenAddresses) == 0 {
+		return "", fmt.Errorf("no listen addresses in relay config")
+	}
+
+	// Find a suitable listen address (prefer TCP for invite code encoding).
+	var addr string
+	for _, a := range cfg.Network.ListenAddresses {
+		if strings.Contains(a, "/tcp/") && !strings.Contains(a, "/ws") {
+			addr = a
+			break
+		}
+	}
+	if addr == "" {
+		addr = cfg.Network.ListenAddresses[0]
+	}
+
+	// Replace 0.0.0.0 with a detected public IP.
+	if strings.Contains(addr, "/0.0.0.0/") {
+		publicIPs := detectPublicIPs()
+		if len(publicIPs) > 0 {
+			addr = strings.Replace(addr, "/0.0.0.0/", "/"+publicIPs[0]+"/", 1)
+		} else {
+			return "", fmt.Errorf("relay listens on 0.0.0.0 but no public IP detected; specify a public address in config")
+		}
+	}
+
+	return addr + "/p2p/" + pid.String(), nil
+}
+
 // detectPublicIPs returns non-private, non-loopback IP addresses from network interfaces.
 func detectPublicIPs() []string {
 	var ips []string
@@ -1317,8 +1348,9 @@ func printRelayServeUsage() {
 	fmt.Println("  seal                                Seal vault (watch-only mode)")
 	fmt.Println("  unseal                              Unseal vault")
 	fmt.Println("  seal-status                         Show vault seal status")
-	fmt.Println("  pair [--count N] [--ttl 1h]         Generate pairing codes")
-	fmt.Println("  invite <subcommand>                 Manage invite deposits")
+	fmt.Println("  invite create [--ttl 1h]            Generate an invite code")
+	fmt.Println("  invite list                         List active invites")
+	fmt.Println("  invite revoke <id>                  Revoke an invite")
 	fmt.Println("  motd <subcommand>                   Manage relay MOTD")
 	fmt.Println("  goodbye <subcommand>                Manage goodbye announcements")
 	fmt.Println()
