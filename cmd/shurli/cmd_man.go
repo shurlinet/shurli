@@ -437,6 +437,11 @@ Remove a peer's relay access. Active connections from that peer are dropped.
 .B relay list-peers
 Print all peers authorized to use this relay, with their roles and comments.
 .TP
+.B relay verify \fIpeer-id\fR
+Verify a peer's identity using a Short Authentication String (SAS). Displays
+emoji and numeric codes that must match on both sides. Marks the peer as
+verified in the relay's authorized_keys on confirmation.
+.TP
 .B relay info
 Display the relay's peer ID, all multiaddrs it is listening on, and a
 QR code for easy mobile pairing.
