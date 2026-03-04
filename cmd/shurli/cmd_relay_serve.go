@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -688,14 +689,39 @@ func loadRelayAuthKeysPath(configFile string) string {
 }
 
 func doRelayAuthorize(args []string, configFile string, stdout io.Writer) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: shurli relay authorize <peer-id> [comment]")
+	fs := flag.NewFlagSet("relay authorize", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	peerID := args[0]
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: shurli relay authorize <peer-id> [comment] [--remote <addr>]")
+	}
+
+	peerID := fs.Arg(0)
 	comment := ""
-	if len(args) > 1 {
-		comment = strings.Join(args[1:], " ")
+	if fs.NArg() > 1 {
+		comment = strings.Join(fs.Args()[1:], " ")
+	}
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		if err := client.AuthorizePeer(peerID, comment); err != nil {
+			return fmt.Errorf("failed to authorize peer: %w", err)
+		}
+		fmt.Fprintf(stdout, "Authorized: %s\n", peerID[:min(16, len(peerID))]+"...")
+		if comment != "" {
+			fmt.Fprintf(stdout, "Comment:    %s\n", comment)
+		}
+		fmt.Fprintln(stdout, "Applied immediately (remote admin).")
+		return nil
 	}
 
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
@@ -724,11 +750,34 @@ func runRelayAuthorize(args []string, configFile string) {
 }
 
 func doRelayDeauthorize(args []string, configFile string, stdout io.Writer) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: shurli relay deauthorize <peer-id>")
+	fs := flag.NewFlagSet("relay deauthorize", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	peerID := args[0]
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: shurli relay deauthorize <peer-id> [--remote <addr>]")
+	}
+
+	peerID := fs.Arg(0)
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		if err := client.DeauthorizePeer(peerID); err != nil {
+			return fmt.Errorf("failed to deauthorize peer: %w", err)
+		}
+		fmt.Fprintf(stdout, "Deauthorized: %s\n", peerID[:min(16, len(peerID))]+"...")
+		fmt.Fprintln(stdout, "Applied immediately (remote admin).")
+		return nil
+	}
+
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
 		return err
@@ -766,7 +815,52 @@ func runRelayDeauthorize(args []string, configFile string) {
 	}
 }
 
-func doRelayListPeers(configFile string, stdout io.Writer) error {
+func doRelayListPeers(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay list-peers", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		peers, err := client.ListPeers()
+		if err != nil {
+			return fmt.Errorf("failed to list peers: %w", err)
+		}
+
+		fmt.Fprintf(stdout, "Authorized peers (remote relay):\n\n")
+		if len(peers) == 0 {
+			fmt.Fprintln(stdout, "  (none)")
+		} else {
+			for _, p := range peers {
+				tags := "[" + p.Role + "]"
+				if p.Verified != "" {
+					tags += " [verified]"
+				} else {
+					tags += " [UNVERIFIED]"
+				}
+				if p.RelayData {
+					tags += " [relay_data]"
+				}
+				if p.Comment != "" {
+					fmt.Fprintf(stdout, "  %s  %s  # %s\n", p.PeerID, tags, p.Comment)
+				} else {
+					fmt.Fprintf(stdout, "  %s  %s\n", p.PeerID, tags)
+				}
+			}
+		}
+		fmt.Fprintf(stdout, "\nTotal: %d peer(s)\n", len(peers))
+		return nil
+	}
+
+	// Local path: read authorized_keys directly.
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
 		return err
@@ -805,8 +899,8 @@ func doRelayListPeers(configFile string, stdout io.Writer) error {
 	return nil
 }
 
-func runRelayListPeers(configFile string) {
-	if err := doRelayListPeers(configFile, os.Stdout); err != nil {
+func runRelayListPeers(args []string, configFile string) {
+	if err := doRelayListPeers(args, configFile, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(1)
 	}
@@ -1216,41 +1310,38 @@ func printRelayServeUsage() {
 	fmt.Println("  list                                List configured relay addresses")
 	fmt.Println("  remove <multiaddr>                  Remove a relay server address")
 	fmt.Println()
-	fmt.Println("Relay server management:")
-	fmt.Println("  setup                               Initialize relay config (backup/restore)")
-	fmt.Println("  serve                               Start the relay server")
-	fmt.Println("  info                                Show peer ID, multiaddrs, QR code")
+	fmt.Println("Relay server management (local or --remote):")
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")
 	fmt.Println("  deauthorize <peer-id>               Remove a peer's access")
 	fmt.Println("  list-peers                          List authorized peers")
-	fmt.Println("  verify <peer-id>                    Verify a peer's identity (SAS)")
-	fmt.Println("  show                                Show resolved relay config (alias: config show)")
-	fmt.Println("  config show                         Show resolved relay config")
-	fmt.Println("  config validate                     Validate relay config without starting")
-	fmt.Println("  config rollback                     Restore last-known-good config")
-	fmt.Println()
-	fmt.Println("Vault (relay security):")
-	fmt.Println("  vault init [--totp] [--auto-seal N] Initialize passphrase-sealed vault")
-	fmt.Println("  vault status                        Show vault seal status")
 	fmt.Println("  seal                                Seal vault (watch-only mode)")
 	fmt.Println("  unseal                              Unseal vault")
-	fmt.Println("  seal-status                         Show vault seal status (shorthand)")
+	fmt.Println("  seal-status                         Show vault seal status")
+	fmt.Println("  pair [--count N] [--ttl 1h]         Generate pairing codes")
+	fmt.Println("  invite <subcommand>                 Manage invite deposits")
+	fmt.Println("  motd <subcommand>                   Manage relay MOTD")
+	fmt.Println("  goodbye <subcommand>                Manage goodbye announcements")
 	fmt.Println()
-	fmt.Println("Operator announcements:")
-	fmt.Println("  motd set <message>                  Set MOTD (shown to connecting peers)")
-	fmt.Println("  motd clear                          Clear MOTD")
-	fmt.Println("  motd status                         Show MOTD and goodbye status")
-	fmt.Println("  goodbye set <message>               Set goodbye (pushed to all peers)")
-	fmt.Println("  goodbye retract                     Retract a goodbye announcement")
-	fmt.Println("  goodbye shutdown [message]          Send goodbye and shut down relay")
+	fmt.Println("Relay server management (local only):")
+	fmt.Println("  setup                               Initialize relay config (backup/restore)")
+	fmt.Println("  serve                               Start the relay server")
+	fmt.Println("  info                                Show peer ID, multiaddrs, QR code")
+	fmt.Println("  verify <peer-id>                    Verify a peer's identity (SAS)")
+	fmt.Println("  show                                Show resolved relay config")
+	fmt.Println("  config <subcommand>                 Config management (show/validate/rollback)")
+	fmt.Println("  vault init [--totp] [--auto-seal N] Initialize passphrase-sealed vault")
+	fmt.Println("  recover                             Recover identity from seed phrase")
+	fmt.Println("  version                             Show relay version")
+	fmt.Println()
+	fmt.Println("All remote-capable commands accept: --remote <multiaddr|name|peer-id>")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli relay add /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")
-	fmt.Println("  shurli relay add 203.0.113.50:7777 --peer-id 12D3KooW...")
 	fmt.Println("  shurli relay serve --config /etc/shurli/relay-server.yaml")
 	fmt.Println("  shurli relay authorize 12D3KooW... home-node")
-	fmt.Println("  shurli relay info")
+	fmt.Println("  shurli relay list-peers --remote 12D3KooW...")
+	fmt.Println("  shurli relay unseal --remote my-relay")
 	fmt.Println()
 	fmt.Println("Server commands use relay-server.yaml in the working directory by default.")
-	fmt.Println("All commands support --config <path>.")
+	fmt.Println("Local commands support --config <path>.")
 }

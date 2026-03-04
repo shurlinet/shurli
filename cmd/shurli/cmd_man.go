@@ -427,15 +427,17 @@ Start the relay. Listens on all configured addresses, accepts connections
 from authorized peers, and relays traffic. Exposes Prometheus metrics on
 the configured metrics port.
 .TP
-.B relay authorize \fIpeer-id\fR [\fIcomment\fR]
+.B relay authorize \fIpeer-id\fR [\fIcomment\fR] [\fB--remote\fR \fIaddr\fR]
 Add a peer to the relay's authorized_keys. Only authorized peers can use
-the relay.
+the relay. Supports --remote for administration from any admin device.
 .TP
-.B relay deauthorize \fIpeer-id\fR
+.B relay deauthorize \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
 Remove a peer's relay access. Active connections from that peer are dropped.
+Supports --remote for administration from any admin device.
 .TP
-.B relay list-peers
+.B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.
+Supports --remote for administration from any admin device.
 .TP
 .B relay verify \fIpeer-id\fR
 Verify a peer's identity using a Short Authentication String (SAS). Displays

@@ -13,14 +13,14 @@ import (
 
 func runRelayPair(args []string, serverConfigFile string) {
 	if len(args) > 0 && args[0] == "--list" {
-		runRelayPairList(serverConfigFile)
+		runRelayPairList(args[1:], serverConfigFile)
 		return
 	}
 	if len(args) > 0 && args[0] == "--revoke" {
 		if len(args) < 2 {
-			fatal("Usage: shurli relay pair --revoke <group-id>")
+			fatal("Usage: shurli relay pair --revoke <group-id> [--remote <peer-id>]")
 		}
-		runRelayPairRevoke(args[1], serverConfigFile)
+		runRelayPairRevoke(args[1:], serverConfigFile)
 		return
 	}
 
@@ -73,8 +73,12 @@ func runRelayPairCreate(args []string, serverConfigFile string) {
 	fmt.Printf("\nGroup ID: %s\n", resp.GroupID)
 }
 
-func runRelayPairList(serverConfigFile string) {
-	client, cleanup, err := relayAdminClientOrRemote("", serverConfigFile)
+func runRelayPairList(args []string, serverConfigFile string) {
+	fs := flag.NewFlagSet("relay pair --list", flag.ExitOnError)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	fs.Parse(args)
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, serverConfigFile)
 	if err != nil {
 		fatal("Failed to connect: %v", err)
 	}
@@ -102,8 +106,13 @@ func runRelayPairList(serverConfigFile string) {
 	}
 }
 
-func runRelayPairRevoke(groupID, serverConfigFile string) {
-	client, cleanup, err := relayAdminClientOrRemote("", serverConfigFile)
+func runRelayPairRevoke(args []string, serverConfigFile string) {
+	groupID := args[0]
+	fs := flag.NewFlagSet("relay pair --revoke", flag.ExitOnError)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	fs.Parse(args[1:])
+
+	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, serverConfigFile)
 	if err != nil {
 		fatal("Failed to connect: %v", err)
 	}

@@ -276,7 +276,7 @@ func TestRunRelayDeauthorize_Error(t *testing.T) {
 
 func TestRunRelayListPeers_Error(t *testing.T) {
 	code, exited := captureExit(func() {
-		runRelayListPeers("/tmp/nonexistent-shurli-test/relay-server.yaml")
+		runRelayListPeers(nil, "/tmp/nonexistent-shurli-test/relay-server.yaml")
 	})
 	if !exited || code != 1 {
 		t.Errorf("expected exit(1), got exited=%v code=%d", exited, code)

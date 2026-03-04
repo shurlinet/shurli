@@ -23,6 +23,9 @@ type RelayAdminAPI interface {
 	CreateGroup(count, ttlSec, expiresSec int, namespace string) (*PairResponse, error)
 	ListGroups() ([]GroupInfo, error)
 	RevokeGroup(id string) error
+	ListPeers() ([]AuthorizedPeerInfo, error)
+	AuthorizePeer(peerID, comment string) error
+	DeauthorizePeer(peerID string) error
 	AuthReload() error
 	ZKPTreeRebuild() (map[string]any, error)
 	ZKPTreeInfo() (*ZKPTreeInfoResponse, error)
@@ -32,4 +35,16 @@ type RelayAdminAPI interface {
 	SetGoodbye(message string) error
 	RetractGoodbye() error
 	GoodbyeShutdown(message string) error
+}
+
+// AuthorizedPeerInfo is the JSON representation of an authorized peer
+// for the admin API. Distinct from PeerInfo in tokens.go (pairing groups).
+type AuthorizedPeerInfo struct {
+	PeerID    string `json:"peer_id"`
+	Role      string `json:"role"`
+	Comment   string `json:"comment,omitempty"`
+	Verified  string `json:"verified,omitempty"`
+	Group     string `json:"group,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	RelayData bool   `json:"relay_data,omitempty"`
 }

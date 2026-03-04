@@ -46,24 +46,50 @@ install: build
 	@$(MAKE) install-service
 
 ## Install and enable the system service (auto-detects OS).
+## On Linux, prompts for the user to run the daemon as.
+## Override with: make install-service SERVICE_USER=myuser
+## Run 'shurli init' as that user first to create the config.
 install-service:
 ifeq ($(OS),Linux)
-	@echo "Installing systemd service..."
-	@echo "This requires elevated permissions."
-	@if ! id -u shurli >/dev/null 2>&1; then \
-		echo "Creating system user 'shurli'..."; \
-		sudo useradd --system --shell /usr/sbin/nologin --create-home shurli; \
-		sudo mkdir -p /home/shurli/.config/shurli; \
-		sudo chown shurli:shurli /home/shurli/.config/shurli; \
-		echo "User 'shurli' created."; \
+ifndef SHURLI_SERVICE_USER_CONFIRMED
+	@echo ""
+	@echo "The daemon service needs a user to run as."
+	@echo "This should be the user who ran 'shurli init'."
+	@echo ""
+	@echo "  Detected user: $(SERVICE_USER)"
+	@echo ""
+	@read -p "Run daemon as '$(SERVICE_USER)'? [Y/n/username]: " answer; \
+	if [ "$$answer" = "n" ] || [ "$$answer" = "N" ]; then \
+		echo "Aborted. Use: make install-service SERVICE_USER=<username>"; \
+		exit 1; \
+	elif [ -n "$$answer" ] && [ "$$answer" != "y" ] && [ "$$answer" != "Y" ]; then \
+		if ! id -u "$$answer" >/dev/null 2>&1; then \
+			echo "Error: user '$$answer' does not exist."; \
+			exit 1; \
+		fi; \
+		$(MAKE) install-service SERVICE_USER="$$answer" SHURLI_SERVICE_USER_CONFIRMED=1; \
+		exit 0; \
+	fi; \
+	$(MAKE) install-service SHURLI_SERVICE_USER_CONFIRMED=1
+else
+	@echo "Installing systemd service for user '$(SERVICE_USER)'..."
+	@if ! id -u "$(SERVICE_USER)" >/dev/null 2>&1; then \
+		echo "Error: user '$(SERVICE_USER)' does not exist."; \
+		echo "Create the user first, or choose a different one."; \
+		exit 1; \
 	fi
 	sudo cp $(SYSTEMD_SERVICE) $(SYSTEMD_DEST)
+	sudo sed -i 's|^User=.*|User=$(SERVICE_USER)|' $(SYSTEMD_DEST)
+	sudo sed -i 's|^Group=.*|Group=$(SERVICE_USER)|' $(SYSTEMD_DEST)
+	sudo sed -i 's|^ReadWritePaths=.*|ReadWritePaths=/home/$(SERVICE_USER)/.config/shurli /run/user|' $(SYSTEMD_DEST)
 	sudo systemctl daemon-reload
 	sudo systemctl enable shurli-daemon
 	@echo ""
-	@echo "Service installed and enabled."
+	@echo "Service installed and enabled for user '$(SERVICE_USER)'."
+	@echo "Make sure 'shurli init' has been run as '$(SERVICE_USER)' first."
 	@echo "Start with: sudo systemctl start shurli-daemon"
 	@echo "Logs:       journalctl -u shurli-daemon -f"
+endif
 else ifeq ($(OS),Darwin)
 	@echo "Installing launchd service..."
 	@mkdir -p $(dir $(LAUNCHD_DEST))
