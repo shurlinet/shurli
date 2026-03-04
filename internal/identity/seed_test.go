@@ -169,16 +169,15 @@ func TestValidateMnemonic_InvalidWord(t *testing.T) {
 }
 
 func TestValidateMnemonic_BadChecksum(t *testing.T) {
-	m, _, _ := GenerateSeed()
-	words := strings.Fields(m)
-	if words[23] == "abandon" {
-		words[23] = "zoo"
-	} else {
-		words[23] = "abandon"
-	}
-	err := ValidateMnemonic(strings.Join(words, " "))
+	// Deterministic bad-checksum test: 24x "abandon" (index 0) encodes
+	// 256 zero-bits of entropy + 8 zero-bits of checksum. The actual
+	// checksum of 32 zero-bytes is SHA256(0x00*32)[0] = 0x66, not 0x00.
+	// So this mnemonic is guaranteed to fail checksum validation.
+	bad := strings.Repeat("abandon ", 24)
+	bad = strings.TrimSpace(bad)
+	err := ValidateMnemonic(bad)
 	if err == nil {
-		t.Fatal("expected checksum error")
+		t.Fatal("expected checksum error for known-bad mnemonic")
 	}
 }
 
