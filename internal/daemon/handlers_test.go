@@ -47,6 +47,8 @@ func (m *networkMockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { retur
 func (m *networkMockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
 func (m *networkMockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
 func (m *networkMockRuntime) IsRelaying() bool                            { return false }
+func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
+func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

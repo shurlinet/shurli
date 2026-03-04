@@ -43,6 +43,9 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
+func (rt *serveRuntime) RelayAddresses() []string { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string  { return rt.config.Discovery.Network }
+
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
 		return nil
