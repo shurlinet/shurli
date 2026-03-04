@@ -58,14 +58,21 @@ func doRelayInviteCreate(args []string, configFile string, stdout io.Writer) err
 		return fmt.Errorf("create invite failed: %w", err)
 	}
 
+	code := resp.Codes[0]
 	fmt.Fprintf(stdout, "\nInvite code generated (expires in %s):\n\n", *ttlFlag)
-	fmt.Fprintf(stdout, "  %s\n\n", resp.Codes[0])
-	fmt.Fprintln(stdout, "Share this code with the joining peer.")
-	fmt.Fprintln(stdout, "They join with: shurli join <code>")
+	fmt.Fprintf(stdout, "  %s\n\n", code)
 	if *expiresFlag > 0 {
-		fmt.Fprintf(stdout, "\nAuthorization expires after %s.\n", *expiresFlag)
+		fmt.Fprintf(stdout, "Authorization expires after %s.\n\n", *expiresFlag)
 	}
-	fmt.Fprintf(stdout, "\nGroup ID: %s\n", resp.GroupID)
+	fmt.Fprintf(stdout, "Group ID: %s\n\n", resp.GroupID)
+	fmt.Fprintln(stdout, "--- Send this to the joining peer ---")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Install shurli: https://shurli.net/install")
+	fmt.Fprintln(stdout, "Then run:")
+	fmt.Fprintln(stdout, "  shurli init")
+	fmt.Fprintf(stdout, "  shurli join %s\n", code)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "---")
 	return nil
 }
 

@@ -147,7 +147,14 @@ func runInvite(args []string) {
 			fmt.Print(q.ToSmallString(false))
 		}
 
-		fmt.Println("Or on that device, run:  shurli join <code>")
+		fmt.Println("--- Send this to the joining peer ---")
+		fmt.Println()
+		fmt.Println("Install shurli: https://shurli.net/install")
+		fmt.Println("Then run:")
+		fmt.Println("  shurli init")
+		fmt.Printf("  shurli join %s --name <your-device-name>\n", code)
+		fmt.Println()
+		fmt.Println("---")
 	}
 	outln()
 	outln("Waiting for peer to join...")
