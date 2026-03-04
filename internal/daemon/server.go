@@ -35,11 +35,28 @@ type RuntimeInfo interface {
 	RelayHealth() *p2pnet.RelayHealth                        // nil when disabled
 	STUNResult() *p2pnet.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
+	RelayAddresses() []string                                // relay multiaddrs from config
+	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
 type GaterReloader interface {
 	ReloadFromFile() error // reload authorized_keys and update the gater
+}
+
+// activeInvite tracks a pending invite session.
+type activeInvite struct {
+	id     string
+	token  [8]byte
+	name   string
+	cancel context.CancelFunc
+	result chan inviteResult // buffered(1)
+}
+
+// inviteResult is sent on the active invite's result channel.
+type inviteResult struct {
+	joinerName string
+	err        error
 }
 
 // activeProxy tracks a dynamically created TCP proxy.
@@ -68,10 +85,11 @@ type Server struct {
 	metrics *p2pnet.Metrics
 	audit   *p2pnet.AuditLogger
 
-	mu      sync.Mutex
-	proxies map[string]*activeProxy
-	nextID  int
-	locked  bool // sensitive ops disabled when true (default: true)
+	mu           sync.Mutex
+	proxies      map[string]*activeProxy
+	pendingInvite *activeInvite // nil when no invite active
+	nextID       int
+	locked       bool // sensitive ops disabled when true (default: true)
 }
 
 // NewServer creates a new daemon API server.
@@ -160,6 +178,14 @@ func (s *Server) Start() error {
 // and cleans up the socket and cookie files.
 func (s *Server) Stop() {
 	slog.Info("daemon server shutting down")
+
+	// Cancel any active invite
+	s.mu.Lock()
+	if s.pendingInvite != nil {
+		s.pendingInvite.cancel()
+		s.pendingInvite = nil
+	}
+	s.mu.Unlock()
 
 	// Shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

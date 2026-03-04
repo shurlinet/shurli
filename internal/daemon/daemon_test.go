@@ -41,6 +41,8 @@ func (m *mockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return nil }
 func (m *mockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
 func (m *mockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
 func (m *mockRuntime) IsRelaying() bool                            { return false }
+func (m *mockRuntime) RelayAddresses() []string                    { return nil }
+func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

@@ -19,6 +19,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/qr"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -33,6 +34,12 @@ func runInvite(args []string) {
 	ttlFlag := fs.Duration("ttl", 10*time.Minute, "invite code expiry duration")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output (no QR, bare code to stdout)")
 	fs.Parse(args)
+
+	// If a daemon is running, delegate to it (avoids duplicate relay reservation)
+	if client := tryDaemonClient(); client != nil {
+		runInviteViaDaemon(client, *nameFlag, *ttlFlag, *nonInteractive)
+		return
+	}
 
 	// In non-interactive mode, progress goes to stderr so stdout has only the invite code.
 	out := fmt.Printf
@@ -204,6 +211,88 @@ func runInvite(args []string) {
 		outln("Invite expired. No peer joined.")
 	case <-sigCh:
 		outln("\nCancelled.")
+	}
+}
+
+// runInviteViaDaemon delegates the invite flow to a running daemon.
+func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, nonInteractive bool) {
+	out := fmt.Printf
+	outln := fmt.Println
+	if nonInteractive {
+		out = func(format string, a ...any) (int, error) { return fmt.Fprintf(os.Stderr, format, a...) }
+		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
+	}
+
+	resp, err := client.InviteCreate(name, int(ttl.Seconds()))
+	if err != nil {
+		fatal("Failed to create invite: %v", err)
+	}
+
+	if nonInteractive {
+		fmt.Println(resp.Code)
+	} else {
+		fmt.Println()
+		fmt.Printf("=== Invite Code (expires in %s) ===\n", ttl)
+		fmt.Println()
+		fmt.Println(resp.Code)
+		fmt.Println()
+
+		q, qErr := qr.New(resp.Code, qr.Medium)
+		if qErr == nil {
+			fmt.Println("Scan this QR code to join:")
+			fmt.Println()
+			fmt.Print(q.ToSmallString(false))
+		}
+
+		fmt.Println("--- Send this to the joining peer ---")
+		fmt.Println()
+		fmt.Println("Install shurli: https://shurli.net/install")
+		fmt.Println("Then run:")
+		fmt.Println("  shurli init")
+		fmt.Printf("  shurli join %s --name <your-device-name>\n", resp.Code)
+		fmt.Println()
+		fmt.Println("---")
+	}
+	outln()
+	outln("Waiting for peer to join...")
+
+	// Set up cancellation on SIGINT/SIGTERM
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-sigCh:
+			client.InviteCancel(resp.InviteID)
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	waitResp, err := client.InviteWait(ctx, resp.InviteID)
+	if err != nil {
+		if ctx.Err() != nil {
+			outln("\nCancelled.")
+			return
+		}
+		fatal("Error waiting for invite: %v", err)
+	}
+
+	outln()
+	switch waitResp.Status {
+	case "joined":
+		if waitResp.JoinerName != "" {
+			out("Peer \"%s\" joined and authorized!\n", waitResp.JoinerName)
+		} else {
+			outln("Peer joined and authorized!")
+		}
+		out("Authorized keys file: %s\n", waitResp.AuthKeys)
+	case "expired":
+		outln("Invite expired. No peer joined.")
+	case "cancelled":
+		outln("Invite cancelled.")
 	}
 }
 
