@@ -80,8 +80,6 @@ func runRelay(args []string) {
 		runRelayListPeers(args[1:], serverConfigFile)
 	case "info":
 		runRelayInfo(serverConfigFile)
-	case "pair":
-		runRelayPair(args[1:], serverConfigFile)
 	case "invite":
 		runRelayInvite(args[1:], serverConfigFile)
 	case "vault":
