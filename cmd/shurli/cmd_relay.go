@@ -110,6 +110,8 @@ func runRelay(args []string) {
 		runRelayMOTD(args[1:], serverConfigFile)
 	case "goodbye":
 		runRelayGoodbye(args[1:], serverConfigFile)
+	case "verify":
+		runRelayVerify(args[1:], serverConfigFile)
 	case "recover":
 		runRelayRecover(args[1:], serverConfigFile)
 

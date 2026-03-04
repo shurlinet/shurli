@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -785,6 +786,11 @@ func doRelayListPeers(configFile string, stdout io.Writer) error {
 				role = "member"
 			}
 			tags := "[" + role + "]"
+			if p.Verified != "" {
+				tags += " [verified]"
+			} else {
+				tags += " [UNVERIFIED]"
+			}
 			if p.RelayData {
 				tags += " [relay_data]"
 			}
@@ -1077,6 +1083,131 @@ func extractTCPPort(listenAddresses []string) string {
 	return "7777"
 }
 
+func runRelayVerify(args []string, configFile string) {
+	if err := doRelayVerify(args, configFile, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doRelayVerify(args []string, configFile string, stdout io.Writer) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: shurli relay verify <peer-id>\n\nVerify a peer's identity using a Short Authentication String (SAS).\nBoth sides must see the same code for the connection to be authentic.")
+	}
+
+	target := args[0]
+
+	// Load relay config.
+	cfg, err := config.LoadRelayServerConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Resolve target to peer ID.
+	targetPeerID, err := peer.Decode(target)
+	if err != nil {
+		return fmt.Errorf("invalid peer ID: %q\n  Must be a valid peer ID (e.g. 12D3KooW...)", target)
+	}
+
+	// Check peer is authorized on this relay.
+	authKeysPath := cfg.Security.AuthorizedKeysFile
+	if authKeysPath == "" {
+		return fmt.Errorf("no authorized_keys_file configured")
+	}
+	peers, err := auth.ListPeers(authKeysPath)
+	if err != nil {
+		return fmt.Errorf("failed to list peers: %w", err)
+	}
+
+	var displayName string
+	found := false
+	for _, p := range peers {
+		if p.PeerID == targetPeerID {
+			found = true
+			displayName = p.Comment
+			if p.Verified != "" {
+				fmt.Fprintf(stdout, "Peer is already verified (fingerprint: %s).\n", p.Verified)
+				fmt.Fprint(stdout, "Re-verify? [y/N]: ")
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "y" && answer != "yes" {
+					return nil
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("peer not authorized on this relay: %s...\n  Authorize first: shurli relay authorize %s", targetPeerID.String()[:16], target)
+	}
+
+	// Load relay's own identity.
+	relayConfigDir := filepath.Dir(configFile)
+	pw, pwErr := resolvePasswordInteractive(relayConfigDir, stdout)
+	if pwErr != nil {
+		return fmt.Errorf("identity error: %w", pwErr)
+	}
+	ourPeerID, err := identity.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
+	if err != nil {
+		return fmt.Errorf("failed to load relay identity: %w", err)
+	}
+
+	// Compute fingerprint.
+	emoji, numeric := p2pnet.ComputeFingerprint(ourPeerID, targetPeerID)
+	prefix := p2pnet.FingerprintPrefix(ourPeerID, targetPeerID)
+
+	// Display.
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "=== Relay Peer Verification ===")
+	fmt.Fprintln(stdout)
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Peer:     %s (%s...)\n", displayName, targetPeerID.String()[:16])
+	} else {
+		fmt.Fprintf(stdout, "Peer:     %s...\n", targetPeerID.String()[:16])
+	}
+	fmt.Fprintf(stdout, "Relay ID: %s...\n", ourPeerID.String()[:16])
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "Verification code:  %s\n", emoji)
+	fmt.Fprintf(stdout, "Numeric code:       %s\n", numeric)
+	fmt.Fprintln(stdout)
+
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Compare this with %s over a secure channel\n", displayName)
+	} else {
+		fmt.Fprintln(stdout, "Compare this with the peer over a secure channel")
+	}
+	fmt.Fprintln(stdout, "(phone call, in person, trusted messaging).")
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "The peer should run: shurli verify <this-relay-name-or-id>\n")
+	fmt.Fprintln(stdout)
+
+	// Prompt for confirmation.
+	fmt.Fprint(stdout, "Does the peer see the same code? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	if answer != "y" && answer != "yes" {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Verification cancelled. Peer remains unverified.")
+		return nil
+	}
+
+	// Write verified attribute.
+	if err := auth.SetPeerAttr(authKeysPath, targetPeerID.String(), "verified", prefix); err != nil {
+		return fmt.Errorf("failed to mark peer as verified: %w", err)
+	}
+
+	fmt.Fprintln(stdout)
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Peer \"%s\" verified!\n", displayName)
+	} else {
+		fmt.Fprintln(stdout, "Peer verified!")
+	}
+	return nil
+}
+
 func printRelayServeUsage() {
 	fmt.Println("Usage: shurli relay <command> [options]")
 	fmt.Println()
@@ -1092,6 +1223,7 @@ func printRelayServeUsage() {
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")
 	fmt.Println("  deauthorize <peer-id>               Remove a peer's access")
 	fmt.Println("  list-peers                          List authorized peers")
+	fmt.Println("  verify <peer-id>                    Verify a peer's identity (SAS)")
 	fmt.Println("  show                                Show resolved relay config (alias: config show)")
 	fmt.Println("  config show                         Show resolved relay config")
 	fmt.Println("  config validate                     Validate relay config without starting")
