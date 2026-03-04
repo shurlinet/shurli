@@ -172,7 +172,7 @@ _shurli_completions() {
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
+    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info pair invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
     local relay_invite_cmds="create list revoke modify"
     local relay_vault_cmds="init seal unseal status"
     local relay_motd_cmds="set clear status"
@@ -459,6 +459,7 @@ _shurli() {
         'authorize:Allow a peer'
         'deauthorize:Remove peer access'
         'list-peers:List authorized peers'
+        'verify:Verify a peer identity (SAS)'
         'info:Show peer ID and multiaddrs'
         'pair:Generate pairing codes'
         'invite:Manage invite deposits'
@@ -806,6 +807,7 @@ complete -c shurli -n '__shurli_using_command relay' -a serve       -d 'Start th
 complete -c shurli -n '__shurli_using_command relay' -a authorize   -d 'Allow a peer'
 complete -c shurli -n '__shurli_using_command relay' -a deauthorize -d 'Remove peer access'
 complete -c shurli -n '__shurli_using_command relay' -a list-peers  -d 'List authorized peers'
+complete -c shurli -n '__shurli_using_command relay' -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n '__shurli_using_command relay' -a info        -d 'Show peer ID and multiaddrs'
 complete -c shurli -n '__shurli_using_command relay' -a pair        -d 'Generate pairing codes'
 complete -c shurli -n '__shurli_using_command relay' -a invite      -d 'Manage invite deposits'
