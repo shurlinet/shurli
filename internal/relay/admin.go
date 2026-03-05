@@ -30,6 +30,40 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
+// Context keys for caller identity, set by RemoteAdminHandler.
+// Local admin socket requests have no caller context (treated as full admin).
+type adminCtxKey string
+
+const (
+	ctxCallerPeerID adminCtxKey = "caller_peer_id"
+	ctxCallerRole   adminCtxKey = "caller_role"
+)
+
+// callerPeerID extracts the remote peer ID from the request context.
+// Returns empty for local admin socket requests.
+func callerPeerID(r *http.Request) peer.ID {
+	v, _ := r.Context().Value(ctxCallerPeerID).(peer.ID)
+	return v
+}
+
+// callerRole extracts the role from the request context.
+// Returns "admin" for local admin socket requests (no context = local operator).
+func callerRole(r *http.Request) string {
+	v, _ := r.Context().Value(ctxCallerRole).(string)
+	if v == "" {
+		return "admin" // local socket = relay operator = full admin
+	}
+	return v
+}
+
+// callerIsAdmin returns true if the caller has admin role or is a local admin.
+func callerIsAdmin(r *http.Request) bool {
+	return callerRole(r) == "admin"
+}
+
+// maxMemberGroups is the maximum number of active pairing groups a member peer can have.
+const maxMemberGroups = 5
+
 // AdminGaterInterface is the subset of AuthorizedPeerGater needed by the admin socket.
 type AdminGaterInterface interface {
 	SetEnrollmentMode(enabled bool, limit int, timeout time.Duration)
@@ -251,8 +285,9 @@ func (s *AdminServer) Start() error {
 // HandleRemoteRequest dispatches a request to the internal mux without
 // going through the cookie auth middleware. Used by RemoteAdminHandler
 // where authentication is done via libp2p peer identity instead.
+// callerPeer and role identify the remote caller for ownership checks.
 // Returns the HTTP status code and response body bytes.
-func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte) (int, []byte) {
+func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte, callerPeer peer.ID, role string) (int, []byte) {
 	if s.internalMux == nil {
 		s.internalMux = s.buildMux()
 	}
@@ -270,6 +305,11 @@ func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte) (int
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+
+	// Inject caller identity into request context for ownership checks.
+	ctx := context.WithValue(req.Context(), ctxCallerPeerID, callerPeer)
+	ctx = context.WithValue(ctx, ctxCallerRole, role)
+	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
 	s.internalMux.ServeHTTP(rec, req)
@@ -367,8 +407,17 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		peerTTL = time.Duration(req.ExpiresSeconds) * time.Second
 	}
 
+	// Per-peer quota: member peers are limited to maxMemberGroups active groups.
+	caller := callerPeerID(r)
+	if !callerIsAdmin(r) && caller != "" {
+		if s.store.ActiveGroupCountByPeer(caller) >= maxMemberGroups {
+			respondAdminError(w, http.StatusTooManyRequests, fmt.Sprintf("member peer quota exceeded: max %d active groups", maxMemberGroups))
+			return
+		}
+	}
+
 	// Use short 10-byte tokens for v3 short codes.
-	tokens, groupID, err := s.store.CreateGroupShort(req.Count, ttl, ns, peerTTL)
+	tokens, groupID, err := s.store.CreateGroupShort(req.Count, ttl, ns, peerTTL, caller)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create group: %v", err))
 		return
@@ -424,6 +473,8 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 	groups := s.store.List()
+	isAdmin := callerIsAdmin(r)
+	caller := callerPeerID(r)
 
 	type peerJSON struct {
 		PeerID string `json:"peer_id"`
@@ -431,6 +482,7 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 	}
 	type groupJSON struct {
 		ID        string     `json:"id"`
+		CreatedBy string     `json:"created_by,omitempty"`
 		Namespace string     `json:"namespace,omitempty"`
 		ExpiresAt string     `json:"expires_at"`
 		Total     int        `json:"total"`
@@ -438,8 +490,13 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 		Peers     []peerJSON `json:"peers,omitempty"`
 	}
 
-	result := make([]groupJSON, len(groups))
-	for i, g := range groups {
+	var result []groupJSON
+	for _, g := range groups {
+		// Members only see their own groups. Admins see all.
+		if !isAdmin && caller != "" && g.CreatedBy != caller {
+			continue
+		}
+
 		gj := groupJSON{
 			ID:        g.ID,
 			Namespace: g.Namespace,
@@ -447,13 +504,23 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 			Total:     g.Total,
 			Used:      g.Used,
 		}
-		for _, p := range g.Peers {
-			gj.Peers = append(gj.Peers, peerJSON{
-				PeerID: p.PeerID.String(),
-				Name:   p.Name,
-			})
+		if g.CreatedBy != "" {
+			gj.CreatedBy = g.CreatedBy.String()
 		}
-		result[i] = gj
+		// Admin sees joined peer details. Members see usage counts only.
+		if isAdmin {
+			for _, p := range g.Peers {
+				gj.Peers = append(gj.Peers, peerJSON{
+					PeerID: p.PeerID.String(),
+					Name:   p.Name,
+				})
+			}
+		}
+		result = append(result, gj)
+	}
+
+	if result == nil {
+		result = []groupJSON{} // ensure JSON array, not null
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -473,6 +540,21 @@ func (s *AdminServer) handleRevokePair(w http.ResponseWriter, r *http.Request) {
 	if groupID == "" {
 		respondAdminError(w, http.StatusBadRequest, "missing group ID")
 		return
+	}
+
+	// Ownership check: member peers can only revoke groups they created.
+	if !callerIsAdmin(r) {
+		creator := s.store.GroupCreator(groupID)
+		caller := callerPeerID(r)
+		if creator == "" {
+			// Group doesn't exist or was created by local admin - member can't revoke.
+			respondAdminError(w, http.StatusForbidden, "permission denied: only the group creator or admin can revoke")
+			return
+		}
+		if creator != caller {
+			respondAdminError(w, http.StatusForbidden, "permission denied: only the group creator or admin can revoke")
+			return
+		}
 	}
 
 	if err := s.store.Revoke(groupID); err != nil {
