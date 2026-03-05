@@ -241,11 +241,14 @@ func shortPeerID(p peer.ID) string {
 }
 
 // localOnlyPaths are admin endpoints that must never be accessible over P2P.
-// They transmit seed material, TOTP provisioning URIs, or perform vault
-// initialization - all operations that require physical/local access only.
+// They transmit seed material, TOTP provisioning URIs, perform vault
+// initialization, or trigger process termination - all operations that
+// require physical/local access only.
 var localOnlyPaths = []string{
 	"/v1/vault/init",
 	"/v1/vault/totp-uri",
+	"/v1/unseal",           // passphrase travels over network; use /shurli/relay-unseal/1.0.0 protocol instead
+	"/v1/goodbye/shutdown", // process termination
 }
 
 // isLocalOnlyPath checks if the request path matches a local-only endpoint.

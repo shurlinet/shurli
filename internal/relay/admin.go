@@ -81,6 +81,16 @@ func callerIsAdmin(r *http.Request) bool {
 	return callerRole(r) == "admin"
 }
 
+// requireAdmin is a defense-in-depth check for admin-only handlers.
+// Returns true if admin. If not, writes a 403 response and returns false.
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if callerIsAdmin(r) {
+		return true
+	}
+	respondAdminError(w, http.StatusForbidden, "admin role required")
+	return false
+}
+
 // maxMemberGroups is the maximum number of active pairing groups a member peer can have.
 const maxMemberGroups = 5
 
@@ -811,6 +821,9 @@ func (s *AdminServer) requireUnsealedOr(next http.HandlerFunc) http.HandlerFunc 
 }
 
 func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -850,6 +863,9 @@ func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleSeal(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -877,6 +893,9 @@ func (s *AdminServer) handleSealStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault != nil {
 		respondAdminError(w, http.StatusConflict, "vault already initialized")
 		return
@@ -925,6 +944,9 @@ func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleVaultTOTPUri(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -983,6 +1005,9 @@ func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.authKeysPath == "" {
 		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
 		return
@@ -1018,6 +1043,9 @@ func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request
 }
 
 func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.authKeysPath == "" {
 		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
 		return
@@ -1073,6 +1101,9 @@ func (s *AdminServer) reloadAuth() {
 // --- Auth hot-reload endpoint ---
 
 func (s *AdminServer) handleAuthReload(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.gater == nil {
 		respondAdminError(w, http.StatusBadRequest, "connection gating is not enabled")
 		return
@@ -1115,6 +1146,9 @@ type ZKPTreeInfoResponse struct {
 }
 
 func (s *AdminServer) handleZKPTreeRebuild(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.zkpAuth == nil {
 		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
 		return
@@ -1223,6 +1257,9 @@ func (s *AdminServer) handleGetMOTD(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *AdminServer) handleSetMOTD(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1247,7 +1284,10 @@ func (s *AdminServer) handleSetMOTD(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
 }
 
-func (s *AdminServer) handleClearMOTD(w http.ResponseWriter, _ *http.Request) {
+func (s *AdminServer) handleClearMOTD(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1270,6 +1310,9 @@ func (s *AdminServer) handleGetGoodbye(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *AdminServer) handleSetGoodbye(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1298,7 +1341,10 @@ func (s *AdminServer) handleSetGoodbye(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
 }
 
-func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, _ *http.Request) {
+func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1315,6 +1361,9 @@ func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, _ *http.Reques
 }
 
 func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
