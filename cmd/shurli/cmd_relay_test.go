@@ -665,7 +665,7 @@ func TestDoStatus(t *testing.T) {
 				"shurli",
 				"Peer ID:",
 				"Config:",
-				"Relay addresses:",
+				"Relay",  // matches both "Relays:" (daemon running) and "Relay addresses:" (no daemon)
 				"Services:",
 			},
 		},
