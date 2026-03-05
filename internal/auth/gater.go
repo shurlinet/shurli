@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -106,11 +107,12 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 		// Re-check under write lock (double-check pattern).
 		if g.enrollmentEnabled && len(g.probationPeers) < g.probationLimit && !g.authorizedPeers[p] {
 			// Per-IP rate limiting: prevent rapid probation cycling from a single IP.
-			remoteIP := extractIPFromMultiaddr(addr.RemoteMultiaddr())
+			// IPv6 addresses are normalized to /64 prefix to prevent bypass via rotation.
+			remoteIP := normalizeIPForRateLimit(extractIPFromMultiaddr(addr.RemoteMultiaddr()))
 			if remoteIP != "" {
 				if lastAdmit, ok := g.probationIPCooldown[remoteIP]; ok {
 					if time.Since(lastAdmit) < g.probationCooldownDur {
-						slog.Warn("inbound connection denied (IP cooldown)", "peer", short, "ip", remoteIP)
+						slog.Warn("inbound connection denied (IP cooldown)", "peer", short)
 						if g.onDecision != nil {
 							g.onDecision(short, "deny")
 						}
@@ -293,4 +295,24 @@ func extractIPFromMultiaddr(addr ma.Multiaddr) string {
 		return true
 	})
 	return ip
+}
+
+// normalizeIPForRateLimit returns a rate-limiting key for the given IP.
+// IPv4 addresses are used as-is. IPv6 addresses are masked to /64 prefix
+// to prevent trivial bypass via address rotation within a single allocation.
+func normalizeIPForRateLimit(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	// IPv4: use the full address.
+	if parsed.To4() != nil {
+		return ip
+	}
+	// IPv6: mask to /64 prefix.
+	masked := parsed.Mask(net.CIDRMask(64, 128))
+	return masked.String() + "/64"
 }

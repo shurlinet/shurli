@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -51,6 +52,7 @@ type PairingHandler struct {
 	AuthKeysPath string
 	Gater        GaterInterface
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	authMu       sync.Mutex      // serializes authorized_keys file mutations
 }
 
 // GaterInterface is the subset of AuthorizedPeerGater needed by pairing.
@@ -60,11 +62,15 @@ type GaterInterface interface {
 	SetEnrollmentMode(enabled bool, limit int, timeout time.Duration)
 }
 
+// pairingStreamDeadline is the max time allowed for a complete pairing handshake.
+const pairingStreamDeadline = 30 * time.Second
+
 // HandleStream processes an incoming pairing stream from a client.
 // Wire format: [16] token + [1] name length + [N] name bytes.
 // Returns the joined peer ID and group ID on success (for notification triggers).
 func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	defer s.Close()
+	s.SetDeadline(time.Now().Add(pairingStreamDeadline))
 	remotePeer := s.Conn().RemotePeer()
 	short := remotePeer.String()[:16] + "..."
 
@@ -116,13 +122,15 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	proof := mac.Sum(nil)
 	ph.Store.SetHMACProof(group.ID, idx, proof)
 
-	// Authorize the peer on the relay.
+	// Authorize the peer on the relay (mutex prevents file races on concurrent pairing).
+	ph.authMu.Lock()
 	comment := name
 	if comment == "" {
 		comment = "paired-" + time.Now().Format("2006-01-02")
 	}
 	if err := auth.AddPeer(ph.AuthKeysPath, remotePeer.String(), comment); err != nil {
 		if !strings.Contains(err.Error(), "already authorized") {
+			ph.authMu.Unlock()
 			slog.Error("pairing: failed to authorize peer", "peer", short, "err", err)
 			writeError(s)
 			return "", ""
@@ -140,6 +148,7 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	} else {
 		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleMember)
 	}
+	ph.authMu.Unlock()
 
 	// Promote from probation in the gater.
 	if ph.Gater != nil {
@@ -345,6 +354,7 @@ type PairingV2Response struct {
 // Returns the joined peer ID and group ID on success (for notification triggers).
 func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	defer s.Close()
+	s.SetDeadline(time.Now().Add(pairingStreamDeadline))
 	remotePeer := s.Conn().RemotePeer()
 	short := remotePeer.String()[:16] + "..."
 
@@ -359,7 +369,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	copy(tokenHash[:], buf[:32])
 	joinerPub := buf[32:64]
 
-	// Look up the token by hash (does not consume it).
+	// Look up the token by hash and atomically claim it (InProgress flag).
 	group, idx, rawToken, err := ph.Store.ValidateForPAKE(tokenHash)
 	if err != nil {
 		slog.Warn("pairing-v2: token lookup failed", "peer", short)
@@ -367,6 +377,18 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 		s.Write([]byte{StatusErr})
 		return "", ""
 	}
+
+	// On any failure after ValidateForPAKE, release the in-progress claim.
+	pakeClaimedSlot := true
+	defer func() {
+		if pakeClaimedSlot {
+			ph.Store.ClearInProgress(group.ID, idx)
+		}
+		// Zeroize the raw token copy (S-7: defense-in-depth).
+		for i := range rawToken {
+			rawToken[i] = 0
+		}
+	}()
 
 	// Create relay-side PAKE session.
 	session, err := invite.NewPAKESession()
@@ -404,11 +426,12 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 		name = name[:maxNameLen]
 	}
 
-	// Mark the token as used.
+	// Mark the token as used (also clears InProgress flag).
 	if err := ph.Store.MarkUsed(group.ID, idx, remotePeer, name); err != nil {
 		slog.Error("pairing-v2: failed to mark token used", "peer", short, "err", err)
 		return "", ""
 	}
+	pakeClaimedSlot = false // MarkUsed succeeded; don't ClearInProgress in defer
 
 	slog.Info("pairing-v2: peer joined", "peer", short, "name", name, "group", group.ID)
 
@@ -418,13 +441,15 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	proof := mac.Sum(nil)
 	ph.Store.SetHMACProof(group.ID, idx, proof)
 
-	// Authorize the peer on the relay.
+	// Authorize the peer on the relay (mutex prevents file races on concurrent pairing).
+	ph.authMu.Lock()
 	comment := name
 	if comment == "" {
 		comment = "paired-" + time.Now().Format("2006-01-02")
 	}
 	if err := auth.AddPeer(ph.AuthKeysPath, remotePeer.String(), comment); err != nil {
 		if !strings.Contains(err.Error(), "already authorized") {
+			ph.authMu.Unlock()
 			slog.Error("pairing-v2: failed to authorize peer", "peer", short, "err", err)
 			return "", ""
 		}
@@ -441,6 +466,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	} else {
 		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleMember)
 	}
+	ph.authMu.Unlock()
 
 	// Promote from probation in the gater.
 	if ph.Gater != nil {
