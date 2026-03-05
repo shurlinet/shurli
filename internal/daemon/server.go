@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -241,7 +242,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		auth := r.Header.Get("Authorization")
 		expected := "Bearer " + s.authToken
 
-		if auth != expected {
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			respondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
 			return
 		}

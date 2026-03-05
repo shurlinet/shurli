@@ -58,7 +58,6 @@ Shurli/
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
-│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
@@ -77,6 +76,7 @@ Shurli/
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
 │   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
+│   │   ├── daemon_launch.go # Service manager restart (launchd/systemd kick)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
@@ -164,6 +164,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -310,7 +311,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 18 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 23 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -384,7 +385,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-18 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+23 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -475,7 +476,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics (44 total):
+Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -901,7 +902,7 @@ The key is decrypted at daemon startup with the node password. Raw (unencrypted)
 
 > **Status: Implemented**
 
-Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 20+ admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
 
 **Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
 
@@ -1214,5 +1215,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-02
-**Architecture Version**: 4.0 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
+**Last Updated**: 2026-03-06
+**Architecture Version**: 4.1 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)

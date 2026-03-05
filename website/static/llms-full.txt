@@ -9,8 +9,8 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Date | What's New |
 |------|-----------|
 | 2026-02-18 | **Private DHT** - Peer discovery now runs on `/shurli/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-23 | **Relay pairing** - `shurli relay pair` generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
-| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 15 REST endpoints |
+| 2026-02-23 | **Relay pairing** - relay admin socket generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 23 REST endpoints |
 | 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
 | 2026-02-16 | **Service management** - `shurli service add/remove/enable/disable` from the CLI |
 | 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
@@ -83,7 +83,7 @@ shurli join <pairing-code> --name laptop
 # Shows SAS verification fingerprints for each peer
 ```
 
-The relay admin generates codes with `shurli relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+The relay admin generates pairing codes via the admin socket. Each person joins with one command. Everyone in the group is mutually authorized and verified.
 
 > **Relay server**: All machines connect through a relay for NAT traversal. See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for deploying your own. Quick install: `make install-relay`
 
@@ -120,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/shurli/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `shurli` binary with 16 subcommands. No runtime dependencies |
+| **Single Binary** | One `shurli` binary with 24 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -198,7 +198,6 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 |---------|-------------|
 | `shurli invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
 | `shurli join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
-| `shurli relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
 | `shurli verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
 | `shurli status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `shurli version` | Show version, commit, build date, Go version |
@@ -213,7 +212,7 @@ The daemon runs `shurli daemon` as a long-lived background process. It starts th
 - Unix socket at `~/.config/shurli/shurli.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
+- 23 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
 
 **Example:**
 ```bash
@@ -370,7 +369,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── shurli/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (16 subcommands)
+│   ├── main.go                # Command dispatch (24 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping
@@ -413,7 +412,7 @@ internal/
 │   └── errors.go
 ├── daemon/                    # Daemon API server + client library
 │   ├── server.go              # Unix socket HTTP server with cookie auth
-│   ├── handlers.go            # 15 REST endpoint handlers
+│   ├── handlers.go            # 23 REST endpoint handlers
 │   ├── client.go              # Go client (auto-reads cookie, Unix transport)
 │   ├── types.go               # Request/response types
 │   └── errors.go
@@ -437,7 +436,7 @@ configs/                       # Sample configuration files
 docs/                          # Documentation
 ├── ARCHITECTURE.md            # Full architecture deep dive
 ├── DAEMON-API.md              # Daemon REST API reference
-├── FAQ.md                     # Frequently asked questions
+├── faq/                       # Frequently asked questions (sub-pages)
 ├── NETWORK-TOOLS.md           # Ping, traceroute, resolve guide
 ├── ROADMAP.md                 # Multi-phase implementation plan
 ├── TESTING.md                 # Test strategy and coverage
@@ -464,7 +463,7 @@ chmod 600 authorized_keys    # Peer allowlist: owner read/write only
 chmod 644 *.yaml             # Configs: readable
 ```
 
-For security details, relay hardening, and threat model: [docs/FAQ.md](docs/FAQ.md)
+For security details, relay hardening, and threat model: [docs/faq/](docs/faq/)
 
 ## Troubleshooting
 
@@ -539,8 +538,8 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
-| [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (23 endpoints) |
+| [FAQ](docs/faq/) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
 | [TESTING.md](docs/TESTING.md) | Test strategy, coverage, integration tests |
@@ -2086,7 +2085,6 @@ Shurli/
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
-│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
@@ -2105,6 +2103,7 @@ Shurli/
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
 │   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
+│   │   ├── daemon_launch.go # Service manager restart (launchd/systemd kick)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
@@ -2192,6 +2191,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -2338,7 +2338,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 18 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 23 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -2412,7 +2412,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-18 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+23 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -2503,7 +2503,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics (44 total):
+Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -2929,7 +2929,7 @@ The key is decrypted at daemon startup with the node password. Raw (unencrypted)
 
 > **Status: Implemented**
 
-Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 20+ admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
 
 **Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
 
@@ -3242,8 +3242,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-02
-**Architecture Version**: 4.0 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
+**Last Updated**: 2026-03-06
+**Architecture Version**: 4.1 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
 
 
 ---
@@ -5039,6 +5039,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 6: ACL + Relay Security + Client Invites](phase6-acl-relay-security.md) | ADR-M01 to ADR-M08 | Roles, macaroons, invite deposits, sealed vault, remote unseal, 2FA |
 | [Phase 7: ZKP Privacy Layer](phase7-zkp-privacy.md) | ADR-N01 to ADR-N18 | gnark PLONK, Poseidon2 Merkle tree, membership proofs, range proofs, BIP39 keys |
 | [Phase 8: Identity & Remote Admin](phase8-identity-remote-admin.md) | ADR-O01 to ADR-O17 | Unified BIP39 seed, encrypted identity, recovery, remote admin, MOTD, goodbye, session tokens |
+| [Seed Relay Separation & Init Flow](seed-relay-separation.md) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
 
 
 ---

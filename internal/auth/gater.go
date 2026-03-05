@@ -121,6 +121,15 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 						return false
 					}
 				}
+				// Evict stale entries to prevent unbounded growth.
+				if len(g.probationIPCooldown) >= 1000 {
+					now := time.Now()
+					for ip, t := range g.probationIPCooldown {
+						if now.Sub(t) > g.probationCooldownDur*10 {
+							delete(g.probationIPCooldown, ip)
+						}
+					}
+				}
 				g.probationIPCooldown[remoteIP] = time.Now()
 			}
 			g.probationPeers[p] = time.Now()

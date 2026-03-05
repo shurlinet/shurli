@@ -344,6 +344,7 @@ func runRelayServe(args []string) {
 	}
 	adminSrv := relay.NewAdminServer(tokenStore, adminGater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
 	adminSrv.SetAuthKeysPath(cfg.Security.AuthorizedKeysFile)
+	adminSrv.SetCircuitACL(circuitACL)
 	adminSrv.SetHost(h)
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
