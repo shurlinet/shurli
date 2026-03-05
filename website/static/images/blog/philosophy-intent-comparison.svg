@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#0d0f14"/>
+    </linearGradient>
+    <linearGradient id="promptGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="intentGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a1e"/>
+      <stop offset="100%" style="stop-color:#1a2e12"/>
+    </linearGradient>
+    <linearGradient id="outputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#614a1e"/>
+      <stop offset="100%" style="stop-color:#3d2e12"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="800" height="500" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- Title -->
+  <text x="400" y="32" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="16" font-weight="600">Prompt-Based vs Intent-Based Development</text>
+
+  <!-- Divider -->
+  <line x1="390" y1="50" x2="390" y2="420" stroke="#565f89" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- ==================== LEFT: PROMPT-BASED ==================== -->
+  <text x="195" y="62" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROMPT-BASED</text>
+  <text x="195" y="78" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Stateless. Each request starts from zero.</text>
+
+  <!-- Prompt 1 -->
+  <rect x="40" y="95" width="310" height="36" rx="8" fill="url(#promptGrad)" stroke="#565f89" stroke-width="1"/>
+  <text x="55" y="117" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="10">"Write a function that sorts users"</text>
+
+  <!-- No memory -->
+  <line x1="195" y1="131" x2="195" y2="148" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="210" y="144" fill="#f7768e" font-family="SF Mono, monospace" font-size="8">no context carried</text>
+
+  <!-- Prompt 2 -->
+  <rect x="40" y="153" width="310" height="36" rx="8" fill="url(#promptGrad)" stroke="#565f89" stroke-width="1"/>
+  <text x="55" y="175" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="10">"Add error handling to this endpoint"</text>
+
+  <!-- No memory -->
+  <line x1="195" y1="189" x2="195" y2="206" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="210" y="202" fill="#f7768e" font-family="SF Mono, monospace" font-size="8">no context carried</text>
+
+  <!-- Prompt 3 -->
+  <rect x="40" y="211" width="310" height="36" rx="8" fill="url(#promptGrad)" stroke="#565f89" stroke-width="1"/>
+  <text x="55" y="233" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="10">"Refactor this to use pattern Y"</text>
+
+  <!-- No memory -->
+  <line x1="195" y1="247" x2="195" y2="264" stroke="#565f89" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="210" y="260" fill="#f7768e" font-family="SF Mono, monospace" font-size="8">no context carried</text>
+
+  <!-- Prompt 4 -->
+  <rect x="40" y="269" width="310" height="36" rx="8" fill="url(#promptGrad)" stroke="#565f89" stroke-width="1"/>
+  <text x="55" y="291" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="10">"Generate tests for module X"</text>
+
+  <!-- Left summary box -->
+  <rect x="40" y="325" width="310" height="55" rx="8" fill="#1a191c" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="195" y="348" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="11" font-weight="600">AI as fast typist</text>
+  <text x="195" y="368" text-anchor="middle" fill="#565f89" font-family="SF Mono, monospace" font-size="9">No why. No values. No trajectory.</text>
+
+  <!-- ==================== RIGHT: INTENT-BASED ==================== -->
+  <text x="595" y="62" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="13" font-weight="600">INTENT-BASED</text>
+  <text x="595" y="78" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Persistent. Every decision inherits the system.</text>
+
+  <!-- Layer 1: Values -->
+  <rect x="430" y="95" width="330" height="36" rx="8" fill="url(#intentGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="445" y="110" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9" font-weight="600">VALUES</text>
+  <text x="520" y="110" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">"If it breaks, people get hurt"</text>
+  <text x="445" y="124" fill="#565f89" font-family="SF Mono, monospace" font-size="8">Founding ethic shapes every decision</text>
+
+  <!-- Connected arrow -->
+  <line x1="595" y1="131" x2="595" y2="147" stroke="#9ece6a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="591,144 595,151 599,144" fill="#9ece6a"/>
+
+  <!-- Layer 2: Constraints -->
+  <rect x="430" y="153" width="330" height="36" rx="8" fill="url(#intentGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="445" y="168" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9" font-weight="600">CONSTRAINTS</text>
+  <text x="555" y="168" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Privacy, sovereignty, scale</text>
+  <text x="445" y="182" fill="#565f89" font-family="SF Mono, monospace" font-size="8">15-point grep, pre-write filter, 5-step algorithm</text>
+
+  <!-- Connected arrow -->
+  <line x1="595" y1="189" x2="595" y2="205" stroke="#9ece6a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="591,202 595,209 599,202" fill="#9ece6a"/>
+
+  <!-- Layer 3: Direction -->
+  <rect x="430" y="211" width="330" height="36" rx="8" fill="url(#intentGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="445" y="226" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9" font-weight="600">DIRECTION</text>
+  <text x="543" y="226" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Phase plans, architecture, ADRs</text>
+  <text x="445" y="240" fill="#565f89" font-family="SF Mono, monospace" font-size="8">What to achieve and why, not how</text>
+
+  <!-- Connected arrow -->
+  <line x1="595" y1="247" x2="595" y2="263" stroke="#9ece6a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="591,260 595,267 599,260" fill="#9ece6a"/>
+
+  <!-- Layer 4: Memory -->
+  <rect x="430" y="269" width="330" height="36" rx="8" fill="url(#intentGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="445" y="284" fill="#9ece6a" font-family="SF Mono, monospace" font-size="9" font-weight="600">MEMORY</text>
+  <text x="518" y="284" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">60+ files, institutional knowledge</text>
+  <text x="445" y="298" fill="#565f89" font-family="SF Mono, monospace" font-size="8">Persists across every session</text>
+
+  <!-- Arrow to output -->
+  <line x1="595" y1="305" x2="595" y2="321" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="591,318 595,325 599,318" fill="#e0af68"/>
+
+  <!-- Right summary box -->
+  <rect x="430" y="325" width="330" height="55" rx="8" fill="url(#outputGrad)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="595" y="348" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="11" font-weight="600">Every session inherits all layers</text>
+  <text x="595" y="368" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Aligned decisions without re-instruction</text>
+
+  <!-- ==================== BOTTOM: Key insight ==================== -->
+  <rect x="40" y="430" width="720" height="50" rx="8" fill="#1a191c" stroke="#1a191c" stroke-width="1"/>
+  <text x="400" y="452" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="11" font-weight="600">The developer defines what and why. The how is a collaborative output.</text>
+  <text x="400" y="470" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Shurli has been built intent-based since the beginning - before the industry coined the term.</text>
+</svg>

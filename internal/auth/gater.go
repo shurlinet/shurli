@@ -3,13 +3,14 @@ package auth
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/control"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // AuthDecisionFunc is called on every inbound auth decision with the peer ID
@@ -31,16 +32,22 @@ type AuthorizedPeerGater struct {
 	probationPeers    map[peer.ID]time.Time // peer -> admitted time
 	probationLimit    int                   // max concurrent probation peers
 	probationTimeout  time.Duration         // evict after this duration
+
+	// Per-IP rate limiting: prevents rapid probation cycling from a single IP.
+	probationIPCooldown  map[string]time.Time // IP -> last probation admission
+	probationCooldownDur time.Duration        // minimum gap between admissions from same IP
 }
 
 // NewAuthorizedPeerGater creates a new connection gater with the given authorized peers.
 func NewAuthorizedPeerGater(authorizedPeers map[peer.ID]bool) *AuthorizedPeerGater {
 	return &AuthorizedPeerGater{
-		authorizedPeers: authorizedPeers,
-		peerExpiry:      make(map[peer.ID]time.Time),
-		probationPeers:  make(map[peer.ID]time.Time),
-		probationLimit:  10,
-		probationTimeout: 15 * time.Second,
+		authorizedPeers:      authorizedPeers,
+		peerExpiry:           make(map[peer.ID]time.Time),
+		probationPeers:       make(map[peer.ID]time.Time),
+		probationLimit:       10,
+		probationTimeout:     10 * time.Second,
+		probationIPCooldown:  make(map[string]time.Time),
+		probationCooldownDur: 2 * time.Second,
 	}
 }
 
@@ -52,7 +59,7 @@ func (g *AuthorizedPeerGater) InterceptPeerDial(p peer.ID) bool {
 }
 
 // InterceptAddrDial is called when dialing an address
-func (g *AuthorizedPeerGater) InterceptAddrDial(id peer.ID, ma multiaddr.Multiaddr) bool {
+func (g *AuthorizedPeerGater) InterceptAddrDial(id peer.ID, addr ma.Multiaddr) bool {
 	// Allow outbound connections
 	return true
 }
@@ -99,6 +106,32 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 		g.mu.Lock()
 		// Re-check under write lock (double-check pattern).
 		if g.enrollmentEnabled && len(g.probationPeers) < g.probationLimit && !g.authorizedPeers[p] {
+			// Per-IP rate limiting: prevent rapid probation cycling from a single IP.
+			// IPv6 addresses are normalized to /64 prefix to prevent bypass via rotation.
+			remoteIP := normalizeIPForRateLimit(extractIPFromMultiaddr(addr.RemoteMultiaddr()))
+			if remoteIP != "" {
+				if lastAdmit, ok := g.probationIPCooldown[remoteIP]; ok {
+					if time.Since(lastAdmit) < g.probationCooldownDur {
+						slog.Warn("inbound connection denied (IP cooldown)", "peer", short)
+						if g.onDecision != nil {
+							g.onDecision(short, "deny")
+						}
+						g.mu.Unlock()
+						g.mu.RLock()
+						return false
+					}
+				}
+				// Evict stale entries to prevent unbounded growth.
+				if len(g.probationIPCooldown) >= 1000 {
+					now := time.Now()
+					for ip, t := range g.probationIPCooldown {
+						if now.Sub(t) > g.probationCooldownDur*10 {
+							delete(g.probationIPCooldown, ip)
+						}
+					}
+				}
+				g.probationIPCooldown[remoteIP] = time.Now()
+			}
 			g.probationPeers[p] = time.Now()
 			slog.Info("inbound connection allowed (probation)", "peer", short)
 			if g.onDecision != nil {
@@ -191,8 +224,9 @@ func (g *AuthorizedPeerGater) SetEnrollmentMode(enabled bool, limit int, timeout
 		g.probationTimeout = timeout
 	}
 	if !enabled {
-		// Clear probation peers when disabling.
+		// Clear probation peers and IP cooldowns when disabling.
 		g.probationPeers = make(map[peer.ID]time.Time)
+		g.probationIPCooldown = make(map[string]time.Time)
 	}
 	slog.Info("enrollment mode changed", "enabled", enabled, "limit", g.probationLimit, "timeout", g.probationTimeout)
 }
@@ -252,4 +286,42 @@ func (g *AuthorizedPeerGater) ProbationCount() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return len(g.probationPeers)
+}
+
+// extractIPFromMultiaddr extracts the IP address string from a multiaddr.
+// Returns "" if no IP component is found.
+func extractIPFromMultiaddr(addr ma.Multiaddr) string {
+	if addr == nil {
+		return ""
+	}
+	var ip string
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_IP4, ma.P_IP6:
+			ip = c.Value()
+			return false
+		}
+		return true
+	})
+	return ip
+}
+
+// normalizeIPForRateLimit returns a rate-limiting key for the given IP.
+// IPv4 addresses are used as-is. IPv6 addresses are masked to /64 prefix
+// to prevent trivial bypass via address rotation within a single allocation.
+func normalizeIPForRateLimit(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	// IPv4: use the full address.
+	if parsed.To4() != nil {
+		return ip
+	}
+	// IPv6: mask to /64 prefix.
+	masked := parsed.Mask(net.CIDRMask(64, 128))
+	return masked.String() + "/64"
 }

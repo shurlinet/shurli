@@ -19,7 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
@@ -29,6 +32,70 @@ import (
 	"github.com/shurlinet/shurli/internal/zkp"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
+
+// Context keys for caller identity and request origin.
+//
+// Every request reaching the handler must have ctxOrigin set:
+//   - "local"  - set by authMiddleware for Unix socket requests (cookie-authed)
+//   - "remote" - set by HandleRemoteRequest for P2P-relayed requests
+//
+// If ctxOrigin is missing, callerRole returns "" and callerIsAdmin returns false
+// (fail-closed). This prevents any untagged code path from getting admin access.
+type adminCtxKey string
+
+const (
+	ctxCallerPeerID adminCtxKey = "caller_peer_id"
+	ctxCallerRole   adminCtxKey = "caller_role"
+	ctxOrigin       adminCtxKey = "origin"
+
+	originLocal  = "local"
+	originRemote = "remote"
+)
+
+// callerPeerID extracts the remote peer ID from the request context.
+// Returns empty for local admin socket requests.
+func callerPeerID(r *http.Request) peer.ID {
+	v, _ := r.Context().Value(ctxCallerPeerID).(peer.ID)
+	return v
+}
+
+// callerRole extracts the role from the request context.
+// Fail-closed: if ctxOrigin is not explicitly set, returns "" (no access).
+// Local socket requests (origin="local") get "admin" role.
+// Remote requests (origin="remote") use the role set by HandleRemoteRequest.
+func callerRole(r *http.Request) string {
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	switch origin {
+	case originLocal:
+		return "admin"
+	case originRemote:
+		v, _ := r.Context().Value(ctxCallerRole).(string)
+		return v
+	default:
+		// No origin tag = untagged code path. Deny access (fail-closed).
+		slog.Warn("admin: request with no origin tag denied", "path", r.URL.Path)
+		return ""
+	}
+}
+
+// callerIsAdmin returns true if the caller has admin role.
+// Returns false for untagged requests (fail-closed).
+func callerIsAdmin(r *http.Request) bool {
+	return callerRole(r) == "admin"
+}
+
+// requireAdmin is a defense-in-depth check for admin-only handlers.
+// Returns true if admin. If not, writes a 403 response and returns false.
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if callerIsAdmin(r) {
+		return true
+	}
+	respondAdminError(w, http.StatusForbidden, "admin role required")
+	return false
+}
+
+// maxMemberGroups is the maximum number of active pairing groups a member peer can have.
+const maxMemberGroups = 5
 
 // AdminGaterInterface is the subset of AuthorizedPeerGater needed by the admin socket.
 type AdminGaterInterface interface {
@@ -40,10 +107,11 @@ type AdminGaterInterface interface {
 
 // PairRequest is the JSON body for POST /v1/pair.
 type PairRequest struct {
-	Count      int `json:"count"`
-	TTLSeconds int `json:"ttl_seconds"`
-	Namespace  string `json:"namespace,omitempty"`
-	ExpiresSeconds int `json:"expires_seconds,omitempty"`
+	Count          int      `json:"count"`
+	TTLSeconds     int      `json:"ttl_seconds"`
+	Namespace      string   `json:"namespace,omitempty"`
+	ExpiresSeconds int      `json:"expires_seconds,omitempty"`
+	Caveats        []string `json:"caveats,omitempty"` // macaroon caveats for unified invite
 }
 
 // PairResponse is the JSON response for POST /v1/pair.
@@ -93,6 +161,7 @@ type AdminServer struct {
 	deposits     *deposit.DepositStore
 	zkpAuth      *ZKPAuthHandler
 	motdHandler  *MOTDHandler
+	circuitACL   *CircuitACL     // refreshed on auth reload
 	shutdownFunc func() // called by goodbye/shutdown endpoint
 	relayAddr    string
 	namespace    string
@@ -103,7 +172,13 @@ type AdminServer struct {
 	authToken    string
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
+	host         libp2phost.Host // set after host creation for connected-peers queries
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+}
+
+// SetHost stores the libp2p host reference for connected-peers queries.
+func (s *AdminServer) SetHost(h libp2phost.Host) {
+	s.host = h
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -150,12 +225,17 @@ func (s *AdminServer) SetAuthKeysPath(path string) {
 	s.authKeysPath = path
 }
 
+// SetCircuitACL sets the circuit ACL for cache refresh on auth reload.
+func (s *AdminServer) SetCircuitACL(acl *CircuitACL) {
+	s.circuitACL = acl
+}
+
 // buildMux creates the HTTP route table. Called once by Start() and reused
 // by HandleRemoteRequest so that the remote admin protocol dispatches to
 // the same handler functions as the local Unix socket.
 func (s *AdminServer) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/pair", s.requireUnsealedOr(s.handleCreatePair))
+	mux.HandleFunc("POST /v1/pair", s.handleCreatePair)
 	mux.HandleFunc("GET /v1/pair", s.handleListPairs)
 	mux.HandleFunc("DELETE /v1/pair/{id}", s.handleRevokePair)
 
@@ -171,6 +251,12 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/seal-status", s.handleSealStatus)
 	mux.HandleFunc("POST /v1/vault/init", s.handleVaultInit)
 	mux.HandleFunc("GET /v1/vault/totp-uri", s.handleVaultTOTPUri)
+
+	// Peer management endpoints (ACL mutations, no vault required)
+	mux.HandleFunc("GET /v1/peers", s.handleListPeers)
+	mux.HandleFunc("GET /v1/peers/connected", s.handleListConnectedPeers)
+	mux.HandleFunc("POST /v1/peers/authorize", s.handleAuthorizePeer)
+	mux.HandleFunc("POST /v1/peers/deauthorize", s.handleDeauthorizePeer)
 
 	// Auth hot-reload endpoint
 	mux.HandleFunc("POST /v1/auth/reload", s.handleAuthReload)
@@ -245,8 +331,9 @@ func (s *AdminServer) Start() error {
 // HandleRemoteRequest dispatches a request to the internal mux without
 // going through the cookie auth middleware. Used by RemoteAdminHandler
 // where authentication is done via libp2p peer identity instead.
+// callerPeer and role identify the remote caller for ownership checks.
 // Returns the HTTP status code and response body bytes.
-func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte) (int, []byte) {
+func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte, callerPeer peer.ID, role string) (int, []byte) {
 	if s.internalMux == nil {
 		s.internalMux = s.buildMux()
 	}
@@ -264,6 +351,14 @@ func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte) (int
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+
+	// Inject caller identity and origin tag into request context.
+	// origin=remote ensures callerRole() checks the explicit role value
+	// instead of defaulting to admin (fail-closed design).
+	ctx := context.WithValue(req.Context(), ctxOrigin, originRemote)
+	ctx = context.WithValue(ctx, ctxCallerPeerID, callerPeer)
+	ctx = context.WithValue(ctx, ctxCallerRole, role)
+	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
 	s.internalMux.ServeHTTP(rec, req)
@@ -308,6 +403,10 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
+		// Tag request as local origin (cookie-authed Unix socket).
+		// This is what grants admin access in callerRole().
+		ctx := context.WithValue(r.Context(), ctxOrigin, originLocal)
+		r = r.WithContext(ctx)
 		// Record admin request metrics (nil-safe).
 		start := time.Now()
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -361,21 +460,60 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		peerTTL = time.Duration(req.ExpiresSeconds) * time.Second
 	}
 
-	tokens, groupID, err := s.store.CreateGroup(req.Count, ttl, ns, peerTTL)
+	// Per-peer quota for member peers. The quota check is done atomically
+	// inside CreateGroupWithTokenSize under the write lock to prevent TOCTOU races.
+	caller := callerPeerID(r)
+	quota := 0 // 0 = no quota (admin)
+	if !callerIsAdmin(r) && caller != "" {
+		quota = maxMemberGroups
+	}
+
+	// Use short 10-byte tokens for v3 short codes.
+	tokens, groupID, err := s.store.CreateGroupWithTokenSize(req.Count, ttl, ns, peerTTL, 10, caller, quota)
 	if err != nil {
+		if err == ErrQuotaExceeded {
+			respondAdminError(w, http.StatusTooManyRequests, fmt.Sprintf("member peer quota exceeded: max %d active groups", maxMemberGroups))
+			return
+		}
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create group: %v", err))
 		return
 	}
 
-	// Enable enrollment mode so joining peers can connect.
-	if s.gater != nil {
-		s.gater.SetEnrollmentMode(true, 10, 15*time.Second)
+	// If caveats are provided and vault is available, create a macaroon deposit
+	// and link it to the pairing group (unified invite).
+	if len(req.Caveats) > 0 && s.vault != nil && s.deposits != nil {
+		rootKey, err := s.vault.RootKey()
+		if err == nil {
+			m := macaroon.New(s.relayAddr, rootKey, fmt.Sprintf("invite-%s", groupID))
+			for _, c := range req.Caveats {
+				m.AddFirstPartyCaveat(c)
+			}
+			dep, err := s.deposits.Create(m, "admin", ttl)
+			if err != nil {
+				slog.Warn("failed to create invite deposit for group", "group", groupID, "err", err)
+			} else {
+				s.store.SetDepositID(groupID, dep.ID)
+				s.recordDepositOp("create")
+				s.recordDepositPending()
+			}
+		}
 	}
 
-	// Encode tokens into v2 invite codes.
+	// Annotate the creator's authorized_keys entry with the group ID so
+	// peer-notify can deliver introductions when the joiner connects.
+	if caller != "" && s.authKeysPath != "" {
+		auth.SetPeerAttr(s.authKeysPath, caller.String(), "group", groupID)
+	}
+
+	// Enable enrollment mode so joining peers can connect.
+	if s.gater != nil {
+		s.gater.SetEnrollmentMode(true, 10, 10*time.Second)
+	}
+
+	// Encode tokens into short v3 invite codes.
 	codes := make([]string, len(tokens))
 	for i, tok := range tokens {
-		code, err := invite.EncodeV2(tok, s.relayAddr, ns)
+		code, err := invite.EncodeShort(tok)
 		if err != nil {
 			respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode code: %v", err))
 			return
@@ -397,6 +535,8 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 
 func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 	groups := s.store.List()
+	isAdmin := callerIsAdmin(r)
+	caller := callerPeerID(r)
 
 	type peerJSON struct {
 		PeerID string `json:"peer_id"`
@@ -404,6 +544,7 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 	}
 	type groupJSON struct {
 		ID        string     `json:"id"`
+		CreatedBy string     `json:"created_by,omitempty"`
 		Namespace string     `json:"namespace,omitempty"`
 		ExpiresAt string     `json:"expires_at"`
 		Total     int        `json:"total"`
@@ -411,8 +552,13 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 		Peers     []peerJSON `json:"peers,omitempty"`
 	}
 
-	result := make([]groupJSON, len(groups))
-	for i, g := range groups {
+	var result []groupJSON
+	for _, g := range groups {
+		// Members only see their own groups. Admins see all.
+		if !isAdmin && caller != "" && g.CreatedBy != caller {
+			continue
+		}
+
 		gj := groupJSON{
 			ID:        g.ID,
 			Namespace: g.Namespace,
@@ -420,13 +566,23 @@ func (s *AdminServer) handleListPairs(w http.ResponseWriter, r *http.Request) {
 			Total:     g.Total,
 			Used:      g.Used,
 		}
-		for _, p := range g.Peers {
-			gj.Peers = append(gj.Peers, peerJSON{
-				PeerID: p.PeerID.String(),
-				Name:   p.Name,
-			})
+		if g.CreatedBy != "" {
+			gj.CreatedBy = g.CreatedBy.String()
 		}
-		result[i] = gj
+		// Admin sees joined peer details. Members see usage counts only.
+		if isAdmin {
+			for _, p := range g.Peers {
+				gj.Peers = append(gj.Peers, peerJSON{
+					PeerID: p.PeerID.String(),
+					Name:   p.Name,
+				})
+			}
+		}
+		result = append(result, gj)
+	}
+
+	if result == nil {
+		result = []groupJSON{} // ensure JSON array, not null
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -446,6 +602,21 @@ func (s *AdminServer) handleRevokePair(w http.ResponseWriter, r *http.Request) {
 	if groupID == "" {
 		respondAdminError(w, http.StatusBadRequest, "missing group ID")
 		return
+	}
+
+	// Ownership check: member peers can only revoke groups they created.
+	if !callerIsAdmin(r) {
+		creator := s.store.GroupCreator(groupID)
+		caller := callerPeerID(r)
+		if creator == "" {
+			// Group doesn't exist or was created by local admin - member can't revoke.
+			respondAdminError(w, http.StatusForbidden, "permission denied: only the group creator or admin can revoke")
+			return
+		}
+		if creator != caller {
+			respondAdminError(w, http.StatusForbidden, "permission denied: only the group creator or admin can revoke")
+			return
+		}
 	}
 
 	if err := s.store.Revoke(groupID); err != nil {
@@ -666,6 +837,9 @@ func (s *AdminServer) requireUnsealedOr(next http.HandlerFunc) http.HandlerFunc 
 }
 
 func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -705,6 +879,9 @@ func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleSeal(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -732,6 +909,9 @@ func (s *AdminServer) handleSealStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault != nil {
 		respondAdminError(w, http.StatusConflict, "vault already initialized")
 		return
@@ -780,6 +960,9 @@ func (s *AdminServer) handleVaultInit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AdminServer) handleVaultTOTPUri(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.vault == nil {
 		respondAdminError(w, http.StatusNotFound, "vault not configured")
 		return
@@ -799,9 +982,279 @@ func (s *AdminServer) handleVaultTOTPUri(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"uri": uri})
 }
 
+// --- Peer management endpoints ---
+
+func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	peers, err := auth.ListPeers(s.authKeysPath)
+	if err != nil {
+		respondAdminError(w, http.StatusInternalServerError,
+			fmt.Sprintf("failed to list peers: %v", err))
+		return
+	}
+
+	result := make([]AuthorizedPeerInfo, len(peers))
+	for i, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		result[i] = AuthorizedPeerInfo{
+			PeerID:    p.PeerID.String(),
+			Role:      role,
+			Comment:   p.Comment,
+			Verified:  p.Verified,
+			Group:     p.Group,
+			RelayData: p.RelayData,
+		}
+		if !p.ExpiresAt.IsZero() {
+			result[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *AdminServer) handleListConnectedPeers(w http.ResponseWriter, r *http.Request) {
+	if s.host == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "host not available")
+		return
+	}
+
+	// Build authorized peer lookup for cross-referencing.
+	type authInfo struct {
+		role    string
+		comment string
+	}
+	authMap := make(map[peer.ID]authInfo)
+	if s.authKeysPath != "" {
+		if peers, err := auth.ListPeers(s.authKeysPath); err == nil {
+			for _, p := range peers {
+				role := p.Role
+				if role == "" {
+					role = "member"
+				}
+				authMap[p.PeerID] = authInfo{role: role, comment: p.Comment}
+			}
+		}
+	}
+
+	connectedPeers := s.host.Network().Peers()
+	now := time.Now()
+	result := make([]ConnectedPeerInfo, 0, len(connectedPeers))
+
+	for _, pid := range connectedPeers {
+		conns := s.host.Network().ConnsToPeer(pid)
+		if len(conns) == 0 {
+			continue
+		}
+
+		// Pick best connection: prefer non-limited (direct) over limited (relay).
+		best := conns[0]
+		for _, c := range conns[1:] {
+			if best.Stat().Limited && !c.Stat().Limited {
+				best = c
+			}
+		}
+
+		stat := best.Stat()
+		remoteAddr := best.RemoteMultiaddr()
+
+		dir := "inbound"
+		if stat.Direction == network.DirOutbound {
+			dir = "outbound"
+		}
+
+		transport := parseTransport(remoteAddr)
+		ip := extractIPFromMA(remoteAddr)
+
+		pidStr := pid.String()
+		short := pidStr
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		info := ConnectedPeerInfo{
+			PeerID:       pidStr,
+			ShortID:      short,
+			Direction:    dir,
+			ConnectedAt:  stat.Opened.UTC().Format(time.RFC3339),
+			DurationSecs: int(now.Sub(stat.Opened).Seconds()),
+			Transport:    transport,
+			RemoteAddr:   remoteAddr.String(),
+			IP:           ip,
+			IsRelay:      stat.Limited,
+		}
+
+		// Agent version from peerstore.
+		if av, err := s.host.Peerstore().Get(pid, "AgentVersion"); err == nil {
+			if s, ok := av.(string); ok {
+				info.AgentVersion = s
+			}
+		}
+
+		// Cross-reference with authorized_keys.
+		if ai, ok := authMap[pid]; ok {
+			info.Authorized = true
+			info.Role = ai.role
+			info.Comment = ai.comment
+		}
+
+		result = append(result, info)
+	}
+
+	// Sort by duration (longest connected first).
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].DurationSecs > result[i].DurationSecs {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// parseTransport extracts the transport protocol from a multiaddr.
+func parseTransport(addr ma.Multiaddr) string {
+	addrStr := addr.String()
+	switch {
+	case strings.Contains(addrStr, "/quic-v1"):
+		return "quic"
+	case strings.Contains(addrStr, "/ws"):
+		return "websocket"
+	case strings.Contains(addrStr, "/tcp"):
+		return "tcp"
+	default:
+		return "unknown"
+	}
+}
+
+// extractIPFromMA extracts the IP address string from a multiaddr.
+func extractIPFromMA(addr ma.Multiaddr) string {
+	var ip string
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_IP4, ma.P_IP6:
+			ip = c.Value()
+			return false
+		}
+		return true
+	})
+	return ip
+}
+
+func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID  string `json:"peer_id"`
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	if err := auth.AddPeer(s.authKeysPath, req.PeerID, req.Comment); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to authorize peer: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + ZKP tree) like handleAuthReload does.
+	s.reloadAuth()
+
+	slog.Info("peer authorized via admin", "peer_id", req.PeerID[:min(16, len(req.PeerID))]+"...")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "authorized",
+		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID string `json:"peer_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	if err := auth.RemovePeer(s.authKeysPath, req.PeerID); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to deauthorize peer: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + ZKP tree).
+	s.reloadAuth()
+
+	slog.Info("peer deauthorized via admin", "peer_id", req.PeerID[:min(16, len(req.PeerID))]+"...")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "deauthorized",
+		"peer_id": req.PeerID,
+	})
+}
+
+// reloadAuth reloads the gater from authorized_keys and rebuilds the ZKP tree.
+// Shared by handleAuthorizePeer, handleDeauthorizePeer, and handleAuthReload.
+func (s *AdminServer) reloadAuth() {
+	if s.gater == nil || s.authKeysPath == "" {
+		return
+	}
+	peers, err := auth.LoadAuthorizedKeys(s.authKeysPath)
+	if err != nil {
+		slog.Warn("auth reload after peer mutation failed", "err", err)
+		return
+	}
+	s.gater.UpdateAuthorizedPeers(peers)
+	if s.circuitACL != nil {
+		s.circuitACL.Reload()
+	}
+	if s.zkpAuth != nil {
+		if err := s.zkpAuth.RebuildTree(); err != nil {
+			slog.Warn("zkp tree rebuild after peer mutation failed", "err", err)
+		}
+	}
+}
+
 // --- Auth hot-reload endpoint ---
 
 func (s *AdminServer) handleAuthReload(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.gater == nil {
 		respondAdminError(w, http.StatusBadRequest, "connection gating is not enabled")
 		return
@@ -844,6 +1297,9 @@ type ZKPTreeInfoResponse struct {
 }
 
 func (s *AdminServer) handleZKPTreeRebuild(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.zkpAuth == nil {
 		respondAdminError(w, http.StatusNotFound, "zkp auth not configured")
 		return
@@ -952,6 +1408,9 @@ func (s *AdminServer) handleGetMOTD(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *AdminServer) handleSetMOTD(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -976,7 +1435,10 @@ func (s *AdminServer) handleSetMOTD(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
 }
 
-func (s *AdminServer) handleClearMOTD(w http.ResponseWriter, _ *http.Request) {
+func (s *AdminServer) handleClearMOTD(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -999,6 +1461,9 @@ func (s *AdminServer) handleGetGoodbye(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *AdminServer) handleSetGoodbye(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1027,7 +1492,10 @@ func (s *AdminServer) handleSetGoodbye(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "set"})
 }
 
-func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, _ *http.Request) {
+func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return
@@ -1044,6 +1512,9 @@ func (s *AdminServer) handleRetractGoodbye(w http.ResponseWriter, _ *http.Reques
 }
 
 func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
 	if s.motdHandler == nil {
 		respondAdminError(w, http.StatusNotFound, "motd handler not configured")
 		return

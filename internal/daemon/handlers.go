@@ -11,9 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -30,6 +33,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth", s.handleAuthList)
 
 	mux.HandleFunc("GET /v1/paths", s.handlePaths)
+	mux.HandleFunc("GET /v1/bandwidth", s.handleBandwidth)
+	mux.HandleFunc("GET /v1/relay-health", s.handleRelayHealth)
 
 	// Mutations
 	mux.HandleFunc("POST /v1/auth", s.handleAuthAdd)
@@ -45,6 +50,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/lock", s.handleLock)
 	mux.HandleFunc("POST /v1/unlock", s.handleUnlock)
 	mux.HandleFunc("GET /v1/lock", s.handleLockStatus)
+
+	// Invite (PAKE handshake via daemon's P2P host)
+	mux.HandleFunc("POST /v1/invite", s.handleInviteCreate)
+	mux.HandleFunc("GET /v1/invite/{id}/wait", s.handleInviteWait)
+	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleInviteCancel)
 }
 
 // --- Format helpers ---
@@ -129,6 +139,46 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Reachability grade
 	grade := p2pnet.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
 	resp.Reachability = &grade
+
+	// Relay connectivity status
+	for _, addrStr := range rt.RelayAddresses() {
+		maddr, err := ma.NewMultiaddr(addrStr)
+		if err != nil {
+			continue
+		}
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		pidStr := info.ID.String()
+		short := pidStr
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		rs := RelayStatus{
+			Address:   addrStr,
+			PeerID:    pidStr,
+			ShortID:   short,
+			Connected: h.Network().Connectedness(info.ID) == network.Connected,
+		}
+
+		// Parse relay name and agent version from peerstore.
+		if av, avErr := h.Peerstore().Get(info.ID, "AgentVersion"); avErr == nil {
+			if s, ok := av.(string); ok {
+				rs.AgentVersion = s
+				if start := strings.Index(s, "("); start >= 0 {
+					if end := strings.LastIndex(s, ")"); end > start+1 {
+						rs.RelayName = s[start+1 : end]
+					}
+				}
+			}
+		}
+		resp.Relays = append(resp.Relays, rs)
+	}
+
+	// MOTD/goodbye messages from relays
+	resp.MOTDs = rt.RelayMOTDs()
 
 	if wantsText(r) {
 		var sb strings.Builder
@@ -757,6 +807,99 @@ func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
 }
 
+func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
+	bt := s.runtime.BandwidthTracker()
+	if bt == nil {
+		respondJSON(w, http.StatusOK, BandwidthStats{})
+		return
+	}
+
+	totals := bt.Totals()
+	resp := BandwidthStats{
+		TotalIn:  totals.TotalIn,
+		TotalOut: totals.TotalOut,
+		RateIn:   totals.RateIn,
+		RateOut:  totals.RateOut,
+		ByPeer:   make(map[string]BandwidthPeer),
+	}
+
+	for pid, stats := range bt.AllPeerStats() {
+		short := pid.String()
+		if len(short) > 16 {
+			short = short[:16]
+		}
+		resp.ByPeer[short] = BandwidthPeer{
+			TotalIn:  stats.TotalIn,
+			TotalOut: stats.TotalOut,
+			RateIn:   stats.RateIn,
+			RateOut:  stats.RateOut,
+		}
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "total_in: %d\n", resp.TotalIn)
+		fmt.Fprintf(&sb, "total_out: %d\n", resp.TotalOut)
+		fmt.Fprintf(&sb, "rate_in: %.1f B/s\n", resp.RateIn)
+		fmt.Fprintf(&sb, "rate_out: %.1f B/s\n", resp.RateOut)
+		if len(resp.ByPeer) > 0 {
+			fmt.Fprintf(&sb, "peers: %d\n", len(resp.ByPeer))
+			for peer, stats := range resp.ByPeer {
+				fmt.Fprintf(&sb, "  %s\tin=%d\tout=%d\trate_in=%.1f\trate_out=%.1f\n",
+					peer, stats.TotalIn, stats.TotalOut, stats.RateIn, stats.RateOut)
+			}
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRelayHealth(w http.ResponseWriter, r *http.Request) {
+	rh := s.runtime.RelayHealth()
+	if rh == nil {
+		respondJSON(w, http.StatusOK, RelayHealthResponse{})
+		return
+	}
+
+	ranked := rh.Ranked()
+	resp := RelayHealthResponse{
+		Relays: make([]RelayHealthEntry, len(ranked)),
+	}
+	for i, s := range ranked {
+		short := s.PeerID.String()
+		if len(short) > 16 {
+			short = short[:16]
+		}
+		resp.Relays[i] = RelayHealthEntry{
+			PeerID:      short,
+			Score:       s.Score,
+			RTTMs:       s.RTTMs,
+			SuccessRate: s.SuccessRate,
+			ProbeCount:  s.ProbeCount,
+			IsStatic:    s.IsStatic,
+		}
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "relays: %d\n", len(resp.Relays))
+		for _, e := range resp.Relays {
+			static := ""
+			if e.IsStatic {
+				static = " [static]"
+			}
+			fmt.Fprintf(&sb, "  %s\tscore=%.2f\trtt=%.0fms\tsuccess=%.1f%%\tprobes=%d%s\n",
+				e.PeerID, e.Score, e.RTTMs, e.SuccessRate*100, e.ProbeCount, static)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, resp)
+}
+
 // IsLocked returns whether sensitive operations are currently locked.
 func (s *Server) IsLocked() bool {
 	s.mu.Lock()
@@ -772,4 +915,203 @@ func (s *Server) SocketPath() string {
 // Listener returns the underlying net.Listener (for health checks).
 func (s *Server) Listener() net.Listener {
 	return s.listener
+}
+
+// --- Invite handlers (async, relay-delegated) ---
+
+func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
+	var req InviteCreateRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ttl := req.TTLSeconds
+	if ttl <= 0 {
+		ttl = 86400 // 24 hours default
+	}
+
+	count := req.Count
+	if count <= 0 {
+		count = 1
+	}
+
+	s.mu.Lock()
+	if s.pendingInvite != nil {
+		s.mu.Unlock()
+		respondError(w, http.StatusConflict, "an invite is already active; cancel it first")
+		return
+	}
+	s.mu.Unlock()
+
+	rt := s.runtime
+	relayAddrs := rt.RelayAddresses()
+	if len(relayAddrs) == 0 {
+		respondError(w, http.StatusBadRequest, "no relay addresses configured; cannot create invite")
+		return
+	}
+
+	// Connect to relay and create pairing group
+	h := rt.Network().Host()
+	relayInfos, err := p2pnet.ParseRelayAddrs(relayAddrs)
+	if err != nil || len(relayInfos) == 0 {
+		respondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
+		return
+	}
+
+	relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
+	pairResp, err := relayClient.CreateGroup(count, ttl, 0, rt.DiscoveryNetwork())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create invite on relay: %v", err))
+		return
+	}
+
+	// Record group membership locally so the peer-notify handler accepts
+	// introductions for this group when the joiner completes pairing.
+	if authPath := rt.AuthKeysPath(); authPath != "" {
+		relayIDStr := relayInfos[0].ID.String()
+		if err := auth.SetPeerAttr(authPath, relayIDStr, "group", pairResp.GroupID); err != nil {
+			slog.Warn("invite: failed to record group on relay entry", "err", err)
+		}
+	}
+
+	// Create invite session for tracking
+	_, cancel := context.WithCancel(context.Background())
+	inv := &activeInvite{
+		id:      fmt.Sprintf("inv-%d", time.Now().UnixNano()),
+		groupID: pairResp.GroupID,
+		codes:   pairResp.Codes,
+		cancel:  cancel,
+	}
+
+	s.mu.Lock()
+	s.pendingInvite = inv
+	s.mu.Unlock()
+
+	slog.Info("invite created via API", "id", inv.id, "group", pairResp.GroupID, "codes", len(pairResp.Codes), "ttl", ttl)
+	respondJSON(w, http.StatusOK, InviteCreateResponse{
+		InviteID:  inv.id,
+		Codes:     pairResp.Codes,
+		GroupID:   pairResp.GroupID,
+		TTL:       ttl,
+		ExpiresAt: pairResp.ExpiresAt,
+	})
+}
+
+func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	s.mu.Lock()
+	inv := s.pendingInvite
+	s.mu.Unlock()
+
+	if inv == nil || inv.id != id {
+		respondError(w, http.StatusNotFound, "no active invite with that ID")
+		return
+	}
+
+	// Extend write deadline for long-poll
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Now().Add(15 * time.Minute))
+
+	rt := s.runtime
+	h := rt.Network().Host()
+	relayAddrs := rt.RelayAddresses()
+	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+	if len(relayInfos) == 0 {
+		respondError(w, http.StatusInternalServerError, "no relay addresses available")
+		return
+	}
+
+	relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
+
+	// Poll relay for group status every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			groups, err := relayClient.ListGroups()
+			if err != nil {
+				continue // retry on transient errors
+			}
+
+			// Find our group
+			found := false
+			for _, g := range groups {
+				if g.ID == inv.groupID {
+					found = true
+					if g.Used >= g.Total {
+						// All codes used - complete
+						s.mu.Lock()
+						if s.pendingInvite == inv {
+							s.pendingInvite = nil
+						}
+						s.mu.Unlock()
+						inv.cancel()
+
+						respondJSON(w, http.StatusOK, InviteWaitResponse{
+							Status: "complete",
+							Used:   g.Used,
+							Total:  g.Total,
+						})
+						return
+					}
+					// Partial - still waiting
+					break
+				}
+			}
+
+			if !found {
+				// Group not found - expired or revoked
+				s.mu.Lock()
+				if s.pendingInvite == inv {
+					s.pendingInvite = nil
+				}
+				s.mu.Unlock()
+				inv.cancel()
+
+				respondJSON(w, http.StatusOK, InviteWaitResponse{
+					Status: "expired",
+				})
+				return
+			}
+
+		case <-r.Context().Done():
+			respondError(w, http.StatusGatewayTimeout, "client disconnected")
+			return
+		}
+	}
+}
+
+func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	s.mu.Lock()
+	inv := s.pendingInvite
+	if inv != nil && inv.id == id {
+		s.pendingInvite = nil
+		s.mu.Unlock()
+
+		// Revoke the group on the relay
+		rt := s.runtime
+		h := rt.Network().Host()
+		relayAddrs := rt.RelayAddresses()
+		relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+		if len(relayInfos) > 0 {
+			relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
+			if err := relayClient.RevokeGroup(inv.groupID); err != nil {
+				slog.Error("failed to revoke invite group on relay", "group", inv.groupID, "error", err)
+			}
+		}
+
+		inv.cancel()
+		slog.Info("invite cancelled via API", "id", id, "group", inv.groupID)
+		respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+		return
+	}
+	s.mu.Unlock()
+
+	respondError(w, http.StatusNotFound, "no active invite with that ID")
 }

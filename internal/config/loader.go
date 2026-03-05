@@ -146,13 +146,18 @@ func LoadClientNodeConfig(path string) (*ClientNodeConfig, error) {
 	return config, nil
 }
 
-// LoadRelayServerConfig loads relay server configuration from a YAML file
+// LoadRelayServerConfig loads relay server configuration from a YAML file.
+// Relative paths (key_file, authorized_keys_file, vault_file) are resolved
+// against the config file's directory, so relay commands work from any cwd.
 func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 	if err := checkConfigFilePermissions(path); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return nil, fmt.Errorf("failed to read config file %s: %w\n  The config is owned by the service user. Try: sudo -u <service-user> shurli relay <command>", path, err)
+		}
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
@@ -178,6 +183,9 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 	}
 
 	applyTelemetryDefaults(&config.Telemetry)
+
+	// Resolve relative paths against the config file's directory
+	ResolveRelayConfigPaths(&config, filepath.Dir(path))
 
 	return &config, nil
 }
@@ -225,6 +233,30 @@ func ValidateClientNodeConfig(cfg *ClientNodeConfig) error {
 	return nil
 }
 
+// FindRelayConfigFile searches for a relay server config file in standard locations.
+// Search order: explicitPath (if given), ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
+func FindRelayConfigFile(explicitPath string) (string, error) {
+	if explicitPath != "" {
+		if _, err := os.Stat(explicitPath); err != nil {
+			return "", fmt.Errorf("%w: %s", ErrConfigNotFound, explicitPath)
+		}
+		return explicitPath, nil
+	}
+
+	searchPaths := []string{
+		"relay-server.yaml",
+		filepath.Join("/etc", "shurli", "relay", "relay-server.yaml"),
+	}
+
+	for _, path := range searchPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w; searched:\n  %s\n\nRun 'shurli relay setup' to create one, or use --config <path>", ErrConfigNotFound, strings.Join(searchPaths, "\n  "))
+}
+
 // FindConfigFile searches for a shurli config file in standard locations.
 // Search order: explicitPath (if given), ./shurli.yaml, ~/.config/shurli/config.yaml, /etc/shurli/config.yaml
 func FindConfigFile(explicitPath string) (string, error) {
@@ -270,6 +302,21 @@ func ResolveConfigPaths(cfg *NodeConfig, configDir string) {
 	}
 	if cfg.Security.AuthorizedKeysFile != "" && !filepath.IsAbs(cfg.Security.AuthorizedKeysFile) {
 		cfg.Security.AuthorizedKeysFile = filepath.Join(configDir, cfg.Security.AuthorizedKeysFile)
+	}
+}
+
+// ResolveRelayConfigPaths resolves relative file paths in relay server config
+// to be relative to the config file's directory. This allows relay commands to
+// work from any directory when the config is found via FindRelayConfigFile.
+func ResolveRelayConfigPaths(cfg *RelayServerConfig, configDir string) {
+	if cfg.Identity.KeyFile != "" && !filepath.IsAbs(cfg.Identity.KeyFile) {
+		cfg.Identity.KeyFile = filepath.Join(configDir, cfg.Identity.KeyFile)
+	}
+	if cfg.Security.AuthorizedKeysFile != "" && !filepath.IsAbs(cfg.Security.AuthorizedKeysFile) {
+		cfg.Security.AuthorizedKeysFile = filepath.Join(configDir, cfg.Security.AuthorizedKeysFile)
+	}
+	if cfg.Security.VaultFile != "" && !filepath.IsAbs(cfg.Security.VaultFile) {
+		cfg.Security.VaultFile = filepath.Join(configDir, cfg.Security.VaultFile)
 	}
 }
 

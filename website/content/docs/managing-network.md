@@ -191,7 +191,9 @@ Key configuration fields for network management:
 | Unseal vault | `shurli relay unseal` |
 | Remote unseal | `shurli relay unseal --remote <addr>` |
 | Vault status | `shurli relay seal-status` |
-| Remote unseal | `shurli relay unseal --remote <addr>` |
+| Remote list peers | `shurli relay list-peers --remote <addr>` |
+| Remote authorize | `shurli relay authorize <peer-id> [comment] --remote <addr>` |
+| Remote deauthorize | `shurli relay deauthorize <peer-id> --remote <addr>` |
 | Set MOTD | `shurli relay motd set "message"` |
 | Set goodbye | `shurli relay goodbye set "message"` |
 | Recover identity | `shurli recover` |
@@ -207,6 +209,11 @@ All relay admin commands support `--remote` for management over encrypted P2P:
 # Manage vault remotely
 shurli relay vault unseal --remote my-relay
 shurli relay seal-status --remote my-relay
+
+# Manage peers remotely
+shurli relay list-peers --remote my-relay
+shurli relay authorize 12D3KooW... home-node --remote my-relay
+shurli relay deauthorize 12D3KooW... --remote my-relay
 
 # Manage invites remotely
 shurli relay invite list --remote my-relay

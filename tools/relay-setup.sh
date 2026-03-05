@@ -2,16 +2,16 @@
 # Deploy, verify, and uninstall relay server on a VPS (Ubuntu 22.04 / 24.04)
 #
 # Usage:
-#   cd ~/Shurli/relay-server
-#   bash setup.sh              # Full setup (install + start + verify)
-#   bash setup.sh --check      # Health check only (no changes)
-#   bash setup.sh --uninstall  # Remove service, firewall rules, tuning
+#   cd ~/shurli
+#   bash tools/relay-setup.sh              # Full setup (install + start + verify)
+#   bash tools/relay-setup.sh --check      # Health check only (no changes)
+#   bash tools/relay-setup.sh --uninstall  # Remove service, firewall rules, tuning
 #
 # Relay server subcommands (via the shurli binary):
-#   ./shurli relay info                          # Show peer ID, multiaddrs, QR code
-#   ./shurli relay authorize <peer-id> [comment] # Allow a peer
-#   ./shurli relay deauthorize <peer-id>         # Remove a peer
-#   ./shurli relay list-peers                    # List authorized peers
+#   shurli relay info                          # Show peer ID, multiaddrs, QR code
+#   shurli relay authorize <peer-id> [comment] # Allow a peer
+#   shurli relay deauthorize <peer-id>         # Remove a peer
+#   shurli relay list-peers                    # List authorized peers
 #
 # If run as root:
 #   - --check and --uninstall work directly as root
@@ -21,13 +21,13 @@
 #
 # What the full setup does:
 #   1. Ensures Go meets minimum version from go.mod (installs/upgrades if needed)
-#   2. Installs qrencode (for QR codes in --check)
+#   2. Installs build dependencies (build-essential, qrencode, libavahi)
 #   3. Tunes network buffers for QUIC
 #   4. Configures journald log rotation
 #   5. Opens firewall ports (7777 TCP/UDP)
-#   6. Builds the shurli binary
-#   7. Sets correct file permissions
-#   8. Installs and starts the systemd service
+#   6. Builds and installs shurli via make (binary to /usr/local/bin, config to /etc/shurli/relay)
+#   7. Creates relay identity (interactive password + seed phrase on first run)
+#   8. Starts the systemd service
 #   + Runs health check
 #
 # What --uninstall does:
@@ -39,9 +39,19 @@
 
 set -e
 
-RELAY_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DATA_DIR="/etc/shurli/relay"
+BINARY="/usr/local/bin/shurli"
 CURRENT_USER="$(whoami)"
-SERVICE_USER="$CURRENT_USER"
+# Service user: detect from installed service file, else default to current user.
+# Overridden interactively during setup (root or non-root flow).
+if [ -f /etc/systemd/system/shurli-relay.service ]; then
+    SERVICE_USER=$(grep '^User=' /etc/systemd/system/shurli-relay.service 2>/dev/null | cut -d= -f2)
+    [ -z "$SERVICE_USER" ] && SERVICE_USER="$CURRENT_USER"
+else
+    SERVICE_USER="$CURRENT_USER"
+fi
 
 # Detect SSH service name (sshd on RHEL/Fedora, ssh on Debian/Ubuntu)
 if systemctl list-unit-files sshd.service &>/dev/null && systemctl list-unit-files sshd.service 2>/dev/null | grep -q sshd; then
@@ -257,6 +267,7 @@ create_secure_user() {
         read -p "  Apply SSH hardening? [y/N] " RESP
         RESP=${RESP:-N}
     fi
+
     if [ "$RESP" = "y" ] || [ "$RESP" = "Y" ]; then
         sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
         grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
@@ -349,10 +360,46 @@ if [ "$CURRENT_USER" = "root" ]; then
 
         # Set SERVICE_USER and fall through to the setup section.
         # We stay as root (which doesn't need sudo) and use SERVICE_USER
-        # for the systemd service file and file ownership.
+        # for file ownership.
         SERVICE_USER="$TARGET_USER"
         echo "Service will run as: $SERVICE_USER"
         echo "Continuing with setup..."
+        echo
+    fi
+else
+    # Non-root: ask which user should run the service (fresh install only).
+    # Skip for --check and --uninstall (SERVICE_USER already detected from service file above).
+    if [ "$1" != "--check" ] && [ "$1" != "--uninstall" ]; then
+        # If the service file already exists, SERVICE_USER was detected at the top.
+        # Only prompt on fresh install (no service file yet).
+        if [ ! -f /etc/systemd/system/shurli-relay.service ]; then
+            echo "Which user should run the relay service?"
+            echo
+            echo "  1) Use current user: $CURRENT_USER (default)"
+            echo "  2) Enter a different username"
+            echo
+            read -p "Choice [1/2] (default: 1): " SVC_CHOICE
+            echo
+
+            case "$SVC_CHOICE" in
+                2)
+                    read -p "Username: " CUSTOM_USER
+                    if [ -z "$CUSTOM_USER" ]; then
+                        echo "Username cannot be empty."
+                        exit 1
+                    fi
+                    if ! id "$CUSTOM_USER" &>/dev/null; then
+                        echo "User '$CUSTOM_USER' does not exist. Create it first or use option 1."
+                        exit 1
+                    fi
+                    SERVICE_USER="$CUSTOM_USER"
+                    ;;
+                *)
+                    SERVICE_USER="$CURRENT_USER"
+                    ;;
+            esac
+        fi
+        echo "Service will run as: $SERVICE_USER"
         echo
     fi
 fi
@@ -363,7 +410,8 @@ fi
 run_check() {
     echo "=== Shurli Relay Server Health Check ==="
     echo
-    echo "Directory: $RELAY_DIR"
+    echo "Binary:   $BINARY"
+    echo "Data dir: $DATA_DIR"
     echo
 
     PASS=0
@@ -376,28 +424,45 @@ run_check() {
 
     # Get authoritative application info from the Go binary (not from logs or YAML grep)
     RELAY_INFO=""
-    if [ -x "$RELAY_DIR/shurli" ] && [ -f "$RELAY_DIR/relay-server.yaml" ]; then
-        RELAY_INFO=$(cd "$RELAY_DIR" && ./shurli relay info 2>/dev/null) || true
+    if [ -x "$BINARY" ] && [ -f "$DATA_DIR/relay-server.yaml" ]; then
+        # Run as service user (key file is 600 owned by SERVICE_USER)
+        if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+            RELAY_INFO=$("$BINARY" relay info 2>/dev/null) || true
+        else
+            RELAY_INFO=$(sudo -u "$SERVICE_USER" "$BINARY" relay info 2>/dev/null) || true
+        fi
     fi
 
     # --- Binary ---
     echo "Binary:"
-    if [ -f "$RELAY_DIR/shurli" ]; then
-        check_pass "shurli binary exists"
+    if [ -f "$BINARY" ]; then
+        check_pass "shurli binary exists at $BINARY"
     else
-        check_fail "shurli binary not found  - run: go build -o relay-server/shurli ./cmd/shurli"
+        check_fail "shurli binary not found  - run: make install-relay"
     fi
 
-    if [ -x "$RELAY_DIR/shurli" ]; then
+    if [ -x "$BINARY" ]; then
         check_pass "shurli is executable"
-    elif [ -f "$RELAY_DIR/shurli" ]; then
-        check_fail "shurli is not executable  - run: chmod 700 shurli"
+    elif [ -f "$BINARY" ]; then
+        check_fail "shurli is not executable  - run: chmod 755 $BINARY"
+    fi
+    echo
+
+    # --- Data directory ---
+    if [ -d "$DATA_DIR" ]; then
+        DIR_PERMS=$(stat -c '%a' "$DATA_DIR" 2>/dev/null || stat -f '%Lp' "$DATA_DIR" 2>/dev/null)
+        if [ "$DIR_PERMS" = "700" ]; then
+            check_pass "Data directory permissions: $DIR_PERMS"
+        else
+            check_warn "Data directory permissions: $DIR_PERMS (expected 700)"
+            echo "         Fix: sudo chmod 700 $DATA_DIR"
+        fi
     fi
     echo
 
     # --- Config file ---
     echo "Configuration:"
-    if [ -f "$RELAY_DIR/relay-server.yaml" ]; then
+    if [ -f "$DATA_DIR/relay-server.yaml" ]; then
         check_pass "relay-server.yaml exists"
 
         # Check connection gating (parsed by Go binary, not YAML grep)
@@ -413,27 +478,27 @@ run_check() {
         fi
 
         # Check config permissions
-        PERMS=$(stat -c '%a' "$RELAY_DIR/relay-server.yaml" 2>/dev/null || stat -f '%Lp' "$RELAY_DIR/relay-server.yaml" 2>/dev/null)
+        PERMS=$(stat -c '%a' "$DATA_DIR/relay-server.yaml" 2>/dev/null || stat -f '%Lp' "$DATA_DIR/relay-server.yaml" 2>/dev/null)
         if [ "$PERMS" = "600" ]; then
             check_pass "relay-server.yaml permissions: $PERMS"
         else
             check_warn "relay-server.yaml permissions: $PERMS (expected 600)"
         fi
     else
-        check_fail "relay-server.yaml not found  - copy from configs/relay-server.sample.yaml"
+        check_fail "relay-server.yaml not found  - run: make install-relay"
     fi
     echo
 
     # --- Key file ---
     echo "Identity:"
-    if [ -f "$RELAY_DIR/relay_node.key" ]; then
+    if [ -f "$DATA_DIR/relay_node.key" ]; then
         check_pass "relay_node.key exists"
-        PERMS=$(stat -c '%a' "$RELAY_DIR/relay_node.key" 2>/dev/null || stat -f '%Lp' "$RELAY_DIR/relay_node.key" 2>/dev/null)
+        PERMS=$(stat -c '%a' "$DATA_DIR/relay_node.key" 2>/dev/null || stat -f '%Lp' "$DATA_DIR/relay_node.key" 2>/dev/null)
         if [ "$PERMS" = "600" ]; then
             check_pass "relay_node.key permissions: 600"
         else
             check_fail "relay_node.key permissions: $PERMS (should be 600)"
-            echo "         Fix: chmod 600 relay_node.key"
+            echo "         Fix: chmod 600 $DATA_DIR/relay_node.key"
         fi
     else
         check_warn "relay_node.key not found (will be created on first run)"
@@ -442,13 +507,13 @@ run_check() {
 
     # --- Authorized keys ---
     echo "Authorization:"
-    if [ -f "$RELAY_DIR/relay_authorized_keys" ]; then
+    if [ -f "$DATA_DIR/relay_authorized_keys" ]; then
         check_pass "relay_authorized_keys exists"
         # Peer count from Go binary (validates peer IDs, not just line count)
         if [ -n "$RELAY_INFO" ]; then
             PEER_COUNT=$(echo "$RELAY_INFO" | grep '^Authorized peers:' | awk '{print $NF}')
         else
-            PEER_COUNT=$(grep -cE '^[^#[:space:]]' "$RELAY_DIR/relay_authorized_keys" 2>/dev/null || echo 0)
+            PEER_COUNT=$(grep -cE '^[^#[:space:]]' "$DATA_DIR/relay_authorized_keys" 2>/dev/null || echo 0)
         fi
         if [ "$PEER_COUNT" -gt 0 ] 2>/dev/null; then
             check_pass "$PEER_COUNT authorized peer(s) configured"
@@ -456,12 +521,12 @@ run_check() {
             check_warn "relay_authorized_keys is empty  - no peers can connect"
         fi
 
-        PERMS=$(stat -c '%a' "$RELAY_DIR/relay_authorized_keys" 2>/dev/null || stat -f '%Lp' "$RELAY_DIR/relay_authorized_keys" 2>/dev/null)
+        PERMS=$(stat -c '%a' "$DATA_DIR/relay_authorized_keys" 2>/dev/null || stat -f '%Lp' "$DATA_DIR/relay_authorized_keys" 2>/dev/null)
         if [ "$PERMS" = "600" ]; then
             check_pass "relay_authorized_keys permissions: 600"
         else
             check_warn "relay_authorized_keys permissions: $PERMS (should be 600)"
-            echo "         Fix: chmod 600 relay_authorized_keys"
+            echo "         Fix: chmod 600 $DATA_DIR/relay_authorized_keys"
         fi
     else
         check_fail "relay_authorized_keys not found"
@@ -512,7 +577,7 @@ run_check() {
     fi
 
     # Check WebSocket port if configured
-    WS_PORT=$(grep -v '^\s*#' "$RELAY_DIR/relay-server.yaml" 2>/dev/null | grep -oP 'tcp/\K[0-9]+(?=/ws)' | head -1)
+    WS_PORT=$(grep -v '^\s*#' "$DATA_DIR/relay-server.yaml" 2>/dev/null | grep -oP 'tcp/\K[0-9]+(?=/ws)' | head -1)
     if [ -n "$WS_PORT" ]; then
         WS_PORT_OWNER=$(ss -tlnp 2>/dev/null | grep ":${WS_PORT} " | grep -oP 'users:\(\("\K[^"]+' | head -1)
         if [ "$WS_PORT_OWNER" = "shurli" ]; then
@@ -622,10 +687,10 @@ run_check() {
         echo "$RELAY_INFO" | awk '/^Multiaddrs:/,0' | while IFS= read -r line; do
             echo "  $line"
         done
-    elif [ -x "$RELAY_DIR/shurli" ]; then
+    elif [ -x "$BINARY" ]; then
         check_warn "Cannot retrieve relay info (check relay-server.yaml and identity key)"
     else
-        check_warn "Cannot determine Peer ID (build shurli first: go build -o relay-server/shurli ./cmd/shurli)"
+        check_warn "Cannot determine Peer ID (install shurli first: make install-relay)"
     fi
     echo
 
@@ -647,7 +712,7 @@ run_check() {
 # If --help flag, show usage and exit
 # ============================================================
 if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ "$1" = "help" ]; then
-    echo "Usage: bash setup.sh [option]"
+    echo "Usage: bash tools/relay-setup.sh [option]"
     echo
     echo "Options:"
     echo "  (no option)    Full setup (build, systemd, firewall, permissions)"
@@ -655,12 +720,17 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ "$1" = "help" ]; then
     echo "  --uninstall    Remove service, firewall rules, and system tuning"
     echo "  --help         Show this help message"
     echo
+    echo "Paths:"
+    echo "  Binary:   /usr/local/bin/shurli"
+    echo "  Data dir: /etc/shurli/relay/"
+    echo "  Service:  /etc/systemd/system/shurli-relay.service"
+    echo
     echo "Relay server commands (via the shurli binary):"
-    echo "  ./shurli relay serve                          Start the relay"
-    echo "  ./shurli relay info                           Show peer ID, multiaddrs, QR code"
-    echo "  ./shurli relay authorize <peer-id> [comment]  Allow a peer"
-    echo "  ./shurli relay deauthorize <peer-id>          Remove a peer"
-    echo "  ./shurli relay list-peers                     List authorized peers"
+    echo "  shurli relay serve                          Start the relay"
+    echo "  shurli relay info                           Show peer ID, multiaddrs, QR code"
+    echo "  shurli relay authorize <peer-id> [comment]  Allow a peer"
+    echo "  shurli relay deauthorize <peer-id>          Remove a peer"
+    echo "  shurli relay list-peers                     List authorized peers"
     exit 0
 fi
 
@@ -679,7 +749,7 @@ if [ "$1" = "--uninstall" ]; then
     echo "=== Shurli Relay Server Uninstall ==="
     echo
     echo "This will remove the systemd service, firewall rules,"
-    echo "and system tuning applied by setup.sh."
+    echo "and system tuning applied by this setup script."
     echo
     echo "It will NOT delete your config, keys, binary, or source code."
     echo
@@ -758,12 +828,12 @@ if [ "$1" = "--uninstall" ]; then
     echo "=== Uninstall complete ==="
     echo
     echo "The following were left untouched (delete manually if desired):"
-    echo "  $RELAY_DIR/shurli                (binary)"
-    echo "  $RELAY_DIR/relay-server.yaml     (config)"
-    echo "  $RELAY_DIR/relay_node.key        (identity key)"
-    echo "  $RELAY_DIR/relay_authorized_keys (peer allowlist)"
+    echo "  $BINARY                          (binary)"
+    echo "  $DATA_DIR/relay-server.yaml      (config)"
+    echo "  $DATA_DIR/relay_node.key         (identity key)"
+    echo "  $DATA_DIR/relay_authorized_keys  (peer allowlist)"
     echo
-    echo "To reinstall later:  bash setup.sh"
+    echo "To reinstall later:  bash tools/relay-setup.sh"
     exit 0
 fi
 
@@ -772,13 +842,15 @@ fi
 # ============================================================
 echo "=== Shurli Relay Server Setup ==="
 echo
-echo "Relay directory: $RELAY_DIR"
-echo "Running as:      $CURRENT_USER"
-echo "Service user:    $SERVICE_USER"
+echo "Project root:  $PROJECT_ROOT"
+echo "Data dir:      $DATA_DIR"
+echo "Binary:        $BINARY"
+echo "Running as:    $CURRENT_USER"
+echo "Service user:  $SERVICE_USER"
 echo
 
 # --- 1. Ensure Go meets minimum version from go.mod ---
-GO_MIN_VERSION=$(grep '^go ' "$RELAY_DIR/../go.mod" | awk '{print $2}')
+GO_MIN_VERSION=$(grep '^go ' "$PROJECT_ROOT/go.mod" | awk '{print $2}')
 INSTALL_GO=false
 
 # Compare semver: returns 0 (true) if $1 >= $2
@@ -831,20 +903,23 @@ if [ "$INSTALL_GO" = true ]; then
 fi
 echo
 
-# --- 2. Install qrencode for QR code display in --check ---
-if ! command -v qrencode &>/dev/null; then
-    echo "[2/8] Installing qrencode and mDNS library..."
-    run_sudo apt-get install -y -qq qrencode libavahi-compat-libdnssd-dev > /dev/null 2>&1
-    echo "  qrencode installed (used by --check for QR codes)"
-    echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+# --- 2. Install build dependencies ---
+PKGS_NEEDED=""
+command -v make &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED build-essential"
+command -v qrencode &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED qrencode"
+dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd-dev"
+
+if [ -n "$PKGS_NEEDED" ]; then
+    echo "[2/8] Installing build dependencies:$PKGS_NEEDED ..."
+    run_sudo apt-get update -qq > /dev/null 2>&1
+    run_sudo apt-get install -y -qq $PKGS_NEEDED > /dev/null 2>&1
+    echo "  Installed:$PKGS_NEEDED"
 else
-    echo "[2/8] qrencode already installed"
-    # Ensure mDNS library is present even if qrencode was already installed
-    if ! dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1; then
-        run_sudo apt-get install -y -qq libavahi-compat-libdnssd-dev > /dev/null 2>&1
-        echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
-    fi
+    echo "[2/8] All build dependencies present"
 fi
+command -v qrencode &>/dev/null && echo "  qrencode installed (used by --check for QR codes)"
+dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+command -v make &>/dev/null && echo "  make installed (build system)"
 echo
 
 # --- 3. Tune network buffers for QUIC ---
@@ -887,7 +962,7 @@ run_sudo sysctl -w net.ipv4.tcp_fin_timeout=30 > /dev/null
 echo "  Conntrack tuned (131072 max, tw_reuse, fin_timeout=30s)"
 echo
 
-# --- 3. Configure journald log rotation ---
+# --- 4. Configure journald log rotation ---
 echo "[4/8] Configuring journald log rotation..."
 JOURNALD_CONF="/etc/systemd/journald.conf"
 NEEDS_RESTART=false
@@ -916,7 +991,7 @@ else
 fi
 echo
 
-# --- 4. Firewall ---
+# --- 5. Firewall ---
 echo "[5/8] Configuring firewall..."
 if command -v ufw &> /dev/null; then
     run_sudo ufw allow 7777/tcp comment 'Shurli relay TCP' > /dev/null 2>&1 || true
@@ -924,9 +999,9 @@ if command -v ufw &> /dev/null; then
     echo "  UFW: ports 7777 TCP+UDP open"
 
     # Open WebSocket port if configured (anti-censorship)
-    if [ -f "$RELAY_DIR/relay-server.yaml" ]; then
+    if [ -f "$DATA_DIR/relay-server.yaml" ]; then
         # Detect which WebSocket port is configured (443, 8443, or other)
-        WS_PORT=$(grep -v '^\s*#' "$RELAY_DIR/relay-server.yaml" 2>/dev/null | grep -oP 'tcp/\K[0-9]+(?=/ws)' | head -1)
+        WS_PORT=$(grep -v '^\s*#' "$DATA_DIR/relay-server.yaml" 2>/dev/null | grep -oP 'tcp/\K[0-9]+(?=/ws)' | head -1)
         if [ -n "$WS_PORT" ]; then
             # Check if the port is already in use by another service
             WS_PORT_OWNER=$(ss -tlnp 2>/dev/null | grep ":${WS_PORT} " | grep -oP 'users:\(\("\K[^"]+' | head -1)
@@ -956,9 +1031,9 @@ if command -v ufw &> /dev/null; then
                         2)
                             if [ -n "$ALT_PORT" ]; then
                                 # Update the config file: replace the old port with the new one
-                                sed -i "s|tcp/${WS_PORT}/ws|tcp/${ALT_PORT}/ws|g" "$RELAY_DIR/relay-server.yaml"
+                                run_sudo sed -i "s|tcp/${WS_PORT}/ws|tcp/${ALT_PORT}/ws|g" "$DATA_DIR/relay-server.yaml"
                                 run_sudo ufw allow "${ALT_PORT}/tcp" comment 'Shurli relay WebSocket' > /dev/null 2>&1 || true
-                                echo "  Updated relay-server.yaml: tcp/$WS_PORT/ws → tcp/$ALT_PORT/ws"
+                                echo "  Updated relay-server.yaml: tcp/$WS_PORT/ws -> tcp/$ALT_PORT/ws"
                                 echo "  UFW: port $ALT_PORT TCP open (WebSocket anti-censorship)"
                             else
                                 echo "  Invalid choice (no alternative port available)"
@@ -1011,109 +1086,113 @@ if command -v iptables > /dev/null 2>&1; then
     echo
 fi
 
-# --- 5. Build ---
-echo "[6/8] Building shurli..."
-PROJECT_ROOT="$(cd "$RELAY_DIR/.." && pwd)"
+# --- 6. Build and install via make ---
+echo "[6/8] Building and installing shurli..."
 cd "$PROJECT_ROOT"
-go mod tidy
-BUILD_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if ! go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COMMIT -X main.buildDate=$BUILD_DATE" -o "$RELAY_DIR/shurli" ./cmd/shurli; then
+
+# Ensure Go is in PATH for make
+export PATH=$PATH:/usr/local/go/bin
+
+if ! make install-relay SERVICE_USER="$SERVICE_USER"; then
     echo
-    CURRENT_GO=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?')
-    if ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
-        echo "  Build failed. Go ${CURRENT_GO} is below the required go${GO_MIN_VERSION}."
+    echo "  Build failed. Check errors above."
+    CURRENT_GO=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?' || echo "unknown")
+    if [ "$CURRENT_GO" = "unknown" ]; then
+        echo "  Go not found in PATH. Install go${GO_MIN_VERSION} first."
+    elif ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
+        echo "  Go ${CURRENT_GO} is below the required go${GO_MIN_VERSION}."
         echo "  Install go${GO_MIN_VERSION} now? This will replace /usr/local/go. [y/N] "
         read -r REPLY
         if [[ "$REPLY" =~ ^[Yy]$ ]]; then
             install_go
             echo
             echo "  Retrying build..."
-            go mod tidy
-            go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COMMIT -X main.buildDate=$BUILD_DATE" -o "$RELAY_DIR/shurli" ./cmd/shurli
-            echo "  Built: $RELAY_DIR/shurli ($BUILD_VERSION)"
+            make install-relay SERVICE_USER="$SERVICE_USER"
         else
             echo "  Aborting  - cannot continue without a successful build."
             exit 1
         fi
     else
-        echo "  Build failed. Go version go${CURRENT_GO} meets the minimum, but the"
-        echo "  installation at /usr/local/go may be corrupted (e.g. leftover files"
-        echo "  from a previous version extracted over the current one)."
+        echo "  Go version go${CURRENT_GO} meets the minimum, but the"
+        echo "  installation at /usr/local/go may be corrupted."
         echo
-        echo "  Clean reinstall go${CURRENT_GO}? This will remove and re-download /usr/local/go. [y/N] "
+        echo "  Clean reinstall go${CURRENT_GO}? [y/N] "
         read -r REPLY
         if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            # Reinstall the same version the user already has
             GO_MIN_VERSION="$CURRENT_GO"
             install_go
             echo
             echo "  Retrying build..."
-            go mod tidy
-            go build -ldflags "-X main.version=$BUILD_VERSION -X main.commit=$BUILD_COMMIT -X main.buildDate=$BUILD_DATE" -o "$RELAY_DIR/shurli" ./cmd/shurli
-            echo "  Built: $RELAY_DIR/shurli ($BUILD_VERSION)"
+            make install-relay SERVICE_USER="$SERVICE_USER"
         else
             echo "  Aborting  - cannot continue without a successful build."
             exit 1
         fi
     fi
+fi
+echo
+
+# --- 7. Interactive identity creation ---
+# The relay needs an encrypted identity key before it can start. This requires
+# a password prompt (TTY), so we run it interactively before handing off to systemd.
+# If the user cancels, the service stays installed but not enabled.
+if [ ! -f "$DATA_DIR/relay_node.key" ]; then
+    echo "[7/8] Creating relay identity..."
+    echo
+    echo "  The relay will start in the foreground so you can:"
+    echo "    1. Set a password for the identity key"
+    echo "    2. Write down the BIP39 seed phrase (ONLY way to recover)"
+    echo "    3. Press Ctrl+C after you see 'Relay server started'"
+    echo
+    echo "  The service will be enabled and started automatically after this step."
+    echo
+    read -p "  Ready? [Y/n] " ready_choice
+    ready_choice="${ready_choice:-Y}"
+    if [[ ! "$ready_choice" =~ ^[Yy] ]]; then
+        echo
+        echo "  Setup paused. The service is installed but NOT enabled."
+        echo "  Re-run this script to continue, or start manually:"
+        echo "    sudo -u $SERVICE_USER $BINARY relay serve"
+        echo "    sudo systemctl enable --now shurli-relay"
+        exit 0
+    fi
+    echo
+
+    # Run relay serve in foreground as the service user.
+    # trap ensures Ctrl+C only kills the relay process, not this script.
+    cd "$DATA_DIR"
+    trap 'true' INT
+    if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+        "$BINARY" relay serve
+    else
+        sudo -u "$SERVICE_USER" "$BINARY" relay serve
+    fi
+    trap - INT
+
+    echo
+    # Verify identity was actually created
+    if [ ! -f "$DATA_DIR/relay_node.key" ]; then
+        echo "  Identity creation was cancelled or failed."
+        echo "  The service is installed but NOT enabled."
+        echo "  Re-run this script to try again."
+        exit 0
+    fi
+    echo "  Identity and session token created."
+    echo
 else
-    echo "  Built: $RELAY_DIR/shurli ($BUILD_VERSION)"
+    echo "[7/8] Identity key already exists, skipping first-run."
 fi
-echo
 
-# --- 6.5. Initialize config files ---
-echo "[6.5/8] Initializing configuration..."
-"$RELAY_DIR/shurli" relay setup --dir "$RELAY_DIR"
-echo
-
-# --- 7. File permissions ---
-echo "[7/8] Setting file permissions..."
-chmod 700 "$RELAY_DIR/shurli"
-chmod 600 "$RELAY_DIR/relay-server.yaml"
-chmod 600 "$RELAY_DIR/relay_authorized_keys"
-if [ -f "$RELAY_DIR/relay_node.key" ]; then
-    chmod 600 "$RELAY_DIR/relay_node.key"
-fi
-# When running as root for a different service user, transfer ownership
-if [ "$SERVICE_USER" != "$CURRENT_USER" ]; then
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$RELAY_DIR"
-    echo "  Ownership: $SERVICE_USER"
-fi
-echo "  Binary: 700, keys: 600, config: 600"
-echo
-
-# --- 7. Install systemd service ---
-echo "[8/8] Installing systemd service..."
-
-# Generate service file from the template  - single source of truth.
-# The template uses YOUR_USERNAME and /home/YOUR_USERNAME/... placeholders.
-# Order matters: replace full paths first (they contain YOUR_USERNAME),
-# then replace the remaining YOUR_USERNAME in User=/Group= lines.
-TEMPLATE="${RELAY_DIR}/relay-server.service"
-if [ ! -f "$TEMPLATE" ]; then
-    echo "ERROR: service template not found: $TEMPLATE"
-    exit 1
-fi
-sed -e "s|/home/YOUR_USERNAME/Shurli/relay-server|${RELAY_DIR}|g" \
-    -e "s|YOUR_USERNAME|${SERVICE_USER}|g" \
-    "$TEMPLATE" > /tmp/shurli-relay.service
-
-run_sudo cp /tmp/shurli-relay.service /etc/systemd/system/shurli-relay.service
-rm /tmp/shurli-relay.service
-run_sudo systemctl daemon-reload
+# --- 8. Enable and start service ---
+# Only reached if identity creation succeeded (or key already existed).
+echo "[8/8] Enabling and starting service..."
 run_sudo systemctl enable shurli-relay
-echo "  Service installed and enabled"
-echo
-
-# --- Start or restart ---
 if systemctl is-active --quiet shurli-relay; then
     run_sudo systemctl restart shurli-relay
-    echo "Service restarted."
+    echo "  Service restarted."
 else
     run_sudo systemctl start shurli-relay
-    echo "Service started."
+    echo "  Service enabled and started."
 fi
 
 # Give the service a moment to start
@@ -1124,18 +1203,5 @@ echo
 echo
 run_check
 
-# --- Optional vault initialization ---
-if [ "${SKIP_VAULT_INIT:-}" != "1" ]; then
-    echo
-    echo "=== Vault Setup ==="
-    echo "The vault protects your relay's root key material."
-    echo "Without it, the relay starts with full privileges after every reboot."
-    echo
-    read -p "Initialize vault now? [Y/n] " vault_choice
-    vault_choice="${vault_choice:-Y}"
-    if [[ "$vault_choice" =~ ^[Yy] ]]; then
-        "$RELAY_DIR/shurli" relay vault init --auto-seal 30
-    else
-        echo "Skipped. Initialize later with: ./shurli relay vault init"
-    fi
-fi
+# Vault is initialized automatically during first run (same password, same seed).
+# No separate step needed.

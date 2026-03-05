@@ -244,8 +244,8 @@ and packet loss.
   shurli relay setup
   shurli relay serve
 
-  # Generate a pairing code:
-  shurli relay pair --count 2 --ttl 24h
+  # Generate an invite code:
+  shurli relay invite create --ttl 24h
 
   # On each device, join with the code:
   shurli init
@@ -379,6 +379,11 @@ Parse and validate the config file. Reports errors without starting anything.
 Print the fully resolved configuration (with defaults filled in and relative
 paths expanded).
 .TP
+.B config set \fIkey\fR \fIvalue\fR [\fB--config\fR \fIpath\fR]
+Set a single config value using a dotted key path (e.g.,
+\fBnetwork.force_private_reachability true\fR). Preserves YAML structure and
+comments. Restart the daemon to apply changes.
+.TP
 .B config rollback \fR[\fB--config\fR \fIpath\fR]
 Replace the current config with the last-known-good backup (created
 automatically before each \fBconfig apply\fR).
@@ -422,30 +427,51 @@ Start the relay. Listens on all configured addresses, accepts connections
 from authorized peers, and relays traffic. Exposes Prometheus metrics on
 the configured metrics port.
 .TP
-.B relay authorize \fIpeer-id\fR [\fIcomment\fR]
+.B relay authorize \fIpeer-id\fR [\fIcomment\fR] [\fB--remote\fR \fIaddr\fR]
 Add a peer to the relay's authorized_keys. Only authorized peers can use
-the relay.
+the relay. Supports --remote for administration from any admin device.
 .TP
-.B relay deauthorize \fIpeer-id\fR
+.B relay deauthorize \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
 Remove a peer's relay access. Active connections from that peer are dropped.
+Supports --remote for administration from any admin device.
 .TP
-.B relay list-peers
+.B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.
+Supports --remote for administration from any admin device.
+.TP
+.B relay verify \fIpeer-id\fR
+Verify a peer's identity using a Short Authentication String (SAS). Displays
+emoji and numeric codes that must match on both sides. Marks the peer as
+verified in the relay's authorized_keys on confirmation.
 .TP
 .B relay info
 Display the relay's peer ID, all multiaddrs it is listening on, and a
 QR code for easy mobile pairing.
 .TP
-.B relay pair \fR[\fB--count\fR \fIN\fR] [\fB--ttl\fR \fI1h\fR] [\fB--expires\fR \fIduration\fR]
-Generate one-time pairing codes. Each code allows a new peer to join the
-relay's authorized set. Codes are cryptographically random and expire after
-the TTL.
+.B relay invite create \fR[\fB--ttl\fR \fI1h\fR] [\fB--expires\fR \fIduration\fR] [\fB--remote\fR \fIaddr\fR]
+Generate a single-use invite code. Share the code with the joining peer
+who uses \fBshurli join <code>\fR. Codes expire after the TTL.
+.TP
+.B relay invite list \fR[\fB--remote\fR \fIaddr\fR]
+List active invites with usage status.
+.TP
+.B relay invite revoke \fR\fIid\fR [\fB--remote\fR \fIaddr\fR]
+Revoke an unused invite.
+.TP
+.B relay show
+Show the resolved relay config (alias for relay config show).
+.TP
+.B relay config show
+Show the resolved relay config with validation warnings and archive status.
 .TP
 .B relay config validate
 Validate the relay config without starting.
 .TP
 .B relay config rollback
 Restore the last-known-good relay config.
+.TP
+.B relay recover
+Recover relay identity from a BIP39 seed phrase.
 .TP
 .B relay version
 Show the relay binary version.
@@ -481,6 +507,9 @@ operation remotely (requires admin role).
 Show whether the vault is sealed or unsealed, time since last unseal,
 and auto-seal timeout.
 .TP
+.B relay vault change-password
+Change the vault password. Requires current password for authentication.
+.TP
 .B relay seal\fR, \fBrelay unseal\fR, \fBrelay seal-status
 Shorthands for the vault subcommands above.
 
@@ -506,9 +535,6 @@ List all pending invite deposits.
 .TP
 .B relay invite revoke \fIid\fR
 Delete an unclaimed invite.
-.TP
-.B relay invite modify \fIid\fR \fB--add-caveat\fR \fI"..."\fR
-Add restrictions to an existing invite. Cannot remove existing caveats.
 
 .SS Operator Announcements (MOTD / Goodbye)
 .TP

@@ -17,6 +17,27 @@ type StatusResponse struct {
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 	IsRelaying        bool     `json:"is_relaying"`
 	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
+	Relays            []RelayStatus  `json:"relays,omitempty"`
+	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
+}
+
+// RelayStatus describes a configured relay's connection state.
+type RelayStatus struct {
+	Address      string `json:"address"`
+	PeerID       string `json:"peer_id"`
+	ShortID      string `json:"short_id"`
+	Connected    bool   `json:"connected"`
+	RelayName    string `json:"relay_name,omitempty"`
+	AgentVersion string `json:"agent_version,omitempty"`
+}
+
+// MOTDInfo describes a MOTD or goodbye message from a relay.
+type MOTDInfo struct {
+	RelayPeerID string `json:"relay_peer_id"`
+	RelayName   string `json:"relay_name,omitempty"`
+	Message     string `json:"message"`
+	Type        string `json:"type"`
+	Timestamp   string `json:"timestamp"`
 }
 
 // ServiceInfo is returned by GET /v1/services.
@@ -111,6 +132,61 @@ type ConnectResponse struct {
 type ExposeRequest struct {
 	Name         string `json:"name"`
 	LocalAddress string `json:"local_address"`
+}
+
+// BandwidthStats is returned by GET /v1/bandwidth.
+type BandwidthStats struct {
+	TotalIn  int64                    `json:"total_in"`
+	TotalOut int64                    `json:"total_out"`
+	RateIn   float64                  `json:"rate_in"`
+	RateOut  float64                  `json:"rate_out"`
+	ByPeer   map[string]BandwidthPeer `json:"by_peer,omitempty"`
+}
+
+// BandwidthPeer holds per-peer bandwidth stats.
+type BandwidthPeer struct {
+	TotalIn  int64   `json:"total_in"`
+	TotalOut int64   `json:"total_out"`
+	RateIn   float64 `json:"rate_in"`
+	RateOut  float64 `json:"rate_out"`
+}
+
+// RelayHealthResponse is returned by GET /v1/relay-health.
+type RelayHealthResponse struct {
+	Relays []RelayHealthEntry `json:"relays"`
+}
+
+// RelayHealthEntry is one relay's health status.
+type RelayHealthEntry struct {
+	PeerID      string  `json:"peer_id"`
+	Score       float64 `json:"score"`
+	RTTMs       float64 `json:"rtt_ms"`
+	SuccessRate float64 `json:"success_rate"`
+	ProbeCount  int     `json:"probe_count"`
+	IsStatic    bool    `json:"is_static"`
+}
+
+// InviteCreateRequest is the body for POST /v1/invite.
+type InviteCreateRequest struct {
+	Name       string `json:"name,omitempty"`
+	Count      int    `json:"count,omitempty"`        // default 1
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`  // default 86400 (24h)
+}
+
+// InviteCreateResponse is returned by POST /v1/invite.
+type InviteCreateResponse struct {
+	InviteID  string   `json:"invite_id"`
+	Codes     []string `json:"codes"`
+	GroupID   string   `json:"group_id"`
+	TTL       int      `json:"ttl_seconds"`
+	ExpiresAt string   `json:"expires_at"`
+}
+
+// InviteWaitResponse is returned by GET /v1/invite/{id}/wait.
+type InviteWaitResponse struct {
+	Status string `json:"status"` // "complete", "partial", "expired", "cancelled"
+	Used   int    `json:"used"`
+	Total  int    `json:"total"`
 }
 
 // ErrorResponse is returned on failure.

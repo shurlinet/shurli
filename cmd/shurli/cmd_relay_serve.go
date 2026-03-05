@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +32,9 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
+
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/deposit"
@@ -42,18 +47,33 @@ import (
 
 const relayConfigFile = "relay-server.yaml"
 
+// relayUserAgent builds the UserAgent string for the relay server.
+// If a name is configured, it is appended in parentheses.
+func relayUserAgent(name string) string {
+	if name != "" {
+		return fmt.Sprintf("relay-server/%s (%s)", version, name)
+	}
+	return fmt.Sprintf("relay-server/%s", version)
+}
+
 // runRelayServe starts the circuit relay server. This is the equivalent of the
 // former standalone relay-server binary's main() function.
 func runRelayServe(args []string) {
 	// Handle --config flag
-	configFile := relayConfigFile
+	var explicitConfig string
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
-			configFile = args[i+1]
+			explicitConfig = args[i+1]
 		}
 		if strings.HasPrefix(arg, "--config=") {
-			configFile = strings.TrimPrefix(arg, "--config=")
+			explicitConfig = strings.TrimPrefix(arg, "--config=")
 		}
+	}
+
+	// Search standard locations: ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
+	configFile, err := config.FindRelayConfigFile(explicitConfig)
+	if err != nil {
+		fatal("Config not found: %v\n", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,11 +82,13 @@ func runRelayServe(args []string) {
 	fmt.Printf("=== Private libp2p Relay Server (%s) ===\n", version)
 	fmt.Println()
 
-	// Load configuration
+	// Load configuration (paths auto-resolved against config directory)
 	cfg, err := config.LoadRelayServerConfig(configFile)
 	if err != nil {
 		fatal("Failed to load config: %v\n", err)
 	}
+
+	relayConfigDir := filepath.Dir(configFile)
 
 	// Validate configuration
 	if err := config.ValidateRelayServerConfig(cfg); err != nil {
@@ -81,8 +103,6 @@ func runRelayServe(args []string) {
 	fmt.Printf("Loaded configuration from %s\n", configFile)
 	fmt.Printf("Authentication: %v\n", cfg.Security.EnableConnectionGating)
 	fmt.Println()
-
-	relayConfigDir := filepath.Dir(configFile)
 
 	var priv crypto.PrivKey
 	if _, statErr := os.Stat(cfg.Identity.KeyFile); statErr == nil {
@@ -139,6 +159,27 @@ func runRelayServe(args []string) {
 		} else {
 			fmt.Println("Session token created (auto-start enabled).")
 		}
+
+		// Initialize vault using the same seed and password (one-shot setup).
+		vaultPath := cfg.Security.VaultFile
+		if vaultPath == "" {
+			vaultPath = filepath.Join(relayConfigDir, "relay_vault.json")
+		}
+		v, vaultErr := vault.Create(entropy, mnemonic, pw, false, 30)
+		if vaultErr != nil {
+			fmt.Printf("Warning: vault init failed: %v\n", vaultErr)
+			fmt.Println("You can initialize later with: shurli relay vault init")
+		} else {
+			if err := v.Save(vaultPath); err != nil {
+				fmt.Printf("Warning: vault save failed: %v\n", err)
+			} else {
+				fmt.Printf("Vault initialized (auto-seal: 30 minutes)\n")
+				// Update config with vault path if it wasn't set.
+				if cfg.Security.VaultFile == "" {
+					cfg.Security.VaultFile = vaultPath
+				}
+			}
+		}
 	}
 
 	// Load authorized keys if connection gating is enabled
@@ -176,7 +217,7 @@ func runRelayServe(args []string) {
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
-		libp2p.UserAgent(fmt.Sprintf("relay-server/%s", version)),
+		libp2p.UserAgent(relayUserAgent(cfg.Name)),
 	}
 
 	// Resource manager (always enabled on relay - public-facing service)
@@ -204,15 +245,32 @@ func runRelayServe(args []string) {
 	}
 	defer h.Close()
 
-	// Start the relay service with configured resource limits
+	// Start the relay service with configured resource limits.
+	// Circuit ACL controls which peers can relay data through this server.
+	// By default (enable_data_relay: false), only admin peers and peers with
+	// relay_data=true can create circuits. Signaling protocols (relay-pair,
+	// peer-notify, etc.) are direct streams and are unaffected by this ACL.
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
-	_, err = relayv2.New(h, relayv2.WithResources(relayResources), relayv2.WithLimit(relayLimit))
+	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay)
+	_, err = relayv2.New(h,
+		relayv2.WithResources(relayResources),
+		relayv2.WithLimit(relayLimit),
+		relayv2.WithACL(circuitACL),
+	)
 	if err != nil {
 		fatal("Failed to start relay service: %v", err)
 	}
 	fmt.Printf("Relay limits: max_reservations=%d, max_circuits=%d, session=%s, data=%s/direction\n",
 		cfg.Resources.MaxReservations, cfg.Resources.MaxCircuits,
 		cfg.Resources.SessionDuration, cfg.Resources.SessionDataLimit)
+	if cfg.Security.EnableDataRelay {
+		fmt.Println("Data relay: ENABLED (all authorized peers can relay data)")
+	} else {
+		fmt.Println("Data relay: DISABLED (discovery and signaling only)")
+		fmt.Println("  Peers connect directly. No SSH/XRDP data flows through this relay.")
+		fmt.Println("  Exceptions: admin peers, peers with relay_data=true attribute.")
+		fmt.Println("  To enable for all: set enable_data_relay: true in relay-server.yaml")
+	}
 
 	// Bootstrap into the private shurli DHT as a server.
 	// The relay is the primary bootstrap peer - all shurli nodes connect here first
@@ -238,10 +296,17 @@ func runRelayServe(args []string) {
 
 	// Initialize token store and pairing protocol handler.
 	tokenStore := relay.NewTokenStore()
+	depositStore := deposit.NewDepositStore()
+	// Same nil interface trap guard for pairing handler.
+	var pairingGater relay.GaterInterface
+	if gater != nil {
+		pairingGater = gater
+	}
 	pairingHandler := &relay.PairingHandler{
 		Store:        tokenStore,
 		AuthKeysPath: cfg.Security.AuthorizedKeysFile,
-		Gater:        gater,
+		Gater:        pairingGater,
+		Deposits:     depositStore,
 	}
 	notifier := &relay.PeerNotifier{Host: h, AuthKeysPath: cfg.Security.AuthorizedKeysFile, Store: tokenStore}
 	h.SetStreamHandler(protocol.ID(relay.PairingProtocol), func(s network.Stream) {
@@ -250,9 +315,15 @@ func runRelayServe(args []string) {
 			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
 		}
 	})
-	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
+	h.SetStreamHandler(protocol.ID(relay.PairingProtocolV2), func(s network.Stream) {
+		joinedPeer, groupID := pairingHandler.HandleStreamV2(s)
+		if joinedPeer != "" && groupID != "" {
+			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
+		}
+	})
+	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol, "v2", relay.PairingProtocolV2)
 
-	// Start admin socket for relay pair CLI.
+	// Start admin socket for relay CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
 	adminCookiePath := filepath.Join(filepath.Dir(configFile), ".relay-admin.cookie")
 	relayPeerID, err := peer.IDFromPrivateKey(priv)
@@ -264,8 +335,17 @@ func runRelayServe(args []string) {
 		slog.Warn("admin socket: could not build relay addr for code encoding", "err", err)
 		relayAddrStr = "" // non-fatal: admin socket still works, code encoding will fail
 	}
-	adminSrv := relay.NewAdminServer(tokenStore, gater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
+	// Pass gater as typed interface to avoid Go's nil interface trap:
+	// a nil *AuthorizedPeerGater passed as AdminGaterInterface becomes
+	// a non-nil interface with nil value, causing panics on method calls.
+	var adminGater relay.AdminGaterInterface
+	if gater != nil {
+		adminGater = gater
+	}
+	adminSrv := relay.NewAdminServer(tokenStore, adminGater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
 	adminSrv.SetAuthKeysPath(cfg.Security.AuthorizedKeysFile)
+	adminSrv.SetCircuitACL(circuitACL)
+	adminSrv.SetHost(h)
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
 	// existing peers can use the relay, but no new peers can be authorized.
@@ -288,7 +368,7 @@ func runRelayServe(args []string) {
 
 	// Wire up invite deposit store. The root key comes from the vault dynamically
 	// (available only when unsealed). The deposit store itself is always available.
-	adminSrv.SetDepositStore(deposit.NewDepositStore())
+	adminSrv.SetDepositStore(depositStore)
 
 	if err := adminSrv.Start(); err != nil {
 		slog.Error("failed to start admin socket", "err", err)
@@ -300,6 +380,7 @@ func runRelayServe(args []string) {
 	// Register remote admin protocol (replaces the old /shurli/relay-unseal/1.0.0 protocol).
 	// Available even when sealed - admin peers can unseal, check status, etc.
 	remoteAdminHandler := relay.NewRemoteAdminHandler(adminSrv, cfg.Security.AuthorizedKeysFile)
+	remoteAdminHandler.SetInvitePolicy(cfg.Security.InvitePolicy)
 	h.SetStreamHandler(protocol.ID(relay.RemoteAdminProtocol), func(s network.Stream) {
 		remoteAdminHandler.HandleStream(s)
 	})
@@ -641,14 +722,39 @@ func loadRelayAuthKeysPath(configFile string) string {
 }
 
 func doRelayAuthorize(args []string, configFile string, stdout io.Writer) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: shurli relay authorize <peer-id> [comment]")
+	fs := flag.NewFlagSet("relay authorize", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
 	}
 
-	peerID := args[0]
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: shurli relay authorize <peer-id> [comment] [--remote <addr>]")
+	}
+
+	peerID := fs.Arg(0)
 	comment := ""
-	if len(args) > 1 {
-		comment = strings.Join(args[1:], " ")
+	if fs.NArg() > 1 {
+		comment = strings.Join(fs.Args()[1:], " ")
+	}
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		if err := client.AuthorizePeer(peerID, comment); err != nil {
+			return fmt.Errorf("failed to authorize peer: %w", err)
+		}
+		fmt.Fprintf(stdout, "Authorized: %s\n", peerID[:min(16, len(peerID))]+"...")
+		if comment != "" {
+			fmt.Fprintf(stdout, "Comment:    %s\n", comment)
+		}
+		fmt.Fprintln(stdout, "Applied immediately (remote admin).")
+		return nil
 	}
 
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
@@ -677,11 +783,34 @@ func runRelayAuthorize(args []string, configFile string) {
 }
 
 func doRelayDeauthorize(args []string, configFile string, stdout io.Writer) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: shurli relay deauthorize <peer-id>")
+	fs := flag.NewFlagSet("relay deauthorize", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
 	}
 
-	peerID := args[0]
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: shurli relay deauthorize <peer-id> [--remote <addr>]")
+	}
+
+	peerID := fs.Arg(0)
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		if err := client.DeauthorizePeer(peerID); err != nil {
+			return fmt.Errorf("failed to deauthorize peer: %w", err)
+		}
+		fmt.Fprintf(stdout, "Deauthorized: %s\n", peerID[:min(16, len(peerID))]+"...")
+		fmt.Fprintln(stdout, "Applied immediately (remote admin).")
+		return nil
+	}
+
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
 		return err
@@ -719,7 +848,46 @@ func runRelayDeauthorize(args []string, configFile string) {
 	}
 }
 
-func doRelayListPeers(configFile string, stdout io.Writer) error {
+// termWidth returns the terminal width, or 80 if detection fails.
+func termWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
+}
+
+// formatPeerID returns the full peer ID on wide terminals (>=120 cols),
+// or a truncated version on narrower terminals.
+func formatPeerID(id string, wide bool) string {
+	if wide || len(id) <= 20 {
+		return id
+	}
+	return id[:16] + "..."
+}
+
+func doRelayListPeers(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay list-peers", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	wide := termWidth() >= 120
+
+	// Try admin client (local socket or remote P2P).
+	client, cleanup, clientErr := relayAdminClientOrRemote(*remoteFlag, configFile)
+	if clientErr == nil {
+		defer cleanup()
+		return listPeersViaClient(client, stdout, wide)
+	}
+
+	// Admin client unavailable (relay not running). Fall back to direct file read.
+	if *remoteFlag != "" {
+		return fmt.Errorf("failed to connect to remote relay: %w", clientErr)
+	}
+
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
 		return err
@@ -729,28 +897,141 @@ func doRelayListPeers(configFile string, stdout io.Writer) error {
 		return fmt.Errorf("failed to list peers: %w", err)
 	}
 
-	fmt.Fprintf(stdout, "Authorized peers (%s):\n\n", authKeysPath)
-	if len(peers) == 0 {
-		fmt.Fprintln(stdout, "  (none)")
-	} else {
-		for _, p := range peers {
-			role := p.Role
-			if role == "" {
-				role = "member"
-			}
-			if p.Comment != "" {
-				fmt.Fprintf(stdout, "  %s  [%s]  # %s\n", p.PeerID, role, p.Comment)
-			} else {
-				fmt.Fprintf(stdout, "  %s  [%s]\n", p.PeerID, role)
-			}
+	apiPeers := make([]relay.AuthorizedPeerInfo, len(peers))
+	for i, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		apiPeers[i] = relay.AuthorizedPeerInfo{
+			PeerID:    p.PeerID.String(),
+			Role:      role,
+			Comment:   p.Comment,
+			Verified:  p.Verified,
+			Group:     p.Group,
+			RelayData: p.RelayData,
+		}
+		if !p.ExpiresAt.IsZero() {
+			apiPeers[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
 		}
 	}
-	fmt.Fprintf(stdout, "\nTotal: %d peer(s)\n", len(peers))
+	printAuthorizedPeers(stdout, apiPeers, wide)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Connected peers: (relay not running)")
 	return nil
 }
 
-func runRelayListPeers(configFile string) {
-	if err := doRelayListPeers(configFile, os.Stdout); err != nil {
+func listPeersViaClient(client relay.RelayAdminAPI, stdout io.Writer, wide bool) error {
+	// Fetch authorized peers.
+	authPeers, err := client.ListPeers()
+	if err != nil {
+		// Non-fatal: public seed may have no authorized_keys configured.
+		fmt.Fprintln(stdout, "Authorized peers: (not configured)")
+	} else {
+		printAuthorizedPeers(stdout, authPeers, wide)
+	}
+
+	fmt.Fprintln(stdout)
+
+	// Fetch connected peers.
+	connected, err := client.ListConnectedPeers()
+	if err != nil {
+		fmt.Fprintf(stdout, "Connected peers: error (%v)\n", err)
+		return nil
+	}
+
+	if len(connected) == 0 {
+		fmt.Fprintln(stdout, "Connected peers: (none)")
+	} else {
+		fmt.Fprintf(stdout, "Connected peers (%d):\n\n", len(connected))
+		for _, p := range connected {
+			pid := formatPeerID(p.PeerID, wide)
+			agent := p.AgentVersion
+			if agent == "" {
+				agent = "unknown"
+			}
+
+			dur := formatDuration(p.DurationSecs)
+
+			authTag := "[unknown]"
+			if p.Authorized {
+				authTag = "[" + p.Role + "]"
+			}
+
+			ip := p.IP
+			if ip == "" {
+				ip = "-"
+			}
+
+			if p.Comment != "" {
+				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s  # %s\n",
+					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag, p.Comment)
+			} else {
+				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s\n",
+					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag)
+			}
+		}
+	}
+	return nil
+}
+
+func printAuthorizedPeers(stdout io.Writer, peers []relay.AuthorizedPeerInfo, wide bool) {
+	if len(peers) == 0 {
+		fmt.Fprintln(stdout, "Authorized peers: (none)")
+		return
+	}
+
+	fmt.Fprintf(stdout, "Authorized peers (%d):\n\n", len(peers))
+	for _, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		tags := "[" + role + "]"
+		if p.Verified != "" {
+			tags += " [verified]"
+		} else {
+			tags += " [UNVERIFIED]"
+		}
+		if p.RelayData {
+			tags += " [relay_data]"
+		}
+		pid := formatPeerID(p.PeerID, wide)
+		if p.Comment != "" {
+			fmt.Fprintf(stdout, "  %s  %s  # %s\n", pid, tags, p.Comment)
+		} else {
+			fmt.Fprintf(stdout, "  %s  %s\n", pid, tags)
+		}
+	}
+}
+
+func peerIDWidth(wide bool) int {
+	if wide {
+		return 52 // full peer ID
+	}
+	return 19 // 16 chars + "..."
+}
+
+func formatDuration(secs int) string {
+	d := time.Duration(secs) * time.Second
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", secs)
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	h := secs / 3600
+	m := (secs % 3600) / 60
+	if h >= 24 {
+		days := h / 24
+		h = h % 24
+		return fmt.Sprintf("%dd%dh", days, h)
+	}
+	return fmt.Sprintf("%dh%dm", h, m)
+}
+
+func runRelayListPeers(args []string, configFile string) {
+	if err := doRelayListPeers(args, configFile, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(1)
 	}
@@ -762,14 +1043,25 @@ func runRelayInfo(configFile string) {
 		fatal("Failed to load config: %v", err)
 	}
 
-	// Read identity key (don't auto-create  - info is read-only)
+	// Read identity key (don't auto-create  - info is read-only).
+	// Try raw key first (legacy/tests), then encrypted SHRL with session token.
 	data, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
 		fatal("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)
 	}
-	priv, err := crypto.UnmarshalPrivateKey(data)
+	var priv crypto.PrivKey
+	if identity.IsEncrypted(data) {
+		relayConfigDir := filepath.Dir(configFile)
+		pw, pwErr := resolvePasswordInteractive(relayConfigDir, os.Stdout)
+		if pwErr != nil {
+			fatal("Identity error: %v", pwErr)
+		}
+		priv, err = identity.LoadIdentity(cfg.Identity.KeyFile, pw)
+	} else {
+		priv, err = crypto.UnmarshalPrivateKey(data)
+	}
 	if err != nil {
-		fatal("Invalid identity key: %v", err)
+		fatal("Invalid identity key %s: %v", cfg.Identity.KeyFile, err)
 	}
 	peerID, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
@@ -853,17 +1145,51 @@ func runRelayServerConfig(args []string, configFile string) {
 		fmt.Println("Usage: shurli relay config <command>")
 		fmt.Println()
 		fmt.Println("Commands:")
+		fmt.Println("  show        Show resolved relay config")
 		fmt.Println("  validate    Validate relay-server.yaml without starting")
 		fmt.Println("  rollback    Restore last-known-good config")
 		osExit(1)
 	}
 	switch args[0] {
+	case "show":
+		runRelayServerConfigShow(configFile)
 	case "validate":
 		runRelayServerConfigValidate(configFile)
 	case "rollback":
 		runRelayServerConfigRollback(configFile)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
+		osExit(1)
+	}
+}
+
+func doRelayServerConfigShow(configFile string, stdout io.Writer) error {
+	cfg, err := config.LoadRelayServerConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %v", err)
+	}
+	if err := config.ValidateRelayServerConfig(cfg); err != nil {
+		fmt.Fprintf(stdout, "WARNING: config has validation errors: %v\n\n", err)
+	}
+
+	fmt.Fprintf(stdout, "# Resolved config from %s\n", configFile)
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	fmt.Fprint(stdout, string(out))
+
+	if config.HasArchive(configFile) {
+		fmt.Fprintf(stdout, "\n# Last-known-good archive: %s\n", config.ArchivePath(configFile))
+	} else {
+		fmt.Fprintf(stdout, "\n# No last-known-good archive (will be created on next successful serve)\n")
+	}
+	return nil
+}
+
+func runRelayServerConfigShow(configFile string) {
+	if err := doRelayServerConfigShow(configFile, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		osExit(1)
 	}
 }
@@ -936,6 +1262,37 @@ func buildPublicMultiaddrs(listenAddrs []string, publicIPs []string, peerID peer
 	return result
 }
 
+// buildRelayAddr constructs a relay multiaddr from the relay server config and a known peer ID.
+func buildRelayAddr(cfg *config.RelayServerConfig, pid peer.ID) (string, error) {
+	if len(cfg.Network.ListenAddresses) == 0 {
+		return "", fmt.Errorf("no listen addresses in relay config")
+	}
+
+	// Find a suitable listen address (prefer TCP for invite code encoding).
+	var addr string
+	for _, a := range cfg.Network.ListenAddresses {
+		if strings.Contains(a, "/tcp/") && !strings.Contains(a, "/ws") {
+			addr = a
+			break
+		}
+	}
+	if addr == "" {
+		addr = cfg.Network.ListenAddresses[0]
+	}
+
+	// Replace 0.0.0.0 with a detected public IP.
+	if strings.Contains(addr, "/0.0.0.0/") {
+		publicIPs := detectPublicIPs()
+		if len(publicIPs) > 0 {
+			addr = strings.Replace(addr, "/0.0.0.0/", "/"+publicIPs[0]+"/", 1)
+		} else {
+			return "", fmt.Errorf("relay listens on 0.0.0.0 but no public IP detected; specify a public address in config")
+		}
+	}
+
+	return addr + "/p2p/" + pid.String(), nil
+}
+
 // detectPublicIPs returns non-private, non-loopback IP addresses from network interfaces.
 func detectPublicIPs() []string {
 	var ips []string
@@ -982,6 +1339,131 @@ func extractTCPPort(listenAddresses []string) string {
 	return "7777"
 }
 
+func runRelayVerify(args []string, configFile string) {
+	if err := doRelayVerify(args, configFile, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doRelayVerify(args []string, configFile string, stdout io.Writer) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: shurli relay verify <peer-id>\n\nVerify a peer's identity using a Short Authentication String (SAS).\nBoth sides must see the same code for the connection to be authentic.")
+	}
+
+	target := args[0]
+
+	// Load relay config.
+	cfg, err := config.LoadRelayServerConfig(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Resolve target to peer ID.
+	targetPeerID, err := peer.Decode(target)
+	if err != nil {
+		return fmt.Errorf("invalid peer ID: %q\n  Must be a valid peer ID (e.g. 12D3KooW...)", target)
+	}
+
+	// Check peer is authorized on this relay.
+	authKeysPath := cfg.Security.AuthorizedKeysFile
+	if authKeysPath == "" {
+		return fmt.Errorf("no authorized_keys_file configured")
+	}
+	peers, err := auth.ListPeers(authKeysPath)
+	if err != nil {
+		return fmt.Errorf("failed to list peers: %w", err)
+	}
+
+	var displayName string
+	found := false
+	for _, p := range peers {
+		if p.PeerID == targetPeerID {
+			found = true
+			displayName = p.Comment
+			if p.Verified != "" {
+				fmt.Fprintf(stdout, "Peer is already verified (fingerprint: %s).\n", p.Verified)
+				fmt.Fprint(stdout, "Re-verify? [y/N]: ")
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "y" && answer != "yes" {
+					return nil
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("peer not authorized on this relay: %s...\n  Authorize first: shurli relay authorize %s", targetPeerID.String()[:16], target)
+	}
+
+	// Load relay's own identity.
+	relayConfigDir := filepath.Dir(configFile)
+	pw, pwErr := resolvePasswordInteractive(relayConfigDir, stdout)
+	if pwErr != nil {
+		return fmt.Errorf("identity error: %w", pwErr)
+	}
+	ourPeerID, err := identity.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
+	if err != nil {
+		return fmt.Errorf("failed to load relay identity: %w", err)
+	}
+
+	// Compute fingerprint.
+	emoji, numeric := p2pnet.ComputeFingerprint(ourPeerID, targetPeerID)
+	prefix := p2pnet.FingerprintPrefix(ourPeerID, targetPeerID)
+
+	// Display.
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "=== Relay Peer Verification ===")
+	fmt.Fprintln(stdout)
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Peer:     %s (%s...)\n", displayName, targetPeerID.String()[:16])
+	} else {
+		fmt.Fprintf(stdout, "Peer:     %s...\n", targetPeerID.String()[:16])
+	}
+	fmt.Fprintf(stdout, "Relay ID: %s...\n", ourPeerID.String()[:16])
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "Verification code:  %s\n", emoji)
+	fmt.Fprintf(stdout, "Numeric code:       %s\n", numeric)
+	fmt.Fprintln(stdout)
+
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Compare this with %s over a secure channel\n", displayName)
+	} else {
+		fmt.Fprintln(stdout, "Compare this with the peer over a secure channel")
+	}
+	fmt.Fprintln(stdout, "(phone call, in person, trusted messaging).")
+	fmt.Fprintln(stdout)
+	fmt.Fprintf(stdout, "The peer should run: shurli verify <this-relay-name-or-id>\n")
+	fmt.Fprintln(stdout)
+
+	// Prompt for confirmation.
+	fmt.Fprint(stdout, "Does the peer see the same code? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	if answer != "y" && answer != "yes" {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Verification cancelled. Peer remains unverified.")
+		return nil
+	}
+
+	// Write verified attribute.
+	if err := auth.SetPeerAttr(authKeysPath, targetPeerID.String(), "verified", prefix); err != nil {
+		return fmt.Errorf("failed to mark peer as verified: %w", err)
+	}
+
+	fmt.Fprintln(stdout)
+	if displayName != "" {
+		fmt.Fprintf(stdout, "Peer \"%s\" verified!\n", displayName)
+	} else {
+		fmt.Fprintln(stdout, "Peer verified!")
+	}
+	return nil
+}
+
 func printRelayServeUsage() {
 	fmt.Println("Usage: shurli relay <command> [options]")
 	fmt.Println()
@@ -990,38 +1472,39 @@ func printRelayServeUsage() {
 	fmt.Println("  list                                List configured relay addresses")
 	fmt.Println("  remove <multiaddr>                  Remove a relay server address")
 	fmt.Println()
-	fmt.Println("Relay server management:")
-	fmt.Println("  setup                               Initialize relay config (backup/restore)")
-	fmt.Println("  serve                               Start the relay server")
-	fmt.Println("  info                                Show peer ID, multiaddrs, QR code")
+	fmt.Println("Relay server management (local or --remote):")
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")
 	fmt.Println("  deauthorize <peer-id>               Remove a peer's access")
 	fmt.Println("  list-peers                          List authorized peers")
-	fmt.Println("  config validate                     Validate relay config without starting")
-	fmt.Println("  config rollback                     Restore last-known-good config")
-	fmt.Println()
-	fmt.Println("Vault (relay security):")
-	fmt.Println("  vault init [--totp] [--auto-seal N] Initialize passphrase-sealed vault")
-	fmt.Println("  vault status                        Show vault seal status")
 	fmt.Println("  seal                                Seal vault (watch-only mode)")
 	fmt.Println("  unseal                              Unseal vault")
-	fmt.Println("  seal-status                         Show vault seal status (shorthand)")
+	fmt.Println("  seal-status                         Show vault seal status")
+	fmt.Println("  invite create [--ttl 1h]            Generate an invite code")
+	fmt.Println("  invite list                         List active invites")
+	fmt.Println("  invite revoke <id>                  Revoke an invite")
+	fmt.Println("  motd <subcommand>                   Manage relay MOTD")
+	fmt.Println("  goodbye <subcommand>                Manage goodbye announcements")
 	fmt.Println()
-	fmt.Println("Operator announcements:")
-	fmt.Println("  motd set <message>                  Set MOTD (shown to connecting peers)")
-	fmt.Println("  motd clear                          Clear MOTD")
-	fmt.Println("  motd status                         Show MOTD and goodbye status")
-	fmt.Println("  goodbye set <message>               Set goodbye (pushed to all peers)")
-	fmt.Println("  goodbye retract                     Retract a goodbye announcement")
-	fmt.Println("  goodbye shutdown [message]          Send goodbye and shut down relay")
+	fmt.Println("Relay server management (local only):")
+	fmt.Println("  setup                               Initialize relay config (backup/restore)")
+	fmt.Println("  serve                               Start the relay server")
+	fmt.Println("  info                                Show peer ID, multiaddrs, QR code")
+	fmt.Println("  verify <peer-id>                    Verify a peer's identity (SAS)")
+	fmt.Println("  show                                Show resolved relay config")
+	fmt.Println("  config <subcommand>                 Config management (show/validate/rollback)")
+	fmt.Println("  vault init [--totp] [--auto-seal N] Initialize passphrase-sealed vault")
+	fmt.Println("  recover                             Recover identity from seed phrase")
+	fmt.Println("  version                             Show relay version")
+	fmt.Println()
+	fmt.Println("All remote-capable commands accept: --remote <multiaddr|name|peer-id>")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli relay add /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...")
-	fmt.Println("  shurli relay add 203.0.113.50:7777 --peer-id 12D3KooW...")
 	fmt.Println("  shurli relay serve --config /etc/shurli/relay-server.yaml")
 	fmt.Println("  shurli relay authorize 12D3KooW... home-node")
-	fmt.Println("  shurli relay info")
+	fmt.Println("  shurli relay list-peers --remote 12D3KooW...")
+	fmt.Println("  shurli relay unseal --remote my-relay")
 	fmt.Println()
 	fmt.Println("Server commands use relay-server.yaml in the working directory by default.")
-	fmt.Println("All commands support --config <path>.")
+	fmt.Println("Local commands support --config <path>.")
 }

@@ -287,8 +287,9 @@ security:
 		t.Fatalf("LoadRelayServerConfig: %v", err)
 	}
 
-	if cfg.Identity.KeyFile != "relay.key" {
-		t.Errorf("KeyFile = %q", cfg.Identity.KeyFile)
+	wantKeyFile := filepath.Join(dir, "relay.key")
+	if cfg.Identity.KeyFile != wantKeyFile {
+		t.Errorf("KeyFile = %q, want %q", cfg.Identity.KeyFile, wantKeyFile)
 	}
 	if len(cfg.Network.ListenAddresses) != 1 {
 		t.Errorf("ListenAddresses count = %d", len(cfg.Network.ListenAddresses))

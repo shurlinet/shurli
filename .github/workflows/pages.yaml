@@ -7,7 +7,7 @@ on:
       - 'website/**'
       - 'docs/**'
       - 'README.md'
-      - 'relay-server/README.md'
+      - 'docs/RELAY-SETUP.md'
       - 'tools/sync-docs/**'
 
 # Allow one concurrent deployment

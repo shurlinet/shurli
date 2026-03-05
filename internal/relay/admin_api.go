@@ -23,6 +23,10 @@ type RelayAdminAPI interface {
 	CreateGroup(count, ttlSec, expiresSec int, namespace string) (*PairResponse, error)
 	ListGroups() ([]GroupInfo, error)
 	RevokeGroup(id string) error
+	ListPeers() ([]AuthorizedPeerInfo, error)
+	ListConnectedPeers() ([]ConnectedPeerInfo, error)
+	AuthorizePeer(peerID, comment string) error
+	DeauthorizePeer(peerID string) error
 	AuthReload() error
 	ZKPTreeRebuild() (map[string]any, error)
 	ZKPTreeInfo() (*ZKPTreeInfoResponse, error)
@@ -32,4 +36,33 @@ type RelayAdminAPI interface {
 	SetGoodbye(message string) error
 	RetractGoodbye() error
 	GoodbyeShutdown(message string) error
+}
+
+// AuthorizedPeerInfo is the JSON representation of an authorized peer
+// for the admin API. Distinct from PeerInfo in tokens.go (pairing groups).
+type AuthorizedPeerInfo struct {
+	PeerID    string `json:"peer_id"`
+	Role      string `json:"role"`
+	Comment   string `json:"comment,omitempty"`
+	Verified  string `json:"verified,omitempty"`
+	Group     string `json:"group,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	RelayData bool   `json:"relay_data,omitempty"`
+}
+
+// ConnectedPeerInfo describes a currently connected peer with network details.
+type ConnectedPeerInfo struct {
+	PeerID       string `json:"peer_id"`
+	ShortID      string `json:"short_id"`
+	AgentVersion string `json:"agent_version,omitempty"`
+	Direction    string `json:"direction"`
+	ConnectedAt  string `json:"connected_at"`
+	DurationSecs int    `json:"duration_seconds"`
+	Transport    string `json:"transport"`
+	RemoteAddr   string `json:"remote_addr"`
+	IP           string `json:"ip"`
+	IsRelay      bool   `json:"is_relay"`
+	Authorized   bool   `json:"authorized"`
+	Role         string `json:"role,omitempty"`
+	Comment      string `json:"comment,omitempty"`
 }

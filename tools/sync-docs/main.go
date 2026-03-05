@@ -243,23 +243,24 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 	return true
 }
 
-// syncRelaySetup syncs relay-server/README.md.
+// syncRelaySetup syncs docs/RELAY-SETUP.md.
 func syncRelaySetup(root, outDir string, dryRun bool) bool {
-	srcPath := filepath.Join(root, "relay-server", "README.md")
+	docsDir := filepath.Join(root, "docs")
+	srcPath := filepath.Join(docsDir, relaySetupMeta.Source)
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		fmt.Printf("  SKIP relay-setup (relay-server/README.md not found)\n")
+		fmt.Printf("  SKIP relay-setup (%s not found)\n", relaySetupMeta.Source)
 		return false
 	}
 
 	body := stripFirstHeading(string(data))
 
 	output := buildFrontMatter(relaySetupMeta.Title, relaySetupMeta.Weight, relaySetupMeta.Description)
-	output += buildSyncComment("relay-server/README.md")
+	output += buildSyncComment(relaySetupMeta.Source)
 	output += "\n" + body
 
 	if dryRun {
-		fmt.Printf("  WOULD SYNC relay-server/README.md -> relay-setup.md\n")
+		fmt.Printf("  WOULD SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
 		return true
 	}
 
@@ -268,7 +269,7 @@ func syncRelaySetup(root, outDir string, dryRun bool) bool {
 		fmt.Printf("  ERROR relay-setup.md: %v\n", err)
 		return false
 	}
-	fmt.Printf("  SYNC relay-server/README.md -> relay-setup.md\n")
+	fmt.Printf("  SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
 	return true
 }
 
@@ -376,7 +377,7 @@ func generateLLMSFull(root, docsDir, websiteDir string, dryRun bool) bool {
 	}
 
 	// Relay setup last
-	appendFile(&b, filepath.Join(root, "relay-server", "README.md"), separator)
+	appendFile(&b, filepath.Join(docsDir, relaySetupMeta.Source), separator)
 
 	outPath := filepath.Join(websiteDir, "static", "llms-full.txt")
 	content := b.String()
