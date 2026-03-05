@@ -187,19 +187,11 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 	t.Logf("Join output (stderr): %s", stderr)
 
-	// ── Step 6: Verify authorized_keys on both nodes ──
-	t.Log("Verifying authorized_keys...")
+	// ── Step 6: Verify joiner's authorized_keys (immediate) ──
+	// Async model: joiner learns about inviter immediately from relay response.
+	// Inviter learns about joiner later via peer-notify (when daemon runs).
+	t.Log("Verifying node-b authorized_keys...")
 
-	// Node-a should have node-b's peer ID.
-	authA, _, err := dockerExec("node-a", "cat", "/root/.config/shurli/authorized_keys")
-	if err != nil {
-		t.Fatalf("failed to read node-a authorized_keys: %v", err)
-	}
-	if !strings.Contains(authA, nodeBPeerID) {
-		t.Errorf("node-a authorized_keys missing node-b peer ID.\nExpected to contain: %s\nGot:\n%s", nodeBPeerID, authA)
-	}
-
-	// Node-b should have node-a's peer ID.
 	authB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/authorized_keys")
 	if err != nil {
 		t.Fatalf("failed to read node-b authorized_keys: %v", err)
