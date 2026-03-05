@@ -11,12 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/auth"
-	"github.com/shurlinet/shurli/internal/invite"
+	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -877,9 +875,7 @@ func (s *Server) Listener() net.Listener {
 	return s.listener
 }
 
-// --- Invite handlers ---
-
-const inviteProtocol = "/shurli/invite/1.0.0"
+// --- Invite handlers (async, relay-delegated) ---
 
 func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	var req InviteCreateRequest
@@ -890,7 +886,12 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 
 	ttl := req.TTLSeconds
 	if ttl <= 0 {
-		ttl = 600 // 10 minutes default
+		ttl = 86400 // 24 hours default
+	}
+
+	count := req.Count
+	if count <= 0 {
+		count = 1
 	}
 
 	s.mu.Lock()
@@ -901,179 +902,49 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	// Generate PAKE token
-	token, err := invite.GenerateToken()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to generate invite token")
-		return
-	}
-
 	rt := s.runtime
-	h := rt.Network().Host()
-
-	// Encode invite code (v1 PAKE format)
 	relayAddrs := rt.RelayAddresses()
 	if len(relayAddrs) == 0 {
 		respondError(w, http.StatusBadRequest, "no relay addresses configured; cannot create invite")
 		return
 	}
 
-	inviteData := &invite.InviteData{
-		Token:     token,
-		RelayAddr: relayAddrs[0],
-		PeerID:    h.ID(),
-		Network:   rt.DiscoveryNetwork(),
-	}
-	code, err := invite.Encode(inviteData)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode invite: %v", err))
+	// Connect to relay and create pairing group
+	h := rt.Network().Host()
+	relayInfos, err := p2pnet.ParseRelayAddrs(relayAddrs)
+	if err != nil || len(relayInfos) == 0 {
+		respondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
 		return
 	}
 
-	// Create invite session
-	ctx, cancel := context.WithCancel(context.Background())
-	inv := &activeInvite{
-		id:     fmt.Sprintf("inv-%d", time.Now().UnixNano()),
-		token:  token,
-		name:   req.Name,
-		cancel: cancel,
-		result: make(chan inviteResult, 1),
+	relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
+	pairResp, err := relayClient.CreateGroup(count, ttl, 0, rt.DiscoveryNetwork())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create invite on relay: %v", err))
+		return
 	}
 
-	// Register stream handler for PAKE handshake
-	srv := s // capture server for closure (avoid shadowing with stream param)
-	h.SetStreamHandler(protocol.ID(inviteProtocol), func(stream network.Stream) {
-		defer stream.Close()
-		remotePeer := stream.Conn().RemotePeer()
-
-		// Read version byte
-		var firstByte [1]byte
-		if _, err := io.ReadFull(stream, firstByte[:]); err != nil {
-			slog.Error("invite stream read error", "error", err)
-			return
-		}
-		if firstByte[0] != invite.VersionV1 {
-			slog.Error("unknown invite protocol version", "version", firstByte[0], "peer", remotePeer.String()[:16])
-			return
-		}
-
-		joinerName, ok := srv.handleInvitePAKE(stream, token, inv.name, remotePeer)
-		if ok {
-			inv.result <- inviteResult{joinerName: joinerName}
-		}
-	})
+	// Create invite session for tracking
+	_, cancel := context.WithCancel(context.Background())
+	inv := &activeInvite{
+		id:      fmt.Sprintf("inv-%d", time.Now().UnixNano()),
+		groupID: pairResp.GroupID,
+		codes:   pairResp.Codes,
+		cancel:  cancel,
+	}
 
 	s.mu.Lock()
 	s.pendingInvite = inv
 	s.mu.Unlock()
 
-	// TTL goroutine: expire the invite after timeout
-	go func() {
-		select {
-		case <-time.After(time.Duration(ttl) * time.Second):
-			s.mu.Lock()
-			if s.pendingInvite == inv {
-				s.pendingInvite = nil
-				s.mu.Unlock()
-				h.RemoveStreamHandler(protocol.ID(inviteProtocol))
-				cancel()
-				// Non-blocking send in case nobody is waiting
-				select {
-				case inv.result <- inviteResult{err: fmt.Errorf("expired")}:
-				default:
-				}
-			} else {
-				s.mu.Unlock()
-			}
-		case <-ctx.Done():
-			// Cancelled or joined
-		}
-	}()
-
-	slog.Info("invite created via API", "id", inv.id, "ttl", ttl)
+	slog.Info("invite created via API", "id", inv.id, "group", pairResp.GroupID, "codes", len(pairResp.Codes), "ttl", ttl)
 	respondJSON(w, http.StatusOK, InviteCreateResponse{
-		InviteID: inv.id,
-		Code:     code,
-		TTL:      ttl,
-		PeerID:   h.ID().String(),
+		InviteID:  inv.id,
+		Codes:     pairResp.Codes,
+		GroupID:   pairResp.GroupID,
+		TTL:       ttl,
+		ExpiresAt: pairResp.ExpiresAt,
 	})
-}
-
-// handleInvitePAKE runs the PAKE handshake on an invite stream.
-// Returns joiner name and success boolean.
-func (s *Server) handleInvitePAKE(stream network.Stream, token [8]byte, inviterName string, remotePeer peer.ID) (string, bool) {
-	remotePeerStr := remotePeer.String()
-
-	// Read joiner's X25519 public key (32 bytes)
-	joinerPub, err := invite.ReadPublicKey(stream)
-	if err != nil {
-		slog.Error("PAKE: failed to read joiner public key", "peer", remotePeerStr[:16], "error", err)
-		return "", false
-	}
-
-	// Create our PAKE session and send our public key
-	session, err := invite.NewPAKESession()
-	if err != nil {
-		slog.Error("PAKE: session error", "error", err)
-		return "", false
-	}
-
-	if err := session.WritePublicKey(stream); err != nil {
-		slog.Error("PAKE: failed to send public key", "error", err)
-		return "", false
-	}
-
-	// Complete DH exchange with token binding
-	if err := session.Complete(joinerPub, token); err != nil {
-		slog.Error("PAKE: key exchange failed", "peer", remotePeerStr[:16], "error", err)
-		return "", false
-	}
-
-	// Read encrypted joiner name
-	joinerNameBytes, err := session.Decrypt(stream)
-	if err != nil {
-		slog.Info("invalid invite code from peer", "peer", remotePeerStr[:16])
-		return "", false
-	}
-	joinerName := string(joinerNameBytes)
-
-	// Authorize the joiner
-	authPath := s.runtime.AuthKeysPath()
-	if authPath == "" {
-		slog.Error("PAKE: no authorized_keys path configured")
-		session.WriteEncrypted(stream, []byte("ERR server error"))
-		return "", false
-	}
-
-	comment := joinerName
-	if comment == "" {
-		comment = "joined-" + time.Now().Format("2006-01-02")
-	}
-	if err := auth.AddPeer(authPath, remotePeer.String(), comment); err != nil {
-		if !strings.Contains(err.Error(), "already authorized") {
-			slog.Error("failed to authorize peer", "error", err)
-			session.WriteEncrypted(stream, []byte("ERR server error"))
-			return "", false
-		}
-	}
-
-	// Hot-reload gater so the new peer can connect immediately
-	if err := s.reloadGater(); err != nil {
-		slog.Error("failed to reload gater after invite", "error", err)
-	}
-
-	// Send encrypted response: "OK <inviter_name>"
-	response := "OK " + inviterName
-	if err := session.WriteEncrypted(stream, []byte(response)); err != nil {
-		slog.Error("PAKE: failed to send response", "error", err)
-		return "", false
-	}
-
-	// Allow the response to flush through the relay circuit
-	time.Sleep(2 * time.Second)
-
-	slog.Info("peer joined via invite", "joiner", joinerName, "peer", remotePeerStr[:16])
-	return joinerName, true
 }
 
 func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
@@ -1092,31 +963,74 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	rc.SetWriteDeadline(time.Now().Add(15 * time.Minute))
 
-	select {
-	case result := <-inv.result:
-		// Clean up
-		s.mu.Lock()
-		if s.pendingInvite == inv {
-			s.pendingInvite = nil
-		}
-		s.mu.Unlock()
-		s.runtime.Network().Host().RemoveStreamHandler(protocol.ID(inviteProtocol))
-		inv.cancel()
+	rt := s.runtime
+	h := rt.Network().Host()
+	relayAddrs := rt.RelayAddresses()
+	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+	if len(relayInfos) == 0 {
+		respondError(w, http.StatusInternalServerError, "no relay addresses available")
+		return
+	}
 
-		if result.err != nil {
-			respondJSON(w, http.StatusOK, InviteWaitResponse{
-				Status: "expired",
-			})
-		} else {
-			respondJSON(w, http.StatusOK, InviteWaitResponse{
-				Status:     "joined",
-				JoinerName: result.joinerName,
-				AuthKeys:   s.runtime.AuthKeysPath(),
-			})
-		}
+	relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
 
-	case <-r.Context().Done():
-		respondError(w, http.StatusGatewayTimeout, "client disconnected")
+	// Poll relay for group status every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			groups, err := relayClient.ListGroups()
+			if err != nil {
+				continue // retry on transient errors
+			}
+
+			// Find our group
+			found := false
+			for _, g := range groups {
+				if g.ID == inv.groupID {
+					found = true
+					if g.Used >= g.Total {
+						// All codes used - complete
+						s.mu.Lock()
+						if s.pendingInvite == inv {
+							s.pendingInvite = nil
+						}
+						s.mu.Unlock()
+						inv.cancel()
+
+						respondJSON(w, http.StatusOK, InviteWaitResponse{
+							Status: "complete",
+							Used:   g.Used,
+							Total:  g.Total,
+						})
+						return
+					}
+					// Partial - still waiting
+					break
+				}
+			}
+
+			if !found {
+				// Group not found - expired or revoked
+				s.mu.Lock()
+				if s.pendingInvite == inv {
+					s.pendingInvite = nil
+				}
+				s.mu.Unlock()
+				inv.cancel()
+
+				respondJSON(w, http.StatusOK, InviteWaitResponse{
+					Status: "expired",
+				})
+				return
+			}
+
+		case <-r.Context().Done():
+			respondError(w, http.StatusGatewayTimeout, "client disconnected")
+			return
+		}
 	}
 }
 
@@ -1129,10 +1043,20 @@ func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
 		s.pendingInvite = nil
 		s.mu.Unlock()
 
-		s.runtime.Network().Host().RemoveStreamHandler(protocol.ID(inviteProtocol))
-		inv.cancel()
+		// Revoke the group on the relay
+		rt := s.runtime
+		h := rt.Network().Host()
+		relayAddrs := rt.RelayAddresses()
+		relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+		if len(relayInfos) > 0 {
+			relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
+			if err := relayClient.RevokeGroup(inv.groupID); err != nil {
+				slog.Error("failed to revoke invite group on relay", "group", inv.groupID, "error", err)
+			}
+		}
 
-		slog.Info("invite cancelled via API", "id", id)
+		inv.cancel()
+		slog.Info("invite cancelled via API", "id", id, "group", inv.groupID)
 		respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 		return
 	}

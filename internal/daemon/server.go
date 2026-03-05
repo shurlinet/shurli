@@ -44,19 +44,12 @@ type GaterReloader interface {
 	ReloadFromFile() error // reload authorized_keys and update the gater
 }
 
-// activeInvite tracks a pending invite session.
+// activeInvite tracks a pending async invite (relay-stored).
 type activeInvite struct {
-	id     string
-	token  [8]byte
-	name   string
-	cancel context.CancelFunc
-	result chan inviteResult // buffered(1)
-}
-
-// inviteResult is sent on the active invite's result channel.
-type inviteResult struct {
-	joinerName string
-	err        error
+	id          string
+	groupID     string
+	codes       []string
+	cancel      context.CancelFunc
 }
 
 // activeProxy tracks a dynamically created TCP proxy.
