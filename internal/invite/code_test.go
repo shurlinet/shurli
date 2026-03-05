@@ -146,13 +146,13 @@ func TestDecodeInvalid(t *testing.T) {
 }
 
 func TestDecodeFutureVersion(t *testing.T) {
-	// Version 0x03 should be rejected with a helpful message
+	// Version 0x04 should be rejected with a helpful message
 	raw := make([]byte, 30)
-	raw[0] = 0x03
+	raw[0] = 0x04
 	encoded := encoding.EncodeToString(raw)
 	_, err := Decode(encoded)
 	if err == nil {
-		t.Error("expected error for version 3")
+		t.Error("expected error for version 4")
 	}
 	if !strings.Contains(err.Error(), "newer than supported") {
 		t.Errorf("error should mention upgrade, got: %v", err)

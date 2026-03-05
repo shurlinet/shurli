@@ -40,10 +40,11 @@ type AdminGaterInterface interface {
 
 // PairRequest is the JSON body for POST /v1/pair.
 type PairRequest struct {
-	Count      int `json:"count"`
-	TTLSeconds int `json:"ttl_seconds"`
-	Namespace  string `json:"namespace,omitempty"`
-	ExpiresSeconds int `json:"expires_seconds,omitempty"`
+	Count          int      `json:"count"`
+	TTLSeconds     int      `json:"ttl_seconds"`
+	Namespace      string   `json:"namespace,omitempty"`
+	ExpiresSeconds int      `json:"expires_seconds,omitempty"`
+	Caveats        []string `json:"caveats,omitempty"` // macaroon caveats for unified invite
 }
 
 // PairResponse is the JSON response for POST /v1/pair.
@@ -366,21 +367,42 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		peerTTL = time.Duration(req.ExpiresSeconds) * time.Second
 	}
 
-	tokens, groupID, err := s.store.CreateGroup(req.Count, ttl, ns, peerTTL)
+	// Use short 10-byte tokens for v3 short codes.
+	tokens, groupID, err := s.store.CreateGroupShort(req.Count, ttl, ns, peerTTL)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create group: %v", err))
 		return
 	}
 
-	// Enable enrollment mode so joining peers can connect.
-	if s.gater != nil {
-		s.gater.SetEnrollmentMode(true, 10, 15*time.Second)
+	// If caveats are provided and vault is available, create a macaroon deposit
+	// and link it to the pairing group (unified invite).
+	if len(req.Caveats) > 0 && s.vault != nil && s.deposits != nil {
+		rootKey, err := s.vault.RootKey()
+		if err == nil {
+			m := macaroon.New(s.relayAddr, rootKey, fmt.Sprintf("invite-%s", groupID))
+			for _, c := range req.Caveats {
+				m.AddFirstPartyCaveat(c)
+			}
+			dep, err := s.deposits.Create(m, "admin", ttl)
+			if err != nil {
+				slog.Warn("failed to create invite deposit for group", "group", groupID, "err", err)
+			} else {
+				s.store.SetDepositID(groupID, dep.ID)
+				s.recordDepositOp("create")
+				s.recordDepositPending()
+			}
+		}
 	}
 
-	// Encode tokens into v2 invite codes.
+	// Enable enrollment mode so joining peers can connect.
+	if s.gater != nil {
+		s.gater.SetEnrollmentMode(true, 10, 10*time.Second)
+	}
+
+	// Encode tokens into short v3 invite codes.
 	codes := make([]string, len(tokens))
 	for i, tok := range tokens {
-		code, err := invite.EncodeV2(tok, s.relayAddr, ns)
+		code, err := invite.EncodeShort(tok)
 		if err != nil {
 			respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode code: %v", err))
 			return

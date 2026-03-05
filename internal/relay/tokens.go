@@ -30,6 +30,8 @@ var (
 // CodeSlot represents a single pairing code within a group.
 type CodeSlot struct {
 	TokenHash [32]byte  // SHA-256 of raw token
+	RawToken  []byte    // kept for PAKE session key derivation; zeroized after use
+	DepositID string    // linked invite deposit ID (for macaroon delivery)
 	PeerID    peer.ID   // filled after use
 	Name      string    // peer's friendly name
 	UsedAt    time.Time // zero = unused
@@ -80,11 +82,24 @@ func NewTokenStore() *TokenStore {
 	}
 }
 
-// CreateGroup generates a pairing group with count codes.
+// CreateGroup generates a pairing group with count codes using the default 16-byte tokens.
 // Returns the raw tokens (caller encodes into invite codes) and the group ID.
 func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerTTL time.Duration) (tokens [][]byte, groupID string, err error) {
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, TokenSize)
+}
+
+// CreateGroupShort generates a pairing group with 10-byte tokens for short invite codes.
+func (ts *TokenStore) CreateGroupShort(count int, ttl time.Duration, ns string, peerTTL time.Duration) (tokens [][]byte, groupID string, err error) {
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, 10)
+}
+
+// CreateGroupWithTokenSize generates a pairing group with configurable token size.
+func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int) (tokens [][]byte, groupID string, err error) {
 	if count < 1 {
 		return nil, "", fmt.Errorf("count must be at least 1")
+	}
+	if tokenSize < 8 || tokenSize > 32 {
+		return nil, "", fmt.Errorf("token size must be 8-32 bytes, got %d", tokenSize)
 	}
 
 	// Generate group ID (8-char hex)
@@ -106,13 +121,14 @@ func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerT
 
 	tokens = make([][]byte, count)
 	for i := 0; i < count; i++ {
-		token := make([]byte, TokenSize)
+		token := make([]byte, tokenSize)
 		if _, err := rand.Read(token); err != nil {
 			return nil, "", fmt.Errorf("failed to generate token: %w", err)
 		}
 		tokens[i] = token
 		group.codes[i] = CodeSlot{
 			TokenHash: sha256.Sum256(token),
+			RawToken:  append([]byte(nil), token...), // separate copy for PAKE
 		}
 	}
 
@@ -126,7 +142,7 @@ func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerT
 // ValidateAndUse atomically validates a token and marks it as used.
 // Returns the group and the slot index on success.
 func (ts *TokenStore) ValidateAndUse(token []byte, peerID peer.ID, name string) (*PairingGroup, int, error) {
-	if len(token) != TokenSize {
+	if len(token) < 8 || len(token) > 32 {
 		return nil, -1, ErrTokenNotFound
 	}
 
@@ -174,10 +190,143 @@ func (ts *TokenStore) ValidateAndUse(token []byte, peerID peer.ID, name string) 
 	return nil, -1, ErrTokenNotFound
 }
 
+// SetDepositID links a deposit to all code slots in a group.
+func (ts *TokenStore) SetDepositID(groupID, depositID string) {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return
+	}
+	group.mu.Lock()
+	defer group.mu.Unlock()
+	for i := range group.codes {
+		group.codes[i].DepositID = depositID
+	}
+}
+
+// ValidateForPAKE looks up a slot by token hash without marking it as used.
+// Returns the group, slot index, and raw token for PAKE session key derivation.
+// The slot is NOT consumed; call MarkUsed after PAKE succeeds.
+func (ts *TokenStore) ValidateForPAKE(tokenHash [32]byte) (*PairingGroup, int, []byte, error) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	for _, group := range ts.groups {
+		group.mu.Lock()
+
+		if time.Now().After(group.ExpiresAt) {
+			group.mu.Unlock()
+			continue
+		}
+
+		for i := range group.codes {
+			slot := &group.codes[i]
+
+			if subtle.ConstantTimeCompare(slot.TokenHash[:], tokenHash[:]) != 1 {
+				continue
+			}
+
+			if slot.Attempts >= maxAttempts {
+				group.mu.Unlock()
+				return nil, -1, nil, ErrTokenBurned
+			}
+
+			if !slot.UsedAt.IsZero() {
+				group.mu.Unlock()
+				return nil, -1, nil, ErrTokenUsed
+			}
+
+			if len(slot.RawToken) == 0 {
+				group.mu.Unlock()
+				return nil, -1, nil, fmt.Errorf("raw token not available")
+			}
+
+			rawToken := make([]byte, len(slot.RawToken))
+			copy(rawToken, slot.RawToken)
+			group.mu.Unlock()
+			return group, i, rawToken, nil
+		}
+
+		group.mu.Unlock()
+	}
+
+	return nil, -1, nil, ErrTokenNotFound
+}
+
+// MarkUsed marks a code slot as consumed after successful PAKE.
+// Zeroizes the raw token after marking.
+func (ts *TokenStore) MarkUsed(groupID string, idx int, peerID peer.ID, name string) error {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return ErrGroupNotFound
+	}
+
+	group.mu.Lock()
+	defer group.mu.Unlock()
+
+	if idx < 0 || idx >= len(group.codes) {
+		return fmt.Errorf("invalid slot index: %d", idx)
+	}
+
+	slot := &group.codes[idx]
+	if !slot.UsedAt.IsZero() {
+		return ErrTokenUsed
+	}
+
+	slot.PeerID = peerID
+	slot.Name = name
+	slot.UsedAt = time.Now()
+
+	// Zeroize raw token: no longer needed after PAKE.
+	for j := range slot.RawToken {
+		slot.RawToken[j] = 0
+	}
+	slot.RawToken = nil
+
+	return nil
+}
+
+// RecordFailedAttemptByHash increments the attempt counter for a token by its hash.
+func (ts *TokenStore) RecordFailedAttemptByHash(tokenHash [32]byte) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	for _, group := range ts.groups {
+		group.mu.Lock()
+		for i := range group.codes {
+			if subtle.ConstantTimeCompare(group.codes[i].TokenHash[:], tokenHash[:]) == 1 {
+				group.codes[i].Attempts++
+				group.mu.Unlock()
+				return
+			}
+		}
+		group.mu.Unlock()
+	}
+}
+
+// GetDepositID returns the deposit ID for a code slot.
+func (ts *TokenStore) GetDepositID(groupID string, idx int) string {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	group.mu.Lock()
+	defer group.mu.Unlock()
+	if idx < 0 || idx >= len(group.codes) {
+		return ""
+	}
+	return group.codes[idx].DepositID
+}
+
 // RecordFailedAttempt increments the attempt counter for a token.
 // Used when authentication succeeds (token found) but downstream steps fail.
 func (ts *TokenStore) RecordFailedAttempt(token []byte) {
-	if len(token) != TokenSize {
+	if len(token) < 8 || len(token) > 32 {
 		return
 	}
 
@@ -337,6 +486,31 @@ func (ts *TokenStore) ActiveGroupCount() int {
 		}
 	}
 	return count
+}
+
+// AllGroupsUsed returns true if every code in every active group has been used.
+// Used to auto-disable enrollment mode when all invites are consumed.
+func (ts *TokenStore) AllGroupsUsed() bool {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	now := time.Now()
+	activeCount := 0
+	for _, group := range ts.groups {
+		if now.After(group.ExpiresAt) {
+			continue
+		}
+		activeCount++
+		group.mu.Lock()
+		for _, slot := range group.codes {
+			if slot.UsedAt.IsZero() {
+				group.mu.Unlock()
+				return false
+			}
+		}
+		group.mu.Unlock()
+	}
+	return activeCount > 0
 }
 
 // Revoke removes a pairing group by ID.

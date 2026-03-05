@@ -6,8 +6,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
-
 	"fmt"
 	"log"
 	"os"
@@ -17,8 +17,6 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/auth"
@@ -86,172 +84,12 @@ func runJoin(args []string) {
 	case invite.VersionV2:
 		runPairJoin(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
 		return
+	case invite.VersionV3:
+		runPairJoinV3(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
+		return
+	default:
+		fatal("Unsupported invite code version: %d", data.Version)
 	}
-
-	outln("=== Shurli join ===")
-	outln()
-	out("Relay:   %s\n", data.RelayAddr)
-	out("Inviter: %s\n", data.PeerID.String()[:16]+"...")
-	if data.Network != "" {
-		out("Network: %s\n", data.Network)
-	}
-	outln()
-
-	// Resolve config - create one if it doesn't exist.
-	// Pass the network namespace from the invite code so the joiner
-	// auto-inherits the inviter's private DHT network.
-	cfgFile, cfg, configDir, created := loadOrCreateConfig(*configFlag, data.RelayAddr, data.Network)
-	if created {
-		out("Created new config: %s\n", cfgFile)
-	} else {
-		out("Using config: %s\n", cfgFile)
-	}
-	outln()
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(configDir)
-
-	// Create P2P network (no connection gating for joining)
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		EnableRelay:        true,
-		RelayAddrs:         []string{data.RelayAddr},
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
-	})
-	if err != nil {
-		fatal("P2P network error: %v", err)
-	}
-	defer p2pNetwork.Close()
-
-	h := p2pNetwork.Host()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	out("Your Peer ID: %s\n", h.ID())
-	outln()
-
-	// Connect to relay
-	outln("Connecting to relay...")
-	relayInfos, err := p2pnet.ParseRelayAddrs([]string{data.RelayAddr})
-	if err != nil {
-		fatal("Failed to parse relay address: %v", err)
-	}
-	for _, ai := range relayInfos {
-		if err := h.Connect(ctx, ai); err != nil {
-			fatal("Failed to connect to relay: %v", err)
-		}
-	}
-	outln("Connected to relay.")
-
-	// Add relay circuit address for the inviter
-	circuitAddr := data.RelayAddr + "/p2p-circuit/p2p/" + data.PeerID.String()
-	addrInfo, err := peer.AddrInfoFromString(circuitAddr)
-	if err != nil {
-		fatal("Failed to parse circuit address: %v", err)
-	}
-	h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, peerstore.PermanentAddrTTL)
-
-	// Open invite protocol stream to inviter (allow relay circuit connections)
-	outln("Connecting to inviter...")
-	joinCtx := network.WithAllowLimitedConn(ctx, inviteProtocol)
-	s, err := h.NewStream(joinCtx, data.PeerID, protocol.ID(inviteProtocol))
-	if err != nil {
-		fatal("Failed to connect to inviter: %v\n(Is the invite still active?)", err)
-	}
-	defer s.Close()
-
-	joinerName := *nameFlag
-	inviterName := joinPAKE(s, data.Token, joinerName)
-
-	// Add inviter to our authorized_keys
-	authKeysPath := cfg.Security.AuthorizedKeysFile
-	comment := inviterName
-	if comment == "" {
-		comment = "invited-" + time.Now().Format("2006-01-02")
-	}
-	if err := auth.AddPeer(authKeysPath, data.PeerID.String(), comment); err != nil {
-		if !strings.Contains(err.Error(), "already authorized") {
-			log.Printf("Warning: failed to add peer to authorized_keys: %v", err)
-		}
-	}
-
-	// Add inviter to names in config (if name was provided)
-	if inviterName != "" {
-		updateConfigNames(cfgFile, configDir, inviterName, data.PeerID.String())
-	}
-
-	outln()
-	outln("=== Joined successfully! ===")
-	outln()
-	if inviterName != "" {
-		out("Peer \"%s\" authorized and added to names.\n", inviterName)
-	} else {
-		out("Peer %s authorized.\n", data.PeerID.String()[:16]+"...")
-	}
-	out("Config: %s\n", cfgFile)
-	out("Authorized keys: %s\n", authKeysPath)
-	if !*nonInteractive && inviterName != "" {
-		outln()
-		outln("Try:")
-		out("  shurli ping %s\n", inviterName)
-		out("  shurli proxy %s ssh 2222\n", inviterName)
-	}
-}
-
-// joinPAKE performs the PAKE-secured handshake.
-// Returns the inviter's name.
-func joinPAKE(s network.Stream, token [8]byte, joinerName string) string {
-	// Create PAKE session
-	session, err := invite.NewPAKESession()
-	if err != nil {
-		fatal("PAKE session error: %v", err)
-	}
-
-	// Send: [0x01] [32-byte X25519 public key]
-	if _, err := s.Write([]byte{invite.VersionV1}); err != nil {
-		fatal("Failed to send version byte: %v", err)
-	}
-	if err := session.WritePublicKey(s); err != nil {
-		fatal("Failed to send public key: %v", err)
-	}
-
-	// Read inviter's public key (32 bytes)
-	inviterPub, err := invite.ReadPublicKey(s)
-	if err != nil {
-		fatal("Failed to read inviter public key: %v", err)
-	}
-
-	// Complete DH exchange with token binding
-	if err := session.Complete(inviterPub, token); err != nil {
-		fatal("PAKE key exchange failed: %v", err)
-	}
-
-	// Send encrypted joiner name
-	if err := session.WriteEncrypted(s, []byte(joinerName)); err != nil {
-		fatal("Failed to send encrypted name: %v", err)
-	}
-
-	// Read encrypted response
-	responseBytes, err := session.Decrypt(s)
-	if err != nil {
-		fatal("Failed to decrypt response (wrong invite code?): %v", err)
-	}
-	response := string(responseBytes)
-
-	if strings.HasPrefix(response, "ERR") {
-		fatal("Invite rejected: %s", response)
-	}
-	if !strings.HasPrefix(response, "OK") {
-		fatal("Unexpected response: %s", response)
-	}
-
-	inviterName := strings.TrimPrefix(response, "OK")
-	return strings.TrimSpace(inviterName)
 }
 
 // runPairJoin handles v2 relay pairing codes.
@@ -457,6 +295,232 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 		outln()
 		outln("Try:")
 		out("  shurli ping %s\n", sanitizeYAMLName(peers[0].Name))
+	}
+}
+
+// runPairJoinV3 handles v3 short async invite codes with PAKE.
+// The code contains only the token (no relay address). The joiner uses their configured relay.
+func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
+	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
+
+	outln("=== Shurli join ===")
+	outln()
+
+	// Resolve config. v3 codes have no relay address, so use existing config.
+	cfgFile, err := config.FindConfigFile(configFlag)
+	if err != nil {
+		fatal("No config found. Run 'shurli init' first.\n(v3 short codes require a configured relay)")
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		fatal("Config error: %v", err)
+	}
+	configDir := filepath.Dir(cfgFile)
+	config.ResolveConfigPaths(cfg, configDir)
+
+	out("Using config: %s\n", cfgFile)
+
+	if len(cfg.Relay.Addresses) == 0 {
+		fatal("No relay addresses in config. Run 'shurli init' or add a relay first.")
+	}
+
+	// Resolve password for SHRL-encrypted identity key.
+	pw, _ := resolvePassword(configDir)
+
+	// Create P2P network.
+	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
+		KeyFile:            cfg.Identity.KeyFile,
+		KeyPassword:        pw,
+		Config:             &config.Config{Network: cfg.Network},
+		UserAgent:          "shurli/" + version,
+		EnableRelay:        true,
+		RelayAddrs:         cfg.Relay.Addresses,
+		ForcePrivate:       cfg.Network.ForcePrivateReachability,
+		EnableNATPortMap:   true,
+		EnableHolePunching: true,
+	})
+	if err != nil {
+		fatal("P2P network error: %v", err)
+	}
+	defer p2pNetwork.Close()
+
+	h := p2pNetwork.Host()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out("Your Peer ID: %s\n", h.ID())
+	outln()
+
+	// Connect to relay.
+	outln("Connecting to relay...")
+	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	if err != nil {
+		fatal("Failed to parse relay addresses: %v", err)
+	}
+	for _, ai := range relayInfos {
+		if err := h.Connect(ctx, ai); err != nil {
+			fatal("Failed to connect to relay: %v", err)
+		}
+	}
+	outln("Connected to relay.")
+
+	// Open PAKE v2 pairing protocol stream to relay.
+	outln("Authenticating with invite code...")
+	relayPeerID := relayInfos[0].ID
+	pairCtx := network.WithAllowLimitedConn(ctx, relay.PairingProtocolV2)
+	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.PairingProtocolV2))
+	if err != nil {
+		fatal("Failed to open pairing stream: %v", err)
+	}
+	defer s.Close()
+
+	// PAKE handshake: send [32] SHA-256(token) + [32] X25519 pubkey.
+	tokenHash := sha256.Sum256(data.TokenV3)
+	session, err := invite.NewPAKESession()
+	if err != nil {
+		fatal("PAKE session error: %v", err)
+	}
+
+	var handshake [64]byte
+	copy(handshake[:32], tokenHash[:])
+	copy(handshake[32:], session.PublicKey())
+	if _, err := s.Write(handshake[:]); err != nil {
+		fatal("Failed to send handshake: %v", err)
+	}
+
+	// Read [1] status + [32] relay X25519 pubkey.
+	var statusBuf [1]byte
+	if _, err := s.Read(statusBuf[:]); err != nil {
+		fatal("Failed to read relay response: %v", err)
+	}
+	if statusBuf[0] != relay.StatusOK {
+		fatal("Invite code rejected by relay")
+	}
+
+	relayPub, err := invite.ReadPublicKey(s)
+	if err != nil {
+		fatal("Failed to read relay public key: %v", err)
+	}
+
+	// Complete PAKE with token as salt.
+	if err := session.CompleteWithSalt(relayPub, data.TokenV3); err != nil {
+		fatal("PAKE key exchange failed: %v", err)
+	}
+
+	// Send encrypted name.
+	if err := session.WriteEncrypted(s, []byte(nameFlag)); err != nil {
+		fatal("Failed to send encrypted name: %v", err)
+	}
+
+	// Read encrypted response (PairingV2Response JSON).
+	respBytes, err := session.Decrypt(s)
+	if err != nil {
+		fatal("Authentication failed (wrong invite code?): %v", err)
+	}
+
+	var v2resp relay.PairingV2Response
+	if err := json.Unmarshal(respBytes, &v2resp); err != nil {
+		fatal("Failed to parse relay response: %v", err)
+	}
+
+	outln()
+	outln("=== Joined successfully! ===")
+	outln()
+
+	// Add discovered peers to authorized_keys and config names.
+	authKeysPath := cfg.Security.AuthorizedKeysFile
+
+	// Authorize relay and annotate with group ID.
+	if v2resp.GroupID != "" {
+		if err := auth.AddPeer(authKeysPath, relayPeerID.String(), "relay"); err != nil {
+			if !strings.Contains(err.Error(), "already authorized") {
+				log.Printf("Warning: failed to authorize relay: %v", err)
+			}
+		}
+		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "group", v2resp.GroupID)
+
+		// Compute and store own HMAC commitment proof.
+		mac := hmac.New(sha256.New, data.TokenV3)
+		mac.Write([]byte(v2resp.GroupID))
+		ownProof := mac.Sum(nil)
+		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "hmac_proof", hex.EncodeToString(ownProof))
+	}
+
+	// Store macaroon if received.
+	if v2resp.Macaroon != "" {
+		macFile := filepath.Join(configDir, "macaroon.json")
+		if err := os.WriteFile(macFile, []byte(v2resp.Macaroon), 0600); err != nil {
+			log.Printf("Warning: could not save macaroon: %v", err)
+		} else {
+			out("Macaroon saved: %s\n", macFile)
+		}
+	}
+
+	// Load existing names for conflict resolution.
+	existingNames := make(map[string]bool)
+	if cfg.Names != nil {
+		for n := range cfg.Names {
+			existingNames[n] = true
+		}
+	}
+
+	for _, p := range v2resp.Peers {
+		peerName := sanitizeYAMLName(p.Name)
+		if peerName == "" {
+			peerName = "peer-" + p.PeerID.String()[:8]
+		}
+
+		finalName := uniqueName(peerName, existingNames)
+		if finalName != peerName {
+			out("Name \"%s\" already in use. Registered as \"%s\".\n", peerName, finalName)
+		}
+		existingNames[finalName] = true
+
+		if err := auth.AddPeer(authKeysPath, p.PeerID.String(), finalName); err != nil {
+			if !strings.Contains(err.Error(), "already authorized") {
+				log.Printf("Warning: failed to authorize peer: %v", err)
+			}
+		}
+		if v2resp.GroupID != "" {
+			auth.SetPeerAttr(authKeysPath, p.PeerID.String(), "group", v2resp.GroupID)
+		}
+
+		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
+
+		emoji, numeric := p2pnet.ComputeFingerprint(h.ID(), p.PeerID)
+		out("Peer \"%s\" authorized. [UNVERIFIED]\n", finalName)
+		out("  Verification code: %s  (%s)\n", emoji, numeric)
+		out("  Verify with: shurli verify %s\n", finalName)
+		outln()
+	}
+
+	if len(v2resp.Peers) == 0 {
+		outln("Authorized on relay. No other peers in this group yet.")
+		outln()
+	}
+
+	out("Config: %s\n", cfgFile)
+	out("Authorized keys: %s\n", authKeysPath)
+	outln()
+
+	// Auto-start daemon.
+	outln("Starting daemon...")
+	if started := kickServiceDaemon(); !started {
+		daemonCmd := exec.Command(os.Args[0], "daemon")
+		daemonCmd.Stdout = nil
+		daemonCmd.Stderr = nil
+		daemonCmd.SysProcAttr = detachedProcAttr()
+		if err := daemonCmd.Start(); err != nil {
+			out("Could not auto-start daemon: %v\n", err)
+			out("Start manually with: shurli daemon\n")
+		} else {
+			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonCmd.Process.Pid)
+		}
+	}
+	if !nonInteractive && len(v2resp.Peers) > 0 {
+		outln()
+		outln("Try:")
+		out("  shurli ping %s\n", sanitizeYAMLName(v2resp.Peers[0].Name))
 	}
 }
 

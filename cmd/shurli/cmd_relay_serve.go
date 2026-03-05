@@ -286,10 +286,12 @@ func runRelayServe(args []string) {
 
 	// Initialize token store and pairing protocol handler.
 	tokenStore := relay.NewTokenStore()
+	depositStore := deposit.NewDepositStore()
 	pairingHandler := &relay.PairingHandler{
 		Store:        tokenStore,
 		AuthKeysPath: cfg.Security.AuthorizedKeysFile,
 		Gater:        gater,
+		Deposits:     depositStore,
 	}
 	notifier := &relay.PeerNotifier{Host: h, AuthKeysPath: cfg.Security.AuthorizedKeysFile, Store: tokenStore}
 	h.SetStreamHandler(protocol.ID(relay.PairingProtocol), func(s network.Stream) {
@@ -298,7 +300,13 @@ func runRelayServe(args []string) {
 			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
 		}
 	})
-	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
+	h.SetStreamHandler(protocol.ID(relay.PairingProtocolV2), func(s network.Stream) {
+		joinedPeer, groupID := pairingHandler.HandleStreamV2(s)
+		if joinedPeer != "" && groupID != "" {
+			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
+		}
+	})
+	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol, "v2", relay.PairingProtocolV2)
 
 	// Start admin socket for relay CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
@@ -336,7 +344,7 @@ func runRelayServe(args []string) {
 
 	// Wire up invite deposit store. The root key comes from the vault dynamically
 	// (available only when unsealed). The deposit store itself is always available.
-	adminSrv.SetDepositStore(deposit.NewDepositStore())
+	adminSrv.SetDepositStore(depositStore)
 
 	if err := adminSrv.Start(); err != nil {
 		slog.Error("failed to start admin socket", "err", err)

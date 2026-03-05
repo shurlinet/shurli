@@ -287,6 +287,85 @@ func TestNoExpiryPeerAllowed(t *testing.T) {
 	}
 }
 
+// --- Per-IP cooldown tests ---
+
+func TestProbationIPCooldown(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 10, 10*time.Second)
+
+	// Use specific remote IP for cooldown testing.
+	local, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	remote, _ := multiaddr.NewMultiaddr("/ip4/203.0.113.50/tcp/5678")
+	cm := &mockConnMultiaddrs{local: local, remote: remote}
+
+	// First peer from this IP should be admitted.
+	p1 := genPeerID(t)
+	if !g.InterceptSecured(network.DirInbound, p1, cm) {
+		t.Error("first peer from IP should be admitted")
+	}
+
+	// Second peer from same IP within cooldown should be denied.
+	p2 := genPeerID(t)
+	if g.InterceptSecured(network.DirInbound, p2, cm) {
+		t.Error("second peer from same IP within cooldown should be denied")
+	}
+
+	// Peer from different IP should still be admitted.
+	remote2, _ := multiaddr.NewMultiaddr("/ip4/203.0.113.51/tcp/5678")
+	cm2 := &mockConnMultiaddrs{local: local, remote: remote2}
+	p3 := genPeerID(t)
+	if !g.InterceptSecured(network.DirInbound, p3, cm2) {
+		t.Error("peer from different IP should be admitted")
+	}
+}
+
+func TestProbationIPCooldownExpires(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 10, 10*time.Second)
+	// Override cooldown to very short for testing.
+	g.mu.Lock()
+	g.probationCooldownDur = 10 * time.Millisecond
+	g.mu.Unlock()
+
+	local, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	remote, _ := multiaddr.NewMultiaddr("/ip4/203.0.113.50/tcp/5678")
+	cm := &mockConnMultiaddrs{local: local, remote: remote}
+
+	p1 := genPeerID(t)
+	if !g.InterceptSecured(network.DirInbound, p1, cm) {
+		t.Error("first peer should be admitted")
+	}
+
+	// Wait for cooldown to expire.
+	time.Sleep(20 * time.Millisecond)
+
+	p2 := genPeerID(t)
+	if !g.InterceptSecured(network.DirInbound, p2, cm) {
+		t.Error("peer should be admitted after cooldown expires")
+	}
+}
+
+func TestDisableEnrollmentClearsIPCooldown(t *testing.T) {
+	g := NewAuthorizedPeerGater(map[peer.ID]bool{})
+	g.SetEnrollmentMode(true, 10, 10*time.Second)
+
+	local, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	remote, _ := multiaddr.NewMultiaddr("/ip4/203.0.113.50/tcp/5678")
+	cm := &mockConnMultiaddrs{local: local, remote: remote}
+
+	g.InterceptSecured(network.DirInbound, genPeerID(t), cm)
+
+	// Disable and re-enable enrollment.
+	g.SetEnrollmentMode(false, 0, 0)
+	g.SetEnrollmentMode(true, 10, 10*time.Second)
+
+	// Same IP should be admitted again (cooldown cleared).
+	p := genPeerID(t)
+	if !g.InterceptSecured(network.DirInbound, p, cm) {
+		t.Error("IP cooldown should be cleared when enrollment is disabled")
+	}
+}
+
 func TestClearExpiry(t *testing.T) {
 	p := genPeerID(t)
 	g := NewAuthorizedPeerGater(map[peer.ID]bool{p: true})

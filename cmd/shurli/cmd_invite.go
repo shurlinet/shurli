@@ -1,221 +1,38 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	circuitv2client "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
-
-	"github.com/shurlinet/shurli/internal/auth"
-	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
-	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/qr"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
-
-const inviteProtocol = "/shurli/invite/1.0.0"
 
 func runInvite(args []string) {
 	fs := flag.NewFlagSet("invite", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("name", "", "friendly name for this peer (e.g., \"home\")")
-	ttlFlag := fs.Duration("ttl", 10*time.Minute, "invite code expiry duration")
+	ttlFlag := fs.Duration("ttl", 24*time.Hour, "invite code expiry duration")
+	countFlag := fs.Int("count", 1, "number of invite codes to generate")
+	remoteFlag := fs.String("remote", "", "relay address (multiaddr, name, or peer ID)")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output (no QR, bare code to stdout)")
 	fs.Parse(args)
 
-	// If a daemon is running, delegate to it (avoids duplicate relay reservation)
+	// If a daemon is running, delegate to it
 	if client := tryDaemonClient(); client != nil {
-		runInviteViaDaemon(client, *nameFlag, *ttlFlag, *nonInteractive)
+		runInviteViaDaemon(client, *nameFlag, *ttlFlag, *countFlag, *nonInteractive)
 		return
 	}
 
-	// In non-interactive mode, progress goes to stderr so stdout has only the invite code.
-	out := fmt.Printf
-	outln := fmt.Println
-	if *nonInteractive {
-		out = func(format string, a ...any) (int, error) { return fmt.Fprintf(os.Stderr, format, a...) }
-		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
-	}
-
-	// Load config
-	cfgFile, err := config.FindConfigFile(*configFlag)
-	if err != nil {
-		fatal("Config error: %v\nRun 'shurli init' first.", err)
-	}
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	if len(cfg.Relay.Addresses) == 0 {
-		fatal("No relay addresses in config. Cannot create invite.")
-	}
-
-	// Generate token
-	token, err := invite.GenerateToken()
-	if err != nil {
-		fatal("Failed to generate token: %v", err)
-	}
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-
-	// Create P2P network (no connection gating - we need the joiner to reach us)
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
-	})
-	if err != nil {
-		fatal("P2P network error: %v", err)
-	}
-	defer p2pNetwork.Close()
-
-	h := p2pNetwork.Host()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Connect to relay
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
-	if err != nil {
-		fatal("Failed to parse relay addresses: %v", err)
-	}
-	for _, ai := range relayInfos {
-		if err := h.Connect(ctx, ai); err != nil {
-			fatal("Failed to connect to relay: %v", err)
-		}
-	}
-
-	// Make explicit relay reservation (AutoRelay alone is unreliable for short-lived commands)
-	outln("Waiting for relay reservation...")
-	time.Sleep(2 * time.Second) // allow AutoRelay a chance first
-
-	hasRelay := false
-	for _, addr := range h.Addrs() {
-		if strings.Contains(addr.String(), "p2p-circuit") {
-			hasRelay = true
-			break
-		}
-	}
-	if !hasRelay {
-		for _, ai := range relayInfos {
-			if _, err := circuitv2client.Reserve(ctx, h, ai); err != nil {
-				fatal("Relay reservation failed: %v", err)
-			}
-		}
-	}
-
-	// Encode invite (v1 PAKE format with namespace)
-	inviteData := &invite.InviteData{
-		Token:     token,
-		RelayAddr: cfg.Relay.Addresses[0],
-		PeerID:    h.ID(),
-		Network:   cfg.Discovery.Network,
-	}
-	code, err := invite.Encode(inviteData)
-	if err != nil {
-		fatal("Failed to encode invite: %v", err)
-	}
-
-	if *nonInteractive {
-		// Bare code to stdout for piping/scripting
-		fmt.Println(code)
-	} else {
-		fmt.Println()
-		fmt.Printf("=== Invite Code (expires in %s) ===\n", *ttlFlag)
-		fmt.Println()
-		fmt.Println(code)
-		fmt.Println()
-
-		// Show QR code for easy scanning (e.g., from mobile app)
-		q, err := qr.New(code, qr.Medium)
-		if err == nil {
-			fmt.Println("Scan this QR code to join:")
-			fmt.Println()
-			fmt.Print(q.ToSmallString(false))
-		}
-
-		fmt.Println("--- Send this to the joining peer ---")
-		fmt.Println()
-		fmt.Println("Install shurli: https://shurli.net/install")
-		fmt.Println("Then run:")
-		fmt.Println("  shurli init")
-		fmt.Printf("  shurli join %s --name <your-device-name>\n", code)
-		fmt.Println()
-		fmt.Println("---")
-	}
-	outln()
-	outln("Waiting for peer to join...")
-
-	// Set up invite protocol handler (PAKE only)
-	joined := make(chan string, 1) // receives joiner's name
-
-	h.SetStreamHandler(protocol.ID(inviteProtocol), func(s network.Stream) {
-		defer s.Close()
-		remotePeer := s.Conn().RemotePeer()
-
-		// Read version byte. PAKE starts with 0x01.
-		var firstByte [1]byte
-		if _, err := io.ReadFull(s, firstByte[:]); err != nil {
-			log.Printf("Invite stream read error: %v", err)
-			return
-		}
-
-		if firstByte[0] != invite.VersionV1 {
-			log.Printf("Unknown invite protocol version 0x%02x from %s", firstByte[0], remotePeer.String()[:16])
-			return
-		}
-
-		joinerName, success := handleInvite(s, token, *nameFlag, remotePeer.String(), cfg.Security.AuthorizedKeysFile)
-		if success {
-			joined <- joinerName
-		}
-	})
-
-	// Wait for join or timeout/interrupt
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	timer := time.NewTimer(*ttlFlag)
-
-	select {
-	case name := <-joined:
-		timer.Stop()
-		outln()
-		if name != "" {
-			out("Peer \"%s\" joined and authorized!\n", name)
-		} else {
-			outln("Peer joined and authorized!")
-		}
-		out("Authorized keys file: %s\n", cfg.Security.AuthorizedKeysFile)
-	case <-timer.C:
-		outln()
-		outln("Invite expired. No peer joined.")
-	case <-sigCh:
-		outln("\nCancelled.")
-	}
+	// Standalone mode: connect to relay admin and create invite group directly
+	runInviteStandalone(*configFlag, *nameFlag, *ttlFlag, *countFlag, *remoteFlag, *nonInteractive)
 }
 
-// runInviteViaDaemon delegates the invite flow to a running daemon.
-func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, nonInteractive bool) {
+// runInviteStandalone creates an invite by calling the relay admin's CreateGroup.
+// This is async: the invite is stored on the relay. No need to stay online.
+func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, remoteAddr string, nonInteractive bool) {
 	out := fmt.Printf
 	outln := fmt.Println
 	if nonInteractive {
@@ -223,141 +40,112 @@ func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, n
 		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
 	}
 
-	resp, err := client.InviteCreate(name, int(ttl.Seconds()))
+	// Resolve which relay to connect to
+	if remoteAddr == "" {
+		// Use first configured relay
+		_, cfg := resolveConfigFile(configFlag)
+		if len(cfg.Relay.Addresses) == 0 {
+			fatal("No relay addresses in config. Use --remote or add relay addresses to config.")
+		}
+		remoteAddr = cfg.Relay.Addresses[0]
+	}
+
+	out("Connecting to relay to create invite...\n")
+
+	conn, err := connectRemoteRelay(remoteAddr)
+	if err != nil {
+		fatal("Failed to connect to relay: %v", err)
+	}
+	defer conn.Close()
+
+	ttlSec := int(ttl.Seconds())
+	resp, err := conn.client.CreateGroup(count, ttlSec, 0, "")
 	if err != nil {
 		fatal("Failed to create invite: %v", err)
 	}
 
-	if nonInteractive {
-		fmt.Println(resp.Code)
-	} else {
-		fmt.Println()
-		fmt.Printf("=== Invite Code (expires in %s) ===\n", ttl)
-		fmt.Println()
-		fmt.Println(resp.Code)
-		fmt.Println()
-
-		q, qErr := qr.New(resp.Code, qr.Medium)
-		if qErr == nil {
-			fmt.Println("Scan this QR code to join:")
-			fmt.Println()
-			fmt.Print(q.ToSmallString(false))
-		}
-
-		fmt.Println("--- Send this to the joining peer ---")
-		fmt.Println()
-		fmt.Println("Install shurli: https://shurli.net/install")
-		fmt.Println("Then run:")
-		fmt.Println("  shurli init")
-		fmt.Printf("  shurli join %s --name <your-device-name>\n", resp.Code)
-		fmt.Println()
-		fmt.Println("---")
+	if len(resp.Codes) == 0 {
+		fatal("Relay returned no invite codes")
 	}
-	outln()
-	outln("Waiting for peer to join...")
 
-	// Set up cancellation on SIGINT/SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		select {
-		case <-sigCh:
-			client.InviteCancel(resp.InviteID)
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
-	waitResp, err := client.InviteWait(ctx, resp.InviteID)
-	if err != nil {
-		if ctx.Err() != nil {
-			outln("\nCancelled.")
-			return
-		}
-		fatal("Error waiting for invite: %v", err)
-	}
+	printInviteCodes(resp.Codes, ttl, nonInteractive)
 
 	outln()
-	switch waitResp.Status {
-	case "joined":
-		if waitResp.JoinerName != "" {
-			out("Peer \"%s\" joined and authorized!\n", waitResp.JoinerName)
-		} else {
-			outln("Peer joined and authorized!")
-		}
-		out("Authorized keys file: %s\n", waitResp.AuthKeys)
-	case "expired":
-		outln("Invite expired. No peer joined.")
-	case "cancelled":
-		outln("Invite cancelled.")
-	}
+	out("Invite is stored on the relay. You can close this terminal.\n")
+	out("The joiner can use the code any time before it expires.\n")
+	_ = name // name is for future use (peer-notify introduction)
 }
 
-// handleInvite processes a PAKE handshake on the invite stream.
-// The version byte has already been read by the caller.
-// Returns the joiner's name and whether authorization succeeded.
-func handleInvite(s network.Stream, token [8]byte, inviterName, remotePeerStr, authKeysPath string) (string, bool) {
-	// Read joiner's X25519 public key (32 bytes follow the version byte)
-	joinerPub, err := invite.ReadPublicKey(s)
+// runInviteViaDaemon delegates the invite flow to a running daemon.
+func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, count int, nonInteractive bool) {
+	out := fmt.Printf
+	outln := fmt.Println
+	if nonInteractive {
+		out = func(format string, a ...any) (int, error) { return fmt.Fprintf(os.Stderr, format, a...) }
+		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
+	}
+
+	resp, err := client.InviteCreate(name, int(ttl.Seconds()), count)
 	if err != nil {
-		log.Printf("PAKE: failed to read joiner public key from %s: %v", remotePeerStr[:16], err)
-		return "", false
+		fatal("Failed to create invite: %v", err)
 	}
 
-	// Create our PAKE session and send our public key
-	session, err := invite.NewPAKESession()
-	if err != nil {
-		log.Printf("PAKE: session error: %v", err)
-		return "", false
+	if len(resp.Codes) == 0 {
+		fatal("Daemon returned no invite codes")
 	}
 
-	if err := session.WritePublicKey(s); err != nil {
-		log.Printf("PAKE: failed to send public key: %v", err)
-		return "", false
+	printInviteCodes(resp.Codes, ttl, nonInteractive)
+
+	outln()
+	out("Invite is stored on the relay (group: %s, expires: %s).\n", resp.GroupID, resp.ExpiresAt)
+	out("You can close this terminal. The joiner can use the code any time before it expires.\n")
+}
+
+// printInviteCodes displays one or more invite codes with optional QR.
+func printInviteCodes(codes []string, ttl time.Duration, nonInteractive bool) {
+	if nonInteractive {
+		for _, code := range codes {
+			fmt.Println(code)
+		}
+		return
 	}
 
-	// Complete DH exchange with token binding
-	if err := session.Complete(joinerPub, token); err != nil {
-		log.Printf("PAKE: key exchange failed from %s: %v", remotePeerStr[:16], err)
-		return "", false
-	}
+	fmt.Println()
+	fmt.Printf("=== Invite Code%s (expires in %s) ===\n", plural(len(codes)), ttl)
+	fmt.Println()
 
-	// Read encrypted joiner name
-	joinerNameBytes, err := session.Decrypt(s)
-	if err != nil {
-		// Token mismatch causes AEAD decryption failure.
-		// Log as "invalid invite code" without leaking protocol details.
-		log.Printf("Invalid invite code from %s", remotePeerStr[:16])
-		return "", false
-	}
-	joinerName := string(joinerNameBytes)
+	for i, code := range codes {
+		if len(codes) > 1 {
+			fmt.Printf("Code %d:\n", i+1)
+		}
+		fmt.Println(code)
+		fmt.Println()
 
-	// Authorize the joiner
-	comment := joinerName
-	if comment == "" {
-		comment = "joined-" + time.Now().Format("2006-01-02")
-	}
-	remotePeer := s.Conn().RemotePeer()
-	if err := auth.AddPeer(authKeysPath, remotePeer.String(), comment); err != nil {
-		if !strings.Contains(err.Error(), "already authorized") {
-			log.Printf("Failed to authorize peer: %v", err)
-			session.WriteEncrypted(s, []byte("ERR server error"))
-			return "", false
+		// Show QR code for the first code only
+		if i == 0 {
+			q, err := qr.New(code, qr.Medium)
+			if err == nil {
+				fmt.Println("Scan this QR code to join:")
+				fmt.Println()
+				fmt.Print(q.ToSmallString(false))
+			}
 		}
 	}
 
-	// Send encrypted response: "OK <inviter_name>"
-	response := "OK " + inviterName
-	if err := session.WriteEncrypted(s, []byte(response)); err != nil {
-		log.Printf("PAKE: failed to send response: %v", err)
-		return "", false
+	fmt.Println("--- Send this to the joining peer ---")
+	fmt.Println()
+	fmt.Println("Install shurli: https://shurli.net/install")
+	fmt.Println("Then run:")
+	fmt.Println("  shurli init")
+	fmt.Printf("  shurli join %s --name <your-device-name>\n", codes[0])
+	fmt.Println()
+	fmt.Println("---")
+}
+
+// plural returns "s" for count > 1.
+func plural(n int) string {
+	if n > 1 {
+		return "s"
 	}
-
-	// Allow the response to flush through the relay circuit
-	time.Sleep(2 * time.Second)
-
-	return joinerName, true
+	return ""
 }
