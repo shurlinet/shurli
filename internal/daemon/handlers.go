@@ -924,6 +924,15 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record group membership locally so the peer-notify handler accepts
+	// introductions for this group when the joiner completes pairing.
+	if authPath := rt.AuthKeysPath(); authPath != "" {
+		relayIDStr := relayInfos[0].ID.String()
+		if err := auth.SetPeerAttr(authPath, relayIDStr, "group", pairResp.GroupID); err != nil {
+			slog.Warn("invite: failed to record group on relay entry", "err", err)
+		}
+	}
+
 	// Create invite session for tracking
 	_, cancel := context.WithCancel(context.Background())
 	inv := &activeInvite{

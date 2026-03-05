@@ -17,8 +17,9 @@ import (
 // remoteAdminConnection holds a RemoteAdminClient and its cleanup function.
 // Call cleanup() when done (shuts down the P2P host).
 type remoteAdminConnection struct {
-	client  *relay.RemoteAdminClient
-	network *p2pnet.Network
+	client      *relay.RemoteAdminClient
+	network     *p2pnet.Network
+	relayPeerID peer.ID
 }
 
 func (c *remoteAdminConnection) Close() {
@@ -83,8 +84,9 @@ func connectRemoteRelay(remoteAddr string) (*remoteAdminConnection, error) {
 
 	client := relay.NewRemoteAdminClient(p2pNetwork.Host(), peerInfo.ID)
 	return &remoteAdminConnection{
-		client:  client,
-		network: p2pNetwork,
+		client:      client,
+		network:     p2pNetwork,
+		relayPeerID: peerInfo.ID,
 	}, nil
 }
 
