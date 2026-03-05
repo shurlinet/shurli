@@ -45,6 +45,13 @@ security:
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
+  # Data relay controls whether peers can forward data (SSH, XRDP, etc.)
+  # through this relay. When false (default), this relay is discovery-only:
+  # peers use it for signaling and finding each other, but data transfers
+  # must happen via direct connections or a separate full relay.
+  # Exceptions: admin peers and peers with relay_data=true attribute.
+  enable_data_relay: false
+
 # Relay resource limits (defaults shown  - uncomment to customize)
 # These control how much relay capacity each peer and session can consume.
 # Tuned for private relays serving 2-10 peers with SSH/XRDP workloads.

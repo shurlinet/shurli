@@ -73,13 +73,21 @@ type serveRuntime struct {
 	// Peer relay (auto-enabled when public IP detected)
 	peerRelay *p2pnet.PeerRelay
 
+	// Relay discovery (static + DHT-discovered relays)
+	relayDiscovery *p2pnet.RelayDiscovery
+
 	// Observability (nil when telemetry disabled)
 	metrics       *p2pnet.Metrics
 	audit         *p2pnet.AuditLogger
 	metricsServer *http.Server
+	bwTracker     *p2pnet.BandwidthTracker
+	relayHealth   *p2pnet.RelayHealth
 
 	// Sovereign per-peer interaction history
 	peerHistory *reputation.PeerHistory
+
+	// MOTD client for relay message queries (populated by SetupMOTDClient)
+	motdClient *relay.MOTDClient
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -157,6 +165,14 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		fmt.Println("Telemetry: audit logging enabled")
 	}
 
+	// Initialize bandwidth tracker (always on; nil metrics = stats-only, no Prometheus)
+	rt.bwTracker = p2pnet.NewBandwidthTracker(rt.metrics)
+
+	// Initialize relay discovery with static relays from config.
+	// DHT discovery is enabled later in Bootstrap() after DHT creation.
+	staticRelayInfos, _ := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	rt.relayDiscovery = p2pnet.NewRelayDiscovery(staticRelayInfos, cfg.Discovery.Network, rt.metrics)
+
 	// Wire auth decision callback (metrics + audit)
 	if rt.gater != nil && (rt.metrics != nil || rt.audit != nil) {
 		rt.gater.SetDecisionCallback(func(peerID, result string) {
@@ -183,6 +199,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + ver,
 		Metrics:            rt.metrics,
+		BandwidthTracker:      rt.bwTracker,
 		EnableRelay:           true,
 		RelayAddrs:            cfg.Relay.Addresses,
 		ForcePrivate:          cfg.Network.ForcePrivateReachability,
@@ -328,8 +345,17 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 	rt.kdht = kdht
 
-	// Connect to bootstrap peers
+	// Wire DHT and host into relay discovery for dynamic relay finding
+	rt.relayDiscovery.SetHost(h)
+	rt.relayDiscovery.SetDHT(kdht)
+
+	// Layered bootstrap: config peers > DNS seeds > hardcoded seeds > relay addresses.
+	// Each layer supplements the previous. First non-empty layer wins for DHT bootstrap,
+	// but relay addresses are always used for relay reservations regardless.
 	var bootstrapPeers []ma.Multiaddr
+	bootstrapSource := ""
+
+	// Layer 1: Explicit config bootstrap peers
 	if len(cfg.Discovery.BootstrapPeers) > 0 {
 		for _, addr := range cfg.Discovery.BootstrapPeers {
 			maddr, err := ma.NewMultiaddr(addr)
@@ -339,9 +365,45 @@ func (rt *serveRuntime) Bootstrap() error {
 			}
 			bootstrapPeers = append(bootstrapPeers, maddr)
 		}
-	} else {
-		// Use relay addresses as DHT bootstrap peers.
-		// The relay server runs the shurli DHT  - IPFS Amino peers don't speak /shurli/kad/1.0.0.
+		if len(bootstrapPeers) > 0 {
+			bootstrapSource = "config"
+		}
+	}
+
+	// Layer 2: DNS seeds (_dnsaddr.<domain> TXT records)
+	if len(bootstrapPeers) == 0 {
+		dnsDomain := cfg.Discovery.DNSSeedDomain
+		if dnsDomain == "" {
+			dnsDomain = DNSSeedDomain
+		}
+		dnsInfos := p2pnet.ResolveDNSSeeds(rt.ctx, dnsDomain)
+		for _, ai := range dnsInfos {
+			for _, addr := range ai.Addrs {
+				full := addr.Encapsulate(ma.StringCast("/p2p/" + ai.ID.String()))
+				bootstrapPeers = append(bootstrapPeers, full)
+			}
+		}
+		if len(bootstrapPeers) > 0 {
+			bootstrapSource = "dns"
+		}
+	}
+
+	// Layer 3: Hardcoded seeds (compiled into binary)
+	if len(bootstrapPeers) == 0 && len(HardcodedSeeds) > 0 {
+		for _, addr := range HardcodedSeeds {
+			maddr, err := ma.NewMultiaddr(addr)
+			if err != nil {
+				continue
+			}
+			bootstrapPeers = append(bootstrapPeers, maddr)
+		}
+		if len(bootstrapPeers) > 0 {
+			bootstrapSource = "hardcoded"
+		}
+	}
+
+	// Layer 4: Relay addresses (fallback, preserved from original behavior)
+	if len(bootstrapPeers) == 0 {
 		for _, addr := range cfg.Relay.Addresses {
 			maddr, err := ma.NewMultiaddr(addr)
 			if err != nil {
@@ -350,6 +412,13 @@ func (rt *serveRuntime) Bootstrap() error {
 			}
 			bootstrapPeers = append(bootstrapPeers, maddr)
 		}
+		if len(bootstrapPeers) > 0 {
+			bootstrapSource = "relay"
+		}
+	}
+
+	if bootstrapSource != "" {
+		fmt.Printf("Bootstrap source: %s (%d peers)\n", bootstrapSource, len(bootstrapPeers))
 	}
 
 	var wg sync.WaitGroup
@@ -390,7 +459,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Initialize path dialer for parallel connection racing
-	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, rt.metrics)
+	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, rt.relayDiscovery, rt.metrics)
 
 	// Initialize path tracker for per-peer connection visibility
 	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
@@ -594,6 +663,12 @@ func (rt *serveRuntime) Bootstrap() error {
 		fmt.Println()
 	}()
 
+	// Start bandwidth tracker background publish loop (every 30s).
+	// Scrapes libp2p's BandwidthCounter and updates Prometheus gauges.
+	if rt.bwTracker != nil {
+		go rt.bwTracker.Start(rt.ctx, 30*time.Second)
+	}
+
 	// Start mDNS local discovery (default: enabled).
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
@@ -608,10 +683,34 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Initialize peer relay (auto-enables if this host has a public IP).
 	// The existing ConnectionGater restricts who can use this relay.
-	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics)
+	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics, peerRelayConfigFromYAML(cfg.PeerRelay))
+
+	// When peer relay enables/disables, start/stop DHT relay advertisement
+	rt.peerRelay.OnStateChange(func(enabled bool) {
+		if enabled {
+			go rt.relayDiscovery.Advertise(rt.ctx, 10*time.Minute)
+		}
+	})
+
 	if rt.ifSummary != nil {
 		rt.peerRelay.AutoDetect(rt.ifSummary)
 	}
+
+	// Initialize relay health tracker and wire into discovery
+	relayHealth := p2pnet.NewRelayHealth(h, rt.metrics)
+	rt.relayHealth = relayHealth
+	rt.relayDiscovery.SetHealth(relayHealth)
+
+	// Register static relays with health tracker
+	for _, ai := range relayInfos {
+		relayHealth.RegisterRelay(ai.ID, true)
+	}
+
+	// Start background relay health probes (every 60s)
+	go relayHealth.Start(rt.ctx, 60*time.Second)
+
+	// Start background relay discovery loop (finds DHT-advertised relays)
+	go rt.relayDiscovery.StartDiscoveryLoop(rt.ctx, 5*time.Minute)
 
 	return nil
 }
@@ -702,6 +801,7 @@ func (rt *serveRuntime) SetupMOTDClient() {
 			fmt.Printf("\n[RELAY] Goodbye retracted\n")
 		}
 	}, configDir)
+	rt.motdClient = motdClient
 
 	h.SetStreamHandler(protocol.ID(relay.MOTDProtocol), func(s network.Stream) {
 		motdClient.HandleStream(s)
@@ -1097,4 +1197,65 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	rt.cancel()
 	rt.network.Close()
+}
+
+// peerRelayConfigFromYAML converts the YAML peer relay config to p2pnet's config type.
+// Zero values are handled by applyDefaults inside NewPeerRelay.
+func peerRelayConfigFromYAML(cfg config.PeerRelayConfig) p2pnet.PeerRelayConfig {
+	c := p2pnet.PeerRelayConfig{
+		Enabled:                cfg.Enabled,
+		MaxReservations:        cfg.Resources.MaxReservations,
+		MaxCircuits:            cfg.Resources.MaxCircuits,
+		MaxReservationsPerPeer: cfg.Resources.MaxReservationsPerPeer,
+		MaxReservationsPerIP:   cfg.Resources.MaxReservationsPerIP,
+		MaxReservationsPerASN:  cfg.Resources.MaxReservationsPerASN,
+		BufferSize:             cfg.Resources.BufferSize,
+	}
+
+	if cfg.Resources.CircuitDuration != "" {
+		if d, err := time.ParseDuration(cfg.Resources.CircuitDuration); err == nil {
+			c.CircuitDuration = d
+		}
+	}
+
+	if cfg.Resources.CircuitDataLimit != "" {
+		c.CircuitDataLimit = parseByteSize(cfg.Resources.CircuitDataLimit)
+	}
+
+	return c
+}
+
+// parseByteSize parses human-readable byte sizes like "128KB", "1MB".
+// Returns 0 on parse failure (defaults will apply).
+func parseByteSize(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+
+	multiplier := int64(1)
+	upper := strings.ToUpper(s)
+	switch {
+	case strings.HasSuffix(upper, "KB"):
+		multiplier = 1024
+		s = s[:len(s)-2]
+	case strings.HasSuffix(upper, "MB"):
+		multiplier = 1024 * 1024
+		s = s[:len(s)-2]
+	case strings.HasSuffix(upper, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		s = s[:len(s)-2]
+	case strings.HasSuffix(upper, "B"):
+		s = s[:len(s)-1]
+	}
+
+	s = strings.TrimSpace(s)
+	var n int64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n * multiplier
 }

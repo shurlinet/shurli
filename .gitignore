@@ -10,9 +10,8 @@
 
 # Built executables
 /shurli
-shurli-*
+/shurli-*
 cmd/keytool/keytool
-relay-server/relay-server
 
 # Test binary, built with `go test -c`
 *.test

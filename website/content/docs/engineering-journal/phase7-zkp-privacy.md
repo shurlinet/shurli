@@ -1,6 +1,6 @@
 ---
 title: "Phase 7 - ZKP Privacy Layer"
-weight: 18
+weight: 19
 description: "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."
 ---
 <!-- Auto-synced from docs/engineering-journal/phase7-zkp-privacy.md by sync-docs - do not edit directly -->

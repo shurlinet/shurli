@@ -18,6 +18,53 @@ import (
 	"github.com/shurlinet/shurli/internal/validate"
 )
 
+// promptRelayAddress runs the interactive relay address prompt and returns
+// a validated full multiaddr string.
+func promptRelayAddress(reader *bufio.Reader, stdout io.Writer) (string, error) {
+	fmt.Fprintln(stdout, "Enter relay server address")
+	fmt.Fprintln(stdout, "  Full multiaddr:  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>")
+	fmt.Fprintln(stdout, "  Or just:         <IP>:<PORT>  or  <IP>  (default port: 7777)")
+	fmt.Fprint(stdout, "> ")
+	relayInput, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read input: %w", err)
+	}
+	relayInput = strings.TrimSpace(relayInput)
+	if relayInput == "" {
+		return "", fmt.Errorf("relay address is required")
+	}
+
+	if isFullMultiaddr(relayInput) {
+		if _, err := ma.NewMultiaddr(relayInput); err != nil {
+			return "", fmt.Errorf("invalid multiaddr: %w", err)
+		}
+		return relayInput, nil
+	}
+
+	ip, port, err := parseRelayHostPort(relayInput)
+	if err != nil {
+		return "", fmt.Errorf("invalid relay address: %w", err)
+	}
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Enter the relay server's Peer ID")
+	fmt.Fprintln(stdout, "  (shown in the relay server's setup output)")
+	fmt.Fprint(stdout, "> ")
+	peerIDStr, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read input: %w", err)
+	}
+	peerIDStr = strings.TrimSpace(peerIDStr)
+	if peerIDStr == "" {
+		return "", fmt.Errorf("relay Peer ID is required")
+	}
+	if err := validatePeerID(peerIDStr); err != nil {
+		return "", fmt.Errorf("invalid Peer ID: %w", err)
+	}
+	addr := buildRelayMultiaddr(ip, port, peerIDStr)
+	fmt.Fprintf(stdout, "Relay: %s\n", addr)
+	return addr, nil
+}
+
 func runInit(args []string) {
 	if err := doInit(args, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -68,49 +115,44 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout)
 
-	// Prompt for relay address
+	// Network setup: public Shurli network (default) or custom relay
 	reader := bufio.NewReader(stdin)
-	fmt.Fprintln(stdout, "Enter relay server address")
-	fmt.Fprintln(stdout, "  Full multiaddr:  /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>")
-	fmt.Fprintln(stdout, "  Or just:         <IP>:<PORT>  or  <IP>  (default port: 7777)")
-	fmt.Fprint(stdout, "> ")
-	relayInput, err := reader.ReadString('\n')
+	fmt.Fprintln(stdout, "Network setup:")
+	fmt.Fprintln(stdout, "  1. Join the Shurli public network (default)")
+	fmt.Fprintln(stdout, "     Uses public seed nodes for peer discovery and direct connections.")
+	fmt.Fprintln(stdout, "     NOTE: Seed nodes enable discovery only, NOT data relay.")
+	fmt.Fprintln(stdout, "     Data transfers happen directly between your devices.")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  2. Use my own relay server")
+	fmt.Fprintln(stdout, "     Use a self-hosted relay for full data relay capability.")
+	fmt.Fprintln(stdout)
+	fmt.Fprint(stdout, "Choice [1]: ")
+
+	choice, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read input: %w", err)
 	}
-	relayInput = strings.TrimSpace(relayInput)
-	if relayInput == "" {
-		return fmt.Errorf("relay address is required")
+	choice = strings.TrimSpace(choice)
+	if choice == "" {
+		choice = "1"
 	}
 
-	var relayAddr string
-	if isFullMultiaddr(relayInput) {
-		if _, err := ma.NewMultiaddr(relayInput); err != nil {
-			return fmt.Errorf("invalid multiaddr: %w", err)
-		}
-		relayAddr = relayInput
-	} else {
-		ip, port, err := parseRelayHostPort(relayInput)
-		if err != nil {
-			return fmt.Errorf("invalid relay address: %w", err)
-		}
+	var relayAddrs []string
+	switch choice {
+	case "1":
+		relayAddrs = HardcodedSeeds
 		fmt.Fprintln(stdout)
-		fmt.Fprintln(stdout, "Enter the relay server's Peer ID")
-		fmt.Fprintln(stdout, "  (shown in the relay server's setup output)")
-		fmt.Fprint(stdout, "> ")
-		peerIDStr, err := reader.ReadString('\n')
+		fmt.Fprintf(stdout, "Using %d public Shurli seed nodes for discovery.\n", len(SeedPeerIDs()))
+		fmt.Fprintln(stdout, "These enable peer discovery and direct connections only.")
+		fmt.Fprintln(stdout, "For full data relay, deploy your own: https://shurli.io/docs/relay-setup/")
+	case "2":
+		relayAddr, err := promptRelayAddress(reader, stdout)
 		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
+			return err
 		}
-		peerIDStr = strings.TrimSpace(peerIDStr)
-		if peerIDStr == "" {
-			return fmt.Errorf("relay Peer ID is required")
-		}
-		if err := validatePeerID(peerIDStr); err != nil {
-			return fmt.Errorf("invalid Peer ID: %w", err)
-		}
-		relayAddr = buildRelayMultiaddr(ip, port, peerIDStr)
-		fmt.Fprintf(stdout, "Relay: %s\n", relayAddr)
+		relayAddrs = []string{relayAddr}
+	default:
+		return fmt.Errorf("invalid choice: %s (enter 1 or 2)", choice)
 	}
 	fmt.Fprintln(stdout)
 
@@ -185,7 +227,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 
 	// Write config file
-	configContent := nodeConfigTemplate(relayAddr, "shurli init", *networkFlag)
+	configContent := nodeConfigTemplate(relayAddrs, "shurli init", *networkFlag)
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)

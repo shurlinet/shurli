@@ -9,8 +9,8 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Date | What's New |
 |------|-----------|
 | 2026-02-18 | **Private DHT** - Peer discovery now runs on `/shurli/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-23 | **Relay pairing** - `shurli relay pair` generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
-| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 15 REST endpoints |
+| 2026-02-23 | **Relay pairing** - relay admin socket generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 23 REST endpoints |
 | 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
 | 2026-02-16 | **Service management** - `shurli service add/remove/enable/disable` from the CLI |
 | 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
@@ -83,9 +83,9 @@ shurli join <pairing-code> --name laptop
 # Shows SAS verification fingerprints for each peer
 ```
 
-The relay admin generates codes with `shurli relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+The relay admin generates pairing codes via the admin socket. Each person joins with one command. Everyone in the group is mutually authorized and verified.
 
-> **Relay server**: All machines connect through a relay for NAT traversal. See [relay-server/README.md](relay-server/README.md) for deploying your own. Run `shurli relay serve` to start a relay.
+> **Relay server**: All machines connect through a relay for NAT traversal. See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for deploying your own. Quick install: `make install-relay`
 
 ## Why Shurli exists
 
@@ -120,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/shurli/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `shurli` binary with 16 subcommands. No runtime dependencies |
+| **Single Binary** | One `shurli` binary with 24 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -198,7 +198,6 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 |---------|-------------|
 | `shurli invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
 | `shurli join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
-| `shurli relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
 | `shurli verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
 | `shurli status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `shurli version` | Show version, commit, build date, Go version |
@@ -213,7 +212,7 @@ The daemon runs `shurli daemon` as a long-lived background process. It starts th
 - Unix socket at `~/.config/shurli/shurli.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
+- 23 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
 
 **Example:**
 ```bash
@@ -290,7 +289,7 @@ A plist is provided at [deploy/com.shurli.daemon.plist](deploy/com.shurli.daemon
 
 ### Relay Server
 
-See [relay-server/README.md](relay-server/README.md) for the full VPS deployment guide (user creation, SSH hardening, firewall, systemd, health checks).
+See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for the full VPS deployment guide (user creation, SSH hardening, firewall, systemd, health checks). Quick install: `make install-relay`
 
 ## Building
 
@@ -370,7 +369,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── shurli/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (16 subcommands)
+│   ├── main.go                # Command dispatch (24 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping
@@ -413,7 +412,7 @@ internal/
 │   └── errors.go
 ├── daemon/                    # Daemon API server + client library
 │   ├── server.go              # Unix socket HTTP server with cookie auth
-│   ├── handlers.go            # 15 REST endpoint handlers
+│   ├── handlers.go            # 23 REST endpoint handlers
 │   ├── client.go              # Go client (auto-reads cookie, Unix transport)
 │   ├── types.go               # Request/response types
 │   └── errors.go
@@ -423,13 +422,13 @@ internal/
 ├── watchdog/                  # Health monitoring + systemd sd_notify (pure Go)
 ├── qr/                        # QR code generation (zero dependencies)
 └── termcolor/                 # Terminal color output
-relay-server/                  # Deployment artifacts
-├── setup.sh                   # Full VPS setup (build, permissions, systemd, health)
-├── relay-server.service       # systemd unit file
-└── README.md                  # VPS deployment guide
-deploy/                        # Client service files
-├── shurli-daemon.service      # systemd unit for shurli daemon
-└── com.shurli.daemon.plist    # launchd plist for macOS
+deploy/                        # Service files
+├── shurli-daemon.service      # systemd unit for daemon (Linux)
+├── shurli-relay.service       # systemd unit for relay server (Linux)
+└── com.shurli.daemon.plist    # launchd plist for daemon (macOS)
+tools/                         # Dev and deployment tools
+├── relay-setup.sh             # Relay VPS deploy/verify/uninstall script
+└── sync-docs/                 # Hugo doc sync pipeline
 configs/                       # Sample configuration files
 ├── shurli.sample.yaml
 ├── relay-server.sample.yaml
@@ -437,7 +436,7 @@ configs/                       # Sample configuration files
 docs/                          # Documentation
 ├── ARCHITECTURE.md            # Full architecture deep dive
 ├── DAEMON-API.md              # Daemon REST API reference
-├── FAQ.md                     # Frequently asked questions
+├── faq/                       # Frequently asked questions (sub-pages)
 ├── NETWORK-TOOLS.md           # Ping, traceroute, resolve guide
 ├── ROADMAP.md                 # Multi-phase implementation plan
 ├── TESTING.md                 # Test strategy and coverage
@@ -464,7 +463,7 @@ chmod 600 authorized_keys    # Peer allowlist: owner read/write only
 chmod 644 *.yaml             # Configs: readable
 ```
 
-For security details, relay hardening, and threat model: [docs/FAQ.md](docs/FAQ.md)
+For security details, relay hardening, and threat model: [docs/faq/](docs/faq/)
 
 ## Troubleshooting
 
@@ -539,8 +538,8 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
-| [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (23 endpoints) |
+| [FAQ](docs/faq/) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
 | [TESTING.md](docs/TESTING.md) | Test strategy, coverage, integration tests |
@@ -2086,7 +2085,6 @@ Shurli/
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
-│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
@@ -2103,7 +2101,9 @@ Shurli/
 │   │   ├── cmd_man.go        # troff man page (display, install, uninstall)
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
+│   │   ├── daemon_launch.go # Service manager restart (launchd/systemd kick)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
@@ -2123,6 +2123,10 @@ Shurli/
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
+│   ├── relaydiscovery.go    # DHT relay discovery + RelaySource interface + AutoRelay PeerSource
+│   ├── relayhealth.go       # EWMA relay health scoring (success rate, RTT, freshness)
+│   ├── bandwidth.go         # Per-peer/protocol bandwidth tracking (wraps libp2p BandwidthCounter)
+│   ├── dnsseed.go           # DNS seed resolution (_dnsaddr TXT records, IPFS convention)
 │   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
 │   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
@@ -2154,7 +2158,7 @@ Shurli/
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
-│   ├── identity/            # Ed25519 identity management (shared by shurli + relay-server)
+│   ├── identity/            # Ed25519 identity management (shared by daemon + relay modes)
 │   │   ├── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   │   ├── seed.go          # BIP39 generation, HKDF key derivation, unified seed architecture
 │   │   ├── bip39_wordlist.go # BIP39 2048-word English wordlist
@@ -2187,6 +2191,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -2222,13 +2227,14 @@ Shurli/
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
-├── relay-server/            # Deployment artifacts
-│   ├── setup.sh             # Deploy/verify/uninstall (builds shurli, runs relay serve)
-│   └── relay-server.service # systemd unit template (installed as shurli-relay.service)
-│
 ├── deploy/                  # Service management files
 │   ├── shurli-daemon.service   # systemd unit for daemon (Linux)
+│   ├── shurli-relay.service    # systemd unit for relay server (Linux)
 │   └── com.shurli.daemon.plist # launchd plist for daemon (macOS)
+│
+├── tools/                   # Dev and deployment tools
+│   ├── relay-setup.sh          # Relay VPS deploy/verify/uninstall script
+│   └── sync-docs/              # Hugo doc sync pipeline
 │
 ├── configs/                 # Sample configuration files
 │   ├── shurli.sample.yaml
@@ -2315,7 +2321,7 @@ Shurli/
 │   ├── ios/
 │   └── android/
 │
-└── ...existing (relay-server/, configs, docs, examples)
+└── ...existing (deploy/, tools/, configs, docs, examples)
 ```
 
 ### Service Exposure Architecture
@@ -2332,7 +2338,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 18 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 23 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -2361,7 +2367,10 @@ type serveRuntime struct {
     peerManager      *p2pnet.PeerManager       // background reconnection with backoff
     netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
     peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
+    relayDiscovery   *p2pnet.RelayDiscovery    // static + DHT relay discovery
     metrics          *p2pnet.Metrics           // nil when telemetry disabled
+    bwTracker        *p2pnet.BandwidthTracker  // per-peer bandwidth stats
+    relayHealth      *p2pnet.RelayHealth       // EWMA relay health scoring
     peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
@@ -2403,7 +2412,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-18 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
+23 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](DAEMON-API.md).
 
 ### Dynamic Proxy Management
 
@@ -2494,7 +2503,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics (44 total):
+Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -2920,7 +2929,7 @@ The key is decrypted at daemon startup with the node password. Raw (unencrypted)
 
 > **Status: Implemented**
 
-Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 20+ admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
 
 **Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
 
@@ -3233,8 +3242,8 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-02
-**Architecture Version**: 4.0 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
+**Last Updated**: 2026-03-06
+**Architecture Version**: 4.1 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
 
 
 ---
@@ -3284,19 +3293,20 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 
 ## Step 1: Deploy Relay Server
 
-See [relay-server/README.md](../relay-server/README.md) for the full VPS setup guide.
+See [docs/RELAY-SETUP.md](RELAY-SETUP.md) for the full VPS setup guide.
 
 Quick version:
 
 ```bash
-cd relay-server
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults are fine)
+# Build and install to system paths
+make install-relay
 
-# Build from project root
-cd ..
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
-cd relay-server && ./shurli relay serve
+# Or manually:
+go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
+sudo install -m 755 shurli /usr/local/bin/shurli
+sudo mkdir -p /etc/shurli/relay
+shurli relay setup --dir /etc/shurli/relay
+shurli relay serve
 ```
 
 **Expected output:**
@@ -3527,7 +3537,7 @@ After initial setup, you can add or remove relay servers:
 
 On the VPS, verify the relay is healthy:
 ```bash
-sudo ./setup.sh --check
+bash tools/relay-setup.sh --check
 ```
 This shows systemd status, peer ID, public IPs, full multiaddrs, and a QR code for easy sharing.
 
@@ -5024,10 +5034,12 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Post-I-2: Trust & Delivery](post-i-2-trust-and-delivery.md) | ADR-J01 to ADR-J06 | Peer notify, HMAC, relay admin, SAS verification, reachability, history |
 | [Pre-Phase 5 Hardening](pre-phase5-hardening.md) | ADR-K01 to ADR-K03 | Startup race, CGNAT detection, stale addresses, service deployment |
 | [Phase 5: Network Resilience](phase5-network-resilience.md) | ADR-L01 to ADR-L08 | Native mDNS, PeerManager, stale cleanup, IPv6 probing, relay-discard |
-| [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT02 | Go doc sync pipeline, relay setup subcommand |
+| [Phase 5: Relay Decentralization](phase5-relay-decentralization.md) | ADR-RD01 to ADR-RD05 | Peer relay, DHT relay discovery, health-aware selection, bandwidth, layered bootstrap |
+| [Dev Tooling](dev-tooling.md) | ADR-DT01 to ADR-DT03 | Go doc sync pipeline, relay setup subcommand, directory consolidation |
 | [Phase 6: ACL + Relay Security + Client Invites](phase6-acl-relay-security.md) | ADR-M01 to ADR-M08 | Roles, macaroons, invite deposits, sealed vault, remote unseal, 2FA |
 | [Phase 7: ZKP Privacy Layer](phase7-zkp-privacy.md) | ADR-N01 to ADR-N18 | gnark PLONK, Poseidon2 Merkle tree, membership proofs, range proofs, BIP39 keys |
 | [Phase 8: Identity & Remote Admin](phase8-identity-remote-admin.md) | ADR-O01 to ADR-O17 | Unified BIP39 seed, encrypted identity, recovery, remote admin, MOTD, goodbye, session tokens |
+| [Seed Relay Separation & Init Flow](seed-relay-separation.md) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
 
 
 ---
@@ -6048,7 +6060,7 @@ Both platforms use the pure-Go `sd_notify` implementation in `internal/watchdog/
 
 **Consequences**: Nodes survive crashes, reboots, and power failures without manual intervention. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). Dev workflow: rebuild binary, restart service. Symlink from `/usr/local/bin/shurli` to repo means no file copy needed.
 
-**Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `relay-server/relay-server.service`, `internal/watchdog/watchdog.go`
+**Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `deploy/shurli-relay.service`, `internal/watchdog/watchdog.go`
 
 
 ---
@@ -6307,6 +6319,135 @@ network:
 
 ---
 
+# Phase 5: Relay Decentralization
+
+Peer relay service, DHT-based relay discovery, health-aware selection, per-peer bandwidth tracking, and layered bootstrap (config > DNS seeds > hardcoded > relay). Deferred from Phase 5 core and built after PeerManager and observability were in place.
+
+---
+
+### ADR-RD01: Every-Peer-Is-A-Relay (PeerRelay)
+
+**Context**: The VPS relay is a single point of failure. If it goes down, NATted peers cannot reach each other. Any publicly-reachable Shurli peer should be able to serve as a relay for its authorized peers, reducing dependence on central infrastructure.
+
+**Alternatives considered**:
+- **Require users to self-host VPS relays** - High barrier. Most users cannot or will not operate a VPS.
+- **Multiple VPS relays** - Better availability but still central infrastructure. Operator cost scales linearly.
+- **Auto-enable relay on peers with public IP** - Zero operator overhead. Every peer with a routable address contributes relay capacity. The existing ConnectionGater enforces auth before relay protocol runs.
+
+**Decision**: `PeerRelay` in `pkg/p2pnet/peerrelay.go`. Three modes via `peer_relay.enabled` config: `"auto"` (default), `"true"`, `"false"`. Auto mode calls `AutoDetect()` after interface discovery: if `InterfaceSummary.HasGlobalIPv4` or `HasGlobalIPv6`, the relay enables. Resource limits are configurable: `MaxReservations` (4), `MaxCircuits` (16), `CircuitDuration` (10 min), `CircuitDataLimit` (128KB). `OnStateChange` callback bridges to RelayDiscovery for DHT advertisement.
+
+Security: ConnectionGater applies to relay protocol. Only peers in `authorized_keys` can make reservations or create circuits. No anonymous relay traffic.
+
+**Consequences**: Every peer with a public IP becomes a relay automatically. The VPS relay transitions from "required infrastructure" to "bootstrap convenience." Resource limits prevent abuse. Config knobs allow operators to tune or disable.
+
+**Reference**: `pkg/p2pnet/peerrelay.go`, `internal/config/config.go` (PeerRelayConfig)
+
+---
+
+### ADR-RD02: DHT-Based Relay Discovery
+
+**Context**: With PeerRelay, multiple peers can serve as relays. But NATted nodes need to find them. Static relay lists in config don't scale and go stale when peer IPs change.
+
+**Alternatives considered**:
+- **Gossip relay advertisements** - Requires PubSub (incompatible, go-libp2p-pubsub pins v0.39.1). Good long-term but premature.
+- **Central registry API** - Defeats the purpose of decentralization.
+- **DHT provider records** - Standard libp2p pattern. Relay peers call `dht.Provide()`, NATted nodes call `FindProvidersAsync()`. Namespace-aware via deterministic CID derivation. Zero new dependencies.
+
+**Decision**: `RelayDiscovery` in `pkg/p2pnet/relaydiscovery.go`. Three components:
+
+1. **RelaySource interface** - `RelayAddrs() []string`. Abstracts static vs dynamic relay sources. `StaticRelaySource` wraps a fixed list for backward compatibility. `RelayDiscovery` implements `RelaySource` with combined static + DHT results.
+
+2. **Namespace-aware CID** - `RelayServiceCID(namespace)` generates a deterministic CID from `sha256("/shurli/<namespace>/relay/v1")`. Different private networks get different CIDs. Peers only discover relays in their own namespace.
+
+3. **Advertise/Discover loops** - `Advertise()` calls `dht.Provide()` every 10 minutes (triggered by PeerRelay's `OnStateChange` callback). `StartDiscoveryLoop()` calls `FindProvidersAsync()` every 5 minutes. Discovered relays are registered with RelayHealth for scoring.
+
+**AutoRelay integration**: `PeerSource()` returns a channel compatible with libp2p's `autorelay.PeerSource`. Returns all known relays (static first, then DHT-discovered). Safe to call before DHT is set (returns static relays only).
+
+**Consequences**: NATted nodes automatically discover relay peers through the DHT. No static config needed beyond bootstrap. Namespace isolation prevents cross-network relay discovery. AllRelays() deduplicates by peer ID (static relays take priority over DHT-discovered duplicates).
+
+**Reference**: `pkg/p2pnet/relaydiscovery.go`, `pkg/p2pnet/relaydiscovery_test.go`
+
+---
+
+### ADR-RD03: Health-Aware Relay Selection (EWMA Scoring)
+
+**Context**: With multiple relays (VPS + peer relays), the node needs to prefer healthy, low-latency relays over degraded or distant ones. A relay that responded 5 minutes ago at 30ms should rank higher than one last seen 20 minutes ago at 500ms.
+
+**Alternatives considered**:
+- **Round-robin** - No quality signal. A dead relay gets the same traffic as a healthy one.
+- **Latency-only ranking** - Misses reliability. A relay with 20ms latency that fails 50% of the time is worse than one at 100ms with 99% success.
+- **Composite EWMA score** - Weights success rate (reliability), RTT (latency), and freshness (recency). EWMA smooths outliers while tracking trends.
+
+**Decision**: `RelayHealth` in `pkg/p2pnet/relayhealth.go`. Per-relay `RelayHealthScore` tracks:
+
+- **Score**: composite 0.0-1.0 from `computeScore(successRate, rttMs, now, lastProbe)`
+- **Formula**: `successRate * 0.6 + latencyFactor * 0.3 + freshness * 0.1`
+- **Latency factor**: `1.0 - min(rttMs/2000, 1.0)` (linear decay, 0ms = 1.0, 2000ms = 0.0)
+- **Freshness**: `exp(-age/30)` (exponential decay, half-life ~20 minutes)
+- **EWMA alpha**: 0.3 (recent observations weighted 30%)
+
+Background probing: `Start()` runs `ProbeAll()` every 60 seconds. Each probe connects to the relay and measures RTT. Probes run concurrently with 10s timeout per relay.
+
+Integration: `RelayDiscovery.SetHealth()` wires the health tracker. When set, `RelayAddrs()` sorts relays by health score (best first). PathDialer gets health-ranked relay addresses automatically.
+
+Prometheus: `shurli_relay_health_score` gauge (per relay, labeled static/dynamic) and `shurli_relay_probe_total` counter (success/failure).
+
+**Consequences**: Relays are ranked by measured quality. Degraded relays drop in ranking automatically. New relays start at 0.5 (neutral) and converge after 3-4 probes. Stale relays decay via freshness factor. Zero manual intervention.
+
+**Reference**: `pkg/p2pnet/relayhealth.go`, `pkg/p2pnet/metrics.go`
+
+---
+
+### ADR-RD04: Per-Peer Bandwidth Tracking
+
+**Context**: Observability gap: no visibility into how much data flows through each peer or protocol. Without bandwidth data, operators cannot identify heavy consumers, detect anomalies, or tune resource limits.
+
+**Decision**: `BandwidthTracker` in `pkg/p2pnet/bandwidth.go`. Wraps libp2p's `metrics.BandwidthCounter` (wired via `libp2p.BandwidthReporter()`). Exposes:
+
+- `PeerStats(peer.ID)` - per-peer bytes in/out, rates
+- `AllPeerStats()` - all peers keyed by ID
+- `ProtocolStats(protocol.ID)` - per-protocol bytes
+- `Totals()` - aggregate across everything
+
+`PublishMetrics()` bridges to Prometheus:
+- `shurli_bandwidth_bytes_total{direction}` - aggregate in/out
+- `shurli_peer_bandwidth_bytes_total{peer,direction}` - per-peer
+- `shurli_peer_bandwidth_rate{peer,direction}` - per-peer rate
+- `shurli_protocol_bandwidth_bytes_total{protocol,direction}` - per-protocol
+
+`Start()` runs a background loop (30s interval) that publishes metrics and trims peers idle > 1 hour (`TrimIdle`) to bound memory.
+
+Daemon API: `GET /v1/bandwidth` returns aggregate + per-peer + per-protocol stats.
+
+**Consequences**: Full bandwidth visibility. Prometheus dashboards show traffic patterns. Idle trimming prevents unbounded memory growth. Daemon API exposes stats for CLI tooling.
+
+**Reference**: `pkg/p2pnet/bandwidth.go`, `pkg/p2pnet/bandwidth_test.go`, `internal/daemon/handlers.go`
+
+---
+
+### ADR-RD05: Layered Bootstrap Decentralization
+
+**Context**: Shurli hardcoded relay addresses in config files. If the VPS changes IP or goes down, every node needs a config update. Bitcoin solved this decades ago with layered bootstrap: try local config, then DNS seeds, then hardcoded seeds, then peer exchange. Each layer is more stale but more available.
+
+**Decision**: Four-layer bootstrap with graceful degradation:
+
+1. **Config peers** (`bootstrap_peers` in config.yaml) - highest priority. User-specified, always tried first. If set, DNS seeds are skipped (user knows what they want).
+
+2. **DNS seeds** (`_dnsaddr.<domain>` TXT records) - default: `seeds.shurli.io`. Uses the dnsaddr multiaddr convention from IPFS. `ResolveDNSSeeds()` in `pkg/p2pnet/dnsseed.go` queries TXT records with 10s timeout. Records format: `dnsaddr=/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...`. Merges addresses for same peer ID. DNS failures are logged but not fatal.
+
+3. **Hardcoded seeds** (`cmd/shurli/seeds.go`) - compiled into the binary. Ultimate fallback when DNS is unavailable (censorship, network partition, misconfigured DNS). Populated after seed node VPS setup with actual multiaddrs.
+
+4. **Relay addresses** - from RelayDiscovery (static config + DHT-discovered). Lowest priority but always available after initial bootstrap.
+
+Config overrides: `dns_seed_domain` changes the DNS lookup domain. Users running private networks set their own domain. Setting `bootstrap_peers` explicitly bypasses DNS entirely.
+
+**Consequences**: New users need zero config - DNS seeds resolve automatically. DNS update is a Cloudflare TXT record change (seconds to propagate). Hardcoded seeds survive DNS failure. Private networks override with their own domain. Four layers, four levels of staleness, four levels of availability. Same pattern that keeps Bitcoin running since 2009.
+
+**Reference**: `pkg/p2pnet/dnsseed.go`, `pkg/p2pnet/dnsseed_test.go`, `cmd/shurli/seeds.go`, `cmd/shurli/cmd_seed_helpers.go`
+
+
+---
+
 # Dev Tooling Decisions
 
 Build system, documentation pipeline, and developer workflow tooling.
@@ -6338,7 +6479,7 @@ Architecture:
 
 ### ADR-DT02: Relay Setup as Go Subcommand (Replace Bash Section 6.5)
 
-**Context**: `relay-server/setup.sh` section 6.5 generated relay node configuration (192 lines of bash). It duplicated config YAML that already existed in Go's `config_template.go`, creating a maintenance burden where changes had to be made in two places.
+**Context**: `tools/relay-setup.sh` section 6.5 generated relay node configuration (192 lines of bash). It duplicated config YAML that already existed in Go's `config_template.go`, creating a maintenance burden where changes had to be made in two places.
 
 **Alternatives considered**:
 - **Keep bash, import template** - Bash cannot import Go templates. Would require generating a shared file format.
@@ -6348,7 +6489,37 @@ Architecture:
 
 **Consequences**: Single source of truth for relay config. Operators get `--backup` and `--restore` flags for free. The bash script still handles system-level tasks (apt, systemd, firewall) where bash is the right tool.
 
-**Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`relay-server/setup.sh`](https://github.com/shurlinet/shurli/blob/main/relay-server/setup.sh)
+**Reference**: [`cmd/shurli/cmd_relay.go`](https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay.go), [`tools/relay-setup.sh`](https://github.com/shurlinet/shurli/blob/main/tools/relay-setup.sh)
+
+---
+
+### ADR-DT03: Directory Consolidation (relay-server/ Eliminated)
+
+**Context**: The `relay-server/` directory was a grab-bag: systemd service file, setup script, README, and a gitignored binary. It created confusion about where relay artifacts lived and duplicated the pattern already established by `deploy/` (service files) and `tools/` (scripts). Contributors had to look in three places to find relay-related files.
+
+**Alternatives considered**:
+- **Keep relay-server/, add symlinks** - Preserves backward compatibility but adds indirection. Symlinks confuse `go build` and some CI tools.
+- **Rename to deploy/relay/** - Better grouping but creates a nested directory for three files.
+- **Distribute files to existing directories** - Service file joins `deploy/`, setup script joins `tools/`, relay guide joins `docs/`. Each file goes where its type already lives. Delete `relay-server/` entirely.
+
+**Decision**: Clean cut, no backward compatibility:
+
+| Old location | New location |
+|---|---|
+| `relay-server/relay-server.service` | `deploy/shurli-relay.service` |
+| `relay-server/setup.sh` | `tools/relay-setup.sh` |
+| `relay-server/README.md` | `docs/RELAY-SETUP.md` |
+| `relay-server/relay-server` (binary) | `/usr/local/bin/shurli` (system install) |
+
+Simultaneously, the relay install moved from relative-path (`$RELAY_DIR/shurli`) to FHS-compliant system paths (`/usr/local/bin/shurli` + `/etc/shurli/relay/`). The Makefile gained relay targets (`install-relay`, `uninstall-relay`) alongside existing daemon targets.
+
+The setup script delegates build and install to `make install-relay` instead of running `go build` inline. The service file uses fixed system paths (no sed placeholder substitution).
+
+53+ cross-codebase references updated. Runtime identifiers (`relay-server/<version>` UserAgent, `relay-server.yaml` config filename) left unchanged - these are network protocol identifiers, not file paths.
+
+**Consequences**: One directory deleted. Files live where their type lives. Contributors find service files in `deploy/`, scripts in `tools/`, docs in `docs/`. FHS-compliant installation makes the relay deployable like any standard Linux service. `make install-relay` handles the full lifecycle.
+
+**Reference**: `deploy/shurli-relay.service`, `tools/relay-setup.sh`, `docs/RELAY-SETUP.md`, `Makefile`
 
 
 ---
@@ -7154,6 +7325,259 @@ Total Phase 7 tests: ~91
 
 ---
 
+# Phase 8: Identity Security & Remote Admin
+
+**Date**: 2026-03-02
+**Status**: Complete
+**ADRs**: ADR-O01 to ADR-O17
+
+Phase 8 addresses seven converging problems: two separate seed systems, no backup confirmation, wrong password UX, unprotected identity.key, missing recovery CLI, unseal-only remote management, and engineering journal gaps for doctor/completion/man.
+
+---
+
+## ADR-O01: Shell Completion (bash/zsh/fish)
+
+**Problem**: No tab completion for any commands.
+
+**Decision**: Generate completion scripts as Go string constants in `cmd_completion.go`. One file, three shells. Same patterns: top-level commands, subcommands, flags. `--install`/`--uninstall`/`--path` flags for system-wide management.
+
+**Why not external files**: Keeping completion scripts as Go constants means they're always in sync with the binary. No separate files to distribute or version.
+
+**Reference**: `cmd/shurli/cmd_completion.go`
+
+---
+
+## ADR-O02: Man Page (troff)
+
+**Problem**: No man page. `man shurli` does nothing.
+
+**Decision**: Generate a full troff man page as a Go string constant in `cmd_man.go`. Covers all commands, examples, concepts, security considerations, and file locations. `--install` writes to `/usr/local/share/man/man1/shurli.1`.
+
+**Why troff**: It's the standard. Every Unix system renders it natively. No dependencies.
+
+**Reference**: `cmd/shurli/cmd_man.go`
+
+---
+
+## ADR-O03: Doctor Command (health checks + auto-fix)
+
+**Problem**: After upgrading, completions and man page may be stale. Config issues may go unnoticed.
+
+**Decision**: `shurli doctor` checks config, identity key, completions, and man page. `--fix` auto-repairs everything. Reports pass/warn/fail for each check.
+
+**Reference**: `cmd/shurli/cmd_doctor.go`
+
+---
+
+## ADR-O04: Unified BIP39 Seed Architecture
+
+**Problem**: Vault used 24 hex pairs, ZKP used 24 BIP39 words. Two seeds, two backups, two recovery processes. Should be ONE seed like Bitcoin wallets.
+
+**Decision**: ONE BIP39 seed phrase (24 words) derives everything via HKDF domain separation:
+- `HKDF(seed, "shurli/identity/v1")` -> Ed25519 private key
+- `HKDF(seed, "shurli/vault/v1")` -> vault root key
+- `SRS(SHA256(mnemonic))` -> ZKP circuit keys
+
+**Why HKDF domain separation**: Same construction Bitcoin HD wallets use. Cryptographically independent keys from one seed. Proven, audited, secures trillions.
+
+**Trade-off**: Seed compromise = total compromise. But that's true of any single-seed system, and one backup is far more likely to be done correctly than two.
+
+**Reference**: `internal/identity/seed.go`
+
+---
+
+## ADR-O05: Password-Protected Identity (mandatory encrypted identity.key)
+
+**Problem**: Raw Ed25519 key on disk for ALL nodes. File access = identity theft.
+
+**Decision**: SHRL encrypted format: Argon2id (time=1, memory=64MB, threads=4) + XChaCha20-Poly1305. All nodes, not just relays. Magic header for format detection.
+
+**Why Argon2id**: Memory-hard KDF resists GPU/ASIC attacks. Same algorithm as vault (consistency).
+
+**Why mandatory**: Optional encryption means nobody enables it. Mandatory means the default is secure.
+
+**Backward compatibility**: Raw key files detected by magic header check. User prompted to encrypt on first use.
+
+**Reference**: `internal/identity/encrypted.go`
+
+---
+
+## ADR-O06: Seed Backup Confirmation (wallet-style quiz)
+
+**Problem**: Seed phrase shown and trusted. No verification the user actually wrote it down.
+
+**Decision**: After displaying the seed, quiz the user: "What is word 5?" and "What is word 18?" (random positions). Must answer both correctly. Same pattern as hardware wallet setup.
+
+**Why only 2 words**: Balance between verification confidence and user annoyance. Two random positions from 24 words is sufficient to prove the user has the full phrase accessible.
+
+**Reference**: `cmd/shurli/cmd_seed_helpers.go`
+
+---
+
+## ADR-O07: Password UX (identity vs vault passwords)
+
+**Problem**: "Passphrase" confused with seed phrase. Daily unseal should feel like typing a password.
+
+**Decision**: Three-tier terminology:
+- **Seed phrase**: 24 BIP39 words. Disaster recovery only. Paper. Offline. Used once at setup.
+- **Identity password**: Protects identity.key. 8+ chars. Entered at daemon start (or skip via session token). ALL nodes.
+- **Vault password**: Protects vault root key. Relay only. Separate from identity password.
+
+**Why separate passwords**: Identity password is entered frequently (daemon start). Vault password is entered rarely (unseal after reboot). Different risk profiles warrant different credentials.
+
+**Reference**: `cmd/shurli/cmd_change_password.go`
+
+---
+
+## ADR-O08: Top-Level Recover CLI
+
+**Problem**: `RecoverFromSeed()` existed in vault.go but no CLI command. Recovery required code knowledge.
+
+**Decision**: `shurli recover` as a top-level command. Interactive by default (prompts for seed, password). Non-interactive seed via `--seed` flag. `--relay` flag also recovers vault + ZKP keys. Password is always interactive (no `--password-file` - attack vector removed during Phase 8 testing).
+
+**Why top-level**: Recovery is critical infrastructure. Burying it under `relay vault recover` makes it invisible to node operators who need it most.
+
+**Reference**: `cmd/shurli/cmd_recover.go`
+
+---
+
+## ADR-O09: Top-Level Change Password CLI
+
+**Problem**: No way to change identity password without code modification.
+
+**Decision**: `shurli change-password` prompts for current password, new password, confirmation. Updates session token if one exists.
+
+**Reference**: `cmd/shurli/cmd_change_password.go`
+
+---
+
+## ADR-O10: Remote Admin Protocol (`/shurli/relay-admin/1.0.0`)
+
+**Problem**: All 16+ admin API endpoints were local-only (Unix socket). Admin peers could only unseal remotely, nothing else. Future mobile app needs full remote management.
+
+**Decision**: Generic P2P admin channel using `/shurli/relay-admin/1.0.0`. JSON-over-stream with request/response framing. The handler adapts P2P stream requests into HTTP requests against the local admin socket.
+
+**Why adapter pattern**: Reuse all existing HTTP handlers and validation. Zero duplication. Any new admin endpoint automatically works remotely.
+
+**Security**: Admin role check at stream open (rejected before data). Rate limiting (5 req/s per peer). Same auth model as Unix socket.
+
+**Trade-off**: JSON-over-stream adds ~2KB overhead vs binary protocol. Acceptable for admin operations (not data plane).
+
+**Reference**: `internal/relay/remote_admin.go`, `internal/relay/remote_admin_client.go`
+
+---
+
+## ADR-O11: setup.sh Assessment (bash/Go split rationale)
+
+**Problem**: Relay deployment uses bash (setup.sh) for OS-level tasks (users, systemd, firewall) and Go for Shurli-specific logic. Is this the right split?
+
+**Decision**: Keep the split. Bash handles OS integration (users, systemd units, firewall rules, sysctl tuning). Go handles application logic (config generation, key management, admin operations).
+
+**Why**: OS-level tasks vary wildly by distribution. Bash with apt/ufw is the right tool for Debian/Ubuntu. The setup.sh already handles root vs non-root, user creation, SSH hardening, and log rotation. Rewriting this in Go would add complexity without value.
+
+---
+
+## ADR-O12: Relay MOTD (operator announcements, client-side sanitization)
+
+**Problem**: Relay operators have no way to communicate with connected peers. Maintenance windows, migration notices, and policy changes require out-of-band communication.
+
+**Decision**: `/shurli/relay-motd/1.0.0` protocol with three message types:
+- MOTD (0x01): shown on connect, deduped per-relay (24h)
+- Goodbye (0x02): persistent farewell, cached by clients
+- Retract (0x03): clears cached goodbye
+
+Wire format: `[1 version][1 type][2 BE msg-len][N msg][8 BE timestamp][Ed25519 sig]`
+
+**Why signed**: Prevents man-in-the-middle from injecting fake announcements. Clients verify signature against relay's known public key before display.
+
+**Why 280-char limit**: Operator messages should be brief. Long messages are usually spam or injection attempts.
+
+**Reference**: `internal/relay/motd.go`, `internal/relay/motd_client.go`
+
+---
+
+## ADR-O13: Graceful Goodbye (relay shutdown notification)
+
+**Problem**: When a relay shuts down, peers get connection errors with no explanation. They don't know if it's temporary (maintenance) or permanent (decommission).
+
+**Decision**: Goodbye messages are pushed to all connected peers immediately, persisted to disk (`.relay-goodbye.json`), and cached by clients. The goodbye survives relay restarts and client reconnect attempts.
+
+**Lifecycle**: `set` -> pushed to peers. `retract` -> peers clear cache. `shutdown` -> push goodbye, then trigger relay shutdown with 2s delay for message delivery.
+
+**Why 2s delay**: Ensures goodbye reaches connected peers before the TCP connections drop.
+
+**Reference**: `internal/relay/motd.go` (`SetGoodbye`, `RetractGoodbye`, `HandleGoodbyeShutdown`)
+
+---
+
+## ADR-O14: Relay Message Security (untrusted input)
+
+**Problem**: MOTD/goodbye messages originate from the relay operator but are displayed on client devices. A compromised relay could inject phishing URLs, email addresses, or AI prompt injection payloads.
+
+**Decision**: `SanitizeRelayMessage()` applies defense-in-depth:
+1. Strip URLs (http://, https://, ftp://, www.)
+2. Strip email addresses
+3. Remove non-ASCII characters (unicode homoglyphs, RTL overrides)
+4. Truncate to 280 characters
+5. Collapse whitespace
+
+**Why strip URLs**: The primary phishing vector. A compromised relay sending "Visit https://evil.com to update" is the exact attack we're defending against.
+
+**Why strip non-ASCII**: Unicode contains RTL override characters, zero-width joiners, and homoglyphs that enable visual spoofing. ASCII-only eliminates the entire class.
+
+**Reference**: `internal/validate/relay_message.go`
+
+---
+
+## ADR-O15: MOTD Cryptographic Signing
+
+**Problem**: Without signatures, any network intermediary could forge relay announcements.
+
+**Decision**: All messages signed with the relay's Ed25519 identity key. Signature covers: type byte + message + timestamp. Clients verify against the relay's known public key (from the libp2p connection).
+
+**Why Ed25519**: Already used for libp2p identity. No new key types. Signing is fast (microseconds).
+
+**Stored goodbye verification**: Clients persist goodbye signatures. On reconnect, the stored goodbye can be re-verified against the relay's public key.
+
+**Reference**: `internal/relay/motd.go` (`buildSignableData`), `internal/relay/motd_client.go` (`VerifyStoredGoodbye`)
+
+---
+
+## ADR-O16: Goodbye Lifecycle
+
+**Problem**: Goodbye needs clear states: active (relay is leaving), retracted (relay is back), shutdown (relay is gone).
+
+**Decision**: Three-operation lifecycle:
+- `goodbye set "message"`: push to all peers, persist to disk
+- `goodbye retract`: push retract to all peers, delete from disk
+- `goodbye shutdown "message"`: set goodbye, wait 2s, shut down relay
+
+The `shutdown` operation requires explicit confirmation for safety (sends to all peers, then kills the process).
+
+**Admin API**: `POST /v1/goodbye/shutdown` triggers async shutdown via `shutdownFunc` channel. The relay's signal handler selects on both OS signals and the admin shutdown channel.
+
+**Reference**: `internal/relay/admin.go` (`handleGoodbyeShutdown`), `cmd/shurli/cmd_relay_serve.go`
+
+---
+
+## ADR-O17: Session Token & Lock/Unlock
+
+**Problem**: Entering password at every daemon start is tedious. But removing password protection defeats the purpose of encrypted identity.
+
+**Decision**: Session tokens (ssh-agent model):
+- `session refresh`: encrypt identity key with machine-derived key, save token
+- `session destroy`: delete token, require password on next start
+- `lock`/`unlock`: gate sensitive operations without destroying session
+
+Machine binding: token encrypted with key derived from hostname + machine ID. Copying token to another device does not work.
+
+**Why separate lock/unlock from session**: Session is about startup convenience. Lock/unlock is about runtime security. Different concerns, different commands.
+
+**Reference**: `internal/identity/session.go`, `cmd/shurli/cmd_lock.go`
+
+
+---
+
 # Shurli Relay Server Setup
 
 Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.04).
@@ -7178,7 +7602,7 @@ ufw enable
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli/relay-server
+cd shurli
 ```
 
 ### Run the setup script
@@ -7186,14 +7610,14 @@ cd Shurli/relay-server
 The script detects that you're root and walks you through creating a secure service user:
 
 ```bash
-bash setup.sh
+bash tools/relay-setup.sh
 ```
 
 It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
 3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
-4. Continues with the full setup: builds binary, installs systemd service (running as the selected user), configures firewall, tunes QUIC buffers, and transfers file ownership
+4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay (identity + vault are auto-created on first run with a single password), enables the service, configures firewall, tunes QUIC buffers
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
@@ -7202,17 +7626,17 @@ ssh newuser@YOUR_VPS_IP
 sudo whoami    # should print: root
 ```
 
-### Configure (as the service user)
+### Configure
+
+Relay commands auto-detect the config at `/etc/shurli/relay/` and auto-escalate to the service user when needed, so you can run them from any directory as any sudo-capable user:
 
 ```bash
-ssh shurli@YOUR_VPS_IP
-cd Shurli/relay-server
+# These work from any directory, as any user with sudo access
+shurli relay info
+shurli relay pair --count 3
 
-# Create config from sample
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-
-# Edit if needed (defaults are good - port 7777, gating enabled)
-nano relay-server.yaml
+# Edit config if needed (defaults are good - port 7777, gating enabled)
+sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
 Then restart the service to pick up config changes (config-level changes like ports, transport, and ZKP enablement require a restart):
@@ -7231,7 +7655,7 @@ Generate pairing codes and share them with your peers:
 
 ```bash
 # Generate 3 pairing codes (one per person)
-./shurli relay pair --count 3
+shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
 shurli join <pairing-code> --name laptop
@@ -7244,12 +7668,12 @@ Pairing codes handle authorization automatically. Everyone who joins with a code
 If you already know the peer IDs, add them directly:
 
 ```bash
-# Using the CLI
-./shurli relay authorize <peer-id> --comment "home-node"
-./shurli relay authorize <peer-id> --comment "client-node"
+# Using the CLI (works from any directory)
+shurli relay authorize <peer-id> --comment "home-node"
+shurli relay authorize <peer-id> --comment "client-node"
 
 # Or edit the file directly (one peer ID per line)
-nano relay_authorized_keys
+sudo nano /etc/shurli/relay/relay_authorized_keys
 ```
 
 ```
@@ -7272,30 +7696,33 @@ sudo systemctl restart shurli-relay
 Run the health check anytime:
 
 ```bash
-cd ~/Shurli/relay-server
-bash setup.sh --check
+cd ~/shurli
+bash tools/relay-setup.sh --check
 ```
 
 You should see all `[OK]` items:
 
 ```
 Binary:
-  [OK]   shurli binary exists
+  [OK]   shurli binary exists at /usr/local/bin/shurli
   [OK]   shurli is executable
+
+  [OK]   Data directory permissions: 700
 
 Configuration:
   [OK]   relay-server.yaml exists
   [OK]   Connection gating is ENABLED
+  [OK]   relay-server.yaml permissions: 600
   ...
 
 Service:
   [OK]   shurli-relay service is enabled (starts on boot)
   [OK]   shurli-relay service is running
-  [OK]   Service runs as non-root user: shurli
+  [OK]   Service runs as non-root user: peerup
   ...
 
-=== Summary: 25 passed, 0 warnings, 0 failures ===
-Everything looks great!
+=== Summary: 21 passed, 1 warnings, 0 failures ===
+All good, but review [WARN] items for best security.
 ```
 
 ---
@@ -7305,8 +7732,8 @@ Everything looks great!
 To remove the systemd service, firewall rules, and system tuning:
 
 ```bash
-cd ~/Shurli/relay-server
-bash setup.sh --uninstall
+cd ~/shurli
+bash tools/relay-setup.sh --uninstall
 ```
 
 This removes:
@@ -7315,10 +7742,12 @@ This removes:
 - QUIC buffer tuning from `/etc/sysctl.conf`
 - Journald log rotation settings
 
-It does **not** delete your binary, config, keys, or source code. To fully clean up:
+It does **not** delete config, keys, or source code. To fully clean up:
 
 ```bash
-rm -rf ~/Shurli  # Only if you want to remove everything
+sudo rm -rf /etc/shurli/relay  # Remove relay data
+sudo rm /usr/local/bin/shurli  # Remove binary
+rm -rf ~/shurli                # Remove source (only if you want to)
 ```
 
 ---
@@ -7341,9 +7770,9 @@ sudo journalctl -u shurli-relay -n 50
 sudo journalctl --disk-usage
 
 # Update relay server (after code changes)
-cd ~/Shurli
+cd ~/shurli
 git pull
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+make install-relay
 sudo systemctl restart shurli-relay
 ```
 
@@ -7354,38 +7783,52 @@ sudo systemctl restart shurli-relay
 | Item | How to verify |
 |------|--------------|
 | Non-root user | `whoami` (should NOT be root) |
-| SSH key-only login | `grep PasswordAuthentication /etc/ssh/sshd_config` → `no` |
-| Root login disabled | `grep PermitRootLogin /etc/ssh/sshd_config` → `no` |
-| Firewall active | `sudo ufw status` → active, default deny incoming |
-| Only needed ports open | `sudo ufw status` → 22/tcp (SSH) + 7777/tcp+udp |
-| Connection gating on | `grep enable_connection_gating relay-server.yaml` → `true` |
-| Key file permissions | `ls -la relay_node.key` → `-rw-------` (600) |
-| Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` → `500M` |
+| SSH key-only login | `grep PasswordAuthentication /etc/ssh/sshd_config` - `no` |
+| Root login disabled | `grep PermitRootLogin /etc/ssh/sshd_config` - `no` |
+| Firewall active | `sudo ufw status` - active, default deny incoming |
+| Only needed ports open | `sudo ufw status` - 22/tcp (SSH) + 7777/tcp+udp |
+| Connection gating on | `grep enable_connection_gating /etc/shurli/relay/relay-server.yaml` - `true` |
+| Data directory permissions | `ls -ld /etc/shurli/relay/` - `drwx------` (700, owner only) |
+| Key file permissions | `ls -la /etc/shurli/relay/relay_node.key` - `-rw-------` (600) |
+| Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` - `500M` |
 | System updates | `sudo apt update && sudo apt upgrade` |
 
-Or just run: `bash setup.sh --check`
+Or just run: `bash tools/relay-setup.sh --check`
 
 ---
 
 ## File Layout
 
-After setup, your relay-server directory looks like:
+After setup, the relay data and binary are installed to system paths:
 
 ```
-~/Shurli/relay-server/
-├── shurli                    # Binary (built from cmd/shurli, gitignored)
-├── relay-server.yaml         # Config (gitignored)
-├── relay-server.service      # Template service file (in git)
-├── relay_node.key            # Identity key (auto-generated, gitignored)
-├── relay_authorized_keys     # Allowed peer IDs (gitignored)
-└── setup.sh                  # Setup + health check script
+/usr/local/bin/shurli                    # Binary (single binary for all modes)
+
+/etc/shurli/relay/                       # Data directory (700, owner only)
+  relay-server.yaml                      # Config (created by shurli relay setup)
+  relay_node.key                         # Identity key (auto-generated on first run)
+  relay_vault.json                       # Sealed vault (auto-created on first run)
+  relay_authorized_keys                  # Allowed peer IDs
+  .session                               # Session token (machine-bound)
+  .relay-admin.sock                      # Admin Unix socket (runtime)
+  .relay-admin.cookie                    # Admin auth cookie (runtime)
+  .relay-server.last-good.yaml           # Self-healing: last valid config backup
+```
+
+Source code (where you cloned the repo):
+
+```
+~/shurli/
+  tools/relay-setup.sh             # Setup + health check script
+  deploy/shurli-relay.service      # systemd service file
+  configs/relay-server.sample.yaml # Sample configuration
 ```
 
 ---
 
 ## Manual Installation (Any Linux/Unix)
 
-The `setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
+The `tools/relay-setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
 
 ### Prerequisites
 
@@ -7411,7 +7854,7 @@ export PATH=$PATH:/usr/local/go/bin
 
 Without this library, Shurli falls back to pure-Go mDNS (works but less reliable on systems with a running mDNS daemon). Build with `CGO_ENABLED=0` to explicitly use the fallback.
 
-**QR code tool** (optional, for `setup.sh --check` display):
+**QR code tool** (optional, for `relay-setup.sh --check` display):
 
 | Distribution | Package |
 |-------------|---------|
@@ -7421,32 +7864,42 @@ Without this library, Shurli falls back to pure-Go mDNS (works but less reliable
 | Alpine | `libqrencode` |
 | macOS | `brew install qrencode` |
 
-### Build
+### Build and install
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli
+cd shurli
 
-# Full build with optimizations
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+# Build and install to system paths
+make install-relay
 
-# Verify
-./relay-server/shurli version
+# This does:
+#   1. Builds the binary with version embedding
+#   2. Installs to /usr/local/bin/shurli
+#   3. Creates /etc/shurli/relay/ with config files
+#   4. Installs the systemd service (does not enable or start)
 ```
 
 ### Configure
 
 ```bash
-cd relay-server
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults: port 7777, gating enabled)
+# Edit if needed (defaults: port 7777, gating enabled)
+sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
-### Create service user (if running as a service)
+### Service user (if not using the setup script)
+
+The relay runs as whatever user you choose. You can use your existing SSH user or create a dedicated one:
 
 ```bash
+# Option A: Use your existing user (recommended for single-admin VPS)
+# No extra setup needed - make install-relay defaults to your user
+
+# Option B: Create a dedicated user
 sudo useradd -r -m -s /bin/bash shurli
-sudo chown -R shurli:shurli /path/to/Shurli/relay-server
+sudo chown -R shurli:shurli /etc/shurli/relay
+sudo chmod 700 /etc/shurli/relay
+make install-relay SERVICE_USER=shurli
 ```
 
 ### Network tuning (QUIC performance)
@@ -7472,15 +7925,14 @@ Open port 7777 for TCP and UDP:
 
 Also check your VPS provider's security groups/firewall rules in their web console.
 
-### Install systemd service
+### Install systemd service (manual)
 
 ```bash
-# Copy and customize the service template
-sudo cp relay-server.service /etc/systemd/system/shurli-relay.service
+sudo cp deploy/shurli-relay.service /etc/systemd/system/shurli-relay.service
 
-# Edit to match your paths and user
-sudo nano /etc/systemd/system/shurli-relay.service
-# Key fields: User=shurli, WorkingDirectory=/path/to/relay-server, ExecStart=/path/to/shurli relay serve
+# Update User/Group to match your service user (default in file is "shurli")
+sudo sed -i 's/^User=.*/User=YOUR_USER/' /etc/systemd/system/shurli-relay.service
+sudo sed -i 's/^Group=.*/Group=YOUR_USER/' /etc/systemd/system/shurli-relay.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now shurli-relay
@@ -7489,7 +7941,7 @@ sudo systemctl enable --now shurli-relay
 For **non-systemd** systems (Alpine with OpenRC, FreeBSD with rc.d, etc.), create a service script that runs:
 
 ```bash
-/path/to/shurli relay serve --config /path/to/relay-server.yaml
+/usr/local/bin/shurli relay serve --config /etc/shurli/relay/relay-server.yaml
 ```
 
 The binary is self-contained. It reads config from the working directory or the path specified by `--config`.
@@ -7517,7 +7969,7 @@ ss -tlnp | grep 7777
 sudo journalctl -u shurli-relay -n 20
 
 # Or run the health check script (even on non-Ubuntu, it reports useful info)
-bash setup.sh --check
+bash tools/relay-setup.sh --check
 ```
 
 ---
@@ -7527,12 +7979,13 @@ bash setup.sh --check
 | Issue | Solution |
 |-------|----------|
 | Service fails to start | `sudo journalctl -u shurli-relay -n 30` for error logs |
-| "Permission denied" on key file | `chmod 600 relay_node.key` |
+| "Permission denied" on key file | `chmod 600 /etc/shurli/relay/relay_node.key` |
 | Peers can't connect | Use `shurli relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
-| Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
+| "Permission denied" on relay commands | Relay commands auto-escalate to the config owner via sudo. Ensure your user has passwordless sudo or enter the password when prompted. |
+| Service runs as root | `bash tools/relay-setup.sh --uninstall` then re-run `bash tools/relay-setup.sh` (as root it will guide you through user setup) |
 | `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
 | CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |
 

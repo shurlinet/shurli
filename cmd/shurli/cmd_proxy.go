@@ -113,8 +113,8 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
-	// Check if standalone mode is allowed
-	if !forceStandalone && !cfg.CLI.AllowStandalone {
+	// Require explicit --standalone when daemon is not available.
+	if !forceStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
@@ -191,7 +191,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 
 	// Connect to target using parallel path racing (DHT + relay simultaneously)
 	fmt.Println("Connecting to target peer...")
-	pd := p2pnet.NewPathDialer(h, kdht, cfg.Relay.Addresses, nil)
+	pd := p2pnet.NewPathDialer(h, kdht, &p2pnet.StaticRelaySource{Addrs: cfg.Relay.Addresses}, nil)
 	connectCtx, connectCancel := context.WithTimeout(ctx, 45*time.Second)
 	result, err := pd.DialPeer(connectCtx, homePeerID)
 	connectCancel()

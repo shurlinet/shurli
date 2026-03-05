@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -31,13 +32,26 @@ type RuntimeInfo interface {
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
 	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
 	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
+	BandwidthTracker() *p2pnet.BandwidthTracker              // nil when disabled
+	RelayHealth() *p2pnet.RelayHealth                        // nil when disabled
 	STUNResult() *p2pnet.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
+	RelayAddresses() []string                                // relay multiaddrs from config
+	DiscoveryNetwork() string                                // DHT namespace (empty = global)
+	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
 type GaterReloader interface {
 	ReloadFromFile() error // reload authorized_keys and update the gater
+}
+
+// activeInvite tracks a pending async invite (relay-stored).
+type activeInvite struct {
+	id          string
+	groupID     string
+	codes       []string
+	cancel      context.CancelFunc
 }
 
 // activeProxy tracks a dynamically created TCP proxy.
@@ -66,10 +80,11 @@ type Server struct {
 	metrics *p2pnet.Metrics
 	audit   *p2pnet.AuditLogger
 
-	mu      sync.Mutex
-	proxies map[string]*activeProxy
-	nextID  int
-	locked  bool // sensitive ops disabled when true (default: true)
+	mu           sync.Mutex
+	proxies      map[string]*activeProxy
+	pendingInvite *activeInvite // nil when no invite active
+	nextID       int
+	locked       bool // sensitive ops disabled when true (default: true)
 }
 
 // NewServer creates a new daemon API server.
@@ -159,6 +174,14 @@ func (s *Server) Start() error {
 func (s *Server) Stop() {
 	slog.Info("daemon server shutting down")
 
+	// Cancel any active invite
+	s.mu.Lock()
+	if s.pendingInvite != nil {
+		s.pendingInvite.cancel()
+		s.pendingInvite = nil
+	}
+	s.mu.Unlock()
+
 	// Shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -219,7 +242,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		auth := r.Header.Get("Authorization")
 		expected := "Bearer " + s.authToken
 
-		if auth != expected {
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			respondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
 			return
 		}

@@ -442,6 +442,426 @@
 }
 
 /* ============================================================ */
+/* Comparison Table section                                      */
+/* ============================================================ */
+
+.shurli-compare-wrap {
+  width: 100%;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.shurli-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.shurli-compare-table thead th {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+  color: #374151;
+  white-space: nowrap;
+}
+
+.shurli-compare-table thead th:first-child {
+  color: #6b7280;
+}
+
+.shurli-compare-table thead th.shurli-col {
+  color: #da1c5c;
+}
+
+:is(.dark .shurli-compare-table thead th) {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+}
+
+:is(.dark .shurli-compare-table thead th:first-child) {
+  color: #9ca3af;
+}
+
+:is(.dark .shurli-compare-table thead th.shurli-col) {
+  color: #fbb040;
+}
+
+.shurli-compare-table tbody td {
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  color: #4b5563;
+  vertical-align: top;
+}
+
+.shurli-compare-table tbody td:first-child {
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.shurli-compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.shurli-compare-table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+:is(.dark .shurli-compare-table tbody td) {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+  color: #9ca3af;
+}
+
+:is(.dark .shurli-compare-table tbody td:first-child) {
+  color: #f9fafb;
+}
+
+:is(.dark .shurli-compare-table tbody tr:nth-child(even)) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.shurli-compare-link {
+  display: inline-block;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #da1c5c;
+  text-decoration: none;
+}
+
+.shurli-compare-link:hover {
+  text-decoration: underline;
+}
+
+:is(.dark .shurli-compare-link) {
+  color: #fbb040;
+}
+
+/* ============================================================ */
+/* Who Is This For section                                       */
+/* ============================================================ */
+
+.shurli-persona-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 768px) {
+  .shurli-persona-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+}
+
+.shurli-persona-card {
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+:is(.dark .shurli-persona-card) {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.shurli-persona-card.shurli-persona-for {
+  border-left: 3px solid #10b981;
+}
+
+:is(.dark .shurli-persona-card.shurli-persona-for) {
+  border-left-color: #34d399;
+}
+
+.shurli-persona-card.shurli-persona-not {
+  border-left: 3px solid #9ca3af;
+}
+
+:is(.dark .shurli-persona-card.shurli-persona-not) {
+  border-left-color: #6b7280;
+}
+
+.shurli-persona-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 1rem;
+}
+
+:is(.dark .shurli-persona-heading) {
+  color: #f9fafb;
+}
+
+.shurli-persona-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.shurli-persona-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 0.625rem;
+}
+
+.shurli-persona-list li:last-child {
+  margin-bottom: 0;
+}
+
+:is(.dark .shurli-persona-list li) {
+  color: #9ca3af;
+}
+
+.shurli-persona-list li::before {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.shurli-persona-for .shurli-persona-list li::before {
+  content: "\2713";
+  color: #10b981;
+  font-weight: 700;
+}
+
+:is(.dark .shurli-persona-for .shurli-persona-list li::before) {
+  color: #34d399;
+}
+
+.shurli-persona-not .shurli-persona-list li::before {
+  content: "\2715";
+  color: #9ca3af;
+  font-weight: 700;
+}
+
+:is(.dark .shurli-persona-not .shurli-persona-list li::before) {
+  color: #6b7280;
+}
+
+/* ============================================================ */
+/* What's Working Today section                                  */
+/* ============================================================ */
+
+.shurli-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 768px) {
+  .shurli-status-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+}
+
+.shurli-status-column {
+  text-align: left;
+}
+
+.shurli-status-heading {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.06);
+}
+
+:is(.dark .shurli-status-heading) {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shurli-status-heading.shurli-status-shipped {
+  color: #10b981;
+}
+
+:is(.dark .shurli-status-heading.shurli-status-shipped) {
+  color: #34d399;
+}
+
+.shurli-status-heading.shurli-status-planned {
+  color: #9ca3af;
+}
+
+:is(.dark .shurli-status-heading.shurli-status-planned) {
+  color: #6b7280;
+}
+
+.shurli-status-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.shurli-status-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+  color: #374151;
+}
+
+:is(.dark .shurli-status-list li) {
+  color: #d1d5db;
+}
+
+.shurli-status-list li::before {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.shurli-status-shipped .shurli-status-list li::before {
+  content: "\2713";
+  color: #10b981;
+}
+
+:is(.dark .shurli-status-shipped .shurli-status-list li::before) {
+  color: #34d399;
+}
+
+.shurli-status-planned .shurli-status-list li::before {
+  content: "\25CB";
+  color: #9ca3af;
+}
+
+:is(.dark .shurli-status-planned .shurli-status-list li::before) {
+  color: #6b7280;
+}
+
+.shurli-status-planned .shurli-status-list li {
+  color: #6b7280;
+}
+
+:is(.dark .shurli-status-planned .shurli-status-list li) {
+  color: #9ca3af;
+}
+
+/* ============================================================ */
+/* Homepage FAQ section                                          */
+/* ============================================================ */
+
+.shurli-faq-list {
+  width: 100%;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.shurli-faq-list details {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.shurli-faq-list details:last-child {
+  border-bottom: none;
+}
+
+:is(.dark .shurli-faq-list details) {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.shurli-faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.15s ease;
+}
+
+.shurli-faq-list summary::-webkit-details-marker {
+  display: none;
+}
+
+.shurli-faq-list summary::after {
+  content: "+";
+  flex-shrink: 0;
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: #9ca3af;
+  margin-left: 1rem;
+  transition: transform 0.2s ease;
+}
+
+.shurli-faq-list details[open] summary::after {
+  content: "\2212";
+}
+
+.shurli-faq-list summary:hover {
+  color: #da1c5c;
+}
+
+:is(.dark .shurli-faq-list summary) {
+  color: #f9fafb;
+}
+
+:is(.dark .shurli-faq-list summary:hover) {
+  color: #fbb040;
+}
+
+:is(.dark .shurli-faq-list summary::after) {
+  color: #6b7280;
+}
+
+.shurli-faq-answer {
+  padding: 0 0 1rem 0;
+  font-size: 0.875rem;
+  color: #4b5563;
+  line-height: 1.7;
+  border-left: 2px solid rgba(218, 28, 92, 0.2);
+  padding-left: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+:is(.dark .shurli-faq-answer) {
+  color: #9ca3af;
+  border-left-color: rgba(251, 176, 64, 0.2);
+}
+
+.shurli-faq-answer a {
+  color: #da1c5c;
+  text-decoration: none;
+}
+
+.shurli-faq-answer a:hover {
+  text-decoration: underline;
+}
+
+:is(.dark .shurli-faq-answer a) {
+  color: #fbb040;
+}
+
+/* ============================================================ */
 /* Blog listing  - image cards with title overlay                 */
 /* ============================================================ */
 

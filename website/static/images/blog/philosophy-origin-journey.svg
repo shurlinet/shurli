@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#0d0f14"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="sparkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#614a1e"/>
+      <stop offset="100%" style="stop-color:#3d2e12"/>
+    </linearGradient>
+    <linearGradient id="lessonGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a1e1e"/>
+      <stop offset="100%" style="stop-color:#2e1212"/>
+    </linearGradient>
+    <linearGradient id="resultGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a1e"/>
+      <stop offset="100%" style="stop-color:#1a2e12"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="800" height="380" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="15" font-weight="600">How Shurli Started - and What Made It Different</text>
+
+  <!-- ==================== TOP ROW: The Spark ==================== -->
+
+  <!-- Node 1: The Question -->
+  <rect x="30" y="50" width="160" height="70" rx="10" fill="url(#sparkGrad)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="110" y="70" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="10" font-weight="600">THE QUESTION</text>
+  <text x="110" y="86" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">"How do I access my</text>
+  <text x="110" y="98" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">machine from outside?"</text>
+  <text x="110" y="114" text-anchor="middle" fill="#565f89" font-family="SF Mono, monospace" font-size="7">OpenClaw moment</text>
+
+  <!-- Arrow -->
+  <line x1="190" y1="85" x2="215" y2="85" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="212,81 219,85 212,89" fill="#e0af68"/>
+
+  <!-- Node 2: First Tool -->
+  <rect x="220" y="50" width="150" height="70" rx="10" fill="url(#sparkGrad)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="295" y="70" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="10" font-weight="600">FIRST TOOL</text>
+  <text x="295" y="86" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">"Simplest silly tool</text>
+  <text x="295" y="98" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">using AI"</text>
+  <text x="295" y="114" text-anchor="middle" fill="#9ece6a" font-family="SF Mono, monospace" font-size="7">It worked.</text>
+
+  <!-- Arrow -->
+  <line x1="370" y1="85" x2="395" y2="85" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="392,81 399,85 392,89" fill="#e0af68"/>
+
+  <!-- Node 3: Expanding Scope -->
+  <rect x="400" y="50" width="160" height="70" rx="10" fill="url(#sparkGrad)" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="480" y="70" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="10" font-weight="600">SCOPE REVEALS ITSELF</text>
+  <text x="480" y="86" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">SSH, remote desktop,</text>
+  <text x="480" y="98" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">services, proxy...</text>
+  <text x="480" y="114" text-anchor="middle" fill="#565f89" font-family="SF Mono, monospace" font-size="7">Each feature = real need</text>
+
+  <!-- Arrow -->
+  <line x1="560" y1="85" x2="585" y2="85" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="582,81 589,85 582,89" fill="#e0af68"/>
+
+  <!-- Node 4: The Real Question -->
+  <rect x="590" y="50" width="180" height="70" rx="10" fill="url(#nodeGrad)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="680" y="70" text-anchor="middle" fill="#bb9af7" font-family="system-ui, sans-serif" font-size="10" font-weight="600">THE REAL QUESTION</text>
+  <text x="680" y="88" text-anchor="middle" fill="#c0caf5" font-family="SF Mono, monospace" font-size="9">"Why can't I own my</text>
+  <text x="680" y="102" text-anchor="middle" fill="#c0caf5" font-family="SF Mono, monospace" font-size="9">entire connectivity?"</text>
+
+  <!-- ==================== MIDDLE: The Lesson ==================== -->
+
+  <!-- Arrow down from real question -->
+  <line x1="680" y1="120" x2="680" y2="148" stroke="#bb9af7" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="676,145 680,152 684,145" fill="#bb9af7"/>
+
+  <!-- SuperMesh lesson -->
+  <rect x="40" y="155" width="730" height="75" rx="10" fill="url(#lessonGrad)" stroke="#f7768e" stroke-width="1.5"/>
+  <text x="400" y="175" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="12" font-weight="600">THE SUPERMESH LESSON (2015)</text>
+
+  <text x="60" y="198" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Built mesh networking on CJDNS</text>
+  <text x="340" y="198" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">CJDNS stalled, SuperMesh died</text>
+  <text x="610" y="198" fill="#e0af68" font-family="SF Mono, monospace" font-size="9" font-weight="600">Lesson learned:</text>
+
+  <text x="400" y="220" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="11" font-weight="600">"Never build on a foundation you can't control."</text>
+
+  <!-- ==================== BOTTOM: What It Became ==================== -->
+
+  <!-- Arrow down -->
+  <line x1="400" y1="230" x2="400" y2="255" stroke="#9ece6a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="396,252 400,259 404,252" fill="#9ece6a"/>
+
+  <!-- Result boxes -->
+  <rect x="40" y="260" width="175" height="60" rx="10" fill="url(#resultGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="128" y="280" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">SINGLE BINARY</text>
+  <text x="128" y="296" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">No external deps</text>
+  <text x="128" y="308" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">to break under you</text>
+
+  <rect x="230" y="260" width="175" height="60" rx="10" fill="url(#resultGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="318" y="280" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">OWN DHT</text>
+  <text x="318" y="296" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">libp2p as library</text>
+  <text x="318" y="308" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">not a platform</text>
+
+  <rect x="420" y="260" width="175" height="60" rx="10" fill="url(#resultGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="508" y="280" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">NO CLOUD</text>
+  <text x="508" y="296" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">No accounts, no auth</text>
+  <text x="508" y="308" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">provider, no lock-in</text>
+
+  <rect x="610" y="260" width="160" height="60" rx="10" fill="url(#resultGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="690" y="280" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">AI-ASSISTED</text>
+  <text x="690" y="296" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">Full stack control</text>
+  <text x="690" y="308" text-anchor="middle" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="8">realistic for one dev</text>
+
+  <!-- Footer -->
+  <rect x="40" y="340" width="720" height="28" rx="8" fill="#1a191c" stroke="#1a191c" stroke-width="1"/>
+  <text x="400" y="358" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">The scope doesn't creep - it reveals itself. Each capability was added because there was a real need, not because a roadmap said so.</text>
+</svg>

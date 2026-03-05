@@ -336,16 +336,13 @@ func TestDoRelayListPeers(t *testing.T) {
 		cfgFile := writeRelayServerTestConfig(t)
 
 		var stdout bytes.Buffer
-		err := doRelayListPeers(cfgFile, &stdout)
+		err := doRelayListPeers(nil, cfgFile, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := stdout.String()
 		if !strings.Contains(out, "(none)") {
 			t.Errorf("output should contain '(none)' for empty list, got:\n%s", out)
-		}
-		if !strings.Contains(out, "Total: 0") {
-			t.Errorf("output should contain 'Total: 0', got:\n%s", out)
 		}
 	})
 
@@ -360,25 +357,23 @@ func TestDoRelayListPeers(t *testing.T) {
 		}
 
 		var stdout bytes.Buffer
-		err := doRelayListPeers(cfgFile, &stdout)
+		err := doRelayListPeers(nil, cfgFile, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := stdout.String()
-		if !strings.Contains(out, pid) {
-			t.Errorf("output should contain peer ID, got:\n%s", out)
-		}
+		// New format shows short peer ID + comment
 		if !strings.Contains(out, "my-laptop") {
 			t.Errorf("output should contain comment, got:\n%s", out)
 		}
-		if !strings.Contains(out, "Total: 1") {
-			t.Errorf("output should contain 'Total: 1', got:\n%s", out)
+		if !strings.Contains(out, "Authorized peers (1)") {
+			t.Errorf("output should contain 'Authorized peers (1)', got:\n%s", out)
 		}
 	})
 
 	t.Run("missing config returns error", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := doRelayListPeers("/tmp/nonexistent.yaml", &stdout)
+		err := doRelayListPeers(nil, "/tmp/nonexistent.yaml", &stdout)
 		if err == nil {
 			t.Fatal("expected error for missing config")
 		}

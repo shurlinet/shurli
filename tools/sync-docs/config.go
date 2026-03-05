@@ -57,9 +57,11 @@ var journalEntries = []journalEntry{
 	{"post-i-2-trust-and-delivery.md", 13, "Post-I-2 - Trust & Delivery", "Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verification, reachability grades, sovereign interaction history."},
 	{"pre-phase5-hardening.md", 14, "Pre-Phase 5 Hardening", "Startup race fix, stale address detection, systemd/launchd service deployment."},
 	{"phase5-network-resilience.md", 15, "Phase 5 - Network Resilience", "Native mDNS via dns_sd.h, PeerManager lifecycle, stale connection cleanup, IPv6 path probing, mDNS LAN-first connect, relay-discard logic."},
-	{"dev-tooling.md", 16, "Dev Tooling", "Go doc sync pipeline replacing fragile bash/sed, relay setup subcommand replacing bash config generation."},
-	{"phase6-acl-relay-security.md", 17, "Phase 6 - ACL + Relay Security", "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."},
-	{"phase7-zkp-privacy.md", 18, "Phase 7 - ZKP Privacy Layer", "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."},
+	{"phase5-relay-decentralization.md", 16, "Phase 5 - Relay Decentralization", "Peer relay service, DHT relay discovery, health-aware EWMA selection, bandwidth tracking, layered bootstrap (config > DNS seeds > hardcoded > relay)."},
+	{"dev-tooling.md", 17, "Dev Tooling", "Go doc sync pipeline, relay setup subcommand, directory consolidation (relay-server/ eliminated, FHS system paths)."},
+	{"phase6-acl-relay-security.md", 18, "Phase 6 - ACL + Relay Security", "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."},
+	{"phase7-zkp-privacy.md", 19, "Phase 7 - ZKP Privacy Layer", "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."},
+	{"phase8-identity-remote-admin.md", 20, "Phase 8 - Identity & Remote Admin", "Unified BIP39 seed, encrypted identity, session tokens, remote admin over P2P, MOTD/goodbye, relay recovery."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).
@@ -71,9 +73,9 @@ var quickStartMeta = docEntry{
 	Description: "Get two devices connected with Shurli in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel.",
 }
 
-// Relay setup metadata (from relay-server/README.md).
+// Relay setup metadata (from docs/RELAY-SETUP.md).
 var relaySetupMeta = docEntry{
-	Source:      "relay-server/README.md",
+	Source:      "RELAY-SETUP.md",
 	Output:      "relay-setup.md",
 	Weight:      5,
 	Title:       "Relay Setup",
@@ -106,10 +108,10 @@ var linkOnlyEntries = []docEntry{
 
 // Directories whose relative links (../dir/) get rewritten to GitHub URLs.
 var githubSourceDirs = []string{
-	"cmd/", "pkg/", "internal/", "relay-server/", "deploy/", "test/", ".github/",
+	"cmd/", "pkg/", "internal/", "tools/", "deploy/", "test/", ".github/",
 }
 
 // Directories for quick-start root-relative links (dir/ without ../).
 var quickStartLinkDirs = []string{
-	"relay-server/", "docs/", "configs/", "deploy/", "cmd/", "pkg/", "internal/", "test/",
+	"tools/", "docs/", "configs/", "deploy/", "cmd/", "pkg/", "internal/", "test/",
 }

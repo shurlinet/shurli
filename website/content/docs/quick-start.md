@@ -56,9 +56,9 @@ shurli join <pairing-code> --name laptop
 # Shows SAS verification fingerprints for each peer
 ```
 
-The relay admin generates codes with `shurli relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+The relay admin generates pairing codes via the admin socket. Each person joins with one command. Everyone in the group is mutually authorized and verified.
 
-> **Relay server**: All machines connect through a relay for NAT traversal. See [Relay Setup guide](../relay-setup/) for deploying your own. Run `shurli relay serve` to start a relay.
+> **Relay server**: All machines connect through a relay for NAT traversal. See [Relay Setup guide](../relay-setup/) for deploying your own. Quick install: `make install-relay`
 
 ## Disclaimer
 

@@ -52,15 +52,27 @@ func runPing(args []string) {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
 	}
 
-	// Try daemon first (faster, no bootstrap needed).
-	// Skip daemon for continuous ping (count=0) because the daemon's HTTP
-	// API collects all results before responding. The direct P2P path below
-	// streams results via a channel and handles Ctrl+C correctly.
-	if !*standaloneFlag && *count != 0 {
+	// Always try daemon first (uses existing connections, supports direct paths).
+	if !*standaloneFlag {
 		if client := tryDaemonClient(); client != nil {
-			runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+			if *count == 0 {
+				// Continuous: loop single pings client-side, Ctrl+C stops.
+				runPingViaDaemonContinuous(client, target, int(interval.Milliseconds()), *jsonFlag)
+			} else {
+				runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+			}
 			return
 		}
+	}
+
+	// Daemon not available. Require explicit --standalone.
+	if !*standaloneFlag {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli ping --standalone %s -c 5\n", target)
+		osExit(1)
 	}
 
 	// Set up context with Ctrl+C cancellation
@@ -84,17 +96,6 @@ func runPing(args []string) {
 		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Check if standalone mode is allowed.
-	// Continuous ping (count=0) is exempt because the daemon API can't stream.
-	if !*standaloneFlag && *count != 0 && !cfg.CLI.AllowStandalone {
-		fmt.Println("Daemon not running. Start it with:")
-		fmt.Println("  shurli daemon")
-		fmt.Println()
-		fmt.Println("Or use --standalone flag for direct P2P (debug):")
-		fmt.Printf("  shurli ping --standalone %s -c %d\n", target, *count)
-		osExit(1)
-	}
 
 	// Resolve password for SHRL-encrypted identity key.
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
@@ -199,6 +200,72 @@ func runPingViaDaemon(client *daemon.Client, target string, count, intervalMs in
 			osExit(1)
 		}
 		fmt.Print(text)
+	}
+}
+
+// runPingViaDaemonContinuous sends one ping at a time via the daemon until Ctrl+C.
+func runPingViaDaemonContinuous(client *daemon.Client, target string, intervalMs int, jsonOutput bool) {
+	if !jsonOutput {
+		showVerificationBadge(client, target)
+	}
+
+	// Ctrl+C handler
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	var results []p2pnet.PingResult
+	seq := 0
+
+	if !jsonOutput {
+		fmt.Printf("PING %s (via daemon, continuous):\n", target)
+	}
+
+	for {
+		select {
+		case <-sigCh:
+			goto done
+		default:
+		}
+
+		resp, err := client.Ping(target, 1, intervalMs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			osExit(1)
+		}
+
+		for _, r := range resp.Results {
+			r.Seq = seq
+			seq++
+			results = append(results, r)
+			if jsonOutput {
+				line, _ := json.Marshal(r)
+				fmt.Println(string(line))
+			} else {
+				if r.Error != "" {
+					fmt.Printf("seq=%d error=%s\n", r.Seq, r.Error)
+				} else {
+					fmt.Printf("seq=%d rtt=%.1fms path=[%s]\n", r.Seq, r.RttMs, r.Path)
+				}
+			}
+		}
+
+		// Wait for interval or signal
+		select {
+		case <-sigCh:
+			goto done
+		case <-time.After(time.Duration(intervalMs) * time.Millisecond):
+		}
+	}
+
+done:
+	stats := p2pnet.ComputePingStats(results)
+	if jsonOutput {
+		summary, _ := json.Marshal(stats)
+		fmt.Println(string(summary))
+	} else {
+		fmt.Printf("\n--- %s ping statistics ---\n", target)
+		fmt.Printf("%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
+			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
 	}
 }
 
