@@ -37,6 +37,7 @@ type RuntimeInfo interface {
 	IsRelaying() bool                                        // true if peer relay enabled
 	RelayAddresses() []string                                // relay multiaddrs from config
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
+	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

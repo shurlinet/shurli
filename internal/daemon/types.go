@@ -17,6 +17,27 @@ type StatusResponse struct {
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 	IsRelaying        bool     `json:"is_relaying"`
 	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
+	Relays            []RelayStatus  `json:"relays,omitempty"`
+	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
+}
+
+// RelayStatus describes a configured relay's connection state.
+type RelayStatus struct {
+	Address      string `json:"address"`
+	PeerID       string `json:"peer_id"`
+	ShortID      string `json:"short_id"`
+	Connected    bool   `json:"connected"`
+	RelayName    string `json:"relay_name,omitempty"`
+	AgentVersion string `json:"agent_version,omitempty"`
+}
+
+// MOTDInfo describes a MOTD or goodbye message from a relay.
+type MOTDInfo struct {
+	RelayPeerID string `json:"relay_peer_id"`
+	RelayName   string `json:"relay_name,omitempty"`
+	Message     string `json:"message"`
+	Type        string `json:"type"`
+	Timestamp   string `json:"timestamp"`
 }
 
 // ServiceInfo is returned by GET /v1/services.

@@ -72,6 +72,7 @@ type ClientNodeConfig struct {
 // RelayServerConfig represents configuration for the relay server
 type RelayServerConfig struct {
 	Version   int                  `yaml:"version,omitempty"`
+	Name      string               `yaml:"name,omitempty"`
 	Identity  IdentityConfig       `yaml:"identity"`
 	Network   RelayNetworkConfig   `yaml:"network"`
 	Discovery RelayDiscoveryConfig `yaml:"discovery,omitempty"`

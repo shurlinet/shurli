@@ -19,7 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
@@ -168,7 +171,13 @@ type AdminServer struct {
 	authToken    string
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
+	host         libp2phost.Host // set after host creation for connected-peers queries
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+}
+
+// SetHost stores the libp2p host reference for connected-peers queries.
+func (s *AdminServer) SetHost(h libp2phost.Host) {
+	s.host = h
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -239,6 +248,7 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 
 	// Peer management endpoints (ACL mutations, no vault required)
 	mux.HandleFunc("GET /v1/peers", s.handleListPeers)
+	mux.HandleFunc("GET /v1/peers/connected", s.handleListConnectedPeers)
 	mux.HandleFunc("POST /v1/peers/authorize", s.handleAuthorizePeer)
 	mux.HandleFunc("POST /v1/peers/deauthorize", s.handleDeauthorizePeer)
 
@@ -1002,6 +1012,136 @@ func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (s *AdminServer) handleListConnectedPeers(w http.ResponseWriter, r *http.Request) {
+	if s.host == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "host not available")
+		return
+	}
+
+	// Build authorized peer lookup for cross-referencing.
+	type authInfo struct {
+		role    string
+		comment string
+	}
+	authMap := make(map[peer.ID]authInfo)
+	if s.authKeysPath != "" {
+		if peers, err := auth.ListPeers(s.authKeysPath); err == nil {
+			for _, p := range peers {
+				role := p.Role
+				if role == "" {
+					role = "member"
+				}
+				authMap[p.PeerID] = authInfo{role: role, comment: p.Comment}
+			}
+		}
+	}
+
+	connectedPeers := s.host.Network().Peers()
+	now := time.Now()
+	result := make([]ConnectedPeerInfo, 0, len(connectedPeers))
+
+	for _, pid := range connectedPeers {
+		conns := s.host.Network().ConnsToPeer(pid)
+		if len(conns) == 0 {
+			continue
+		}
+
+		// Pick best connection: prefer non-limited (direct) over limited (relay).
+		best := conns[0]
+		for _, c := range conns[1:] {
+			if best.Stat().Limited && !c.Stat().Limited {
+				best = c
+			}
+		}
+
+		stat := best.Stat()
+		remoteAddr := best.RemoteMultiaddr()
+
+		dir := "inbound"
+		if stat.Direction == network.DirOutbound {
+			dir = "outbound"
+		}
+
+		transport := parseTransport(remoteAddr)
+		ip := extractIPFromMA(remoteAddr)
+
+		pidStr := pid.String()
+		short := pidStr
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		info := ConnectedPeerInfo{
+			PeerID:       pidStr,
+			ShortID:      short,
+			Direction:    dir,
+			ConnectedAt:  stat.Opened.UTC().Format(time.RFC3339),
+			DurationSecs: int(now.Sub(stat.Opened).Seconds()),
+			Transport:    transport,
+			RemoteAddr:   remoteAddr.String(),
+			IP:           ip,
+			IsRelay:      stat.Limited,
+		}
+
+		// Agent version from peerstore.
+		if av, err := s.host.Peerstore().Get(pid, "AgentVersion"); err == nil {
+			if s, ok := av.(string); ok {
+				info.AgentVersion = s
+			}
+		}
+
+		// Cross-reference with authorized_keys.
+		if ai, ok := authMap[pid]; ok {
+			info.Authorized = true
+			info.Role = ai.role
+			info.Comment = ai.comment
+		}
+
+		result = append(result, info)
+	}
+
+	// Sort by duration (longest connected first).
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].DurationSecs > result[i].DurationSecs {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// parseTransport extracts the transport protocol from a multiaddr.
+func parseTransport(addr ma.Multiaddr) string {
+	addrStr := addr.String()
+	switch {
+	case strings.Contains(addrStr, "/quic-v1"):
+		return "quic"
+	case strings.Contains(addrStr, "/ws"):
+		return "websocket"
+	case strings.Contains(addrStr, "/tcp"):
+		return "tcp"
+	default:
+		return "unknown"
+	}
+}
+
+// extractIPFromMA extracts the IP address string from a multiaddr.
+func extractIPFromMA(addr ma.Multiaddr) string {
+	var ip string
+	ma.ForEach(addr, func(c ma.Component) bool {
+		switch c.Protocol().Code {
+		case ma.P_IP4, ma.P_IP6:
+			ip = c.Value()
+			return false
+		}
+		return true
+	})
+	return ip
 }
 
 func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request) {
