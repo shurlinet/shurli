@@ -470,6 +470,9 @@ Validate the relay config without starting.
 .B relay config rollback
 Restore the last-known-good relay config.
 .TP
+.B relay recover
+Recover relay identity from a BIP39 seed phrase.
+.TP
 .B relay version
 Show the relay binary version.
 
@@ -504,6 +507,9 @@ operation remotely (requires admin role).
 Show whether the vault is sealed or unsealed, time since last unseal,
 and auto-seal timeout.
 .TP
+.B relay vault change-password
+Change the vault password. Requires current password for authentication.
+.TP
 .B relay seal\fR, \fBrelay unseal\fR, \fBrelay seal-status
 Shorthands for the vault subcommands above.
 
@@ -529,9 +535,6 @@ List all pending invite deposits.
 .TP
 .B relay invite revoke \fIid\fR
 Delete an unclaimed invite.
-.TP
-.B relay invite modify \fIid\fR \fB--add-caveat\fR \fI"..."\fR
-Add restrictions to an existing invite. Cannot remove existing caveats.
 
 .SS Operator Announcements (MOTD / Goodbye)
 .TP

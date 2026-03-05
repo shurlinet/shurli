@@ -9,8 +9,8 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 | Date | What's New |
 |------|-----------|
 | 2026-02-18 | **Private DHT** - Peer discovery now runs on `/shurli/kad/1.0.0`, fully isolated from the public IPFS network |
-| 2026-02-23 | **Relay pairing** - `shurli relay pair` generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
-| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 15 REST endpoints |
+| 2026-02-23 | **Relay pairing** - relay admin socket generates pairing codes, `shurli join` accepts them. SAS verification, reachability grades (A-F) |
+| 2026-02-17 | **Daemon mode** - Background service with Unix socket API, cookie auth, and 23 REST endpoints |
 | 2026-02-17 | **Network tools** - P2P ping, traceroute, and name resolution (standalone or via daemon) |
 | 2026-02-16 | **Service management** - `shurli service add/remove/enable/disable` from the CLI |
 | 2026-02-16 | **Config self-healing** - Archive, rollback, and commit-confirmed pattern for safe remote changes |
@@ -83,7 +83,7 @@ shurli join <pairing-code> --name laptop
 # Shows SAS verification fingerprints for each peer
 ```
 
-The relay admin generates codes with `shurli relay pair --count 3` (for 3 peers). Each person joins with one command. Everyone in the group is mutually authorized and verified.
+The relay admin generates pairing codes via the admin socket. Each person joins with one command. Everyone in the group is mutually authorized and verified.
 
 > **Relay server**: All machines connect through a relay for NAT traversal. See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for deploying your own. Quick install: `make install-relay`
 
@@ -120,7 +120,7 @@ Traditional solutions require either port forwarding (impossible with CGNAT), a 
 | **Private DHT** | Kademlia peer discovery on `/shurli/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | Map names to peer IDs in config - `home`, `laptop`, `gpu-server` instead of raw peer IDs |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects for P2P networking |
-| **Single Binary** | One `shurli` binary with 16 subcommands. No runtime dependencies |
+| **Single Binary** | One `shurli` binary with 24 subcommands. No runtime dependencies |
 | **Cross-Platform** | Go cross-compiles to Linux, macOS, Windows, ARM, and more |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 
@@ -198,7 +198,6 @@ For the full architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 |---------|-------------|
 | `shurli invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
 | `shurli join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
-| `shurli relay pair [--count N] [--ttl 1h]` | Generate relay pairing codes (relay admin only) |
 | `shurli verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
 | `shurli status` | Show local config, identity, authorized peers (verified/unverified), services, names |
 | `shurli version` | Show version, commit, build date, Go version |
@@ -213,7 +212,7 @@ The daemon runs `shurli daemon` as a long-lived background process. It starts th
 - Unix socket at `~/.config/shurli/shurli.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 15 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
+- 23 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
 
 **Example:**
 ```bash
@@ -370,7 +369,7 @@ peerID, _ := net.ResolveName("home")
 ```
 cmd/
 ├── shurli/                    # Single binary with subcommands
-│   ├── main.go                # Command dispatch (16 subcommands)
+│   ├── main.go                # Command dispatch (24 subcommands)
 │   ├── cmd_daemon.go          # Daemon mode (start, stop, status, ping, peers, ...)
 │   ├── cmd_proxy.go           # TCP proxy client
 │   ├── cmd_ping.go            # Standalone P2P ping
@@ -413,7 +412,7 @@ internal/
 │   └── errors.go
 ├── daemon/                    # Daemon API server + client library
 │   ├── server.go              # Unix socket HTTP server with cookie auth
-│   ├── handlers.go            # 15 REST endpoint handlers
+│   ├── handlers.go            # 23 REST endpoint handlers
 │   ├── client.go              # Go client (auto-reads cookie, Unix transport)
 │   ├── types.go               # Request/response types
 │   └── errors.go
@@ -437,7 +436,7 @@ configs/                       # Sample configuration files
 docs/                          # Documentation
 ├── ARCHITECTURE.md            # Full architecture deep dive
 ├── DAEMON-API.md              # Daemon REST API reference
-├── FAQ.md                     # Frequently asked questions
+├── faq/                       # Frequently asked questions (sub-pages)
 ├── NETWORK-TOOLS.md           # Ping, traceroute, resolve guide
 ├── ROADMAP.md                 # Multi-phase implementation plan
 ├── TESTING.md                 # Test strategy and coverage
@@ -464,7 +463,7 @@ chmod 600 authorized_keys    # Peer allowlist: owner read/write only
 chmod 644 *.yaml             # Configs: readable
 ```
 
-For security details, relay hardening, and threat model: [docs/FAQ.md](docs/FAQ.md)
+For security details, relay hardening, and threat model: [docs/faq/](docs/faq/)
 
 ## Troubleshooting
 
@@ -539,8 +538,8 @@ Issues and PRs are welcome.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (15 endpoints) |
-| [FAQ.md](docs/FAQ.md) | Security FAQ, relay hardening, troubleshooting |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (23 endpoints) |
+| [FAQ](docs/faq/) | Security FAQ, relay hardening, troubleshooting |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [ROADMAP.md](docs/ROADMAP.md) | Multi-phase implementation plan |
 | [TESTING.md](docs/TESTING.md) | Test strategy, coverage, integration tests |

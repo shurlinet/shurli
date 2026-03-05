@@ -161,6 +161,7 @@ type AdminServer struct {
 	deposits     *deposit.DepositStore
 	zkpAuth      *ZKPAuthHandler
 	motdHandler  *MOTDHandler
+	circuitACL   *CircuitACL     // refreshed on auth reload
 	shutdownFunc func() // called by goodbye/shutdown endpoint
 	relayAddr    string
 	namespace    string
@@ -222,6 +223,11 @@ func (s *AdminServer) SetShutdownFunc(fn func()) {
 // SetAuthKeysPath sets the path to the authorized_keys file for hot-reload.
 func (s *AdminServer) SetAuthKeysPath(path string) {
 	s.authKeysPath = path
+}
+
+// SetCircuitACL sets the circuit ACL for cache refresh on auth reload.
+func (s *AdminServer) SetCircuitACL(acl *CircuitACL) {
+	s.circuitACL = acl
 }
 
 // buildMux creates the HTTP route table. Called once by Start() and reused
@@ -1153,6 +1159,7 @@ func (s *AdminServer) handleAuthorizePeer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req struct {
 		PeerID  string `json:"peer_id"`
 		Comment string `json:"comment"`
@@ -1191,6 +1198,7 @@ func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req struct {
 		PeerID string `json:"peer_id"`
 	}
@@ -1231,6 +1239,9 @@ func (s *AdminServer) reloadAuth() {
 		return
 	}
 	s.gater.UpdateAuthorizedPeers(peers)
+	if s.circuitACL != nil {
+		s.circuitACL.Reload()
+	}
 	if s.zkpAuth != nil {
 		if err := s.zkpAuth.RebuildTree(); err != nil {
 			slog.Warn("zkp tree rebuild after peer mutation failed", "err", err)
