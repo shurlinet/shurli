@@ -76,9 +76,12 @@ func (c *PeerRelayConfig) applyDefaults() {
 // for other authorized peers. This reduces dependence on the central VPS
 // relay by letting any peer with a routable address serve as an alternative.
 //
-// Security: The existing ConnectionGater (authorized_keys peer ID allowlist)
-// applies to relay connections. Only peers in the authorized_keys file can
-// make reservations or create circuits through this relay.
+// Security: The host-level ConnectionGater (authorized_keys peer ID allowlist)
+// is the access control for peer relays. Only peers that pass the gater can
+// connect, and therefore only they can make reservations or create circuits.
+// No separate circuit ACL is applied because all connected peers are already
+// vetted by the gater. If connection gating is disabled (no authorized_keys),
+// this relay is open to any DHT peer - this is by design for open networks.
 type PeerRelay struct {
 	host    host.Host
 	metrics *Metrics // nil-safe

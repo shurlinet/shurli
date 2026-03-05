@@ -263,7 +263,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
-- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 18 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
+- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 23 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** - `shurli invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `shurli join --non-interactive` reads invite code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:
@@ -386,14 +386,14 @@ Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin gener
 - [x] **Connection gater enrollment mode** - probationary peers (max 10, 15s timeout) admitted during active pairing. `PromotePeer()` moves to authorized. `CleanupProbation()` evicts with disconnect callback. Auto-disable when no active groups. Expiring peer support via `expires=` attribute checked on every `InterceptSecured` call.
 - [x] **SAS verification (OMEMO-style)** - `ComputeFingerprint()` produces 4-emoji + 6-digit numeric code from sorted peer ID pair hash. 256-entry emoji table. `shurli verify <peer>` command with interactive confirmation. Writes `verified=sha256:<prefix>` to authorized_keys. Persistent `[UNVERIFIED]` badge on ping, traceroute, and status until verified.
 - [x] **Relay pairing protocol** - `/shurli/relay-pair/1.0.0` stream protocol. Wire format: 16-byte token + name. Status codes: OK, ERR, PEER_ARRIVED, GROUP_COMPLETE, TIMEOUT. `PairingHandler` authorizes peers, promotes from probation, sets expiry. Token expiry and probation cleanup goroutines.
-- [x] **`shurli relay pair`** - generates pairing codes from relay config. `--count N`, `--ttl`, `--namespace`, `--expires`. `--list` and `--revoke` for management.
+- [x] **Relay pairing via admin socket** - generates pairing codes from relay config. `--count N`, `--ttl`, `--namespace`, `--expires`. `--list` and `--revoke` for management. Accessed via admin socket client, not standalone CLI subcommand.
 - [x] **Join v2 pair-join** - detects v2 codes, connects to relay, sends pairing request, authorizes discovered peers with name conflict resolution (suffix -2, -3...), shows SAS verification fingerprints, auto-starts daemon via `exec.Command`.
 - [x] **Daemon-first commands** - `shurli ping` and `shurli traceroute` try daemon API first (fast, no bootstrap). Falls back to standalone if daemon not running. Verification badge shown before ping/traceroute output.
 - [x] **Reachability grade** - A (public IPv6), B (public IPv4 or hole-punchable NAT), C (port-restricted NAT), D (symmetric NAT/CGNAT), F (offline). Computed from interface discovery + STUN results. Exposed in daemon status response and text output. 12 tests.
 - [x] **AuthEntry extended** - daemon API `GET /v1/auth` now returns `verified` and `expires_at` fields
 - [x] **Status verification badges** - `shurli status` shows `[VERIFIED]` or `[UNVERIFIED]` per peer
 
-New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/shurli/cmd_verify.go`, `cmd/shurli/cmd_relay_pair.go` (all with matching `_test.go` files).
+New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/shurli/cmd_verify.go` (all with matching `_test.go` files).
 
 Zero new dependencies. Binary size unchanged at 28MB.
 
@@ -403,7 +403,7 @@ Relay actively pushes peer introductions to connected daemons when new peers joi
 
 - [x] **Peer-notify protocol** - `/shurli/peer-notify/1.0.0` stream protocol. Relay sends `PeerIntroduction` messages (peer ID, name, group ID, HMAC proof) to all group members when a new peer completes pairing. Daemon handler auto-authorizes introduced peers and registers names in the live resolver.
 - [x] **HMAC group commitment** - `HMAC-SHA256(token, groupID)` proves token possession during pairing without revealing the token. Stored as `hmac_proof=` attribute in authorized_keys. Verified on introduction delivery.
-- [x] **Relay admin socket** - Unix socket + cookie auth (same pattern as daemon API). `internal/relay/admin.go` serves `/v1/pair` endpoint. `shurli relay pair` is a fire-and-forget HTTP client via `internal/relay/admin_client.go`. Decouples code generation from the relay server process.
+- [x] **Relay admin socket** - Unix socket + cookie auth (same pattern as daemon API). `internal/relay/admin.go` serves `/v1/pair` endpoint. Admin client (`internal/relay/admin_client.go`) is a fire-and-forget HTTP client. Decouples code generation from the relay server process.
 - [x] **Reconnect notifier** - `internal/relay/notify.go`. When a previously-connected peer re-identifies (e.g., after network change), relay re-delivers introductions for their group. Deduplication prevents burst delivery on reconnect flap.
 - [x] **Interaction history** - `internal/reputation/history.go`. Append-only interaction log per peer (connection events, protocol exchanges). Foundation for Phase 5-L PeerManager scoring.
 - [x] **Attribute updates for existing peers** - peer-notify handler updates group and HMAC proof attributes even for already-authorized peers (re-pairing after restart).
@@ -428,7 +428,7 @@ Cross-network testing across multiple ISPs and NAT types exposed 8 bugs. All fix
 **Module Consolidation** (completed - single Go module):
 - [x] Merged three Go modules (main, relay-server, cmd/keytool) into a single `go.mod`
 - [x] Deleted `go.work` - no workspace needed with one module
-- [x] Moved relay-server source from `relay-server/main.go` to `cmd/relay-server/main.go`; `relay-server/` is now a deployment directory (setup.sh, configs, systemd)
+- [x] Moved relay-server source into `cmd/shurli/cmd_relay_serve.go`; deployment artifacts consolidated into `deploy/` and `tools/`
 - [x] Extracted `internal/identity/` package (from `pkg/p2pnet/identity.go`) - `CheckKeyFilePermissions()`, `LoadOrCreateIdentity()`, `PeerIDFromKeyFile()` shared by shurli and relay-server
 - [x] Extracted `internal/validate/` package - `ServiceName()` for DNS-label validation of service names
 - [x] Deleted `cmd/keytool/` entirely - all features exist in `shurli` subcommands (`whoami`, `auth add/list/remove/validate`)
@@ -465,7 +465,7 @@ Cross-network testing across multiple ISPs and NAT types exposed 8 bugs. All fix
 **Batch F - Daemon Mode** (completed):
 - [x] `shurli daemon` - long-running P2P host with Unix socket HTTP API
 - [x] Cookie-based authentication (32-byte random hex, `0600` permissions, rotated per restart)
-- [x] 15 API endpoints with JSON + plain text format negotiation (`?format=text` / `Accept: text/plain`)
+- [x] 23 API endpoints with JSON + plain text format negotiation (`?format=text` / `Accept: text/plain`)
 - [x] `serve_common.go` - extracted shared P2P runtime (zero duplication between serve and daemon)
 - [x] Auth hot-reload - `POST /v1/auth` and `DELETE /v1/auth/{peer_id}` take effect immediately
 - [x] Dynamic proxy management - create/destroy TCP proxies at runtime via API
@@ -798,7 +798,7 @@ Future:          authorized_keys becomes optional cache layer
 - [ ] Service tags in config: `tags: [gpu, inference]` - categorize services for discovery
 
 **Python SDK** (`shurli-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API (18 endpoints already implemented)
+- [ ] Thin wrapper around daemon Unix socket API (23 endpoints already implemented)
 - [ ] `pip install shurli-sdk`
 - [ ] Core operations: connect, expose_service, discover_services, proxy, status
 - [ ] Async support (asyncio) for integration with event-driven applications

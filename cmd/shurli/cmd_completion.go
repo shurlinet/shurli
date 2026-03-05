@@ -172,9 +172,9 @@ _shurli_completions() {
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye"
+    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
-    local relay_vault_cmds="init seal unseal status"
+    local relay_vault_cmds="init seal unseal status change-password"
     local relay_motd_cmds="set clear status"
     local relay_goodbye_cmds="set retract shutdown status"
     local relay_config_cmds="show validate rollback"
@@ -469,6 +469,7 @@ _shurli() {
         'zkp-test:End-to-end ZKP auth test'
         'motd:Manage relay MOTD'
         'goodbye:Manage goodbye announcements'
+        'recover:Recover relay identity from seed'
     )
 
     local -a relay_invite_cmds
@@ -476,7 +477,6 @@ _shurli() {
         'create:Generate an invite code'
         'list:List active invites'
         'revoke:Revoke an invite'
-        'modify:Add restrictions to an invite'
     )
 
     local -a relay_vault_cmds
@@ -485,6 +485,7 @@ _shurli() {
         'seal:Seal vault'
         'unseal:Unseal vault'
         'status:Show vault status'
+        'change-password:Change vault password'
     )
 
     local -a relay_motd_cmds
@@ -814,6 +815,7 @@ complete -c shurli -n '__shurli_using_command relay' -a zkp-setup   -d 'Generate
 complete -c shurli -n '__shurli_using_command relay' -a zkp-test    -d 'End-to-end ZKP auth test'
 complete -c shurli -n '__shurli_using_command relay' -a motd        -d 'Manage relay MOTD'
 complete -c shurli -n '__shurli_using_command relay' -a goodbye     -d 'Manage goodbye announcements'
+complete -c shurli -n '__shurli_using_command relay' -a recover     -d 'Recover relay identity from seed'
 
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l peer-id -d 'Relay peer ID'
@@ -843,7 +845,8 @@ complete -c shurli -n '__shurli_using_subcommand relay invite' -a revoke -d 'Rev
 complete -c shurli -n '__shurli_using_subcommand relay vault' -a init   -d 'Initialize vault'
 complete -c shurli -n '__shurli_using_subcommand relay vault' -a seal   -d 'Seal vault'
 complete -c shurli -n '__shurli_using_subcommand relay vault' -a unseal -d 'Unseal vault'
-complete -c shurli -n '__shurli_using_subcommand relay vault' -a status -d 'Show vault status'
+complete -c shurli -n '__shurli_using_subcommand relay vault' -a status          -d 'Show vault status'
+complete -c shurli -n '__shurli_using_subcommand relay vault' -a change-password -d 'Change vault password'
 
 # relay motd sub-subcommands
 complete -c shurli -n '__shurli_using_subcommand relay motd' -a set    -d 'Set MOTD message'
