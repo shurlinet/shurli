@@ -217,6 +217,23 @@ func TestPingThroughRelay(t *testing.T) {
 		t.Skip("Skipping: invite/join flow must complete first (peer IDs not set)")
 	}
 
+	// ── Step 0: Simulate peer-notify delivery to node-a ──
+	// In the async model, the inviter (node-a) learns about the joiner (node-b)
+	// when the relay delivers a peer-notify introduction after reconnection.
+	// Since the test doesn't run a long-lived daemon during invite/join, we
+	// simulate this by adding node-b to node-a's authorized_keys directly.
+	t.Log("Simulating peer-notify: adding node-b to node-a authorized_keys...")
+	appendCmd := fmt.Sprintf("echo '%s # laptop' >> /root/.config/shurli/authorized_keys", nodeBPeerID)
+	if _, _, err := dockerExec("node-a", "sh", "-c", appendCmd); err != nil {
+		t.Fatalf("failed to add node-b to node-a authorized_keys: %v", err)
+	}
+
+	// Also add node-b name mapping to node-a's config so "laptop" resolves.
+	addNameCmd := fmt.Sprintf(`sed -i '/^names:/a\  laptop: %s' /root/.config/shurli/config.yaml`, nodeBPeerID)
+	if _, _, err := dockerExec("node-a", "sh", "-c", addNameCmd); err != nil {
+		t.Logf("Warning: could not add name mapping for node-b: %v", err)
+	}
+
 	// ── Step 1: Start daemon on node-a (background) ──
 	// force_private_reachability is already true in the test config,
 	// so node-a will only advertise relay addresses.
