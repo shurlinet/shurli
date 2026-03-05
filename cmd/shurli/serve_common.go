@@ -85,6 +85,9 @@ type serveRuntime struct {
 
 	// Sovereign per-peer interaction history
 	peerHistory *reputation.PeerHistory
+
+	// MOTD client for relay message queries (populated by SetupMOTDClient)
+	motdClient *relay.MOTDClient
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -798,6 +801,7 @@ func (rt *serveRuntime) SetupMOTDClient() {
 			fmt.Printf("\n[RELAY] Goodbye retracted\n")
 		}
 	}, configDir)
+	rt.motdClient = motdClient
 
 	h.SetStreamHandler(protocol.ID(relay.MOTDProtocol), func(s network.Stream) {
 		motdClient.HandleStream(s)

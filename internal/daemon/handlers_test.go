@@ -49,6 +49,7 @@ func (m *networkMockRuntime) STUNResult() *p2pnet.STUNResult             { retur
 func (m *networkMockRuntime) IsRelaying() bool                            { return false }
 func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
+func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

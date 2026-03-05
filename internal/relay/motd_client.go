@@ -28,13 +28,20 @@ type MOTDMessage struct {
 // MOTDCallback is called when a valid MOTD/goodbye is received.
 type MOTDCallback func(msg MOTDMessage)
 
+// lastMOTDEntry tracks a received MOTD for dedup and status queries.
+type lastMOTDEntry struct {
+	Message   string
+	Timestamp int64
+	ShownAt   time.Time
+}
+
 // MOTDClient handles incoming MOTD streams from relays.
 type MOTDClient struct {
 	callback MOTDCallback
 	dataDir  string // where to store goodbyes.json
 
 	mu            sync.RWMutex
-	lastMOTDShown map[peer.ID]time.Time // dedup: don't re-show within 24h
+	lastMOTDShown map[peer.ID]lastMOTDEntry // dedup + message storage
 }
 
 // NewMOTDClient creates a client handler for relay MOTD messages.
@@ -42,7 +49,7 @@ func NewMOTDClient(callback MOTDCallback, dataDir string) *MOTDClient {
 	return &MOTDClient{
 		callback:      callback,
 		dataDir:       dataDir,
-		lastMOTDShown: make(map[peer.ID]time.Time),
+		lastMOTDShown: make(map[peer.ID]lastMOTDEntry),
 	}
 }
 
@@ -148,11 +155,15 @@ func (c *MOTDClient) HandleStream(s network.Stream) {
 	case motdTypeMOTD:
 		// Dedup: don't re-show within 24h.
 		c.mu.Lock()
-		if last, ok := c.lastMOTDShown[remotePeer]; ok && time.Since(last) < 24*time.Hour {
+		if entry, ok := c.lastMOTDShown[remotePeer]; ok && time.Since(entry.ShownAt) < 24*time.Hour {
 			c.mu.Unlock()
 			return
 		}
-		c.lastMOTDShown[remotePeer] = time.Now()
+		c.lastMOTDShown[remotePeer] = lastMOTDEntry{
+			Message:   msg,
+			Timestamp: timestamp,
+			ShownAt:   time.Now(),
+		}
 		c.mu.Unlock()
 
 		slog.Info("motd: received from relay", "peer", shortPeerID(remotePeer), "msg", msg)
@@ -183,6 +194,17 @@ func (c *MOTDClient) GetStoredGoodbye(relayPeer peer.ID) (string, int64, bool) {
 	key := relayPeer.String()
 	if g, ok := goodbyes[key]; ok {
 		return g.Message, g.Timestamp, true
+	}
+	return "", 0, false
+}
+
+// GetLastMOTD retrieves the last received MOTD for a relay peer.
+// Returns the message, timestamp, and true if found (within the 24h dedup window).
+func (c *MOTDClient) GetLastMOTD(relayPeer peer.ID) (string, int64, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if entry, ok := c.lastMOTDShown[relayPeer]; ok {
+		return entry.Message, entry.Timestamp, true
 	}
 	return "", 0, false
 }
@@ -250,8 +272,8 @@ func (c *MOTDClient) removeGoodbye(relayPeer peer.ID) {
 func (c *MOTDClient) CleanLastMOTDShown() {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	c.mu.Lock()
-	for k, t := range c.lastMOTDShown {
-		if t.Before(cutoff) {
+	for k, entry := range c.lastMOTDShown {
+		if entry.ShownAt.Before(cutoff) {
 			delete(c.lastMOTDShown, k)
 		}
 	}
