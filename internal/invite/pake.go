@@ -40,6 +40,9 @@ const (
 
 	// VersionV2 identifies the relay pairing protocol (relay-mediated).
 	VersionV2 byte = 0x02
+
+	// VersionV3 identifies the short async invite code (token-only, no relay addr).
+	VersionV3 byte = 0x03
 )
 
 // PAKESession holds the state for one side of a PAKE handshake.
@@ -50,13 +53,18 @@ type PAKESession struct {
 
 // deriveKey computes the shared AEAD key from the DH shared secret and token.
 func deriveKey(sharedSecret []byte, token [8]byte) ([]byte, error) {
-	// Combine shared secret with token as HKDF salt material.
-	// This binds the session key to the invite token.
-	salt := make([]byte, len(sharedSecret)+len(token))
-	copy(salt, sharedSecret)
-	copy(salt[len(sharedSecret):], token[:])
+	return deriveKeyBytes(sharedSecret, token[:])
+}
 
-	r := hkdf.New(sha256.New, salt, nil, []byte(pakeInfo))
+// deriveKeyBytes computes the shared AEAD key from the DH shared secret and arbitrary salt.
+func deriveKeyBytes(sharedSecret []byte, salt []byte) ([]byte, error) {
+	// Combine shared secret with token/salt as HKDF input material.
+	// This binds the session key to the invite token.
+	ikm := make([]byte, len(sharedSecret)+len(salt))
+	copy(ikm, sharedSecret)
+	copy(ikm[len(sharedSecret):], salt)
+
+	r := hkdf.New(sha256.New, ikm, nil, []byte(pakeInfo))
 	key := make([]byte, chacha20poly1305.KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("HKDF key derivation failed: %w", err)
@@ -82,6 +90,12 @@ func (s *PAKESession) PublicKey() []byte {
 // remotePub is the other side's 32-byte X25519 public key.
 // token is the invite token (shared secret).
 func (s *PAKESession) Complete(remotePub []byte, token [8]byte) error {
+	return s.CompleteWithSalt(remotePub, token[:])
+}
+
+// CompleteWithSalt performs the DH exchange with an arbitrary-length salt.
+// Used for relay-side PAKE where the token may be 10 or 16 bytes.
+func (s *PAKESession) CompleteWithSalt(remotePub []byte, salt []byte) error {
 	peerKey, err := ecdh.X25519().NewPublicKey(remotePub)
 	if err != nil {
 		return fmt.Errorf("invalid remote public key: %w", err)
@@ -92,7 +106,7 @@ func (s *PAKESession) Complete(remotePub []byte, token [8]byte) error {
 		return fmt.Errorf("X25519 key exchange failed: %w", err)
 	}
 
-	key, err := deriveKey(shared, token)
+	key, err := deriveKeyBytes(shared, salt)
 	if err != nil {
 		return err
 	}

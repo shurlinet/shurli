@@ -319,9 +319,9 @@ func (c *Client) Unlock() error {
 
 // --- Invite methods ---
 
-// InviteCreate creates a new invite session on the daemon.
-func (c *Client) InviteCreate(name string, ttlSeconds int) (*InviteCreateResponse, error) {
-	req := InviteCreateRequest{Name: name, TTLSeconds: ttlSeconds}
+// InviteCreate creates a new async invite via the daemon (relay-delegated).
+func (c *Client) InviteCreate(name string, ttlSeconds, count int) (*InviteCreateResponse, error) {
+	req := InviteCreateRequest{Name: name, TTLSeconds: ttlSeconds, Count: count}
 	body, _ := json.Marshal(req)
 	var resp InviteCreateResponse
 	if err := c.doJSON("POST", "/v1/invite", strings.NewReader(string(body)), &resp); err != nil {

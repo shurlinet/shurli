@@ -36,12 +36,20 @@ func NewCircuitACL(authKeysPath string, enableDataRelay bool) *CircuitACL {
 	}
 }
 
-// AllowReserve allows all authorized peers to make relay reservations.
-// Connection gating handles unauthorized peers before this is called.
-// Reservations are lightweight presence announcements; blocking them here
-// would prevent peers from being discoverable via relay addresses.
+// AllowReserve allows authorized peers to make relay reservations.
+// Probation peers (not in authorized_keys) are denied to prevent relay
+// circuit abuse during enrollment mode.
+// If no authKeysPath is configured, all peers are allowed (open relay).
 func (a *CircuitACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
-	return true
+	if a.authKeysPath == "" {
+		return true
+	}
+	peers, err := auth.LoadAuthorizedKeys(a.authKeysPath)
+	if err != nil {
+		slog.Warn("circuit ACL: AllowReserve failed to load authorized_keys", "err", err)
+		return false // fail closed
+	}
+	return peers[p]
 }
 
 // AllowConnect controls whether src can establish a data circuit to dest

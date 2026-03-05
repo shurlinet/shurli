@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -15,13 +16,17 @@ import (
 
 var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
+// ShortTokenSize is the byte length of a v3 short invite token.
+const ShortTokenSize = 10
+
 // InviteData holds the payload encoded in an invite code.
 type InviteData struct {
-	Version   byte     // protocol version (VersionV1 = PAKE invite, VersionV2 = relay pairing)
+	Version   byte     // protocol version (VersionV1 = PAKE invite, VersionV2 = relay pairing, VersionV3 = short async)
 	Token     [8]byte  // v1 PAKE token (8 bytes)
 	TokenV2   []byte   // v2 pairing token (16 bytes)
-	RelayAddr string   // full relay multiaddr (e.g., /ip4/.../tcp/.../p2p/...)
-	PeerID    peer.ID  // inviter's peer ID (v1 only; empty for v2)
+	TokenV3   []byte   // v3 short async token (10 bytes)
+	RelayAddr string   // full relay multiaddr (v1/v2 only; empty for v3)
+	PeerID    peer.ID  // inviter's peer ID (v1 only; empty for v2/v3)
 	Network   string   // DHT namespace (empty = global network)
 }
 
@@ -196,11 +201,17 @@ func EncodeV2(token []byte, relayAddr string, network string) (string, error) {
 	return strings.Join(groups, "-"), nil
 }
 
-// Decode parses a dash-separated base32 invite code back into InviteData.
+// Decode parses a dash-separated invite code back into InviteData.
+// Supports v1 (base32, PAKE), v2 (base32, relay pairing), and v3 (base36, short async).
 func Decode(code string) (*InviteData, error) {
 	clean := strings.ReplaceAll(code, "-", "")
 	clean = strings.ReplaceAll(clean, " ", "")
 	clean = strings.ToUpper(clean)
+
+	// Try v3 short code first: exactly 16 base36 chars (A-Z, 0-9).
+	if len(clean) == shortCodeLen && isBase36(clean) {
+		return decodeV3(clean)
+	}
 
 	raw, err := encoding.DecodeString(clean)
 	if err != nil {
@@ -219,7 +230,7 @@ func Decode(code string) (*InviteData, error) {
 	case VersionV2:
 		return decodeV2(raw)
 	default:
-		if ver > VersionV2 {
+		if ver > VersionV3 {
 			return nil, fmt.Errorf("invite code version %d is newer than supported; please upgrade shurli", ver)
 		}
 		return nil, fmt.Errorf("unsupported invite code version: %d", ver)
@@ -337,6 +348,98 @@ func validatePeerIDs(relayPeerID, inviterPeerID peer.ID) error {
 	}
 
 	return nil
+}
+
+// --- v3 short async invite code (base36, token-only) ---
+
+const (
+	// shortCodeLen is the number of base36 characters in a v3 short code.
+	shortCodeLen = 16
+
+	// base36 alphabet: 0-9, A-Z (uppercase).
+	base36Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+
+var base36Base = big.NewInt(36)
+
+// EncodeShort encodes a raw token (10 bytes, 80 bits) into a short invite code.
+// Format: KXMT-9FWR-PBLZ-4YAN (16 base36 chars, ~82.7 bits capacity).
+// No relay address or namespace - joiner uses configured relay from shurli init.
+func EncodeShort(token []byte) (string, error) {
+	if len(token) != ShortTokenSize {
+		return "", fmt.Errorf("short token must be %d bytes, got %d", ShortTokenSize, len(token))
+	}
+
+	// Interpret token bytes as a big-endian unsigned integer.
+	n := new(big.Int).SetBytes(token)
+
+	// Encode to base36, left-padded to shortCodeLen characters.
+	chars := make([]byte, shortCodeLen)
+	for i := shortCodeLen - 1; i >= 0; i-- {
+		var rem big.Int
+		n.DivMod(n, base36Base, &rem)
+		chars[i] = base36Alphabet[rem.Int64()]
+	}
+
+	// Group with dashes every 4 characters.
+	var groups []string
+	for i := 0; i < shortCodeLen; i += 4 {
+		end := i + 4
+		if end > shortCodeLen {
+			end = shortCodeLen
+		}
+		groups = append(groups, string(chars[i:end]))
+	}
+	return strings.Join(groups, "-"), nil
+}
+
+// decodeV3 parses a v3 short code (16 base36 chars, already cleaned/uppercased).
+func decodeV3(clean string) (*InviteData, error) {
+	if len(clean) != shortCodeLen {
+		return nil, fmt.Errorf("short code must be %d chars, got %d", shortCodeLen, len(clean))
+	}
+
+	// Decode base36 -> big.Int -> bytes.
+	n := new(big.Int)
+	for _, c := range clean {
+		idx := strings.IndexRune(base36Alphabet, c)
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid character in short code: %c", c)
+		}
+		n.Mul(n, base36Base)
+		n.Add(n, big.NewInt(int64(idx)))
+	}
+
+	// Convert to fixed-size byte slice (10 bytes).
+	raw := n.Bytes()
+	if len(raw) > ShortTokenSize {
+		return nil, fmt.Errorf("short code value too large")
+	}
+
+	token := make([]byte, ShortTokenSize)
+	copy(token[ShortTokenSize-len(raw):], raw) // right-align (big-endian)
+
+	return &InviteData{
+		Version: VersionV3,
+		TokenV3: token,
+	}, nil
+}
+
+// isBase36 returns true if s contains only base36 characters (0-9, A-Z).
+func isBase36(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
+// GenerateShortToken creates a cryptographically random 10-byte token for v3 short codes.
+func GenerateShortToken() ([]byte, error) {
+	token := make([]byte, ShortTokenSize)
+	_, err := rand.Read(token)
+	return token, err
 }
 
 // strictMultihashLen verifies that buf is exactly one multihash with no

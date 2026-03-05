@@ -39,14 +39,36 @@ func setupAuthKeys(t *testing.T, entries ...string) string {
 	return path
 }
 
-func TestCircuitACL_AllowReserve_AlwaysTrue(t *testing.T) {
+func TestCircuitACL_AllowReserve_AuthorizedPeer(t *testing.T) {
 	p := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, p.String())
 	acl := NewCircuitACL(authPath, false)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
-		t.Error("AllowReserve should always return true")
+		t.Error("AllowReserve should allow authorized peer")
+	}
+}
+
+func TestCircuitACL_AllowReserve_UnauthorizedPeerDenied(t *testing.T) {
+	authorized := generateTestPeerID(t)
+	unauthorized := generateTestPeerID(t)
+	authPath := setupAuthKeys(t, authorized.String())
+	acl := NewCircuitACL(authPath, false)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if acl.AllowReserve(unauthorized, addr) {
+		t.Error("AllowReserve should deny unauthorized peer")
+	}
+}
+
+func TestCircuitACL_AllowReserve_NoAuthPathAllowsAll(t *testing.T) {
+	p := generateTestPeerID(t)
+	acl := NewCircuitACL("", false)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if !acl.AllowReserve(p, addr) {
+		t.Error("AllowReserve should allow all when no authKeysPath is set")
 	}
 }
 
