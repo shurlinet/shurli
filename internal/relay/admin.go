@@ -30,13 +30,23 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
-// Context keys for caller identity, set by RemoteAdminHandler.
-// Local admin socket requests have no caller context (treated as full admin).
+// Context keys for caller identity and request origin.
+//
+// Every request reaching the handler must have ctxOrigin set:
+//   - "local"  - set by authMiddleware for Unix socket requests (cookie-authed)
+//   - "remote" - set by HandleRemoteRequest for P2P-relayed requests
+//
+// If ctxOrigin is missing, callerRole returns "" and callerIsAdmin returns false
+// (fail-closed). This prevents any untagged code path from getting admin access.
 type adminCtxKey string
 
 const (
 	ctxCallerPeerID adminCtxKey = "caller_peer_id"
 	ctxCallerRole   adminCtxKey = "caller_role"
+	ctxOrigin       adminCtxKey = "origin"
+
+	originLocal  = "local"
+	originRemote = "remote"
 )
 
 // callerPeerID extracts the remote peer ID from the request context.
@@ -47,19 +57,26 @@ func callerPeerID(r *http.Request) peer.ID {
 }
 
 // callerRole extracts the role from the request context.
-// Returns "admin" when context is empty or missing, which is intentional:
-// local admin socket requests bypass HandleRemoteRequest and have no context,
-// so empty = local operator = full admin. Remote requests always set the role
-// via HandleRemoteRequest, so empty cannot occur for remote callers.
+// Fail-closed: if ctxOrigin is not explicitly set, returns "" (no access).
+// Local socket requests (origin="local") get "admin" role.
+// Remote requests (origin="remote") use the role set by HandleRemoteRequest.
 func callerRole(r *http.Request) string {
-	v, _ := r.Context().Value(ctxCallerRole).(string)
-	if v == "" {
-		return "admin" // local socket = relay operator = full admin
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	switch origin {
+	case originLocal:
+		return "admin"
+	case originRemote:
+		v, _ := r.Context().Value(ctxCallerRole).(string)
+		return v
+	default:
+		// No origin tag = untagged code path. Deny access (fail-closed).
+		slog.Warn("admin: request with no origin tag denied", "path", r.URL.Path)
+		return ""
 	}
-	return v
 }
 
-// callerIsAdmin returns true if the caller has admin role or is a local admin.
+// callerIsAdmin returns true if the caller has admin role.
+// Returns false for untagged requests (fail-closed).
 func callerIsAdmin(r *http.Request) bool {
 	return callerRole(r) == "admin"
 }
@@ -309,8 +326,11 @@ func (s *AdminServer) HandleRemoteRequest(method, path string, body []byte, call
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Inject caller identity into request context for ownership checks.
-	ctx := context.WithValue(req.Context(), ctxCallerPeerID, callerPeer)
+	// Inject caller identity and origin tag into request context.
+	// origin=remote ensures callerRole() checks the explicit role value
+	// instead of defaulting to admin (fail-closed design).
+	ctx := context.WithValue(req.Context(), ctxOrigin, originRemote)
+	ctx = context.WithValue(ctx, ctxCallerPeerID, callerPeer)
 	ctx = context.WithValue(ctx, ctxCallerRole, role)
 	req = req.WithContext(ctx)
 
@@ -357,6 +377,10 @@ func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
+		// Tag request as local origin (cookie-authed Unix socket).
+		// This is what grants admin access in callerRole().
+		ctx := context.WithValue(r.Context(), ctxOrigin, originLocal)
+		r = r.WithContext(ctx)
 		// Record admin request metrics (nil-safe).
 		start := time.Now()
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -447,6 +471,12 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 				s.recordDepositPending()
 			}
 		}
+	}
+
+	// Annotate the creator's authorized_keys entry with the group ID so
+	// peer-notify can deliver introductions when the joiner connects.
+	if caller != "" && s.authKeysPath != "" {
+		auth.SetPeerAttr(s.authKeysPath, caller.String(), "group", groupID)
 	}
 
 	// Enable enrollment mode so joining peers can connect.

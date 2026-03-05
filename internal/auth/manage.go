@@ -352,6 +352,21 @@ func ListPeers(authKeysPath string) ([]PeerEntry, error) {
 	return entries, nil
 }
 
+// PeerComment returns the comment (friendly name) for a peer in authorized_keys.
+// Returns empty string if the peer is not found or on error.
+func PeerComment(authKeysPath string, peerID peer.ID) string {
+	entries, err := ListPeers(authKeysPath)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.PeerID == peerID {
+			return e.Comment
+		}
+	}
+	return ""
+}
+
 // HasRelayData checks whether a peer has the relay_data=true attribute,
 // which grants permission to establish data circuits through public/seed relays.
 func HasRelayData(authKeysPath string, peerID peer.ID) bool {
