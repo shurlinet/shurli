@@ -137,7 +137,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// Remote admin requires the peer to be in authorized_keys. Node-a needs
 	// admin role to create invite groups on the relay.
 	t.Log("Adding node-a to relay authorized_keys...")
-	authLine := fmt.Sprintf("%s role=admin # node-a (inviter)\n", nodeAPeerID)
+	authLine := fmt.Sprintf("%s role=admin # home\n", nodeAPeerID)
 	if err := writeFileInContainer("relay", "/data/relay_authorized_keys", "# test relay\n"+authLine); err != nil {
 		t.Fatalf("failed to write relay authorized_keys: %v", err)
 	}
