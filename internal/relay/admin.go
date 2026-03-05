@@ -156,7 +156,7 @@ func (s *AdminServer) SetAuthKeysPath(path string) {
 // the same handler functions as the local Unix socket.
 func (s *AdminServer) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/pair", s.requireUnsealedOr(s.handleCreatePair))
+	mux.HandleFunc("POST /v1/pair", s.handleCreatePair)
 	mux.HandleFunc("GET /v1/pair", s.handleListPairs)
 	mux.HandleFunc("DELETE /v1/pair/{id}", s.handleRevokePair)
 

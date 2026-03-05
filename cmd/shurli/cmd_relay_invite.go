@@ -139,6 +139,9 @@ func doRelayInviteRevoke(args []string, configFile string, stdout io.Writer) err
 
 	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
+		if *remoteFlag == "" {
+			return fmt.Errorf("%w\n\nHint: use --remote <relay-addr> to revoke on a remote relay", err)
+		}
 		return err
 	}
 	defer cleanup()
