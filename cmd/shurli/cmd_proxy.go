@@ -113,8 +113,8 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
-	// Check if standalone mode is allowed
-	if !forceStandalone && !cfg.CLI.AllowStandalone {
+	// Require explicit --standalone when daemon is not available.
+	if !forceStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()

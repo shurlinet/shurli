@@ -24,6 +24,7 @@ type RelayAdminAPI interface {
 	ListGroups() ([]GroupInfo, error)
 	RevokeGroup(id string) error
 	ListPeers() ([]AuthorizedPeerInfo, error)
+	ListConnectedPeers() ([]ConnectedPeerInfo, error)
 	AuthorizePeer(peerID, comment string) error
 	DeauthorizePeer(peerID string) error
 	AuthReload() error
@@ -47,4 +48,21 @@ type AuthorizedPeerInfo struct {
 	Group     string `json:"group,omitempty"`
 	ExpiresAt string `json:"expires_at,omitempty"`
 	RelayData bool   `json:"relay_data,omitempty"`
+}
+
+// ConnectedPeerInfo describes a currently connected peer with network details.
+type ConnectedPeerInfo struct {
+	PeerID       string `json:"peer_id"`
+	ShortID      string `json:"short_id"`
+	AgentVersion string `json:"agent_version,omitempty"`
+	Direction    string `json:"direction"`
+	ConnectedAt  string `json:"connected_at"`
+	DurationSecs int    `json:"duration_seconds"`
+	Transport    string `json:"transport"`
+	RemoteAddr   string `json:"remote_addr"`
+	IP           string `json:"ip"`
+	IsRelay      bool   `json:"is_relay"`
+	Authorized   bool   `json:"authorized"`
+	Role         string `json:"role,omitempty"`
+	Comment      string `json:"comment,omitempty"`
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
 	"github.com/shurlinet/shurli/internal/auth"
@@ -45,6 +46,15 @@ import (
 )
 
 const relayConfigFile = "relay-server.yaml"
+
+// relayUserAgent builds the UserAgent string for the relay server.
+// If a name is configured, it is appended in parentheses.
+func relayUserAgent(name string) string {
+	if name != "" {
+		return fmt.Sprintf("relay-server/%s (%s)", version, name)
+	}
+	return fmt.Sprintf("relay-server/%s", version)
+}
 
 // runRelayServe starts the circuit relay server. This is the equivalent of the
 // former standalone relay-server binary's main() function.
@@ -207,7 +217,7 @@ func runRelayServe(args []string) {
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
-		libp2p.UserAgent(fmt.Sprintf("relay-server/%s", version)),
+		libp2p.UserAgent(relayUserAgent(cfg.Name)),
 	}
 
 	// Resource manager (always enabled on relay - public-facing service)
@@ -334,6 +344,7 @@ func runRelayServe(args []string) {
 	}
 	adminSrv := relay.NewAdminServer(tokenStore, adminGater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
 	adminSrv.SetAuthKeysPath(cfg.Security.AuthorizedKeysFile)
+	adminSrv.SetHost(h)
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
 	// existing peers can use the relay, but no new peers can be authorized.
@@ -836,6 +847,24 @@ func runRelayDeauthorize(args []string, configFile string) {
 	}
 }
 
+// termWidth returns the terminal width, or 80 if detection fails.
+func termWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
+}
+
+// formatPeerID returns the full peer ID on wide terminals (>=120 cols),
+// or a truncated version on narrower terminals.
+func formatPeerID(id string, wide bool) string {
+	if wide || len(id) <= 20 {
+		return id
+	}
+	return id[:16] + "..."
+}
+
 func doRelayListPeers(args []string, configFile string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay list-peers", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -844,44 +873,20 @@ func doRelayListPeers(args []string, configFile string, stdout io.Writer) error 
 		return err
 	}
 
-	if *remoteFlag != "" {
-		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
-		if err != nil {
-			return err
-		}
+	wide := termWidth() >= 120
+
+	// Try admin client (local socket or remote P2P).
+	client, cleanup, clientErr := relayAdminClientOrRemote(*remoteFlag, configFile)
+	if clientErr == nil {
 		defer cleanup()
-
-		peers, err := client.ListPeers()
-		if err != nil {
-			return fmt.Errorf("failed to list peers: %w", err)
-		}
-
-		fmt.Fprintf(stdout, "Authorized peers (remote relay):\n\n")
-		if len(peers) == 0 {
-			fmt.Fprintln(stdout, "  (none)")
-		} else {
-			for _, p := range peers {
-				tags := "[" + p.Role + "]"
-				if p.Verified != "" {
-					tags += " [verified]"
-				} else {
-					tags += " [UNVERIFIED]"
-				}
-				if p.RelayData {
-					tags += " [relay_data]"
-				}
-				if p.Comment != "" {
-					fmt.Fprintf(stdout, "  %s  %s  # %s\n", p.PeerID, tags, p.Comment)
-				} else {
-					fmt.Fprintf(stdout, "  %s  %s\n", p.PeerID, tags)
-				}
-			}
-		}
-		fmt.Fprintf(stdout, "\nTotal: %d peer(s)\n", len(peers))
-		return nil
+		return listPeersViaClient(client, stdout, wide)
 	}
 
-	// Local path: read authorized_keys directly.
+	// Admin client unavailable (relay not running). Fall back to direct file read.
+	if *remoteFlag != "" {
+		return fmt.Errorf("failed to connect to remote relay: %w", clientErr)
+	}
+
 	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
 	if err != nil {
 		return err
@@ -891,33 +896,137 @@ func doRelayListPeers(args []string, configFile string, stdout io.Writer) error 
 		return fmt.Errorf("failed to list peers: %w", err)
 	}
 
-	fmt.Fprintf(stdout, "Authorized peers (%s):\n\n", authKeysPath)
-	if len(peers) == 0 {
-		fmt.Fprintln(stdout, "  (none)")
+	apiPeers := make([]relay.AuthorizedPeerInfo, len(peers))
+	for i, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		apiPeers[i] = relay.AuthorizedPeerInfo{
+			PeerID:    p.PeerID.String(),
+			Role:      role,
+			Comment:   p.Comment,
+			Verified:  p.Verified,
+			Group:     p.Group,
+			RelayData: p.RelayData,
+		}
+		if !p.ExpiresAt.IsZero() {
+			apiPeers[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
+		}
+	}
+	printAuthorizedPeers(stdout, apiPeers, wide)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Connected peers: (relay not running)")
+	return nil
+}
+
+func listPeersViaClient(client relay.RelayAdminAPI, stdout io.Writer, wide bool) error {
+	// Fetch authorized peers.
+	authPeers, err := client.ListPeers()
+	if err != nil {
+		// Non-fatal: public seed may have no authorized_keys configured.
+		fmt.Fprintln(stdout, "Authorized peers: (not configured)")
 	} else {
-		for _, p := range peers {
-			role := p.Role
-			if role == "" {
-				role = "member"
+		printAuthorizedPeers(stdout, authPeers, wide)
+	}
+
+	fmt.Fprintln(stdout)
+
+	// Fetch connected peers.
+	connected, err := client.ListConnectedPeers()
+	if err != nil {
+		fmt.Fprintf(stdout, "Connected peers: error (%v)\n", err)
+		return nil
+	}
+
+	if len(connected) == 0 {
+		fmt.Fprintln(stdout, "Connected peers: (none)")
+	} else {
+		fmt.Fprintf(stdout, "Connected peers (%d):\n\n", len(connected))
+		for _, p := range connected {
+			pid := formatPeerID(p.PeerID, wide)
+			agent := p.AgentVersion
+			if agent == "" {
+				agent = "unknown"
 			}
-			tags := "[" + role + "]"
-			if p.Verified != "" {
-				tags += " [verified]"
-			} else {
-				tags += " [UNVERIFIED]"
+
+			dur := formatDuration(p.DurationSecs)
+
+			authTag := "[unknown]"
+			if p.Authorized {
+				authTag = "[" + p.Role + "]"
 			}
-			if p.RelayData {
-				tags += " [relay_data]"
+
+			ip := p.IP
+			if ip == "" {
+				ip = "-"
 			}
+
 			if p.Comment != "" {
-				fmt.Fprintf(stdout, "  %s  %s  # %s\n", p.PeerID, tags, p.Comment)
+				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s  # %s\n",
+					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag, p.Comment)
 			} else {
-				fmt.Fprintf(stdout, "  %s  %s\n", p.PeerID, tags)
+				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s\n",
+					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag)
 			}
 		}
 	}
-	fmt.Fprintf(stdout, "\nTotal: %d peer(s)\n", len(peers))
 	return nil
+}
+
+func printAuthorizedPeers(stdout io.Writer, peers []relay.AuthorizedPeerInfo, wide bool) {
+	if len(peers) == 0 {
+		fmt.Fprintln(stdout, "Authorized peers: (none)")
+		return
+	}
+
+	fmt.Fprintf(stdout, "Authorized peers (%d):\n\n", len(peers))
+	for _, p := range peers {
+		role := p.Role
+		if role == "" {
+			role = "member"
+		}
+		tags := "[" + role + "]"
+		if p.Verified != "" {
+			tags += " [verified]"
+		} else {
+			tags += " [UNVERIFIED]"
+		}
+		if p.RelayData {
+			tags += " [relay_data]"
+		}
+		pid := formatPeerID(p.PeerID, wide)
+		if p.Comment != "" {
+			fmt.Fprintf(stdout, "  %s  %s  # %s\n", pid, tags, p.Comment)
+		} else {
+			fmt.Fprintf(stdout, "  %s  %s\n", pid, tags)
+		}
+	}
+}
+
+func peerIDWidth(wide bool) int {
+	if wide {
+		return 52 // full peer ID
+	}
+	return 19 // 16 chars + "..."
+}
+
+func formatDuration(secs int) string {
+	d := time.Duration(secs) * time.Second
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", secs)
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	h := secs / 3600
+	m := (secs % 3600) / 60
+	if h >= 24 {
+		days := h / 24
+		h = h % 24
+		return fmt.Sprintf("%dd%dh", days, h)
+	}
+	return fmt.Sprintf("%dh%dm", h, m)
 }
 
 func runRelayListPeers(args []string, configFile string) {

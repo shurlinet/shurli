@@ -52,15 +52,27 @@ func runPing(args []string) {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
 	}
 
-	// Try daemon first (faster, no bootstrap needed).
-	// Skip daemon for continuous ping (count=0) because the daemon's HTTP
-	// API collects all results before responding. The direct P2P path below
-	// streams results via a channel and handles Ctrl+C correctly.
-	if !*standaloneFlag && *count != 0 {
+	// Always try daemon first (uses existing connections, supports direct paths).
+	// For continuous ping (count=0), use a large count via daemon; Ctrl+C stops the client.
+	if !*standaloneFlag {
 		if client := tryDaemonClient(); client != nil {
-			runPingViaDaemon(client, target, *count, int(interval.Milliseconds()), *jsonFlag)
+			daemonCount := *count
+			if daemonCount == 0 {
+				daemonCount = 1000000 // effectively continuous; Ctrl+C stops
+			}
+			runPingViaDaemon(client, target, daemonCount, int(interval.Milliseconds()), *jsonFlag)
 			return
 		}
+	}
+
+	// Daemon not available. Require explicit --standalone.
+	if !*standaloneFlag {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli ping --standalone %s -c 5\n", target)
+		osExit(1)
 	}
 
 	// Set up context with Ctrl+C cancellation
@@ -84,17 +96,6 @@ func runPing(args []string) {
 		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Check if standalone mode is allowed.
-	// Continuous ping (count=0) is exempt because the daemon API can't stream.
-	if !*standaloneFlag && *count != 0 && !cfg.CLI.AllowStandalone {
-		fmt.Println("Daemon not running. Start it with:")
-		fmt.Println("  shurli daemon")
-		fmt.Println()
-		fmt.Println("Or use --standalone flag for direct P2P (debug):")
-		fmt.Printf("  shurli ping --standalone %s -c %d\n", target, *count)
-		osExit(1)
-	}
 
 	// Resolve password for SHRL-encrypted identity key.
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))

@@ -377,6 +377,22 @@ func (c *AdminClient) ListPeers() ([]AuthorizedPeerInfo, error) {
 	return resp, nil
 }
 
+// ListConnectedPeers returns currently connected peers with network details.
+func (c *AdminClient) ListConnectedPeers() ([]ConnectedPeerInfo, error) {
+	data, status, err := c.do("GET", "/v1/peers/connected", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp []ConnectedPeerInfo
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
 // AuthorizePeer adds a peer to the relay's authorized_keys and triggers reload.
 func (c *AdminClient) AuthorizePeer(peerID, comment string) error {
 	reqBody, _ := json.Marshal(map[string]string{

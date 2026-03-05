@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/relay"
@@ -137,6 +139,46 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Reachability grade
 	grade := p2pnet.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
 	resp.Reachability = &grade
+
+	// Relay connectivity status
+	for _, addrStr := range rt.RelayAddresses() {
+		maddr, err := ma.NewMultiaddr(addrStr)
+		if err != nil {
+			continue
+		}
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		pidStr := info.ID.String()
+		short := pidStr
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		rs := RelayStatus{
+			Address:   addrStr,
+			PeerID:    pidStr,
+			ShortID:   short,
+			Connected: h.Network().Connectedness(info.ID) == network.Connected,
+		}
+
+		// Parse relay name and agent version from peerstore.
+		if av, avErr := h.Peerstore().Get(info.ID, "AgentVersion"); avErr == nil {
+			if s, ok := av.(string); ok {
+				rs.AgentVersion = s
+				if start := strings.Index(s, "("); start >= 0 {
+					if end := strings.LastIndex(s, ")"); end > start+1 {
+						rs.RelayName = s[start+1 : end]
+					}
+				}
+			}
+		}
+		resp.Relays = append(resp.Relays, rs)
+	}
+
+	// MOTD/goodbye messages from relays
+	resp.MOTDs = rt.RelayMOTDs()
 
 	if wantsText(r) {
 		var sb strings.Builder

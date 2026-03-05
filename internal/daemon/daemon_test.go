@@ -43,6 +43,7 @@ func (m *mockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
 func (m *mockRuntime) IsRelaying() bool                            { return false }
 func (m *mockRuntime) RelayAddresses() []string                    { return nil }
 func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
+func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
