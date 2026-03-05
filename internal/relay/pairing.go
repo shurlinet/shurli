@@ -451,7 +451,19 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	}
 
 	// Build response payload.
+	// Include peers who used tokens in this group.
 	peers := ph.Store.GetGroupPeers(group.ID, idx)
+
+	// In async invites, the creator never uses a token, so they're not in
+	// GetGroupPeers. Include the creator so the joiner learns about them.
+	if creator := group.CreatedBy; creator != "" && creator != remotePeer {
+		creatorName := auth.PeerComment(ph.AuthKeysPath, creator)
+		if creatorName == "" {
+			creatorName = "inviter"
+		}
+		peers = append([]PeerInfo{{PeerID: creator, Name: creatorName}}, peers...)
+	}
+
 	v2resp := PairingV2Response{
 		GroupID: group.ID,
 		Peers:   peers,
