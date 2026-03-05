@@ -4,13 +4,13 @@ weight: 6
 description: "Lock down your relay with a passphrase-sealed vault, two-factor authentication, auto-seal timeout, and remote unseal from any device. Step-by-step setup with disaster recovery."
 ---
 
-After deploying your relay (see [Relay Setup](../relay-setup/)), the next step is securing it. This guide walks you through vault initialization, two-factor authentication, and remote unseal.
+After deploying your relay (see [Relay Setup](../relay-setup/)), the next step is understanding the security model. The vault is auto-created on first run (same password and seed as your identity), so you can start using it immediately. This guide covers what the vault does, two-factor authentication, and remote unseal.
 
 ## Prerequisites
 
-- Relay deployed and running (`shurli relay serve`)
+- Relay deployed and running (vault auto-created on first start)
 - SSH access to your relay server (or local terminal)
-- All `shurli relay vault` and `shurli relay invite` commands run on the relay server itself (they talk to the relay through a local Unix socket)
+- All `shurli relay vault` and `shurli relay invite` commands work from any directory (relay commands auto-discover config at `/etc/shurli/relay/`)
 
 ## Why secure your relay
 
@@ -25,28 +25,26 @@ The vault changes this:
 | **New invites** | Anyone with server access | Only after passphrase + optional 2FA |
 | **Compromise risk** | Attacker gets everything | Attacker gets encrypted data |
 
-## Step 1: Initialize the vault
+## Step 1: Vault (auto-created on first run)
 
-On your relay server:
-
-```bash
-shurli relay vault init --auto-seal 30
-```
-
-You'll be prompted for a passphrase (minimum 8 characters) and confirmation:
+When the relay starts for the first time, it creates the identity key, vault, and seed phrase in one shot. You enter a single password and the vault is ready.
 
 ```
-Enter passphrase: ********
-Confirm passphrase: ********
+Enter password for relay identity: ********
+Confirm password: ********
+
+=== RELAY SEED PHRASE (WRITE THIS DOWN) ===
+word1 word2 word3 ... word24
+=======================================
+
+Vault initialized (auto-seal: 30 minutes)
 ```
 
-The command outputs two critical pieces of information:
+**Write the seed phrase on paper. Store it offline.** If you lose both the passphrase and seed, the vault is gone.
 
-1. **Seed phrase** - 24 hex pairs (e.g., `a1 b2 c3 d4 ...`). This is your last-resort recovery key. Write it down on paper. Store it offline. If you lose both the passphrase and seed, the vault is gone.
+All vault and config files live in `/etc/shurli/relay/` (permissions: directory 700, files 600). The self-healing system automatically saves a `.relay-server.last-good.yaml` backup alongside your config on every successful startup. Everything stays inside the same protected directory.
 
-2. **Seal status** - the vault starts unsealed after init so you can immediately create invites and authorize peers.
-
-> **The `--auto-seal 30` flag** tells the vault to automatically relock after 30 minutes of being unsealed. Adjust this to your workflow: 15 minutes for high-security, 60 for convenience, 0 for manual-only sealing.
+The vault starts unsealed so you can immediately create invites and authorize peers. It auto-seals after 30 minutes of inactivity.
 
 ### Verify
 
@@ -62,16 +60,18 @@ TOTP:      disabled
 Auto-seal: 30 minutes
 ```
 
+> **Already deployed without the auto-init?** Run `shurli relay vault init --auto-seal 30` to create one manually.
+
 ## Step 2: Add two-factor authentication (optional)
 
 Two options, both optional. Choose one or both.
 
 ### Option A: Authenticator app (TOTP)
 
-Initialize with TOTP enabled:
+To add TOTP to an existing vault, recover from seed and re-initialize with TOTP:
 
 ```bash
-shurli relay vault init --totp --auto-seal 30
+shurli relay vault recover --seed "word1 word2 ... word24" --totp --auto-seal 30
 ```
 
 After entering your passphrase, you'll see an `otpauth://` URI:
@@ -82,7 +82,7 @@ otpauth://totp/Shurli:my-relay?secret=JBSWY3DPEHPK3PXP&algorithm=SHA1&digits=6&p
 
 Scan this URI with any standard authenticator app (Google Authenticator, Authy, or any TOTP app). The app generates 6-digit codes that refresh every 30 seconds.
 
-> **Already initialized without TOTP?** You'll need to recover from seed and re-initialize with `--totp`. See the disaster recovery section below.
+> **Note**: The auto-init flow creates a vault without TOTP. To add TOTP, recover from seed as shown above.
 
 ### Option B: YubiKey (hardware key)
 
@@ -201,6 +201,8 @@ The auto-seal timer runs from the moment you unseal. If you need more time:
 | Passphrase is strong (8+ characters, not reused) | |
 | Seed phrase written on paper and stored offline | |
 | Seed phrase is NOT stored digitally on the relay | |
+| Data directory is 700 (`sudo chmod 700 /etc/shurli/relay`) | |
+| All config/key files are 600 (owner read/write only) | |
 | TOTP registered in authenticator app (if enabled) | |
 | Auto-seal timeout configured (recommended: 30-60 min) | |
 | Tested seal/unseal cycle before relying on it | |
@@ -220,11 +222,14 @@ Every relay admin command supports the `--remote` flag:
 shurli relay vault unseal --remote /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 shurli relay vault status --remote my-relay
 
+# Remote peer management
+shurli relay list-peers --remote my-relay
+shurli relay authorize 12D3KooW... home-node --remote my-relay
+shurli relay deauthorize 12D3KooW... --remote my-relay
+
 # Remote invite management
 shurli relay invite create --caveat "role=member" --remote my-relay
 shurli relay invite list --remote my-relay
-
-# Remote peer management (coming: auth reload)
 ```
 
 The `--remote` flag connects over `/shurli/relay-admin/1.0.0`, an encrypted P2P stream. Same auth model as the local Unix socket: only admin-role peers are allowed. Rate limited to 5 requests/second per peer.

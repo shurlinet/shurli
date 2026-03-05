@@ -31,19 +31,21 @@ type DialResult struct {
 // DHT discovery and relay circuit attempts concurrently and returns as
 // soon as the first path succeeds, cancelling the other.
 type PathDialer struct {
-	host       host.Host
-	kdht       *dht.IpfsDHT // may be nil (no DHT)
-	relayAddrs []string
-	metrics    *Metrics // nil-safe
+	host        host.Host
+	kdht        *dht.IpfsDHT // may be nil (no DHT)
+	relaySource RelaySource  // provides relay addresses (static or dynamic)
+	metrics     *Metrics     // nil-safe
 }
 
 // NewPathDialer creates a PathDialer. The DHT and metrics are optional (nil-safe).
-func NewPathDialer(h host.Host, kdht *dht.IpfsDHT, relayAddrs []string, m *Metrics) *PathDialer {
+// relaySource provides relay addresses; use &StaticRelaySource{Addrs: addrs} for
+// a fixed list, or a RelayDiscovery for dynamic DHT-discovered relays.
+func NewPathDialer(h host.Host, kdht *dht.IpfsDHT, relaySource RelaySource, m *Metrics) *PathDialer {
 	return &PathDialer{
-		host:       h,
-		kdht:       kdht,
-		relayAddrs: relayAddrs,
-		metrics:    m,
+		host:        h,
+		kdht:        kdht,
+		relaySource: relaySource,
+		metrics:     m,
 	}
 }
 
@@ -109,9 +111,13 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 	}
 
 	// Leg 2: Relay circuit
-	if len(pd.relayAddrs) > 0 {
+	var relayAddrs []string
+	if pd.relaySource != nil {
+		relayAddrs = pd.relaySource.RelayAddrs()
+	}
+	if len(relayAddrs) > 0 {
 		go func() {
-			if err := AddRelayAddressesForPeerFunc(pd.host, pd.relayAddrs, peerID); err != nil {
+			if err := AddRelayAddressesForPeerFunc(pd.host, relayAddrs, peerID); err != nil {
 				resultCh <- raceResult{err: fmt.Errorf("relay addrs: %w", err)}
 				return
 			}

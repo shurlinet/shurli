@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#0d0f14"/>
+    </linearGradient>
+    <linearGradient id="stepGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="activeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a1e"/>
+      <stop offset="100%" style="stop-color:#1a2e12"/>
+    </linearGradient>
+    <linearGradient id="warnGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#614a1e"/>
+      <stop offset="100%" style="stop-color:#3d2e12"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="800" height="420" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="15" font-weight="600">The 5-Step Engineering Algorithm</text>
+  <text x="400" y="48" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="9">Applied as a batch review checklist before every development phase</text>
+
+  <!-- ==================== STEP 1 ==================== -->
+  <rect x="30" y="65" width="145" height="165" rx="10" fill="url(#stepGrad)" stroke="#e8729a" stroke-width="1.5"/>
+  <!-- Step number -->
+  <circle cx="55" cy="85" r="12" fill="none" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="55" y="90" text-anchor="middle" fill="#e8729a" font-family="system-ui, sans-serif" font-size="12" font-weight="700">1</text>
+  <text x="75" y="90" fill="#e8729a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">QUESTION</text>
+  <!-- Description -->
+  <text x="42" y="112" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">Make requirements</text>
+  <text x="42" y="124" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">less dumb</text>
+  <!-- Divider -->
+  <line x1="42" y1="134" x2="163" y2="134" stroke="#1a191c" stroke-width="1"/>
+  <!-- Shurli example -->
+  <text x="42" y="150" fill="#9ece6a" font-family="SF Mono, monospace" font-size="7" font-weight="600">SHURLI:</text>
+  <text x="42" y="163" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Birthday attacks?</text>
+  <text x="42" y="175" fill="#f7768e" font-family="SF Mono, monospace" font-size="7">Rejected.</text>
+  <text x="42" y="188" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Mesh data relay?</text>
+  <text x="42" y="200" fill="#f7768e" font-family="SF Mono, monospace" font-size="7">Rejected.</text>
+  <text x="42" y="216" fill="#565f89" font-family="SF Mono, monospace" font-size="7">Each with documented</text>
+  <text x="42" y="226" fill="#565f89" font-family="SF Mono, monospace" font-size="7">reasoning</text>
+
+  <!-- Arrow 1-2 -->
+  <line x1="175" y1="147" x2="193" y2="147" stroke="#e8729a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="190,143 197,147 190,151" fill="#e8729a"/>
+
+  <!-- ==================== STEP 2 ==================== -->
+  <rect x="198" y="65" width="145" height="165" rx="10" fill="url(#stepGrad)" stroke="#e8729a" stroke-width="1.5"/>
+  <circle cx="223" cy="85" r="12" fill="none" stroke="#e8729a" stroke-width="1.5"/>
+  <text x="223" y="90" text-anchor="middle" fill="#e8729a" font-family="system-ui, sans-serif" font-size="12" font-weight="700">2</text>
+  <text x="243" y="90" fill="#e8729a" font-family="system-ui, sans-serif" font-size="10" font-weight="600">DELETE</text>
+  <text x="210" y="112" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">Delete the part</text>
+  <text x="210" y="124" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">or process</text>
+  <line x1="210" y1="134" x2="331" y2="134" stroke="#1a191c" stroke-width="1"/>
+  <text x="210" y="150" fill="#9ece6a" font-family="SF Mono, monospace" font-size="7" font-weight="600">SHURLI:</text>
+  <text x="210" y="163" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Relay slow? Don't</text>
+  <text x="210" y="175" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">optimize - eliminate</text>
+  <text x="210" y="188" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">the need for it.</text>
+  <text x="210" y="207" fill="#565f89" font-family="SF Mono, monospace" font-size="7">Relay elimination is</text>
+  <text x="210" y="219" fill="#565f89" font-family="SF Mono, monospace" font-size="7">priority research</text>
+
+  <!-- Arrow 2-3 -->
+  <line x1="343" y1="147" x2="361" y2="147" stroke="#e8729a" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="358,143 365,147 358,151" fill="#e8729a"/>
+
+  <!-- ==================== STEP 3 ==================== -->
+  <rect x="366" y="65" width="145" height="165" rx="10" fill="url(#warnGrad)" stroke="#e0af68" stroke-width="1.5"/>
+  <circle cx="391" cy="85" r="12" fill="none" stroke="#e0af68" stroke-width="1.5"/>
+  <text x="391" y="90" text-anchor="middle" fill="#e0af68" font-family="system-ui, sans-serif" font-size="12" font-weight="700">3</text>
+  <text x="411" y="90" fill="#e0af68" font-family="system-ui, sans-serif" font-size="10" font-weight="600">SIMPLIFY</text>
+  <text x="378" y="112" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">Simplify and</text>
+  <text x="378" y="124" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">optimize</text>
+  <line x1="378" y1="134" x2="499" y2="134" stroke="#1a191c" stroke-width="1"/>
+  <text x="378" y="150" fill="#e0af68" font-family="SF Mono, monospace" font-size="7" font-weight="600">COMMON TRAP:</text>
+  <text x="378" y="163" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Optimizing things</text>
+  <text x="378" y="175" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">that should not</text>
+  <text x="378" y="187" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">exist at all.</text>
+  <text x="378" y="207" fill="#565f89" font-family="SF Mono, monospace" font-size="7">ONLY after steps</text>
+  <text x="378" y="219" fill="#565f89" font-family="SF Mono, monospace" font-size="7">1 and 2</text>
+
+  <!-- Arrow 3-4 -->
+  <line x1="511" y1="147" x2="529" y2="147" stroke="#e0af68" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="526,143 533,147 526,151" fill="#e0af68"/>
+
+  <!-- ==================== STEP 4 ==================== -->
+  <rect x="534" y="65" width="115" height="165" rx="10" fill="url(#stepGrad)" stroke="#bb9af7" stroke-width="1.5"/>
+  <circle cx="559" cy="85" r="12" fill="none" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="559" y="90" text-anchor="middle" fill="#bb9af7" font-family="system-ui, sans-serif" font-size="12" font-weight="700">4</text>
+  <text x="579" y="90" fill="#bb9af7" font-family="system-ui, sans-serif" font-size="10" font-weight="600">SPEED</text>
+  <text x="546" y="112" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">Accelerate</text>
+  <text x="546" y="124" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">cycle time</text>
+  <line x1="546" y1="134" x2="637" y2="134" stroke="#1a191c" stroke-width="1"/>
+  <text x="546" y="150" fill="#9ece6a" font-family="SF Mono, monospace" font-size="7" font-weight="600">SHURLI:</text>
+  <text x="546" y="163" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Batch system.</text>
+  <text x="546" y="175" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">Ship every</text>
+  <text x="546" y="187" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">cycle.</text>
+
+  <!-- Arrow 4-5 -->
+  <line x1="649" y1="147" x2="667" y2="147" stroke="#bb9af7" stroke-width="1.5" filter="url(#glow)"/>
+  <polygon points="664,143 671,147 664,151" fill="#bb9af7"/>
+
+  <!-- ==================== STEP 5 ==================== -->
+  <rect x="672" y="65" width="100" height="165" rx="10" fill="url(#stepGrad)" stroke="#565f89" stroke-width="1.5"/>
+  <circle cx="697" cy="85" r="12" fill="none" stroke="#565f89" stroke-width="1.5"/>
+  <text x="697" y="90" text-anchor="middle" fill="#565f89" font-family="system-ui, sans-serif" font-size="12" font-weight="700">5</text>
+  <text x="717" y="90" fill="#565f89" font-family="system-ui, sans-serif" font-size="10" font-weight="600">AUTO</text>
+  <text x="684" y="112" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">Automate</text>
+  <text x="684" y="124" fill="#c0caf5" font-family="SF Mono, monospace" font-size="8">last</text>
+  <line x1="684" y1="134" x2="760" y2="134" stroke="#1a191c" stroke-width="1"/>
+  <text x="684" y="150" fill="#9ece6a" font-family="SF Mono, monospace" font-size="7" font-weight="600">SHURLI:</text>
+  <text x="684" y="163" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">CI/CD and</text>
+  <text x="684" y="175" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">release</text>
+  <text x="684" y="187" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">automation</text>
+  <text x="684" y="199" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">come after</text>
+  <text x="684" y="211" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">the code</text>
+  <text x="684" y="223" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="7">works.</text>
+
+  <!-- ==================== BOTTOM: Key quote ==================== -->
+  <rect x="30" y="255" width="740" height="50" rx="10" fill="#1a191c" stroke="#e8729a" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="400" y="276" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="11" font-style="italic">"The best part is no part. The best process is no process.</text>
+  <text x="400" y="294" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="11" font-style="italic">It weighs nothing. Costs nothing. Can't go wrong."</text>
+
+  <!-- Applied as checklist -->
+  <rect x="30" y="320" width="740" height="80" rx="10" fill="url(#activeGrad)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="400" y="342" text-anchor="middle" fill="#9ece6a" font-family="system-ui, sans-serif" font-size="11" font-weight="600">APPLIED BEFORE EVERY DEVELOPMENT BATCH</text>
+
+  <text x="100" y="365" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Are these requirements justified?</text>
+  <text x="100" y="382" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">What can we delete?</text>
+  <text x="440" y="365" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Are we optimizing something that shouldn't exist?</text>
+  <text x="440" y="382" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Have we simplified before accelerating?</text>
+</svg>

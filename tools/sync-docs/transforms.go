@@ -111,11 +111,11 @@ func rewriteFaqDocLinks(body string) string {
 }
 
 // rewriteSpecialLinks handles two hardcoded link rewrites:
-// 1. [relay-server/README.md](../relay-server/README.md) -> [Relay Setup guide](../relay-setup/)
+// 1. [docs/RELAY-SETUP.md](RELAY-SETUP.md) -> [Relay Setup guide](../relay-setup/)
 // 2. (ENGINEERING-JOURNAL.md) -> (../engineering-journal/)
 func rewriteSpecialLinks(body string) string {
 	body = strings.ReplaceAll(body,
-		"[relay-server/README.md](../relay-server/README.md)",
+		"[docs/RELAY-SETUP.md](RELAY-SETUP.md)",
 		"[Relay Setup guide](../relay-setup/)")
 	body = strings.ReplaceAll(body,
 		"(ENGINEERING-JOURNAL.md)",
@@ -135,10 +135,10 @@ func rewriteGitHubSourceLinks(body string) string {
 }
 
 // rewriteQuickStartLinks rewrites root-relative links from README.md extraction.
-// Also handles the special relay-server/README.md friendly link.
+// Also handles the special docs/RELAY-SETUP.md friendly link.
 func rewriteQuickStartLinks(body string) string {
 	body = strings.ReplaceAll(body,
-		"[relay-server/README.md](relay-server/README.md)",
+		"[docs/RELAY-SETUP.md](docs/RELAY-SETUP.md)",
 		"[Relay Setup guide](../relay-setup/)")
 	for _, dir := range quickStartLinkDirs {
 		old := "(" + dir

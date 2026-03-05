@@ -22,7 +22,7 @@ ufw enable
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli/relay-server
+cd shurli
 ```
 
 ### Run the setup script
@@ -30,14 +30,14 @@ cd Shurli/relay-server
 The script detects that you're root and walks you through creating a secure service user:
 
 ```bash
-bash setup.sh
+bash tools/relay-setup.sh
 ```
 
 It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
 3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
-4. Continues with the full setup: builds binary, installs systemd service (running as the selected user), configures firewall, tunes QUIC buffers, and transfers file ownership
+4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay (identity + vault are auto-created on first run with a single password), enables the service, configures firewall, tunes QUIC buffers
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
@@ -46,17 +46,17 @@ ssh newuser@YOUR_VPS_IP
 sudo whoami    # should print: root
 ```
 
-### Configure (as the service user)
+### Configure
+
+Relay commands auto-detect the config at `/etc/shurli/relay/` and auto-escalate to the service user when needed, so you can run them from any directory as any sudo-capable user:
 
 ```bash
-ssh shurli@YOUR_VPS_IP
-cd Shurli/relay-server
+# These work from any directory, as any user with sudo access
+shurli relay info
+shurli relay pair --count 3
 
-# Create config from sample
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-
-# Edit if needed (defaults are good - port 7777, gating enabled)
-nano relay-server.yaml
+# Edit config if needed (defaults are good - port 7777, gating enabled)
+sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
 Then restart the service to pick up config changes (config-level changes like ports, transport, and ZKP enablement require a restart):
@@ -75,7 +75,7 @@ Generate pairing codes and share them with your peers:
 
 ```bash
 # Generate 3 pairing codes (one per person)
-./shurli relay pair --count 3
+shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
 shurli join <pairing-code> --name laptop
@@ -88,12 +88,12 @@ Pairing codes handle authorization automatically. Everyone who joins with a code
 If you already know the peer IDs, add them directly:
 
 ```bash
-# Using the CLI
-./shurli relay authorize <peer-id> --comment "home-node"
-./shurli relay authorize <peer-id> --comment "client-node"
+# Using the CLI (works from any directory)
+shurli relay authorize <peer-id> --comment "home-node"
+shurli relay authorize <peer-id> --comment "client-node"
 
 # Or edit the file directly (one peer ID per line)
-nano relay_authorized_keys
+sudo nano /etc/shurli/relay/relay_authorized_keys
 ```
 
 ```
@@ -116,30 +116,33 @@ sudo systemctl restart shurli-relay
 Run the health check anytime:
 
 ```bash
-cd ~/Shurli/relay-server
-bash setup.sh --check
+cd ~/shurli
+bash tools/relay-setup.sh --check
 ```
 
 You should see all `[OK]` items:
 
 ```
 Binary:
-  [OK]   shurli binary exists
+  [OK]   shurli binary exists at /usr/local/bin/shurli
   [OK]   shurli is executable
+
+  [OK]   Data directory permissions: 700
 
 Configuration:
   [OK]   relay-server.yaml exists
   [OK]   Connection gating is ENABLED
+  [OK]   relay-server.yaml permissions: 600
   ...
 
 Service:
   [OK]   shurli-relay service is enabled (starts on boot)
   [OK]   shurli-relay service is running
-  [OK]   Service runs as non-root user: shurli
+  [OK]   Service runs as non-root user: peerup
   ...
 
-=== Summary: 25 passed, 0 warnings, 0 failures ===
-Everything looks great!
+=== Summary: 21 passed, 1 warnings, 0 failures ===
+All good, but review [WARN] items for best security.
 ```
 
 ---
@@ -149,8 +152,8 @@ Everything looks great!
 To remove the systemd service, firewall rules, and system tuning:
 
 ```bash
-cd ~/Shurli/relay-server
-bash setup.sh --uninstall
+cd ~/shurli
+bash tools/relay-setup.sh --uninstall
 ```
 
 This removes:
@@ -159,10 +162,12 @@ This removes:
 - QUIC buffer tuning from `/etc/sysctl.conf`
 - Journald log rotation settings
 
-It does **not** delete your binary, config, keys, or source code. To fully clean up:
+It does **not** delete config, keys, or source code. To fully clean up:
 
 ```bash
-rm -rf ~/Shurli  # Only if you want to remove everything
+sudo rm -rf /etc/shurli/relay  # Remove relay data
+sudo rm /usr/local/bin/shurli  # Remove binary
+rm -rf ~/shurli                # Remove source (only if you want to)
 ```
 
 ---
@@ -185,9 +190,9 @@ sudo journalctl -u shurli-relay -n 50
 sudo journalctl --disk-usage
 
 # Update relay server (after code changes)
-cd ~/Shurli
+cd ~/shurli
 git pull
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+make install-relay
 sudo systemctl restart shurli-relay
 ```
 
@@ -198,38 +203,52 @@ sudo systemctl restart shurli-relay
 | Item | How to verify |
 |------|--------------|
 | Non-root user | `whoami` (should NOT be root) |
-| SSH key-only login | `grep PasswordAuthentication /etc/ssh/sshd_config` → `no` |
-| Root login disabled | `grep PermitRootLogin /etc/ssh/sshd_config` → `no` |
-| Firewall active | `sudo ufw status` → active, default deny incoming |
-| Only needed ports open | `sudo ufw status` → 22/tcp (SSH) + 7777/tcp+udp |
-| Connection gating on | `grep enable_connection_gating relay-server.yaml` → `true` |
-| Key file permissions | `ls -la relay_node.key` → `-rw-------` (600) |
-| Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` → `500M` |
+| SSH key-only login | `grep PasswordAuthentication /etc/ssh/sshd_config` - `no` |
+| Root login disabled | `grep PermitRootLogin /etc/ssh/sshd_config` - `no` |
+| Firewall active | `sudo ufw status` - active, default deny incoming |
+| Only needed ports open | `sudo ufw status` - 22/tcp (SSH) + 7777/tcp+udp |
+| Connection gating on | `grep enable_connection_gating /etc/shurli/relay/relay-server.yaml` - `true` |
+| Data directory permissions | `ls -ld /etc/shurli/relay/` - `drwx------` (700, owner only) |
+| Key file permissions | `ls -la /etc/shurli/relay/relay_node.key` - `-rw-------` (600) |
+| Log rotation | `grep SystemMaxUse /etc/systemd/journald.conf` - `500M` |
 | System updates | `sudo apt update && sudo apt upgrade` |
 
-Or just run: `bash setup.sh --check`
+Or just run: `bash tools/relay-setup.sh --check`
 
 ---
 
 ## File Layout
 
-After setup, your relay-server directory looks like:
+After setup, the relay data and binary are installed to system paths:
 
 ```
-~/Shurli/relay-server/
-├── shurli                    # Binary (built from cmd/shurli, gitignored)
-├── relay-server.yaml         # Config (gitignored)
-├── relay-server.service      # Template service file (in git)
-├── relay_node.key            # Identity key (auto-generated, gitignored)
-├── relay_authorized_keys     # Allowed peer IDs (gitignored)
-└── setup.sh                  # Setup + health check script
+/usr/local/bin/shurli                    # Binary (single binary for all modes)
+
+/etc/shurli/relay/                       # Data directory (700, owner only)
+  relay-server.yaml                      # Config (created by shurli relay setup)
+  relay_node.key                         # Identity key (auto-generated on first run)
+  relay_vault.json                       # Sealed vault (auto-created on first run)
+  relay_authorized_keys                  # Allowed peer IDs
+  .session                               # Session token (machine-bound)
+  .relay-admin.sock                      # Admin Unix socket (runtime)
+  .relay-admin.cookie                    # Admin auth cookie (runtime)
+  .relay-server.last-good.yaml           # Self-healing: last valid config backup
+```
+
+Source code (where you cloned the repo):
+
+```
+~/shurli/
+  tools/relay-setup.sh             # Setup + health check script
+  deploy/shurli-relay.service      # systemd service file
+  configs/relay-server.sample.yaml # Sample configuration
 ```
 
 ---
 
 ## Manual Installation (Any Linux/Unix)
 
-The `setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
+The `tools/relay-setup.sh` script targets Debian/Ubuntu with `apt` and `ufw`. If you run a different distribution, or prefer to set things up yourself, here's everything the script does broken into individual steps.
 
 ### Prerequisites
 
@@ -255,7 +274,7 @@ export PATH=$PATH:/usr/local/go/bin
 
 Without this library, Shurli falls back to pure-Go mDNS (works but less reliable on systems with a running mDNS daemon). Build with `CGO_ENABLED=0` to explicitly use the fallback.
 
-**QR code tool** (optional, for `setup.sh --check` display):
+**QR code tool** (optional, for `relay-setup.sh --check` display):
 
 | Distribution | Package |
 |-------------|---------|
@@ -265,32 +284,42 @@ Without this library, Shurli falls back to pure-Go mDNS (works but less reliable
 | Alpine | `libqrencode` |
 | macOS | `brew install qrencode` |
 
-### Build
+### Build and install
 
 ```bash
 git clone https://github.com/shurlinet/shurli.git
-cd Shurli
+cd shurli
 
-# Full build with optimizations
-go build -ldflags="-s -w" -trimpath -o relay-server/shurli ./cmd/shurli
+# Build and install to system paths
+make install-relay
 
-# Verify
-./relay-server/shurli version
+# This does:
+#   1. Builds the binary with version embedding
+#   2. Installs to /usr/local/bin/shurli
+#   3. Creates /etc/shurli/relay/ with config files
+#   4. Installs the systemd service (does not enable or start)
 ```
 
 ### Configure
 
 ```bash
-cd relay-server
-cp ../configs/relay-server.sample.yaml relay-server.yaml
-# Edit relay-server.yaml if needed (defaults: port 7777, gating enabled)
+# Edit if needed (defaults: port 7777, gating enabled)
+sudo nano /etc/shurli/relay/relay-server.yaml
 ```
 
-### Create service user (if running as a service)
+### Service user (if not using the setup script)
+
+The relay runs as whatever user you choose. You can use your existing SSH user or create a dedicated one:
 
 ```bash
+# Option A: Use your existing user (recommended for single-admin VPS)
+# No extra setup needed - make install-relay defaults to your user
+
+# Option B: Create a dedicated user
 sudo useradd -r -m -s /bin/bash shurli
-sudo chown -R shurli:shurli /path/to/Shurli/relay-server
+sudo chown -R shurli:shurli /etc/shurli/relay
+sudo chmod 700 /etc/shurli/relay
+make install-relay SERVICE_USER=shurli
 ```
 
 ### Network tuning (QUIC performance)
@@ -316,15 +345,14 @@ Open port 7777 for TCP and UDP:
 
 Also check your VPS provider's security groups/firewall rules in their web console.
 
-### Install systemd service
+### Install systemd service (manual)
 
 ```bash
-# Copy and customize the service template
-sudo cp relay-server.service /etc/systemd/system/shurli-relay.service
+sudo cp deploy/shurli-relay.service /etc/systemd/system/shurli-relay.service
 
-# Edit to match your paths and user
-sudo nano /etc/systemd/system/shurli-relay.service
-# Key fields: User=shurli, WorkingDirectory=/path/to/relay-server, ExecStart=/path/to/shurli relay serve
+# Update User/Group to match your service user (default in file is "shurli")
+sudo sed -i 's/^User=.*/User=YOUR_USER/' /etc/systemd/system/shurli-relay.service
+sudo sed -i 's/^Group=.*/Group=YOUR_USER/' /etc/systemd/system/shurli-relay.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now shurli-relay
@@ -333,7 +361,7 @@ sudo systemctl enable --now shurli-relay
 For **non-systemd** systems (Alpine with OpenRC, FreeBSD with rc.d, etc.), create a service script that runs:
 
 ```bash
-/path/to/shurli relay serve --config /path/to/relay-server.yaml
+/usr/local/bin/shurli relay serve --config /etc/shurli/relay/relay-server.yaml
 ```
 
 The binary is self-contained. It reads config from the working directory or the path specified by `--config`.
@@ -361,7 +389,7 @@ ss -tlnp | grep 7777
 sudo journalctl -u shurli-relay -n 20
 
 # Or run the health check script (even on non-Ubuntu, it reports useful info)
-bash setup.sh --check
+bash tools/relay-setup.sh --check
 ```
 
 ---
@@ -371,11 +399,12 @@ bash setup.sh --check
 | Issue | Solution |
 |-------|----------|
 | Service fails to start | `sudo journalctl -u shurli-relay -n 30` for error logs |
-| "Permission denied" on key file | `chmod 600 relay_node.key` |
+| "Permission denied" on key file | `chmod 600 /etc/shurli/relay/relay_node.key` |
 | Peers can't connect | Use `shurli relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |
-| Service runs as root | `bash setup.sh --uninstall` then re-run `bash setup.sh` (as root it will guide you through user setup) |
+| "Permission denied" on relay commands | Relay commands auto-escalate to the config owner via sudo. Ensure your user has passwordless sudo or enter the password when prompted. |
+| Service runs as root | `bash tools/relay-setup.sh --uninstall` then re-run `bash tools/relay-setup.sh` (as root it will guide you through user setup) |
 | `dns_sd.h: No such file or directory` | Install the avahi compat library for your distro (see Prerequisites above) |
 | CGo build fails / not wanted | Build with `CGO_ENABLED=0 go build ...` to use pure-Go fallback (no native mDNS) |

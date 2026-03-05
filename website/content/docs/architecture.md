@@ -64,7 +64,6 @@ Shurli/
 │   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
 │   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
-│   │   ├── cmd_relay_pair.go  # Relay pairing code generation
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
@@ -81,7 +80,9 @@ Shurli/
 │   │   ├── cmd_man.go        # troff man page (display, install, uninstall)
 │   │   ├── config_template.go # Shared node config YAML template (single source of truth)
 │   │   ├── relay_input.go   # Flexible relay address parsing (IP, IP:PORT, multiaddr)
+│   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
+│   │   ├── daemon_launch.go # Service manager restart (launchd/systemd kick)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
@@ -101,6 +102,10 @@ Shurli/
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
+│   ├── relaydiscovery.go    # DHT relay discovery + RelaySource interface + AutoRelay PeerSource
+│   ├── relayhealth.go       # EWMA relay health scoring (success rate, RTT, freshness)
+│   ├── bandwidth.go         # Per-peer/protocol bandwidth tracking (wraps libp2p BandwidthCounter)
+│   ├── dnsseed.go           # DNS seed resolution (_dnsaddr TXT records, IPFS convention)
 │   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
 │   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
@@ -132,7 +137,7 @@ Shurli/
 │   │   ├── client.go           # Client library for CLI → daemon communication
 │   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
-│   ├── identity/            # Ed25519 identity management (shared by shurli + relay-server)
+│   ├── identity/            # Ed25519 identity management (shared by daemon + relay modes)
 │   │   ├── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   │   ├── seed.go          # BIP39 generation, HKDF key derivation, unified seed architecture
 │   │   ├── bip39_wordlist.go # BIP39 2048-word English wordlist
@@ -165,6 +170,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -200,13 +206,14 @@ Shurli/
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
-├── relay-server/            # Deployment artifacts
-│   ├── setup.sh             # Deploy/verify/uninstall (builds shurli, runs relay serve)
-│   └── relay-server.service # systemd unit template (installed as shurli-relay.service)
-│
 ├── deploy/                  # Service management files
 │   ├── shurli-daemon.service   # systemd unit for daemon (Linux)
+│   ├── shurli-relay.service    # systemd unit for relay server (Linux)
 │   └── com.shurli.daemon.plist # launchd plist for daemon (macOS)
+│
+├── tools/                   # Dev and deployment tools
+│   ├── relay-setup.sh          # Relay VPS deploy/verify/uninstall script
+│   └── sync-docs/              # Hugo doc sync pipeline
 │
 ├── configs/                 # Sample configuration files
 │   ├── shurli.sample.yaml
@@ -293,7 +300,7 @@ Shurli/
 │   ├── ios/
 │   └── android/
 │
-└── ...existing (relay-server/, configs, docs, examples)
+└── ...existing (deploy/, tools/, configs, docs, examples)
 ```
 
 ### Service Exposure Architecture
@@ -310,7 +317,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 18 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 23 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -339,7 +346,10 @@ type serveRuntime struct {
     peerManager      *p2pnet.PeerManager       // background reconnection with backoff
     netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
     peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
+    relayDiscovery   *p2pnet.RelayDiscovery    // static + DHT relay discovery
     metrics          *p2pnet.Metrics           // nil when telemetry disabled
+    bwTracker        *p2pnet.BandwidthTracker  // per-peer bandwidth stats
+    relayHealth      *p2pnet.RelayHealth       // EWMA relay health scoring
     peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
@@ -381,7 +391,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-18 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
+23 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
 
 ### Dynamic Proxy Management
 
@@ -472,7 +482,7 @@ telemetry:
 
 **Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
-Custom shurli metrics (44 total):
+Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
 - `shurli_proxy_connections_total{service}` - proxy connections established
 - `shurli_proxy_active_connections{service}` - currently active proxy sessions
@@ -898,7 +908,7 @@ The key is decrypted at daemon startup with the node password. Raw (unencrypted)
 
 > **Status: Implemented**
 
-Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 20+ admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
 
 **Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
 
@@ -1211,5 +1221,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-02
-**Architecture Version**: 4.0 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
+**Last Updated**: 2026-03-06
+**Architecture Version**: 4.1 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)

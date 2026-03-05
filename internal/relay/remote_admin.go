@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -45,12 +46,18 @@ type RemoteAdminResponse struct {
 	Body   json.RawMessage `json:"body,omitempty"`
 }
 
-// RemoteAdminHandler handles remote admin requests from authorized admin peers
+// RemoteAdminHandler handles remote admin requests from authorized peers
 // over libp2p streams. It is a thin P2P-to-HTTP adapter that reuses all
 // existing AdminServer handler functions.
+//
+// Access control:
+//   - Admin peers: full access to all endpoints
+//   - Member peers: access to invite endpoints (/v1/pair*) when invite_policy is "open" (default)
+//   - Unauthorized peers: rejected
 type RemoteAdminHandler struct {
 	admin        *AdminServer
 	authKeysPath string
+	invitePolicy string // "admin-only" or "open" (default when empty)
 	metrics      *p2pnet.Metrics
 }
 
@@ -62,23 +69,37 @@ func NewRemoteAdminHandler(admin *AdminServer, authKeysPath string) *RemoteAdmin
 	}
 }
 
+// SetInvitePolicy configures who can create invites remotely.
+// "admin-only" restricts to admin peers. Any other value (including empty) allows all members.
+func (h *RemoteAdminHandler) SetInvitePolicy(policy string) {
+	h.invitePolicy = policy
+}
+
 // HandleStream processes an incoming remote admin stream.
-// Flow: verify admin role -> read request frame -> dispatch -> write response frame -> close.
+// Flow: verify role -> read request -> check ACL -> dispatch -> write response -> close.
 func (h *RemoteAdminHandler) HandleStream(s network.Stream) {
 	defer s.Close()
 	remotePeer := s.Conn().RemotePeer()
 	short := shortPeerID(remotePeer)
 
-	// Only admin peers can use remote admin.
-	if !auth.IsAdmin(h.authKeysPath, remotePeer) {
-		slog.Warn("remote-admin: rejected non-admin peer", "peer", short)
+	// Verify peer is explicitly listed in authorized_keys. This prevents
+	// probation peers (admitted during enrollment mode) from accessing admin
+	// endpoints. GetPeerRole returns "member" for unknown peers, so we must
+	// check the actual authorized_keys file for membership.
+	authorized, err := auth.LoadAuthorizedKeys(h.authKeysPath)
+	if err != nil || !authorized[remotePeer] {
+		slog.Warn("remote-admin: rejected peer not in authorized_keys", "peer", short)
 		h.recordMetric("denied")
 		writeRemoteAdminResponse(s, RemoteAdminResponse{
 			Status: 403,
-			Body:   jsonMsg("permission denied: admin role required"),
+			Body:   jsonMsg("permission denied: not an authorized peer"),
 		})
 		return
 	}
+
+	// Determine the peer's role (admin vs member).
+	isAdmin := auth.IsAdmin(h.authKeysPath, remotePeer)
+	role := auth.GetPeerRole(h.authKeysPath, remotePeer)
 
 	s.SetReadDeadline(time.Now().Add(remoteAdminTimeout))
 	s.SetWriteDeadline(time.Now().Add(remoteAdminTimeout))
@@ -135,16 +156,53 @@ func (h *RemoteAdminHandler) HandleStream(s network.Stream) {
 		return
 	}
 
-	slog.Info("remote-admin: request", "peer", short, "method", req.Method, "path", req.Path)
+	// ACL: admin peers get full access. Member peers get invite endpoints
+	// only when invite_policy allows it (default: open).
+	if !isAdmin {
+		if !h.isMemberAllowed(req.Method, req.Path) {
+			slog.Warn("remote-admin: member peer denied", "peer", short, "method", req.Method, "path", req.Path)
+			h.recordMetric("denied")
+			writeRemoteAdminResponse(s, RemoteAdminResponse{
+				Status: 403,
+				Body:   jsonMsg("permission denied: admin role required for this endpoint"),
+			})
+			return
+		}
+		slog.Info("remote-admin: member request", "peer", short, "method", req.Method, "path", req.Path)
+	} else {
+		slog.Info("remote-admin: admin request", "peer", short, "method", req.Method, "path", req.Path)
+	}
 
 	// Dispatch to the admin server's internal mux (bypasses cookie auth).
-	status, respBody := h.admin.HandleRemoteRequest(req.Method, req.Path, req.Body)
+	// Pass caller identity for ownership checks in handlers.
+	status, respBody := h.admin.HandleRemoteRequest(req.Method, req.Path, req.Body, remotePeer, role)
 
 	h.recordMetric("ok")
 	writeRemoteAdminResponse(s, RemoteAdminResponse{
 		Status: status,
 		Body:   respBody,
 	})
+}
+
+// isMemberAllowed checks if a member peer is allowed to access the given endpoint.
+// Members can access invite endpoints (/v1/pair*) when invite_policy is not "admin-only".
+func (h *RemoteAdminHandler) isMemberAllowed(method, path string) bool {
+	if h.invitePolicy == "admin-only" {
+		return false
+	}
+	return isInvitePath(path)
+}
+
+// invitePaths are admin endpoints that member peers can access when invite_policy
+// allows it. These are the pairing group management endpoints.
+func isInvitePath(path string) bool {
+	if path == "/v1/pair" {
+		return true
+	}
+	if strings.HasPrefix(path, "/v1/pair/") {
+		return true
+	}
+	return false
 }
 
 // writeRemoteAdminResponse writes a length-prefixed JSON response frame.
@@ -183,11 +241,14 @@ func shortPeerID(p peer.ID) string {
 }
 
 // localOnlyPaths are admin endpoints that must never be accessible over P2P.
-// They transmit seed material, TOTP provisioning URIs, or perform vault
-// initialization - all operations that require physical/local access only.
+// They transmit seed material, TOTP provisioning URIs, perform vault
+// initialization, or trigger process termination - all operations that
+// require physical/local access only.
 var localOnlyPaths = []string{
 	"/v1/vault/init",
 	"/v1/vault/totp-uri",
+	"/v1/unseal",           // passphrase travels over network; use /shurli/relay-unseal/1.0.0 protocol instead
+	"/v1/goodbye/shutdown", // process termination
 }
 
 // isLocalOnlyPath checks if the request path matches a local-only endpoint.

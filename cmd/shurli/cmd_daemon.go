@@ -8,8 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
@@ -27,7 +31,9 @@ func (rt *serveRuntime) Version() string                      { return rt.versio
 func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
 func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
-func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker     { return rt.pathTracker }
+func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker         { return rt.pathTracker }
+func (rt *serveRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return rt.bwTracker }
+func (rt *serveRuntime) RelayHealth() *p2pnet.RelayHealth           { return rt.relayHealth }
 func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
 	if rt.stunProber == nil {
 		return nil
@@ -39,6 +45,72 @@ func (rt *serveRuntime) IsRelaying() bool {
 		return false
 	}
 	return rt.peerRelay.Enabled()
+}
+
+func (rt *serveRuntime) RelayAddresses() []string { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string  { return rt.config.Discovery.Network }
+
+func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
+	if rt.motdClient == nil {
+		return nil
+	}
+
+	h := rt.network.Host()
+	var result []daemon.MOTDInfo
+
+	for _, addrStr := range rt.config.Relay.Addresses {
+		maddr, err := ma.NewMultiaddr(addrStr)
+		if err != nil {
+			continue
+		}
+		info, err := peer.AddrInfoFromP2pAddr(maddr)
+		if err != nil {
+			continue
+		}
+		relayPeer := info.ID
+
+		// Parse relay name from AgentVersion.
+		relayName := ""
+		if av, avErr := h.Peerstore().Get(relayPeer, "AgentVersion"); avErr == nil {
+			if s, ok := av.(string); ok {
+				relayName = parseRelayName(s)
+			}
+		}
+
+		// Check for goodbye (persisted to disk).
+		if msg, ts, ok := rt.motdClient.GetStoredGoodbye(relayPeer); ok {
+			result = append(result, daemon.MOTDInfo{
+				RelayPeerID: relayPeer.String(),
+				RelayName:   relayName,
+				Message:     msg,
+				Type:        "goodbye",
+				Timestamp:   time.Unix(ts, 0).UTC().Format(time.RFC3339),
+			})
+			continue // goodbye supersedes MOTD
+		}
+
+		// Check for MOTD (in-memory, 24h window).
+		if msg, ts, ok := rt.motdClient.GetLastMOTD(relayPeer); ok {
+			result = append(result, daemon.MOTDInfo{
+				RelayPeerID: relayPeer.String(),
+				RelayName:   relayName,
+				Message:     msg,
+				Type:        "motd",
+				Timestamp:   time.Unix(ts, 0).UTC().Format(time.RFC3339),
+			})
+		}
+	}
+	return result
+}
+
+// parseRelayName extracts the name from a relay UserAgent like "relay-server/0.1.0 (AU-Sydney)".
+func parseRelayName(agentVersion string) string {
+	start := strings.Index(agentVersion, "(")
+	end := strings.LastIndex(agentVersion, ")")
+	if start >= 0 && end > start+1 {
+		return agentVersion[start+1 : end]
+	}
+	return ""
 }
 
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {

@@ -180,12 +180,16 @@ func readSeedPhrase(stdout io.Writer) (string, error) {
 }
 
 // resolvePassword gets the identity password from the session token.
-// Returns ("", error) if no session token exists.
+// Returns ("", error) if no session token exists or is invalid.
 func resolvePassword(configDir string) (string, error) {
-	if pw, err := identity.LoadSession(configDir); err == nil && pw != "" {
-		return pw, nil
+	pw, err := identity.LoadSession(configDir)
+	if err != nil {
+		return "", fmt.Errorf("session token error: %w", err)
 	}
-	return "", fmt.Errorf("no session token found; run 'shurli init' to create an identity")
+	if pw == "" {
+		return "", fmt.Errorf("no session token found; run 'shurli init' to create an identity")
+	}
+	return pw, nil
 }
 
 // resolvePasswordInteractive tries resolvePassword (session token), then

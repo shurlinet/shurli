@@ -9,7 +9,7 @@ Your relay is deployed and secured. Now you need to get people onto your network
 ## Prerequisites
 
 - Relay deployed and running (see [Relay Setup](../relay-setup/))
-- Vault initialized and unsealed (see [Securing Your Relay](../relay-security/))
+- Vault unsealed (auto-created on first run; see [Securing Your Relay](../relay-security/))
 - You are an admin on the relay (the first peer is auto-promoted)
 
 ## Two ways to invite

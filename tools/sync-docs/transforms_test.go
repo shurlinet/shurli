@@ -81,7 +81,7 @@ func TestRewriteSpecialLinks(t *testing.T) {
 	}{
 		{
 			"relay readme",
-			"See [relay-server/README.md](../relay-server/README.md) for details.",
+			"See [docs/RELAY-SETUP.md](RELAY-SETUP.md) for details.",
 			"See [Relay Setup guide](../relay-setup/) for details.",
 		},
 		{
@@ -128,7 +128,7 @@ func TestRewriteQuickStartLinks(t *testing.T) {
 	}{
 		{
 			"relay readme friendly",
-			"[relay-server/README.md](relay-server/README.md)",
+			"[docs/RELAY-SETUP.md](docs/RELAY-SETUP.md)",
 			"[Relay Setup guide](../relay-setup/)",
 		},
 		{"docs link", "[x](docs/FAQ.md)", "[x](" + githubBase + "/docs/FAQ.md)"},
@@ -344,7 +344,7 @@ func TestRun_FullSync(t *testing.T) {
 go build ./cmd/shurli
 `+"```"+`
 
-See [relay-server/README.md](relay-server/README.md) for relay setup.
+See [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) for relay setup.
 
 ## Features
 
@@ -368,9 +368,8 @@ Feature list.
 	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "README.md"), []byte("# Engineering Journal\n\n| [Core](core-architecture.md) |\n"), 0644)
 	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "core-architecture.md"), []byte("# Core Architecture\n\n**Reference**: `pkg/p2pnet/network.go`\n"), 0644)
 
-	// Create relay-server/README.md
-	os.MkdirAll(filepath.Join(root, "relay-server"), 0755)
-	os.WriteFile(filepath.Join(root, "relay-server", "README.md"), []byte("# Relay Setup\n\nSetup instructions.\n"), 0644)
+	// Create docs/RELAY-SETUP.md
+	os.WriteFile(filepath.Join(docsDir, "RELAY-SETUP.md"), []byte("# Relay Setup\n\nSetup instructions.\n"), 0644)
 
 	// Create website directory
 	os.MkdirAll(filepath.Join(root, "website", "content", "docs"), 0755)

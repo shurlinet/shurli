@@ -133,6 +133,15 @@ func TestInviteJoinFlow(t *testing.T) {
 	nodeBPeerID = strings.TrimSpace(out)
 	t.Logf("Node-B Peer ID: %s", nodeBPeerID)
 
+	// ── Step 2.5: Add node-a to relay's authorized_keys (as admin) ──
+	// Remote admin requires the peer to be in authorized_keys. Node-a needs
+	// admin role to create invite groups on the relay.
+	t.Log("Adding node-a to relay authorized_keys...")
+	authLine := fmt.Sprintf("%s role=admin # home\n", nodeAPeerID)
+	if err := writeFileInContainer("relay", "/data/relay_authorized_keys", "# test relay\n"+authLine); err != nil {
+		t.Fatalf("failed to write relay authorized_keys: %v", err)
+	}
+
 	// ── Step 3: Run invite on node-a (background) ──
 	t.Log("Starting invite on node-a...")
 	// Run invite in background, capturing stdout (the invite code) to a file.
@@ -146,14 +155,14 @@ func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 4: Poll for invite code ──
 	t.Log("Waiting for invite code...")
 	var inviteCode string
+	// v3 short codes: 4 groups of 4 alphanumeric chars separated by dashes (e.g., KXMT-9FWR-PBLZ-4YAN).
+	shortCodeRe := regexp.MustCompile(`[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}`)
 	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		out, _, err := dockerExec("node-a", "cat", "/tmp/invite-stdout.txt")
 		if err == nil {
-			code := strings.TrimSpace(out)
-			// Invite codes are base32, typically 200+ characters.
-			if len(code) > 100 {
-				inviteCode = code
+			if match := shortCodeRe.FindString(out); match != "" {
+				inviteCode = match
 				break
 			}
 		}
@@ -178,19 +187,11 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 	t.Logf("Join output (stderr): %s", stderr)
 
-	// ── Step 6: Verify authorized_keys on both nodes ──
-	t.Log("Verifying authorized_keys...")
+	// ── Step 6: Verify joiner's authorized_keys (immediate) ──
+	// Async model: joiner learns about inviter immediately from relay response.
+	// Inviter learns about joiner later via peer-notify (when daemon runs).
+	t.Log("Verifying node-b authorized_keys...")
 
-	// Node-a should have node-b's peer ID.
-	authA, _, err := dockerExec("node-a", "cat", "/root/.config/shurli/authorized_keys")
-	if err != nil {
-		t.Fatalf("failed to read node-a authorized_keys: %v", err)
-	}
-	if !strings.Contains(authA, nodeBPeerID) {
-		t.Errorf("node-a authorized_keys missing node-b peer ID.\nExpected to contain: %s\nGot:\n%s", nodeBPeerID, authA)
-	}
-
-	// Node-b should have node-a's peer ID.
 	authB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/authorized_keys")
 	if err != nil {
 		t.Fatalf("failed to read node-b authorized_keys: %v", err)
@@ -214,6 +215,17 @@ func TestInviteJoinFlow(t *testing.T) {
 func TestPingThroughRelay(t *testing.T) {
 	if nodeAPeerID == "" || nodeBPeerID == "" {
 		t.Skip("Skipping: invite/join flow must complete first (peer IDs not set)")
+	}
+
+	// ── Step 0: Simulate peer-notify delivery to node-a ──
+	// In the async model, the inviter (node-a) learns about the joiner (node-b)
+	// when the relay delivers a peer-notify introduction after reconnection.
+	// Since the test doesn't run a long-lived daemon during invite/join, we
+	// simulate this by adding node-b to node-a's authorized_keys directly.
+	t.Log("Simulating peer-notify: adding node-b to node-a authorized_keys...")
+	appendCmd := fmt.Sprintf("echo '%s # laptop' >> /root/.config/shurli/authorized_keys", nodeBPeerID)
+	if _, _, err := dockerExec("node-a", "sh", "-c", appendCmd); err != nil {
+		t.Fatalf("failed to add node-b to node-a authorized_keys: %v", err)
 	}
 
 	// ── Step 1: Start daemon on node-a (background) ──
@@ -383,12 +395,25 @@ func TestVaultInitSealUnseal(t *testing.T) {
 	}
 	if sealStatus.Initialized {
 		t.Log("Vault already initialized (previous test run?), skipping init")
+		// Vault may have auto-sealed since last run. Unseal so subsequent
+		// assertions (Step 3) don't fail on stale seal state.
+		if sealStatus.Sealed {
+			t.Log("Vault sealed, unsealing for test...")
+			_, unsealStatus, unsealErr := adminCurl("POST", "/v1/unseal",
+				`{"passphrase":"testpassword"}`)
+			if unsealErr != nil {
+				t.Fatalf("pre-test unseal failed: %v", unsealErr)
+			}
+			if unsealStatus != 200 {
+				t.Fatalf("pre-test unseal returned %d", unsealStatus)
+			}
+		}
 	} else {
 		// ── Step 2: Initialize vault ──
 		// Phase 8 vault init requires seed_bytes (32 bytes, base64), mnemonic, and password.
 		t.Log("Initializing vault...")
 		body, status, err = adminCurl("POST", "/v1/vault/init",
-			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"test-passphrase-docker","enable_totp":false,"auto_seal_minutes":0}`)
+			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"testpassword","enable_totp":false,"auto_seal_minutes":0}`)
 		if err != nil {
 			t.Fatalf("vault init failed: %v", err)
 		}
@@ -446,7 +471,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 	// ── Step 6: Unseal with correct passphrase ──
 	t.Log("Unsealing with correct passphrase...")
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"test-passphrase-docker"}`)
+		`{"passphrase":"testpassword"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
@@ -479,14 +504,14 @@ func TestSealedRelayBlocksMutations(t *testing.T) {
 		t.Fatalf("seal returned %d", status)
 	}
 
-	// ── Try to create pairing while sealed (should return 503) ──
-	t.Log("Attempting pairing creation while sealed...")
+	// ── Pairing groups work even when sealed (they don't need the vault) ──
+	t.Log("Attempting pairing creation while sealed (should succeed)...")
 	body, status, err := adminCurl("POST", "/v1/pair", `{"count":1}`)
 	if err != nil {
 		t.Fatalf("pair request failed: %v", err)
 	}
-	if status != 503 {
-		t.Errorf("pairing while sealed should return 503, got %d: %s", status, body)
+	if status != 200 {
+		t.Errorf("pairing while sealed should return 200, got %d: %s", status, body)
 	}
 
 	// ── Try to create invite deposit while sealed (should return 503) ──
@@ -511,7 +536,7 @@ func TestSealedRelayBlocksMutations(t *testing.T) {
 
 	// ── Unseal to restore state for subsequent tests ──
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"test-passphrase-docker"}`)
+		`{"passphrase":"testpassword"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
@@ -914,6 +939,7 @@ network:
 security:
   authorized_keys_file: "relay_authorized_keys"
   enable_connection_gating: false
+  enable_data_relay: true
   vault_file: "vault.json"
 
 health:

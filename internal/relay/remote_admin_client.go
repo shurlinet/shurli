@@ -289,6 +289,69 @@ func (c *RemoteAdminClient) RevokeGroup(id string) error {
 	return nil
 }
 
+// ListPeers returns all authorized peers from the relay's authorized_keys.
+func (c *RemoteAdminClient) ListPeers() ([]AuthorizedPeerInfo, error) {
+	data, status, err := c.do("GET", "/v1/peers", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp []AuthorizedPeerInfo
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
+// ListConnectedPeers returns currently connected peers with network details.
+func (c *RemoteAdminClient) ListConnectedPeers() ([]ConnectedPeerInfo, error) {
+	data, status, err := c.do("GET", "/v1/peers/connected", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp []ConnectedPeerInfo
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return resp, nil
+}
+
+// AuthorizePeer adds a peer to the relay's authorized_keys and triggers reload.
+func (c *RemoteAdminClient) AuthorizePeer(peerID, comment string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+		"comment": comment,
+	})
+	data, status, err := c.do("POST", "/v1/peers/authorize", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// DeauthorizePeer removes a peer from the relay's authorized_keys and triggers reload.
+func (c *RemoteAdminClient) DeauthorizePeer(peerID string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+	})
+	data, status, err := c.do("POST", "/v1/peers/deauthorize", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
 // AuthReload triggers a hot-reload of the relay's authorized_keys and gater.
 func (c *RemoteAdminClient) AuthReload() error {
 	data, status, err := c.do("POST", "/v1/auth/reload", nil)

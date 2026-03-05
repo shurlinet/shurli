@@ -39,12 +39,22 @@ func runTraceroute(args []string) {
 
 	target := remaining[0]
 
-	// Try daemon first (faster, no bootstrap needed).
+	// Always try daemon first (uses existing connections, supports direct paths).
 	if !*standaloneFlag {
 		if client := tryDaemonClient(); client != nil {
 			runTracerouteViaDaemon(client, target, *jsonFlag)
 			return
 		}
+	}
+
+	// Daemon not available. Require explicit --standalone.
+	if !*standaloneFlag {
+		fmt.Println("Daemon not running. Start it with:")
+		fmt.Println("  shurli daemon")
+		fmt.Println()
+		fmt.Println("Or use --standalone flag for direct P2P (debug):")
+		fmt.Printf("  shurli traceroute --standalone %s\n", target)
+		osExit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -60,16 +70,6 @@ func runTraceroute(args []string) {
 		fatal("Config error: %v", err)
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Check if standalone mode is allowed
-	if !*standaloneFlag && !cfg.CLI.AllowStandalone {
-		fmt.Println("Daemon not running. Start it with:")
-		fmt.Println("  shurli daemon")
-		fmt.Println()
-		fmt.Println("Or use --standalone flag for direct P2P (debug):")
-		fmt.Printf("  shurli traceroute --standalone %s\n", target)
-		osExit(1)
-	}
 
 	// Resolve password for SHRL-encrypted identity key.
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))

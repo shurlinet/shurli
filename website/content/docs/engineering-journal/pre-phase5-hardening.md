@@ -55,4 +55,4 @@ Both platforms use the pure-Go `sd_notify` implementation in `https://github.com
 
 **Consequences**: Nodes survive crashes, reboots, and power failures without manual intervention. Watchdog detects hung processes. Logs go to journald (Linux) or system log (macOS). Dev workflow: rebuild binary, restart service. Symlink from `/usr/local/bin/shurli` to repo means no file copy needed.
 
-**Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `relay-server/relay-server.service`, `https://github.com/shurlinet/shurli/blob/main/internal/watchdog/watchdog.go`
+**Reference**: `deploy/shurli-daemon.service`, `deploy/com.shurli.daemon.plist`, `deploy/shurli-relay.service`, `https://github.com/shurlinet/shurli/blob/main/internal/watchdog/watchdog.go`

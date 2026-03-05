@@ -145,6 +145,13 @@ func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, proto
 	// Open stream to remote peer
 	s, err := r.host.NewStream(relayCtx, peerID, pid)
 	if err != nil {
+		// UX hint: if the peer is only reachable through relay circuits and
+		// the stream failed, the relay likely blocked the data circuit.
+		// This is NOT enforcement (the relay does that server-side via ACL),
+		// it's just a helpful message explaining why the connection failed.
+		if isRelayOnlyPeer(r.host, peerID) {
+			return nil, fmt.Errorf("failed to open stream: %w\n\n%s", err, relayDataHint)
+		}
 		return nil, fmt.Errorf("failed to open stream: %w", err)
 	}
 
@@ -153,6 +160,31 @@ func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, proto
 
 	return &serviceStream{stream: s}, nil
 }
+
+// isRelayOnlyPeer checks if the only active connections to a peer are
+// limited (relay circuit) connections. Returns false if no connections exist
+// or if any direct connection is present.
+func isRelayOnlyPeer(h host.Host, p peer.ID) bool {
+	conns := h.Network().ConnsToPeer(p)
+	if len(conns) == 0 {
+		return false
+	}
+	for _, c := range conns {
+		if !c.Stat().Limited {
+			return false // has a direct connection
+		}
+	}
+	return true
+}
+
+const relayDataHint = `This relay is a discovery node, NOT a full data relay.
+It enables peer discovery and direct connections only.
+No SSH, XRDP, or other data is forwarded through it.
+
+To transfer data between your devices:
+  1. Both peers must connect directly (check firewall/NAT settings)
+  2. Or deploy your own relay for full data relay: https://shurli.io/docs/relay-setup/
+  3. Or ask the relay admin to grant relay_data access for your peer`
 
 // UnregisterService removes a service and its stream handler.
 func (r *ServiceRegistry) UnregisterService(name string) error {

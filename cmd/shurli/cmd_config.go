@@ -24,6 +24,8 @@ func runConfig(args []string) {
 		runConfigValidate(args[1:])
 	case "show":
 		runConfigShow(args[1:])
+	case "set":
+		runConfigSet(args[1:])
 	case "rollback":
 		runConfigRollback(args[1:])
 	case "apply":
@@ -128,6 +130,143 @@ func doConfigShow(args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func runConfigSet(args []string) {
+	if err := doConfigSet(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doConfigSet(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("config set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	configFlag := fs.String("config", "", "path to config file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	remaining := fs.Args()
+	if len(remaining) < 2 {
+		return fmt.Errorf("usage: shurli config set <key> <value> [--config path]\n\nExample: shurli config set network.force_private_reachability true")
+	}
+
+	key := remaining[0]
+	value := remaining[1]
+
+	cfgFile, err := config.FindConfigFile(*configFlag)
+	if err != nil {
+		return fmt.Errorf("config error: %w", err)
+	}
+
+	// Load raw YAML to preserve comments and structure
+	data, err := os.ReadFile(cfgFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Navigate dotted key path and set value
+	parts := splitDottedKey(key)
+	if err := yamlNodeSet(&root, parts, value); err != nil {
+		return fmt.Errorf("failed to set %s: %w", key, err)
+	}
+
+	// Write back
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile(cfgFile, out, 0600); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	fmt.Fprintf(stdout, "Set %s = %s in %s\n", key, value, cfgFile)
+	fmt.Fprintln(stdout, "Restart daemon to apply: shurli daemon")
+	return nil
+}
+
+// splitDottedKey splits "relay.allow_seed_data" into ["relay", "allow_seed_data"].
+func splitDottedKey(key string) []string {
+	var parts []string
+	for _, p := range splitOnDot(key) {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+func splitOnDot(s string) []string {
+	var result []string
+	start := 0
+	for i, c := range s {
+		if c == '.' {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+// yamlNodeSet navigates a yaml.Node tree by key path and sets the leaf value.
+func yamlNodeSet(root *yaml.Node, path []string, value string) error {
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return fmt.Errorf("empty document")
+		}
+		return yamlNodeSet(root.Content[0], path, value)
+	}
+
+	if len(path) == 0 {
+		return fmt.Errorf("empty key path")
+	}
+
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node, got kind %d", root.Kind)
+	}
+
+	// Find or create the key in the mapping
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		keyNode := root.Content[i]
+		valNode := root.Content[i+1]
+
+		if keyNode.Value == path[0] {
+			if len(path) == 1 {
+				// Leaf: set value (auto-detect type)
+				valNode.Value = value
+				valNode.Tag = ""
+				valNode.Kind = yaml.ScalarNode
+				valNode.Style = 0
+				return nil
+			}
+			// Recurse into nested mapping
+			return yamlNodeSet(valNode, path[1:], value)
+		}
+	}
+
+	// Key not found: create it
+	if len(path) == 1 {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: path[0]},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+		)
+		return nil
+	}
+
+	// Create nested mapping
+	newMap := &yaml.Node{Kind: yaml.MappingNode}
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: path[0]},
+		newMap,
+	)
+	return yamlNodeSet(newMap, path[1:], value)
 }
 
 func runConfigRollback(args []string) {
@@ -246,7 +385,12 @@ func printConfigUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  validate [--config path]                                   Validate config without starting")
 	fmt.Println("  show     [--config path]                                   Show resolved config")
+	fmt.Println("  set      <key> <value> [--config path]                     Set a config value (dotted key path)")
 	fmt.Println("  rollback [--config path]                                   Restore last-known-good config")
 	fmt.Println("  apply    <new-config> [--config path] [--confirm-timeout]  Apply config with auto-revert safety")
 	fmt.Println("  confirm  [--config path]                                   Confirm applied config (cancel revert)")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  shurli config set network.force_private_reachability true")
+	fmt.Println("  shurli config set network.force_cgnat true")
 }

@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -60,10 +62,65 @@ func doStatus(args []string, stdout io.Writer) error {
 	} else {
 		fmt.Fprintf(stdout, "Network:  global (default)\n")
 	}
+
+	// Daemon status
+	var daemonStatus *daemon.StatusResponse
+	if c := tryDaemonClient(); c != nil {
+		resp, err := c.Status()
+		if err == nil {
+			daemonStatus = resp
+			grade := ""
+			if resp.Reachability != nil {
+				grade = resp.Reachability.Grade
+			}
+			uptime := (time.Duration(resp.UptimeSeconds) * time.Second).Truncate(time.Second)
+			fmt.Fprintf(stdout, "Daemon:   running (uptime: %s, peers: %d, reachability: %s)\n",
+				uptime, resp.ConnectedPeers, grade)
+		} else {
+			fmt.Fprintln(stdout, "Daemon:   not responding")
+		}
+	} else {
+		fmt.Fprintln(stdout, "Daemon:   not running")
+	}
 	fmt.Fprintln(stdout)
 
-	// Relay addresses
-	if len(cfg.Relay.Addresses) > 0 {
+	// Relays (with connectivity when daemon is running)
+	if daemonStatus != nil && len(daemonStatus.Relays) > 0 {
+		fmt.Fprintln(stdout, "Relays:")
+		for _, r := range daemonStatus.Relays {
+			status := "[disconnected]"
+			if r.Connected {
+				status = "[connected]   "
+			}
+			label := r.Address
+			if r.AgentVersion != "" {
+				label += "  " + r.AgentVersion
+			}
+			fmt.Fprintf(stdout, "  %s  %s\n", status, label)
+		}
+
+		// MOTD/goodbye messages
+		if len(daemonStatus.MOTDs) > 0 {
+			fmt.Fprintln(stdout)
+			fmt.Fprintln(stdout, "Messages:")
+			for _, m := range daemonStatus.MOTDs {
+				name := m.RelayName
+				if name == "" {
+					pid := m.RelayPeerID
+					if len(pid) > 16 {
+						pid = pid[:16] + "..."
+					}
+					name = pid
+				}
+				ts, _ := time.Parse(time.RFC3339, m.Timestamp)
+				ago := formatTimeAgo(ts)
+				fmt.Fprintf(stdout, "  [%s] %s: %q  (%s)\n", m.Type, name, m.Message, ago)
+			}
+		} else {
+			fmt.Fprintln(stdout)
+			fmt.Fprintln(stdout, "Messages: (none)")
+		}
+	} else if len(cfg.Relay.Addresses) > 0 {
 		fmt.Fprintln(stdout, "Relay addresses:")
 		for _, addr := range cfg.Relay.Addresses {
 			fmt.Fprintf(stdout, "  %s\n", addr)
@@ -132,4 +189,21 @@ func doStatus(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "Names: (none configured)")
 	}
 	return nil
+}
+
+func formatTimeAgo(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }

@@ -1,6 +1,6 @@
 ---
 title: "Phase 6 - ACL + Relay Security"
-weight: 17
+weight: 18
 description: "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."
 ---
 <!-- Auto-synced from docs/engineering-journal/phase6-acl-relay-security.md by sync-docs - do not edit directly -->
