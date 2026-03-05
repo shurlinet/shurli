@@ -43,6 +43,7 @@ type CodeSlot struct {
 type PairingGroup struct {
 	ID        string
 	Namespace string
+	CreatedBy peer.ID       // peer that created this group (empty for local admin)
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	PeerTTL   time.Duration // authorization expiry for joined peers (0 = never)
@@ -61,6 +62,7 @@ type PeerInfo struct {
 type GroupInfo struct {
 	ID        string
 	Namespace string
+	CreatedBy peer.ID
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	Total     int
@@ -84,17 +86,17 @@ func NewTokenStore() *TokenStore {
 
 // CreateGroup generates a pairing group with count codes using the default 16-byte tokens.
 // Returns the raw tokens (caller encodes into invite codes) and the group ID.
-func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerTTL time.Duration) (tokens [][]byte, groupID string, err error) {
-	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, TokenSize)
+func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerTTL time.Duration, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, TokenSize, createdBy)
 }
 
 // CreateGroupShort generates a pairing group with 10-byte tokens for short invite codes.
-func (ts *TokenStore) CreateGroupShort(count int, ttl time.Duration, ns string, peerTTL time.Duration) (tokens [][]byte, groupID string, err error) {
-	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, 10)
+func (ts *TokenStore) CreateGroupShort(count int, ttl time.Duration, ns string, peerTTL time.Duration, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, 10, createdBy)
 }
 
 // CreateGroupWithTokenSize generates a pairing group with configurable token size.
-func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int) (tokens [][]byte, groupID string, err error) {
+func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
 	if count < 1 {
 		return nil, "", fmt.Errorf("count must be at least 1")
 	}
@@ -113,6 +115,7 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 	group := &PairingGroup{
 		ID:        groupID,
 		Namespace: ns,
+		CreatedBy: createdBy,
 		CreatedAt: now,
 		ExpiresAt: now.Add(ttl),
 		PeerTTL:   peerTTL,
@@ -454,6 +457,7 @@ func (ts *TokenStore) List() []GroupInfo {
 		info := GroupInfo{
 			ID:        group.ID,
 			Namespace: group.Namespace,
+			CreatedBy: group.CreatedBy,
 			CreatedAt: group.CreatedAt,
 			ExpiresAt: group.ExpiresAt,
 			Total:     len(group.codes),
@@ -511,6 +515,32 @@ func (ts *TokenStore) AllGroupsUsed() bool {
 		group.mu.Unlock()
 	}
 	return activeCount > 0
+}
+
+// GroupCreator returns the peer that created a group (empty for local admin).
+func (ts *TokenStore) GroupCreator(groupID string) peer.ID {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	return group.CreatedBy
+}
+
+// ActiveGroupCountByPeer returns the number of non-expired groups created by a specific peer.
+func (ts *TokenStore) ActiveGroupCountByPeer(peerID peer.ID) int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	now := time.Now()
+	count := 0
+	for _, group := range ts.groups {
+		if group.CreatedBy == peerID && now.Before(group.ExpiresAt) {
+			count++
+		}
+	}
+	return count
 }
 
 // Revoke removes a pairing group by ID.
