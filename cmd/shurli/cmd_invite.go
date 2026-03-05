@@ -71,8 +71,10 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 	printInviteCodes(resp.Codes, ttl, nonInteractive)
 
 	outln()
-	out("Invite is stored on the relay. You can close this terminal.\n")
-	out("The joiner can use the code any time before it expires.\n")
+	out("Invite is stored on the relay (group: %s, expires: %s).\n", resp.GroupID, resp.ExpiresAt)
+	out("You can close this terminal. The joiner can use the code any time before it expires.\n")
+	outln()
+	out("To revoke:  shurli relay invite revoke %s --remote %s\n", resp.GroupID, remoteAddr)
 	_ = name // name is for future use (peer-notify introduction)
 }
 
@@ -99,6 +101,8 @@ func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, c
 	outln()
 	out("Invite is stored on the relay (group: %s, expires: %s).\n", resp.GroupID, resp.ExpiresAt)
 	out("You can close this terminal. The joiner can use the code any time before it expires.\n")
+	outln()
+	out("To revoke:  shurli relay invite revoke %s --remote <relay-addr>\n", resp.GroupID)
 }
 
 // printInviteCodes displays one or more invite codes with optional QR.
