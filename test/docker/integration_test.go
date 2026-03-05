@@ -151,8 +151,8 @@ func TestInviteJoinFlow(t *testing.T) {
 		out, _, err := dockerExec("node-a", "cat", "/tmp/invite-stdout.txt")
 		if err == nil {
 			code := strings.TrimSpace(out)
-			// Invite codes are base32, typically 200+ characters.
-			if len(code) > 100 {
+			// v3 short codes are 19 chars with dashes (e.g., KXMT-9FWR-PBLZ-4YAN).
+			if len(code) >= 16 && len(code) <= 100 {
 				inviteCode = code
 				break
 			}
@@ -492,14 +492,14 @@ func TestSealedRelayBlocksMutations(t *testing.T) {
 		t.Fatalf("seal returned %d", status)
 	}
 
-	// ── Try to create pairing while sealed (should return 503) ──
-	t.Log("Attempting pairing creation while sealed...")
+	// ── Pairing groups work even when sealed (they don't need the vault) ──
+	t.Log("Attempting pairing creation while sealed (should succeed)...")
 	body, status, err := adminCurl("POST", "/v1/pair", `{"count":1}`)
 	if err != nil {
 		t.Fatalf("pair request failed: %v", err)
 	}
-	if status != 503 {
-		t.Errorf("pairing while sealed should return 503, got %d: %s", status, body)
+	if status != 200 {
+		t.Errorf("pairing while sealed should return 200, got %d: %s", status, body)
 	}
 
 	// ── Try to create invite deposit while sealed (should return 503) ──
