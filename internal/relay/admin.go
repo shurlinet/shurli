@@ -47,7 +47,10 @@ func callerPeerID(r *http.Request) peer.ID {
 }
 
 // callerRole extracts the role from the request context.
-// Returns "admin" for local admin socket requests (no context = local operator).
+// Returns "admin" when context is empty or missing, which is intentional:
+// local admin socket requests bypass HandleRemoteRequest and have no context,
+// so empty = local operator = full admin. Remote requests always set the role
+// via HandleRemoteRequest, so empty cannot occur for remote callers.
 func callerRole(r *http.Request) string {
 	v, _ := r.Context().Value(ctxCallerRole).(string)
 	if v == "" {
@@ -407,18 +410,21 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		peerTTL = time.Duration(req.ExpiresSeconds) * time.Second
 	}
 
-	// Per-peer quota: member peers are limited to maxMemberGroups active groups.
+	// Per-peer quota for member peers. The quota check is done atomically
+	// inside CreateGroupWithTokenSize under the write lock to prevent TOCTOU races.
 	caller := callerPeerID(r)
+	quota := 0 // 0 = no quota (admin)
 	if !callerIsAdmin(r) && caller != "" {
-		if s.store.ActiveGroupCountByPeer(caller) >= maxMemberGroups {
-			respondAdminError(w, http.StatusTooManyRequests, fmt.Sprintf("member peer quota exceeded: max %d active groups", maxMemberGroups))
-			return
-		}
+		quota = maxMemberGroups
 	}
 
 	// Use short 10-byte tokens for v3 short codes.
-	tokens, groupID, err := s.store.CreateGroupShort(req.Count, ttl, ns, peerTTL, caller)
+	tokens, groupID, err := s.store.CreateGroupWithTokenSize(req.Count, ttl, ns, peerTTL, 10, caller, quota)
 	if err != nil {
+		if err == ErrQuotaExceeded {
+			respondAdminError(w, http.StatusTooManyRequests, fmt.Sprintf("member peer quota exceeded: max %d active groups", maxMemberGroups))
+			return
+		}
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create group: %v", err))
 		return
 	}

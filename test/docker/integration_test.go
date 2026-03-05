@@ -133,6 +133,15 @@ func TestInviteJoinFlow(t *testing.T) {
 	nodeBPeerID = strings.TrimSpace(out)
 	t.Logf("Node-B Peer ID: %s", nodeBPeerID)
 
+	// ── Step 2.5: Add node-a to relay's authorized_keys (as admin) ──
+	// Remote admin requires the peer to be in authorized_keys. Node-a needs
+	// admin role to create invite groups on the relay.
+	t.Log("Adding node-a to relay authorized_keys...")
+	authLine := fmt.Sprintf("%s role=admin # node-a (inviter)\n", nodeAPeerID)
+	if err := writeFileInContainer("relay", "/data/relay_authorized_keys", "# test relay\n"+authLine); err != nil {
+		t.Fatalf("failed to write relay authorized_keys: %v", err)
+	}
+
 	// ── Step 3: Run invite on node-a (background) ──
 	t.Log("Starting invite on node-a...")
 	// Run invite in background, capturing stdout (the invite code) to a file.
@@ -146,14 +155,14 @@ func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 4: Poll for invite code ──
 	t.Log("Waiting for invite code...")
 	var inviteCode string
+	// v3 short codes: 4 groups of 4 alphanumeric chars separated by dashes (e.g., KXMT-9FWR-PBLZ-4YAN).
+	shortCodeRe := regexp.MustCompile(`[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}`)
 	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		out, _, err := dockerExec("node-a", "cat", "/tmp/invite-stdout.txt")
 		if err == nil {
-			code := strings.TrimSpace(out)
-			// v3 short codes are 19 chars with dashes (e.g., KXMT-9FWR-PBLZ-4YAN).
-			if len(code) >= 16 && len(code) <= 100 {
-				inviteCode = code
+			if match := shortCodeRe.FindString(out); match != "" {
+				inviteCode = match
 				break
 			}
 		}

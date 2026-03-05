@@ -287,10 +287,15 @@ func runRelayServe(args []string) {
 	// Initialize token store and pairing protocol handler.
 	tokenStore := relay.NewTokenStore()
 	depositStore := deposit.NewDepositStore()
+	// Same nil interface trap guard for pairing handler.
+	var pairingGater relay.GaterInterface
+	if gater != nil {
+		pairingGater = gater
+	}
 	pairingHandler := &relay.PairingHandler{
 		Store:        tokenStore,
 		AuthKeysPath: cfg.Security.AuthorizedKeysFile,
-		Gater:        gater,
+		Gater:        pairingGater,
 		Deposits:     depositStore,
 	}
 	notifier := &relay.PeerNotifier{Host: h, AuthKeysPath: cfg.Security.AuthorizedKeysFile, Store: tokenStore}
@@ -320,7 +325,14 @@ func runRelayServe(args []string) {
 		slog.Warn("admin socket: could not build relay addr for code encoding", "err", err)
 		relayAddrStr = "" // non-fatal: admin socket still works, code encoding will fail
 	}
-	adminSrv := relay.NewAdminServer(tokenStore, gater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
+	// Pass gater as typed interface to avoid Go's nil interface trap:
+	// a nil *AuthorizedPeerGater passed as AdminGaterInterface becomes
+	// a non-nil interface with nil value, causing panics on method calls.
+	var adminGater relay.AdminGaterInterface
+	if gater != nil {
+		adminGater = gater
+	}
+	adminSrv := relay.NewAdminServer(tokenStore, adminGater, relayAddrStr, cfg.Discovery.Network, adminSocketPath, adminCookiePath)
 	adminSrv.SetAuthKeysPath(cfg.Security.AuthorizedKeysFile)
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
