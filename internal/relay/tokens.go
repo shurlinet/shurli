@@ -29,14 +29,15 @@ var (
 
 // CodeSlot represents a single pairing code within a group.
 type CodeSlot struct {
-	TokenHash [32]byte  // SHA-256 of raw token
-	RawToken  []byte    // kept for PAKE session key derivation; zeroized after use
-	DepositID string    // linked invite deposit ID (for macaroon delivery)
-	PeerID    peer.ID   // filled after use
-	Name      string    // peer's friendly name
-	UsedAt    time.Time // zero = unused
-	Attempts  int       // failed attempts (max 3)
-	HMACProof []byte    // HMAC-SHA256(token, groupID) computed at pairing time
+	TokenHash  [32]byte  // SHA-256 of raw token
+	RawToken   []byte    // kept for PAKE session key derivation; zeroized after use
+	DepositID  string    // linked invite deposit ID (for macaroon delivery)
+	PeerID     peer.ID   // filled after use
+	Name       string    // peer's friendly name
+	UsedAt     time.Time // zero = unused
+	InProgress bool      // true while PAKE handshake is in flight (prevents TOCTOU)
+	Attempts   int       // failed attempts (max 3)
+	HMACProof  []byte    // HMAC-SHA256(token, groupID) computed at pairing time
 }
 
 // PairingGroup holds a set of related pairing codes.
@@ -109,8 +110,9 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 		return nil, "", fmt.Errorf("token size must be 8-32 bytes, got %d", tokenSize)
 	}
 
-	// Generate group ID (8-char hex)
-	idBytes := make([]byte, 4)
+	// Generate group ID (16-char hex, 64-bit entropy).
+	// Collision check under write lock prevents silent overwrites.
+	idBytes := make([]byte, 8)
 	if _, err := rand.Read(idBytes); err != nil {
 		return nil, "", fmt.Errorf("failed to generate group ID: %w", err)
 	}
@@ -153,6 +155,11 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 			ts.mu.Unlock()
 			return nil, "", ErrQuotaExceeded
 		}
+	}
+	// Collision check (extremely unlikely with 64-bit IDs, but fail-safe).
+	if _, exists := ts.groups[groupID]; exists {
+		ts.mu.Unlock()
+		return nil, "", fmt.Errorf("group ID collision (retry)")
 	}
 	ts.groups[groupID] = group
 	ts.mu.Unlock()
@@ -226,9 +233,14 @@ func (ts *TokenStore) SetDepositID(groupID, depositID string) {
 	}
 }
 
-// ValidateForPAKE looks up a slot by token hash without marking it as used.
-// Returns the group, slot index, and raw token for PAKE session key derivation.
-// The slot is NOT consumed; call MarkUsed after PAKE succeeds.
+// ErrTokenInProgress is returned when a PAKE handshake is already in flight for this token.
+var ErrTokenInProgress = errors.New("pairing failed")
+
+// ValidateForPAKE looks up a slot by token hash and atomically marks it as
+// in-progress to prevent TOCTOU races. Returns the group, slot index, and
+// raw token for PAKE session key derivation.
+// The slot is NOT consumed; call MarkUsed after PAKE succeeds, or
+// ClearInProgress if PAKE fails.
 func (ts *TokenStore) ValidateForPAKE(tokenHash [32]byte) (*PairingGroup, int, []byte, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -258,11 +270,18 @@ func (ts *TokenStore) ValidateForPAKE(tokenHash [32]byte) (*PairingGroup, int, [
 				return nil, -1, nil, ErrTokenUsed
 			}
 
+			if slot.InProgress {
+				group.mu.Unlock()
+				return nil, -1, nil, ErrTokenInProgress
+			}
+
 			if len(slot.RawToken) == 0 {
 				group.mu.Unlock()
 				return nil, -1, nil, fmt.Errorf("raw token not available")
 			}
 
+			// Atomically claim the slot for this PAKE handshake.
+			slot.InProgress = true
 			rawToken := make([]byte, len(slot.RawToken))
 			copy(rawToken, slot.RawToken)
 			group.mu.Unlock()
@@ -273,6 +292,21 @@ func (ts *TokenStore) ValidateForPAKE(tokenHash [32]byte) (*PairingGroup, int, [
 	}
 
 	return nil, -1, nil, ErrTokenNotFound
+}
+
+// ClearInProgress releases the in-progress flag on a slot after a failed PAKE.
+func (ts *TokenStore) ClearInProgress(groupID string, idx int) {
+	ts.mu.RLock()
+	group, ok := ts.groups[groupID]
+	ts.mu.RUnlock()
+	if !ok {
+		return
+	}
+	group.mu.Lock()
+	defer group.mu.Unlock()
+	if idx >= 0 && idx < len(group.codes) {
+		group.codes[idx].InProgress = false
+	}
 }
 
 // MarkUsed marks a code slot as consumed after successful PAKE.
@@ -300,6 +334,7 @@ func (ts *TokenStore) MarkUsed(groupID string, idx int, peerID peer.ID, name str
 	slot.PeerID = peerID
 	slot.Name = name
 	slot.UsedAt = time.Now()
+	slot.InProgress = false
 
 	// Zeroize raw token: no longer needed after PAKE.
 	for j := range slot.RawToken {
