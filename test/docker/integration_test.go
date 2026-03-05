@@ -228,12 +228,6 @@ func TestPingThroughRelay(t *testing.T) {
 		t.Fatalf("failed to add node-b to node-a authorized_keys: %v", err)
 	}
 
-	// Also add node-b name mapping to node-a's config so "laptop" resolves.
-	addNameCmd := fmt.Sprintf(`sed -i '/^names:/a\  laptop: %s' /root/.config/shurli/config.yaml`, nodeBPeerID)
-	if _, _, err := dockerExec("node-a", "sh", "-c", addNameCmd); err != nil {
-		t.Logf("Warning: could not add name mapping for node-b: %v", err)
-	}
-
 	// ── Step 1: Start daemon on node-a (background) ──
 	// force_private_reachability is already true in the test config,
 	// so node-a will only advertise relay addresses.
