@@ -3,9 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/qr"
 )
@@ -40,10 +43,9 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
 	}
 
-	// Resolve which relay to connect to
+	// Resolve config and relay address
+	cfgFile, cfg := resolveConfigFile(configFlag)
 	if remoteAddr == "" {
-		// Use first configured relay
-		_, cfg := resolveConfigFile(configFlag)
 		if len(cfg.Relay.Addresses) == 0 {
 			fatal("No relay addresses in config. Use --remote or add relay addresses to config.")
 		}
@@ -66,6 +68,13 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 
 	if len(resp.Codes) == 0 {
 		fatal("Relay returned no invite codes")
+	}
+
+	// Record group membership locally so the peer-notify handler accepts
+	// introductions for this group when the daemon starts.
+	authKeysPath := filepath.Join(filepath.Dir(cfgFile), "authorized_keys")
+	if err := auth.SetPeerAttr(authKeysPath, conn.relayPeerID.String(), "group", resp.GroupID); err != nil {
+		slog.Warn("invite: failed to record group on relay entry", "err", err)
 	}
 
 	printInviteCodes(resp.Codes, ttl, nonInteractive)
