@@ -82,13 +82,13 @@ func (h *RemoteAdminHandler) HandleStream(s network.Stream) {
 	remotePeer := s.Conn().RemotePeer()
 	short := shortPeerID(remotePeer)
 
-	// Determine the peer's role.
-	isAdmin := auth.IsAdmin(h.authKeysPath, remotePeer)
-	role := auth.GetPeerRole(h.authKeysPath, remotePeer)
-
-	// Peers must be authorized (admin or member). Unknown peers are rejected.
-	if role != auth.RoleAdmin && role != auth.RoleMember {
-		slog.Warn("remote-admin: rejected unauthorized peer", "peer", short)
+	// Verify peer is explicitly listed in authorized_keys. This prevents
+	// probation peers (admitted during enrollment mode) from accessing admin
+	// endpoints. GetPeerRole returns "member" for unknown peers, so we must
+	// check the actual authorized_keys file for membership.
+	authorized, err := auth.LoadAuthorizedKeys(h.authKeysPath)
+	if err != nil || !authorized[remotePeer] {
+		slog.Warn("remote-admin: rejected peer not in authorized_keys", "peer", short)
 		h.recordMetric("denied")
 		writeRemoteAdminResponse(s, RemoteAdminResponse{
 			Status: 403,
@@ -96,6 +96,10 @@ func (h *RemoteAdminHandler) HandleStream(s network.Stream) {
 		})
 		return
 	}
+
+	// Determine the peer's role (admin vs member).
+	isAdmin := auth.IsAdmin(h.authKeysPath, remotePeer)
+	role := auth.GetPeerRole(h.authKeysPath, remotePeer)
 
 	s.SetReadDeadline(time.Now().Add(remoteAdminTimeout))
 	s.SetWriteDeadline(time.Now().Add(remoteAdminTimeout))
