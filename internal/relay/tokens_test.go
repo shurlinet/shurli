@@ -18,7 +18,7 @@ func genPeerID(t testing.TB) peer.ID {
 
 func TestCreateGroupSingle(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, groupID, err := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, groupID, err := ts.CreateGroup(1, time.Hour, "", 0, "")
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestCreateGroupSingle(t *testing.T) {
 
 func TestCreateGroupMultiple(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, err := ts.CreateGroup(5, time.Hour, "mynet", 0)
+	tokens, _, err := ts.CreateGroup(5, time.Hour, "mynet", 0, "")
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestCreateGroupMultiple(t *testing.T) {
 
 func TestCreateGroupInvalidCount(t *testing.T) {
 	ts := NewTokenStore()
-	_, _, err := ts.CreateGroup(0, time.Hour, "", 0)
+	_, _, err := ts.CreateGroup(0, time.Hour, "", 0, "")
 	if err == nil {
 		t.Error("should reject count=0")
 	}
@@ -66,7 +66,7 @@ func TestCreateGroupInvalidCount(t *testing.T) {
 
 func TestValidateAndUseSolo(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, groupID, _ := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, groupID, _ := ts.CreateGroup(1, time.Hour, "", 0, "")
 	pid := genPeerID(t)
 
 	group, idx, err := ts.ValidateAndUse(tokens[0], pid, "dad")
@@ -86,7 +86,7 @@ func TestValidateAndUseSolo(t *testing.T) {
 
 func TestValidateAndUsePair(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, groupID, _ := ts.CreateGroup(2, time.Hour, "", 0)
+	tokens, groupID, _ := ts.CreateGroup(2, time.Hour, "", 0, "")
 	pid1 := genPeerID(t)
 	pid2 := genPeerID(t)
 
@@ -124,7 +124,7 @@ func TestValidateAndUsePair(t *testing.T) {
 
 func TestValidateAndUseRejectsDoubleUse(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0, "")
 	pid := genPeerID(t)
 
 	_, _, err := ts.ValidateAndUse(tokens[0], pid, "mum")
@@ -141,7 +141,7 @@ func TestValidateAndUseRejectsDoubleUse(t *testing.T) {
 
 func TestValidateAndUseRejectsExpired(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(1, time.Millisecond, "", 0)
+	tokens, _, _ := ts.CreateGroup(1, time.Millisecond, "", 0, "")
 
 	time.Sleep(5 * time.Millisecond)
 
@@ -153,7 +153,7 @@ func TestValidateAndUseRejectsExpired(t *testing.T) {
 
 func TestValidateAndUseRejectsUnknown(t *testing.T) {
 	ts := NewTokenStore()
-	ts.CreateGroup(1, time.Hour, "", 0)
+	ts.CreateGroup(1, time.Hour, "", 0, "")
 
 	fakeToken := make([]byte, TokenSize)
 	_, _, err := ts.ValidateAndUse(fakeToken, genPeerID(t), "attacker")
@@ -172,7 +172,7 @@ func TestValidateAndUseRejectsWrongSize(t *testing.T) {
 
 func TestBurnedAfterMaxAttempts(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0, "")
 
 	// Burn the code with failed attempts
 	for i := 0; i < maxAttempts; i++ {
@@ -188,8 +188,8 @@ func TestBurnedAfterMaxAttempts(t *testing.T) {
 
 func TestCleanExpired(t *testing.T) {
 	ts := NewTokenStore()
-	ts.CreateGroup(1, time.Millisecond, "", 0)
-	ts.CreateGroup(1, time.Hour, "", 0)
+	ts.CreateGroup(1, time.Millisecond, "", 0, "")
+	ts.CreateGroup(1, time.Hour, "", 0, "")
 
 	time.Sleep(5 * time.Millisecond)
 
@@ -204,7 +204,7 @@ func TestCleanExpired(t *testing.T) {
 
 func TestList(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(2, time.Hour, "testnet", 0)
+	tokens, _, _ := ts.CreateGroup(2, time.Hour, "testnet", 0, "")
 	pid := genPeerID(t)
 	ts.ValidateAndUse(tokens[0], pid, "mum")
 
@@ -228,7 +228,7 @@ func TestList(t *testing.T) {
 
 func TestRevoke(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, groupID, _ := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, groupID, _ := ts.CreateGroup(1, time.Hour, "", 0, "")
 
 	if err := ts.Revoke(groupID); err != nil {
 		t.Fatalf("Revoke: %v", err)
@@ -248,7 +248,7 @@ func TestRevoke(t *testing.T) {
 
 func TestGetGroupPeersExcludesSelf(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, groupID, _ := ts.CreateGroup(3, time.Hour, "", 0)
+	tokens, groupID, _ := ts.CreateGroup(3, time.Hour, "", 0, "")
 	pids := []peer.ID{genPeerID(t), genPeerID(t), genPeerID(t)}
 
 	for i, tok := range tokens {
@@ -279,7 +279,7 @@ func TestGetGroupPeersUnknownGroup(t *testing.T) {
 
 func TestGroupCount(t *testing.T) {
 	ts := NewTokenStore()
-	_, groupID, _ := ts.CreateGroup(3, time.Hour, "", 0)
+	_, groupID, _ := ts.CreateGroup(3, time.Hour, "", 0, "")
 	if ts.GroupCount(groupID) != 3 {
 		t.Errorf("count = %d, want 3", ts.GroupCount(groupID))
 	}
@@ -290,7 +290,7 @@ func TestGroupCount(t *testing.T) {
 
 func TestPeerTTL(t *testing.T) {
 	ts := NewTokenStore()
-	_, groupID, _ := ts.CreateGroup(1, time.Hour, "", 30*time.Minute)
+	_, groupID, _ := ts.CreateGroup(1, time.Hour, "", 30*time.Minute, "")
 
 	// Verify PeerTTL is stored on the group
 	ts.mu.RLock()
@@ -304,7 +304,7 @@ func TestPeerTTL(t *testing.T) {
 
 func TestConcurrentValidation(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(10, time.Hour, "", 0)
+	tokens, _, _ := ts.CreateGroup(10, time.Hour, "", 0, "")
 
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
@@ -331,7 +331,7 @@ func TestConcurrentValidation(t *testing.T) {
 
 func TestConcurrentSameToken(t *testing.T) {
 	ts := NewTokenStore()
-	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0)
+	tokens, _, _ := ts.CreateGroup(1, time.Hour, "", 0, "")
 
 	var wg sync.WaitGroup
 	successes := make(chan int, 10)

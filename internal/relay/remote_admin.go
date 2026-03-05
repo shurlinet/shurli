@@ -170,7 +170,8 @@ func (h *RemoteAdminHandler) HandleStream(s network.Stream) {
 	}
 
 	// Dispatch to the admin server's internal mux (bypasses cookie auth).
-	status, respBody := h.admin.HandleRemoteRequest(req.Method, req.Path, req.Body)
+	// Pass caller identity for ownership checks in handlers.
+	status, respBody := h.admin.HandleRemoteRequest(req.Method, req.Path, req.Body, remotePeer, role)
 
 	h.recordMetric("ok")
 	writeRemoteAdminResponse(s, RemoteAdminResponse{
