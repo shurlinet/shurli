@@ -87,16 +87,21 @@ func NewTokenStore() *TokenStore {
 // CreateGroup generates a pairing group with count codes using the default 16-byte tokens.
 // Returns the raw tokens (caller encodes into invite codes) and the group ID.
 func (ts *TokenStore) CreateGroup(count int, ttl time.Duration, ns string, peerTTL time.Duration, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
-	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, TokenSize, createdBy)
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, TokenSize, createdBy, 0)
 }
 
 // CreateGroupShort generates a pairing group with 10-byte tokens for short invite codes.
 func (ts *TokenStore) CreateGroupShort(count int, ttl time.Duration, ns string, peerTTL time.Duration, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
-	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, 10, createdBy)
+	return ts.CreateGroupWithTokenSize(count, ttl, ns, peerTTL, 10, createdBy, 0)
 }
 
+// ErrQuotaExceeded is returned when a peer exceeds their group creation quota.
+var ErrQuotaExceeded = fmt.Errorf("group creation quota exceeded")
+
 // CreateGroupWithTokenSize generates a pairing group with configurable token size.
-func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int, createdBy peer.ID) (tokens [][]byte, groupID string, err error) {
+// If maxGroupsPerPeer > 0 and createdBy is non-empty, atomically checks the
+// per-peer quota under the write lock to prevent TOCTOU race conditions.
+func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int, createdBy peer.ID, maxGroupsPerPeer int) (tokens [][]byte, groupID string, err error) {
 	if count < 1 {
 		return nil, "", fmt.Errorf("count must be at least 1")
 	}
@@ -136,6 +141,19 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 	}
 
 	ts.mu.Lock()
+	// Atomic per-peer quota check under write lock (prevents TOCTOU race).
+	if maxGroupsPerPeer > 0 && createdBy != "" {
+		peerCount := 0
+		for _, g := range ts.groups {
+			if g.CreatedBy == createdBy && now.Before(g.ExpiresAt) {
+				peerCount++
+			}
+		}
+		if peerCount >= maxGroupsPerPeer {
+			ts.mu.Unlock()
+			return nil, "", ErrQuotaExceeded
+		}
+	}
 	ts.groups[groupID] = group
 	ts.mu.Unlock()
 

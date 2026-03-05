@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -47,7 +48,7 @@ func connectRemoteRelay(remoteAddr string) (*remoteAdminConnection, error) {
 		return nil, fmt.Errorf("invalid relay address: %w", err)
 	}
 
-	fmt.Printf("Connecting to relay: %s\n", truncateAddr(resolvedAddr))
+	fmt.Fprintf(os.Stderr, "Connecting to relay: %s\n", truncateAddr(resolvedAddr))
 
 	// Resolve password for SHRL-encrypted identity key.
 	pw, err := resolvePassword(filepath.Dir(cfg.Identity.KeyFile))
