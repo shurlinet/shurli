@@ -356,6 +356,7 @@ func runRelayServe(args []string) {
 	// Register remote admin protocol (replaces the old /shurli/relay-unseal/1.0.0 protocol).
 	// Available even when sealed - admin peers can unseal, check status, etc.
 	remoteAdminHandler := relay.NewRemoteAdminHandler(adminSrv, cfg.Security.AuthorizedKeysFile)
+	remoteAdminHandler.SetInvitePolicy(cfg.Security.InvitePolicy)
 	h.SetStreamHandler(protocol.ID(relay.RemoteAdminProtocol), func(s network.Stream) {
 		remoteAdminHandler.HandleStream(s)
 	})
