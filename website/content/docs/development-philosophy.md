@@ -1,7 +1,7 @@
 ---
 title: "Development Philosophy"
 weight: 16
-description: "The principles, inspirations, and decision-making framework behind Shurli. How the project started, why self-sovereignty matters, and lessons from SuperMesh."
+description: "The principles and decision-making framework behind Shurli. The Zero-Human Network vision, AI-native P2P infrastructure, self-sovereignty, and lessons from SuperMesh."
 ---
 
 The principles, inspirations, and decision-making framework behind Shurli's development.

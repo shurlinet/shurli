@@ -1,6 +1,6 @@
 ---
 title: Shurli
-description: "Connect your devices directly - no accounts, no cloud, no subscriptions. Works through NAT, CGNAT, and firewalls."
+description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly - no accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
@@ -124,6 +124,20 @@ layout: hextra-home
     style="background: radial-gradient(ellipse at 50% 80%,rgba(20,184,166,0.15),hsla(0,0%,100%,0));"
   >}}
 {{< /hextra/feature-grid >}}
+
+<!-- ============================================================ -->
+<!-- SECTION: Where This Is Going                                  -->
+<!-- ============================================================ -->
+
+<div class="shurli-section shurli-vision-section">
+  <div class="shurli-section-icon">{{< icon name="chip" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">This is not another VPN replacement</h2>
+  <div class="shurli-vision-statement">
+    <p>You might not need another way to reach your home server. But AI agents will need a way to reach each other - without cloud, without accounts, without anyone in the middle.</p>
+    <p>Shurli is building toward the <a href="blog/development-philosophy/#the-zero-human-network"><strong>Zero-Human Network</strong></a>: P2P infrastructure where agents connect, negotiate, and operate autonomously. No central authority. Intelligence at every node.</p>
+    <p>What works for your devices today is the foundation for what agents will need tomorrow.</p>
+  </div>
+</div>
 
 <!-- ============================================================ -->
 <!-- SECTION: Network Diagram                                      -->
