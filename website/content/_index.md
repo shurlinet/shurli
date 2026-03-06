@@ -131,11 +131,11 @@ layout: hextra-home
 
 <div class="shurli-section shurli-vision-section">
   <div class="shurli-section-icon">{{< icon name="chip" attributes="height=28" >}}</div>
-  <h2 class="shurli-section-title">This is not another VPN replacement</h2>
+  <h2 class="shurli-section-title">The <a href="blog/development-philosophy/#the-zero-human-network">Zero-Human Network</a></h2>
   <div class="shurli-vision-statement">
-    <p>You might not need another way to reach your home server. But AI agents will need a way to reach each other - without cloud, without accounts, without anyone in the middle.</p>
-    <p>Shurli is building toward the <a href="blog/development-philosophy/#the-zero-human-network"><strong>Zero-Human Network</strong></a>: P2P infrastructure where agents connect, negotiate, and operate autonomously. No central authority. Intelligence at every node.</p>
-    <p>What works for your devices today is the foundation for what agents will need tomorrow.</p>
+    <p>Zero-human companies are coming. They need a network that operates itself - where agents connect, negotiate, and transact directly. No cloud middleman. No central authority. Intelligence at every node.</p>
+    <p><strong>Shurli is that network.</strong></p>
+    <p>What connects your devices today is the foundation for what agents will run on tomorrow.</p>
   </div>
 </div>
 
