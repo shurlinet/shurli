@@ -737,18 +737,24 @@ Future:          authorized_keys becomes optional cache layer
 
 ### Phase 9: Plugin Architecture, SDK & First Plugins
 
-**Timeline**: 3-4 weeks
+**Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins. The plugins ARE the SDK examples.
+
+**Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. But empty interfaces are worthless: shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
+
+**Why This Existed**: Shurli's core (identity, auth, crypto, relay, ZKP) is solid through Phase 8. The next step is opening it up so others can build on it without forking. This phase transitions Shurli from a tool to a platform.
+
+---
+
+#### Phase 9A: Core Interfaces & Library Consolidation
+
+**Timeline**: 1-2 weeks
 **Status**: 📋 Planned
 
-**Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins: file transfer, service templates, and Wake-on-LAN. The plugins ARE the SDK examples.
-
-**Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. But empty interfaces are worthless: shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them. File sharing is the perfect first plugin - universal use case, builds on existing streams, proves the full `ServiceManager` lifecycle.
-
-**Deliverables**:
+**Goal**: Define the public API contracts that third-party code will depend on. This is design-first work - get the interfaces right before building implementations, because changing them later breaks downstream users.
 
 **Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
 - [ ] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close)
-- [ ] `Resolver` - interface for name resolution (resolve, register). Enables chaining: local → DNS → DHT → blockchain
+- [ ] `Resolver` - interface for name resolution (resolve, register). Enables chaining: local -> DNS -> DHT -> blockchain
 - [ ] `ServiceManager` - interface for service registration and dialing. Enables middleware.
 - [ ] `Authorizer` - interface for authorization decisions. Enables pluggable auth (certs, tokens, database)
 - [ ] `Logger` - interface for structured logging injection
@@ -764,51 +770,7 @@ Future:          authorized_keys becomes optional cache layer
 - [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
 - [ ] Package-level documentation for `pkg/p2pnet/`
 
-**Built-in Plugin: File Transfer** (proves `ServiceManager` + stream middleware):
-- [ ] `shurli send <file> --to <peer>` - send a file to an authorized peer
-- [ ] `shurli receive` - listen for incoming file transfers
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar and transfer speed display (stream middleware)
-- [ ] Resume interrupted transfers
-- [ ] Directory transfer support (`shurli send ./folder --to laptop`)
-
-**Built-in Plugin: Service Templates** (proves `ServiceManager` + health middleware):
-- [ ] `shurli daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
-- [ ] `shurli daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
-- [ ] `shurli daemon --openclaw` shortcut (auto-detects OpenClaw Gateway on localhost:18789, exposes with friendly name "openclaw-gateway")
-- [ ] Health check middleware - verify local service is reachable before exposing
-- [ ] Streaming response verification (chunked transfer for LLM output)
-
-**Built-in Plugin: Wake-on-LAN** (proves event hooks + new protocol):
-- [ ] `shurli wake <peer>` - send magic packet before connecting
-- [ ] Event hook: auto-wake peer on connection attempt (optional)
-
-**Service Discovery Protocol**:
-- [ ] New protocol `/shurli/discovery/1.0.0` - query a remote peer for their exposed services
-- [ ] Response includes service names and optional tags (e.g., `gpu`, `storage`, `inference`)
-- [ ] `shurli discover <peer>` CLI command - list services offered by a peer
-- [ ] Service tags in config: `tags: [gpu, inference]` - categorize services for discovery
-
-**Python SDK** (`shurli-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API (23 endpoints already implemented)
-- [ ] `pip install shurli-sdk`
-- [ ] Core operations: connect, expose_service, discover_services, proxy, status
-- [ ] Async support (asyncio) for integration with event-driven applications
-- [ ] Example: connect to a remote service in <10 lines of Python
-
-**Headless Onboarding Enhancements**:
-- [x] `shurli invite --non-interactive` - bare code to stdout, no QR, progress to stderr *(Phase 4C Batch E)*
-- [x] `shurli join --non-interactive` - reads code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin *(Phase 4C Batch E)*
-- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` *(Phase 4C Batch E)*
-
-**SDK Documentation** (the plugins above ARE the examples):
-- [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
-- [ ] Example walkthrough: how file transfer was built as a plugin
-- [ ] Example walkthrough: how service templates use health middleware
-- [ ] Example: custom name resolver plugin
-- [ ] Example: auth middleware (rate limiting, logging)
-
-**Plugin Interface Preview**:
+**Interface Preview**:
 ```go
 // Third-party resolver
 type DNSResolver struct { ... }
@@ -833,13 +795,32 @@ net.OnEvent(func(e p2pnet.Event) {
 })
 ```
 
-**File Transfer Usage**:
+**Exit Criteria**: All interfaces compile, existing CLI commands refactored to use them, zero regressions in test suite.
+
+---
+
+#### Phase 9B: File Transfer Plugin
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Build file transfer as the first real plugin. This validates the `ServiceManager` and stream middleware interfaces from 9A. Universal use case, builds on existing streams, proves the full lifecycle. If the interfaces need adjustment, this is where we catch it.
+
+**Deliverables** (proves `ServiceManager` + stream middleware):
+- [ ] `shurli send <file> --to <peer>` - send a file to an authorized peer
+- [ ] `shurli receive` - listen for incoming file transfers
+- [ ] Auto-accept from authorized peers (configurable)
+- [ ] Progress bar and transfer speed display (stream middleware)
+- [ ] Resume interrupted transfers
+- [ ] Directory transfer support (`shurli send ./folder --to laptop`)
+
+**Usage**:
 ```bash
 # Send a file
 $ shurli send photo.jpg --to laptop
 Sending photo.jpg (4.2 MB) to laptop...
 ████████████████████████████ 100% - 4.2 MB/s
-✓ Transfer complete
+Transfer complete
 
 # Send to multiple peers
 $ shurli send presentation.pdf --to home --to phone
@@ -848,6 +829,66 @@ $ shurli send presentation.pdf --to home --to phone
 $ shurli receive --save-to ~/Downloads/
 Waiting for transfers...
 ```
+
+**Exit Criteria**: File transfer works end-to-end across relay and direct connections. Interface adjustments from this phase fed back into 9A interfaces.
+
+---
+
+#### Phase 9C: Service Discovery & Additional Plugins
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Service discovery protocol and two more plugins that prove different interface patterns: service templates (health middleware) and Wake-on-LAN (event hooks).
+
+**Service Discovery Protocol**:
+- [ ] New protocol `/shurli/discovery/1.0.0` - query a remote peer for their exposed services
+- [ ] Response includes service names and optional tags (e.g., `gpu`, `storage`, `inference`)
+- [ ] `shurli discover <peer>` CLI command - list services offered by a peer
+- [ ] Service tags in config: `tags: [gpu, inference]` - categorize services for discovery
+
+**Service Templates** (proves `ServiceManager` + health middleware):
+- [ ] `shurli daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
+- [ ] `shurli daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] `shurli daemon --openclaw` shortcut (auto-detects OpenClaw Gateway on localhost:18789, exposes with friendly name "openclaw-gateway")
+- [ ] Health check middleware - verify local service is reachable before exposing
+- [ ] Streaming response verification (chunked transfer for LLM output)
+
+**Wake-on-LAN** (proves event hooks + new protocol):
+- [ ] `shurli wake <peer>` - send magic packet before connecting
+- [ ] Event hook: auto-wake peer on connection attempt (optional)
+
+**Exit Criteria**: Discovery protocol tested across relay and direct. Templates auto-detect local services. Wake-on-LAN proven on physical hardware.
+
+---
+
+#### Phase 9D: Python SDK & Documentation
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+
+**Goal**: Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples - no synthetic demos, real working code.
+
+**Python SDK** (`shurli-sdk`):
+- [ ] Thin wrapper around daemon Unix socket API (23+ endpoints already implemented)
+- [ ] `pip install shurli-sdk`
+- [ ] Core operations: connect, expose_service, discover_services, proxy, status
+- [ ] Async support (asyncio) for integration with event-driven applications
+- [ ] Example: connect to a remote service in <10 lines of Python
+
+**SDK Documentation** (the plugins above ARE the examples):
+- [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
+- [ ] Example walkthrough: how file transfer was built as a plugin
+- [ ] Example walkthrough: how service templates use health middleware
+- [ ] Example: custom name resolver plugin
+- [ ] Example: auth middleware (rate limiting, logging)
+
+**Headless Onboarding Enhancements** (already complete):
+- [x] `shurli invite --non-interactive` - bare code to stdout, no QR, progress to stderr *(Phase 4C Batch E)*
+- [x] `shurli join --non-interactive` - reads code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin *(Phase 4C Batch E)*
+- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` *(Phase 4C Batch E)*
+
+**Exit Criteria**: SDK installable via pip, all examples runnable, docs reviewed for accuracy against current code.
 
 ---
 
