@@ -316,6 +316,36 @@
 }
 
 /* ============================================================ */
+/* Vision / Zero-Human Network section                           */
+/* ============================================================ */
+
+.shurli-vision-statement {
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  line-height: 1.8;
+}
+
+.shurli-vision-statement p {
+  font-size: 1.05rem;
+  color: #374151;
+  margin-bottom: 1rem;
+}
+
+:is(.dark .shurli-vision-statement p) {
+  color: #d1d5db;
+}
+
+.shurli-vision-statement strong {
+  color: #3b82f6;
+}
+
+:is(.dark .shurli-vision-statement strong) {
+  color: #60a5fa;
+}
+
+/* ============================================================ */
 /* Network Diagram section                                       */
 /* ============================================================ */
 
