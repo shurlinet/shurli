@@ -13,6 +13,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -106,6 +107,7 @@ func runPing(args []string) {
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         cfg.Relay.Addresses,
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
@@ -131,7 +133,7 @@ func runPing(args []string) {
 	h := p2pNetwork.Host()
 
 	if !*jsonFlag {
-		fmt.Printf("PING %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "PING %s (%s)\n", target, targetPeerID.String()[:16]+"...")
 		fmt.Println("Connecting...")
 	}
 
@@ -157,9 +159,14 @@ func runPing(args []string) {
 			fmt.Println(string(line))
 		} else {
 			if result.Error != "" {
-				fmt.Printf("seq=%d error=%s\n", result.Seq, result.Error)
+				fmt.Printf("seq=%d ", result.Seq)
+				tc.Wred(os.Stdout, "error=%s", result.Error)
+				fmt.Println()
 			} else {
-				fmt.Printf("seq=%d rtt=%.1fms path=[%s]\n", result.Seq, result.RttMs, result.Path)
+				fmt.Printf("seq=%d ", result.Seq)
+				tc.Wgreen(os.Stdout, "rtt=%.1fms", result.RttMs)
+				tc.Wfaint(os.Stdout, " path=[%s]", result.Path)
+				fmt.Println()
 			}
 		}
 	}
@@ -171,9 +178,15 @@ func runPing(args []string) {
 		summary, _ := json.Marshal(stats)
 		fmt.Println(string(summary))
 	} else {
-		fmt.Printf("\n--- %s ping statistics ---\n", target)
-		fmt.Printf("%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
-			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
+		tc.Wfaint(os.Stdout, "\n--- %s ping statistics ---\n", target)
+		fmt.Printf("%d sent, %d received, ", stats.Sent, stats.Received)
+		if stats.LossPct > 0 {
+			tc.Wred(os.Stdout, "%.0f%% loss", stats.LossPct)
+		} else {
+			tc.Wgreen(os.Stdout, "%.0f%% loss", stats.LossPct)
+		}
+		fmt.Printf(", rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
+			stats.MinMs, stats.AvgMs, stats.MaxMs)
 	}
 }
 
@@ -217,7 +230,7 @@ func runPingViaDaemonContinuous(client *daemon.Client, target string, intervalMs
 	seq := 0
 
 	if !jsonOutput {
-		fmt.Printf("PING %s (via daemon, continuous):\n", target)
+		tc.Wfaint(os.Stdout, "PING %s (via daemon, continuous):\n", target)
 	}
 
 	for {
@@ -242,9 +255,14 @@ func runPingViaDaemonContinuous(client *daemon.Client, target string, intervalMs
 				fmt.Println(string(line))
 			} else {
 				if r.Error != "" {
-					fmt.Printf("seq=%d error=%s\n", r.Seq, r.Error)
+					fmt.Printf("seq=%d ", r.Seq)
+					tc.Wred(os.Stdout, "error=%s", r.Error)
+					fmt.Println()
 				} else {
-					fmt.Printf("seq=%d rtt=%.1fms path=[%s]\n", r.Seq, r.RttMs, r.Path)
+					fmt.Printf("seq=%d ", r.Seq)
+					tc.Wgreen(os.Stdout, "rtt=%.1fms", r.RttMs)
+					tc.Wfaint(os.Stdout, " path=[%s]", r.Path)
+					fmt.Println()
 				}
 			}
 		}
@@ -263,9 +281,15 @@ done:
 		summary, _ := json.Marshal(stats)
 		fmt.Println(string(summary))
 	} else {
-		fmt.Printf("\n--- %s ping statistics ---\n", target)
-		fmt.Printf("%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
-			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
+		tc.Wfaint(os.Stdout, "\n--- %s ping statistics ---\n", target)
+		fmt.Printf("%d sent, %d received, ", stats.Sent, stats.Received)
+		if stats.LossPct > 0 {
+			tc.Wred(os.Stdout, "%.0f%% loss", stats.LossPct)
+		} else {
+			tc.Wgreen(os.Stdout, "%.0f%% loss", stats.LossPct)
+		}
+		fmt.Printf(", rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
+			stats.MinMs, stats.AvgMs, stats.MaxMs)
 	}
 }
 
@@ -280,9 +304,11 @@ func showVerificationBadge(client *daemon.Client, target string) {
 	for _, e := range entries {
 		if e.Comment == target || e.PeerID == target {
 			if e.Verified != "" {
-				fmt.Printf("[VERIFIED] Peer %q verified (%s)\n", target, e.Verified)
+				tc.Wgreen(os.Stdout, "[VERIFIED]")
+				fmt.Printf(" Peer %q verified (%s)\n", target, e.Verified)
 			} else {
-				fmt.Printf("[UNVERIFIED] Peer %q not verified. Run: shurli verify %s\n", target, target)
+				tc.Wyellow(os.Stdout, "[UNVERIFIED]")
+				fmt.Printf(" Peer %q not verified. Run: shurli verify %s\n", target, target)
 			}
 			return
 		}

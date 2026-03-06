@@ -1314,6 +1314,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 - [ ] Desktop apps (macOS, Windows, Linux)
 - [ ] Browser extension for `.p2p` domain resolution
 - [ ] Community relay network
+- [ ] Admin endpoint IP privacy - redact or hash peer IPs in `/v1/peers/connected` response (show transport type or `/24` subnet only). Admin role inherently has this access, so this is a nice-to-have anonymity enhancement, not a security fix. May be unnecessary if admin trust model is accepted as-is.
 - [ ] IPv6 transport testing and documentation
 - [ ] Split tunneling (route only specific traffic through tunnel)
 - [ ] Decentralized analytics - on-device network intelligence using statistical anomaly detection (moving average, z-score). No centralized data collection. Each node monitors its own connection quality, predicts relay degradation, and auto-switches paths before failure. Data never leaves the node. Inspired by Nokia AVA's "bring code to where the data is" philosophy. Implementation: gonum for statistics, pure Go, no ML frameworks needed for initial phases
@@ -1398,6 +1399,22 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 - [ ] eBPF/XDP relay acceleration - kernel-bypass packet forwarding for high-throughput relay deployments. DDoS mitigation at millions of packets/sec.
 - [ ] W3C DID-compatible identity - export peer IDs in [Decentralized Identifier](https://www.w3.org/TR/did-1.1/) format (`did:key`, `did:peer`) for interoperability with verifiable credential systems.
 - [ ] Formal verification of invite/join protocol state machine - mathematically prove correctness of key exchange. Possible with TLA+ model or Kani (Rust).
+
+**Security Hardening (deferred from 2026-03-06 audit)**:
+- [ ] TOTP replay prevention - per-vault "last used TOTP counter" rejecting codes at or before last accepted. Closes the ~90s replay window. Standard RFC 6238 practice.
+- [ ] Unseal wire protocol nonce - per-session nonce to prevent application-layer replay of recorded encrypted streams to different relay instances with same keys.
+- [ ] Stronger session token machine binding - require `/etc/machine-id` or `IOPlatformUUID`, refuse sessions on systems with only hostname fallback, clear error message.
+- [ ] Admin endpoint path allowlist - replace `isInvitePath()` prefix matching with explicit exact path allowlist. Prevents path traversal if new `/v1/pair/` endpoints are added.
+- [ ] Circuit ACL denial log rate-limiting - under attack, Info-level denial logs flood. Rate-limit logging (every Nth after threshold).
+- [ ] DHT routing table health check - periodic check that routing table contains expected seed peers. Alert if seeds disappear (eclipse attack indicator).
+- [x] Per-network ephemeral identity - HKDF domain-separated per-namespace identities to prevent cross-network peer ID correlation. `DeriveNamespaceKey()` in `internal/identity/seed.go`.
+- [ ] Challenge store memory-pressure backoff - at >800/1000 ZKP challenge capacity, increase per-peer rate from 5s to 30s for graceful degradation.
+- [ ] Probation slot preemption - evict oldest probation peer at limit rather than denying new. Newest is more likely a legitimate pairing.
+- [ ] Admin socket audit log - log PID/UID of socket connections via `SO_PEERCRED` for forensic traceability.
+- [ ] Invite code channel binding - bind PAKE session to relay's peer ID in HKDF info to prevent relay swap attacks.
+- [ ] Password complexity enforcement - minimum entropy check (12+ chars or breach list) for vault/identity passwords. Nice-to-have. Relay-pushed password policies considered but architecturally heavy (relay doesn't store passwords).
+- [ ] Authorized_keys integrity monitoring - hash file after each mutation, verify on load to detect out-of-band tampering.
+- [ ] Token store memory limit - configurable maximum on total groups to prevent unbounded memory growth from admin-created long-TTL tokens.
 
 **Performance & Language**:
 - [ ] Selective Rust rewrite of hot paths - proxy loop, relay forwarding, SOCKS5 gateway via FFI. Zero GC, zero-copy, ~1.5x throughput improvement. Evaluate when performance metrics justify it.

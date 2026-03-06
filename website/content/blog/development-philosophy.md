@@ -1,10 +1,10 @@
 ---
 title: "How We Build Shurli"
 date: 2026-02-20
-tags: [philosophy, engineering]
+tags: [philosophy, engineering, zero-human-network, ai-native]
 image: /images/blog/philosophy-three-layers.svg
 pinned: true
-description: "How Shurli's engineering principles emerged from real development conversations. The OpenClaw origin story, privacy as infrastructure, lessons from SuperMesh, and why Shurli was intent-based before the term existed."
+description: "How Shurli's engineering principles emerged from real development conversations. The Zero-Human Network vision, AI-native P2P infrastructure, lessons from SuperMesh, and why Shurli was intent-based before the term existed."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
@@ -38,17 +38,29 @@ What else can it do? Let's try SSH. How about remote desktop? Each feature was a
 
 ### The lesson that made it different
 
-This wasn't Satinder's first P2P project. In 2015, he built [SuperMesh](https://github.com/satindergrewal/SuperMesh), a mesh networking tool on top of [CJDNS](https://github.com/cjdelisle/cjdns). The idea was sound: encrypted mesh networking for privacy. But the reality was harder. People don't want to touch their home routers, for obvious reasons. And privacy alone, without a clear immediate benefit, is a tough product to sell. When CJDNS development stalled, SuperMesh couldn't survive without it.
+This wasn't Satinder's first P2P project. In 2015, he built [SuperMesh](https://github.com/satindergrewal/SuperMesh/tree/alpha-0.0.3): a self-hosting smart router platform that turned a Raspberry Pi or spare laptop into a home server running decentralized services. TOR gateway (so every device on the LAN could open .onion sites without TOR installed locally), I2P proxy, CJDNS, IPFS, Namecoin DNS for .bit domains, NXT naming services, Bitcoin, decentralized exchanges and marketplaces, blockchain messaging - all accessible through a web UI, managed from one box. The same self-hosting ethos that drives projects like Umbrel today, but in 2015 with a broader scope.
+
+SuperMesh worked. But onboarding friction was never fully solved for non-technical users, and the project didn't pick up traction. As a solo developer who also needed to earn a living, Satinder shifted focus to blockchain development work, and SuperMesh got left behind.
 
 That experience shaped how Shurli was built from the start:
 
 > **Never build on a foundation you can't control.**
 
-And equally important: don't build new infrastructure when you can take what's best from existing tools and fill the gaps instead.
+Shurli isn't trying to fill what CJDNS or any other project couldn't. It's solving the problem a different way entirely: a 100% AI-native P2P network, built from the ground up with AI-assisted development as a core assumption, not an afterthought.
 
-Shurli isn't a mesh network. It's not a blockchain, a cryptocurrency, an identity system, or a payments platform. It takes proven P2P primitives from the best tools out there - libp2p, circuit relay, the Noise protocol - finds what's missing for real users, and fills those gaps. Single binary. Own DHT namespace. libp2p as a library you can fork, not a platform you depend on. No external auth provider. No cloud dependency.
+Shurli isn't a mesh network. It's not a blockchain, a cryptocurrency, an identity system, or a payments platform. It uses proven P2P primitives - libp2p, circuit relay, the Noise protocol - as building blocks for something new. Single binary. Own DHT namespace. libp2p as a library you can fork, not a platform you depend on. No external auth provider. No cloud dependency.
 
 The lesson from SuperMesh was to have full control of your own stack. AI-assisted development is what made that realistic for a solo developer.
+
+### The Zero-Human Network
+
+People are building "zero-human companies" today: organizations where AI handles operations end to end. Shurli is working toward something adjacent but distinct: a **Zero-Human Network**.
+
+Not zero humans using it. Zero humans required to operate it. A P2P network where nodes can discover peers, negotiate connections, traverse NATs, manage trust, and maintain security without a human configuring, debugging, or babysitting the process. The network operates itself.
+
+This isn't where Shurli is today. Today it's infrastructure that humans set up and control. But every design decision points toward a future where an AI agent can spin up a node, join a network, establish trusted connections, and operate autonomously. The two-command onboarding, the automated config self-healing, the sealed vault architecture, the intent-based development process itself: these are steps toward infrastructure that doesn't need a human in the loop to function.
+
+That's the trajectory. Not fixing what others built. Building what doesn't exist yet.
 
 ### The principles came from conversations, not a manifesto
 
@@ -72,7 +84,7 @@ This isn't a quality standard. It's the reason the project exists the way it doe
 
 A new user goes from nothing to connected in two commands: `shurli init` and `shurli join <code>`. Everything else is optional.
 
-Onboarding friction limited adoption of overlay networks like CJDNS and Yggdrasil. If setup requires editing config files, understanding NAT, or running multiple services, most people never finish. Every feature in Shurli is tested against this constraint: does it add a step? Then it needs to justify its existence or be automated away.
+Onboarding friction limited the reach of overlay networks like CJDNS and Yggdrasil. If setup requires editing config files, understanding NAT, or running multiple services, most people never finish. Every feature in Shurli is tested against this constraint: does it add a step? Then it needs to justify its existence or be automated away.
 
 ### 3. Lead with outcomes, not protocol
 

@@ -22,6 +22,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 )
 
 // DHTProtocolPrefix is the default protocol prefix for the private shurli Kademlia DHT.
@@ -118,6 +119,12 @@ type Config struct {
 	EnableNATPortMap    bool              // Enable NAT port mapping
 	EnableHolePunching  bool              // Enable hole punching
 
+	// Per-network ephemeral identity: when set, derives a namespace-specific
+	// Ed25519 key from the master identity via HKDF. The node uses a different
+	// peer ID on each namespace, preventing cross-network correlation.
+	// Empty = global network (uses master identity, backward compatible).
+	Namespace string
+
 	// Resource management
 	ResourceLimitsEnabled bool            // Enable libp2p resource manager (connection/stream/memory limits)
 
@@ -139,6 +146,18 @@ func New(cfg *Config) (*Network, error) {
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to load identity: %w", err)
+	}
+
+	// Per-network ephemeral identity: derive a namespace-specific key so the
+	// node uses a different peer ID on each private network. This prevents
+	// cross-network peer ID correlation. Global network (empty namespace) uses
+	// the master identity unchanged for backward compatibility.
+	if cfg.Namespace != "" {
+		priv, err = identity.DeriveNamespaceKey(priv, cfg.Namespace)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to derive namespace identity: %w", err)
+		}
 	}
 
 	// Create libp2p host options.

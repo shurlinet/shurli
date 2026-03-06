@@ -1,6 +1,6 @@
 ---
 title: Shurli
-description: "Connect your devices directly - no accounts, no cloud, no subscriptions. Works through NAT, CGNAT, and firewalls."
+description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly - no accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
@@ -26,7 +26,7 @@ layout: hextra-home
 
 <div class="hx:mb-8">
 {{< hextra/hero-subtitle >}}
-  Connect your devices directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
+  Connect your devices and agents directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
 {{< /hextra/hero-subtitle >}}
 </div>
 
@@ -124,6 +124,20 @@ layout: hextra-home
     style="background: radial-gradient(ellipse at 50% 80%,rgba(20,184,166,0.15),hsla(0,0%,100%,0));"
   >}}
 {{< /hextra/feature-grid >}}
+
+<!-- ============================================================ -->
+<!-- SECTION: Where This Is Going                                  -->
+<!-- ============================================================ -->
+
+<div class="shurli-section shurli-vision-section">
+  <div class="shurli-section-icon">{{< icon name="chip" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">The <a href="/blog/development-philosophy/#the-zero-human-network">Zero-Human Network</a></h2>
+  <div class="shurli-vision-statement">
+    <p>Zero-human companies are coming. They need a network that operates itself - where agents connect, negotiate, and transact directly. No cloud middleman. No central authority. Intelligence at every node.</p>
+    <p><strong>Shurli is that network.</strong></p>
+    <p>What connects your devices today is the foundation for what agents will run on tomorrow.</p>
+  </div>
+</div>
 
 <!-- ============================================================ -->
 <!-- SECTION: Network Diagram                                      -->
@@ -225,6 +239,7 @@ layout: hextra-home
         <li>Privacy-conscious users who refuse vendor accounts</li>
         <li>Home lab operators behind CGNAT or double NAT</li>
         <li>Developers exposing local services (Ollama, databases, web apps)</li>
+        <li>AI agents that need direct peer-to-peer connectivity</li>
         <li>Anyone who wants their network under their own control</li>
       </ul>
     </div>

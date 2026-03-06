@@ -53,17 +53,18 @@ const (
 
 // SealedData is the on-disk representation of the vault.
 type SealedData struct {
-	Version        int    `json:"version"`
-	Salt           []byte `json:"salt"`            // Argon2id salt
-	EncryptedKey   []byte `json:"encrypted_key"`   // XChaCha20-Poly1305(rootKey)
-	Nonce          []byte `json:"nonce"`           // XChaCha20-Poly1305 nonce
-	TOTPEnabled    bool   `json:"totp_enabled"`
-	TOTPSecret     []byte `json:"totp_secret,omitempty"`    // encrypted alongside root key
-	TOTPNonce      []byte `json:"totp_nonce,omitempty"`
-	SeedHash       []byte `json:"seed_hash"`       // SHA-256 of seed for verification
-	AutoSealMins   int    `json:"auto_seal_mins"`  // auto-reseal timeout (0 = manual)
-	YubikeyEnabled bool   `json:"yubikey_enabled"` // Yubikey HMAC-SHA1 challenge-response
-	YubikeySlot    int    `json:"yubikey_slot,omitempty"` // 1 or 2
+	Version         int    `json:"version"`
+	Salt            []byte `json:"salt"`            // Argon2id salt
+	EncryptedKey    []byte `json:"encrypted_key"`   // XChaCha20-Poly1305(rootKey)
+	Nonce           []byte `json:"nonce"`           // XChaCha20-Poly1305 nonce
+	TOTPEnabled     bool   `json:"totp_enabled"`
+	TOTPSecret      []byte `json:"totp_secret,omitempty"`    // encrypted alongside root key
+	TOTPNonce       []byte `json:"totp_nonce,omitempty"`
+	LastTOTPCounter uint64 `json:"last_totp_counter,omitempty"` // replay prevention (RFC 6238)
+	SeedHash        []byte `json:"seed_hash"`       // SHA-256 of seed for verification
+	AutoSealMins    int    `json:"auto_seal_mins"`  // auto-reseal timeout (0 = manual)
+	YubikeyEnabled  bool   `json:"yubikey_enabled"` // Yubikey HMAC-SHA1 challenge-response
+	YubikeySlot     int    `json:"yubikey_slot,omitempty"` // 1 or 2
 }
 
 // Vault manages the relay's root key material.
@@ -223,12 +224,16 @@ func (v *Vault) Unseal(password, totpCode string) error {
 		}
 
 		cfg := &totp.Config{Secret: totpSecret}
-		if !totp.Validate(cfg, totpCode, time.Now(), 1) {
+		counter, ok := totp.ValidateWithCounter(cfg, totpCode, time.Now(), 1, sd.LastTOTPCounter)
+		if !ok {
 			// Zero the decrypted key before returning
 			zeroBytes(rootKey)
 			return ErrInvalidTOTP
 		}
+		sd.LastTOTPCounter = counter
 		v.totpConfig = cfg
+		// Persist updated counter to prevent replay across restarts.
+		v.persistCounterLocked()
 	}
 
 	v.rootKey = rootKey
@@ -236,6 +241,28 @@ func (v *Vault) Unseal(password, totpCode string) error {
 	v.unsealedAt = time.Now()
 
 	return nil
+}
+
+// persistCounterLocked saves the sealed data to disk to persist the TOTP counter.
+// Must be called with v.mu held. Errors are logged but not fatal (counter is
+// also held in memory for the current session).
+func (v *Vault) persistCounterLocked() {
+	if v.filePath == "" || v.sealedData == nil {
+		return
+	}
+	data, err := json.MarshalIndent(v.sealedData, "", "  ")
+	if err != nil {
+		return
+	}
+	// Atomic write: temp + rename.
+	tmp := v.filePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, v.filePath); err != nil {
+		os.Remove(tmp)
+	}
 }
 
 // Seal zeroes the root key from memory and marks the vault as sealed.

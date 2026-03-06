@@ -85,8 +85,8 @@
   <rect x="40" y="155" width="730" height="75" rx="10" fill="url(#lessonGrad)" stroke="#f7768e" stroke-width="1.5"/>
   <text x="400" y="175" text-anchor="middle" fill="#f7768e" font-family="system-ui, sans-serif" font-size="12" font-weight="600">THE SUPERMESH LESSON (2015)</text>
 
-  <text x="60" y="198" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Built mesh networking on CJDNS</text>
-  <text x="340" y="198" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">CJDNS stalled, SuperMesh died</text>
+  <text x="60" y="198" fill="#a9b1d6" font-family="SF Mono, monospace" font-size="9">Self-hosting smart router platform</text>
+  <text x="340" y="198" fill="#f7768e" font-family="SF Mono, monospace" font-size="9">No traction, priorities shifted</text>
   <text x="610" y="198" fill="#e0af68" font-family="SF Mono, monospace" font-size="9" font-weight="600">Lesson learned:</text>
 
   <text x="400" y="220" text-anchor="middle" fill="#c0caf5" font-family="system-ui, sans-serif" font-size="11" font-weight="600">"Never build on a foundation you can't control."</text>

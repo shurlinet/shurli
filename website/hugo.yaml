@@ -48,7 +48,7 @@ params:
     message: "**Early-stage software.** Shurli is experimental and built with AI assistance. It will have bugs. Not recommended for production or safety-critical use. [Read the disclaimer](/docs/quick-start/#disclaimer)."
 
   title: Shurli
-  description: Peer-to-peer connectivity that works through NAT, CGNAT, and firewalls. No accounts, no cloud, no subscriptions.
+  description: AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly through NAT, CGNAT, and firewalls. No accounts, no cloud, no central authority.
 
   images:
     - /images/og-card.png
