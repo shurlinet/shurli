@@ -115,8 +115,7 @@ Go 1.26.1 security release is available (March 5). Upgrade recommended.
 
 ## What is next
 
-- Phase 9: Visual Channel ("Constellation Code") for visual verification
-- Phase 10: Plugin SDK, exposing all internal capabilities to third-party developers
-- Phase 11: Distribution (apt, brew, snap) and public launch
+- Phase 9: Plugin SDK, exposing all internal capabilities to third-party developers
+- Phase 10: Distribution (apt, brew, snap) and public launch
 
 The onboarding story is now: install, init, connect. Three steps to a private P2P network. The infrastructure is hardened. The relays are public. The next push is making it beautiful.
