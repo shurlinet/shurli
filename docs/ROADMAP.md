@@ -1314,6 +1314,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 - [ ] Desktop apps (macOS, Windows, Linux)
 - [ ] Browser extension for `.p2p` domain resolution
 - [ ] Community relay network
+- [ ] Admin endpoint IP privacy - redact or hash peer IPs in `/v1/peers/connected` response (show transport type or `/24` subnet only). Admin role inherently has this access, so this is a nice-to-have anonymity enhancement, not a security fix. May be unnecessary if admin trust model is accepted as-is.
 - [ ] IPv6 transport testing and documentation
 - [ ] Split tunneling (route only specific traffic through tunnel)
 - [ ] Decentralized analytics - on-device network intelligence using statistical anomaly detection (moving average, z-score). No centralized data collection. Each node monitors its own connection quality, predicts relay degradation, and auto-switches paths before failure. Data never leaves the node. Inspired by Nokia AVA's "bring code to where the data is" philosophy. Implementation: gonum for statistics, pure Go, no ML frameworks needed for initial phases
