@@ -26,13 +26,13 @@ Every technical decision in Shurli flows from a moral commitment: if this softwa
 
 ### 1. Never build on what you can't control
 
-**Origin:** In 2015, Satinder built [SuperMesh](https://github.com/satindergrewal/SuperMesh) on top of CJDNS. CJDNS stalled. SuperMesh couldn't survive without it.
+**Origin:** In 2015, Satinder built [SuperMesh](https://github.com/satindergrewal/SuperMesh/tree/alpha-0.0.3), a self-hosting smart router platform: TOR gateway, I2P, CJDNS, IPFS, Namecoin DNS, decentralized exchanges, all from one box with a web UI. The same ethos as Umbrel, but years earlier and broader in scope. It worked, but didn't gain traction as a solo side project, and got left behind when priorities shifted to blockchain work.
 
 **Applied:** Single binary, own DHT namespace, libp2p as a library (forkable), no external auth provider, no cloud dependency.
 
 ### 2. Two commands from zero
 
-A new user goes from nothing to connected in two commands: `shurli init` and `shurli join <code>`. Everything else is optional. Onboarding friction killed CJDNS and Yggdrasil, so every feature is tested against this constraint.
+A new user goes from nothing to connected in two commands: `shurli init` and `shurli join <code>`. Everything else is optional. Onboarding friction limited the reach of CJDNS and Yggdrasil, so every feature is tested against this constraint.
 
 ### 3. Lead with outcomes, not protocol
 
@@ -134,6 +134,18 @@ Jobs said: own everything, lock users in for quality. Musk said: vertically inte
 As Shurli grows toward mobile apps, web/desktop clients, and SDK/plugin ecosystems, this principle extends to every new integration point. No vendor lock-in. No platform dependency.
 
 **Shurli is plumbing, not a platform.** Plumbing works with any fixture.
+
+---
+
+## The Zero-Human Network
+
+People are building "zero-human companies" where AI handles operations end to end. Shurli is working toward something adjacent: a **Zero-Human Network**. Not zero humans using it. Zero humans required to operate it.
+
+A P2P network where nodes discover peers, negotiate connections, traverse NATs, manage trust, and maintain security without a human configuring or debugging the process. The network operates itself.
+
+This isn't where Shurli is today. But every design decision points toward a future where an AI agent can spin up a node, join a network, establish trusted connections, and operate autonomously. Two-command onboarding, automated config self-healing, sealed vault architecture, intent-based development: steps toward infrastructure that doesn't need a human in the loop.
+
+Shurli isn't trying to fill what other P2P projects couldn't. It's building what doesn't exist yet.
 
 ---
 
