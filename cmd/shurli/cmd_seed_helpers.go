@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/shurlinet/shurli/internal/identity"
+	"github.com/shurlinet/shurli/internal/validate"
 )
 
 // stdinReader buffers non-TTY stdin reads. Package-level to prevent
@@ -38,8 +39,6 @@ func zeroBytes(b []byte) {
 	subtle.XORBytes(b, b, b)
 }
 
-const minPasswordLen = 8
-
 // readPassword prompts for a password with no echo. Returns the password string.
 // When stdin is not a TTY (piped input, systemd, Docker), reads a line from
 // stdin directly. This follows the standard Unix pattern used by ssh-keygen,
@@ -64,16 +63,108 @@ func readPassword(prompt string, stdout io.Writer) (string, error) {
 	return line, nil
 }
 
-// readPasswordConfirm prompts for a password and confirmation.
-// Enforces minimum length.
+// strengthLabel returns a colorized strength indicator for terminal display.
+func strengthLabel(s validate.PasswordStrength) string {
+	switch s {
+	case validate.PasswordWeak:
+		return "\033[31m[weak]\033[0m" // red
+	case validate.PasswordFair:
+		return "\033[33m[fair]\033[0m" // yellow
+	case validate.PasswordStrong:
+		return "\033[32m[strong]\033[0m" // green
+	default:
+		return ""
+	}
+}
+
+// readPasswordWithStrength reads a password character-by-character in raw mode,
+// showing a live strength indicator that updates as the user types.
+// Falls back to readPassword + post-check for non-TTY stdin.
+func readPasswordWithStrength(prompt string, stdout io.Writer) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		// Non-TTY: no live feedback possible, read normally.
+		pw, err := readPassword(prompt, stdout)
+		if err != nil {
+			return "", err
+		}
+		strength := validate.CheckPasswordStrength(pw)
+		if !validate.PasswordAcceptable(pw) {
+			return "", fmt.Errorf("password too weak (%s): need at least 3 of: uppercase, lowercase, digit, symbol", strength)
+		}
+		return pw, nil
+	}
+
+	// Save terminal state and switch to raw mode.
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return "", fmt.Errorf("setting raw mode: %w", err)
+	}
+	defer term.Restore(fd, oldState)
+
+	var pw []byte
+	buf := make([]byte, 1)
+
+	// Print initial prompt with empty strength.
+	fmt.Fprintf(stdout, "%s", prompt)
+
+	for {
+		_, err := os.Stdin.Read(buf)
+		if err != nil {
+			return "", fmt.Errorf("reading input: %w", err)
+		}
+
+		b := buf[0]
+
+		switch {
+		case b == '\r' || b == '\n': // Enter
+			// Clear the strength label and move to next line.
+			fmt.Fprintf(stdout, "\033[2K\r%s\r\n", prompt)
+			return string(pw), nil
+
+		case b == 3: // Ctrl+C
+			fmt.Fprintf(stdout, "\r\n")
+			return "", fmt.Errorf("interrupted")
+
+		case b == 4: // Ctrl+D (EOF)
+			fmt.Fprintf(stdout, "\r\n")
+			return "", fmt.Errorf("interrupted")
+
+		case b == 127 || b == 8: // Backspace / Delete
+			if len(pw) > 0 {
+				pw = pw[:len(pw)-1]
+			}
+
+		default:
+			// Only accept printable ASCII (32-126).
+			if b >= 32 && b <= 126 {
+				pw = append(pw, b)
+			}
+		}
+
+		// Update the strength indicator on the same line.
+		label := ""
+		if len(pw) > 0 {
+			label = " " + strengthLabel(validate.CheckPasswordStrength(string(pw)))
+		}
+		fmt.Fprintf(stdout, "\033[2K\r%s%s", prompt, label)
+	}
+}
+
+// readPasswordConfirm prompts for a password with live strength feedback,
+// then asks for confirmation. Rejects weak passwords.
 func readPasswordConfirm(prompt, confirmPrompt string, stdout io.Writer) (string, error) {
-	pw, err := readPassword(prompt, stdout)
+	pw, err := readPasswordWithStrength(prompt, stdout)
 	if err != nil {
 		return "", err
 	}
 
-	if len(pw) < minPasswordLen {
-		return "", fmt.Errorf("password must be at least %d characters", minPasswordLen)
+	if len(pw) < validate.MinPasswordLen {
+		return "", fmt.Errorf("password must be at least %d characters", validate.MinPasswordLen)
+	}
+
+	if !validate.PasswordAcceptable(pw) {
+		return "", fmt.Errorf("password is too weak: need at least 3 of: uppercase, lowercase, digit, symbol")
 	}
 
 	confirm, err := readPassword(confirmPrompt, stdout)
