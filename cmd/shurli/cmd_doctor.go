@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shurlinet/shurli/internal/config"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 )
 
 func runDoctor(args []string) {
@@ -27,8 +28,8 @@ type checkResult struct {
 }
 
 func doDoctor(stdout io.Writer) error {
-	fmt.Fprintln(stdout, "shurli doctor")
-	fmt.Fprintln(stdout, "Checking your shurli installation...")
+	tc.Wfaint(stdout, "shurli doctor\n")
+	tc.Wfaint(stdout, "Checking your shurli installation...\n")
 	fmt.Fprintln(stdout)
 
 	var checks []checkResult
@@ -57,9 +58,13 @@ func doDoctor(stdout io.Writer) error {
 	problems := 0
 	for _, c := range checks {
 		if c.ok {
-			fmt.Fprintf(stdout, "  [OK] %-20s %s\n", c.name, c.message)
+			fmt.Fprint(stdout, "  ")
+			tc.Wgreen(stdout, "[OK]")
+			fmt.Fprintf(stdout, " %-20s %s\n", c.name, c.message)
 		} else {
-			fmt.Fprintf(stdout, "  [!!] %-20s %s\n", c.name, c.message)
+			fmt.Fprint(stdout, "  ")
+			tc.Wred(stdout, "[!!]")
+			fmt.Fprintf(stdout, " %-20s %s\n", c.name, c.message)
 			problems++
 			if c.fixable {
 				fixable++
@@ -70,16 +75,16 @@ func doDoctor(stdout io.Writer) error {
 	fmt.Fprintln(stdout)
 
 	if problems == 0 {
-		fmt.Fprintln(stdout, "Everything looks good.")
+		tc.Wgreen(stdout, "Everything looks good.\n")
 		return nil
 	}
 
 	if fixable > 0 {
-		fmt.Fprintf(stdout, "%d issue(s) found, %d auto-fixable.\n", problems, fixable)
+		tc.Wyellow(stdout, "%d issue(s) found, %d auto-fixable.\n", problems, fixable)
 		fmt.Fprintln(stdout, "Run: shurli doctor --fix")
 		fmt.Fprintln(stdout)
 	} else {
-		fmt.Fprintf(stdout, "%d issue(s) found.\n", problems)
+		tc.Wyellow(stdout, "%d issue(s) found.\n", problems)
 		fmt.Fprintln(stdout)
 	}
 
@@ -110,9 +115,9 @@ func setupShellEnvironment(stdout io.Writer) {
 		dest := completionInstallPath(shell)
 		installed := tryInstallFile(dest, completionContent(shell))
 		if installed {
-			fmt.Fprintf(stdout, "Installed %s completion: %s\n", shell, dest)
+			tc.Wgreen(stdout, "Installed %s completion: %s\n", shell, dest)
 		} else {
-			fmt.Fprintf(stdout, "Shell completion: needs sudo to install to %s\n", dest)
+			tc.Wyellow(stdout, "Shell completion: needs sudo to install to %s\n", dest)
 			fmt.Fprintf(stdout, "  Run: sudo shurli completion %s --install\n", shell)
 		}
 	}
@@ -121,9 +126,9 @@ func setupShellEnvironment(stdout io.Writer) {
 	dest := manInstallPath()
 	installed := tryInstallFile(dest, manPage())
 	if installed {
-		fmt.Fprintf(stdout, "Installed man page: %s\n", dest)
+		tc.Wgreen(stdout, "Installed man page: %s\n", dest)
 	} else {
-		fmt.Fprintf(stdout, "Man page: needs sudo to install to %s\n", dest)
+		tc.Wyellow(stdout, "Man page: needs sudo to install to %s\n", dest)
 		fmt.Fprintln(stdout, "  Run: sudo shurli man --install")
 	}
 

@@ -194,6 +194,15 @@ func EntropyToMnemonic(entropy []byte) (string, error) {
 	return strings.Join(words, " "), nil
 }
 
+// SeedFromCustomPassphrase derives 32 bytes of entropy from an arbitrary
+// passphrase using SHA-256. This is weaker than BIP39 (no checksum, no typo
+// detection, no standard recovery) and should only be used when the user
+// explicitly acknowledges the risks.
+func SeedFromCustomPassphrase(passphrase string) []byte {
+	hash := sha256.Sum256([]byte(passphrase))
+	return hash[:]
+}
+
 // bitsToBytes converts a bit slice to bytes.
 func bitsToBytes(bits []bool) []byte {
 	out := make([]byte, len(bits)/8)

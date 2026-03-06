@@ -392,7 +392,8 @@ func runRelayServe(args []string) {
 	// /v1/unseal remains blocked on the generic admin protocol by design.
 	var unsealHandler *relay.UnsealHandler
 	if relayVault != nil {
-		unsealHandler = relay.NewUnsealHandler(relayVault, cfg.Security.AuthorizedKeysFile)
+		lockoutFile := relay.LockoutStateFile(filepath.Dir(configFile))
+		unsealHandler = relay.NewUnsealHandler(relayVault, cfg.Security.AuthorizedKeysFile, lockoutFile)
 		h.SetStreamHandler(protocol.ID(relay.UnsealProtocol), func(s network.Stream) {
 			unsealHandler.HandleStream(s)
 		})
