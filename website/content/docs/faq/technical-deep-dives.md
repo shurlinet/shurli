@@ -155,7 +155,7 @@ This complements the userspace hardening (Resource Manager, per-peer limits) wit
 **Who has this**: Cloudflare's MASQUE relays, QUIC-native applications.
 **Who doesn't**: WireGuard (stateless, reconnects fast but not 0-RTT), all current P2P tunnel tools.
 
-This is a future optimization for Shurli's QUIC transport - particularly valuable for mobile clients (Phase 9).
+This is a future optimization for Shurli's QUIC transport - particularly valuable for mobile clients (Phase 12).
 
 ---
 
