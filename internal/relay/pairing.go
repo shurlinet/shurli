@@ -406,7 +406,9 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	}
 
 	// Complete PAKE with the raw token as salt.
-	if err := session.CompleteWithSalt(joinerPub, rawToken); err != nil {
+	// Channel binding: include relay's peer ID in HKDF info to prevent relay swap attacks.
+	relayBinding := []byte(s.Conn().LocalPeer())
+	if err := session.CompleteWithSalt(joinerPub, rawToken, relayBinding); err != nil {
 		slog.Warn("pairing-v2: key exchange failed", "peer", short, "err", err)
 		ph.Store.RecordFailedAttemptByHash(tokenHash)
 		return "", ""

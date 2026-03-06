@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" width="800" height="380">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="380" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="25" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">Security Hardening: 14 Findings Fixed</text>
+
+  <!-- Batch 1 header -->
+  <rect x="30" y="45" width="355" height="22" rx="4" fill="#2d4561" stroke="#7aa2d0" stroke-width="1" />
+  <text x="207" y="60" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#7aa2d0" font-weight="bold">First Batch (8 fixes)</text>
+
+  <!-- Batch 1 items -->
+  <rect x="30" y="73" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="85" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">TOCTOU token claim        InProgress mutex flag</text>
+
+  <rect x="30" y="95" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="107" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Stream deadlines           30s on all P2P handlers</text>
+
+  <rect x="30" y="117" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="129" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">File race auth_keys        atomic write (tmp+rename)</text>
+
+  <rect x="30" y="139" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="151" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Admin origin check         fail-closed origin tag</text>
+
+  <rect x="30" y="161" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="173" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Invite ACL                 ownership + quota + scoped</text>
+
+  <rect x="30" y="183" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="195" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Token compare              constant-time (subtle)</text>
+
+  <rect x="30" y="205" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="217" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Token burn-after-3         failed pairing burns token</text>
+
+  <rect x="30" y="227" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="40" y="239" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Enrollment rate limit      per-IP with /64 normalize</text>
+
+  <!-- Batch 2 header -->
+  <rect x="415" y="45" width="355" height="22" rx="4" fill="#2d4561" stroke="#7aa2d0" stroke-width="1" />
+  <text x="592" y="60" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#7aa2d0" font-weight="bold">Pre-Merge Audit (6 fixes)</text>
+
+  <!-- Batch 2 items -->
+  <rect x="415" y="73" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="85" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Daemon auth timing         subtle.ConstantTimeCompare</text>
+
+  <rect x="415" y="95" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="107" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Admin body limits          MaxBytesReader on endpoints</text>
+
+  <rect x="415" y="117" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="129" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Client response limits     io.LimitReader (10 MB cap)</text>
+
+  <rect x="415" y="139" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="151" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Circuit ACL caching        in-memory, reload on demand</text>
+
+  <rect x="415" y="161" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="173" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Probation map bounded      1,000 cap + stale eviction</text>
+
+  <rect x="415" y="183" width="355" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="425" y="195" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">Peer relay security        gater ACL documented</text>
+
+  <!-- Deferred section -->
+  <rect x="415" y="227" width="355" height="22" rx="4" fill="#3a2e1e" stroke="#e0af68" stroke-width="1" />
+  <text x="592" y="242" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" font-weight="bold">Known Deferred (upstream)</text>
+
+  <rect x="415" y="255" width="355" height="18" rx="3" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="425" y="267" font-family="SF Mono, monospace" font-size="8" fill="#888">GO-2026-4479 pion/dtls     fix in go-libp2p master</text>
+
+  <rect x="415" y="277" width="355" height="18" rx="3" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="425" y="289" font-family="SF Mono, monospace" font-size="8" fill="#888">GO-2024-3218 kad-dht       no upstream fix available</text>
+
+  <!-- Bottom: bug fix callout -->
+  <rect x="30" y="265" width="355" height="22" rx="4" fill="#2d4561" stroke="#bb9af7" stroke-width="1" />
+  <text x="207" y="280" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#bb9af7" font-weight="bold">Bug Fix (post-audit)</text>
+
+  <rect x="30" y="293" width="355" height="28" rx="3" fill="#1e2840" stroke="#bb9af7" stroke-width="0.5" />
+  <text x="40" y="305" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7">relay unseal --remote      dedicated protocol wired</text>
+  <text x="40" y="317" font-family="SF Mono, monospace" font-size="7" fill="#8a6ab7">iOS-style lockout + binary wire format</text>
+
+  <!-- DNSSEC callout -->
+  <rect x="30" y="327" width="355" height="28" rx="3" fill="#1e2840" stroke="#bb9af7" stroke-width="0.5" />
+  <text x="40" y="339" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7">DNSSEC on seed domain      TXT records now signed</text>
+  <text x="40" y="351" font-family="SF Mono, monospace" font-size="7" fill="#8a6ab7">defense-in-depth: gater + hardcoded seeds</text>
+
+  <!-- Stats bar -->
+  <rect x="415" y="320" width="355" height="40" rx="6" fill="#1e2d40" stroke="#7aa2d0" stroke-width="1" />
+  <text x="592" y="338" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#7aa2d0" font-weight="bold">38 commits | 122 files | +8854 / -1762</text>
+  <text x="592" y="353" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#5a82b0">merged to main after full pre-merge audit</text>
+</svg>

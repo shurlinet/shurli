@@ -623,3 +623,108 @@ func TestDoConfigSet_NoArgs(t *testing.T) {
 		t.Fatal("expected error for no args")
 	}
 }
+
+func TestDoConfigSet_RejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "netwrk.force_cgnat", "true"}, &stdout)
+	if err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+	if !strings.Contains(err.Error(), "unknown config key") {
+		t.Errorf("error should mention unknown key, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Did you mean") {
+		t.Errorf("error should suggest similar key, got: %v", err)
+	}
+}
+
+func TestDoConfigSet_RejectsCompletelyUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "zzz.totally.bogus", "true"}, &stdout)
+	if err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+	if !strings.Contains(err.Error(), "unknown config key") {
+		t.Errorf("error should mention unknown key, got: %v", err)
+	}
+}
+
+func TestDoConfigSet_AllowsServiceKeys(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "services.myservice.enabled", "true"}, &stdout)
+	if err != nil {
+		t.Fatalf("services.* keys should be allowed: %v", err)
+	}
+}
+
+func TestDoConfigSet_AllowsNameKeys(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeValidConfig(t, dir)
+
+	var stdout bytes.Buffer
+	err := doConfigSet([]string{"--config", cfgPath, "names.laptop", "12D3KooW..."}, &stdout)
+	if err != nil {
+		t.Fatalf("names.* keys should be allowed: %v", err)
+	}
+}
+
+func TestValidateConfigKey(t *testing.T) {
+	tests := []struct {
+		key     string
+		wantErr bool
+		wantMsg string
+	}{
+		{"network.force_cgnat", false, ""},
+		{"discovery.rendezvous", false, ""},
+		{"security.zkp.enabled", false, ""},
+		{"services.ssh.enabled", false, ""},
+		{"names.laptop", false, ""},
+		{"netwrk.force_cgnat", true, "Did you mean"},
+		{"totally.unknown", true, "unknown config key"},
+		{"version", false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			err := validateConfigKey(tt.key)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if tt.wantMsg != "" && !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.wantMsg)
+				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLevenshtein(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		{"", "", 0},
+		{"abc", "abc", 0},
+		{"abc", "abd", 1},
+		{"kitten", "sitting", 3},
+		{"netwrk", "network", 1},
+	}
+	for _, tt := range tests {
+		got := levenshtein(tt.a, tt.b)
+		if got != tt.want {
+			t.Errorf("levenshtein(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}

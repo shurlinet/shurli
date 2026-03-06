@@ -7,46 +7,58 @@ import (
 )
 
 func TestEncodeUnsealRequest(t *testing.T) {
-	req := EncodeUnsealRequest("my-passphrase", "123456")
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(i)
+	}
+	req := EncodeUnsealRequest(nonce, "my-passphrase", "123456")
 
-	// Verify wire format: [1 version] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
-	if req[0] != unsealWireVersion {
-		t.Errorf("version = %d, want %d", req[0], unsealWireVersion)
+	// Verify wire format: [1 version] [16 nonce] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
+	if req[0] != unsealWireV2 {
+		t.Errorf("version = %d, want %d", req[0], unsealWireV2)
 	}
 
-	passLen := int(req[1])<<8 | int(req[2])
+	// Verify nonce echo.
+	if !bytes.Equal(req[1:1+unsealNonceLen], nonce) {
+		t.Error("nonce mismatch in encoded request")
+	}
+
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
 	if passLen != 13 {
 		t.Errorf("passphrase length = %d, want 13", passLen)
 	}
 
-	pass := string(req[3 : 3+passLen])
+	pass := string(req[off+2 : off+2+passLen])
 	if pass != "my-passphrase" {
 		t.Errorf("passphrase = %q, want %q", pass, "my-passphrase")
 	}
 
-	totpLen := int(req[3+passLen])
+	totpLen := int(req[off+2+passLen])
 	if totpLen != 6 {
 		t.Errorf("TOTP length = %d, want 6", totpLen)
 	}
 
-	totpCode := string(req[4+passLen : 4+passLen+totpLen])
+	totpCode := string(req[off+3+passLen : off+3+passLen+totpLen])
 	if totpCode != "123456" {
 		t.Errorf("TOTP code = %q, want %q", totpCode, "123456")
 	}
 }
 
 func TestEncodeUnsealRequestNoTOTP(t *testing.T) {
-	req := EncodeUnsealRequest("passphrase", "")
+	nonce := make([]byte, unsealNonceLen)
+	req := EncodeUnsealRequest(nonce, "passphrase", "")
 
-	passLen := int(req[1])<<8 | int(req[2])
-	totpLen := int(req[3+passLen])
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
+	totpLen := int(req[off+2+passLen])
 	if totpLen != 0 {
 		t.Errorf("TOTP length = %d, want 0", totpLen)
 	}
 
-	// Total length: 1 version + 2 pass-len + 10 pass + 1 TOTP-len = 14
-	if len(req) != 14 {
-		t.Errorf("request length = %d, want 14", len(req))
+	// Total length: 1 version + 16 nonce + 2 pass-len + 10 pass + 1 TOTP-len = 30
+	if len(req) != 30 {
+		t.Errorf("request length = %d, want 30", len(req))
 	}
 }
 
@@ -103,7 +115,7 @@ func TestReadUnsealResponseEmptyMessage(t *testing.T) {
 }
 
 func TestUnsealLockout(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// First unsealFreeAttempts failures: no lockout (typo grace period).
@@ -137,7 +149,7 @@ func TestUnsealLockout(t *testing.T) {
 }
 
 func TestUnsealLockoutEscalates(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Burn through free attempts.
@@ -169,7 +181,7 @@ func TestUnsealLockoutEscalates(t *testing.T) {
 }
 
 func TestUnsealLockoutResetOnSuccess(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Accumulate failures past the free limit.
@@ -196,7 +208,7 @@ func TestUnsealLockoutResetOnSuccess(t *testing.T) {
 }
 
 func TestUnsealLockoutPermanentBlock(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Exhaust all free attempts + all lockout schedule entries.
@@ -237,7 +249,7 @@ func TestUnsealLockoutPermanentBlock(t *testing.T) {
 }
 
 func TestUnsealFailureMessageBlock(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 
 	// Past the schedule: shows permanent block message.
 	msg := handler.failureMessage("invalid passphrase", unsealFreeAttempts+len(unsealLockoutSchedule)+1)
@@ -247,7 +259,7 @@ func TestUnsealFailureMessageBlock(t *testing.T) {
 }
 
 func TestUnsealFailureMessage(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 
 	// Within free attempts: shows remaining.
 	msg := handler.failureMessage("invalid passphrase", 2)
@@ -268,24 +280,110 @@ func TestUnsealFailureMessage(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeRoundTrip(t *testing.T) {
-	// Encode a request
-	req := EncodeUnsealRequest("test-pass", "654321")
+func TestUnsealLockoutPersistence(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := dir + "/lockout.json"
 
-	// Verify we can parse it back by reading the wire format manually
-	if req[0] != unsealWireVersion {
+	pid := genPeerID(t)
+
+	// Create handler, accumulate failures.
+	h1 := NewUnsealHandler(nil, "", stateFile)
+	for i := 0; i < unsealFreeAttempts+2; i++ {
+		h1.recordFailure(pid)
+	}
+	failures1 := h1.getFailures(pid)
+	if failures1 != unsealFreeAttempts+2 {
+		t.Fatalf("failures = %d, want %d", failures1, unsealFreeAttempts+2)
+	}
+
+	// Create new handler from same state file (simulates relay restart).
+	h2 := NewUnsealHandler(nil, "", stateFile)
+	failures2 := h2.getFailures(pid)
+	if failures2 != failures1 {
+		t.Fatalf("restored failures = %d, want %d", failures2, failures1)
+	}
+
+	// Lockout should still be active.
+	locked, _ := h2.isLockedOut(pid)
+	if !locked {
+		t.Fatal("should still be locked after restart")
+	}
+}
+
+func TestUnsealLockoutPersistencePermanentBlock(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := dir + "/lockout.json"
+
+	pid := genPeerID(t)
+
+	// Exhaust all attempts to get permanently blocked.
+	h1 := NewUnsealHandler(nil, "", stateFile)
+	total := unsealFreeAttempts + len(unsealLockoutSchedule) + 1
+	for i := 0; i < total; i++ {
+		h1.recordFailure(pid)
+		h1.mu.Lock()
+		if lo, ok := h1.lockouts[pid]; ok {
+			lo.lockedUntil = time.Time{} // clear timer to keep failing
+		}
+		h1.mu.Unlock()
+	}
+
+	// Verify blocked.
+	locked, remaining := h1.isLockedOut(pid)
+	if !locked || remaining != -1 {
+		t.Fatalf("expected permanent block, got locked=%v remaining=%v", locked, remaining)
+	}
+
+	// Restart: permanent block should survive.
+	h2 := NewUnsealHandler(nil, "", stateFile)
+	locked, remaining = h2.isLockedOut(pid)
+	if !locked || remaining != -1 {
+		t.Fatalf("permanent block should survive restart, got locked=%v remaining=%v", locked, remaining)
+	}
+}
+
+func TestEncodeDecodeRoundTrip(t *testing.T) {
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(0xAA)
+	}
+
+	req := EncodeUnsealRequest(nonce, "test-pass", "654321")
+
+	if req[0] != unsealWireV2 {
 		t.Fatal("wrong version")
 	}
 
-	passLen := int(req[1])<<8 | int(req[2])
-	pass := string(req[3 : 3+passLen])
-	totpLen := int(req[3+passLen])
-	totp := string(req[4+passLen : 4+passLen+totpLen])
+	// Verify nonce.
+	if !bytes.Equal(req[1:1+unsealNonceLen], nonce) {
+		t.Fatal("nonce mismatch")
+	}
+
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
+	pass := string(req[off+2 : off+2+passLen])
+	totpLen := int(req[off+2+passLen])
+	totp := string(req[off+3+passLen : off+3+passLen+totpLen])
 
 	if pass != "test-pass" {
 		t.Errorf("passphrase = %q, want %q", pass, "test-pass")
 	}
 	if totp != "654321" {
 		t.Errorf("TOTP = %q, want %q", totp, "654321")
+	}
+}
+
+func TestReadUnsealChallenge(t *testing.T) {
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(i + 1)
+	}
+
+	got, err := ReadUnsealChallenge(bytes.NewReader(nonce))
+	if err != nil {
+		t.Fatalf("ReadUnsealChallenge: %v", err)
+	}
+	if !bytes.Equal(got, nonce) {
+		t.Error("nonce mismatch")
 	}
 }

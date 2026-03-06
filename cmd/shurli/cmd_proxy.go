@@ -16,6 +16,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -59,8 +60,9 @@ func runProxy(args []string) {
 func runProxyViaDaemon(client *daemon.Client, target, service, port string) {
 	listenAddr := fmt.Sprintf("localhost:%s", port)
 
-	fmt.Printf("=== TCP Proxy via P2P (daemon) ===\n")
-	fmt.Printf("Service: %s\n", service)
+	tc.Wblue(os.Stdout, "=== TCP Proxy via P2P (daemon) ===\n")
+	tc.Wblue(os.Stdout, "Service: ")
+	fmt.Printf("%s\n", service)
 	fmt.Println()
 
 	// Show verification badge
@@ -73,16 +75,19 @@ func runProxyViaDaemon(client *daemon.Client, target, service, port string) {
 	}
 
 	if resp.PathType != "" {
-		fmt.Printf("Connected [%s] via %s\n", resp.PathType, resp.Address)
+		tc.Wgreen(os.Stdout, "Connected")
+		tc.Wfaint(os.Stdout, " [%s] via %s", resp.PathType, resp.Address)
+		fmt.Println()
 	} else {
-		fmt.Println("Connected")
+		tc.Wgreen(os.Stdout, "Connected\n")
 	}
 	fmt.Println()
-	fmt.Printf("TCP proxy listening on %s\n", resp.ListenAddress)
+	tc.Wblue(os.Stdout, "TCP proxy listening on ")
+	fmt.Printf("%s\n", resp.ListenAddress)
 	fmt.Println()
 	fmt.Println("Connect to the service:")
 	fmt.Printf("   %s -> %s service on target\n", resp.ListenAddress, service)
-	fmt.Println("\nPress Ctrl+C to stop.")
+	tc.Wfaint(os.Stdout, "\nPress Ctrl+C to stop.")
 	fmt.Println()
 
 	// Block until Ctrl+C
@@ -123,9 +128,10 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 		osExit(1)
 	}
 
-	fmt.Printf("=== TCP Proxy via P2P (standalone) ===\n")
-	fmt.Printf("Config: %s\n", cfgFile)
-	fmt.Printf("Service: %s\n", serviceName)
+	tc.Wblue(os.Stdout, "=== TCP Proxy via P2P (standalone) ===\n")
+	tc.Wfaint(os.Stdout, "Config: %s\n", cfgFile)
+	tc.Wblue(os.Stdout, "Service: ")
+	fmt.Printf("%s\n", serviceName)
 	fmt.Println()
 
 	// Resolve password for SHRL-encrypted identity key.
@@ -137,6 +143,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         cfg.Relay.Addresses,
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
@@ -198,7 +205,9 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	if err != nil {
 		fatal("Failed to connect to target: %v", err)
 	}
-	fmt.Printf("Connected [%s] via %s (%s)\n", result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+	tc.Wgreen(os.Stdout, "Connected")
+	tc.Wfaint(os.Stdout, " [%s] via %s (%s)", result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+	fmt.Println()
 	fmt.Println()
 
 	// Create TCP listener with retry-enabled dial function.
@@ -215,11 +224,12 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 	}
 	defer listener.Close()
 
-	fmt.Printf("TCP proxy listening on %s\n", localAddr)
+	tc.Wblue(os.Stdout, "TCP proxy listening on ")
+	fmt.Printf("%s\n", localAddr)
 	fmt.Println()
 	fmt.Println("Connect to the service:")
 	fmt.Printf("   %s -> %s service on target\n", localAddr, serviceName)
-	fmt.Println("\nPress Ctrl+C to stop.")
+	tc.Wfaint(os.Stdout, "\nPress Ctrl+C to stop.")
 	fmt.Println()
 
 	// Handle graceful shutdown

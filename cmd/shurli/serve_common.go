@@ -198,6 +198,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		Gater:              rt.gater,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + ver,
+		Namespace:          cfg.Discovery.Network,
 		Metrics:            rt.metrics,
 		BandwidthTracker:      rt.bwTracker,
 		EnableRelay:           true,
@@ -1047,6 +1048,48 @@ func (rt *serveRuntime) StartStatusPrinter() {
 				fmt.Printf("  [%s] %s\n", label, addr.String())
 			}
 			fmt.Println("--------------")
+			select {
+			case <-rt.ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+// StartDHTHealthCheck runs a background goroutine that periodically verifies
+// the DHT routing table is healthy. If the table is empty or seeds are missing,
+// it triggers a re-bootstrap. Runs every 5 minutes after an initial 60s delay.
+func (rt *serveRuntime) StartDHTHealthCheck() {
+	if rt.kdht == nil {
+		return
+	}
+
+	go func() {
+		select {
+		case <-rt.ctx.Done():
+			return
+		case <-time.After(60 * time.Second):
+		}
+
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			rtSize := rt.kdht.RoutingTable().Size()
+			if rtSize == 0 {
+				slog.Warn("DHT health: routing table empty, triggering re-bootstrap")
+				bootstrapCtx, cancel := context.WithTimeout(rt.ctx, 30*time.Second)
+				if err := rt.kdht.Bootstrap(bootstrapCtx); err != nil {
+					slog.Error("DHT health: re-bootstrap failed", "error", err)
+				} else {
+					slog.Info("DHT health: re-bootstrap completed")
+				}
+				cancel()
+			} else {
+				slog.Debug("DHT health: routing table OK", "peers", rtSize)
+			}
+
 			select {
 			case <-rt.ctx.Done():
 				return

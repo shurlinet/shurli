@@ -100,12 +100,28 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 	}
 
 	// Check enrollment mode: allow probationary peers during pairing.
-	if g.enrollmentEnabled && len(g.probationPeers) < g.probationLimit {
+	// If at capacity, evict the oldest probation peer (newest is more likely a legitimate pairing).
+	if g.enrollmentEnabled {
 		// Upgrade to write lock for probation admission.
 		g.mu.RUnlock()
 		g.mu.Lock()
 		// Re-check under write lock (double-check pattern).
-		if g.enrollmentEnabled && len(g.probationPeers) < g.probationLimit && !g.authorizedPeers[p] {
+		if g.enrollmentEnabled && !g.authorizedPeers[p] {
+			// At capacity: evict the oldest probation peer to make room.
+			if len(g.probationPeers) >= g.probationLimit {
+				var oldestPeer peer.ID
+				var oldestTime time.Time
+				for pid, admitted := range g.probationPeers {
+					if oldestTime.IsZero() || admitted.Before(oldestTime) {
+						oldestPeer = pid
+						oldestTime = admitted
+					}
+				}
+				if oldestPeer != "" {
+					delete(g.probationPeers, oldestPeer)
+					slog.Info("probation peer preempted (oldest evicted)", "evicted", oldestPeer.String()[:16]+"...", "new", short)
+				}
+			}
 			// Per-IP rate limiting: prevent rapid probation cycling from a single IP.
 			// IPv6 addresses are normalized to /64 prefix to prevent bypass via rotation.
 			remoteIP := normalizeIPForRateLimit(extractIPFromMultiaddr(addr.RemoteMultiaddr()))

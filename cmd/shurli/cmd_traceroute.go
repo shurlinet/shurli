@@ -19,6 +19,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -80,6 +81,7 @@ func runTraceroute(args []string) {
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         cfg.Relay.Addresses,
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
@@ -105,7 +107,7 @@ func runTraceroute(args []string) {
 	h := p2pNetwork.Host()
 
 	if !*jsonFlag {
-		fmt.Printf("traceroute to %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "traceroute to %s (%s)\n", target, targetPeerID.String()[:16]+"...")
 		fmt.Println("Connecting...")
 	}
 
@@ -135,16 +137,20 @@ func runTraceroute(args []string) {
 			peerShort = peerShort[:16] + "..."
 		}
 		if hop.Error != "" {
-			fmt.Printf(" %d  %s  %s  *\n", hop.Hop, peerShort, hop.Address)
+			fmt.Printf(" %d  %s  %s  ", hop.Hop, peerShort, hop.Address)
+			tc.Wred(os.Stdout, "*")
+			fmt.Println()
 		} else {
 			name := ""
 			if hop.Name != "" {
 				name = " (" + hop.Name + ")"
 			}
-			fmt.Printf(" %d  %s%s  %s  %.1fms\n", hop.Hop, peerShort, name, hop.Address, hop.RttMs)
+			fmt.Printf(" %d  %s%s  %s  ", hop.Hop, peerShort, name, hop.Address)
+			tc.Wgreen(os.Stdout, "%.1fms", hop.RttMs)
+			fmt.Println()
 		}
 	}
-	fmt.Printf("--- path: [%s] ---\n", result.Path)
+	tc.Wfaint(os.Stdout, "--- path: [%s] ---\n", result.Path)
 }
 
 // bootstrapAndConnect bootstraps the DHT and connects to the target peer.
