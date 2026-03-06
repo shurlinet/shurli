@@ -208,6 +208,17 @@ The auto-seal timer runs from the moment you unseal. If you need more time:
 | Tested seal/unseal cycle before relying on it | |
 | Tested remote unseal from a second device | |
 | Relay restarts into sealed (watch-only) mode | |
+| DNSSEC enabled on seed domain (if operating public seeds) | |
+
+## DNS security for seed relays
+
+If you operate public seed relays with DNS-based discovery (`_dnsaddr` TXT records), enable DNSSEC to prevent spoofing:
+
+1. **DNS provider**: enable DNSSEC in your DNS provider's dashboard settings
+2. **Domain registrar**: add the DS (Delegation Signer) record that your DNS provider generates
+3. **Verify**: wait for propagation (up to 48 hours), then check with `dig +dnssec _dnsaddr.seeds.example.com TXT`
+
+DNSSEC cryptographically signs your DNS records, preventing attackers from redirecting bootstrap queries to malicious nodes. This is defense-in-depth: even without DNSSEC, the ConnectionGater rejects unauthorized peers after bootstrap, and hardcoded fallback seeds in the binary provide an independent bootstrap path.
 
 ## Remote relay management
 
