@@ -572,8 +572,6 @@ After Phase 5 observability and PeerManager provide the data:
 - [x] Multi-relay failover with health-aware selection - RelayHealth tracks per-relay EWMA scores (success rate, RTT, freshness). RelayDiscovery returns health-ranked relay addresses. Background probing every 60s. Degraded relays deprioritized automatically. Prometheus metrics for relay health scores
 - [x] Per-peer bandwidth tracking - BandwidthTracker wraps libp2p's BandwidthCounter. Per-peer, per-protocol, and aggregate stats via Prometheus gauges. Background publish loop (30s). Daemon API: `GET /v1/bandwidth`
 - [x] Bootstrap decentralization - layered bootstrap: config peers > DNS seeds (`_dnsaddr.<domain>` TXT records) > hardcoded seeds > relay addresses. Same pattern as Bitcoin/IPFS. `seeds.go` + `dnsseed.go`
-- [ ] **End goal**: Relay VPS becomes **obsolete** - not just optional. Every publicly-reachable Shurli node relays for its authorized peers. No special nodes, no central coordination
-
 ---
 
 ### Phase 6: ACL, Relay Security & Client Invites ✅ COMPLETE
@@ -1303,6 +1301,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 **Status**: 📋 Conceptual
 
 **Potential Features**:
+- [ ] **Relay VPS obsolescence** - every publicly-reachable Shurli node relays for its authorized peers. No special nodes, no central coordination. The relay VPS becomes obsolete, not just optional.
 - [ ] Multi-lingual website and documentation (Hugo i18n). Priority languages: Spanish, Chinese (Simplified), Hindi, Portuguese, Japanese, French, German. Community-contributed translations welcome.
 - [ ] Web-based dashboard for network management
 - [ ] Protocol marketplace (community-contributed service templates)
