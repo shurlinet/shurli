@@ -22,8 +22,9 @@ import (
 // When EnableDataRelay=true, all authorized peers can create circuits.
 // Connection gating (AuthorizedPeerGater) still handles unauthorized peers.
 type CircuitACL struct {
-	authKeysPath    string
-	enableDataRelay bool
+	authKeysPath         string
+	enableDataRelay      bool
+	enableConnectionGating bool
 
 	mu      sync.RWMutex
 	peers   map[peer.ID]bool         // cached authorized peer set
@@ -33,13 +34,16 @@ type CircuitACL struct {
 // NewCircuitACL creates a new circuit ACL filter.
 // authKeysPath is the path to the authorized_keys file.
 // enableDataRelay is the global toggle from relay-server.yaml security config.
+// enableConnectionGating controls whether reservations require authorization.
+// When gating is disabled, all peers can reserve (open relay mode).
 // The authorized_keys data is cached in memory and refreshed via Reload().
-func NewCircuitACL(authKeysPath string, enableDataRelay bool) *CircuitACL {
+func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating bool) *CircuitACL {
 	acl := &CircuitACL{
-		authKeysPath:    authKeysPath,
-		enableDataRelay: enableDataRelay,
-		peers:           make(map[peer.ID]bool),
-		entries:         make(map[peer.ID]auth.PeerEntry),
+		authKeysPath:         authKeysPath,
+		enableDataRelay:      enableDataRelay,
+		enableConnectionGating: enableConnectionGating,
+		peers:                make(map[peer.ID]bool),
+		entries:              make(map[peer.ID]auth.PeerEntry),
 	}
 	// Initial load.
 	acl.loadFromDisk()
@@ -79,9 +83,10 @@ func (a *CircuitACL) loadFromDisk() {
 // AllowReserve allows authorized peers to make relay reservations.
 // Probation peers (not in authorized_keys) are denied to prevent relay
 // circuit abuse during enrollment mode.
-// If no authKeysPath is configured, all peers are allowed (open relay).
+// If connection gating is disabled or no authKeysPath is configured,
+// all peers are allowed (open relay).
 func (a *CircuitACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
-	if a.authKeysPath == "" {
+	if !a.enableConnectionGating || a.authKeysPath == "" {
 		return true
 	}
 	a.mu.RLock()
