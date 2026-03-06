@@ -27,11 +27,22 @@ type Challenge struct {
 
 // ChallengeStore manages single-use challenge nonces for the ZKP auth protocol.
 // Nonces are cryptographically random, expire after TTL, and can only be consumed once.
+// Under memory pressure (>80% capacity), callers should increase per-peer rate limits
+// for graceful degradation.
 type ChallengeStore struct {
 	mu         sync.Mutex
 	challenges map[uint64]*Challenge
 	ttl        time.Duration
 	maxPending int
+}
+
+// UnderPressure returns true when the store is at >80% capacity.
+// Callers should increase per-peer rate limits (e.g., 5s -> 30s) during pressure
+// to slow the fill rate and give TTL expiry time to reclaim slots.
+func (s *ChallengeStore) UnderPressure() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.challenges) > s.maxPending*4/5
 }
 
 // NewChallengeStore creates a store with the given nonce TTL.

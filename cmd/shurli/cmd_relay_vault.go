@@ -298,8 +298,14 @@ func doRemoteUnseal(relayAddr string, promptTOTP bool, _ string, stdout io.Write
 
 	s.SetDeadline(time.Now().Add(30 * time.Second))
 
-	// Send the binary unseal request.
-	if _, err := s.Write(relay.EncodeUnsealRequest(password, totpCode)); err != nil {
+	// Read the challenge nonce from the relay (replay protection).
+	nonce, err := relay.ReadUnsealChallenge(s)
+	if err != nil {
+		return fmt.Errorf("failed to read unseal challenge: %w", err)
+	}
+
+	// Send the binary unseal request with nonce echo.
+	if _, err := s.Write(relay.EncodeUnsealRequest(nonce, password, totpCode)); err != nil {
 		return fmt.Errorf("failed to send unseal request: %w", err)
 	}
 	s.CloseWrite()
