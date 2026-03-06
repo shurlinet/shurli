@@ -11,6 +11,7 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/qr"
+	"github.com/shurlinet/shurli/internal/termcolor"
 )
 
 func runInvite(args []string) {
@@ -124,14 +125,15 @@ func printInviteCodes(codes []string, ttl time.Duration, nonInteractive bool) {
 	}
 
 	fmt.Println()
-	fmt.Printf("=== Invite Code%s (expires in %s) ===\n", plural(len(codes)), ttl)
+	termcolor.Green("=== Invite Code%s (expires in %s) ===", plural(len(codes)), ttl)
 	fmt.Println()
 
 	for i, code := range codes {
 		if len(codes) > 1 {
 			fmt.Printf("Code %d:\n", i+1)
 		}
-		fmt.Println(code)
+		termcolor.Wgreen(os.Stdout, "%s", code)
+		fmt.Println()
 		fmt.Println()
 
 		// Show QR code for the first code only
@@ -145,14 +147,16 @@ func printInviteCodes(codes []string, ttl time.Duration, nonInteractive bool) {
 		}
 	}
 
-	fmt.Println("--- Send this to the joining peer ---")
+	termcolor.Faint("--- Send this to the joining peer ---")
+	fmt.Println()
 	fmt.Println()
 	fmt.Println("Install shurli: https://shurli.net/install")
 	fmt.Println("Then run:")
 	fmt.Println("  shurli init")
 	fmt.Printf("  shurli join %s --name <your-device-name>\n", codes[0])
 	fmt.Println()
-	fmt.Println("---")
+	termcolor.Faint("---")
+	fmt.Println()
 }
 
 // plural returns "s" for count > 1.

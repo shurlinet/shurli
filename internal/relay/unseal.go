@@ -2,10 +2,13 @@ package relay
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -62,10 +65,23 @@ type peerLockout struct {
 	blocked     bool // permanently blocked after exhausting all lockout levels
 }
 
+// persistedLockout is the JSON-serializable form of peerLockout.
+type persistedLockout struct {
+	Failures    int       `json:"failures"`
+	LockedUntil time.Time `json:"locked_until,omitempty"`
+	Blocked     bool      `json:"blocked,omitempty"`
+}
+
+// lockoutState is the top-level JSON structure persisted to disk.
+type lockoutState struct {
+	Peers map[string]persistedLockout `json:"peers"`
+}
+
 // UnsealHandler handles remote unseal requests from admin peers.
 type UnsealHandler struct {
 	Vault        *vault.Vault
 	AuthKeysPath string
+	StateFile    string          // path to lockout state file (empty = no persistence)
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
 
 	mu       sync.Mutex
@@ -73,12 +89,88 @@ type UnsealHandler struct {
 }
 
 // NewUnsealHandler creates a handler for the remote unseal protocol.
-func NewUnsealHandler(v *vault.Vault, authKeysPath string) *UnsealHandler {
-	return &UnsealHandler{
+// stateFile is the path to persist lockout state (empty string disables persistence).
+func NewUnsealHandler(v *vault.Vault, authKeysPath, stateFile string) *UnsealHandler {
+	h := &UnsealHandler{
 		Vault:        v,
 		AuthKeysPath: authKeysPath,
+		StateFile:    stateFile,
 		lockouts:     make(map[peer.ID]*peerLockout),
 	}
+	h.loadState()
+	return h
+}
+
+// loadState restores lockout state from disk. Errors are logged but not fatal.
+func (h *UnsealHandler) loadState() {
+	if h.StateFile == "" {
+		return
+	}
+	data, err := os.ReadFile(h.StateFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("unseal: failed to load lockout state", "file", h.StateFile, "err", err)
+		}
+		return
+	}
+
+	var state lockoutState
+	if err := json.Unmarshal(data, &state); err != nil {
+		slog.Warn("unseal: failed to parse lockout state", "file", h.StateFile, "err", err)
+		return
+	}
+
+	for peerStr, pl := range state.Peers {
+		pid, err := peer.Decode(peerStr)
+		if err != nil {
+			slog.Warn("unseal: skipping invalid peer ID in state", "peer", peerStr)
+			continue
+		}
+		h.lockouts[pid] = &peerLockout{
+			failures:    pl.Failures,
+			lockedUntil: pl.LockedUntil,
+			blocked:     pl.Blocked,
+		}
+	}
+	slog.Info("unseal: restored lockout state", "peers", len(state.Peers))
+}
+
+// saveState persists lockout state to disk atomically. Must be called with mu held.
+func (h *UnsealHandler) saveState() {
+	if h.StateFile == "" {
+		return
+	}
+
+	state := lockoutState{Peers: make(map[string]persistedLockout, len(h.lockouts))}
+	for pid, lo := range h.lockouts {
+		state.Peers[pid.String()] = persistedLockout{
+			Failures:    lo.failures,
+			LockedUntil: lo.lockedUntil,
+			Blocked:     lo.blocked,
+		}
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		slog.Error("unseal: failed to marshal lockout state", "err", err)
+		return
+	}
+
+	// Atomic write: temp file + rename.
+	tmp := h.StateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		slog.Error("unseal: failed to write lockout state", "file", tmp, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, h.StateFile); err != nil {
+		slog.Error("unseal: failed to rename lockout state", "err", err)
+		os.Remove(tmp)
+	}
+}
+
+// LockoutStateFile returns the conventional lockout state file path for a relay config dir.
+func LockoutStateFile(configDir string) string {
+	return filepath.Join(configDir, ".unseal-lockout.json")
 }
 
 // HandleStream processes an incoming unseal stream.
@@ -248,6 +340,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 
 	// First unsealFreeAttempts failures: no lockout (typo grace period).
 	if lo.failures <= unsealFreeAttempts {
+		h.saveState()
 		return
 	}
 
@@ -259,6 +352,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 		lo.blocked = true
 		h.incLockedGauge()
 		slog.Warn("unseal: peer permanently blocked after exhausting all attempts", "peer", p.String()[:16]+"...")
+		h.saveState()
 		return
 	}
 
@@ -267,6 +361,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 		h.incLockedGauge()
 	}
 	lo.lockedUntil = time.Now().Add(unsealLockoutSchedule[idx])
+	h.saveState()
 }
 
 // getFailures returns the current failure count for a peer.
@@ -289,6 +384,7 @@ func (h *UnsealHandler) resetLockout(p peer.ID) {
 		h.decLockedGauge()
 	}
 	delete(h.lockouts, p)
+	h.saveState()
 }
 
 // recordMetric increments the vault unseal counter. Nil-safe.
