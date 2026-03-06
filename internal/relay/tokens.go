@@ -19,12 +19,13 @@ const TokenSize = 16
 const maxAttempts = 3
 
 var (
-	ErrTokenNotFound = errors.New("pairing failed")
-	ErrTokenUsed     = errors.New("pairing failed")
-	ErrTokenBurned   = errors.New("pairing failed")
-	ErrTokenExpired  = errors.New("pairing failed")
-	ErrGroupNotFound = errors.New("group not found")
-	ErrGroupExpired  = errors.New("group expired")
+	ErrTokenNotFound  = errors.New("pairing failed")
+	ErrTokenUsed      = errors.New("pairing failed")
+	ErrTokenBurned    = errors.New("pairing failed")
+	ErrTokenExpired   = errors.New("pairing failed")
+	ErrGroupNotFound  = errors.New("group not found")
+	ErrGroupExpired   = errors.New("group expired")
+	ErrStoreCapacity  = errors.New("token store at capacity")
 )
 
 // CodeSlot represents a single pairing code within a group.
@@ -74,14 +75,29 @@ type GroupInfo struct {
 // TokenStore manages in-memory pairing tokens for the relay.
 // All tokens are lost on relay restart (by design).
 type TokenStore struct {
-	mu     sync.RWMutex
-	groups map[string]*PairingGroup
+	mu        sync.RWMutex
+	groups    map[string]*PairingGroup
+	maxGroups int // 0 = unlimited (default 10000)
 }
 
-// NewTokenStore creates an empty token store.
+// DefaultMaxGroups is the default cap on total pairing groups in memory.
+// Prevents memory exhaustion from group creation flooding.
+const DefaultMaxGroups = 10000
+
+// NewTokenStore creates an empty token store with the default capacity.
 func NewTokenStore() *TokenStore {
 	return &TokenStore{
-		groups: make(map[string]*PairingGroup),
+		groups:    make(map[string]*PairingGroup),
+		maxGroups: DefaultMaxGroups,
+	}
+}
+
+// NewTokenStoreWithCapacity creates a token store with a custom group capacity.
+// Use 0 for unlimited (not recommended in production).
+func NewTokenStoreWithCapacity(maxGroups int) *TokenStore {
+	return &TokenStore{
+		groups:    make(map[string]*PairingGroup),
+		maxGroups: maxGroups,
 	}
 }
 
@@ -143,6 +159,11 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 	}
 
 	ts.mu.Lock()
+	// Global capacity check: prevent memory exhaustion from group flooding.
+	if ts.maxGroups > 0 && len(ts.groups) >= ts.maxGroups {
+		ts.mu.Unlock()
+		return nil, "", ErrStoreCapacity
+	}
 	// Atomic per-peer quota check under write lock (prevents TOCTOU race).
 	if maxGroupsPerPeer > 0 && createdBy != "" {
 		peerCount := 0

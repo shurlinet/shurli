@@ -1407,7 +1407,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 - [ ] Admin endpoint path allowlist - replace `isInvitePath()` prefix matching with explicit exact path allowlist. Prevents path traversal if new `/v1/pair/` endpoints are added.
 - [ ] Circuit ACL denial log rate-limiting - under attack, Info-level denial logs flood. Rate-limit logging (every Nth after threshold).
 - [ ] DHT routing table health check - periodic check that routing table contains expected seed peers. Alert if seeds disappear (eclipse attack indicator).
-- [ ] Per-network ephemeral identity - HKDF domain-separated per-namespace identities to prevent cross-network peer ID correlation. Significant architecture change.
+- [x] Per-network ephemeral identity - HKDF domain-separated per-namespace identities to prevent cross-network peer ID correlation. `DeriveNamespaceKey()` in `internal/identity/seed.go`.
 - [ ] Challenge store memory-pressure backoff - at >800/1000 ZKP challenge capacity, increase per-peer rate from 5s to 30s for graceful degradation.
 - [ ] Probation slot preemption - evict oldest probation peer at limit rather than denying new. Newest is more likely a legitimate pairing.
 - [ ] Admin socket audit log - log PID/UID of socket connections via `SO_PEERCRED` for forensic traceability.

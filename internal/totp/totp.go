@@ -82,6 +82,25 @@ func Validate(cfg *Config, code string, t time.Time, skew int) bool {
 	return false
 }
 
+// ValidateWithCounter checks a TOTP code and returns the counter value if valid.
+// Rejects any counter at or before lastCounter (replay prevention per RFC 6238).
+// Returns the matched counter and true on success, or (0, false) on failure.
+func ValidateWithCounter(cfg *Config, code string, t time.Time, skew int, lastCounter uint64) (uint64, bool) {
+	period, _ := cfg.defaults()
+
+	for i := -skew; i <= skew; i++ {
+		check := t.Add(time.Duration(i*period) * time.Second)
+		counter := uint64(check.Unix()) / uint64(period)
+		if counter <= lastCounter {
+			continue // replay: this counter was already accepted
+		}
+		if Generate(cfg, check) == code {
+			return counter, true
+		}
+	}
+	return 0, false
+}
+
 // NewSecret generates a cryptographically random secret of the given byte length.
 // RFC 4226 recommends at least 20 bytes (160 bits) for HMAC-SHA1.
 func NewSecret(length int) ([]byte, error) {

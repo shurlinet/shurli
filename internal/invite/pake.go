@@ -57,14 +57,25 @@ func deriveKey(sharedSecret []byte, token [8]byte) ([]byte, error) {
 }
 
 // deriveKeyBytes computes the shared AEAD key from the DH shared secret and arbitrary salt.
-func deriveKeyBytes(sharedSecret []byte, salt []byte) ([]byte, error) {
+// channelBinding is optional: when non-nil, it's appended to the HKDF info string
+// to bind the session to a specific relay (prevents relay swap attacks).
+func deriveKeyBytes(sharedSecret []byte, salt []byte, channelBinding ...[]byte) ([]byte, error) {
 	// Combine shared secret with token/salt as HKDF input material.
 	// This binds the session key to the invite token.
 	ikm := make([]byte, len(sharedSecret)+len(salt))
 	copy(ikm, sharedSecret)
 	copy(ikm[len(sharedSecret):], salt)
 
-	r := hkdf.New(sha256.New, ikm, nil, []byte(pakeInfo))
+	// Build HKDF info: base info + optional channel binding (relay peer ID).
+	// If channel binding is provided, PAKE fails if redirected to a different relay.
+	info := []byte(pakeInfo)
+	for _, cb := range channelBinding {
+		if len(cb) > 0 {
+			info = append(info, cb...)
+		}
+	}
+
+	r := hkdf.New(sha256.New, ikm, nil, info)
 	key := make([]byte, chacha20poly1305.KeySize)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("HKDF key derivation failed: %w", err)
@@ -95,7 +106,9 @@ func (s *PAKESession) Complete(remotePub []byte, token [8]byte) error {
 
 // CompleteWithSalt performs the DH exchange with an arbitrary-length salt.
 // Used for relay-side PAKE where the token may be 10 or 16 bytes.
-func (s *PAKESession) CompleteWithSalt(remotePub []byte, salt []byte) error {
+// Optional channelBinding binds the session to a specific relay peer ID,
+// preventing relay swap attacks (PAKE fails if redirected to a different relay).
+func (s *PAKESession) CompleteWithSalt(remotePub []byte, salt []byte, channelBinding ...[]byte) error {
 	peerKey, err := ecdh.X25519().NewPublicKey(remotePub)
 	if err != nil {
 		return fmt.Errorf("invalid remote public key: %w", err)
@@ -106,7 +119,7 @@ func (s *PAKESession) CompleteWithSalt(remotePub []byte, salt []byte) error {
 		return fmt.Errorf("X25519 key exchange failed: %w", err)
 	}
 
-	key, err := deriveKeyBytes(shared, salt)
+	key, err := deriveKeyBytes(shared, salt, channelBinding...)
 	if err != nil {
 		return err
 	}

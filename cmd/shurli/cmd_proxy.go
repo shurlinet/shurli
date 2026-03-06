@@ -143,6 +143,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, force
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         cfg.Relay.Addresses,
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
