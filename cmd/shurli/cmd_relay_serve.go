@@ -251,7 +251,7 @@ func runRelayServe(args []string) {
 	// relay_data=true can create circuits. Signaling protocols (relay-pair,
 	// peer-notify, etc.) are direct streams and are unaffected by this ACL.
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
-	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay)
+	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay, cfg.Security.EnableConnectionGating)
 	_, err = relayv2.New(h,
 		relayv2.WithResources(relayResources),
 		relayv2.WithLimit(relayLimit),

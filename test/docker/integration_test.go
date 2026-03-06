@@ -141,13 +141,6 @@ func TestInviteJoinFlow(t *testing.T) {
 	if err := writeFileInContainer("relay", "/data/relay_authorized_keys", "# test relay\n"+authLine); err != nil {
 		t.Fatalf("failed to write relay authorized_keys: %v", err)
 	}
-	// Reload the circuit ACL cache so AllowReserve sees the new entry.
-	// Without this, the in-memory cache stays empty and relay reservations
-	// get PERMISSION_DENIED.
-	reloadCmd := `curl -sf --unix-socket /data/.relay-admin.sock -X POST -H "Authorization: Bearer $(cat /data/.relay-admin.cookie)" http://localhost/v1/auth/reload`
-	if _, _, err := dockerExec("relay", "sh", "-c", reloadCmd); err != nil {
-		t.Logf("Warning: auth reload via admin socket failed: %v (may not affect invite test)", err)
-	}
 
 	// ── Step 3: Run invite on node-a (background) ──
 	t.Log("Starting invite on node-a...")
