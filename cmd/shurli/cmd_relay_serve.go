@@ -377,7 +377,7 @@ func runRelayServe(args []string) {
 		defer adminSrv.Stop()
 	}
 
-	// Register remote admin protocol (replaces the old /shurli/relay-unseal/1.0.0 protocol).
+	// Register remote admin protocol for general admin operations over P2P.
 	// Available even when sealed - admin peers can unseal, check status, etc.
 	remoteAdminHandler := relay.NewRemoteAdminHandler(adminSrv, cfg.Security.AuthorizedKeysFile)
 	remoteAdminHandler.SetInvitePolicy(cfg.Security.InvitePolicy)
@@ -385,6 +385,19 @@ func runRelayServe(args []string) {
 		remoteAdminHandler.HandleStream(s)
 	})
 	slog.Info("remote admin protocol registered", "protocol", relay.RemoteAdminProtocol)
+
+	// Register dedicated unseal protocol for remote vault unseal over P2P.
+	// This has its own iOS-style escalating lockout (4 free tries, then
+	// 1min/5min/15min/1hr, then permanent block) and binary wire format.
+	// /v1/unseal remains blocked on the generic admin protocol by design.
+	var unsealHandler *relay.UnsealHandler
+	if relayVault != nil {
+		unsealHandler = relay.NewUnsealHandler(relayVault, cfg.Security.AuthorizedKeysFile)
+		h.SetStreamHandler(protocol.ID(relay.UnsealProtocol), func(s network.Stream) {
+			unsealHandler.HandleStream(s)
+		})
+		slog.Info("unseal protocol registered", "protocol", relay.UnsealProtocol)
+	}
 
 	// Initialize MOTD handler for relay operator announcements.
 	goodbyeFile := filepath.Join(filepath.Dir(configFile), ".relay-goodbye.json")
@@ -569,6 +582,9 @@ func runRelayServe(args []string) {
 			zkpAuthHandler.Metrics = relayMetrics
 		}
 		motdHandler.SetMetrics(relayMetrics)
+		if unsealHandler != nil {
+			unsealHandler.Metrics = relayMetrics
+		}
 
 		// Set initial vault seal state gauge.
 		if relayVault != nil {

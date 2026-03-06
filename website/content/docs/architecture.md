@@ -1159,6 +1159,7 @@ Validated at four points:
 - ✅ Relay identity correlation (ZKP membership proofs - relay cannot learn which peer authenticated)
 - ✅ ZKP replay attacks (single-use nonces, 30s TTL, cryptographic randomness)
 - ✅ Reputation score inflation (range proofs - prove score >= threshold without revealing exact value)
+- ✅ DNS seed spoofing (DNSSEC-signed `_dnsaddr` TXT records + hardcoded fallback seeds + ConnectionGater rejects unauthorized peers post-bootstrap)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
@@ -1180,6 +1181,11 @@ Validated at four points:
    - Enable relay authentication in production
    - Monitor relay bandwidth usage
    - Use non-standard ports
+
+4. **DNS Security**:
+   - Enable DNSSEC on the seed domain (signs `_dnsaddr` TXT records)
+   - Enable DNSSEC in your DNS provider's settings, then add the DS record at your domain registrar
+   - Defense-in-depth: even without DNSSEC, the ConnectionGater rejects unauthorized peers post-bootstrap, and hardcoded seeds provide a fallback bootstrap path
 
 ---
 
