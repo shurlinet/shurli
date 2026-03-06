@@ -11,7 +11,6 @@
 # Built executables
 /shurli
 /shurli-*
-cmd/keytool/keytool
 
 # Test binary, built with `go test -c`
 *.test
@@ -57,3 +56,6 @@ CLAUDE.md
 
 # Relay server backup snapshots
 **/backups/
+
+# socials images
+website/static/images/social/

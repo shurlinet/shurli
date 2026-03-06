@@ -5,7 +5,7 @@ This document describes the technical architecture of Shurli, from current imple
 ## Table of Contents
 
 - [Current Architecture (Phase 8 Complete)](#current-architecture-phase-8-complete) - what's built and working
-- [Target Architecture (Phase 10+)](#target-architecture-phase-10) - planned additions
+- [Target Architecture (Phase 9+)](#target-architecture-phase-10) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
@@ -24,8 +24,8 @@ This document describes the technical architecture of Shurli, from current imple
   - [MOTD and Goodbye (Phase 8)](#motd-and-goodbye-phase-8) - signed operator announcements
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 14)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 13)
+- [Federation Model](#federation-model) - planned (Phase 13)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
 
 ---
 
@@ -262,7 +262,7 @@ echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
 
 ---
 
-## Target Architecture (Phase 10+)
+## Target Architecture (Phase 9+)
 
 ### Planned Additions
 
@@ -274,12 +274,12 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
 │   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
 │   │                        #   status, init, version)
-│   └── gateway/             # 🆕 Phase 12: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/p2pnet/              # ✅ Core library (importable)
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 10: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
-│   └── federation.go        # 🆕 Phase 14: Network peering
+│   ├── interfaces.go        # 🆕 Phase 9: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
+│   └── federation.go        # 🆕 Phase 13: Network peering
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -287,10 +287,10 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 10: File transfer plugin
-│   └── tun/                 # 🆕 Phase 12: TUN/TAP interface
+│   ├── transfer/            # 🆕 Phase 9: File transfer plugin
+│   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 13: Mobile apps
+├── mobile/                  # 🆕 Phase 12: Mobile apps
 │   ├── ios/
 │   └── android/
 │
@@ -303,7 +303,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md) for details.
+> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -650,7 +650,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 10/15)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 15](ROADMAP.md).
+> **Planned (Phase 9/14)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 14](ROADMAP.md).
 
 ---
 
@@ -945,7 +945,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 14)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -966,13 +966,13 @@ federation:
 
 ### Multi-Tier Resolution
 
-> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 10/15.
+> **What works today**: Tier 1 (Local Override) - friendly names configured via `shurli invite`/`join` or manual YAML - and the Direct Peer ID fallback. Tiers 2-3 (Network-Scoped, Blockchain) are planned for Phase 9/14.
 
 ![Name resolution waterfall: Local Override → Network-Scoped → Blockchain → Direct Peer ID, with fallthrough on each tier](images/arch-naming-system.svg)
 
 ### Network-Scoped Name Format
 
-> **Status: Planned (Phase 10/15)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
+> **Status: Planned (Phase 9/14)** - not yet implemented. Currently only simple names work (e.g., `home`, `laptop` as configured in local YAML). The dotted network format below is a future design.
 
 ```
 Format: <hostname>.<network>[.<tld>]
@@ -988,7 +988,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 14)** - not yet implemented. See [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](ROADMAP.md).
 
 ### Relay Peering
 
@@ -998,7 +998,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 13](ROADMAP.md).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -1042,7 +1042,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 14+.
+> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 13+.
 
 ### Binary Size
 
