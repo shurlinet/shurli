@@ -42,7 +42,7 @@ func setupAuthKeys(t *testing.T, entries ...string) string {
 func TestCircuitACL_AllowReserve_AuthorizedPeer(t *testing.T) {
 	p := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, p.String())
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
@@ -54,7 +54,7 @@ func TestCircuitACL_AllowReserve_UnauthorizedPeerDenied(t *testing.T) {
 	authorized := generateTestPeerID(t)
 	unauthorized := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, authorized.String())
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowReserve(unauthorized, addr) {
@@ -64,7 +64,7 @@ func TestCircuitACL_AllowReserve_UnauthorizedPeerDenied(t *testing.T) {
 
 func TestCircuitACL_AllowReserve_NoAuthPathAllowsAll(t *testing.T) {
 	p := generateTestPeerID(t)
-	acl := NewCircuitACL("", false)
+	acl := NewCircuitACL("", false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
@@ -76,7 +76,7 @@ func TestCircuitACL_EnableDataRelay_AllowsAll(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, src.String(), dest.String())
-	acl := NewCircuitACL(authPath, true)
+	acl := NewCircuitACL(authPath, true, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowConnect(src, addr, dest) {
@@ -91,7 +91,7 @@ func TestCircuitACL_Disabled_AdminAllowed(t *testing.T) {
 		admin.String()+"  role=admin",
 		member.String(),
 	)
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 
@@ -113,7 +113,7 @@ func TestCircuitACL_Disabled_RelayDataAllowed(t *testing.T) {
 		dataUser.String()+"  relay_data=true",
 		member.String(),
 	)
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 
@@ -132,7 +132,7 @@ func TestCircuitACL_Disabled_RegularMembersDenied(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, src.String(), dest.String())
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowConnect(src, addr, dest) {
@@ -144,11 +144,22 @@ func TestCircuitACL_EmptyAuthKeys(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t) // empty file
-	acl := NewCircuitACL(authPath, false)
+	acl := NewCircuitACL(authPath, false, true)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowConnect(src, addr, dest) {
 		t.Error("should deny when no peers in auth keys")
+	}
+}
+
+func TestCircuitACL_GatingDisabled_AllowsAllReservations(t *testing.T) {
+	p := generateTestPeerID(t)
+	authPath := setupAuthKeys(t) // empty file
+	acl := NewCircuitACL(authPath, false, false)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if !acl.AllowReserve(p, addr) {
+		t.Error("AllowReserve should allow all when connection gating is disabled")
 	}
 }
 

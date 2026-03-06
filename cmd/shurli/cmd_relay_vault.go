@@ -2,12 +2,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
@@ -255,7 +259,9 @@ func resolveRelayAddr(input string, cfg *config.NodeConfig) (string, error) {
 	return "", fmt.Errorf("resolved %q to peer %s but no matching relay address in config", input, peerIDStr)
 }
 
-// doRemoteUnseal unseals a relay vault over P2P using the /shurli/relay-admin/1.0.0 protocol.
+// doRemoteUnseal unseals a relay vault over P2P using the dedicated
+// /shurli/relay-unseal/1.0.0 protocol. This protocol has its own iOS-style
+// escalating lockout and binary wire format, separate from the generic admin proxy.
 func doRemoteUnseal(relayAddr string, promptTOTP bool, _ string, stdout io.Writer, stdin io.Reader) error {
 	// Read vault password.
 	password, err := readVaultPassword(stdout, "Vault password: ")
@@ -280,11 +286,43 @@ func doRemoteUnseal(relayAddr string, promptTOTP bool, _ string, stdout io.Write
 	}
 	defer conn.Close()
 
-	if err := conn.client.Unseal(password, totpCode); err != nil {
-		return fmt.Errorf("remote unseal failed: %w", err)
+	// Open a stream on the dedicated unseal protocol (not the admin proxy).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s, err := conn.network.Host().NewStream(ctx, conn.relayPeerID, protocol.ID(relay.UnsealProtocol))
+	if err != nil {
+		return fmt.Errorf("failed to open unseal stream: %w", err)
+	}
+	defer s.Close()
+
+	s.SetDeadline(time.Now().Add(30 * time.Second))
+
+	// Read the challenge nonce from the relay (replay protection).
+	nonce, err := relay.ReadUnsealChallenge(s)
+	if err != nil {
+		return fmt.Errorf("failed to read unseal challenge: %w", err)
+	}
+
+	// Send the binary unseal request with nonce echo.
+	if _, err := s.Write(relay.EncodeUnsealRequest(nonce, password, totpCode)); err != nil {
+		return fmt.Errorf("failed to send unseal request: %w", err)
+	}
+	s.CloseWrite()
+
+	// Read the response.
+	ok, msg, err := relay.ReadUnsealResponse(s)
+	if err != nil {
+		return fmt.Errorf("failed to read unseal response: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("remote unseal failed: %s", msg)
 	}
 
 	termcolor.Green("Vault unsealed remotely.")
+	if msg != "" && msg != "unsealed" {
+		fmt.Fprintln(stdout, msg)
+	}
 	return nil
 }
 

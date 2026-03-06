@@ -1,11 +1,16 @@
 package relay
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,18 +25,33 @@ import (
 // UnsealProtocol is the libp2p protocol ID for remote vault unseal.
 const UnsealProtocol = "/shurli/relay-unseal/1.0.0"
 
-// Wire format:
-//   Request:  [1 version] [2 BE passphrase-len] [N passphrase] [1 TOTP-len] [M TOTP]
-//   Response: [1 status] [1 msg-len] [N message]
+// Wire format (v2, with challenge-response nonce for replay protection):
+//
+//   RELAY -> CLIENT (challenge):
+//     [16 nonce]         random challenge nonce
+//
+//   CLIENT -> RELAY (request):
+//     [1 version]        0x02
+//     [16 nonce-echo]    must match the challenge nonce
+//     [2 BE pass-len] [N passphrase] [1 TOTP-len] [M TOTP]
+//
+//   RELAY -> CLIENT (response):
+//     [1 status] [1 msg-len] [N message]
+//
+// v1 (legacy, no nonce) is still accepted for backward compatibility:
+//   CLIENT -> RELAY:
+//     [1 version=0x01] [2 BE pass-len] [N passphrase] [1 TOTP-len] [M TOTP]
 //
 // Status codes:
 //   0x01 = success (unsealed)
 //   0x00 = error (message follows)
 
 const (
-	unsealWireVersion byte = 0x01
+	unsealWireV1      byte = 0x01
+	unsealWireV2      byte = 0x02 // with challenge nonce
 	unsealStatusOK    byte = 0x01
 	unsealStatusErr   byte = 0x00
+	unsealNonceLen         = 16
 	maxPassphraseLen       = 1024
 	maxTOTPLen             = 16
 
@@ -62,10 +82,23 @@ type peerLockout struct {
 	blocked     bool // permanently blocked after exhausting all lockout levels
 }
 
+// persistedLockout is the JSON-serializable form of peerLockout.
+type persistedLockout struct {
+	Failures    int       `json:"failures"`
+	LockedUntil time.Time `json:"locked_until,omitempty"`
+	Blocked     bool      `json:"blocked,omitempty"`
+}
+
+// lockoutState is the top-level JSON structure persisted to disk.
+type lockoutState struct {
+	Peers map[string]persistedLockout `json:"peers"`
+}
+
 // UnsealHandler handles remote unseal requests from admin peers.
 type UnsealHandler struct {
 	Vault        *vault.Vault
 	AuthKeysPath string
+	StateFile    string          // path to lockout state file (empty = no persistence)
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
 
 	mu       sync.Mutex
@@ -73,15 +106,93 @@ type UnsealHandler struct {
 }
 
 // NewUnsealHandler creates a handler for the remote unseal protocol.
-func NewUnsealHandler(v *vault.Vault, authKeysPath string) *UnsealHandler {
-	return &UnsealHandler{
+// stateFile is the path to persist lockout state (empty string disables persistence).
+func NewUnsealHandler(v *vault.Vault, authKeysPath, stateFile string) *UnsealHandler {
+	h := &UnsealHandler{
 		Vault:        v,
 		AuthKeysPath: authKeysPath,
+		StateFile:    stateFile,
 		lockouts:     make(map[peer.ID]*peerLockout),
+	}
+	h.loadState()
+	return h
+}
+
+// loadState restores lockout state from disk. Errors are logged but not fatal.
+func (h *UnsealHandler) loadState() {
+	if h.StateFile == "" {
+		return
+	}
+	data, err := os.ReadFile(h.StateFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("unseal: failed to load lockout state", "file", h.StateFile, "err", err)
+		}
+		return
+	}
+
+	var state lockoutState
+	if err := json.Unmarshal(data, &state); err != nil {
+		slog.Warn("unseal: failed to parse lockout state", "file", h.StateFile, "err", err)
+		return
+	}
+
+	for peerStr, pl := range state.Peers {
+		pid, err := peer.Decode(peerStr)
+		if err != nil {
+			slog.Warn("unseal: skipping invalid peer ID in state", "peer", peerStr)
+			continue
+		}
+		h.lockouts[pid] = &peerLockout{
+			failures:    pl.Failures,
+			lockedUntil: pl.LockedUntil,
+			blocked:     pl.Blocked,
+		}
+	}
+	slog.Info("unseal: restored lockout state", "peers", len(state.Peers))
+}
+
+// saveState persists lockout state to disk atomically. Must be called with mu held.
+func (h *UnsealHandler) saveState() {
+	if h.StateFile == "" {
+		return
+	}
+
+	state := lockoutState{Peers: make(map[string]persistedLockout, len(h.lockouts))}
+	for pid, lo := range h.lockouts {
+		state.Peers[pid.String()] = persistedLockout{
+			Failures:    lo.failures,
+			LockedUntil: lo.lockedUntil,
+			Blocked:     lo.blocked,
+		}
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		slog.Error("unseal: failed to marshal lockout state", "err", err)
+		return
+	}
+
+	// Atomic write: temp file + rename.
+	tmp := h.StateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		slog.Error("unseal: failed to write lockout state", "file", tmp, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, h.StateFile); err != nil {
+		slog.Error("unseal: failed to rename lockout state", "err", err)
+		os.Remove(tmp)
 	}
 }
 
+// LockoutStateFile returns the conventional lockout state file path for a relay config dir.
+func LockoutStateFile(configDir string) string {
+	return filepath.Join(configDir, ".unseal-lockout.json")
+}
+
 // HandleStream processes an incoming unseal stream.
+// The relay sends a 16-byte challenge nonce first, then reads the client request.
+// v2 clients echo the nonce back (replay protection). v1 clients skip it (legacy).
 func (h *UnsealHandler) HandleStream(s network.Stream) {
 	defer s.Close()
 	remotePeer := s.Conn().RemotePeer()
@@ -110,6 +221,18 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 		return
 	}
 
+	// Generate and send challenge nonce (16 bytes).
+	var nonce [unsealNonceLen]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		slog.Error("unseal: failed to generate nonce", "err", err)
+		writeUnsealResponse(s, unsealStatusErr, "internal error")
+		return
+	}
+	if _, err := s.Write(nonce[:]); err != nil {
+		slog.Warn("unseal: failed to send nonce", "peer", short, "err", err)
+		return
+	}
+
 	// Set read deadline.
 	s.SetReadDeadline(time.Now().Add(30 * time.Second))
 
@@ -120,10 +243,28 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 		writeUnsealResponse(s, unsealStatusErr, "protocol error")
 		return
 	}
-	if versionBuf[0] != unsealWireVersion {
-		slog.Warn("unseal: unsupported version", "peer", short, "version", versionBuf[0])
+
+	version := versionBuf[0]
+	if version != unsealWireV1 && version != unsealWireV2 {
+		slog.Warn("unseal: unsupported version", "peer", short, "version", version)
 		writeUnsealResponse(s, unsealStatusErr, "unsupported protocol version")
 		return
+	}
+
+	// v2: read and verify nonce echo (replay protection).
+	if version == unsealWireV2 {
+		var nonceEcho [unsealNonceLen]byte
+		if _, err := io.ReadFull(s, nonceEcho[:]); err != nil {
+			slog.Warn("unseal: failed to read nonce echo", "peer", short, "err", err)
+			writeUnsealResponse(s, unsealStatusErr, "protocol error")
+			return
+		}
+		if subtle.ConstantTimeCompare(nonce[:], nonceEcho[:]) != 1 {
+			slog.Warn("unseal: nonce mismatch (replay?)", "peer", short)
+			h.recordMetric("replay")
+			writeUnsealResponse(s, unsealStatusErr, "nonce mismatch")
+			return
+		}
 	}
 
 	// Read passphrase length (2 bytes BE).
@@ -248,6 +389,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 
 	// First unsealFreeAttempts failures: no lockout (typo grace period).
 	if lo.failures <= unsealFreeAttempts {
+		h.saveState()
 		return
 	}
 
@@ -259,6 +401,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 		lo.blocked = true
 		h.incLockedGauge()
 		slog.Warn("unseal: peer permanently blocked after exhausting all attempts", "peer", p.String()[:16]+"...")
+		h.saveState()
 		return
 	}
 
@@ -267,6 +410,7 @@ func (h *UnsealHandler) recordFailure(p peer.ID) {
 		h.incLockedGauge()
 	}
 	lo.lockedUntil = time.Now().Add(unsealLockoutSchedule[idx])
+	h.saveState()
 }
 
 // getFailures returns the current failure count for a peer.
@@ -289,6 +433,7 @@ func (h *UnsealHandler) resetLockout(p peer.ID) {
 		h.decLockedGauge()
 	}
 	delete(h.lockouts, p)
+	h.saveState()
 }
 
 // recordMetric increments the vault unseal counter. Nil-safe.
@@ -367,19 +512,31 @@ func writeUnsealResponse(s network.Stream, status byte, msg string) {
 	s.Write(buf)
 }
 
-// EncodeUnsealRequest builds the wire-format request for the unseal protocol.
-// Used by the client side (CLI) to construct the stream payload.
-func EncodeUnsealRequest(passphrase, totpCode string) []byte {
+// ReadUnsealChallenge reads the 16-byte challenge nonce from the relay.
+// Must be called before sending the unseal request.
+func ReadUnsealChallenge(r io.Reader) ([]byte, error) {
+	nonce := make([]byte, unsealNonceLen)
+	if _, err := io.ReadFull(r, nonce); err != nil {
+		return nil, fmt.Errorf("reading unseal challenge: %w", err)
+	}
+	return nonce, nil
+}
+
+// EncodeUnsealRequest builds the v2 wire-format request with challenge nonce echo.
+// The nonce is the 16-byte challenge received from ReadUnsealChallenge.
+func EncodeUnsealRequest(nonce []byte, passphrase, totpCode string) []byte {
 	passBytes := []byte(passphrase)
 	totpBytes := []byte(totpCode)
 
-	// [1 version] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
-	buf := make([]byte, 1+2+len(passBytes)+1+len(totpBytes))
-	buf[0] = unsealWireVersion
-	binary.BigEndian.PutUint16(buf[1:3], uint16(len(passBytes)))
-	copy(buf[3:3+len(passBytes)], passBytes)
-	buf[3+len(passBytes)] = byte(len(totpBytes))
-	copy(buf[4+len(passBytes):], totpBytes)
+	// [1 version] [16 nonce-echo] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
+	buf := make([]byte, 1+unsealNonceLen+2+len(passBytes)+1+len(totpBytes))
+	buf[0] = unsealWireV2
+	copy(buf[1:1+unsealNonceLen], nonce)
+	off := 1 + unsealNonceLen
+	binary.BigEndian.PutUint16(buf[off:off+2], uint16(len(passBytes)))
+	copy(buf[off+2:off+2+len(passBytes)], passBytes)
+	buf[off+2+len(passBytes)] = byte(len(totpBytes))
+	copy(buf[off+3+len(passBytes):], totpBytes)
 	return buf
 }
 

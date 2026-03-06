@@ -2,7 +2,10 @@ package auth
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,6 +202,7 @@ func atomicWriteLines(path string, lines []string) error {
 		return fmt.Errorf("failed to update file: %w", err)
 	}
 
+	SaveIntegrityHash(path)
 	return nil
 }
 
@@ -235,12 +239,14 @@ func AddPeer(authKeysPath, peerIDStr, comment string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
 
 	if _, err := f.WriteString(entry); err != nil {
+		f.Close()
 		return fmt.Errorf("failed to write entry: %w", err)
 	}
+	f.Close()
 
+	SaveIntegrityHash(authKeysPath)
 	return nil
 }
 
@@ -380,4 +386,62 @@ func HasRelayData(authKeysPath string, peerID peer.ID) bool {
 		}
 	}
 	return false
+}
+
+// --- Integrity monitoring ---
+
+// hashFilePath returns the path to the integrity hash file for an authorized_keys file.
+func hashFilePath(authKeysPath string) string {
+	return authKeysPath + ".sha256"
+}
+
+// ComputeFileHash returns the SHA-256 hex digest of a file.
+func ComputeFileHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:]), nil
+}
+
+// SaveIntegrityHash computes and saves the SHA-256 hash of the authorized_keys file.
+// Called after every mutation (add, remove, set-attr) to maintain the integrity record.
+func SaveIntegrityHash(authKeysPath string) {
+	hash, err := ComputeFileHash(authKeysPath)
+	if err != nil {
+		slog.Warn("integrity: failed to hash authorized_keys", "err", err)
+		return
+	}
+	if err := os.WriteFile(hashFilePath(authKeysPath), []byte(hash+"\n"), 0600); err != nil {
+		slog.Warn("integrity: failed to save hash", "err", err)
+	}
+}
+
+// VerifyIntegrity checks the authorized_keys file against its stored hash.
+// Returns true if the hash matches or no hash file exists (first run).
+// Returns false if the file was modified out-of-band (tampering detected).
+func VerifyIntegrity(authKeysPath string) bool {
+	stored, err := os.ReadFile(hashFilePath(authKeysPath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true // no hash yet, first run
+		}
+		slog.Warn("integrity: failed to read hash file", "err", err)
+		return true // can't verify, don't block
+	}
+
+	current, err := ComputeFileHash(authKeysPath)
+	if err != nil {
+		slog.Warn("integrity: failed to hash authorized_keys", "err", err)
+		return true
+	}
+
+	expected := strings.TrimSpace(string(stored))
+	if current != expected {
+		slog.Error("integrity: authorized_keys modified out-of-band (tampering detected)",
+			"expected", expected[:16]+"...", "actual", current[:16]+"...")
+		return false
+	}
+	return true
 }

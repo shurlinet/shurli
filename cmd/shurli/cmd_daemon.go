@@ -276,6 +276,7 @@ func runDaemonStart(args []string) {
 	})
 
 	rt.StartStatusPrinter()
+	rt.StartDHTHealthCheck()
 
 	// Wait for signal or API-initiated shutdown
 	sigCh := make(chan os.Signal, 1)

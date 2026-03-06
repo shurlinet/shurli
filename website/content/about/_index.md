@@ -1,13 +1,19 @@
 ---
 title: About
-description: "Shurli is an open-source P2P networking tool for self-sovereign device connectivity. No accounts, no cloud, no subscriptions."
+description: "Shurli is AI-native P2P infrastructure for the Zero-Human Network. Connect devices and agents directly through NAT, CGNAT, and firewalls. No accounts, no cloud, no central authority."
 ---
 
 ## What is Shurli?
 
-Shurli is a peer-to-peer networking tool that lets you connect your devices directly - through NAT, CGNAT, firewalls, and across networks - without relying on cloud services or VPN providers.
+Shurli is AI-native peer-to-peer networking infrastructure. It connects your devices directly through NAT, CGNAT, firewalls, and across networks, without relying on cloud services or vendor accounts.
 
-It's built for people who want to own their network infrastructure: access your home server from anywhere, connect devices across locations, and proxy any TCP service through encrypted P2P tunnels.
+Today it connects your devices. Tomorrow it connects your agents. The same encrypted P2P layer that lets you reach your home server is the foundation for autonomous agent-to-agent communication, with no cloud middleman and no central authority.
+
+## The Zero-Human Network
+
+Zero-human companies are coming. They need a network that operates itself, where agents connect, negotiate, and transact directly. Intelligence at every node, not at a central server.
+
+Shurli is being built as that network. Read more about [the vision](/blog/development-philosophy/#the-zero-human-network).
 
 ## Engineering Philosophy
 
@@ -20,11 +26,11 @@ Shurli follows a few core principles. For the full story, including how these pr
   {{< card title="Docs as First-Class Deliverable" icon="book-open" link="/docs/engineering-journal/" subtitle="Every architecture decision is documented with the reasoning behind it. The Engineering Journal captures not just what was built, but why every choice was made." >}}
 {{< /cards >}}
 
-## AI-Assisted Development
+## AI-Native Development
 
-{{< icon name="sparkles" attributes="height=20" >}} Shurli is built with AI assistance. The architecture, design decisions, and direction come from human judgment. AI helps with code generation, documentation, and systematic analysis.
+{{< icon name="sparkles" attributes="height=20" >}} Shurli is not a project that bolted on AI tooling. It is built AI-native from day one: architecture, code, documentation, and testing, all developed with AI as a core part of the process.
 
-We believe in transparency about this. The quality of the code speaks for itself. Every line is reviewed, tested, and shipped with the same rigor regardless of who (or what) wrote the first draft.
+The direction and decisions are human. The execution leverages AI at every layer. Every line is reviewed, tested, and shipped with the same rigor regardless of origin. The code speaks for itself.
 
 ## Open Source
 

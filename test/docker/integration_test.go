@@ -245,7 +245,7 @@ func TestPingThroughRelay(t *testing.T) {
 	for time.Now().Before(deadline) {
 		out, _, _ := dockerExec("node-a", "cat", "/tmp/daemon-stdout.txt")
 		if strings.Contains(out, "Relay address:") || strings.Contains(out, "relay reservation") ||
-			strings.Contains(out, "p2p-circuit") || strings.Contains(out, "listening") {
+			strings.Contains(out, "p2p-circuit") {
 			daemonReady = true
 			break
 		}
@@ -257,7 +257,7 @@ func TestPingThroughRelay(t *testing.T) {
 	}
 
 	// Give the daemon a moment to fully register protocols after relay reservation.
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// ── Step 4: Ping from node-b ──
 	t.Log("Pinging node-a from node-b...")

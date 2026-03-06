@@ -141,6 +141,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         []string{data.RelayAddr},
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
@@ -333,6 +334,7 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
 		UserAgent:          "shurli/" + version,
+		Namespace:          cfg.Discovery.Network,
 		EnableRelay:        true,
 		RelayAddrs:         cfg.Relay.Addresses,
 		ForcePrivate:       cfg.Network.ForcePrivateReachability,
@@ -403,7 +405,9 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 	}
 
 	// Complete PAKE with token as salt.
-	if err := session.CompleteWithSalt(relayPub, data.TokenV3); err != nil {
+	// Channel binding: include relay's peer ID to prevent relay swap attacks.
+	relayBinding := []byte(relayPeerID)
+	if err := session.CompleteWithSalt(relayPub, data.TokenV3, relayBinding); err != nil {
 		fatal("PAKE key exchange failed: %v", err)
 	}
 

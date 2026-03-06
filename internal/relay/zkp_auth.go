@@ -52,6 +52,10 @@ const (
 // zkpPeerRateLimit is the minimum interval between auth attempts per peer.
 const zkpPeerRateLimit = 5 * time.Second
 
+// zkpPeerRateLimitPressure is the elevated rate limit when the challenge store
+// is under memory pressure (>80% capacity). Slows fill rate for graceful degradation.
+const zkpPeerRateLimitPressure = 30 * time.Second
+
 // maxPeerSeenEntries is the hard cap on peerSeen map size.
 // When exceeded, the oldest half is evicted. Prevents unbounded growth
 // from many unique peers attempting ZKP auth over time.
@@ -163,9 +167,14 @@ func (h *ZKPAuthHandler) HandleStream(s network.Stream) {
 	defer s.Close()
 
 	// Per-peer rate limiting: reject rapid-fire auth attempts.
+	// Under memory pressure, the rate limit increases from 5s to 30s.
 	peerStr := s.Conn().RemotePeer().String()
+	rateLimit := zkpPeerRateLimit
+	if h.challenges.UnderPressure() {
+		rateLimit = zkpPeerRateLimitPressure
+	}
 	h.rateMu.Lock()
-	if last, ok := h.peerSeen[peerStr]; ok && time.Since(last) < zkpPeerRateLimit {
+	if last, ok := h.peerSeen[peerStr]; ok && time.Since(last) < rateLimit {
 		h.rateMu.Unlock()
 		h.recordAuth("rate_limited")
 		writeZKPResponse(s, zkpStatusErr, "rate limited")

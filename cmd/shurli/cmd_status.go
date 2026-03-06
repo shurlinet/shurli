@@ -11,6 +11,7 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -30,13 +31,14 @@ func doStatus(args []string, stdout io.Writer) error {
 	}
 
 	// Version
-	fmt.Fprintf(stdout, "shurli %s (%s) built %s\n", version, commit, buildDate)
+	tc.Wfaint(stdout, "shurli %s (%s) built %s\n", version, commit, buildDate)
 	fmt.Fprintln(stdout)
 
 	// Find and load config
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		fmt.Fprintf(stdout, "Config:   not found (%v)\n", err)
+		tc.Wblue(stdout, "Config:   ")
+		fmt.Fprintf(stdout, "not found (%v)\n", err)
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "Run 'shurli init' to create a configuration.")
 		return fmt.Errorf("config not found: %w", err)
@@ -50,53 +52,73 @@ func doStatus(args []string, stdout io.Writer) error {
 	// Peer ID
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
 	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
+	tc.Wblue(stdout, "Peer ID:  ")
 	if err != nil {
-		fmt.Fprintf(stdout, "Peer ID:  error (%v)\n", err)
+		fmt.Fprintf(stdout, "error (%v)\n", err)
 	} else {
-		fmt.Fprintf(stdout, "Peer ID:  %s\n", peerID)
+		fmt.Fprintf(stdout, "%s\n", peerID)
 	}
-	fmt.Fprintf(stdout, "Config:   %s\n", cfgFile)
-	fmt.Fprintf(stdout, "Key file: %s\n", cfg.Identity.KeyFile)
+	tc.Wblue(stdout, "Config:   ")
+	fmt.Fprintf(stdout, "%s\n", cfgFile)
+	tc.Wblue(stdout, "Key file: ")
+	fmt.Fprintf(stdout, "%s\n", cfg.Identity.KeyFile)
+	tc.Wblue(stdout, "Network:  ")
 	if cfg.Discovery.Network != "" {
-		fmt.Fprintf(stdout, "Network:  %s\n", cfg.Discovery.Network)
+		fmt.Fprintf(stdout, "%s\n", cfg.Discovery.Network)
 	} else {
-		fmt.Fprintf(stdout, "Network:  global (default)\n")
+		fmt.Fprintf(stdout, "global (default)\n")
 	}
 
 	// Daemon status
 	var daemonStatus *daemon.StatusResponse
+	tc.Wblue(stdout, "Daemon:   ")
 	if c := tryDaemonClient(); c != nil {
 		resp, err := c.Status()
 		if err == nil {
 			daemonStatus = resp
-			grade := ""
-			if resp.Reachability != nil {
-				grade = resp.Reachability.Grade
-			}
+			tc.Wgreen(stdout, "running")
 			uptime := (time.Duration(resp.UptimeSeconds) * time.Second).Truncate(time.Second)
-			fmt.Fprintf(stdout, "Daemon:   running (uptime: %s, peers: %d, reachability: %s)\n",
-				uptime, resp.ConnectedPeers, grade)
+			tc.Wfaint(stdout, " (uptime: %s, peers: %d", uptime, resp.ConnectedPeers)
+			if resp.Reachability != nil {
+				tc.Wfaint(stdout, ", reachability: ")
+				writeReachabilityGrade(stdout, resp.Reachability)
+			}
+			tc.Wfaint(stdout, ")")
+			fmt.Fprintln(stdout)
 		} else {
-			fmt.Fprintln(stdout, "Daemon:   not responding")
+			tc.Wyellow(stdout, "not responding\n")
 		}
 	} else {
-		fmt.Fprintln(stdout, "Daemon:   not running")
+		tc.Wred(stdout, "not running\n")
 	}
 	fmt.Fprintln(stdout)
+
+	// Reachability details (when daemon is running and grade available)
+	if daemonStatus != nil && daemonStatus.Reachability != nil {
+		r := daemonStatus.Reachability
+		tc.Wblue(stdout, "Reachability: ")
+		writeReachabilityGrade(stdout, r)
+		tc.Wfaint(stdout, " - %s", r.Description)
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout)
+	}
 
 	// Relays (with connectivity when daemon is running)
 	if daemonStatus != nil && len(daemonStatus.Relays) > 0 {
 		fmt.Fprintln(stdout, "Relays:")
 		for _, r := range daemonStatus.Relays {
-			status := "[disconnected]"
+			fmt.Fprint(stdout, "  ")
 			if r.Connected {
-				status = "[connected]   "
+				tc.Wgreen(stdout, "[connected]   ")
+			} else {
+				tc.Wred(stdout, "[disconnected]")
 			}
-			label := r.Address
+			fmt.Fprint(stdout, "  ")
+			fmt.Fprint(stdout, r.Address)
 			if r.AgentVersion != "" {
-				label += "  " + r.AgentVersion
+				tc.Wfaint(stdout, "  %s", r.AgentVersion)
 			}
-			fmt.Fprintf(stdout, "  %s  %s\n", status, label)
+			fmt.Fprintln(stdout)
 		}
 
 		// MOTD/goodbye messages
@@ -114,11 +136,15 @@ func doStatus(args []string, stdout io.Writer) error {
 				}
 				ts, _ := time.Parse(time.RFC3339, m.Timestamp)
 				ago := formatTimeAgo(ts)
-				fmt.Fprintf(stdout, "  [%s] %s: %q  (%s)\n", m.Type, name, m.Message, ago)
+				fmt.Fprint(stdout, "  ")
+				tc.Wyellow(stdout, "[%s]", m.Type)
+				fmt.Fprintf(stdout, " %s: ", name)
+				tc.Wfaint(stdout, "%q  (%s)", m.Message, ago)
+				fmt.Fprintln(stdout)
 			}
 		} else {
 			fmt.Fprintln(stdout)
-			fmt.Fprintln(stdout, "Messages: (none)")
+			tc.Wfaint(stdout, "Messages: (none)\n")
 		}
 	} else if len(cfg.Relay.Addresses) > 0 {
 		fmt.Fprintln(stdout, "Relay addresses:")
@@ -126,7 +152,7 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "  %s\n", addr)
 		}
 	} else {
-		fmt.Fprintln(stdout, "Relay addresses: (none configured)")
+		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
 	fmt.Fprintln(stdout)
 
@@ -136,7 +162,7 @@ func doStatus(args []string, stdout io.Writer) error {
 		if err != nil {
 			fmt.Fprintf(stdout, "Authorized peers: error (%v)\n", err)
 		} else if len(peers) == 0 {
-			fmt.Fprintln(stdout, "Authorized peers: (none)")
+			tc.Wfaint(stdout, "Authorized peers: (none)\n")
 		} else {
 			fmt.Fprintf(stdout, "Authorized peers (%d):\n", len(peers))
 			for _, p := range peers {
@@ -144,19 +170,22 @@ func doStatus(args []string, stdout io.Writer) error {
 				if len(short) > 16 {
 					short = short[:16] + "..."
 				}
-				badge := "[UNVERIFIED]"
+				fmt.Fprint(stdout, "  ")
 				if p.Verified != "" {
-					badge = "[VERIFIED]"
-				}
-				if p.Comment != "" {
-					fmt.Fprintf(stdout, "  %s %s  # %s\n", badge, short, p.Comment)
+					tc.Wgreen(stdout, "[VERIFIED]  ")
 				} else {
-					fmt.Fprintf(stdout, "  %s %s\n", badge, short)
+					tc.Wyellow(stdout, "[UNVERIFIED]")
+					fmt.Fprint(stdout, " ")
 				}
+				fmt.Fprint(stdout, short)
+				if p.Comment != "" {
+					tc.Wfaint(stdout, "  # %s", p.Comment)
+				}
+				fmt.Fprintln(stdout)
 			}
 		}
 	} else {
-		fmt.Fprintln(stdout, "Authorized peers: connection gating disabled")
+		tc.Wfaint(stdout, "Authorized peers: connection gating disabled\n")
 	}
 	fmt.Fprintln(stdout)
 
@@ -164,14 +193,17 @@ func doStatus(args []string, stdout io.Writer) error {
 	if cfg.Services != nil && len(cfg.Services) > 0 {
 		fmt.Fprintln(stdout, "Services:")
 		for name, svc := range cfg.Services {
-			state := "enabled"
-			if !svc.Enabled {
-				state = "disabled"
+			fmt.Fprint(stdout, "  ")
+			fmt.Fprintf(stdout, "%-12s -> %-20s ", name, svc.LocalAddress)
+			if svc.Enabled {
+				tc.Wgreen(stdout, "(enabled)")
+			} else {
+				tc.Wfaint(stdout, "(disabled)")
 			}
-			fmt.Fprintf(stdout, "  %-12s -> %-20s (%s)\n", name, svc.LocalAddress, state)
+			fmt.Fprintln(stdout)
 		}
 	} else {
-		fmt.Fprintln(stdout, "Services: (none configured)")
+		tc.Wfaint(stdout, "Services: (none configured)\n")
 	}
 	fmt.Fprintln(stdout)
 
@@ -186,9 +218,28 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "  %-12s -> %s\n", name, short)
 		}
 	} else {
-		fmt.Fprintln(stdout, "Names: (none configured)")
+		tc.Wfaint(stdout, "Names: (none configured)\n")
 	}
 	return nil
+}
+
+// writeReachabilityGrade writes a colorized reachability grade (e.g., "A Excellent").
+func writeReachabilityGrade(w io.Writer, r *p2pnet.ReachabilityGrade) {
+	grade := r.Grade + " " + r.Label
+	switch r.Grade {
+	case "A":
+		tc.Wgreen(w, "%s", grade)
+	case "B":
+		tc.Wgreen(w, "%s", grade)
+	case "C":
+		tc.Wyellow(w, "%s", grade)
+	case "D":
+		tc.Wyellow(w, "%s", grade)
+	case "F":
+		tc.Wred(w, "%s", grade)
+	default:
+		fmt.Fprint(w, grade)
+	}
 }
 
 func formatTimeAgo(t time.Time) string {

@@ -139,6 +139,110 @@ func runConfigSet(args []string) {
 	}
 }
 
+// validConfigKeys lists all known dotted key paths for HomeNodeConfig.
+// Keys under "services.*" and "names.*" allow arbitrary subkeys (map types).
+var validConfigKeys = []string{
+	"version",
+	"identity.key_file",
+	"network.listen_addresses",
+	"network.force_private_reachability",
+	"network.force_cgnat",
+	"network.resource_limits_enabled",
+	"relay.addresses",
+	"relay.reservation_interval",
+	"discovery.rendezvous",
+	"discovery.network",
+	"discovery.bootstrap_peers",
+	"discovery.dns_seed_domain",
+	"discovery.mdns_enabled",
+	"discovery.net_intel_enabled",
+	"discovery.announce_interval",
+	"security.authorized_keys_file",
+	"security.enable_connection_gating",
+	"security.invite_policy",
+	"security.zkp.enabled",
+	"security.zkp.srs_cache_dir",
+	"security.zkp.max_tree_depth",
+	"protocols.ping_pong.enabled",
+	"protocols.ping_pong.id",
+	"cli.allow_standalone",
+	"telemetry.metrics.enabled",
+	"telemetry.metrics.listen_address",
+	"telemetry.audit.enabled",
+	"peer_relay.enabled",
+	"peer_relay.resources.max_reservations",
+	"peer_relay.resources.max_circuits",
+	"peer_relay.resources.max_reservations_per_peer",
+	"peer_relay.resources.max_reservations_per_ip",
+	"peer_relay.resources.max_reservations_per_asn",
+	"peer_relay.resources.buffer_size",
+	"peer_relay.resources.circuit_duration",
+	"peer_relay.resources.circuit_data_limit",
+}
+
+// validateConfigKey checks whether a dotted key path is a known config key.
+// Returns nil if valid, or an error with a "did you mean?" suggestion if not.
+func validateConfigKey(key string) error {
+	// "services.*" and "names.*" are map types that accept arbitrary subkeys.
+	parts := splitDottedKey(key)
+	if len(parts) >= 2 && (parts[0] == "services" || parts[0] == "names") {
+		return nil
+	}
+
+	for _, valid := range validConfigKeys {
+		if key == valid {
+			return nil
+		}
+	}
+
+	// Find closest match for typo detection.
+	best := ""
+	bestDist := len(key) + 1
+	for _, valid := range validConfigKeys {
+		d := levenshtein(key, valid)
+		if d < bestDist {
+			bestDist = d
+			best = valid
+		}
+	}
+
+	if bestDist <= 3 && best != "" {
+		return fmt.Errorf("unknown config key %q. Did you mean %q?", key, best)
+	}
+	return fmt.Errorf("unknown config key %q. Run 'shurli config show' to see valid keys", key)
+}
+
+// levenshtein computes the edit distance between two strings.
+func levenshtein(a, b string) int {
+	la, lb := len(a), len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min(curr[j-1]+1, min(prev[j]+1, prev[j-1]+cost))
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
 func doConfigSet(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -154,6 +258,11 @@ func doConfigSet(args []string, stdout io.Writer) error {
 
 	key := remaining[0]
 	value := remaining[1]
+
+	// Validate key against known config schema before writing.
+	if err := validateConfigKey(key); err != nil {
+		return err
+	}
 
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {

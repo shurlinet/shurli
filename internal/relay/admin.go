@@ -316,6 +316,7 @@ func (s *AdminServer) Start() error {
 		Handler:      s.authMiddleware(s.internalMux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
+		ConnContext:  s.auditConnContext,
 	}
 
 	go func() {
@@ -393,15 +394,50 @@ func (s *AdminServer) checkStaleSocket() error {
 	return fmt.Errorf("relay admin socket already in use: %s", s.socketPath)
 }
 
+// peerCreds holds Unix socket peer credentials for audit logging.
+type peerCreds struct {
+	PID int32
+	UID uint32
+}
+
+// auditConnContext extracts Unix socket peer credentials (PID/UID) and stores
+// them in the request context for forensic audit logging.
+func (s *AdminServer) auditConnContext(ctx context.Context, c net.Conn) context.Context {
+	uc, ok := c.(*net.UnixConn)
+	if !ok {
+		return ctx
+	}
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		return ctx
+	}
+	var creds *peerCreds
+	raw.Control(func(fd uintptr) {
+		creds = getPeerCreds(fd)
+	})
+	if creds != nil {
+		ctx = context.WithValue(ctx, adminCtxKey("peer_creds"), creds)
+	}
+	return ctx
+}
+
 func (s *AdminServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
+		authHdr := r.Header.Get("Authorization")
 		expected := "Bearer " + s.authToken
-		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(authHdr), []byte(expected)) != 1 {
+			// Audit log: failed auth attempt with peer creds if available.
+			if creds, ok := r.Context().Value(adminCtxKey("peer_creds")).(*peerCreds); ok {
+				slog.Warn("admin socket: unauthorized request", "pid", creds.PID, "uid", creds.UID, "path", r.URL.Path)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
+		}
+		// Audit log: successful auth with peer creds.
+		if creds, ok := r.Context().Value(adminCtxKey("peer_creds")).(*peerCreds); ok {
+			slog.Debug("admin socket: authenticated request", "pid", creds.PID, "uid", creds.UID, "path", r.URL.Path)
 		}
 		// Tag request as local origin (cookie-authed Unix socket).
 		// This is what grants admin access in callerRole().

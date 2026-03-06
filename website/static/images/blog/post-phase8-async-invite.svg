@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 320" width="800" height="320">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7aa2d0" />
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ece6a" />
+    </marker>
+    <marker id="arrAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e0af68" />
+    </marker>
+  </defs>
+
+  <rect width="800" height="320" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="25" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">Async Invite Flow: Store-and-Forward Pairing</text>
+
+  <!-- Timeline labels -->
+  <text x="60" y="55" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#7aa2d0" font-weight="bold">Inviter</text>
+  <text x="400" y="55" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#e0af68" font-weight="bold">Relay</text>
+  <text x="700" y="55" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" font-weight="bold">Joiner</text>
+
+  <!-- Vertical lines -->
+  <line x1="60" y1="65" x2="60" y2="300" stroke="#3a3a4a" stroke-width="1" stroke-dasharray="3,3" />
+  <line x1="400" y1="65" x2="400" y2="300" stroke="#3a3a4a" stroke-width="1" stroke-dasharray="3,3" />
+  <line x1="700" y1="65" x2="700" y2="300" stroke="#3a3a4a" stroke-width="1" stroke-dasharray="3,3" />
+
+  <!-- Step 1: invite create -->
+  <rect x="15" y="75" width="90" height="24" rx="4" fill="#2d4561" stroke="#7aa2d0" stroke-width="1" />
+  <text x="60" y="91" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#7aa2d0">shurli invite</text>
+  <line x1="105" y1="87" x2="355" y2="87" stroke="#7aa2d0" stroke-width="1.5" marker-end="url(#arr)" />
+  <text x="230" y="82" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#5a82b0">POST /v1/pair (create group)</text>
+
+  <!-- Step 2: relay stores contact card -->
+  <rect x="335" y="100" width="130" height="34" rx="4" fill="#3a2e1e" stroke="#e0af68" stroke-width="1" />
+  <text x="400" y="114" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#e0af68">stores contact card</text>
+  <text x="400" y="126" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#b08a48">macaroon deposit</text>
+
+  <!-- Step 2b: returns code -->
+  <line x1="355" y1="140" x2="105" y2="140" stroke="#7aa2d0" stroke-width="1" marker-end="url(#arr)" />
+  <text x="230" y="136" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#5a82b0">invite code: SHRL-ABCD-WXYZ</text>
+
+  <!-- Inviter goes offline -->
+  <rect x="20" y="155" width="80" height="18" rx="3" fill="#2c2a2e" stroke="#555" stroke-width="0.5" />
+  <text x="60" y="167" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#888">goes offline</text>
+
+  <!-- Step 3: joiner joins (later) -->
+  <rect x="650" y="180" width="100" height="24" rx="4" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1" />
+  <text x="700" y="196" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a">shurli join</text>
+  <line x1="650" y1="192" x2="445" y2="192" stroke="#9ece6a" stroke-width="1.5" marker-end="url(#arrGreen)" />
+  <text x="548" y="187" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7aaa4a">PAKE v2 handshake</text>
+
+  <!-- Step 4: relay stores joiner intro -->
+  <rect x="335" y="205" width="130" height="34" rx="4" fill="#3a2e1e" stroke="#e0af68" stroke-width="1" />
+  <text x="400" y="219" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#e0af68">mutual trust set</text>
+  <text x="400" y="231" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#b08a48">both in authorized_keys</text>
+
+  <!-- Inviter comes back online -->
+  <rect x="15" y="245" width="90" height="18" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="60" y="257" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">comes online</text>
+
+  <!-- Step 5: relay pushes intro -->
+  <line x1="355" y1="260" x2="105" y2="260" stroke="#e0af68" stroke-width="1.5" marker-end="url(#arrAmber)" />
+  <text x="230" y="256" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#b08a48">/shurli/peer-notify/1.0.0</text>
+
+  <!-- Connected -->
+  <rect x="200" y="275" width="360" height="24" rx="4" fill="#1e3a2f" stroke="#9ece6a" stroke-width="1.5" />
+  <text x="380" y="291" text-anchor="middle" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a" font-weight="bold">Peers connected. Direct path established.</text>
+
+  <!-- Time annotation -->
+  <text x="770" y="140" text-anchor="end" font-family="SF Mono, monospace" font-size="7" fill="#555">minutes</text>
+  <text x="770" y="152" text-anchor="end" font-family="SF Mono, monospace" font-size="7" fill="#555">hours</text>
+  <text x="770" y="164" text-anchor="end" font-family="SF Mono, monospace" font-size="7" fill="#555">or days</text>
+  <line x1="755" y1="132" x2="755" y2="175" stroke="#555" stroke-width="0.5" />
+  <text x="755" y="128" text-anchor="middle" font-family="SF Mono, monospace" font-size="6" fill="#555">gap</text>
+</svg>

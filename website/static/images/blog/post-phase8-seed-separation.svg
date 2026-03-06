@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7aa2d0" />
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ece6a" />
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c06060" />
+    </marker>
+  </defs>
+
+  <rect width="800" height="340" rx="8" fill="url(#bg)" />
+
+  <text x="400" y="25" text-anchor="middle" font-family="SF Mono, monospace" font-size="13" fill="#c0bdc5" font-weight="bold">Seed Relay Separation: Discovery vs Data</text>
+
+  <!-- Your Node (left) -->
+  <rect x="30" y="65" width="150" height="60" rx="6" fill="#2d4561" stroke="#7aa2d0" stroke-width="1.5" />
+  <text x="105" y="88" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#7aa2d0" font-weight="bold">Your Node</text>
+  <text x="105" y="105" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#5a82b0">shurli daemon</text>
+
+  <!-- Seed Relay (top center) -->
+  <rect x="280" y="45" width="240" height="90" rx="8" fill="#1e2d40" stroke="#e0af68" stroke-width="2" />
+  <text x="400" y="68" text-anchor="middle" font-family="SF Mono, monospace" font-size="12" fill="#e0af68" font-weight="bold">Seed Relay (Public)</text>
+  <text x="400" y="86" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#b08a48">AU (Sydney) + SG (Singapore)</text>
+  <rect x="295" y="96" width="210" height="14" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="400" y="107" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">DHT bootstrap + peer discovery</text>
+  <rect x="295" y="114" width="210" height="14" rx="3" fill="#3a1e1e" stroke="#c06060" stroke-width="0.5" />
+  <text x="400" y="125" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#c06060">data relay: BLOCKED (CircuitACL)</text>
+
+  <!-- Arrow: node -> seed relay -->
+  <line x1="180" y1="85" x2="280" y2="85" stroke="#e0af68" stroke-width="1.5" marker-end="url(#arr)" />
+  <text x="230" y="78" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#b08a48">signaling</text>
+
+  <!-- Private Relay (bottom center) -->
+  <rect x="280" y="175" width="240" height="90" rx="8" fill="#1e3a2f" stroke="#9ece6a" stroke-width="2" />
+  <text x="400" y="198" text-anchor="middle" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a" font-weight="bold">Private Relay (Yours)</text>
+  <text x="400" y="216" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#7aaa4a">your VPS or home server</text>
+  <rect x="295" y="226" width="210" height="14" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="400" y="237" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">DHT bootstrap + peer discovery</text>
+  <rect x="295" y="244" width="210" height="14" rx="3" fill="#1e3a2f" stroke="#9ece6a" stroke-width="0.5" />
+  <text x="400" y="255" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">data relay: ALLOWED (your peers)</text>
+
+  <!-- Arrow: node -> private relay -->
+  <line x1="150" y1="125" x2="280" y2="210" stroke="#9ece6a" stroke-width="1.5" marker-end="url(#arrGreen)" />
+  <text x="190" y="175" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7aaa4a">signaling</text>
+  <text x="190" y="186" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7aaa4a">+ data</text>
+
+  <!-- Remote Peer (right) -->
+  <rect x="620" y="175" width="150" height="60" rx="6" fill="#2d4561" stroke="#7aa2d0" stroke-width="1.5" />
+  <text x="695" y="198" text-anchor="middle" font-family="SF Mono, monospace" font-size="11" fill="#7aa2d0" font-weight="bold">Remote Peer</text>
+  <text x="695" y="215" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#5a82b0">authorized peer</text>
+
+  <!-- Arrow: private relay -> remote peer -->
+  <line x1="520" y1="220" x2="620" y2="210" stroke="#9ece6a" stroke-width="1.5" marker-end="url(#arrGreen)" />
+  <text x="570" y="207" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#7aaa4a">circuit</text>
+
+  <!-- Direct connection (bottom) -->
+  <line x1="150" y1="125" x2="620" y2="215" stroke="#bb9af7" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arr)" />
+  <text x="420" y="295" text-anchor="middle" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7">direct IPv6/IPv4 (preferred, no relay needed)</text>
+
+  <!-- Legend -->
+  <rect x="30" y="300" width="12" height="12" rx="2" fill="#e0af68" />
+  <text x="48" y="310" font-family="SF Mono, monospace" font-size="8" fill="#b08a48">Seed relay (discovery only)</text>
+  <rect x="220" y="300" width="12" height="12" rx="2" fill="#9ece6a" />
+  <text x="238" y="310" font-family="SF Mono, monospace" font-size="8" fill="#7aaa4a">Private relay (discovery + data)</text>
+  <rect x="440" y="300" width="12" height="12" rx="2" fill="#bb9af7" />
+  <text x="458" y="310" font-family="SF Mono, monospace" font-size="8" fill="#9a7ad7">Direct connection (best path)</text>
+  <rect x="640" y="300" width="12" height="12" rx="2" fill="#c06060" />
+  <text x="658" y="310" font-family="SF Mono, monospace" font-size="8" fill="#c06060">Blocked</text>
+</svg>
