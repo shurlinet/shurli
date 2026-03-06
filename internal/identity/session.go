@@ -163,41 +163,62 @@ func deriveMachineKey(installRandom, machineID []byte) ([]byte, error) {
 	return key, nil
 }
 
-// getMachineID returns a machine-specific identifier.
-// On Linux: /etc/machine-id
-// On macOS: IOPlatformUUID via ioreg
-// Falls back to a hash of hostname if neither is available.
+// getMachineID returns a machine-specific identifier built from hardware sources.
+// On Linux: /etc/machine-id + hardware UUIDs (product_uuid, board_serial, CPU)
+// On macOS: IOPlatformUUID + hardware UUID
+// Refuses to create sessions if no strong hardware ID is available.
 func getMachineID() ([]byte, error) {
+	var sources [][]byte
+
 	switch runtime.GOOS {
 	case "linux":
-		data, err := os.ReadFile("/etc/machine-id")
-		if err == nil && len(data) > 0 {
-			h := sha256.Sum256(data)
-			return h[:], nil
+		// Primary: /etc/machine-id (systemd-generated, per-install).
+		if data, err := os.ReadFile("/etc/machine-id"); err == nil && len(data) > 0 {
+			sources = append(sources, bytes.TrimSpace(data))
+		} else if data, err := os.ReadFile("/var/lib/dbus/machine-id"); err == nil && len(data) > 0 {
+			sources = append(sources, bytes.TrimSpace(data))
 		}
-		// Fallback: try /var/lib/dbus/machine-id.
-		data, err = os.ReadFile("/var/lib/dbus/machine-id")
-		if err == nil && len(data) > 0 {
-			h := sha256.Sum256(data)
-			return h[:], nil
+		// Hardware UUIDs: tie session to physical hardware (like a software license).
+		// product_uuid: SMBIOS system UUID (requires root on some systems).
+		if data, err := os.ReadFile("/sys/class/dmi/id/product_uuid"); err == nil && len(data) > 0 {
+			sources = append(sources, bytes.TrimSpace(data))
 		}
+		// board_serial: motherboard serial number.
+		if data, err := os.ReadFile("/sys/class/dmi/id/board_serial"); err == nil && len(data) > 0 {
+			sources = append(sources, bytes.TrimSpace(data))
+		}
+		// product_serial: system serial number.
+		if data, err := os.ReadFile("/sys/class/dmi/id/product_serial"); err == nil && len(data) > 0 {
+			sources = append(sources, bytes.TrimSpace(data))
+		}
+
 	case "darwin":
-		// Get IOPlatformUUID via ioreg (the authoritative source on macOS).
-		// Use full path: ioreg lives in /usr/sbin which may not be in PATH
-		// (e.g. launchd services have a minimal PATH).
+		// IOPlatformUUID: unique per macOS install, tied to hardware.
 		out, err := exec.Command("/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
 		if err == nil {
-			// Extract IOPlatformUUID from output.
 			for _, line := range bytes.Split(out, []byte("\n")) {
 				if bytes.Contains(line, []byte("IOPlatformUUID")) {
-					// Line format: "IOPlatformUUID" = "XXXXXXXX-XXXX-..."
 					parts := bytes.SplitN(line, []byte("="), 2)
 					if len(parts) == 2 {
 						uuid := bytes.TrimSpace(parts[1])
 						uuid = bytes.Trim(uuid, "\"")
 						if len(uuid) > 0 {
-							h := sha256.Sum256(uuid)
-							return h[:], nil
+							sources = append(sources, uuid)
+						}
+					}
+				}
+			}
+		}
+		// Hardware UUID from system_profiler (CPU/SSD/board-level identity).
+		spOut, err := exec.Command("/usr/sbin/system_profiler", "SPHardwareDataType").Output()
+		if err == nil {
+			for _, line := range bytes.Split(spOut, []byte("\n")) {
+				if bytes.Contains(line, []byte("Hardware UUID")) || bytes.Contains(line, []byte("Serial Number")) {
+					parts := bytes.SplitN(line, []byte(":"), 2)
+					if len(parts) == 2 {
+						val := bytes.TrimSpace(parts[1])
+						if len(val) > 0 {
+							sources = append(sources, val)
 						}
 					}
 				}
@@ -205,11 +226,19 @@ func getMachineID() ([]byte, error) {
 		}
 	}
 
-	// Fallback: hostname hash. Less unique but works everywhere.
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, fmt.Errorf("cannot determine machine ID: %w", err)
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("cannot determine machine ID: no hardware identifiers found (sessions require /etc/machine-id or IOPlatformUUID)")
 	}
-	h := sha256.Sum256([]byte("shurli-machine:" + hostname))
-	return h[:], nil
+
+	// Combine all sources into a single hash. The session is bound to all
+	// of these: if any hardware component changes, the session invalidates.
+	// This is the same approach as tying a software license to the machine.
+	combined := sha256.New()
+	combined.Write([]byte("shurli-machine-v2:"))
+	for _, src := range sources {
+		combined.Write(src)
+		combined.Write([]byte{0}) // separator
+	}
+	result := combined.Sum(nil)
+	return result, nil
 }

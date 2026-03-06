@@ -193,14 +193,25 @@ func (h *RemoteAdminHandler) isMemberAllowed(method, path string) bool {
 	return isInvitePath(path)
 }
 
-// invitePaths are admin endpoints that member peers can access when invite_policy
-// allows it. These are the pairing group management endpoints.
+// invitePaths is the exact set of admin endpoints that member peers can
+// access when invite_policy allows it. Explicit allowlist prevents path
+// traversal if new /v1/pair/* endpoints are added in the future.
+var invitePaths = map[string]bool{
+	"/v1/pair": true, // POST (create) and GET (list)
+}
+
+// isInvitePath checks if the path matches an invite endpoint.
+// Exact match for /v1/pair, plus /v1/pair/{id} for DELETE (revoke).
 func isInvitePath(path string) bool {
-	if path == "/v1/pair" {
+	if invitePaths[path] {
 		return true
 	}
+	// Allow /v1/pair/{id} where {id} is a hex group ID (16 chars).
+	// Only strip one path segment, no deeper nesting allowed.
 	if strings.HasPrefix(path, "/v1/pair/") {
-		return true
+		remainder := path[len("/v1/pair/"):]
+		// Must be a single segment (no further slashes) and non-empty.
+		return len(remainder) > 0 && !strings.Contains(remainder, "/")
 	}
 	return false
 }

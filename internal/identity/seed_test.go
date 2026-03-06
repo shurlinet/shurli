@@ -197,6 +197,75 @@ func TestEntropyToMnemonic_KnownVector(t *testing.T) {
 	}
 }
 
+func TestDeriveNamespaceKey_Deterministic(t *testing.T) {
+	_, entropy, err := GenerateSeed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterKey, err := DeriveIdentityKey(entropy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ns1, err := DeriveNamespaceKey(masterKey, "testnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns2, err := DeriveNamespaceKey(masterKey, "testnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id1, _ := peer.IDFromPrivateKey(ns1)
+	id2, _ := peer.IDFromPrivateKey(ns2)
+	if id1 != id2 {
+		t.Fatalf("same namespace produced different peer IDs: %s vs %s", id1, id2)
+	}
+}
+
+func TestDeriveNamespaceKey_DifferentNamespaces(t *testing.T) {
+	_, entropy, _ := GenerateSeed()
+	masterKey, _ := DeriveIdentityKey(entropy)
+
+	nsA, _ := DeriveNamespaceKey(masterKey, "alpha")
+	nsB, _ := DeriveNamespaceKey(masterKey, "beta")
+
+	idA, _ := peer.IDFromPrivateKey(nsA)
+	idB, _ := peer.IDFromPrivateKey(nsB)
+	if idA == idB {
+		t.Fatal("different namespaces produced same peer ID")
+	}
+}
+
+func TestDeriveNamespaceKey_DiffersFromMaster(t *testing.T) {
+	_, entropy, _ := GenerateSeed()
+	masterKey, _ := DeriveIdentityKey(entropy)
+
+	nsKey, _ := DeriveNamespaceKey(masterKey, "mynetwork")
+
+	masterID, _ := peer.IDFromPrivateKey(masterKey)
+	nsID, _ := peer.IDFromPrivateKey(nsKey)
+	if masterID == nsID {
+		t.Fatal("namespace key should differ from master key")
+	}
+}
+
+func TestDeriveNamespaceKey_EmptyReturnsOriginal(t *testing.T) {
+	_, entropy, _ := GenerateSeed()
+	masterKey, _ := DeriveIdentityKey(entropy)
+
+	result, err := DeriveNamespaceKey(masterKey, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	masterID, _ := peer.IDFromPrivateKey(masterKey)
+	resultID, _ := peer.IDFromPrivateKey(result)
+	if masterID != resultID {
+		t.Fatal("empty namespace should return original key")
+	}
+}
+
 func TestWordlistSize(t *testing.T) {
 	if len(Bip39Wordlist) != 2048 {
 		t.Fatalf("expected 2048 words, got %d", len(Bip39Wordlist))

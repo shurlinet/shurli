@@ -22,8 +22,9 @@ const (
 // HKDF domain separators. Different domains produce cryptographically
 // independent keys from the same seed, like Bitcoin HD wallet derivation paths.
 const (
-	hkdfDomainIdentity = "shurli/identity/v1"
-	hkdfDomainVault    = "shurli/vault/v1"
+	hkdfDomainIdentity  = "shurli/identity/v1"
+	hkdfDomainVault     = "shurli/vault/v1"
+	hkdfDomainNamespace = "shurli/identity/v1/ns:" // + namespace name
 )
 
 // bip39WordIndex maps words to their BIP39 index for validation.
@@ -103,6 +104,55 @@ func DeriveIdentityKey(entropy []byte) (libp2pcrypto.PrivKey, error) {
 	// Zero the intermediate seed.
 	zeroBytes(seed)
 
+	return privKey, nil
+}
+
+// DeriveNamespaceKey derives a per-network ephemeral Ed25519 key from the
+// master private key and a namespace string. This prevents cross-network peer
+// ID correlation: the same node appears as a different peer on each namespace.
+//
+// Derivation: HKDF-SHA256(masterKeySeed, info="shurli/identity/v1/ns:<namespace>")
+// The master key's 32-byte Ed25519 seed is used as HKDF input keying material.
+// Returns nil error and the original key unchanged if namespace is empty
+// (global network uses master identity for backward compatibility).
+func DeriveNamespaceKey(masterKey libp2pcrypto.PrivKey, namespace string) (libp2pcrypto.PrivKey, error) {
+	if namespace == "" {
+		return masterKey, nil
+	}
+
+	// Extract the 32-byte Ed25519 seed from the master private key.
+	raw, err := masterKey.Raw()
+	if err != nil {
+		return nil, fmt.Errorf("extracting master key bytes: %w", err)
+	}
+	// libp2p Ed25519 Raw() returns 64 bytes (seed || public). We need the first 32.
+	if len(raw) < ed25519.SeedSize {
+		return nil, fmt.Errorf("master key too short: %d bytes", len(raw))
+	}
+	masterSeed := raw[:ed25519.SeedSize]
+
+	// HKDF-SHA256 with namespace-specific domain separator.
+	domain := hkdfDomainNamespace + namespace
+	hkdfReader := hkdf.New(sha256.New, masterSeed, nil, []byte(domain))
+
+	nsSeed := make([]byte, ed25519.SeedSize)
+	if _, err := io.ReadFull(hkdfReader, nsSeed); err != nil {
+		zeroBytes(masterSeed)
+		return nil, fmt.Errorf("HKDF expand for namespace %q: %w", namespace, err)
+	}
+
+	// Zero the extracted master seed.
+	zeroBytes(masterSeed)
+
+	// Create Ed25519 key from derived seed.
+	stdKey := ed25519.NewKeyFromSeed(nsSeed)
+	privKey, _, err := libp2pcrypto.KeyPairFromStdKey(&stdKey)
+	if err != nil {
+		zeroBytes(nsSeed)
+		return nil, fmt.Errorf("converting namespace key: %w", err)
+	}
+
+	zeroBytes(nsSeed)
 	return privKey, nil
 }
 

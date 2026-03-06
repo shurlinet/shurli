@@ -7,46 +7,58 @@ import (
 )
 
 func TestEncodeUnsealRequest(t *testing.T) {
-	req := EncodeUnsealRequest("my-passphrase", "123456")
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(i)
+	}
+	req := EncodeUnsealRequest(nonce, "my-passphrase", "123456")
 
-	// Verify wire format: [1 version] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
-	if req[0] != unsealWireVersion {
-		t.Errorf("version = %d, want %d", req[0], unsealWireVersion)
+	// Verify wire format: [1 version] [16 nonce] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
+	if req[0] != unsealWireV2 {
+		t.Errorf("version = %d, want %d", req[0], unsealWireV2)
 	}
 
-	passLen := int(req[1])<<8 | int(req[2])
+	// Verify nonce echo.
+	if !bytes.Equal(req[1:1+unsealNonceLen], nonce) {
+		t.Error("nonce mismatch in encoded request")
+	}
+
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
 	if passLen != 13 {
 		t.Errorf("passphrase length = %d, want 13", passLen)
 	}
 
-	pass := string(req[3 : 3+passLen])
+	pass := string(req[off+2 : off+2+passLen])
 	if pass != "my-passphrase" {
 		t.Errorf("passphrase = %q, want %q", pass, "my-passphrase")
 	}
 
-	totpLen := int(req[3+passLen])
+	totpLen := int(req[off+2+passLen])
 	if totpLen != 6 {
 		t.Errorf("TOTP length = %d, want 6", totpLen)
 	}
 
-	totpCode := string(req[4+passLen : 4+passLen+totpLen])
+	totpCode := string(req[off+3+passLen : off+3+passLen+totpLen])
 	if totpCode != "123456" {
 		t.Errorf("TOTP code = %q, want %q", totpCode, "123456")
 	}
 }
 
 func TestEncodeUnsealRequestNoTOTP(t *testing.T) {
-	req := EncodeUnsealRequest("passphrase", "")
+	nonce := make([]byte, unsealNonceLen)
+	req := EncodeUnsealRequest(nonce, "passphrase", "")
 
-	passLen := int(req[1])<<8 | int(req[2])
-	totpLen := int(req[3+passLen])
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
+	totpLen := int(req[off+2+passLen])
 	if totpLen != 0 {
 		t.Errorf("TOTP length = %d, want 0", totpLen)
 	}
 
-	// Total length: 1 version + 2 pass-len + 10 pass + 1 TOTP-len = 14
-	if len(req) != 14 {
-		t.Errorf("request length = %d, want 14", len(req))
+	// Total length: 1 version + 16 nonce + 2 pass-len + 10 pass + 1 TOTP-len = 30
+	if len(req) != 30 {
+		t.Errorf("request length = %d, want 30", len(req))
 	}
 }
 
@@ -331,23 +343,47 @@ func TestUnsealLockoutPersistencePermanentBlock(t *testing.T) {
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	// Encode a request
-	req := EncodeUnsealRequest("test-pass", "654321")
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(0xAA)
+	}
 
-	// Verify we can parse it back by reading the wire format manually
-	if req[0] != unsealWireVersion {
+	req := EncodeUnsealRequest(nonce, "test-pass", "654321")
+
+	if req[0] != unsealWireV2 {
 		t.Fatal("wrong version")
 	}
 
-	passLen := int(req[1])<<8 | int(req[2])
-	pass := string(req[3 : 3+passLen])
-	totpLen := int(req[3+passLen])
-	totp := string(req[4+passLen : 4+passLen+totpLen])
+	// Verify nonce.
+	if !bytes.Equal(req[1:1+unsealNonceLen], nonce) {
+		t.Fatal("nonce mismatch")
+	}
+
+	off := 1 + unsealNonceLen
+	passLen := int(req[off])<<8 | int(req[off+1])
+	pass := string(req[off+2 : off+2+passLen])
+	totpLen := int(req[off+2+passLen])
+	totp := string(req[off+3+passLen : off+3+passLen+totpLen])
 
 	if pass != "test-pass" {
 		t.Errorf("passphrase = %q, want %q", pass, "test-pass")
 	}
 	if totp != "654321" {
 		t.Errorf("TOTP = %q, want %q", totp, "654321")
+	}
+}
+
+func TestReadUnsealChallenge(t *testing.T) {
+	nonce := make([]byte, unsealNonceLen)
+	for i := range nonce {
+		nonce[i] = byte(i + 1)
+	}
+
+	got, err := ReadUnsealChallenge(bytes.NewReader(nonce))
+	if err != nil {
+		t.Fatalf("ReadUnsealChallenge: %v", err)
+	}
+	if !bytes.Equal(got, nonce) {
+		t.Error("nonce mismatch")
 	}
 }

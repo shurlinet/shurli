@@ -3,6 +3,8 @@ package relay
 import (
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
@@ -29,6 +31,12 @@ type CircuitACL struct {
 	mu      sync.RWMutex
 	peers   map[peer.ID]bool         // cached authorized peer set
 	entries map[peer.ID]auth.PeerEntry // cached entries for role/attribute checks
+
+	// Rate-limited denial logging: under attack, deny logs could flood.
+	// Only log every Nth denial after the threshold.
+	denyCount   atomic.Int64
+	lastDenyLog time.Time
+	denyLogMu   sync.Mutex
 }
 
 // NewCircuitACL creates a new circuit ACL filter.
@@ -122,13 +130,39 @@ func (a *CircuitACL) AllowConnect(src peer.ID, srcAddr ma.Multiaddr, dest peer.I
 		return true
 	}
 
+	a.logDenial(src)
+	return false
+}
+
+// logDenial rate-limits circuit denial logging to prevent log flooding under attack.
+// First 100 denials are logged individually. After that, logs every 100th denial
+// or at most once per 10 seconds.
+func (a *CircuitACL) logDenial(src peer.ID) {
+	count := a.denyCount.Add(1)
 	short := src.String()
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
-	slog.Info("circuit ACL: denied data circuit (data relay disabled)",
-		"src", short)
-	return false
+
+	// Always log the first 100 denials.
+	if count <= 100 {
+		slog.Info("circuit ACL: denied data circuit (data relay disabled)", "src", short)
+		return
+	}
+
+	// After threshold: log every 100th denial or at most once per 10 seconds.
+	if count%100 == 0 {
+		slog.Warn("circuit ACL: denied data circuits (rate-limited log)", "src", short, "total_denials", count)
+		return
+	}
+	a.denyLogMu.Lock()
+	if time.Since(a.lastDenyLog) >= 10*time.Second {
+		a.lastDenyLog = time.Now()
+		a.denyLogMu.Unlock()
+		slog.Warn("circuit ACL: denied data circuits (rate-limited log)", "src", short, "total_denials", count)
+		return
+	}
+	a.denyLogMu.Unlock()
 }
 
 // cachedHasDataAccess checks if a peer has admin role or relay_data=true
