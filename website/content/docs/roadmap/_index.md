@@ -51,7 +51,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;6** | **ACL&nbsp;+&nbsp;Relay&nbsp;Security** | Macaroon tokens, sealed vault, async invites, roles | **Done** |
 | **Phase&nbsp;7** | **ZKP&nbsp;Privacy** | Anonymous auth, Poseidon2 Merkle tree, range proofs | **Done** |
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
-| 9 | **Visual&nbsp;Channel** | "Constellation Code" - animated visual pairing | Planned |
+| 9 | **Plugins&nbsp;&&nbsp;SDK** | Plugin architecture, file transfer, Python SDK | Planned |
 
 ---
 
@@ -71,16 +71,15 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 6: ACL + Relay Security + Client Invites** | 1 day | **Complete** |
 | **Phase 7: ZKP Privacy Layer** | 1 day | **Complete** |
 | **Phase 8: Identity Security + Remote Admin** | 1 day | **Complete** |
-| Phase 9: Visual Channel ("Constellation Code") | TBD | Planned |
-| Phase 10: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
-| Phase 11: Distribution & Launch | 1-2 weeks | Planned |
-| Phase 12: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
-| Phase 13: Apple Multiplatform App | 3-4 weeks | Planned |
-| Phase 14: Federation | 2-3 weeks | Planned |
-| Phase 15: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
-| Phase 16+: Ecosystem | Ongoing | Conceptual |
+| Phase 9: Plugins, SDK & First Plugins | 3-4 weeks | Planned |
+| Phase 10: Distribution & Launch | 1-2 weeks | Planned |
+| Phase 11: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
+| Phase 12: Apple Multiplatform App | 3-4 weeks | Planned |
+| Phase 13: Federation | 2-3 weeks | Planned |
+| Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
+| Phase 15+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> visual pairing -> plugins -> distribute -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> plugins -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
 
 ---
 
@@ -96,4 +95,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-02. Current: Phase 8 complete. Next: Phase 9 (Visual Channel).*
+*Last updated: 2026-03-07. Current: Phase 8 complete. Next: Phase 9 (Plugins & SDK).*

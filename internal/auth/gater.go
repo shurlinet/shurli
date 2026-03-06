@@ -72,9 +72,14 @@ func (g *AuthorizedPeerGater) InterceptAccept(cm network.ConnMultiaddrs) bool {
 
 // InterceptSecured is called after the crypto handshake (peer ID is verified).
 // This is the PRIMARY authorization check point.
+//
+// Uses a write lock (not RWMutex read lock) because the enrollment/probation
+// path mutates state. A single lock type eliminates the RLock->Lock upgrade
+// gap that could allow brief probation limit overruns under contention.
+// This is called per-connection (not per-packet), so the cost is negligible.
 func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID, addr network.ConnMultiaddrs) bool {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	if dir != network.DirInbound {
 		return true // always allow outbound
@@ -102,63 +107,51 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 	// Check enrollment mode: allow probationary peers during pairing.
 	// If at capacity, evict the oldest probation peer (newest is more likely a legitimate pairing).
 	if g.enrollmentEnabled {
-		// Upgrade to write lock for probation admission.
-		g.mu.RUnlock()
-		g.mu.Lock()
-		// Re-check under write lock (double-check pattern).
-		if g.enrollmentEnabled && !g.authorizedPeers[p] {
-			// At capacity: evict the oldest probation peer to make room.
-			if len(g.probationPeers) >= g.probationLimit {
-				var oldestPeer peer.ID
-				var oldestTime time.Time
-				for pid, admitted := range g.probationPeers {
-					if oldestTime.IsZero() || admitted.Before(oldestTime) {
-						oldestPeer = pid
-						oldestTime = admitted
-					}
-				}
-				if oldestPeer != "" {
-					delete(g.probationPeers, oldestPeer)
-					slog.Info("probation peer preempted (oldest evicted)", "evicted", oldestPeer.String()[:16]+"...", "new", short)
+		// At capacity: evict the oldest probation peer to make room.
+		if len(g.probationPeers) >= g.probationLimit {
+			var oldestPeer peer.ID
+			var oldestTime time.Time
+			for pid, admitted := range g.probationPeers {
+				if oldestTime.IsZero() || admitted.Before(oldestTime) {
+					oldestPeer = pid
+					oldestTime = admitted
 				}
 			}
-			// Per-IP rate limiting: prevent rapid probation cycling from a single IP.
-			// IPv6 addresses are normalized to /64 prefix to prevent bypass via rotation.
-			remoteIP := normalizeIPForRateLimit(extractIPFromMultiaddr(addr.RemoteMultiaddr()))
-			if remoteIP != "" {
-				if lastAdmit, ok := g.probationIPCooldown[remoteIP]; ok {
-					if time.Since(lastAdmit) < g.probationCooldownDur {
-						slog.Warn("inbound connection denied (IP cooldown)", "peer", short)
-						if g.onDecision != nil {
-							g.onDecision(short, "deny")
-						}
-						g.mu.Unlock()
-						g.mu.RLock()
-						return false
-					}
-				}
-				// Evict stale entries to prevent unbounded growth.
-				if len(g.probationIPCooldown) >= 1000 {
-					now := time.Now()
-					for ip, t := range g.probationIPCooldown {
-						if now.Sub(t) > g.probationCooldownDur*10 {
-							delete(g.probationIPCooldown, ip)
-						}
-					}
-				}
-				g.probationIPCooldown[remoteIP] = time.Now()
+			if oldestPeer != "" {
+				delete(g.probationPeers, oldestPeer)
+				slog.Info("probation peer preempted (oldest evicted)", "evicted", oldestPeer.String()[:16]+"...", "new", short)
 			}
-			g.probationPeers[p] = time.Now()
-			slog.Info("inbound connection allowed (probation)", "peer", short)
-			if g.onDecision != nil {
-				g.onDecision(short, "allow")
-			}
-			g.mu.Unlock()
-			g.mu.RLock()
-			return true
 		}
-		g.mu.Unlock()
-		g.mu.RLock()
+		// Per-IP rate limiting: prevent rapid probation cycling from a single IP.
+		// IPv6 addresses are normalized to /64 prefix to prevent bypass via rotation.
+		remoteIP := normalizeIPForRateLimit(extractIPFromMultiaddr(addr.RemoteMultiaddr()))
+		if remoteIP != "" {
+			if lastAdmit, ok := g.probationIPCooldown[remoteIP]; ok {
+				if time.Since(lastAdmit) < g.probationCooldownDur {
+					slog.Warn("inbound connection denied (IP cooldown)", "peer", short)
+					if g.onDecision != nil {
+						g.onDecision(short, "deny")
+					}
+					return false
+				}
+			}
+			// Evict stale entries to prevent unbounded growth.
+			if len(g.probationIPCooldown) >= 1000 {
+				now := time.Now()
+				for ip, t := range g.probationIPCooldown {
+					if now.Sub(t) > g.probationCooldownDur*10 {
+						delete(g.probationIPCooldown, ip)
+					}
+				}
+			}
+			g.probationIPCooldown[remoteIP] = time.Now()
+		}
+		g.probationPeers[p] = time.Now()
+		slog.Info("inbound connection allowed (probation)", "peer", short)
+		if g.onDecision != nil {
+			g.onDecision(short, "allow")
+		}
+		return true
 	}
 
 	slog.Warn("inbound connection denied", "peer", short)
