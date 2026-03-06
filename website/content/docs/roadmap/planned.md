@@ -1,7 +1,7 @@
 ---
 title: "Planned & Future"
 weight: 2
-description: "Upcoming phases: visual pairing, plugins, distribution, mobile, federation, and beyond."
+description: "Upcoming phases: plugins, distribution, desktop gateway, Apple multiplatform app, federation, and beyond."
 ---
 
 ## Relay Decentralization
@@ -25,19 +25,11 @@ Checked after each phase completion:
 3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
 
 **Deferred from Phase 7**:
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 14 federation work)
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
 
 ---
 
-## Phase 9: Visual Channel - "Constellation Code"
-
-**Timeline**: TBD
-
-**Goal**: Animated visual pairing verification. Instead of comparing emoji fingerprints, both devices display a synchronized animated pattern. If the patterns match, the connection is authentic. More intuitive than text-based verification, especially for non-technical users.
-
----
-
-## Phase 10: Plugin Architecture, SDK & First Plugins
+## Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 
@@ -108,7 +100,7 @@ net.OnEvent(func(e p2pnet.Event) {
 
 ---
 
-## Phase 11: Distribution & Launch
+## Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 
@@ -182,7 +174,7 @@ services:
 
 ---
 
-## Phase 12: Desktop Gateway Daemon + Private DNS
+## Phase 11: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 
@@ -215,30 +207,28 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 
 ---
 
-## Phase 13: Apple Multiplatform App
+## Phase 12: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
 
-**Goal**: Native iOS and Android apps with VPN-like functionality.
+**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing.
 
 **iOS Strategy**:
 - **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
 - **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
 
-**Android Strategy**:
-- VPNService API (full feature parity), TUN interface
-
 **Deliverables**:
-- [ ] iOS app with NEPacketTunnelProvider
-- [ ] Android app with VPNService
+- [ ] SwiftUI app targeting macOS, iOS, iPadOS, visionOS
+- [ ] NEPacketTunnelProvider for iOS/iPadOS
 - [ ] QR code scanning for `shurli invite` codes
 - [ ] Background connection maintenance + battery optimization
+- [ ] dotbeam visual pairing - animated visual verification replacing emoji fingerprints
 
 {{< figure src="/images/docs/roadmap-mobile-flow.svg" alt="Mobile App Config Flow" >}}
 
 ---
 
-## Phase 14: Federation - Network Peering
+## Phase 13: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 
@@ -276,7 +266,7 @@ curl http://desktop.bob:8080
 
 ---
 
-## Phase 15: Advanced Naming Systems + Peer ID Prefix (Optional)
+## Phase 14: Advanced Naming Systems + Peer ID Prefix (Optional)
 
 **Timeline**: 2-3 weeks
 
@@ -323,7 +313,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 16+: Ecosystem & Polish
+## Phase 15+: Ecosystem & Polish
 
 **Status**: Conceptual
 
@@ -378,16 +368,14 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 **Phase 8**: Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye
 
-**Phase 9**: Animated visual pairing replaces emoji fingerprints
+**Phase 9**: Third-party plugins work, file transfer between peers, SDK published
 
-**Phase 10**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
-**Phase 11**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
+**Phase 11**: Gateway works in all 3 modes, private DNS resolves only within P2P network
 
-**Phase 12**: Gateway works in all 3 modes, private DNS resolves only within P2P network
+**Phase 12**: Apple multiplatform app approved, QR invite flow works, dotbeam visual pairing live
 
-**Phase 13**: Apple multiplatform app approved, QR invite flow works
+**Phase 13**: Two networks federate, cross-network routing works
 
-**Phase 14**: Two networks federate, cross-network routing works
-
-**Phase 15**: 3+ naming backends working, plugin API documented
+**Phase 14**: 3+ naming backends working, plugin API documented

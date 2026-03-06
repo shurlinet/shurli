@@ -223,7 +223,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Visual Channel** | "Constellation Code" - animated visual pairing | Planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | File transfer, service templates, WoL, Python SDK, service discovery | Planned |
 
 **Deliverables**:
 
@@ -257,7 +257,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Health check HTTP endpoint** - relay exposes `/healthz` on a configurable port (default: disabled, `127.0.0.1:9090`). Returns JSON: peer ID, version, uptime, connected peers count, protocol count. Used by monitoring (Prometheus, UptimeKuma). *(Batch E)*
 - [x] **`shurli status` command** - show local config at a glance: version, peer ID, config path, relay addresses, authorized peers, services, names. No network required - instant. *(Batch E)*
 
-**Auto-Upgrade Groundwork** (full implementation in Phase 11):
+**Auto-Upgrade Groundwork** (full implementation in Phase 10):
 - [x] **Build version embedding** - compile with `-ldflags "-X main.version=..."` so every binary knows its version. `shurli version` / `shurli --version` and `relay-server version` / `relay-server --version` print build version, commit hash, build date, and Go version. Version printed in relay-server startup banner. `setup.sh` injects version from git at build time.
 - [x] **Version in libp2p Identify** - set `UserAgent` to `shurli/<version>` in libp2p host config. Peers learn each other's versions automatically on connect (no new protocol needed). *(Batch D - serve/proxy/ping; Batch E - invite/join)*
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
@@ -360,7 +360,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 14 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 13 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -735,13 +735,7 @@ Future:          authorized_keys becomes optional cache layer
 
 ---
 
-### Phase 9: Visual Channel "Constellation Code"
-
-**Status**: Planned
-
----
-
-### Phase 10: Plugin Architecture, SDK & First Plugins
+### Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Timeline**: 3-4 weeks
 **Status**: 📋 Planned
@@ -857,7 +851,7 @@ Waiting for transfers...
 
 ---
 
-### Phase 11: Distribution & Launch
+### Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
@@ -1022,14 +1016,14 @@ services:
 
 ---
 
-### Phase 12: Desktop Gateway Daemon + Private DNS
+### Phase 11: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
-**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 10.
+**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 9.
 
 **Deliverables**:
 
@@ -1096,12 +1090,12 @@ mount -t cifs //home.example.com/media /mnt/media
 
 ---
 
-### Phase 13: Mobile Applications
+### Phase 12: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
-**Status**: 📋 Planned
+**Status**: 📋 In Progress (shurli-ios repo, Phase 12)
 
-**Goal**: Native iOS and Android apps with VPN-like functionality.
+**Goal**: Native Apple multiplatform app (macOS/iOS/iPadOS/visionOS) with VPN-like functionality and beautiful visual pairing via dotbeam.
 
 **Rationale**: Phone → relay → home GPU is the dream demo. Mobile closes the loop on "access your stuff from anywhere."
 
@@ -1113,16 +1107,19 @@ mount -t cifs //home.example.com/media /mnt/media
 - **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
 - **Apple Review Approach**: "Connect to your own devices via relay server"
 
-**Android Strategy**:
-- VPNService API (full feature parity)
-- TUN interface
-- No approval process limitations
+**Visual Pairing: Constellation Code (dotbeam)**:
+- Animated visual data transfer for invite code exchange between devices
+- dotbeam library: colored dots in concentric rings, fountain-coded frames, camera decode
+- Standalone repo: `github.com/satindergrewal/dotbeam` (Go + JS, ~75-80% camera decode accuracy achieved)
+- Replaces boring QR with Apple-style flowing particle aesthetic
+- Not required for functionality (text invite codes work), but elevates the pairing UX
 
 **Deliverables**:
-- [ ] iOS app with NEPacketTunnelProvider
-- [ ] Android app with VPNService
+- [ ] SwiftUI app targeting macOS/iOS/iPadOS/visionOS
+- [ ] NEPacketTunnelProvider (iOS/macOS)
 - [ ] Mobile-optimized config UI
 - [ ] QR code scanning for `shurli invite` codes
+- [ ] dotbeam visual pairing (optional, beautiful alternative to QR)
 - [ ] Background connection maintenance
 - [ ] Battery optimization
 - [ ] Per-app SDK for third-party integration
@@ -1143,7 +1140,7 @@ Once connected:
 
 ---
 
-### Phase 14: Federation - Network Peering
+### Phase 13: Federation - Network Peering
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
@@ -1202,12 +1199,12 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 15: Advanced Naming Systems (Optional)
+### Phase 14: Advanced Naming Systems (Optional)
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Planned
 
-**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 10.
+**Goal**: Pluggable naming architecture supporting multiple backends. Uses the `Resolver` interface from Phase 9.
 
 **Deliverables**:
 - [ ] Built-in resolvers:
@@ -1295,7 +1292,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 16+: Ecosystem & Polish
+## Phase 15+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1436,16 +1433,15 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
 | **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
-| Phase 9: Visual Channel | 📋 | Planned ("Constellation Code") |
-| Phase 10: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
-| Phase 11: Distribution & Launch | 📋 1-2 weeks | Planned |
-| Phase 12: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 13: Mobile Apps | 📋 3-4 weeks | Planned |
-| Phase 14: Federation | 📋 2-3 weeks | Planned |
-| Phase 15: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 16+: Ecosystem | 📋 Ongoing | Conceptual |
+| Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
+| Phase 12: Apple Multiplatform App | 📋 3-4 weeks | In Progress (shurli-ios, includes dotbeam visual pairing) |
+| Phase 13: Federation | 📋 2-3 weeks | Planned |
+| Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
+| Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> visual pairing -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (mobile -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
 
 ---
 
@@ -1528,11 +1524,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Session tokens allow password-free daemon restarts, lock/unlock gates sensitive ops
 - `shurli doctor` validates installation health and auto-fixes issues
 
-**Phase 9 Success** (Visual Channel):
-- "Constellation Code" animated visual pairing works between devices
-- Pairing verified visually without reading text codes
-
-**Phase 10 Success** (Plugins, SDK):
+**Phase 9 Success** (Plugins, SDK):
 - Third-party code can implement custom `Resolver`, `Authorizer`, and stream middleware
 - Event hooks fire for peer connect/disconnect and auth decisions
 - New CLI commands require <30 lines of orchestration (bootstrap consolidated)
@@ -1545,7 +1537,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Python SDK works: `pip install shurli-sdk` → connect to remote service in <10 lines
 - `shurli invite --headless` outputs JSON; `shurli join --from-env` reads env vars
 
-**Phase 11 Success** (Distribution & Launch):
+**Phase 10 Success** (Distribution & Launch):
 - `shurli.io` serves a Hugo documentation site with landing page, guides, and install instructions
 - Site auto-deploys on push to `main` via GitHub Actions
 - `shurli.io/llms.txt` returns markdown index; `shurli.io/llms-full.txt` returns full site content - AI agents can understand the project in ~200 tokens
@@ -1570,31 +1562,32 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Containerized deployment guide published with working Docker compose examples
 - Python SDK available on PyPI
 
-**Phase 12 Success** (Desktop Gateway + Private DNS):
+**Phase 11 Success** (Desktop Gateway + Private DNS):
 - Gateway daemon works in all 3 modes (SOCKS, DNS, TUN)
 - Private DNS on relay resolves subdomains only within P2P network
 - Public DNS queries for subdomains return NXDOMAIN (zero leakage)
 - Native apps connect using real domain names (e.g., `home.example.com`)
 
-**Phase 13 Success** (Mobile Apps):
-- iOS app approved by Apple
-- Android app published on Play Store
+**Phase 12 Success** (Apple Multiplatform App):
+- SwiftUI app runs on macOS/iOS/iPadOS/visionOS
 - QR code invite flow works mobile → desktop
+- dotbeam visual pairing as optional beautiful alternative to QR
+- NEPacketTunnelProvider working on iOS
 
-**Phase 14 Success** (Federation):
+**Phase 13 Success** (Federation):
 - Two independent networks successfully federate
 - Cross-network routing works transparently
 - Trust model prevents unauthorized access
 
-**Phase 15 Success** (Advanced Naming):
+**Phase 14 Success** (Advanced Naming):
 - At least 3 naming backends working (local, DHT, one optional)
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
 ---
 
-**Last Updated**: 2026-03-02
-**Current Phase**: Phase 8 Complete. Phase 9 (Visual Channel "Constellation Code") next.
-**Phases**: 1-8 (complete), 9-15 (planned), 16+ (ecosystem)
-**Next Milestone**: Phase 9 - Visual Channel "Constellation Code" (animated visual pairing)
+**Last Updated**: 2026-03-07
+**Current Phase**: Phase 8 Complete. Phase 9 (Plugins, SDK & First Plugins) next.
+**Phases**: 1-8 (complete), 9-14 (planned), 15+ (ecosystem)
+**Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
