@@ -15,6 +15,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/qr"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
 )
 
@@ -89,7 +90,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 	}
 
-	fmt.Fprintln(stdout, "Welcome to Shurli!")
+	tc.Wgreen(stdout, "Welcome to Shurli!\n")
 	fmt.Fprintln(stdout)
 
 	// Determine config directory
@@ -166,13 +167,13 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	words := strings.Fields(mnemonic)
 
-	fmt.Fprintln(stdout, "=== SEED PHRASE ===")
-	fmt.Fprintln(stdout, "Write this down and store it securely. This is the ONLY way to")
-	fmt.Fprintln(stdout, "recover your identity if you lose this device.")
+	tc.Wyellow(stdout, "=== SEED PHRASE ===\n")
+	tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
+	tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
 	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "  %s\n", mnemonic)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "===========================")
+	tc.Wyellow(stdout, "===========================\n")
 	fmt.Fprintln(stdout)
 
 	// Seed backup confirmation quiz.
@@ -213,8 +214,9 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to derive peer ID: %w", err)
 	}
-	fmt.Fprintf(stdout, "Your Peer ID: %s\n", peerID)
-	fmt.Fprintln(stdout, "(Share this with peers who need to authorize you)")
+	tc.Wblue(stdout, "Your Peer ID: ")
+	fmt.Fprintf(stdout, "%s\n", peerID)
+	tc.Wfaint(stdout, "(Share this with peers who need to authorize you)\n")
 	fmt.Fprintln(stdout)
 
 	// Create authorized_keys file
@@ -233,8 +235,8 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	fmt.Fprintf(stdout, "Config written to:  %s\n", configFile)
-	fmt.Fprintf(stdout, "Identity saved to:  %s\n", keyFile)
+	tc.Wgreen(stdout, "Config written to:  %s\n", configFile)
+	tc.Wgreen(stdout, "Identity saved to:  %s\n", keyFile)
 	fmt.Fprintln(stdout)
 
 	// Show peer ID as QR for easy sharing
@@ -247,11 +249,11 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	// Install shell completions and man page.
 	setupShellEnvironment(stdout)
 
-	fmt.Fprintln(stdout, "Next steps:")
+	tc.Wblue(stdout, "Next steps:\n")
 	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
 	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --name home")
 	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "If anything looks wrong later, run: shurli doctor")
+	tc.Wfaint(stdout, "If anything looks wrong later, run: shurli doctor\n")
 	return nil
 }

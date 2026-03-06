@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
@@ -41,15 +42,33 @@ func runRecover(args []string) {
 		fatal("Failed to read seed phrase: %v", err)
 	}
 
-	// Validate.
+	// Validate BIP39. If invalid, offer custom passphrase mode with explicit disclaimer.
+	var seedBytes []byte
 	if err := identity.ValidateMnemonic(mnemonic); err != nil {
-		fatal("Invalid seed phrase: %v", err)
-	}
-
-	// Convert to seed bytes.
-	seedBytes, err := identity.SeedFromMnemonic(mnemonic)
-	if err != nil {
-		fatal("Failed to decode seed: %v", err)
+		fmt.Fprintln(os.Stdout)
+		termcolor.Yellow("WARNING: Input is not a valid BIP39 seed phrase.")
+		fmt.Fprintln(os.Stdout, "  BIP39 validation error:", err)
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "You can use a custom passphrase instead, but be aware:")
+		fmt.Fprintln(os.Stdout, "  - No checksum protection (typos silently produce wrong keys)")
+		fmt.Fprintln(os.Stdout, "  - No standard recovery (only this exact passphrase works)")
+		fmt.Fprintln(os.Stdout, "  - Entropy depends entirely on your passphrase strength")
+		fmt.Fprintln(os.Stdout, "  - The passphrase is hashed with SHA-256 to derive the seed")
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprint(os.Stdout, "Type I AGREE to proceed with custom passphrase, or anything else to abort: ")
+		confirmation, cerr := stdinReadLine()
+		if cerr != nil {
+			fatal("Failed to read confirmation: %v", cerr)
+		}
+		if strings.TrimSpace(confirmation) != "I AGREE" {
+			fatal("Aborted. Use a valid 24-word BIP39 seed phrase.")
+		}
+		seedBytes = identity.SeedFromCustomPassphrase(mnemonic)
+	} else {
+		seedBytes, err = identity.SeedFromMnemonic(mnemonic)
+		if err != nil {
+			fatal("Failed to decode seed: %v", err)
+		}
 	}
 	defer zeroBytes(seedBytes)
 

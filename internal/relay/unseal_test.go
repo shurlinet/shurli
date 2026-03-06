@@ -103,7 +103,7 @@ func TestReadUnsealResponseEmptyMessage(t *testing.T) {
 }
 
 func TestUnsealLockout(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// First unsealFreeAttempts failures: no lockout (typo grace period).
@@ -137,7 +137,7 @@ func TestUnsealLockout(t *testing.T) {
 }
 
 func TestUnsealLockoutEscalates(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Burn through free attempts.
@@ -169,7 +169,7 @@ func TestUnsealLockoutEscalates(t *testing.T) {
 }
 
 func TestUnsealLockoutResetOnSuccess(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Accumulate failures past the free limit.
@@ -196,7 +196,7 @@ func TestUnsealLockoutResetOnSuccess(t *testing.T) {
 }
 
 func TestUnsealLockoutPermanentBlock(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 	pid := genPeerID(t)
 
 	// Exhaust all free attempts + all lockout schedule entries.
@@ -237,7 +237,7 @@ func TestUnsealLockoutPermanentBlock(t *testing.T) {
 }
 
 func TestUnsealFailureMessageBlock(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 
 	// Past the schedule: shows permanent block message.
 	msg := handler.failureMessage("invalid passphrase", unsealFreeAttempts+len(unsealLockoutSchedule)+1)
@@ -247,7 +247,7 @@ func TestUnsealFailureMessageBlock(t *testing.T) {
 }
 
 func TestUnsealFailureMessage(t *testing.T) {
-	handler := NewUnsealHandler(nil, "")
+	handler := NewUnsealHandler(nil, "", "")
 
 	// Within free attempts: shows remaining.
 	msg := handler.failureMessage("invalid passphrase", 2)
@@ -265,6 +265,68 @@ func TestUnsealFailureMessage(t *testing.T) {
 	msg = handler.failureMessage("invalid passphrase", unsealFreeAttempts+1)
 	if msg != "invalid passphrase (locked for 1 minute)" {
 		t.Errorf("unexpected message: %s", msg)
+	}
+}
+
+func TestUnsealLockoutPersistence(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := dir + "/lockout.json"
+
+	pid := genPeerID(t)
+
+	// Create handler, accumulate failures.
+	h1 := NewUnsealHandler(nil, "", stateFile)
+	for i := 0; i < unsealFreeAttempts+2; i++ {
+		h1.recordFailure(pid)
+	}
+	failures1 := h1.getFailures(pid)
+	if failures1 != unsealFreeAttempts+2 {
+		t.Fatalf("failures = %d, want %d", failures1, unsealFreeAttempts+2)
+	}
+
+	// Create new handler from same state file (simulates relay restart).
+	h2 := NewUnsealHandler(nil, "", stateFile)
+	failures2 := h2.getFailures(pid)
+	if failures2 != failures1 {
+		t.Fatalf("restored failures = %d, want %d", failures2, failures1)
+	}
+
+	// Lockout should still be active.
+	locked, _ := h2.isLockedOut(pid)
+	if !locked {
+		t.Fatal("should still be locked after restart")
+	}
+}
+
+func TestUnsealLockoutPersistencePermanentBlock(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := dir + "/lockout.json"
+
+	pid := genPeerID(t)
+
+	// Exhaust all attempts to get permanently blocked.
+	h1 := NewUnsealHandler(nil, "", stateFile)
+	total := unsealFreeAttempts + len(unsealLockoutSchedule) + 1
+	for i := 0; i < total; i++ {
+		h1.recordFailure(pid)
+		h1.mu.Lock()
+		if lo, ok := h1.lockouts[pid]; ok {
+			lo.lockedUntil = time.Time{} // clear timer to keep failing
+		}
+		h1.mu.Unlock()
+	}
+
+	// Verify blocked.
+	locked, remaining := h1.isLockedOut(pid)
+	if !locked || remaining != -1 {
+		t.Fatalf("expected permanent block, got locked=%v remaining=%v", locked, remaining)
+	}
+
+	// Restart: permanent block should survive.
+	h2 := NewUnsealHandler(nil, "", stateFile)
+	locked, remaining = h2.isLockedOut(pid)
+	if !locked || remaining != -1 {
+		t.Fatalf("permanent block should survive restart, got locked=%v remaining=%v", locked, remaining)
 	}
 }
 

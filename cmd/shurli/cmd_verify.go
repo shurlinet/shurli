@@ -12,6 +12,7 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
+	"github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -84,17 +85,24 @@ func runVerify(args []string) {
 
 	// Display.
 	fmt.Println()
-	fmt.Println("=== Peer Verification ===")
+	termcolor.Wblue(os.Stdout, "=== Peer Verification ===")
 	fmt.Println()
+	fmt.Println()
+	termcolor.Wblue(os.Stdout, "Peer:    ")
 	if displayName != "" {
-		fmt.Printf("Peer:    %s (%s...)\n", displayName, targetPeerID.String()[:16])
+		fmt.Printf("%s (%s...)\n", displayName, targetPeerID.String()[:16])
 	} else {
-		fmt.Printf("Peer:    %s...\n", targetPeerID.String()[:16])
+		fmt.Printf("%s...\n", targetPeerID.String()[:16])
 	}
-	fmt.Printf("Your ID: %s...\n", ourPeerID.String()[:16])
+	termcolor.Wblue(os.Stdout, "Your ID: ")
+	fmt.Printf("%s...\n", ourPeerID.String()[:16])
 	fmt.Println()
-	fmt.Printf("Verification code:  %s\n", emoji)
-	fmt.Printf("Numeric code:       %s\n", numeric)
+	termcolor.Wblue(os.Stdout, "Verification code:  ")
+	termcolor.Wgreen(os.Stdout, "%s", emoji)
+	fmt.Println()
+	termcolor.Wblue(os.Stdout, "Numeric code:       ")
+	termcolor.Wgreen(os.Stdout, "%s", numeric)
+	fmt.Println()
 	fmt.Println()
 
 	if displayName != "" {
@@ -102,7 +110,8 @@ func runVerify(args []string) {
 	} else {
 		fmt.Println("Compare this with the other peer over a secure channel")
 	}
-	fmt.Println("(phone call, in person, trusted messaging).")
+	termcolor.Faint("(phone call, in person, trusted messaging).")
+	fmt.Println()
 	fmt.Println()
 
 	// Prompt for confirmation.
@@ -113,7 +122,7 @@ func runVerify(args []string) {
 
 	if answer != "y" && answer != "yes" {
 		fmt.Println()
-		fmt.Println("Verification cancelled. Peer remains unverified.")
+		termcolor.Yellow("Verification cancelled. Peer remains unverified.")
 		return
 	}
 
@@ -124,8 +133,8 @@ func runVerify(args []string) {
 
 	fmt.Println()
 	if displayName != "" {
-		fmt.Printf("Peer \"%s\" verified!\n", displayName)
+		termcolor.Green("Peer \"%s\" verified!", displayName)
 	} else {
-		fmt.Println("Peer verified!")
+		termcolor.Green("Peer verified!")
 	}
 }
