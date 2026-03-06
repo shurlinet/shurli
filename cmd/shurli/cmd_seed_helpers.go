@@ -285,10 +285,23 @@ func resolvePassword(configDir string) (string, error) {
 
 // resolvePasswordInteractive tries resolvePassword (session token), then
 // falls back to interactive terminal prompt.
+// Under systemd/Docker (no TTY), fails with an actionable error instead of
+// attempting a doomed stdin read that would EOF immediately.
 func resolvePasswordInteractive(configDir string, stdout io.Writer) (string, error) {
 	pw, err := resolvePassword(configDir)
 	if err == nil {
 		return pw, nil
+	}
+
+	// No TTY available (systemd, Docker, cron): don't attempt interactive prompt.
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return "", fmt.Errorf("no valid session token and no terminal available\n"+
+			"  Session error: %v\n"+
+			"  Fix: run interactively once to create a session token:\n"+
+			"    rm %s/.session\n"+
+			"    shurli relay serve --config <config-path>\n"+
+			"  Then restart the service.", err, configDir)
 	}
 
 	// Fall back to interactive prompt.
