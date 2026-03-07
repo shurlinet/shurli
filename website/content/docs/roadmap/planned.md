@@ -124,6 +124,7 @@ Service discovery protocol and two more plugins that prove different interface p
 ### Phase 9D: Python SDK & Documentation
 
 **Timeline**: 1-2 weeks
+**Repository**: `shurlinet/shurli-sdk-python` (separate repo, ships to PyPI)
 
 Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples.
 
@@ -136,6 +137,39 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 **SDK Documentation**:
 - [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
 - [ ] Example walkthroughs: file transfer, service templates, custom resolver, auth middleware
+
+### Phase 9E: Swift SDK
+
+**Timeline**: 1-2 weeks
+**Repository**: `shurlinet/shurli-sdk-swift` (separate repo, ships via Swift Package Manager)
+
+Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 12) will be built on. Building it before the app validates the API surface from a non-Go language and catches design issues early.
+
+**Swift SDK** (`ShurliSDK`):
+- [ ] Swift Package (SPM) wrapping daemon HTTP API (Unix socket + cookie auth)
+- [ ] `Codable` model types matching all daemon API responses
+- [ ] Core operations: connect, status, expose/unexpose services, discover, proxy, peer management
+- [ ] Event streaming (SSE or WebSocket) for real-time peer status and network transitions
+- [ ] Async/await native (Swift concurrency)
+- [ ] Platform-adaptive transport: Unix socket on macOS, HTTP over localhost on iOS
+- [ ] Example: connect to daemon and list peers in <10 lines of Swift
+
+**Design Constraints**: Zero external dependencies (Foundation + Network framework only). Strict concurrency from day one. Works in App Extension context (Network Extensions have restricted APIs).
+
+---
+
+### SDK & App Repository Strategy
+
+Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/p2pnet`) stays in this repo since it IS the core library.
+
+| Repository | What | Ships To |
+|-----------|------|----------|
+| `shurlinet/shurli` | Core daemon + Go library + CLI + plugins | Homebrew, apt, binary releases |
+| `shurlinet/shurli-sdk-python` | Python daemon client | PyPI (`shurli-sdk`) |
+| `shurlinet/shurli-sdk-swift` | Swift daemon client | Swift Package Manager (`ShurliSDK`) |
+| `shurlinet/shurli-ios` | Apple multiplatform app (consumer of Swift SDK) | App Store |
+
+Different languages have different release cycles, CI pipelines, and dependency ecosystems. Separate repos let each SDK version independently of the daemon.
 
 ---
 
@@ -249,8 +283,9 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 ## Phase 12: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
+**Repository**: `shurlinet/shurli-ios` (separate repo, depends on `shurli-sdk-swift` from Phase 9E)
 
-**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing.
+**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing. The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
 
 **iOS Strategy**:
 - **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
@@ -407,7 +442,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 **Phase 8**: Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye
 
-**Phase 9**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 9**: Third-party plugins work, file transfer between peers, Python + Swift SDKs published (separate repos)
 
 **Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
