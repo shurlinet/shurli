@@ -290,11 +290,12 @@ Shurli/
 │   ├── transfer/            # 🆕 Phase 9: File transfer plugin
 │   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 12: Mobile apps
-│   ├── ios/
-│   └── android/
-│
 └── ...existing (deploy/, tools/, configs, docs, examples)
+
+# External repositories (separate repos, independent release cycles):
+# shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
+# shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
+# shurlinet/shurli-ios    -> App Store (Phase 12)
 ```
 
 ### Service Exposure Architecture

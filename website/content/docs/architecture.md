@@ -11,7 +11,7 @@ This document describes the technical architecture of Shurli, from current imple
 ## Table of Contents
 
 - [Current Architecture (Phase 8 Complete)](#current-architecture-phase-8-complete) - what's built and working
-- [Target Architecture (Phase 9+)](#target-architecture-phase-9) - planned additions
+- [Target Architecture (Phase 9+)](#target-architecture-phase-10) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
@@ -296,11 +296,12 @@ Shurli/
 │   ├── transfer/            # 🆕 Phase 9: File transfer plugin
 │   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 12: Apple multiplatform app
-│   ├── ios/
-│   └── android/
-│
 └── ...existing (deploy/, tools/, configs, docs, examples)
+
+# External repositories (separate repos, independent release cycles):
+# shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
+# shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
+# shurlinet/shurli-ios    -> App Store (Phase 12)
 ```
 
 ### Service Exposure Architecture
@@ -309,7 +310,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 11](../roadmap/) for details.
+> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -951,7 +952,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 13](../roadmap/).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -994,7 +995,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 13](../roadmap/).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](../roadmap/).
 
 ### Relay Peering
 
@@ -1004,7 +1005,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](../roadmap/).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
