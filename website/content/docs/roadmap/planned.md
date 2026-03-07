@@ -31,11 +31,15 @@ Checked after each phase completion:
 
 ## Phase 9: Plugin Architecture, SDK & First Plugins
 
-**Timeline**: 3-4 weeks
-
-**Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins: file transfer, service templates, and Wake-on-LAN.
+**Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins. The plugins ARE the SDK examples.
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
+
+### Phase 9A: Core Interfaces & Library Consolidation
+
+**Timeline**: 1-2 weeks
+
+Define the public API contracts that third-party code will depend on. Design-first: get the interfaces right before building implementations, because changing them later breaks downstream users.
 
 **Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
 - [ ] `PeerNetwork` - interface for core network operations
@@ -50,30 +54,12 @@ Checked after each phase completion:
 - [ ] Stream middleware - `ServiceRegistry.Use(middleware)` for compression, bandwidth limiting
 - [ ] Protocol ID formatter - configurable protocol namespace and versioning
 
-**Built-in Plugin: File Transfer**:
-- [ ] `shurli send <file> --to <peer>` and `shurli receive`
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar, resume interrupted transfers, directory support
+**Library Consolidation**:
+- [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
+- [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
+- [ ] Package-level documentation for `pkg/p2pnet/`
 
-**Built-in Plugin: Service Templates**:
-- [ ] `shurli daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
-- [ ] `shurli daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
-- [ ] Health check middleware - verify local service is reachable before exposing
-
-**Built-in Plugin: Wake-on-LAN**:
-- [ ] `shurli wake <peer>` - send magic packet before connecting
-- [ ] Event hook: auto-wake peer on connection attempt (optional)
-
-**Service Discovery Protocol**:
-- [ ] New protocol `/shurli/discovery/1.0.0` - query a remote peer for their exposed services
-- [ ] `shurli discover <peer>` CLI command
-
-**Python SDK** (`shurli-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API
-- [ ] `pip install shurli-sdk`
-- [ ] Async support (asyncio)
-
-**Plugin Interface Preview**:
+**Interface Preview**:
 ```go
 // Third-party resolver
 type DNSResolver struct { ... }
@@ -97,6 +83,59 @@ net.OnEvent(func(e p2pnet.Event) {
     }
 })
 ```
+
+### Phase 9B: File Transfer Plugin
+
+**Timeline**: 1-2 weeks
+
+Build file transfer as the first real plugin. Validates the `ServiceManager` and stream middleware interfaces from 9A. If the interfaces need adjustment, this is where we catch it.
+
+- [ ] `shurli send <file> --to <peer>` and `shurli receive`
+- [ ] Auto-accept from authorized peers (configurable)
+- [ ] Progress bar, resume interrupted transfers, directory support
+
+```bash
+$ shurli send photo.jpg --to laptop
+Sending photo.jpg (4.2 MB) to laptop...
+████████████████████████████ 100% - 4.2 MB/s
+Transfer complete
+```
+
+### Phase 9C: Service Discovery & Additional Plugins
+
+**Timeline**: 1-2 weeks
+
+Service discovery protocol and two more plugins that prove different interface patterns.
+
+**Service Discovery Protocol**:
+- [ ] New protocol `/shurli/discovery/1.0.0` - query a remote peer for their exposed services
+- [ ] `shurli discover <peer>` CLI command
+- [ ] Service tags in config: `tags: [gpu, inference]`
+
+**Service Templates** (proves health middleware):
+- [ ] `shurli daemon --ollama` shortcut (auto-detects Ollama on localhost:11434)
+- [ ] `shurli daemon --vllm` shortcut (auto-detects vLLM on localhost:8000)
+- [ ] Health check middleware - verify local service is reachable before exposing
+
+**Wake-on-LAN** (proves event hooks):
+- [ ] `shurli wake <peer>` - send magic packet before connecting
+- [ ] Event hook: auto-wake peer on connection attempt (optional)
+
+### Phase 9D: Python SDK & Documentation
+
+**Timeline**: 1-2 weeks
+
+Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples.
+
+**Python SDK** (`shurli-sdk`):
+- [ ] Thin wrapper around daemon Unix socket API
+- [ ] `pip install shurli-sdk`
+- [ ] Async support (asyncio)
+- [ ] Example: connect to a remote service in <10 lines of Python
+
+**SDK Documentation**:
+- [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
+- [ ] Example walkthroughs: file transfer, service templates, custom resolver, auth middleware
 
 ---
 

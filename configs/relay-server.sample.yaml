@@ -81,3 +81,9 @@ security:
 #     listen_address: "127.0.0.1:9091"  # Prometheus /metrics endpoint
 #   audit:
 #     enabled: true  # Structured JSON audit events to stderr
+
+# CLI behavior
+# cli:
+#   # Disable terminal color output. Default: true (colors enabled).
+#   # Can also be disabled via the NO_COLOR environment variable.
+#   # color: false
