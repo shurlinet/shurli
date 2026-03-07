@@ -748,24 +748,26 @@ Future:          authorized_keys becomes optional cache layer
 #### Phase 9A: Core Interfaces & Library Consolidation
 
 **Timeline**: 1-2 weeks
-**Status**: 📋 Planned
+**Status**: 🚧 In Progress
 
 **Goal**: Define the public API contracts that third-party code will depend on. This is design-first work - get the interfaces right before building implementations, because changing them later breaks downstream users.
 
-**Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
-- [ ] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close)
-- [ ] `Resolver` - interface for name resolution (resolve, register). Enables chaining: local -> DNS -> DHT -> blockchain
-- [ ] `ServiceManager` - interface for service registration and dialing. Enables middleware.
-- [ ] `Authorizer` - interface for authorization decisions. Enables pluggable auth (certs, tokens, database)
-- [ ] `Logger` - interface for structured logging injection
+**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+- [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
+- [x] `Resolver` - interface for name resolution with fallback chaining: local -> custom -> peer.Decode
+- [x] `ServiceManager` - interface for service registration and dialing, with middleware support
+- [x] `Authorizer` - interface for authorization decisions. Enables pluggable auth (certs, tokens, database)
+- [x] `StreamMiddleware` / `StreamHandler` - functional middleware chain for stream handlers
+- [x] `EventType` / `Event` / `EventHandler` - typed event system for network lifecycle
+- Logger: uses Go stdlib `*slog.Logger` (no custom interface needed - deletion over addition)
 
 **Extension Points**:
-- [ ] Constructor injection - `Network.Config` accepts optional `Resolver`, `ConnectionGater`, `Logger`
-- [ ] Event hook system - `OnEvent(handler)` for peer connected/disconnected, auth allow/deny, service registered, stream opened
-- [ ] Stream middleware - `ServiceRegistry.Use(middleware)` for compression, bandwidth limiting, audit trails
-- [ ] Protocol ID formatter - configurable protocol namespace and versioning
+- [x] Constructor injection - `Network.Config` accepts optional `Resolver`
+- [x] Event hook system - `OnEvent(handler)` with subscribe/unsubscribe, thread-safe `EventBus`
+- [x] Stream middleware - `ServiceRegistry.Use(middleware)` wraps inbound stream handlers
+- [ ] Protocol ID formatter - configurable protocol namespace and versioning (deferred to 9B)
 
-**Library Consolidation**:
+**Library Consolidation** (deferred to 9B - needs real consumer to validate API shape):
 - [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
 - [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
 - [ ] Package-level documentation for `pkg/p2pnet/`
@@ -776,26 +778,31 @@ Future:          authorized_keys becomes optional cache layer
 type DNSResolver struct { ... }
 func (r *DNSResolver) Resolve(name string) (peer.ID, error) { ... }
 
-// Third-party auth
-type DatabaseAuthorizer struct { ... }
-func (a *DatabaseAuthorizer) IsAuthorized(p peer.ID) bool { ... }
-
-// Wire it up
+// Wire it up with custom resolver
 net, _ := p2pnet.New(&p2pnet.Config{
-    Resolver:        &DNSResolver{},
-    ConnectionGater: &DatabaseAuthorizer{},
-    Logger:          slog.Default(),
+    Resolver: &DNSResolver{},
 })
 
 // React to events
-net.OnEvent(func(e p2pnet.Event) {
+unsub := net.OnEvent(func(e p2pnet.Event) {
     if e.Type == p2pnet.EventPeerConnected {
         metrics.PeerConnections.Inc()
     }
 })
+defer unsub()
+
+// Add stream middleware (applied to all services)
+net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
+    return func(svcName string, s network.Stream) {
+        log.Printf("stream opened for %s", svcName)
+        next(svcName, s)
+    }
+})
 ```
 
-**Exit Criteria**: All interfaces compile, existing CLI commands refactored to use them, zero regressions in test suite.
+**Compile-time checks**: `var _ PeerNetwork = (*Network)(nil)` etc. enforce interface satisfaction.
+
+**Exit Criteria**: All interfaces compile, compile-time satisfaction checks pass, zero regressions in test suite (20/20 packages PASS).
 
 ---
 
@@ -804,7 +811,7 @@ net.OnEvent(func(e p2pnet.Event) {
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
 
-**Goal**: Build file transfer as the first real plugin. This validates the `ServiceManager` and stream middleware interfaces from 9A. Universal use case, builds on existing streams, proves the full lifecycle. If the interfaces need adjustment, this is where we catch it.
+**Goal**: Build file transfer as the first real plugin. This validates the `ServiceManager` and stream middleware interfaces from 9A. Universal use case, builds on existing streams, proves the full lifecycle. If the interfaces need adjustment, this is where we catch it. Also includes bootstrap extraction deferred from 9A (needs a real consumer to validate the API shape).
 
 **Deliverables** (proves `ServiceManager` + stream middleware):
 - [ ] `shurli send <file> --to <peer>` - send a file to an authorized peer

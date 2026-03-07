@@ -49,10 +49,11 @@ type ServiceConn interface {
 
 // ServiceRegistry manages service registration and connections
 type ServiceRegistry struct {
-	host     host.Host
-	services map[string]*Service
-	metrics  *Metrics // nil when metrics disabled
-	mu       sync.RWMutex
+	host       host.Host
+	services   map[string]*Service
+	metrics    *Metrics // nil when metrics disabled
+	middleware []StreamMiddleware
+	mu         sync.RWMutex
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -90,45 +91,79 @@ func (r *ServiceRegistry) RegisterService(svc *Service) error {
 	// Register service
 	r.services[svc.Name] = svc
 
-	// Set up stream handler
+	// Set up stream handler with middleware chain
 	pid := protocol.ID(svc.Protocol)
-	r.host.SetStreamHandler(pid, r.handleServiceStream(svc))
+	r.host.SetStreamHandler(pid, r.wrapWithMiddleware(svc))
 
 	slog.Info("registered service", "service", svc.Name, "protocol", svc.Protocol, "local", svc.LocalAddress)
 
 	return nil
 }
 
-// handleServiceStream creates a stream handler for a service
+// wrapWithMiddleware builds a libp2p stream handler for a service, wrapping
+// the core handler with any registered middleware.
+func (r *ServiceRegistry) wrapWithMiddleware(svc *Service) func(network.Stream) {
+	// Snapshot middleware at registration time so adding middleware later
+	// doesn't silently change behavior of already-registered services.
+	mw := make([]StreamMiddleware, len(r.middleware))
+	copy(mw, r.middleware)
+
+	if len(mw) == 0 {
+		return r.handleServiceStream(svc)
+	}
+
+	// Build the core handler as a StreamHandler.
+	core := func(serviceName string, s network.Stream) {
+		r.handleServiceStreamInner(svc, s)
+	}
+
+	// Apply middleware in reverse order so first-added is outermost.
+	wrapped := core
+	for i := len(mw) - 1; i >= 0; i-- {
+		wrapped = mw[i](wrapped)
+	}
+
+	return func(s network.Stream) {
+		wrapped(svc.Name, s)
+	}
+}
+
+// handleServiceStream creates a stream handler for a service (no middleware)
 func (r *ServiceRegistry) handleServiceStream(svc *Service) func(network.Stream) {
 	return func(s network.Stream) {
-		remotePeer := s.Conn().RemotePeer()
-		tag := connectionTag(s)
-		short := remotePeer.String()[:16] + "..."
-		slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
+		r.handleServiceStreamInner(svc, s)
+	}
+}
 
-		// Per-service access control
-		if svc.AllowedPeers != nil {
-			if _, ok := svc.AllowedPeers[remotePeer]; !ok {
-				slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
-				s.Reset()
-				return
-			}
-		}
+// handleServiceStreamInner is the core stream handler logic, shared by both
+// the direct handler and the middleware-wrapped handler.
+func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Stream) {
+	remotePeer := s.Conn().RemotePeer()
+	tag := connectionTag(s)
+	short := remotePeer.String()[:16] + "..."
+	slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
 
-		// Connect to local service (with timeout to avoid hanging on unreachable services)
-		localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)
-		if err != nil {
-			slog.Error("failed to connect to local service", "service", svc.Name, "addr", svc.LocalAddress, "error", err)
+	// Per-service access control
+	if svc.AllowedPeers != nil {
+		if _, ok := svc.AllowedPeers[remotePeer]; !ok {
+			slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
 			s.Reset()
 			return
 		}
-
-		// Bidirectional proxy with half-close propagation and optional metrics
-		InstrumentedBidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name, r.metrics)
-
-		slog.Info("closed connection", "service", svc.Name, "peer", short)
 	}
+
+	// Connect to local service (with timeout to avoid hanging on unreachable services)
+	localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)
+	if err != nil {
+		slog.Error("failed to connect to local service", "service", svc.Name, "addr", svc.LocalAddress, "error", err)
+		s.Reset()
+		return
+	}
+
+	// Bidirectional proxy with half-close propagation and optional metrics
+	InstrumentedBidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name, r.metrics)
+
+	slog.Info("closed connection", "service", svc.Name, "peer", short)
 }
 
 // DialService connects to a remote peer's service
@@ -213,6 +248,14 @@ func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 
 	svc, exists := r.services[name]
 	return svc, exists
+}
+
+// Use adds stream middleware that wraps every inbound stream handler.
+// Middleware is applied in the order added (first added = outermost wrapper).
+func (r *ServiceRegistry) Use(middleware ...StreamMiddleware) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.middleware = append(r.middleware, middleware...)
 }
 
 // ListServices returns all registered services
