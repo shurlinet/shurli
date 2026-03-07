@@ -56,6 +56,20 @@ type CLIConfig struct {
 	// This is a debug/development option. In normal use, the daemon manages
 	// all connections and subcommands talk to it via the local API.
 	AllowStandalone bool `yaml:"allow_standalone,omitempty"`
+
+	// Color controls terminal color output. Default: true (colors enabled).
+	// Set to false to disable all ANSI color codes in CLI output.
+	// Can also be disabled via the NO_COLOR environment variable.
+	Color *bool `yaml:"color,omitempty"`
+}
+
+// IsColorEnabled returns whether CLI color output is enabled.
+// Defaults to true when not explicitly set in config.
+func (c *CLIConfig) IsColorEnabled() bool {
+	if c.Color == nil {
+		return true
+	}
+	return *c.Color
 }
 
 // ClientNodeConfig represents configuration for the client node
@@ -80,6 +94,7 @@ type RelayServerConfig struct {
 	Resources RelayResourcesConfig `yaml:"resources,omitempty"`
 	Health    HealthConfig         `yaml:"health,omitempty"`
 	Telemetry TelemetryConfig      `yaml:"telemetry,omitempty"`
+	CLI       CLIConfig            `yaml:"cli,omitempty"`
 }
 
 // TelemetryConfig holds observability settings.

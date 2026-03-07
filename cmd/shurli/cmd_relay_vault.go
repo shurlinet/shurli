@@ -17,6 +17,7 @@ import (
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"golang.org/x/term"
@@ -391,14 +392,18 @@ func readVaultPassword(w io.Writer, prompt string) (string, error) {
 	return string(passBytes), nil
 }
 
-// readVaultPasswordConfirm reads and confirms a vault password.
+// readVaultPasswordConfirm reads a vault password with live strength feedback,
+// then asks for confirmation. Rejects weak passwords.
 func readVaultPasswordConfirm(w io.Writer) (string, error) {
-	pass1, err := readVaultPassword(w, "Enter vault password: ")
+	pass1, err := readPasswordWithStrength("Enter vault password: ", w)
 	if err != nil {
 		return "", err
 	}
-	if len(pass1) < 8 {
-		return "", fmt.Errorf("vault password must be at least 8 characters")
+	if len(pass1) < validate.MinPasswordLen {
+		return "", fmt.Errorf("vault password must be at least %d characters", validate.MinPasswordLen)
+	}
+	if !validate.PasswordAcceptable(pass1) {
+		return "", fmt.Errorf("vault password is too weak: need at least 3 of: uppercase, lowercase, digit, symbol")
 	}
 	pass2, err := readVaultPassword(w, "Confirm vault password: ")
 	if err != nil {

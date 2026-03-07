@@ -400,7 +400,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 		if sealStatus.Sealed {
 			t.Log("Vault sealed, unsealing for test...")
 			_, unsealStatus, unsealErr := adminCurl("POST", "/v1/unseal",
-				`{"passphrase":"testpassword"}`)
+				`{"passphrase":"TestPass1!"}`)
 			if unsealErr != nil {
 				t.Fatalf("pre-test unseal failed: %v", unsealErr)
 			}
@@ -413,7 +413,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 		// Phase 8 vault init requires seed_bytes (32 bytes, base64), mnemonic, and password.
 		t.Log("Initializing vault...")
 		body, status, err = adminCurl("POST", "/v1/vault/init",
-			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"testpassword","enable_totp":false,"auto_seal_minutes":0}`)
+			`{"seed_bytes":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=","mnemonic":"test mnemonic for docker integration","password":"TestPass1!","enable_totp":false,"auto_seal_minutes":0}`)
 		if err != nil {
 			t.Fatalf("vault init failed: %v", err)
 		}
@@ -471,7 +471,7 @@ func TestVaultInitSealUnseal(t *testing.T) {
 	// ── Step 6: Unseal with correct passphrase ──
 	t.Log("Unsealing with correct passphrase...")
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"testpassword"}`)
+		`{"passphrase":"TestPass1!"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestSealedRelayBlocksMutations(t *testing.T) {
 
 	// ── Unseal to restore state for subsequent tests ──
 	_, status, err = adminCurl("POST", "/v1/unseal",
-		`{"passphrase":"testpassword"}`)
+		`{"passphrase":"TestPass1!"}`)
 	if err != nil {
 		t.Fatalf("unseal failed: %v", err)
 	}
@@ -854,7 +854,7 @@ func setupRelay() error {
 	// Container is sleeping; we launch shurli relay serve as a background process.
 	// Pipe password for first-run encrypted identity creation (non-TTY environment).
 	_, _, err := dockerExec("relay", "sh", "-c",
-		"cd /data && printf 'testpassword\\ntestpassword\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
+		"cd /data && printf 'TestPass1!\\nTestPass1!\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
 	if err != nil {
 		return fmt.Errorf("failed to start relay server: %w", err)
 	}
@@ -910,7 +910,7 @@ func setupNode(container, relayAddr, mnemonic string) error {
 	// Create identity + session token via shurli recover.
 	// Pipes: line 1 = seed phrase, line 2 = password, line 3 = password confirm.
 	recoverCmd := fmt.Sprintf(
-		"printf '%s\\ntestpassword\\ntestpassword\\n' | shurli recover --dir /root/.config/shurli",
+		"printf '%s\\nTestPass1!\\nTestPass1!\\n' | shurli recover --dir /root/.config/shurli",
 		mnemonic)
 	_, stderr, err := dockerExec(container, "sh", "-c", recoverCmd)
 	if err != nil {
