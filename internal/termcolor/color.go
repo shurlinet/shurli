@@ -25,13 +25,24 @@ const (
 )
 
 var (
-	ttyOnce   sync.Once
-	ttyResult bool
+	ttyOnce       sync.Once
+	ttyResult     bool
+	colorDisabled bool // explicit disable via config or SetColorDisabled
 )
 
+// SetColorDisabled explicitly disables all color output.
+// Call this after loading config when cli.color is set to false.
+func SetColorDisabled() {
+	colorDisabled = true
+}
+
 // isColorEnabled reports whether color output should be used.
-// Disabled when stdout is not a terminal or NO_COLOR env is set.
+// Disabled when stdout is not a terminal, NO_COLOR env is set,
+// or SetColorDisabled() was called.
 func isColorEnabled() bool {
+	if colorDisabled {
+		return false
+	}
 	ttyOnce.Do(func() {
 		if os.Getenv("NO_COLOR") != "" {
 			return

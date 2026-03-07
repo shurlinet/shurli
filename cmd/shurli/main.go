@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+
+	"github.com/shurlinet/shurli/internal/config"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 )
 
 // Set via -ldflags at build time:
@@ -20,6 +23,9 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
+
+	// Apply cli.color config setting (best-effort, no error on missing config).
+	applyColorConfig()
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -81,6 +87,29 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		printUsage()
 		osExit(1)
+	}
+}
+
+// applyColorConfig checks the config file for cli.color setting.
+// Best-effort: silently skips if no config is found (e.g., before init).
+// Tries node config first, then relay config.
+func applyColorConfig() {
+	// Try node config.
+	if cfgFile, err := config.FindConfigFile(""); err == nil {
+		if cfg, err := config.LoadNodeConfig(cfgFile); err == nil {
+			if !cfg.CLI.IsColorEnabled() {
+				tc.SetColorDisabled()
+			}
+			return
+		}
+	}
+	// Try relay config.
+	if cfgFile, err := config.FindRelayConfigFile(""); err == nil {
+		if cfg, err := config.LoadRelayServerConfig(cfgFile); err == nil {
+			if !cfg.CLI.IsColorEnabled() {
+				tc.SetColorDisabled()
+			}
+		}
 	}
 }
 
