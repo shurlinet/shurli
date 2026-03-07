@@ -33,13 +33,13 @@ import (
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
+	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -1186,20 +1186,121 @@ func doRelayServerConfigShow(configFile string, stdout io.Writer) error {
 		return fmt.Errorf("failed to load config: %v", err)
 	}
 	if err := config.ValidateRelayServerConfig(cfg); err != nil {
-		fmt.Fprintf(stdout, "WARNING: config has validation errors: %v\n\n", err)
+		tc.Wyellow(stdout, "WARNING: ")
+		fmt.Fprintf(stdout, "config has validation errors: %v\n\n", err)
 	}
 
-	fmt.Fprintf(stdout, "# Resolved config from %s\n", configFile)
-	out, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	fmt.Fprint(stdout, string(out))
+	tc.Wfaint(stdout, "# Resolved config from %s\n", configFile)
+	fmt.Fprintln(stdout)
 
-	if config.HasArchive(configFile) {
-		fmt.Fprintf(stdout, "\n# Last-known-good archive: %s\n", config.ArchivePath(configFile))
+	// Identity
+	tc.Wblue(stdout, "Name:       ")
+	if cfg.Name != "" {
+		fmt.Fprintln(stdout, cfg.Name)
 	} else {
-		fmt.Fprintf(stdout, "\n# No last-known-good archive (will be created on next successful serve)\n")
+		tc.Wfaint(stdout, "(not set)\n")
+	}
+	tc.Wblue(stdout, "Key file:   ")
+	fmt.Fprintln(stdout, cfg.Identity.KeyFile)
+	tc.Wblue(stdout, "Config:     ")
+	fmt.Fprintln(stdout, configFile)
+	fmt.Fprintln(stdout)
+
+	// Network
+	tc.Wblue(stdout, "Listen:     ")
+	if len(cfg.Network.ListenAddresses) > 0 {
+		fmt.Fprintln(stdout, strings.Join(cfg.Network.ListenAddresses, ", "))
+	} else {
+		tc.Wfaint(stdout, "(default)\n")
+	}
+	tc.Wblue(stdout, "Network:    ")
+	if cfg.Discovery.Network != "" {
+		fmt.Fprintln(stdout, cfg.Discovery.Network)
+	} else {
+		fmt.Fprintln(stdout, "global (default)")
+	}
+	fmt.Fprintln(stdout)
+
+	// Security
+	tc.Wblue(stdout, "Auth:       ")
+	if cfg.Security.EnableConnectionGating {
+		tc.Wgreen(stdout, "enabled\n")
+	} else {
+		tc.Wred(stdout, "disabled\n")
+	}
+	tc.Wblue(stdout, "Auth keys:  ")
+	fmt.Fprintln(stdout, cfg.Security.AuthorizedKeysFile)
+	tc.Wblue(stdout, "Data relay: ")
+	if cfg.Security.EnableDataRelay {
+		tc.Wyellow(stdout, "enabled")
+		fmt.Fprintln(stdout, " (all peers can relay data)")
+	} else {
+		tc.Wgreen(stdout, "disabled")
+		fmt.Fprintln(stdout, " (signaling only)")
+	}
+	tc.Wblue(stdout, "Invite:     ")
+	policy := cfg.Security.InvitePolicy
+	if policy == "" {
+		policy = "admin-only"
+	}
+	fmt.Fprintln(stdout, policy)
+	tc.Wblue(stdout, "Vault:      ")
+	if cfg.Security.VaultFile != "" {
+		fmt.Fprintln(stdout, cfg.Security.VaultFile)
+	} else {
+		tc.Wfaint(stdout, "(none)\n")
+	}
+	tc.Wblue(stdout, "TOTP:       ")
+	if cfg.Security.RequireTOTP {
+		tc.Wgreen(stdout, "required\n")
+	} else {
+		tc.Wfaint(stdout, "not required\n")
+	}
+	if cfg.Security.AutoSealMinutes > 0 {
+		tc.Wblue(stdout, "Auto-seal:  ")
+		fmt.Fprintf(stdout, "%d minutes\n", cfg.Security.AutoSealMinutes)
+	}
+	fmt.Fprintln(stdout)
+
+	// Resources
+	tc.Wblue(stdout, "Max reservations: ")
+	fmt.Fprintln(stdout, cfg.Resources.MaxReservations)
+	tc.Wblue(stdout, "Max circuits:     ")
+	fmt.Fprintln(stdout, cfg.Resources.MaxCircuits)
+	tc.Wblue(stdout, "Session duration: ")
+	fmt.Fprintln(stdout, cfg.Resources.SessionDuration)
+	tc.Wblue(stdout, "Session data:     ")
+	fmt.Fprintln(stdout, cfg.Resources.SessionDataLimit)
+	fmt.Fprintln(stdout)
+
+	// Telemetry
+	tc.Wblue(stdout, "Metrics:    ")
+	if cfg.Telemetry.Metrics.Enabled {
+		tc.Wgreen(stdout, "enabled")
+		fmt.Fprintf(stdout, " (%s)\n", cfg.Telemetry.Metrics.ListenAddress)
+	} else {
+		tc.Wfaint(stdout, "disabled\n")
+	}
+	tc.Wblue(stdout, "Audit log:  ")
+	if cfg.Telemetry.Audit.Enabled {
+		tc.Wgreen(stdout, "enabled\n")
+	} else {
+		tc.Wfaint(stdout, "disabled\n")
+	}
+	tc.Wblue(stdout, "Health:     ")
+	if cfg.Health.Enabled {
+		tc.Wgreen(stdout, "enabled")
+		fmt.Fprintf(stdout, " (%s)\n", cfg.Health.ListenAddress)
+	} else {
+		tc.Wfaint(stdout, "disabled\n")
+	}
+	fmt.Fprintln(stdout)
+
+	// Archive
+	if config.HasArchive(configFile) {
+		tc.Wfaint(stdout, "# Last-known-good archive: %s\n", config.ArchivePath(configFile))
+	} else {
+		tc.Wfaint(stdout, "# No archive yet (created on next successful serve)\n")
 	}
 	return nil
 }

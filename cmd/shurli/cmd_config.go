@@ -166,6 +166,7 @@ var validConfigKeys = []string{
 	"protocols.ping_pong.enabled",
 	"protocols.ping_pong.id",
 	"cli.allow_standalone",
+	"cli.color",
 	"telemetry.metrics.enabled",
 	"telemetry.metrics.listen_address",
 	"telemetry.audit.enabled",
