@@ -223,7 +223,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | File transfer, service templates, WoL, Python SDK, service discovery | Planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | File transfer, service templates, WoL, Python SDK, Swift SDK, service discovery | Planned |
 
 **Deliverables**:
 
@@ -866,6 +866,7 @@ Waiting for transfers...
 
 **Timeline**: 1-2 weeks
 **Status**: 📋 Planned
+**Repository**: `github.com/shurlinet/shurli-sdk-python` (separate repo, ships to PyPI)
 
 **Goal**: Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples - no synthetic demos, real working code.
 
@@ -889,6 +890,51 @@ Waiting for transfers...
 - [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` *(Phase 4C Batch E)*
 
 **Exit Criteria**: SDK installable via pip, all examples runnable, docs reviewed for accuracy against current code.
+
+---
+
+#### Phase 9E: Swift SDK
+
+**Timeline**: 1-2 weeks
+**Status**: 📋 Planned
+**Repository**: `github.com/shurlinet/shurli-sdk-swift` (separate repo, ships via Swift Package Manager)
+
+**Goal**: Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 12) will be built on. Building it here, before the app, validates the API surface from a non-Go language and catches design issues early. "Eat your own cooking" - if the SDK can't power the Apple app, it can't power anything.
+
+**Swift SDK** (`ShurliSDK`):
+- [ ] Swift Package (SPM) wrapping daemon HTTP API (Unix socket + cookie auth)
+- [ ] `Codable` model types matching all daemon API responses
+- [ ] Core operations: connect, status, expose/unexpose services, discover, proxy, peer management
+- [ ] Event streaming (SSE or WebSocket) for real-time peer status, network transitions, transfer progress
+- [ ] Async/await native (Swift concurrency, no callback chains)
+- [ ] Platform-adaptive transport: Unix socket on macOS, HTTP over localhost on iOS (Network Extension context)
+- [ ] Example: connect to daemon and list peers in <10 lines of Swift
+
+**Design Constraints**:
+- Zero external dependencies (Foundation + Network framework only). Sovereignty.
+- Strict concurrency (`Sendable` compliance from day one)
+- Works in App Extension context (Network Extensions have restricted APIs)
+- Shared between macOS app (direct socket), iOS app (tunnel context), and any third-party Swift app
+
+**Exit Criteria**: Package importable via SPM, all daemon API endpoints covered, async/await works, tested on macOS (direct) and iOS simulator (localhost transport). Phase 12 app can depend on this package with zero API plumbing in the app repo.
+
+---
+
+### SDK & App Repository Strategy
+
+Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/p2pnet`) stays in this repo since it IS the core library.
+
+**Rationale**: Different languages have different release cycles, CI pipelines, dependency ecosystems, and potential contributors. A Python SDK ships to PyPI. A Swift SDK ships via SPM. Forcing them into one repo means every PR touches CI configs for languages the author doesn't use. Separate repos also let each SDK version independently of the daemon.
+
+| Repository | What | Ships To |
+|-----------|------|----------|
+| `shurlinet/shurli` | Core daemon + Go library + CLI + plugins | Homebrew, apt, binary releases |
+| `shurlinet/shurli-sdk-python` | Python daemon client | PyPI (`shurli-sdk`) |
+| `shurlinet/shurli-sdk-swift` | Swift daemon client | Swift Package Manager (`ShurliSDK`) |
+| `shurlinet/shurli-ios` | Apple multiplatform app (consumer of Swift SDK) | App Store |
+| Future: `shurlinet/shurli-sdk-js` | JS/TS daemon client | npm (`shurli`) |
+
+The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separate repo needed since Go consumers import the library directly from the daemon's module.
 
 ---
 
@@ -1134,11 +1180,12 @@ mount -t cifs //home.example.com/media /mnt/media
 ### Phase 12: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
-**Status**: 📋 In Progress (shurli-ios repo, Phase 12)
+**Status**: 📋 In Progress
+**Repository**: `github.com/shurlinet/shurli-ios` (separate repo, depends on `shurli-sdk-swift` from Phase 9E)
 
 **Goal**: Native Apple multiplatform app (macOS/iOS/iPadOS/visionOS) with VPN-like functionality and beautiful visual pairing via dotbeam.
 
-**Rationale**: Phone → relay → home GPU is the dream demo. Mobile closes the loop on "access your stuff from anywhere."
+**Rationale**: Phone → relay → home GPU is the dream demo. Mobile closes the loop on "access your stuff from anywhere." The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
 
 **iOS Strategy**:
 - **Primary**: NEPacketTunnelProvider (VPN mode)
@@ -1474,15 +1521,17 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
 | **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
-| Phase 9: Plugins, SDK & First Plugins | 📋 3-4 weeks | Planned |
+| Phase 9: Plugins, SDK & First Plugins | 📋 5-8 weeks | Planned (9A-9E sub-phases) |
 | Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
-| Phase 12: Apple Multiplatform App | 📋 3-4 weeks | In Progress (shurli-ios, includes dotbeam visual pairing) |
+| Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
 | Phase 13: Federation | 📋 2-3 weeks | Planned |
 | Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (Go interfaces + Python SDK + Swift SDK) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
+
+**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. See "SDK & App Repository Strategy" section under Phase 9 for the full table.
 
 ---
 
@@ -1575,7 +1624,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Transfer speed saturates relay bandwidth; resume works after interruption
 - SDK documentation published with working plugin examples
 - `shurli discover <peer>` returns list of exposed services with tags
-- Python SDK works: `pip install shurli-sdk` → connect to remote service in <10 lines
+- Python SDK works: `pip install shurli-sdk` - connect to remote service in <10 lines
+- Swift SDK works: SPM import `ShurliSDK` - connect to daemon and list peers in <10 lines of Swift
+- Swift SDK validated as foundation for Phase 12 Apple app (zero API plumbing needed in app repo)
 - `shurli invite --headless` outputs JSON; `shurli join --from-env` reads env vars
 
 **Phase 10 Success** (Distribution & Launch):
@@ -1627,8 +1678,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-03-07
+**Last Updated**: 2026-03-08
 **Current Phase**: Phase 8 Complete. Phase 9 (Plugins, SDK & First Plugins) next.
 **Phases**: 1-8 (complete), 9-14 (planned), 15+ (ecosystem)
-**Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins
+**Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins (9A-9E: interfaces, file transfer, discovery, Python SDK, Swift SDK)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
