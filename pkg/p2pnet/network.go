@@ -99,6 +99,7 @@ type Network struct {
 	config          *config.Config
 	serviceRegistry *ServiceRegistry
 	nameResolver    *NameResolver
+	events          *EventBus
 	ctx             context.Context
 	cancel          context.CancelFunc
 }
@@ -124,6 +125,9 @@ type Config struct {
 	// peer ID on each namespace, preventing cross-network correlation.
 	// Empty = global network (uses master identity, backward compatible).
 	Namespace string
+
+	// Extension points (optional, nil = use defaults)
+	Resolver Resolver // Custom name resolver (nil = built-in local resolver)
 
 	// Resource management
 	ResourceLimitsEnabled bool            // Enable libp2p resource manager (connection/stream/memory limits)
@@ -279,11 +283,23 @@ func New(cfg *Config) (*Network, error) {
 		return nil, fmt.Errorf("failed to create libp2p host: %w", err)
 	}
 
+	events := NewEventBus()
+
+	// Use custom resolver if provided, otherwise default.
+	var resolver *NameResolver
+	if cfg.Resolver != nil {
+		// Wrap custom resolver in a NameResolver that delegates to it.
+		resolver = newNameResolverFrom(cfg.Resolver)
+	} else {
+		resolver = NewNameResolver()
+	}
+
 	net := &Network{
 		host:            h,
 		config:          cfg.Config,
 		serviceRegistry: NewServiceRegistry(h, cfg.Metrics),
-		nameResolver:    NewNameResolver(),
+		nameResolver:    resolver,
+		events:          events,
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -504,6 +520,17 @@ func (n *Network) AddRelayAddressesForPeer(relayAddrs []string, targetPeerID pee
 		n.host.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, peerstore.PermanentAddrTTL)
 	}
 	return nil
+}
+
+// OnEvent registers an event handler. Returns a function to unsubscribe.
+func (n *Network) OnEvent(handler EventHandler) func() {
+	return n.events.Subscribe(handler)
+}
+
+// Events returns the event bus for emitting events from external code
+// (e.g., daemon, relay server). Not part of PeerNetwork interface.
+func (n *Network) Events() *EventBus {
+	return n.events
 }
 
 // Close shuts down the network
