@@ -37,7 +37,9 @@
 //     SHFT wire format (v2). Features: FastCDC content-defined chunking,
 //     BLAKE3 Merkle integrity, zstd compression (on by default), receive
 //     permissions (off/contacts/ask/open), disk space checks, atomic writes,
-//     and per-chunk hash verification. Protocol: /shurli/file-transfer/2.0.0.
+//     per-chunk hash verification, resumable transfers (bitfield checkpoint
+//     persistence + sparse file writes for out-of-order chunks), and
+//     ResumeRequest/ResumeResponse protocol. Protocol: /shurli/file-transfer/2.0.0.
 //
 //   - Protocol IDs: [ProtocolID] and [MustValidateProtocolIDs] enforce valid
 //     protocol ID construction at init time.
