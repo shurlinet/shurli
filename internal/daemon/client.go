@@ -317,6 +317,54 @@ func (c *Client) Unlock() error {
 	return c.doJSON("POST", "/v1/unlock", nil, nil)
 }
 
+// --- File sharing methods ---
+
+// ShareAdd shares a path with specified peers (empty = all authorized).
+func (c *Client) ShareAdd(path string, peers []string, persistent bool) error {
+	req := ShareRequest{Path: path, Peers: peers, Persistent: persistent}
+	body, _ := json.Marshal(req)
+	return c.doJSON("POST", "/v1/shares", strings.NewReader(string(body)), nil)
+}
+
+// ShareRemove stops sharing a path.
+func (c *Client) ShareRemove(path string) error {
+	req := UnshareRequest{Path: path}
+	body, _ := json.Marshal(req)
+	return c.doJSON("DELETE", "/v1/shares", strings.NewReader(string(body)), nil)
+}
+
+// ShareList returns all shared paths.
+func (c *Client) ShareList() ([]ShareInfo, error) {
+	var resp []ShareInfo
+	if err := c.doJSON("GET", "/v1/shares", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ShareListText returns shared paths as plain text.
+func (c *Client) ShareListText() (string, error) {
+	return c.doText("GET", "/v1/shares", nil)
+}
+
+// Browse browses a remote peer's shared files.
+func (c *Client) Browse(peer, subPath string) (*BrowseResponse, error) {
+	req := BrowseRequest{Peer: peer, SubPath: subPath}
+	body, _ := json.Marshal(req)
+	var resp BrowseResponse
+	if err := c.doJSON("POST", "/v1/browse", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// BrowseText browses a remote peer's shared files, returns plain text.
+func (c *Client) BrowseText(peer, subPath string) (string, error) {
+	req := BrowseRequest{Peer: peer, SubPath: subPath}
+	body, _ := json.Marshal(req)
+	return c.doText("POST", "/v1/browse", strings.NewReader(string(body)))
+}
+
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.

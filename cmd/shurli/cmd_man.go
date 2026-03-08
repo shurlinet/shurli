@@ -341,6 +341,24 @@ Use \fB--follow\fR to stay attached and watch progress inline.
 Use \fB--quiet\fR for a single progress bar (no chunk details) or
 \fB--silent\fR for no progress output. Requires a running daemon.
 .TP
+.B share add \fIpath\fR [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
+Share a file or directory with authorized peers. When \fB--peers\fR is
+specified, only those peers can see and download the shared content.
+Without \fB--peers\fR, all authorized peers have access.
+Use \fB--persist\fR to survive daemon restarts.
+.TP
+.B share remove \fIpath\fR [\fB--json\fR]
+Stop sharing a previously shared path.
+.TP
+.B share list [\fB--json\fR]
+List all currently shared paths, their type (file or directory),
+and peer restrictions.
+.TP
+.B browse \fIpeer\fR [\fB--path\fR \fI/sub/dir\fR] [\fB--json\fR]
+Browse files and directories shared by a remote peer. Use \fB--path\fR
+to navigate within a specific shared directory. Only shows content the
+remote peer has explicitly shared with you.
+.TP
 .B transfers \fR[\fB--watch\fR] [\fB--json\fR]
 List pending, active, and completed file transfers. Shows direction, peer,
 progress, compression status, and errors. Use \fB--watch\fR for a live feed

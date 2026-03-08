@@ -40,6 +40,7 @@ type RuntimeInfo interface {
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	TransferService() *p2pnet.TransferService                // nil if transfer disabled
+	ShareRegistry() *p2pnet.ShareRegistry                    // nil if sharing disabled
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

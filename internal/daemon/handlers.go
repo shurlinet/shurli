@@ -56,6 +56,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/invite/{id}/wait", s.handleInviteWait)
 	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleInviteCancel)
 
+	// File sharing
+	mux.HandleFunc("GET /v1/shares", s.handleShareList)
+	mux.HandleFunc("POST /v1/shares", s.handleShareAdd)
+	mux.HandleFunc("DELETE /v1/shares", s.handleShareRemove)
+	mux.HandleFunc("POST /v1/browse", s.handleBrowse)
+
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
@@ -923,6 +929,190 @@ func (s *Server) SocketPath() string {
 // Listener returns the underlying net.Listener (for health checks).
 func (s *Server) Listener() net.Listener {
 	return s.listener
+}
+
+// --- File sharing handlers ---
+
+func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondJSON(w, http.StatusOK, []ShareInfo{})
+		return
+	}
+
+	shares := reg.ListShares(nil)
+	infos := make([]ShareInfo, 0, len(shares))
+	for _, entry := range shares {
+		info := ShareInfo{
+			Path:       entry.Path,
+			Persistent: entry.Persistent,
+			IsDir:      entry.IsDir,
+			SharedAt:   entry.SharedAt.Format(time.RFC3339),
+		}
+		if entry.Peers != nil {
+			for pid := range entry.Peers {
+				info.Peers = append(info.Peers, pid.String())
+			}
+		}
+		infos = append(infos, info)
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, info := range infos {
+			kind := "file"
+			if info.IsDir {
+				kind = "dir "
+			}
+			peerStr := "all"
+			if len(info.Peers) > 0 {
+				peerStr = fmt.Sprintf("%d peers", len(info.Peers))
+			}
+			fmt.Fprintf(&sb, "%s\t%s\t%s\n", kind, info.Path, peerStr)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, infos)
+}
+
+func (s *Server) handleShareAdd(w http.ResponseWriter, r *http.Request) {
+	var req ShareRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" {
+		respondError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		return
+	}
+
+	// Parse peer IDs if specified.
+	var peerIDs []peer.ID
+	for _, pidStr := range req.Peers {
+		pid, err := peer.Decode(pidStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID %q: %v", pidStr, err))
+			return
+		}
+		peerIDs = append(peerIDs, pid)
+	}
+
+	if err := reg.Share(req.Path, peerIDs, req.Persistent); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
+	respondJSON(w, http.StatusOK, map[string]string{"status": "shared"})
+}
+
+func (s *Server) handleShareRemove(w http.ResponseWriter, r *http.Request) {
+	var req UnshareRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" {
+		respondError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		return
+	}
+
+	if err := reg.Unshare(req.Path); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("path unshared via API", "path", req.Path)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
+}
+
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	var req BrowseRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Peer == "" {
+		respondError(w, http.StatusBadRequest, "peer is required")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the peer is reachable.
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Open browse stream.
+	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %v", err))
+		return
+	}
+	defer stream.Close()
+
+	result, err := p2pnet.BrowsePeer(stream, req.SubPath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
+		return
+	}
+
+	if result.Error != "" {
+		respondError(w, http.StatusForbidden, result.Error)
+		return
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, e := range result.Entries {
+			kind := "     "
+			if e.IsDir {
+				kind = "[dir]"
+			}
+			fmt.Fprintf(&sb, "%s %s\t%s\n", kind, e.Name, humanSizeAPI(e.Size))
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, BrowseResponse{Entries: result.Entries})
+}
+
+// humanSizeAPI formats bytes for text output.
+func humanSizeAPI(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // --- File transfer handlers ---

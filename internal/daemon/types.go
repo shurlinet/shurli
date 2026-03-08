@@ -224,6 +224,39 @@ type PendingTransferInfo struct {
 	Time     string `json:"time"`
 }
 
+// ShareRequest is the body for POST /v1/shares.
+type ShareRequest struct {
+	Path       string   `json:"path"`                  // path to share
+	Peers      []string `json:"peers,omitempty"`        // peer IDs (empty = all authorized)
+	Persistent bool     `json:"persistent,omitempty"`   // survive daemon restart
+}
+
+// UnshareRequest is the body for DELETE /v1/shares.
+type UnshareRequest struct {
+	Path string `json:"path"`
+}
+
+// BrowseRequest is the body for POST /v1/browse.
+type BrowseRequest struct {
+	Peer    string `json:"peer"`              // peer name or ID
+	SubPath string `json:"sub_path,omitempty"` // browse within a shared directory
+}
+
+// BrowseResponse is returned by POST /v1/browse.
+type BrowseResponse struct {
+	Entries []p2pnet.BrowseEntry `json:"entries"`
+	Error   string               `json:"error,omitempty"`
+}
+
+// ShareInfo is returned by GET /v1/shares.
+type ShareInfo struct {
+	Path       string   `json:"path"`
+	Peers      []string `json:"peers,omitempty"`
+	Persistent bool     `json:"persistent"`
+	IsDir      bool     `json:"is_dir"`
+	SharedAt   string   `json:"shared_at"`
+}
+
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
 	Error string `json:"error"`
