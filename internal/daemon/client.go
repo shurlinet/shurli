@@ -320,8 +320,8 @@ func (c *Client) Unlock() error {
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.
-func (c *Client) Send(filePath, peer string, noCompress bool) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress}
+func (c *Client) Send(filePath, peer string, noCompress bool, streams int) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams}
 	body, _ := json.Marshal(req)
 	var resp SendResponse
 	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
