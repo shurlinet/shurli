@@ -1252,13 +1252,11 @@ func (rt *serveRuntime) SetupTransfer() {
 	rt.transferService = ts
 
 	// Register the inbound handler as a custom service.
-	// File transfer allows relay connections so peers behind double-NAT can still send files.
+	// Default policy: LAN + Direct only. Relay is explicitly excluded to protect
+	// relay bandwidth (relays are signaling-only, not data pipes).
 	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
 		return
-	}
-	if svc, ok := rt.network.ServiceRegistry().GetService("file-transfer"); ok && svc.Policy != nil {
-		svc.Policy.AllowedTransports |= p2pnet.TransportRelay
 	}
 
 	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
