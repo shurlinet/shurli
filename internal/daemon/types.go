@@ -191,8 +191,9 @@ type InviteWaitResponse struct {
 
 // SendRequest is the body for POST /v1/send.
 type SendRequest struct {
-	Path string `json:"path"` // local file path to send
-	Peer string `json:"peer"` // peer name or ID
+	Path       string `json:"path"`        // local file path to send
+	Peer       string `json:"peer"`        // peer name or ID
+	NoCompress bool   `json:"no_compress"` // disable zstd compression
 }
 
 // SendResponse is returned by POST /v1/send.
@@ -201,6 +202,25 @@ type SendResponse struct {
 	Filename   string `json:"filename"`
 	Size       int64  `json:"size"`
 	PeerID     string `json:"peer_id"`
+}
+
+// TransferAcceptRequest is the body for POST /v1/transfers/{id}/accept.
+type TransferAcceptRequest struct {
+	Dest string `json:"dest,omitempty"` // override receive directory
+}
+
+// TransferRejectRequest is the body for POST /v1/transfers/{id}/reject.
+type TransferRejectRequest struct {
+	Reason string `json:"reason,omitempty"` // "space", "busy", "size"
+}
+
+// PendingTransferInfo is returned by GET /v1/transfers/pending.
+type PendingTransferInfo struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	PeerID   string `json:"peer_id"`
+	Time     string `json:"time"`
 }
 
 // ErrorResponse is returned on failure.

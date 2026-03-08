@@ -17,17 +17,19 @@ func runSend(args []string) {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
+	noCompressFlag := fs.Bool("no-compress", false, "disable zstd compression")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 2 {
-		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--json]")
+		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--no-compress] [--json]")
 		fmt.Println()
 		fmt.Println("Send a file to a peer. By default, submits to daemon and exits.")
 		fmt.Println()
 		fmt.Println("Options:")
-		fmt.Println("  --follow  Follow transfer progress (Ctrl+C detaches, transfer continues)")
-		fmt.Println("  --json    Output as JSON")
+		fmt.Println("  --follow       Follow transfer progress (Ctrl+C detaches, transfer continues)")
+		fmt.Println("  --no-compress  Disable zstd compression")
+		fmt.Println("  --json         Output as JSON")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli send photo.jpg home-server              # fire-and-forget")
@@ -74,7 +76,7 @@ func runSend(args []string) {
 			filepath.Base(absPath), humanSize(info.Size()), peer)
 	}
 
-	resp, err := client.Send(absPath, peer)
+	resp, err := client.Send(absPath, peer, *noCompressFlag)
 	if err != nil {
 		fatal("Send failed: %v", err)
 	}
