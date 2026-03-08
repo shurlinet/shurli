@@ -38,6 +38,13 @@ const (
 	msgTransferDone    = 0x05 // sender -> receiver: all chunks sent
 	msgResumeRequest   = 0x06 // receiver -> sender: resume with bitfield
 	msgResumeResponse  = 0x07 // sender -> receiver: resume acknowledged
+	msgRejectReason    = 0x08 // receiver -> sender: reject with reason byte
+
+	// Reject reasons (sent after msgRejectReason).
+	RejectReasonNone  byte = 0x00 // no reason disclosed (same as silent msgReject)
+	RejectReasonSpace byte = 0x01 // insufficient disk space
+	RejectReasonBusy  byte = 0x02 // receiver busy
+	RejectReasonSize  byte = 0x03 // file too large
 
 	// Manifest flags (bitmask).
 	flagCompressed = 0x01 // zstd compression enabled
@@ -159,6 +166,39 @@ type TransferConfig struct {
 	ErasureOverhead float64     // RS parity overhead (0.10 = 10%, 0 = disabled)
 }
 
+// PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
+type PendingTransfer struct {
+	ID       string    `json:"id"`
+	Filename string    `json:"filename"`
+	Size     int64     `json:"size"`
+	PeerID   string    `json:"peer_id"`
+	Time     time.Time `json:"time"`
+
+	// Internal: channel for approval decision. Not serialized.
+	decision chan transferDecision
+}
+
+// transferDecision carries the user's accept/reject decision for a pending transfer.
+type transferDecision struct {
+	accept bool
+	reason byte   // reject reason (only meaningful if !accept)
+	dest   string // override receive directory (only meaningful if accept)
+}
+
+// RejectReasonString returns a human-readable string for a reject reason byte.
+func RejectReasonString(reason byte) string {
+	switch reason {
+	case RejectReasonSpace:
+		return "insufficient disk space"
+	case RejectReasonBusy:
+		return "receiver busy"
+	case RejectReasonSize:
+		return "file too large"
+	default:
+		return "declined"
+	}
+}
+
 // TransferService manages chunked file transfers over libp2p streams.
 type TransferService struct {
 	receiveDir      string
@@ -176,6 +216,7 @@ type TransferService struct {
 	completed   []string
 	nextID      int
 	peerInbound map[string]int
+	pending     map[string]*PendingTransfer // ask mode: transfers awaiting approval
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -220,6 +261,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
 		transfers:       make(map[string]*TransferProgress),
 		peerInbound:     make(map[string]int),
+		pending:         make(map[string]*PendingTransfer),
 	}, nil
 }
 
@@ -464,6 +506,12 @@ func readMsg(r io.Reader) (byte, error) {
 	return b[0], err
 }
 
+// writeRejectWithReason writes msgRejectReason followed by a reason byte.
+func writeRejectWithReason(w io.Writer, reason byte) error {
+	_, err := w.Write([]byte{msgRejectReason, reason})
+	return err
+}
+
 // --- TransferService: Send ---
 
 // chunkEntry holds a chunk's hash and wire data for sending.
@@ -473,9 +521,14 @@ type chunkEntry struct {
 	compressed bool
 }
 
+// SendOptions configures a single send operation.
+type SendOptions struct {
+	NoCompress bool // override: disable compression for this transfer
+}
+
 // SendFile chunks, compresses, and sends a file over a libp2p stream.
 // Runs in background; returns a progress tracker immediately.
-func (ts *TransferService) SendFile(s network.Stream, filePath string) (*TransferProgress, error) {
+func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...SendOptions) (*TransferProgress, error) {
 	remotePeer := s.Conn().RemotePeer()
 
 	f, err := os.Open(filePath)
@@ -503,6 +556,9 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 	var chunkSizes []uint32
 
 	useCompression := ts.compress
+	if len(opts) > 0 && opts[0].NoCompress {
+		useCompression = false
+	}
 
 	err = ChunkReader(f, stat.Size(), func(c Chunk) error {
 		wireData := c.Data
@@ -640,6 +696,14 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 	case msgReject:
 		return fmt.Errorf("peer rejected transfer")
 
+	case msgRejectReason:
+		// Announced reject: read the reason byte.
+		reasonByte, err := readMsg(w)
+		if err != nil {
+			return fmt.Errorf("peer rejected transfer (could not read reason)")
+		}
+		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
+
 	case msgResumeRequest:
 		// Peer has a partial checkpoint. Read the bitfield and send only missing chunks.
 		bfData, err := readResumePayload(w)
@@ -747,7 +811,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		default:
 			slog.Warn("file-transfer: at capacity, rejecting",
 				"peer", short, "max", maxConcurrentTransfers)
-			writeMsg(s, msgReject)
+			writeRejectWithReason(s, RejectReasonBusy)
 			return
 		}
 
@@ -757,7 +821,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			ts.mu.Unlock()
 			slog.Warn("file-transfer: per-peer limit reached",
 				"peer", short, "max", maxPerPeerTransfers)
-			writeMsg(s, msgReject)
+			writeRejectWithReason(s, RejectReasonBusy)
 			return
 		}
 		ts.peerInbound[peerKey]++
@@ -786,7 +850,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Warn("file-transfer: file too large",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "max", ts.maxSize)
-			writeMsg(s, msgReject)
+			writeRejectWithReason(s, RejectReasonSize)
 			return
 		}
 
@@ -794,7 +858,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		if err := ts.checkDiskSpace(manifest.FileSize); err != nil {
 			slog.Warn("file-transfer: insufficient disk space",
 				"peer", short, "file", manifest.Filename, "error", err)
-			writeMsg(s, msgReject)
+			writeRejectWithReason(s, RejectReasonSpace)
 			return
 		}
 
@@ -844,13 +908,85 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 					"error", err, "resp", resp)
 				return
 			}
+		} else if ts.receiveMode == ReceiveModeAsk {
+			// Ask mode: queue for manual approval with timeout.
+			pendingID := fmt.Sprintf("pending-%d-%s", time.Now().UnixNano(), randomHex(4))
+			pt := &PendingTransfer{
+				ID:       pendingID,
+				Filename: manifest.Filename,
+				Size:     manifest.FileSize,
+				PeerID:   peerKey,
+				Time:     time.Now(),
+				decision: make(chan transferDecision, 1),
+			}
+
+			ts.mu.Lock()
+			ts.pending[pendingID] = pt
+			ts.mu.Unlock()
+
+			slog.Info("file-transfer: awaiting approval",
+				"peer", short, "file", manifest.Filename,
+				"size", manifest.FileSize, "id", pendingID)
+
+			if ts.events != nil {
+				ts.events.Emit(Event{
+					Type:        EventTransferPending,
+					PeerID:      remotePeer,
+					ServiceName: "file-transfer",
+					Detail:      pendingID,
+				})
+			}
+
+			// Wait for decision or timeout.
+			timer := time.NewTimer(askModeTimeout)
+			defer timer.Stop()
+
+			var decision transferDecision
+			select {
+			case decision = <-pt.decision:
+				// User decided.
+			case <-timer.C:
+				// Timeout: silent reject.
+				decision = transferDecision{accept: false, reason: RejectReasonBusy}
+				slog.Info("file-transfer: ask mode timeout, rejecting",
+					"peer", short, "file", manifest.Filename, "id", pendingID)
+			}
+
+			ts.removePending(pendingID)
+
+			if !decision.accept {
+				if decision.reason != RejectReasonNone {
+					writeRejectWithReason(s, decision.reason)
+				} else {
+					writeMsg(s, msgReject)
+				}
+				return
+			}
+
+			// Override receive dir if specified.
+			if decision.dest != "" {
+				// Validate the override directory exists.
+				if info, err := os.Stat(decision.dest); err != nil || !info.IsDir() {
+					slog.Error("file-transfer: invalid accept dest", "dest", decision.dest)
+					writeMsg(s, msgReject)
+					return
+				}
+			}
+
+			slog.Info("file-transfer: approved",
+				"peer", short, "file", manifest.Filename, "id", pendingID)
+
+			if err := writeMsg(s, msgAccept); err != nil {
+				slog.Error("file-transfer: accept write failed", "error", err)
+				return
+			}
 		} else {
 			slog.Info("file-transfer: receiving",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "chunks", manifest.ChunkCount,
 				"compressed", compressed)
 
-			// Accept (fresh transfer).
+			// Accept (fresh transfer - contacts/open mode).
 			if err := writeMsg(s, msgAccept); err != nil {
 				slog.Error("file-transfer: accept write failed", "error", err)
 				return
@@ -1263,4 +1399,64 @@ func (ts *TransferService) SetReceiveMode(mode ReceiveMode) {
 // ReceiveDir returns the receive directory path.
 func (ts *TransferService) ReceiveDir() string {
 	return ts.receiveDir
+}
+
+// --- Ask mode: pending transfer management ---
+
+// ListPending returns snapshots of all pending transfers awaiting approval.
+func (ts *TransferService) ListPending() []PendingTransfer {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	result := make([]PendingTransfer, 0, len(ts.pending))
+	for _, p := range ts.pending {
+		result = append(result, PendingTransfer{
+			ID:       p.ID,
+			Filename: p.Filename,
+			Size:     p.Size,
+			PeerID:   p.PeerID,
+			Time:     p.Time,
+		})
+	}
+	return result
+}
+
+// AcceptTransfer approves a pending transfer. Optional dest overrides the receive directory.
+func (ts *TransferService) AcceptTransfer(id, dest string) error {
+	ts.mu.RLock()
+	p, ok := ts.pending[id]
+	ts.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no pending transfer %q", id)
+	}
+
+	select {
+	case p.decision <- transferDecision{accept: true, dest: dest}:
+		return nil
+	default:
+		return fmt.Errorf("transfer %q already decided or timed out", id)
+	}
+}
+
+// RejectTransfer rejects a pending transfer with an optional reason.
+func (ts *TransferService) RejectTransfer(id string, reason byte) error {
+	ts.mu.RLock()
+	p, ok := ts.pending[id]
+	ts.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no pending transfer %q", id)
+	}
+
+	select {
+	case p.decision <- transferDecision{accept: false, reason: reason}:
+		return nil
+	default:
+		return fmt.Errorf("transfer %q already decided or timed out", id)
+	}
+}
+
+// removePending removes a pending transfer from the map.
+func (ts *TransferService) removePending(id string) {
+	ts.mu.Lock()
+	delete(ts.pending, id)
+	ts.mu.Unlock()
 }

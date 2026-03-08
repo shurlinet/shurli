@@ -98,6 +98,7 @@ const (
 	EventStreamClosed                          // A stream was closed
 	EventAuthAllow                             // An inbound connection was allowed
 	EventAuthDeny                              // An inbound connection was denied
+	EventTransferPending                       // A transfer is awaiting approval (ask mode)
 )
 
 // Event carries details about a network event.
@@ -105,6 +106,7 @@ type Event struct {
 	Type        EventType
 	PeerID      peer.ID // Relevant peer (zero value if not applicable)
 	ServiceName string  // Relevant service (empty if not applicable)
+	Detail      string  // Additional context (e.g. transfer ID)
 }
 
 // EventHandler is a callback for network events.

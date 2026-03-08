@@ -59,7 +59,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
+	mux.HandleFunc("GET /v1/transfers/pending", s.handleTransferPending)
 	mux.HandleFunc("GET /v1/transfers/{id}", s.handleTransferStatus)
+	mux.HandleFunc("POST /v1/transfers/{id}/accept", s.handleTransferAccept)
+	mux.HandleFunc("POST /v1/transfers/{id}/reject", s.handleTransferReject)
 }
 
 // --- Format helpers ---
@@ -964,7 +967,11 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SendFile runs in background; returns progress tracker immediately.
-	progress, err := ts.SendFile(stream, req.Path)
+	var sendOpts []p2pnet.SendOptions
+	if req.NoCompress {
+		sendOpts = append(sendOpts, p2pnet.SendOptions{NoCompress: true})
+	}
+	progress, err := ts.SendFile(stream, req.Path, sendOpts...)
 	if err != nil {
 		stream.Close()
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
@@ -1182,6 +1189,92 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *Server) handleTransferPending(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []PendingTransferInfo{})
+		return
+	}
+
+	pending := ts.ListPending()
+	infos := make([]PendingTransferInfo, len(pending))
+	for i, p := range pending {
+		infos[i] = PendingTransferInfo{
+			ID:       p.ID,
+			Filename: p.Filename,
+			Size:     p.Size,
+			PeerID:   p.PeerID,
+			Time:     p.Time.Format(time.RFC3339),
+		}
+	}
+
+	respondJSON(w, http.StatusOK, infos)
+}
+
+func (s *Server) handleTransferAccept(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	var req TransferAcceptRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+	}
+
+	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("transfer accepted via API", "id", id)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleTransferReject(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	var req TransferRejectRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+	}
+
+	reason := p2pnet.RejectReasonNone
+	switch req.Reason {
+	case "space":
+		reason = p2pnet.RejectReasonSpace
+	case "busy":
+		reason = p2pnet.RejectReasonBusy
+	case "size":
+		reason = p2pnet.RejectReasonSize
+	}
+
+	if err := ts.RejectTransfer(id, reason); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("transfer rejected via API", "id", id, "reason", req.Reason)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
 }
 
 func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
