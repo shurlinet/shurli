@@ -44,6 +44,7 @@ func BootstrapAndConnect(ctx context.Context, h host.Host, net *Network, target 
 	if err != nil {
 		return fmt.Errorf("DHT error: %w", err)
 	}
+	defer kdht.Close()
 	if err := kdht.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("DHT bootstrap error: %w", err)
 	}

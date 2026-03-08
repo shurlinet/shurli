@@ -1,6 +1,9 @@
 package p2pnet
 
-import "sync"
+import (
+	"log/slog"
+	"sync"
+)
 
 // EventBus dispatches network events to registered handlers.
 // Thread-safe; handlers are called synchronously in registration order.
@@ -34,11 +37,19 @@ func (b *EventBus) Subscribe(handler EventHandler) func() {
 
 // Emit dispatches an event to all registered handlers.
 // Handlers are called under a read lock; they must not call Subscribe/unsubscribe.
+// A panicking handler is recovered so it cannot crash the event bus or other handlers.
 func (b *EventBus) Emit(e Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	for _, h := range b.handlers {
-		h(e)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("event handler panicked", "event", e.Type, "panic", r)
+				}
+			}()
+			h(e)
+		}()
 	}
 }

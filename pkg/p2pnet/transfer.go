@@ -159,6 +159,10 @@ func (p *TransferProgress) Snapshot() TransferProgress {
 	}
 }
 
+// maxTrackedTransfers caps the number of tracked transfer entries.
+// Completed transfers are evicted oldest-first when this limit is hit.
+const maxTrackedTransfers = 10000
+
 // TransferService manages file transfers over libp2p streams.
 type TransferService struct {
 	receiveDir string
@@ -207,11 +211,17 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	}, nil
 }
 
+// transferStreamDeadline is the maximum wall-clock time for a complete
+// file transfer (header + data). Large files over slow relay links may
+// need this increased.
+const transferStreamDeadline = 30 * time.Minute
+
 // HandleInbound returns a StreamHandler for receiving files.
 // This is registered as a custom handler via Network.RegisterHandler.
 func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		defer s.Close()
+		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		remotePeer := s.Conn().RemotePeer()
 		short := remotePeer.String()[:16] + "..."
@@ -271,10 +281,9 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 // receiveFile writes stream data to disk and verifies the SHA-256 checksum.
 func (ts *TransferService) receiveFile(r io.Reader, header *TransferHeader, progress *TransferProgress) error {
-	// Avoid overwriting: if file exists, add a suffix.
-	destPath := ts.uniquePath(header.Filename)
-
-	f, err := os.Create(destPath)
+	// Create file atomically with O_EXCL to avoid TOCTOU races
+	// when multiple peers send files with the same name concurrently.
+	destPath, f, err := ts.createExclusive(header.Filename)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
@@ -309,6 +318,12 @@ func (ts *TransferService) receiveFile(r io.Reader, header *TransferHeader, prog
 		}
 	}
 
+	// Flush to disk before verifying checksum.
+	if err := f.Sync(); err != nil {
+		os.Remove(destPath)
+		return fmt.Errorf("sync file: %w", err)
+	}
+
 	// Verify checksum.
 	var got [32]byte
 	copy(got[:], hasher.Sum(nil))
@@ -320,23 +335,37 @@ func (ts *TransferService) receiveFile(r io.Reader, header *TransferHeader, prog
 	return nil
 }
 
-// uniquePath returns a non-colliding file path in the receive directory.
-// If "photo.jpg" exists, tries "photo (1).jpg", "photo (2).jpg", etc.
-func (ts *TransferService) uniquePath(filename string) string {
+// createExclusive atomically creates a non-colliding file in the receive directory.
+// Uses O_CREATE|O_EXCL to avoid TOCTOU races when multiple peers send files
+// with the same name concurrently.
+func (ts *TransferService) createExclusive(filename string) (string, *os.File, error) {
 	path := filepath.Join(ts.receiveDir, filename)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return path
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err == nil {
+		return path, f, nil
+	}
+	if !os.IsExist(err) {
+		return "", nil, err
 	}
 
 	ext := filepath.Ext(filename)
 	base := strings.TrimSuffix(filename, ext)
 	for i := 1; i < 10000; i++ {
 		candidate := filepath.Join(ts.receiveDir, fmt.Sprintf("%s (%d)%s", base, i, ext))
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			return candidate
+		f, err = os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			return candidate, f, nil
+		}
+		if !os.IsExist(err) {
+			return "", nil, err
 		}
 	}
-	return path // fallback (will overwrite)
+	// Exhausted suffixes; fall back to overwrite.
+	f, err = os.Create(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, f, nil
 }
 
 // SendFile sends a file to a peer over an open libp2p stream.
@@ -349,26 +378,32 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	// NOTE: f is NOT deferred here. The background goroutine owns the file
+	// handle and closes it when done. This prevents a use-after-close race.
 
 	stat, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 	if stat.IsDir() {
+		f.Close()
 		return nil, fmt.Errorf("cannot send directory (use shurli send --recursive for directories)")
 	}
 	if stat.Size() > maxFileSize {
+		f.Close()
 		return nil, fmt.Errorf("file too large: %d bytes (max %d)", stat.Size(), maxFileSize)
 	}
 
 	// Compute SHA-256 checksum.
 	checksum, err := hashFile(f)
 	if err != nil {
+		f.Close()
 		return nil, fmt.Errorf("hash file: %w", err)
 	}
 	// Seek back to start for sending.
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		f.Close()
 		return nil, fmt.Errorf("seek: %w", err)
 	}
 
@@ -383,7 +418,9 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 
 	// Send in background so caller can poll progress.
 	go func() {
+		defer f.Close()
 		defer s.Close()
+		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 		err := ts.sendFileData(s, f, header, progress)
 		progress.finish(err)
 
@@ -455,6 +492,11 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
+	// Evict completed transfers when at capacity.
+	if len(ts.transfers) >= maxTrackedTransfers {
+		ts.evictCompleted()
+	}
+
 	ts.nextID++
 	id := fmt.Sprintf("xfer-%d", ts.nextID)
 
@@ -468,6 +510,25 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 	}
 	ts.transfers[id] = p
 	return p
+}
+
+// evictCompleted removes the oldest completed transfers. Caller must hold ts.mu.
+func (ts *TransferService) evictCompleted() {
+	var oldest string
+	var oldestTime time.Time
+	for id, p := range ts.transfers {
+		snap := p.Snapshot()
+		if !snap.Done {
+			continue
+		}
+		if oldest == "" || snap.StartTime.Before(oldestTime) {
+			oldest = id
+			oldestTime = snap.StartTime
+		}
+	}
+	if oldest != "" {
+		delete(ts.transfers, oldest)
+	}
 }
 
 // GetTransfer returns the progress of a transfer by ID.
