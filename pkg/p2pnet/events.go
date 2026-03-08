@@ -45,20 +45,25 @@ func (b *EventBus) Subscribe(handler EventHandler) func() {
 }
 
 // Emit dispatches an event to all registered handlers in registration order.
-// Handlers are called under a read lock; they must not call Subscribe/unsubscribe.
+// Handlers are snapshot-copied before dispatch so they may safely call
+// Subscribe/Unsubscribe without deadlocking.
 // A panicking handler is recovered so it cannot crash the event bus or other handlers.
 func (b *EventBus) Emit(e Event) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	snapshot := make([]EventHandler, len(b.handlers))
+	for i, entry := range b.handlers {
+		snapshot[i] = entry.handler
+	}
+	b.mu.RUnlock()
 
-	for _, entry := range b.handlers {
+	for _, handler := range snapshot {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("event handler panicked", "event", e.Type, "panic", r)
 				}
 			}()
-			entry.handler(e)
+			handler(e)
 		}()
 	}
 }
