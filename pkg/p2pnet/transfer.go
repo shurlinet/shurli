@@ -468,21 +468,28 @@ func writeChunkFrame(w io.Writer, index int, data []byte) error {
 // readChunkFrame reads a single chunk frame from the wire.
 // Returns the chunk index and data. Validates bounds.
 func readChunkFrame(r io.Reader) (int, []byte, error) {
-	var header [9]byte
-	if _, err := io.ReadFull(r, header[:]); err != nil {
+	// Read message type first (1 byte) before committing to the full 9-byte header.
+	// The done signal (msgTransferDone) is only 1 byte via writeMsg, not a full frame.
+	var typeByte [1]byte
+	if _, err := io.ReadFull(r, typeByte[:]); err != nil {
 		return 0, nil, fmt.Errorf("read chunk header: %w", err)
 	}
 
-	msgType := header[0]
-	if msgType == msgTransferDone {
+	if typeByte[0] == msgTransferDone {
 		return -1, nil, nil // sentinel: transfer complete
 	}
-	if msgType != msgChunk {
-		return 0, nil, fmt.Errorf("unexpected message type: %d (expected chunk)", msgType)
+	if typeByte[0] != msgChunk {
+		return 0, nil, fmt.Errorf("unexpected message type: %d (expected chunk)", typeByte[0])
 	}
 
-	index := int(binary.BigEndian.Uint32(header[1:5]))
-	dataLen := int(binary.BigEndian.Uint32(header[5:9]))
+	// Read remaining 8 bytes: index(4) + dataLen(4).
+	var rest [8]byte
+	if _, err := io.ReadFull(r, rest[:]); err != nil {
+		return 0, nil, fmt.Errorf("read chunk header: %w", err)
+	}
+
+	index := int(binary.BigEndian.Uint32(rest[0:4]))
+	dataLen := int(binary.BigEndian.Uint32(rest[4:8]))
 
 	if dataLen > maxChunkWireSize {
 		return 0, nil, fmt.Errorf("chunk %d data too large: %d bytes", index, dataLen)
