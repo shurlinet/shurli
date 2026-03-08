@@ -168,6 +168,10 @@ const maxTrackedTransfers = 10000
 // to prevent resource exhaustion from a flood of senders.
 const maxConcurrentTransfers = 10
 
+// maxPerPeerTransfers limits concurrent inbound transfers from a single peer.
+// Prevents one peer from monopolizing all inbound slots.
+const maxPerPeerTransfers = 3
+
 // TransferService manages file transfers over libp2p streams.
 type TransferService struct {
 	receiveDir string
@@ -178,10 +182,11 @@ type TransferService struct {
 	// inboundSem limits concurrent inbound transfers.
 	inboundSem chan struct{}
 
-	mu        sync.RWMutex
-	transfers map[string]*TransferProgress
-	completed []string // FIFO queue of completed transfer IDs for eviction
-	nextID    int
+	mu            sync.RWMutex
+	transfers     map[string]*TransferProgress
+	completed     []string // FIFO queue of completed transfer IDs for eviction
+	nextID        int
+	peerInbound   map[string]int // peer ID -> active inbound count
 }
 
 // TransferConfig configures the transfer service.
@@ -212,12 +217,13 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	}
 
 	return &TransferService{
-		receiveDir: dir,
-		maxSize:    cfg.MaxSize,
-		metrics:    metrics,
-		events:     events,
-		inboundSem: make(chan struct{}, maxConcurrentTransfers),
-		transfers:  make(map[string]*TransferProgress),
+		receiveDir:  dir,
+		maxSize:     cfg.MaxSize,
+		metrics:     metrics,
+		events:      events,
+		inboundSem:  make(chan struct{}, maxConcurrentTransfers),
+		transfers:   make(map[string]*TransferProgress),
+		peerInbound: make(map[string]int),
 	}, nil
 }
 
@@ -232,22 +238,42 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		defer s.Close()
 
+		remotePeer := s.Conn().RemotePeer()
+		short := remotePeer.String()[:16] + "..."
+		peerKey := remotePeer.String()
+
 		// Rate limit: reject immediately if at capacity.
 		select {
 		case ts.inboundSem <- struct{}{}:
 			defer func() { <-ts.inboundSem }()
 		default:
 			slog.Warn("file-transfer: at capacity, rejecting inbound",
-				"peer", s.Conn().RemotePeer().String()[:16]+"...",
-				"max", maxConcurrentTransfers)
+				"peer", short, "max", maxConcurrentTransfers)
 			writeResponse(s, transferTypeReject)
 			return
 		}
 
-		s.SetDeadline(time.Now().Add(transferStreamDeadline))
+		// Per-peer limit: prevent one peer from monopolizing all slots.
+		ts.mu.Lock()
+		if ts.peerInbound[peerKey] >= maxPerPeerTransfers {
+			ts.mu.Unlock()
+			slog.Warn("file-transfer: per-peer limit reached, rejecting",
+				"peer", short, "max", maxPerPeerTransfers)
+			writeResponse(s, transferTypeReject)
+			return
+		}
+		ts.peerInbound[peerKey]++
+		ts.mu.Unlock()
+		defer func() {
+			ts.mu.Lock()
+			ts.peerInbound[peerKey]--
+			if ts.peerInbound[peerKey] <= 0 {
+				delete(ts.peerInbound, peerKey)
+			}
+			ts.mu.Unlock()
+		}()
 
-		remotePeer := s.Conn().RemotePeer()
-		short := remotePeer.String()[:16] + "..."
+		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		// Read header.
 		header, err := unmarshalHeader(s)
@@ -518,8 +544,12 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 	defer ts.mu.Unlock()
 
 	// Evict completed transfers when at capacity.
-	if len(ts.transfers) >= maxTrackedTransfers {
+	for len(ts.transfers) >= maxTrackedTransfers {
+		before := len(ts.transfers)
 		ts.evictCompleted()
+		if len(ts.transfers) >= before {
+			break // no evictable entries; allow tracking to proceed
+		}
 	}
 
 	ts.nextID++
@@ -547,7 +577,11 @@ func (ts *TransferService) evictCompleted() {
 			delete(ts.transfers, id)
 			return
 		}
-		// ID already removed (shouldn't happen, but defensive)
+	}
+	// Reclaim backing array when queue drains completely to prevent
+	// the completed slice from holding memory indefinitely.
+	if len(ts.completed) == 0 && cap(ts.completed) > maxTrackedTransfers {
+		ts.completed = nil
 	}
 }
 
