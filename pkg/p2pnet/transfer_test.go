@@ -24,6 +24,7 @@ func TestManifestRoundtrip(t *testing.T) {
 		Flags:       flagCompressed,
 		RootHash:    MerkleRoot(hashes),
 		ChunkHashes: hashes,
+		ChunkSizes:  []uint32{4096, 8192, 2048},
 	}
 
 	var buf bytes.Buffer
@@ -56,6 +57,11 @@ func TestManifestRoundtrip(t *testing.T) {
 			t.Errorf("chunk hash %d mismatch", i)
 		}
 	}
+	for i := range parsed.ChunkSizes {
+		if parsed.ChunkSizes[i] != original.ChunkSizes[i] {
+			t.Errorf("chunk size %d: got %d, want %d", i, parsed.ChunkSizes[i], original.ChunkSizes[i])
+		}
+	}
 }
 
 func TestManifestPathTraversal(t *testing.T) {
@@ -81,6 +87,7 @@ func TestManifestPathTraversal(t *testing.T) {
 			ChunkCount:  1,
 			RootHash:    MerkleRoot(hashes),
 			ChunkHashes: hashes,
+			ChunkSizes:  []uint32{1},
 		}
 		if err := writeManifest(&buf, m); err != nil {
 			t.Fatalf("write %q: %v", tt.input, err)
@@ -107,6 +114,7 @@ func TestManifestRejectDotFilenames(t *testing.T) {
 			ChunkCount:  1,
 			RootHash:    MerkleRoot(hashes),
 			ChunkHashes: hashes,
+			ChunkSizes:  []uint32{1},
 		}
 		if err := writeManifest(&buf, m); err != nil {
 			t.Fatalf("write %q: %v", name, err)
@@ -144,6 +152,7 @@ func TestManifestOversizedFile(t *testing.T) {
 		ChunkCount:  1,
 		RootHash:    MerkleRoot(hashes),
 		ChunkHashes: hashes,
+		ChunkSizes:  []uint32{1},
 	}
 	if err := writeManifest(&buf, m); err != nil {
 		t.Fatal(err)
@@ -151,6 +160,24 @@ func TestManifestOversizedFile(t *testing.T) {
 	_, err := readManifest(&buf)
 	if err == nil {
 		t.Error("expected error for oversized file")
+	}
+}
+
+func TestManifestChunkSizesMismatch(t *testing.T) {
+	hash := blake3Sum([]byte("x"))
+	hashes := [][32]byte{hash}
+	var buf bytes.Buffer
+	m := &transferManifest{
+		Filename:    "test.bin",
+		FileSize:    1,
+		ChunkCount:  1,
+		RootHash:    MerkleRoot(hashes),
+		ChunkHashes: hashes,
+		ChunkSizes:  []uint32{1, 2}, // 2 sizes for 1 chunk
+	}
+	err := writeManifest(&buf, m)
+	if err == nil {
+		t.Error("expected error for chunk sizes count mismatch")
 	}
 }
 
@@ -192,7 +219,7 @@ func TestDoneSignal(t *testing.T) {
 }
 
 func TestMsgRoundtrip(t *testing.T) {
-	for _, msg := range []byte{msgAccept, msgReject} {
+	for _, msg := range []byte{msgAccept, msgReject, msgResumeResponse} {
 		var buf bytes.Buffer
 		if err := writeMsg(&buf, msg); err != nil {
 			t.Fatalf("writeMsg(%d): %v", msg, err)
@@ -203,6 +230,246 @@ func TestMsgRoundtrip(t *testing.T) {
 		}
 		if got != msg {
 			t.Errorf("msg: got %d, want %d", got, msg)
+		}
+	}
+}
+
+// --- Bitfield tests ---
+
+func TestBitfield(t *testing.T) {
+	bf := newBitfield(100)
+
+	if bf.count() != 0 {
+		t.Errorf("empty bitfield count: got %d, want 0", bf.count())
+	}
+	if bf.missing() != 100 {
+		t.Errorf("empty bitfield missing: got %d, want 100", bf.missing())
+	}
+
+	bf.set(0)
+	bf.set(50)
+	bf.set(99)
+
+	if !bf.has(0) || !bf.has(50) || !bf.has(99) {
+		t.Error("expected set bits to be present")
+	}
+	if bf.has(1) || bf.has(49) || bf.has(98) {
+		t.Error("expected unset bits to be absent")
+	}
+	if bf.count() != 3 {
+		t.Errorf("count: got %d, want 3", bf.count())
+	}
+	if bf.missing() != 97 {
+		t.Errorf("missing: got %d, want 97", bf.missing())
+	}
+
+	// Out of bounds: should not panic.
+	bf.set(-1)
+	bf.set(100)
+	if bf.has(-1) || bf.has(100) {
+		t.Error("out of bounds should return false")
+	}
+}
+
+func TestBitfieldAllSet(t *testing.T) {
+	bf := newBitfield(16)
+	for i := 0; i < 16; i++ {
+		bf.set(i)
+	}
+	if bf.count() != 16 {
+		t.Errorf("all set count: got %d, want 16", bf.count())
+	}
+	if bf.missing() != 0 {
+		t.Errorf("all set missing: got %d, want 0", bf.missing())
+	}
+}
+
+func TestBitfieldOddSize(t *testing.T) {
+	// 7 chunks = 1 byte, last bit partially used.
+	bf := newBitfield(7)
+	for i := 0; i < 7; i++ {
+		bf.set(i)
+	}
+	if bf.count() != 7 {
+		t.Errorf("7-bit count: got %d, want 7", bf.count())
+	}
+	// Bit 7 should not exist.
+	if bf.has(7) {
+		t.Error("bit 7 should not exist in 7-bit bitfield")
+	}
+}
+
+// --- Resume wire protocol tests ---
+
+func TestResumeRequestRoundtrip(t *testing.T) {
+	bf := newBitfield(100)
+	bf.set(0)
+	bf.set(42)
+	bf.set(99)
+
+	var buf bytes.Buffer
+	if err := writeResumeRequest(&buf, bf); err != nil {
+		t.Fatalf("writeResumeRequest: %v", err)
+	}
+
+	// Read the type byte first (as readMsg would).
+	typeByte, err := readMsg(&buf)
+	if err != nil {
+		t.Fatalf("readMsg: %v", err)
+	}
+	if typeByte != msgResumeRequest {
+		t.Fatalf("type: got %d, want %d", typeByte, msgResumeRequest)
+	}
+
+	// Read the payload.
+	bfData, err := readResumePayload(&buf)
+	if err != nil {
+		t.Fatalf("readResumePayload: %v", err)
+	}
+
+	// Reconstruct and verify.
+	got := &bitfield{
+		bits: make([]byte, (100+7)/8),
+		n:    100,
+	}
+	copy(got.bits, bfData)
+
+	if !got.has(0) || !got.has(42) || !got.has(99) {
+		t.Error("resume bitfield lost set bits")
+	}
+	if got.has(1) || got.has(50) {
+		t.Error("resume bitfield has spurious bits")
+	}
+}
+
+// --- Checkpoint tests ---
+
+func TestCheckpointRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+
+	hashes := make([][32]byte, 5)
+	for i := range hashes {
+		hashes[i] = blake3Sum([]byte{byte(i)})
+	}
+
+	manifest := &transferManifest{
+		Filename:    "resume-test.bin",
+		FileSize:    5000,
+		ChunkCount:  5,
+		Flags:       flagCompressed,
+		RootHash:    MerkleRoot(hashes),
+		ChunkHashes: hashes,
+		ChunkSizes:  []uint32{1000, 1000, 1000, 1000, 1000},
+	}
+
+	have := newBitfield(5)
+	have.set(0)
+	have.set(2)
+	have.set(4)
+
+	tmpPath := filepath.Join(dir, ".shurli-tmp-abc123-resume-test.bin")
+	os.WriteFile(tmpPath, make([]byte, 5000), 0600)
+
+	ckpt := &transferCheckpoint{
+		manifest: manifest,
+		have:     have,
+		tmpPath:  tmpPath,
+	}
+
+	if err := ckpt.save(dir); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+
+	// Verify checkpoint file exists.
+	ckptPath := checkpointPath(dir, manifest.RootHash)
+	if _, err := os.Stat(ckptPath); err != nil {
+		t.Fatalf("checkpoint file missing: %v", err)
+	}
+
+	// Load it back.
+	loaded, err := loadCheckpoint(dir, manifest.RootHash)
+	if err != nil {
+		t.Fatalf("load checkpoint: %v", err)
+	}
+
+	if loaded.manifest.Filename != manifest.Filename {
+		t.Errorf("filename: got %q, want %q", loaded.manifest.Filename, manifest.Filename)
+	}
+	if loaded.manifest.FileSize != manifest.FileSize {
+		t.Errorf("fileSize: got %d, want %d", loaded.manifest.FileSize, manifest.FileSize)
+	}
+	if loaded.manifest.ChunkCount != manifest.ChunkCount {
+		t.Errorf("chunkCount: got %d, want %d", loaded.manifest.ChunkCount, manifest.ChunkCount)
+	}
+	if loaded.manifest.RootHash != manifest.RootHash {
+		t.Error("rootHash mismatch")
+	}
+	if loaded.have.count() != 3 {
+		t.Errorf("have count: got %d, want 3", loaded.have.count())
+	}
+	if !loaded.have.has(0) || !loaded.have.has(2) || !loaded.have.has(4) {
+		t.Error("loaded bitfield lost set bits")
+	}
+	if loaded.have.has(1) || loaded.have.has(3) {
+		t.Error("loaded bitfield has spurious bits")
+	}
+	if filepath.Base(loaded.tmpPath) != filepath.Base(tmpPath) {
+		t.Errorf("tmpPath: got %q, want %q", filepath.Base(loaded.tmpPath), filepath.Base(tmpPath))
+	}
+
+	// Remove checkpoint.
+	removeCheckpoint(dir, manifest.RootHash)
+	if _, err := os.Stat(ckptPath); !os.IsNotExist(err) {
+		t.Error("checkpoint should be removed")
+	}
+}
+
+func TestCheckpointNotFound(t *testing.T) {
+	dir := t.TempDir()
+	var fakeHash [32]byte
+	_, err := loadCheckpoint(dir, fakeHash)
+	if !os.IsNotExist(err) {
+		t.Errorf("expected not-exist, got: %v", err)
+	}
+}
+
+// --- Offset table tests ---
+
+func TestBuildOffsetTable(t *testing.T) {
+	sizes := []uint32{1000, 2000, 500, 3000}
+	offsets := buildOffsetTable(sizes)
+
+	expected := []int64{0, 1000, 3000, 3500}
+	for i, off := range offsets {
+		if off != expected[i] {
+			t.Errorf("offset[%d]: got %d, want %d", i, off, expected[i])
+		}
+	}
+}
+
+func TestBuildOffsetTableEmpty(t *testing.T) {
+	offsets := buildOffsetTable(nil)
+	if len(offsets) != 0 {
+		t.Errorf("empty: got %d offsets, want 0", len(offsets))
+	}
+}
+
+func TestPopcount8(t *testing.T) {
+	tests := []struct {
+		b    byte
+		want int
+	}{
+		{0x00, 0},
+		{0x01, 1},
+		{0x0F, 4},
+		{0xFF, 8},
+		{0xAA, 4},
+		{0x55, 4},
+	}
+	for _, tt := range tests {
+		got := popcount8(tt.b)
+		if got != tt.want {
+			t.Errorf("popcount8(0x%02X): got %d, want %d", tt.b, got, tt.want)
 		}
 	}
 }
