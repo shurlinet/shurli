@@ -482,3 +482,17 @@ func (c *Client) ConfigReload() (*ConfigReloadResult, error) {
 	}
 	return &resp, nil
 }
+
+// ConfigReloadStatus returns the daemon's config reload state.
+func (c *Client) ConfigReloadStatus() (*ConfigReloadState, error) {
+	var resp ConfigReloadState
+	if err := c.doJSON("GET", "/v1/config/reload", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ConfigReloadStatusText returns the daemon's config reload state as plain text.
+func (c *Client) ConfigReloadStatusText() (string, error) {
+	return c.doText("GET", "/v1/config/reload", nil)
+}

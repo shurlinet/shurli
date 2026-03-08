@@ -19,6 +19,7 @@ type StatusResponse struct {
 	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
+	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 }
 
 // RelayStatus describes a configured relay's connection state.
