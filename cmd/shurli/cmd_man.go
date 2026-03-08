@@ -331,13 +331,15 @@ the DHT if the name is not found locally.
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
 .TP
-.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--json\fR]
+.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--streams\fR \fIN\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
 Send a file to a peer over the P2P network. Uses chunked transfer with
 BLAKE3 Merkle integrity verification and zstd compression (on by default).
-Use \fB--no-compress\fR to disable compression. The command submits the
-transfer to the daemon and exits immediately (fire-and-forget).
-Use \fB--follow\fR to stay attached and watch progress inline. Requires a
-running daemon.
+Use \fB--no-compress\fR to disable compression. Use \fB--streams\fR to set
+the parallel stream count (0 = auto based on transport type). The command
+submits the transfer to the daemon and exits immediately (fire-and-forget).
+Use \fB--follow\fR to stay attached and watch progress inline.
+Use \fB--quiet\fR for a single progress bar (no chunk details) or
+\fB--silent\fR for no progress output. Requires a running daemon.
 .TP
 .B transfers \fR[\fB--watch\fR] [\fB--json\fR]
 List pending, active, and completed file transfers. Shows direction, peer,

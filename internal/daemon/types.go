@@ -194,6 +194,7 @@ type SendRequest struct {
 	Path       string `json:"path"`        // local file path to send
 	Peer       string `json:"peer"`        // peer name or ID
 	NoCompress bool   `json:"no_compress"` // disable zstd compression
+	Streams    int    `json:"streams"`     // parallel stream count (0 = adaptive default)
 }
 
 // SendResponse is returned by POST /v1/send.

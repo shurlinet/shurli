@@ -967,11 +967,16 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SendFile runs in background; returns progress tracker immediately.
-	var sendOpts []p2pnet.SendOptions
-	if req.NoCompress {
-		sendOpts = append(sendOpts, p2pnet.SendOptions{NoCompress: true})
+	// Build stream opener for parallel transfers.
+	opener := func() (network.Stream, error) {
+		return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
 	}
-	progress, err := ts.SendFile(stream, req.Path, sendOpts...)
+	sendOpts := p2pnet.SendOptions{
+		NoCompress:   req.NoCompress,
+		Streams:      req.Streams,
+		StreamOpener: opener,
+	}
+	progress, err := ts.SendFile(stream, req.Path, sendOpts)
 	if err != nil {
 		stream.Close()
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))

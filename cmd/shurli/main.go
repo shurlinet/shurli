@@ -145,7 +145,7 @@ func printUsage() {
 	fmt.Println("  traceroute <target> [--json]                    P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                         Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>           Forward TCP port")
-	fmt.Println("  send <file> <peer> [--follow] [--no-compress] [--json]  Send file to peer")
+	fmt.Println("  send <file> <peer> [--follow] [--no-compress] [--streams N] [--json]  Send file")
 	fmt.Println("  transfers [--watch] [--json]                    List/watch file transfers")
 	fmt.Println("  accept <id> [--dest /path/]                     Accept a pending transfer")
 	fmt.Println("  reject <id> [--reason space|busy|size]           Reject a pending transfer")
