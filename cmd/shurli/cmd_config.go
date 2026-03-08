@@ -139,12 +139,32 @@ func doConfigShow(args []string, stdout io.Writer) error {
 func runConfigReload(args []string) {
 	fs := flag.NewFlagSet("config reload", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
+	statusFlag := fs.Bool("status", false, "show reload state instead of triggering reload")
 	fs.Parse(reorderFlags(fs, args))
 
 	client := tryDaemonClient()
 	if client == nil {
 		fmt.Println("Daemon not running. Start it with: shurli daemon")
 		osExit(1)
+	}
+
+	if *statusFlag {
+		if *jsonFlag {
+			state, err := client.ConfigReloadStatus()
+			if err != nil {
+				fatal("Failed to get reload status: %v", err)
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(state)
+		} else {
+			text, err := client.ConfigReloadStatusText()
+			if err != nil {
+				fatal("Failed to get reload status: %v", err)
+			}
+			fmt.Print(text)
+		}
+		return
 	}
 
 	result, err := client.ConfigReload()
@@ -156,6 +176,12 @@ func runConfigReload(args []string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.Encode(result)
+		return
+	}
+
+	if len(result.Reverted) > 0 {
+		fmt.Printf("Config reload partial: changed [%s], reverted [%s]\n",
+			strings.Join(result.Changed, ", "), strings.Join(result.Reverted, ", "))
 		return
 	}
 
@@ -495,8 +521,8 @@ func doConfigApply(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "Applied %s → %s\n", newConfigPath, cfgFile)
 	fmt.Fprintf(stdout, "Auto-revert in %s unless confirmed.\n", timeout)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "After restarting shurli daemon and verifying connectivity:")
-	fmt.Fprintln(stdout, "  shurli config confirm")
+	fmt.Fprintln(stdout, "Apply to running daemon: shurli config reload")
+	fmt.Fprintln(stdout, "Cancel auto-revert:      shurli config confirm")
 	return nil
 }
 
@@ -535,7 +561,7 @@ func printConfigUsage() {
 	fmt.Println("  validate [--config path]                                   Validate config without starting")
 	fmt.Println("  show     [--config path]                                   Show resolved config")
 	fmt.Println("  set      <key> <value> [--config path]                     Set a config value (dotted key path)")
-	fmt.Println("  reload   [--json]                                          Reload config into running daemon")
+	fmt.Println("  reload   [--json] [--status]                               Reload config into running daemon")
 	fmt.Println("  rollback [--config path]                                   Restore last-known-good config")
 	fmt.Println("  apply    <new-config> [--config path] [--confirm-timeout]  Apply config with auto-revert safety")
 	fmt.Println("  confirm  [--config path]                                   Confirm applied config (cancel revert)")
