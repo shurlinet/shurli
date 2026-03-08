@@ -35,8 +35,10 @@ const (
 	msgManifest     = 0x01 // sender -> receiver: file manifest
 	msgAccept       = 0x02 // receiver -> sender: accept transfer
 	msgReject       = 0x03 // receiver -> sender: reject transfer
-	msgChunk        = 0x04 // sender -> receiver: chunk data
-	msgTransferDone = 0x05 // sender -> receiver: all chunks sent
+	msgChunk           = 0x04 // sender -> receiver: chunk data
+	msgTransferDone    = 0x05 // sender -> receiver: all chunks sent
+	msgResumeRequest   = 0x06 // receiver -> sender: resume with bitfield
+	msgResumeResponse  = 0x07 // sender -> receiver: resume acknowledged
 
 	// Manifest flags (bitmask).
 	flagCompressed = 0x01 // zstd compression enabled
@@ -140,6 +142,7 @@ type transferManifest struct {
 	Flags       uint8      // compression, etc.
 	RootHash    [32]byte   // BLAKE3 Merkle root of all chunk hashes
 	ChunkHashes [][32]byte // per-chunk BLAKE3 hashes (in order)
+	ChunkSizes  []uint32   // per-chunk decompressed sizes (for sparse writes)
 }
 
 // TransferConfig configures the transfer service.
@@ -230,8 +233,12 @@ func writeManifest(w io.Writer, m *transferManifest) error {
 		return fmt.Errorf("too many chunks: %d", m.ChunkCount)
 	}
 
+	if len(m.ChunkSizes) != m.ChunkCount {
+		return fmt.Errorf("chunk sizes count mismatch: %d sizes for %d chunks", len(m.ChunkSizes), m.ChunkCount)
+	}
+
 	headerSize := 4 + 1 + 1 + 2 + len(nameBytes) + 8 + 4 + 32
-	totalSize := headerSize + m.ChunkCount*32
+	totalSize := headerSize + m.ChunkCount*32 + m.ChunkCount*4 // hashes + sizes
 	if totalSize > maxManifestSize {
 		return fmt.Errorf("manifest too large: %d bytes", totalSize)
 	}
@@ -259,6 +266,15 @@ func writeManifest(w io.Writer, m *transferManifest) error {
 	for i := 0; i < m.ChunkCount; i++ {
 		if _, err := w.Write(m.ChunkHashes[i][:]); err != nil {
 			return fmt.Errorf("write chunk hash %d: %w", i, err)
+		}
+	}
+
+	// Write chunk sizes (decompressed, for sparse writes and resume).
+	sizeBuf := make([]byte, 4)
+	for i := 0; i < m.ChunkCount; i++ {
+		binary.BigEndian.PutUint32(sizeBuf, m.ChunkSizes[i])
+		if _, err := w.Write(sizeBuf); err != nil {
+			return fmt.Errorf("write chunk size %d: %w", i, err)
 		}
 	}
 
@@ -329,6 +345,16 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 		if _, err := io.ReadFull(r, m.ChunkHashes[i][:]); err != nil {
 			return nil, fmt.Errorf("read chunk hash %d: %w", i, err)
 		}
+	}
+
+	// Read chunk sizes.
+	m.ChunkSizes = make([]uint32, m.ChunkCount)
+	sizeBuf := make([]byte, 4)
+	for i := 0; i < m.ChunkCount; i++ {
+		if _, err := io.ReadFull(r, sizeBuf); err != nil {
+			return nil, fmt.Errorf("read chunk size %d: %w", i, err)
+		}
+		m.ChunkSizes[i] = binary.BigEndian.Uint32(sizeBuf)
 	}
 
 	return m, nil
@@ -444,9 +470,10 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 		return nil, fmt.Errorf("file too large: %d bytes (max %d)", stat.Size(), maxFileSize)
 	}
 
-	// Phase 1: Chunk the file and collect hashes + data.
+	// Phase 1: Chunk the file and collect hashes + data + sizes.
 	var chunks []chunkEntry
 	var chunkHashes [][32]byte
+	var chunkSizes []uint32
 
 	useCompression := ts.compress
 
@@ -464,6 +491,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 			compressed: useCompression && len(wireData) < len(c.Data),
 		})
 		chunkHashes = append(chunkHashes, c.Hash)
+		chunkSizes = append(chunkSizes, uint32(len(c.Data)))
 		return nil
 	})
 	if err != nil {
@@ -486,6 +514,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 		Flags:       flags,
 		RootHash:    rootHash,
 		ChunkHashes: chunkHashes,
+		ChunkSizes:  chunkSizes,
 	}
 
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
@@ -521,39 +550,83 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 	return progress, nil
 }
 
-// sendChunked sends the manifest, waits for accept, then streams chunks.
+// sendChunked sends the manifest, waits for accept or resume, then streams chunks.
 func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, progress *TransferProgress) error {
 	// Send manifest.
 	if err := writeManifest(w, m); err != nil {
 		return fmt.Errorf("send manifest: %w", err)
 	}
 
-	// Wait for accept/reject.
+	// Wait for accept/reject/resume.
 	resp, err := readMsg(w)
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)
 	}
-	if resp == msgReject {
+
+	switch resp {
+	case msgReject:
 		return fmt.Errorf("peer rejected transfer")
-	}
-	if resp != msgAccept {
+
+	case msgResumeRequest:
+		// Peer has a partial checkpoint. Read the bitfield and send only missing chunks.
+		bfData, err := readResumePayload(w)
+		if err != nil {
+			return fmt.Errorf("read resume payload: %w", err)
+		}
+
+		have := &bitfield{
+			bits: make([]byte, (m.ChunkCount+7)/8),
+			n:    m.ChunkCount,
+		}
+		copy(have.bits, bfData)
+
+		// Acknowledge the resume.
+		if err := writeMsg(w, msgResumeResponse); err != nil {
+			return fmt.Errorf("send resume response: %w", err)
+		}
+
+		progress.setStatus("active")
+
+		skipped := have.count()
+		slog.Info("file-transfer: resuming",
+			"file", m.Filename, "have", skipped, "total", m.ChunkCount,
+			"remaining", m.ChunkCount-skipped)
+
+		// Send only missing chunks.
+		var totalSent int64
+		sent := 0
+		for i, c := range chunks {
+			if have.has(i) {
+				continue
+			}
+			if err := writeChunkFrame(w, i, c.data); err != nil {
+				return fmt.Errorf("send chunk %d: %w", i, err)
+			}
+			totalSent += int64(len(c.data))
+			sent++
+			progress.updateChunks(totalSent, skipped+sent)
+		}
+
+		return writeMsg(w, msgTransferDone)
+
+	case msgAccept:
+		// Normal: send all chunks.
+		progress.setStatus("active")
+
+		var totalSent int64
+		for i, c := range chunks {
+			if err := writeChunkFrame(w, i, c.data); err != nil {
+				return fmt.Errorf("send chunk %d: %w", i, err)
+			}
+			totalSent += int64(len(c.data))
+			progress.updateChunks(totalSent, i+1)
+		}
+
+		return writeMsg(w, msgTransferDone)
+
+	default:
 		return fmt.Errorf("unexpected response: %d", resp)
 	}
-
-	progress.setStatus("active")
-
-	// Stream chunks.
-	var totalSent int64
-	for i, c := range chunks {
-		if err := writeChunkFrame(w, i, c.data); err != nil {
-			return fmt.Errorf("send chunk %d: %w", i, err)
-		}
-		totalSent += int64(len(c.data))
-		progress.updateChunks(totalSent, i+1)
-	}
-
-	// Signal completion.
-	return writeMsg(w, msgTransferDone)
 }
 
 // --- TransferService: Receive ---
@@ -640,24 +713,63 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
-		slog.Info("file-transfer: receiving",
-			"peer", short, "file", manifest.Filename,
-			"size", manifest.FileSize, "chunks", manifest.ChunkCount,
-			"compressed", manifest.Flags&flagCompressed != 0)
-
-		// Accept.
-		if err := writeMsg(s, msgAccept); err != nil {
-			slog.Error("file-transfer: accept write failed", "error", err)
-			return
+		// Check for existing checkpoint (resume support).
+		var ckpt *transferCheckpoint
+		ckpt, _ = loadCheckpoint(ts.receiveDir, manifest.RootHash)
+		if ckpt != nil {
+			// Validate checkpoint matches this manifest.
+			if ckpt.manifest.ChunkCount != manifest.ChunkCount ||
+				ckpt.manifest.FileSize != manifest.FileSize {
+				// Stale checkpoint, discard it.
+				removeCheckpoint(ts.receiveDir, manifest.RootHash)
+				os.Remove(ckpt.tmpPath)
+				ckpt = nil
+			} else if _, err := os.Stat(ckpt.tmpPath); err != nil {
+				// Tmp file gone, discard checkpoint.
+				removeCheckpoint(ts.receiveDir, manifest.RootHash)
+				ckpt = nil
+			}
 		}
 
 		compressed := manifest.Flags&flagCompressed != 0
+
+		if ckpt != nil {
+			// Resume: send resume request with bitfield.
+			slog.Info("file-transfer: resuming",
+				"peer", short, "file", manifest.Filename,
+				"have", ckpt.have.count(), "total", manifest.ChunkCount)
+
+			if err := writeResumeRequest(s, ckpt.have); err != nil {
+				slog.Error("file-transfer: resume request failed", "error", err)
+				return
+			}
+
+			// Wait for resume response.
+			resp, err := readMsg(s)
+			if err != nil || resp != msgResumeResponse {
+				slog.Error("file-transfer: resume response failed",
+					"error", err, "resp", resp)
+				return
+			}
+		} else {
+			slog.Info("file-transfer: receiving",
+				"peer", short, "file", manifest.Filename,
+				"size", manifest.FileSize, "chunks", manifest.ChunkCount,
+				"compressed", compressed)
+
+			// Accept (fresh transfer).
+			if err := writeMsg(s, msgAccept); err != nil {
+				slog.Error("file-transfer: accept write failed", "error", err)
+				return
+			}
+		}
+
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
 
-		// Receive chunks.
-		err = ts.receiveChunked(s, manifest, progress)
+		// Receive chunks (with resume support).
+		err = ts.receiveChunked(s, manifest, progress, ckpt)
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
@@ -682,37 +794,114 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 }
 
 // receiveChunked reads chunks, verifies each hash, and assembles the file.
-func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, progress *TransferProgress) error {
-	// Create temp file for atomic write.
-	tmpPath, tmpFile, err := ts.createTempFile(m.Filename)
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+// Supports both fresh transfers and resume from a checkpoint.
+// Chunks may arrive out of order; writes use WriteAt with precomputed offsets.
+// On interruption, a checkpoint is saved for later resume.
+func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, progress *TransferProgress, ckpt *transferCheckpoint) error {
+	offsets := buildOffsetTable(m.ChunkSizes)
+
+	var tmpPath string
+	var tmpFile *os.File
+	var have *bitfield
+	var transferErr error
+
+	if ckpt != nil {
+		// Resume from checkpoint.
+		tmpPath = ckpt.tmpPath
+		have = ckpt.have
+		var err error
+		tmpFile, err = os.OpenFile(tmpPath, os.O_WRONLY, 0600)
+		if err != nil {
+			// Tmp file gone despite earlier stat check (race). Start fresh.
+			ckpt = nil
+		}
 	}
+
+	if ckpt == nil {
+		// Fresh transfer.
+		var err error
+		tmpPath, tmpFile, err = ts.createTempFile(m.Filename)
+		if err != nil {
+			return fmt.Errorf("create temp file: %w", err)
+		}
+		have = newBitfield(m.ChunkCount)
+
+		// Pre-allocate file to full size for sparse writes.
+		if err := tmpFile.Truncate(m.FileSize); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("pre-allocate file: %w", err)
+		}
+	}
+
+	// On exit: save checkpoint on error, clean up on success.
 	defer func() {
 		tmpFile.Close()
-		os.Remove(tmpPath) // cleanup on error; no-op if renamed
+		if transferErr != nil && have.count() > 0 {
+			// Save checkpoint so we can resume later.
+			cp := &transferCheckpoint{
+				manifest: m,
+				have:     have,
+				tmpPath:  tmpPath,
+			}
+			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
+				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
+			} else {
+				slog.Info("file-transfer: checkpoint saved",
+					"file", m.Filename,
+					"have", have.count(), "total", m.ChunkCount)
+			}
+		} else if transferErr != nil {
+			// Error before any chunks received. Clean up temp file.
+			os.Remove(tmpPath)
+		} else {
+			// Success. Temp file already renamed; remove checkpoint.
+			removeCheckpoint(ts.receiveDir, m.RootHash)
+		}
 	}()
 
 	compressed := m.Flags&flagCompressed != 0
-	var totalWritten int64
+	chunksNeeded := have.missing()
 
-	for i := 0; i < m.ChunkCount; i++ {
+	// Seed progress with already-received data from checkpoint.
+	var totalWritten int64
+	if have.count() > 0 {
+		for i := 0; i < m.ChunkCount; i++ {
+			if have.has(i) {
+				totalWritten += int64(m.ChunkSizes[i])
+			}
+		}
+		progress.updateChunks(totalWritten, have.count())
+	}
+
+	// Receive remaining chunks.
+	received := 0
+	for received < chunksNeeded {
 		index, wireData, err := readChunkFrame(r)
 		if err != nil {
-			return fmt.Errorf("read chunk: %w", err)
+			transferErr = fmt.Errorf("read chunk: %w", err)
+			return transferErr
 		}
 		if index == -1 {
-			// Premature done signal.
-			return fmt.Errorf("sender signaled done after %d/%d chunks", i, m.ChunkCount)
+			if received < chunksNeeded {
+				transferErr = fmt.Errorf("sender signaled done with %d chunks missing", chunksNeeded-received)
+				return transferErr
+			}
+			break
 		}
-		if index != i {
-			return fmt.Errorf("chunk out of order: got %d, expected %d", index, i)
+
+		// Validate index bounds.
+		if index < 0 || index >= m.ChunkCount {
+			transferErr = fmt.Errorf("chunk index out of range: %d", index)
+			return transferErr
+		}
+		if have.has(index) {
+			continue // duplicate, skip
 		}
 
 		// Decompress if needed.
 		chunkData := wireData
 		if compressed {
-			// Compression bomb check: limit decompressed size.
 			maxDecomp := len(wireData) * maxDecompressRatio
 			if maxDecomp > maxDecompressedChunk {
 				maxDecomp = maxDecompressedChunk
@@ -720,7 +909,6 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 			decompressed, decErr := decompressChunk(wireData, maxDecomp)
 			if decErr != nil {
 				// May be uncompressed if compression was skipped for this chunk.
-				// Try using raw data and verify hash below.
 				chunkData = wireData
 			} else {
 				chunkData = decompressed
@@ -729,49 +917,66 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 
 		// Verify chunk hash BEFORE writing to disk.
 		hash := blake3Hash(chunkData)
-		if hash != m.ChunkHashes[i] {
-			return fmt.Errorf("chunk %d hash mismatch: corrupted", i)
+		if hash != m.ChunkHashes[index] {
+			transferErr = fmt.Errorf("chunk %d hash mismatch: corrupted", index)
+			return transferErr
+		}
+
+		// Verify size matches manifest.
+		if uint32(len(chunkData)) != m.ChunkSizes[index] {
+			transferErr = fmt.Errorf("chunk %d size mismatch: got %d, expected %d",
+				index, len(chunkData), m.ChunkSizes[index])
+			return transferErr
 		}
 
 		// Re-check disk space periodically (every 64 chunks).
-		if i%64 == 0 && i > 0 {
+		if received%64 == 0 && received > 0 {
 			remaining := m.FileSize - totalWritten
 			if err := ts.checkDiskSpace(remaining); err != nil {
-				return fmt.Errorf("disk space check at chunk %d: %w", i, err)
+				transferErr = fmt.Errorf("disk space check at chunk %d: %w", index, err)
+				return transferErr
 			}
 		}
 
-		// Write to disk.
-		if _, err := tmpFile.Write(chunkData); err != nil {
-			return fmt.Errorf("write chunk %d: %w", i, err)
+		// Write at correct offset (sparse write).
+		if _, err := tmpFile.WriteAt(chunkData, offsets[index]); err != nil {
+			transferErr = fmt.Errorf("write chunk %d at offset %d: %w", index, offsets[index], err)
+			return transferErr
 		}
-		totalWritten += int64(len(chunkData))
 
-		progress.updateChunks(totalWritten, i+1)
+		have.set(index)
+		received++
+		totalWritten += int64(len(chunkData))
+		progress.updateChunks(totalWritten, have.count())
 	}
 
 	// Read the done message.
 	doneIdx, _, err := readChunkFrame(r)
 	if err != nil {
-		return fmt.Errorf("read done signal: %w", err)
+		transferErr = fmt.Errorf("read done signal: %w", err)
+		return transferErr
 	}
 	if doneIdx != -1 {
-		return fmt.Errorf("expected done signal, got chunk %d", doneIdx)
+		transferErr = fmt.Errorf("expected done signal, got chunk %d", doneIdx)
+		return transferErr
 	}
 
 	// Flush to disk.
 	if err := tmpFile.Sync(); err != nil {
-		return fmt.Errorf("sync file: %w", err)
+		transferErr = fmt.Errorf("sync file: %w", err)
+		return transferErr
 	}
 	tmpFile.Close()
 
 	// Atomic rename to final path.
 	finalPath, err := ts.finalPath(m.Filename)
 	if err != nil {
-		return fmt.Errorf("determine final path: %w", err)
+		transferErr = fmt.Errorf("determine final path: %w", err)
+		return transferErr
 	}
 	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return fmt.Errorf("rename temp to final: %w", err)
+		transferErr = fmt.Errorf("rename temp to final: %w", err)
+		return transferErr
 	}
 
 	// Set file permissions.
