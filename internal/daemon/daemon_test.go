@@ -46,6 +46,7 @@ func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *mockRuntime) TransferService() *p2pnet.TransferService    { return nil }
 func (m *mockRuntime) ShareRegistry() *p2pnet.ShareRegistry        { return nil }
+func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

@@ -115,6 +115,10 @@ func parseRelayName(agentVersion string) string {
 	return ""
 }
 
+func (rt *serveRuntime) ConfigReloader() daemon.ConfigReloader {
+	return &configReloader{rt: rt}
+}
+
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
 		return nil
@@ -146,6 +150,62 @@ func (g *gaterReloader) ReloadFromFile() error {
 		g.peerManager.SetWatchlist(g.gater.GetAuthorizedPeerIDs())
 	}
 	return nil
+}
+
+// configReloader implements daemon.ConfigReloader by re-reading the
+// config file from disk and cascading changes to live subsystems.
+type configReloader struct {
+	rt *serveRuntime
+}
+
+func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
+	result := &daemon.ConfigReloadResult{}
+
+	// Re-read config from disk.
+	newCfg, err := config.LoadNodeConfig(cr.rt.configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	config.ResolveConfigPaths(newCfg, filepath.Dir(cr.rt.configFile))
+	if err := config.ValidateNodeConfig(newCfg); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	oldCfg := cr.rt.config
+
+	// Transfer receive mode.
+	if ts := cr.rt.transferService; ts != nil {
+		oldMode := string(oldCfg.Transfer.ReceiveMode)
+		newMode := string(newCfg.Transfer.ReceiveMode)
+		if oldMode == "" {
+			oldMode = "contacts"
+		}
+		if newMode == "" {
+			newMode = "contacts"
+		}
+		if oldMode != newMode {
+			ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			result.Changed = append(result.Changed, "transfer.receive_mode")
+		}
+	}
+
+	// Transfer receive directory.
+	if ts := cr.rt.transferService; ts != nil {
+		oldDir := oldCfg.Transfer.ReceiveDir
+		newDir := newCfg.Transfer.ReceiveDir
+		if oldDir != newDir && newDir != "" {
+			ts.SetReceiveDir(newDir)
+			result.Changed = append(result.Changed, "transfer.receive_dir")
+		}
+	}
+
+	// Update the stored config pointer for future comparisons.
+	cr.rt.config = newCfg
+
+	if len(result.Changed) == 0 {
+		result.Changed = []string{} // empty slice, not nil (cleaner JSON)
+	}
+	return result, nil
 }
 
 // --- Daemon paths ---
