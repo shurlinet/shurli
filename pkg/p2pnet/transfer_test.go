@@ -141,30 +141,36 @@ func TestTransferServiceCreation(t *testing.T) {
 	}
 }
 
-func TestUniquePath(t *testing.T) {
+func TestCreateExclusive(t *testing.T) {
 	dir := t.TempDir()
 	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir}, nil, nil)
 
 	// First file should be the original name.
-	path1 := ts.uniquePath("test.txt")
+	path1, f1, err := ts.createExclusive("test.txt")
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	f1.Close()
 	if filepath.Base(path1) != "test.txt" {
 		t.Errorf("first: got %q, want test.txt", filepath.Base(path1))
 	}
 
-	// Create the file.
-	os.WriteFile(path1, []byte("x"), 0644)
-
-	// Second should be "test (1).txt".
-	path2 := ts.uniquePath("test.txt")
+	// Second should be "test (1).txt" (original already exists).
+	path2, f2, err := ts.createExclusive("test.txt")
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	f2.Close()
 	if filepath.Base(path2) != "test (1).txt" {
 		t.Errorf("second: got %q, want test (1).txt", filepath.Base(path2))
 	}
 
-	// Create that too.
-	os.WriteFile(path2, []byte("x"), 0644)
-
 	// Third should be "test (2).txt".
-	path3 := ts.uniquePath("test.txt")
+	path3, f3, err := ts.createExclusive("test.txt")
+	if err != nil {
+		t.Fatalf("third create: %v", err)
+	}
+	f3.Close()
 	if filepath.Base(path3) != "test (2).txt" {
 		t.Errorf("third: got %q, want test (2).txt", filepath.Base(path3))
 	}
