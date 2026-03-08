@@ -64,6 +64,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Config
 	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
+	mux.HandleFunc("GET /v1/config/reload", s.handleConfigReloadStatus)
 
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
@@ -197,6 +198,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// MOTD/goodbye messages from relays
 	resp.MOTDs = rt.RelayMOTDs()
 
+	// Config reload state (only include if reloads have happened)
+	s.mu.Lock()
+	if s.reloadState.TotalReloads > 0 {
+		state := s.reloadState
+		resp.ConfigReload = &state
+	}
+	s.mu.Unlock()
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -226,6 +235,25 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "relay_addresses: %d\n", len(resp.RelayAddrs))
 		for _, a := range resp.RelayAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)
+		}
+		if resp.ConfigReload != nil {
+			cr := resp.ConfigReload
+			ago := time.Since(cr.LastReloadTime).Round(time.Second)
+			if cr.LastSuccess {
+				fmt.Fprintf(&sb, "config_reload: ok (%s ago)", ago)
+				if len(cr.LastChanged) > 0 {
+					fmt.Fprintf(&sb, " changed: %s", strings.Join(cr.LastChanged, ", "))
+				}
+				fmt.Fprintln(&sb)
+			} else {
+				fmt.Fprintf(&sb, "config_reload: FAILED (%s ago) error: %s\n", ago, cr.LastError)
+				if cr.ConsecutiveFailures > 1 {
+					fmt.Fprintf(&sb, "  consecutive_failures: %d\n", cr.ConsecutiveFailures)
+				}
+			}
+			if len(cr.LastReverted) > 0 {
+				fmt.Fprintf(&sb, "  reverted: %s\n", strings.Join(cr.LastReverted, ", "))
+			}
 		}
 		respondText(w, http.StatusOK, sb.String())
 		return
@@ -831,14 +859,77 @@ func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	s.reloadState.TotalReloads++
+	s.mu.Unlock()
+
 	result, err := reloader.ReloadConfig()
+
+	s.mu.Lock()
+	s.reloadState.LastReloadTime = time.Now()
 	if err != nil {
+		s.reloadState.LastSuccess = false
+		s.reloadState.LastError = err.Error()
+		s.reloadState.LastChanged = nil
+		s.reloadState.LastReverted = nil
+		s.reloadState.ConsecutiveFailures++
+		s.reloadState.TotalFailures++
+		failures := s.reloadState.ConsecutiveFailures
+		s.mu.Unlock()
+
+		if failures >= 3 {
+			slog.Warn("config reload: repeated failures",
+				"consecutive", failures, "error", err)
+		}
+
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("config reload failed: %v", err))
 		return
 	}
 
+	s.reloadState.LastSuccess = true
+	s.reloadState.LastError = ""
+	s.reloadState.LastChanged = result.Changed
+	s.reloadState.LastReverted = result.Reverted
+	s.reloadState.ConsecutiveFailures = 0
+	s.mu.Unlock()
+
 	slog.Info("config reloaded via API", "changed", result.Changed)
+	if len(result.Reverted) > 0 {
+		slog.Warn("config reload: some changes reverted", "reverted", result.Reverted)
+	}
 	respondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfigReloadStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	state := s.reloadState
+	s.mu.Unlock()
+
+	if wantsText(r) {
+		var sb strings.Builder
+		if state.TotalReloads == 0 {
+			fmt.Fprintln(&sb, "No config reloads performed.")
+		} else {
+			fmt.Fprintf(&sb, "last_reload: %s\n", state.LastReloadTime.Format(time.RFC3339))
+			fmt.Fprintf(&sb, "last_success: %v\n", state.LastSuccess)
+			if state.LastError != "" {
+				fmt.Fprintf(&sb, "last_error: %s\n", state.LastError)
+			}
+			if len(state.LastChanged) > 0 {
+				fmt.Fprintf(&sb, "last_changed: %s\n", strings.Join(state.LastChanged, ", "))
+			}
+			if len(state.LastReverted) > 0 {
+				fmt.Fprintf(&sb, "last_reverted: %s\n", strings.Join(state.LastReverted, ", "))
+			}
+			fmt.Fprintf(&sb, "consecutive_failures: %d\n", state.ConsecutiveFailures)
+			fmt.Fprintf(&sb, "total_reloads: %d\n", state.TotalReloads)
+			fmt.Fprintf(&sb, "total_failures: %d\n", state.TotalFailures)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {

@@ -174,6 +174,45 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 
 	oldCfg := cr.rt.config
 
+	// Phase 1: Pre-validate changes that can fail.
+	// Check receive_dir exists before applying (prevents partial apply + rollback).
+	if ts := cr.rt.transferService; ts != nil {
+		newDir := newCfg.Transfer.ReceiveDir
+		if newDir != "" && newDir != oldCfg.Transfer.ReceiveDir {
+			if err := os.MkdirAll(newDir, 0700); err != nil {
+				return nil, fmt.Errorf("transfer.receive_dir %q: %w", newDir, err)
+			}
+		}
+	}
+
+	// Validate receive_mode value.
+	if newCfg.Transfer.ReceiveMode != "" {
+		switch newCfg.Transfer.ReceiveMode {
+		case "off", "contacts", "ask", "open":
+			// valid
+		default:
+			return nil, fmt.Errorf("transfer.receive_mode: invalid value %q (must be off/contacts/ask/open)",
+				newCfg.Transfer.ReceiveMode)
+		}
+	}
+
+	// Phase 2: Apply changes. All pre-validation passed.
+	// Save rollback state in case a subsystem fails mid-apply.
+	type rollbackEntry struct {
+		field   string
+		restore func()
+	}
+	var applied []rollbackEntry
+
+	rollbackAll := func() {
+		for i := len(applied) - 1; i >= 0; i-- {
+			applied[i].restore()
+			result.Reverted = append(result.Reverted, applied[i].field)
+		}
+		// Restore old config pointer.
+		cr.rt.config = oldCfg
+	}
+
 	// Transfer receive mode.
 	if ts := cr.rt.transferService; ts != nil {
 		oldMode := string(oldCfg.Transfer.ReceiveMode)
@@ -186,6 +225,10 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		}
 		if oldMode != newMode {
 			ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.receive_mode",
+				restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
+			})
 			result.Changed = append(result.Changed, "transfer.receive_mode")
 		}
 	}
@@ -196,14 +239,23 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		newDir := newCfg.Transfer.ReceiveDir
 		if oldDir != newDir && newDir != "" {
 			ts.SetReceiveDir(newDir)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.receive_dir",
+				restore: func() { ts.SetReceiveDir(oldDir) },
+			})
 			result.Changed = append(result.Changed, "transfer.receive_dir")
 		}
 	}
 
 	// Transfer max file size.
 	if ts := cr.rt.transferService; ts != nil {
-		if oldCfg.Transfer.MaxFileSize != newCfg.Transfer.MaxFileSize {
+		oldMax := oldCfg.Transfer.MaxFileSize
+		if oldMax != newCfg.Transfer.MaxFileSize {
 			ts.SetMaxSize(newCfg.Transfer.MaxFileSize)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.max_file_size",
+				restore: func() { ts.SetMaxSize(oldMax) },
+			})
 			result.Changed = append(result.Changed, "transfer.max_file_size")
 		}
 	}
@@ -214,6 +266,10 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		newCompress := newCfg.Transfer.Compress == nil || *newCfg.Transfer.Compress
 		if oldCompress != newCompress {
 			ts.SetCompress(newCompress)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.compress",
+				restore: func() { ts.SetCompress(oldCompress) },
+			})
 			result.Changed = append(result.Changed, "transfer.compress")
 		}
 	}
@@ -221,10 +277,11 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 	// Authorized keys (connection gating) - always refresh on reload.
 	if reloader := cr.rt.GaterForHotReload(); reloader != nil {
 		if err := reloader.ReloadFromFile(); err != nil {
-			slog.Warn("config reload: failed to reload authorized_keys", "err", err)
-		} else {
-			result.Changed = append(result.Changed, "security.authorized_keys")
+			slog.Warn("config reload: failed to reload authorized_keys, rolling back all changes", "err", err)
+			rollbackAll()
+			return nil, fmt.Errorf("authorized_keys reload failed (all changes rolled back): %w", err)
 		}
+		result.Changed = append(result.Changed, "security.authorized_keys")
 	}
 
 	// Update the stored config pointer for future comparisons.
