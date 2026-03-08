@@ -27,6 +27,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
 	"github.com/shurlinet/shurli/internal/watchdog"
@@ -192,9 +193,19 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	}
 
 	// Resolve identity password for SHRL-encrypted key.
-	pw, err := resolvePassword(filepath.Dir(cfgFile))
+	// Try session token first; fall back to interactive prompt if TTY available.
+	configDir := filepath.Dir(cfgFile)
+	pw, err := resolvePasswordInteractive(configDir, os.Stdout)
 	if err != nil {
 		return nil, fmt.Errorf("identity key is encrypted but no session token found.\n  Run 'shurli init' to create an identity.\n  (%w)", err)
+	}
+
+	// If we got the password interactively, persist a session token so
+	// subsequent daemon restarts (e.g., launchd/systemd) work without a TTY.
+	if _, sessionErr := identity.LoadSession(configDir); sessionErr != nil {
+		if createErr := identity.CreateSession(configDir, pw); createErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not persist session token: %v\n", createErr)
+		}
 	}
 
 	// Create P2P network
