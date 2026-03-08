@@ -96,6 +96,62 @@ func (ts *TransferService) sendParallel(
 		return ts.sendChunked(controlRW, m, chunks, parity, progress)
 	}
 
+	// Send manifest on control stream and wait for accept/reject.
+	if err := writeManifest(controlRW, m); err != nil {
+		return fmt.Errorf("send manifest: %w", err)
+	}
+	resp, err := readMsg(controlRW)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	switch resp {
+	case msgReject:
+		return fmt.Errorf("peer rejected transfer")
+	case msgRejectReason:
+		reasonByte, err := readMsg(controlRW)
+		if err != nil {
+			return fmt.Errorf("peer rejected transfer (could not read reason)")
+		}
+		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
+	case msgResumeRequest:
+		// Resume not supported in parallel mode; fall back to sequential.
+		// Read the bitfield, send ResumeResponse, then send missing chunks single-stream.
+		slog.Info("file-transfer: resume requested during parallel send, falling back to sequential")
+		bfData, bfErr := readResumePayload(controlRW)
+		if bfErr != nil {
+			return fmt.Errorf("read resume payload: %w", bfErr)
+		}
+		have := &bitfield{bits: make([]byte, (m.ChunkCount+7)/8), n: m.ChunkCount}
+		copy(have.bits, bfData)
+		if wErr := writeMsg(controlRW, msgResumeResponse); wErr != nil {
+			return fmt.Errorf("send resume response: %w", wErr)
+		}
+		progress.setStatus("active")
+		var totalSent int64
+		sent := 0
+		for i, c := range chunks {
+			if have.has(i) {
+				continue
+			}
+			if wErr := writeChunkFrame(controlRW, i, c.data); wErr != nil {
+				return fmt.Errorf("send chunk %d: %w", i, wErr)
+			}
+			totalSent += int64(len(c.data))
+			sent++
+			progress.updateChunks(totalSent, sent+have.count())
+		}
+		if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
+			return pErr
+		}
+		return writeMsg(controlRW, msgTransferDone)
+	case msgAccept:
+		// Accepted, continue to parallel send.
+	default:
+		return fmt.Errorf("unexpected response: 0x%02x", resp)
+	}
+
+	progress.setStatus("active")
+
 	// Partition data chunks across streams (round-robin).
 	partitions := make([][]int, numStreams)
 	for i := range chunks {
