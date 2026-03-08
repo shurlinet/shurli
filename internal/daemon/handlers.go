@@ -1149,8 +1149,13 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use a detached context for streams: the transfer runs asynchronously
+	// after we return the HTTP response. Using r.Context() would cancel the
+	// streams as soon as the response is sent.
+	streamCtx := context.Background()
+
 	// Open stream respecting plugin transport policy (relay blocked by default).
-	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
+	stream, err := pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
 	if err != nil {
 		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open stream to peer: %v", err))
 		return
@@ -1159,7 +1164,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// SendFile runs in background; returns progress tracker immediately.
 	// Build stream opener for parallel transfers.
 	opener := func() (network.Stream, error) {
-		return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
+		return pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
 	}
 	sendOpts := p2pnet.SendOptions{
 		NoCompress:   req.NoCompress,
