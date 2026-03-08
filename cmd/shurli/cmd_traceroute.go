@@ -50,7 +50,7 @@ func runTraceroute(args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create standalone P2P host from config.
+	// Create standalone P2P host, resolve target, bootstrap, and connect.
 	pw, _ := resolvePasswordFromConfig(*configFlag)
 	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
 		ConfigPath: *configFlag,
@@ -60,35 +60,20 @@ func runTraceroute(args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	p2pNetwork := standalone.Network
-	cfg := standalone.NodeConfig
-	defer p2pNetwork.Close()
-
-	// Resolve target
-	targetPeerID, err := p2pNetwork.ResolveName(target)
-	if err != nil {
-		fatal("Cannot resolve target %q: %v", target, err)
-	}
-
-	h := p2pNetwork.Host()
+	defer standalone.Network.Close()
 
 	if !*jsonFlag {
-		tc.Wfaint(os.Stdout, "traceroute to %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "traceroute to %s\n", target)
 		fmt.Println("Connecting...")
 	}
 
-	// Bootstrap and connect to target
-	bootstrapCfg := p2pnet.BootstrapConfig{
-		Namespace:      cfg.Discovery.Network,
-		BootstrapPeers: cfg.Discovery.BootstrapPeers,
-		RelayAddrs:     cfg.Relay.Addresses,
-	}
-	if err := p2pnet.BootstrapAndConnect(ctx, h, p2pNetwork, targetPeerID, bootstrapCfg); err != nil {
-		fatal("Failed to connect: %v", err)
+	targetPeerID, err := standalone.ResolveAndConnect(ctx, target)
+	if err != nil {
+		fatal("%v", err)
 	}
 
 	// Run traceroute
-	result, err := p2pnet.TracePeer(ctx, h, targetPeerID)
+	result, err := p2pnet.TracePeer(ctx, standalone.Network.Host(), targetPeerID)
 	if err != nil {
 		fatal("Traceroute failed: %v", err)
 	}

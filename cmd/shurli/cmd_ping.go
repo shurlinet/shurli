@@ -85,7 +85,7 @@ func runPing(args []string) {
 		cancel()
 	}()
 
-	// Create standalone P2P host from config.
+	// Create standalone P2P host, resolve target, bootstrap, and connect.
 	pw, _ := resolvePasswordFromConfig(*configFlag)
 	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
 		ConfigPath: *configFlag,
@@ -95,31 +95,16 @@ func runPing(args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	p2pNetwork := standalone.Network
-	cfg := standalone.NodeConfig
-	defer p2pNetwork.Close()
-
-	// Resolve target
-	targetPeerID, err := p2pNetwork.ResolveName(target)
-	if err != nil {
-		fatal("Cannot resolve target %q: %v", target, err)
-	}
-
-	h := p2pNetwork.Host()
+	defer standalone.Network.Close()
 
 	if !*jsonFlag {
-		tc.Wfaint(os.Stdout, "PING %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "PING %s\n", target)
 		fmt.Println("Connecting...")
 	}
 
-	// Bootstrap and connect
-	bootstrapCfg := p2pnet.BootstrapConfig{
-		Namespace:      cfg.Discovery.Network,
-		BootstrapPeers: cfg.Discovery.BootstrapPeers,
-		RelayAddrs:     cfg.Relay.Addresses,
-	}
-	if err := p2pnet.BootstrapAndConnect(ctx, h, p2pNetwork, targetPeerID, bootstrapCfg); err != nil {
-		fatal("Failed to connect: %v", err)
+	targetPeerID, err := standalone.ResolveAndConnect(ctx, target)
+	if err != nil {
+		fatal("%v", err)
 	}
 
 	if !*jsonFlag {
@@ -127,8 +112,8 @@ func runPing(args []string) {
 	}
 
 	// Ping loop using shared logic
-	protocolID := cfg.Protocols.PingPong.ID
-	ch := p2pnet.PingPeer(ctx, h, targetPeerID, protocolID, *count, interval)
+	protocolID := standalone.NodeConfig.Protocols.PingPong.ID
+	ch := p2pnet.PingPeer(ctx, standalone.Network.Host(), targetPeerID, protocolID, *count, interval)
 
 	var results []p2pnet.PingResult
 	for result := range ch {

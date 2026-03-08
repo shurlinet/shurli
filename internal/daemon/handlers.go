@@ -13,7 +13,6 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
@@ -957,9 +956,8 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Open stream to peer's file-transfer handler.
-	ctx := network.WithAllowLimitedConn(r.Context(), p2pnet.TransferProtocol)
-	stream, err := pnet.Host().NewStream(ctx, targetPeerID, protocol.ID(p2pnet.TransferProtocol))
+	// Open stream respecting plugin transport policy (relay blocked by default).
+	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
 	if err != nil {
 		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open stream to peer: %v", err))
 		return

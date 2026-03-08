@@ -1,8 +1,11 @@
 package p2pnet
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/config"
 )
@@ -75,4 +78,30 @@ func NewStandaloneHost(cfg StandaloneConfig) (*StandaloneResult, error) {
 		NodeConfig: nodeCfg,
 		ConfigDir:  cfgDir,
 	}, nil
+}
+
+// ResolveAndConnect resolves a target name to a peer ID, bootstraps the DHT,
+// and connects to the target. This consolidates the repeated boilerplate in
+// standalone CLI commands (ping, traceroute) into a single library call.
+//
+// After this returns, the caller can immediately use the host to communicate
+// with the target peer. The caller is still responsible for closing the Network.
+func (r *StandaloneResult) ResolveAndConnect(ctx context.Context, target string) (peer.ID, error) {
+	targetPeerID, err := r.Network.ResolveName(target)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve %q: %w", target, err)
+	}
+
+	cfg := r.NodeConfig
+	bootstrapCfg := BootstrapConfig{
+		Namespace:      cfg.Discovery.Network,
+		BootstrapPeers: cfg.Discovery.BootstrapPeers,
+		RelayAddrs:     cfg.Relay.Addresses,
+	}
+
+	if err := BootstrapAndConnect(ctx, r.Network.Host(), r.Network, targetPeerID, bootstrapCfg); err != nil {
+		return "", fmt.Errorf("connect failed: %w", err)
+	}
+
+	return targetPeerID, nil
 }
