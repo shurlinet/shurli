@@ -317,6 +317,37 @@ func (c *Client) Unlock() error {
 	return c.doJSON("POST", "/v1/unlock", nil, nil)
 }
 
+// --- File transfer methods ---
+
+// Send initiates a file transfer to a peer via the daemon.
+func (c *Client) Send(filePath, peer string) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer}
+	body, _ := json.Marshal(req)
+	var resp SendResponse
+	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// TransferStatus returns the progress of a transfer by ID.
+func (c *Client) TransferStatus(id string) (*p2pnet.TransferProgress, error) {
+	var resp p2pnet.TransferProgress
+	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// TransferList returns all tracked transfers.
+func (c *Client) TransferList() ([]p2pnet.TransferProgress, error) {
+	var resp []p2pnet.TransferProgress
+	if err := c.doJSON("GET", "/v1/transfers", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // --- Invite methods ---
 
 // InviteCreate creates a new async invite via the daemon (relay-delegated).

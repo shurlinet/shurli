@@ -39,6 +39,7 @@ type RuntimeInfo interface {
 	RelayAddresses() []string                                // relay multiaddrs from config
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
+	TransferService() *p2pnet.TransferService                // nil if transfer disabled
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

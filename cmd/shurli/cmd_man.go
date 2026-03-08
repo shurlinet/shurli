@@ -330,6 +330,10 @@ the DHT if the name is not found locally.
 .B proxy \fItarget\fR \fIservice\fR \fIlocal-port\fR
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
+.TP
+.B send \fIfile\fR \fIpeer\fR [\fB--json\fR]
+Send a file to a peer over the P2P network. The file is streamed directly
+with SHA-256 integrity verification. Requires a running daemon.
 
 .SH IDENTITY & ACCESS
 Access control in shurli is based on

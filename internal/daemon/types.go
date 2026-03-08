@@ -189,6 +189,20 @@ type InviteWaitResponse struct {
 	Total  int    `json:"total"`
 }
 
+// SendRequest is the body for POST /v1/send.
+type SendRequest struct {
+	Path string `json:"path"` // local file path to send
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// SendResponse is returned by POST /v1/send.
+type SendResponse struct {
+	TransferID string `json:"transfer_id"`
+	Filename   string `json:"filename"`
+	Size       int64  `json:"size"`
+	PeerID     string `json:"peer_id"`
+}
+
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
 	Error string `json:"error"`
