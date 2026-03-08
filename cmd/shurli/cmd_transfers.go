@@ -60,7 +60,8 @@ func printTransferTable(transfers []p2pnet.TransferProgress) {
 		return transfers[i].StartTime.After(transfers[j].StartTime)
 	})
 
-	for _, t := range transfers {
+	for i := range transfers {
+		t := &transfers[i]
 		dir := "\u2191" // up arrow for send
 		if t.Direction == "receive" {
 			dir = "\u2193" // down arrow for receive
