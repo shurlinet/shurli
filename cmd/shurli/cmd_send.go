@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shurlinet/shurli/internal/daemon"
@@ -89,10 +90,17 @@ func runSend(args []string) {
 	pollTransfer(client, resp.TransferID)
 }
 
-// pollTransfer polls the daemon for transfer progress until complete.
+// progressBarWidth is the number of block characters in the progress bar.
+const progressBarWidth = 30
+
+// pollTransfer polls the daemon for transfer progress until complete,
+// displaying a live progress bar with transfer speed.
 func pollTransfer(client *daemon.Client, id string) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+
+	var lastSent int64
+	lastTime := time.Now()
 
 	for range ticker.C {
 		progress, err := client.TransferStatus(id)
@@ -102,22 +110,43 @@ func pollTransfer(client *daemon.Client, id string) {
 		}
 
 		if progress.Done {
+			// Clear the progress line.
+			fmt.Printf("\r%-70s\r", " ")
 			if progress.Error != "" {
-				fmt.Printf("\r%-60s\r", " ")
 				tc.Wred(os.Stdout, "Transfer failed: %s\n", progress.Error)
 			} else {
-				fmt.Printf("\r%-60s\r", " ")
-				tc.Wgreen(os.Stdout, "Complete")
-				fmt.Printf(" %s sent\n", humanSize(progress.Size))
+				// Show completed bar.
+				bar := strings.Repeat("\u2588", progressBarWidth)
+				tc.Wgreen(os.Stdout, "%s 100%%\n", bar)
+				fmt.Println("Transfer complete")
 			}
 			return
 		}
 
-		// Print progress
 		if progress.Size > 0 {
-			pct := float64(progress.Sent) / float64(progress.Size) * 100
-			fmt.Printf("\r  %s / %s (%.0f%%)",
-				humanSize(progress.Sent), humanSize(progress.Size), pct)
+			pct := float64(progress.Sent) / float64(progress.Size)
+			filled := int(pct * float64(progressBarWidth))
+			if filled > progressBarWidth {
+				filled = progressBarWidth
+			}
+			bar := strings.Repeat("\u2588", filled) + strings.Repeat("\u2591", progressBarWidth-filled)
+
+			// Speed: bytes transferred since last poll / elapsed time.
+			now := time.Now()
+			elapsed := now.Sub(lastTime).Seconds()
+			var speedStr string
+			if elapsed > 0 && progress.Sent > lastSent {
+				speed := float64(progress.Sent-lastSent) / elapsed
+				speedStr = humanSize(int64(speed)) + "/s"
+			}
+			lastSent = progress.Sent
+			lastTime = now
+
+			if speedStr != "" {
+				fmt.Printf("\r%s %.0f%% - %s   ", bar, pct*100, speedStr)
+			} else {
+				fmt.Printf("\r%s %.0f%%   ", bar, pct*100)
+			}
 		}
 	}
 }
