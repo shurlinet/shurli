@@ -8,10 +8,12 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/term"
 
+	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/validate"
 )
@@ -281,6 +283,17 @@ func resolvePassword(configDir string) (string, error) {
 		return "", fmt.Errorf("no session token found; run 'shurli init' to create an identity")
 	}
 	return pw, nil
+}
+
+// resolvePasswordFromConfig resolves the identity password by first finding
+// the config file (using the optional configPath flag), then loading the
+// session token from the config directory. Used by standalone CLI commands.
+func resolvePasswordFromConfig(configPath string) (string, error) {
+	cfgFile, err := config.FindConfigFile(configPath)
+	if err != nil {
+		return "", err
+	}
+	return resolvePassword(filepath.Dir(cfgFile))
 }
 
 // resolvePasswordInteractive tries resolvePassword (session token), then

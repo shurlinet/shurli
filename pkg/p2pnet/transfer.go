@@ -163,6 +163,11 @@ func (p *TransferProgress) Snapshot() TransferProgress {
 // Completed transfers are evicted oldest-first when this limit is hit.
 const maxTrackedTransfers = 10000
 
+// maxConcurrentTransfers limits the number of simultaneous inbound file
+// receives. Beyond this limit, new inbound streams are rejected immediately
+// to prevent resource exhaustion from a flood of senders.
+const maxConcurrentTransfers = 10
+
 // TransferService manages file transfers over libp2p streams.
 type TransferService struct {
 	receiveDir string
@@ -170,8 +175,12 @@ type TransferService struct {
 	metrics    *Metrics
 	events     *EventBus
 
+	// inboundSem limits concurrent inbound transfers.
+	inboundSem chan struct{}
+
 	mu        sync.RWMutex
 	transfers map[string]*TransferProgress
+	completed []string // FIFO queue of completed transfer IDs for eviction
 	nextID    int
 }
 
@@ -207,6 +216,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		maxSize:    cfg.MaxSize,
 		metrics:    metrics,
 		events:     events,
+		inboundSem: make(chan struct{}, maxConcurrentTransfers),
 		transfers:  make(map[string]*TransferProgress),
 	}, nil
 }
@@ -221,6 +231,19 @@ const transferStreamDeadline = 30 * time.Minute
 func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		defer s.Close()
+
+		// Rate limit: reject immediately if at capacity.
+		select {
+		case ts.inboundSem <- struct{}{}:
+			defer func() { <-ts.inboundSem }()
+		default:
+			slog.Warn("file-transfer: at capacity, rejecting inbound",
+				"peer", s.Conn().RemotePeer().String()[:16]+"...",
+				"max", maxConcurrentTransfers)
+			writeResponse(s, transferTypeReject)
+			return
+		}
+
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		remotePeer := s.Conn().RemotePeer()
@@ -258,6 +281,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		// Receive file data with hash verification.
 		err = ts.receiveFile(s, header, progress)
 		progress.finish(err)
+		ts.markCompleted(progress.ID)
 
 		if err != nil {
 			slog.Error("file-transfer: receive failed",
@@ -423,6 +447,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 		err := ts.sendFileData(s, f, header, progress)
 		progress.finish(err)
+		ts.markCompleted(progress.ID)
 
 		if err != nil {
 			slog.Error("file-transfer: send failed",
@@ -512,23 +537,25 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 	return p
 }
 
-// evictCompleted removes the oldest completed transfers. Caller must hold ts.mu.
+// evictCompleted removes the oldest completed transfer from the FIFO queue.
+// O(1) per eviction. Caller must hold ts.mu.
 func (ts *TransferService) evictCompleted() {
-	var oldest string
-	var oldestTime time.Time
-	for id, p := range ts.transfers {
-		snap := p.Snapshot()
-		if !snap.Done {
-			continue
+	for len(ts.completed) > 0 {
+		id := ts.completed[0]
+		ts.completed = ts.completed[1:]
+		if _, ok := ts.transfers[id]; ok {
+			delete(ts.transfers, id)
+			return
 		}
-		if oldest == "" || snap.StartTime.Before(oldestTime) {
-			oldest = id
-			oldestTime = snap.StartTime
-		}
+		// ID already removed (shouldn't happen, but defensive)
 	}
-	if oldest != "" {
-		delete(ts.transfers, oldest)
-	}
+}
+
+// markCompleted appends a transfer ID to the completed FIFO queue for eviction.
+func (ts *TransferService) markCompleted(id string) {
+	ts.mu.Lock()
+	ts.completed = append(ts.completed, id)
+	ts.mu.Unlock()
 }
 
 // GetTransfer returns the progress of a transfer by ID.
