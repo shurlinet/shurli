@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
-	"golang.org/x/sys/unix"
 )
 
 // Transfer protocol constants.
@@ -143,24 +142,32 @@ type transferManifest struct {
 	RootHash    [32]byte   // BLAKE3 Merkle root of all chunk hashes
 	ChunkHashes [][32]byte // per-chunk BLAKE3 hashes (in order)
 	ChunkSizes  []uint32   // per-chunk decompressed sizes (for sparse writes)
+
+	// Erasure coding (only present if flagErasureCoded is set in Flags).
+	StripeSize   int        // data chunks per RS stripe
+	ParityCount  int        // total parity chunks
+	ParityHashes [][32]byte // per-parity BLAKE3 hashes
+	ParitySizes  []uint32   // per-parity shard sizes
 }
 
 // TransferConfig configures the transfer service.
 type TransferConfig struct {
-	ReceiveDir  string      // directory for received files
-	MaxSize     int64       // max file size (0 = unlimited)
-	ReceiveMode ReceiveMode // default: contacts
-	Compress    bool        // enable zstd compression (default: true)
+	ReceiveDir      string      // directory for received files
+	MaxSize         int64       // max file size (0 = unlimited)
+	ReceiveMode     ReceiveMode // default: contacts
+	Compress        bool        // enable zstd compression (default: true)
+	ErasureOverhead float64     // RS parity overhead (0.10 = 10%, 0 = disabled)
 }
 
 // TransferService manages chunked file transfers over libp2p streams.
 type TransferService struct {
-	receiveDir  string
-	maxSize     int64
-	receiveMode ReceiveMode
-	compress    bool
-	metrics     *Metrics
-	events      *EventBus
+	receiveDir      string
+	maxSize         int64
+	receiveMode     ReceiveMode
+	compress        bool
+	erasureOverhead float64
+	metrics         *Metrics
+	events          *EventBus
 
 	inboundSem chan struct{}
 
@@ -203,15 +210,16 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	}
 
 	return &TransferService{
-		receiveDir:  dir,
-		maxSize:     cfg.MaxSize,
-		receiveMode: mode,
-		compress:    compress,
-		metrics:     metrics,
-		events:      events,
-		inboundSem:  make(chan struct{}, maxConcurrentTransfers),
-		transfers:   make(map[string]*TransferProgress),
-		peerInbound: make(map[string]int),
+		receiveDir:      dir,
+		maxSize:         cfg.MaxSize,
+		receiveMode:     mode,
+		compress:        compress,
+		erasureOverhead: cfg.ErasureOverhead,
+		metrics:         metrics,
+		events:          events,
+		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
+		transfers:       make(map[string]*TransferProgress),
+		peerInbound:     make(map[string]int),
 	}, nil
 }
 
@@ -275,6 +283,13 @@ func writeManifest(w io.Writer, m *transferManifest) error {
 		binary.BigEndian.PutUint32(sizeBuf, m.ChunkSizes[i])
 		if _, err := w.Write(sizeBuf); err != nil {
 			return fmt.Errorf("write chunk size %d: %w", i, err)
+		}
+	}
+
+	// Write erasure coding fields (only if flagErasureCoded).
+	if m.Flags&flagErasureCoded != 0 {
+		if err := writeErasureManifest(w, m.StripeSize, m.ParityCount, m.ParityHashes, m.ParitySizes); err != nil {
+			return fmt.Errorf("write erasure manifest: %w", err)
 		}
 	}
 
@@ -355,6 +370,18 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 			return nil, fmt.Errorf("read chunk size %d: %w", i, err)
 		}
 		m.ChunkSizes[i] = binary.BigEndian.Uint32(sizeBuf)
+	}
+
+	// Read erasure coding fields (only if flagErasureCoded).
+	if m.Flags&flagErasureCoded != 0 {
+		ss, ph, ps, err := readErasureManifest(r)
+		if err != nil {
+			return nil, fmt.Errorf("read erasure manifest: %w", err)
+		}
+		m.StripeSize = ss
+		m.ParityCount = len(ph)
+		m.ParityHashes = ph
+		m.ParitySizes = ps
 	}
 
 	return m, nil
@@ -517,6 +544,52 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 		ChunkSizes:  chunkSizes,
 	}
 
+	// Phase 2: Erasure coding (transport-aware).
+	// Auto-enable on Direct WAN, OFF on LAN (reliable), relay already blocked.
+	var parityEntries []parityChunk
+	useErasure := ts.erasureOverhead > 0
+	if useErasure {
+		transport := ClassifyTransport(s)
+		if transport == TransportLAN {
+			useErasure = false // LAN is reliable, skip erasure overhead
+		}
+	}
+	if useErasure && len(chunks) > 0 {
+		// Collect decompressed data for RS encoding.
+		// Re-read file to get original chunk data (chunks[] holds wire data which may be compressed).
+		dataForRS := make([][]byte, len(chunks))
+		rsFile, err := os.Open(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("reopen file for erasure: %w", err)
+		}
+		i := 0
+		err = ChunkReader(rsFile, stat.Size(), func(c Chunk) error {
+			dataForRS[i] = c.Data
+			i++
+			return nil
+		})
+		rsFile.Close()
+		if err != nil {
+			return nil, fmt.Errorf("rechunk for erasure: %w", err)
+		}
+
+		params := computeErasureParams(len(chunks), ts.erasureOverhead)
+		parityEntries, err = encodeErasure(dataForRS, params.StripeSize, ts.erasureOverhead)
+		if err != nil {
+			return nil, fmt.Errorf("erasure encode: %w", err)
+		}
+
+		manifest.Flags |= flagErasureCoded
+		manifest.StripeSize = params.StripeSize
+		manifest.ParityCount = len(parityEntries)
+		manifest.ParityHashes = make([][32]byte, len(parityEntries))
+		manifest.ParitySizes = make([]uint32, len(parityEntries))
+		for j, p := range parityEntries {
+			manifest.ParityHashes[j] = p.hash
+			manifest.ParitySizes[j] = uint32(len(p.data))
+		}
+	}
+
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
 
@@ -524,7 +597,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
-		err := ts.sendChunked(s, manifest, chunks, progress)
+		err := ts.sendChunked(s, manifest, chunks, parityEntries, progress)
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
@@ -551,7 +624,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string) (*Transfe
 }
 
 // sendChunked sends the manifest, waits for accept or resume, then streams chunks.
-func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, progress *TransferProgress) error {
+func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, parity []parityChunk, progress *TransferProgress) error {
 	// Send manifest.
 	if err := writeManifest(w, m); err != nil {
 		return fmt.Errorf("send manifest: %w", err)
@@ -592,7 +665,7 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			"file", m.Filename, "have", skipped, "total", m.ChunkCount,
 			"remaining", m.ChunkCount-skipped)
 
-		// Send only missing chunks.
+		// Send only missing data chunks.
 		var totalSent int64
 		sent := 0
 		for i, c := range chunks {
@@ -607,10 +680,15 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			progress.updateChunks(totalSent, skipped+sent)
 		}
 
+		// Send parity chunks (always resent on resume for reconstruction).
+		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
+			return err
+		}
+
 		return writeMsg(w, msgTransferDone)
 
 	case msgAccept:
-		// Normal: send all chunks.
+		// Normal: send all data chunks.
 		progress.setStatus("active")
 
 		var totalSent int64
@@ -622,11 +700,26 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			progress.updateChunks(totalSent, i+1)
 		}
 
+		// Send parity chunks after data chunks.
+		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
+			return err
+		}
+
 		return writeMsg(w, msgTransferDone)
 
 	default:
 		return fmt.Errorf("unexpected response: %d", resp)
 	}
+}
+
+// sendParityChunks sends parity chunks with indices starting at dataCount.
+func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
+	for i, p := range parity {
+		if err := writeChunkFrame(w, dataCount+i, p.data); err != nil {
+			return fmt.Errorf("send parity chunk %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 // --- TransferService: Receive ---
@@ -861,7 +954,17 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 	}()
 
 	compressed := m.Flags&flagCompressed != 0
-	chunksNeeded := have.missing()
+	hasErasure := m.Flags&flagErasureCoded != 0
+	totalExpected := m.ChunkCount + m.ParityCount // data + parity frames on wire
+
+	// Parity chunk storage (in memory, not written to file).
+	var parityData map[int][]byte
+	if hasErasure && m.ParityCount > 0 {
+		parityData = make(map[int][]byte, m.ParityCount)
+	}
+
+	// Track corrupted data chunks (for RS reconstruction).
+	var corrupted []int
 
 	// Seed progress with already-received data from checkpoint.
 	var totalWritten int64
@@ -874,28 +977,39 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		progress.updateChunks(totalWritten, have.count())
 	}
 
-	// Receive remaining chunks.
-	received := 0
-	for received < chunksNeeded {
+	// Receive data + parity chunks.
+	framesRead := 0
+	for framesRead < totalExpected-have.count() {
 		index, wireData, err := readChunkFrame(r)
 		if err != nil {
 			transferErr = fmt.Errorf("read chunk: %w", err)
 			return transferErr
 		}
 		if index == -1 {
-			if received < chunksNeeded {
-				transferErr = fmt.Errorf("sender signaled done with %d chunks missing", chunksNeeded-received)
-				return transferErr
-			}
-			break
+			break // done signal
 		}
 
-		// Validate index bounds.
+		// Parity chunk (index >= ChunkCount).
+		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
+			parityIdx := index - m.ChunkCount
+			hash := blake3Sum(wireData)
+			if hash != m.ParityHashes[parityIdx] {
+				slog.Warn("file-transfer: parity chunk hash mismatch, skipping",
+					"index", parityIdx)
+			} else {
+				parityData[parityIdx] = wireData
+			}
+			framesRead++
+			continue
+		}
+
+		// Validate data chunk index bounds.
 		if index < 0 || index >= m.ChunkCount {
 			transferErr = fmt.Errorf("chunk index out of range: %d", index)
 			return transferErr
 		}
 		if have.has(index) {
+			framesRead++
 			continue // duplicate, skip
 		}
 
@@ -908,7 +1022,6 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 			}
 			decompressed, decErr := decompressChunk(wireData, maxDecomp)
 			if decErr != nil {
-				// May be uncompressed if compression was skipped for this chunk.
 				chunkData = wireData
 			} else {
 				chunkData = decompressed
@@ -918,6 +1031,12 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		// Verify chunk hash BEFORE writing to disk.
 		hash := blake3Hash(chunkData)
 		if hash != m.ChunkHashes[index] {
+			if hasErasure {
+				// With erasure: note corruption, attempt RS reconstruction later.
+				corrupted = append(corrupted, index)
+				framesRead++
+				continue
+			}
 			transferErr = fmt.Errorf("chunk %d hash mismatch: corrupted", index)
 			return transferErr
 		}
@@ -930,7 +1049,7 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		}
 
 		// Re-check disk space periodically (every 64 chunks).
-		if received%64 == 0 && received > 0 {
+		if framesRead%64 == 0 && framesRead > 0 {
 			remaining := m.FileSize - totalWritten
 			if err := ts.checkDiskSpace(remaining); err != nil {
 				transferErr = fmt.Errorf("disk space check at chunk %d: %w", index, err)
@@ -945,19 +1064,42 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		}
 
 		have.set(index)
-		received++
+		framesRead++
 		totalWritten += int64(len(chunkData))
 		progress.updateChunks(totalWritten, have.count())
 	}
 
-	// Read the done message.
-	doneIdx, _, err := readChunkFrame(r)
-	if err != nil {
-		transferErr = fmt.Errorf("read done signal: %w", err)
-		return transferErr
+	// Read the done message (if not already consumed by the loop).
+	if framesRead > 0 {
+		doneIdx, _, err := readChunkFrame(r)
+		if err != nil {
+			transferErr = fmt.Errorf("read done signal: %w", err)
+			return transferErr
+		}
+		if doneIdx != -1 {
+			transferErr = fmt.Errorf("expected done signal, got chunk %d", doneIdx)
+			return transferErr
+		}
 	}
-	if doneIdx != -1 {
-		transferErr = fmt.Errorf("expected done signal, got chunk %d", doneIdx)
+
+	// RS reconstruction for corrupted/missing data chunks.
+	if len(corrupted) > 0 && hasErasure {
+		slog.Info("file-transfer: attempting RS reconstruction",
+			"corrupted", len(corrupted), "parity_available", len(parityData))
+
+		if err := ts.rsReconstruct(tmpFile, m, offsets, corrupted, parityData); err != nil {
+			transferErr = fmt.Errorf("RS reconstruction: %w", err)
+			return transferErr
+		}
+
+		// Mark reconstructed chunks as received.
+		for _, idx := range corrupted {
+			have.set(idx)
+			totalWritten += int64(m.ChunkSizes[idx])
+		}
+		progress.updateChunks(totalWritten, have.count())
+	} else if have.missing() > 0 {
+		transferErr = fmt.Errorf("transfer incomplete: %d chunks missing", have.missing())
 		return transferErr
 	}
 
@@ -1031,20 +1173,7 @@ func (ts *TransferService) finalPath(filename string) (string, error) {
 	return path, nil // fall back to overwrite
 }
 
-// checkDiskSpace verifies that the receive directory has enough free space.
-func (ts *TransferService) checkDiskSpace(needed int64) error {
-	var stat unix.Statfs_t
-	if err := unix.Statfs(ts.receiveDir, &stat); err != nil {
-		return fmt.Errorf("statfs: %w", err)
-	}
-	available := int64(stat.Bavail) * int64(stat.Bsize)
-	// Require at least 10% headroom above needed.
-	required := needed + needed/10
-	if available < required {
-		return fmt.Errorf("insufficient disk space: need %d bytes, have %d", required, available)
-	}
-	return nil
-}
+// checkDiskSpace is defined in diskspace_unix.go / diskspace_windows.go.
 
 // randomHex returns n random hex bytes.
 func randomHex(n int) string {
