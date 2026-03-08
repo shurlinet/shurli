@@ -91,6 +91,9 @@ type serveRuntime struct {
 
 	// File transfer service (populated by SetupTransfer)
 	transferService *p2pnet.TransferService
+
+	// Share registry (populated by SetupSharing)
+	shareRegistry *p2pnet.ShareRegistry
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1247,6 +1250,20 @@ func (rt *serveRuntime) SetupTransfer() {
 	if cfg.ReceiveDir == "" {
 		fmt.Println("  (default: ~/Downloads/shurli/)")
 	}
+}
+
+// SetupSharing initializes the share registry and registers the browse
+// protocol handler on the P2P host.
+func (rt *serveRuntime) SetupSharing() {
+	reg := p2pnet.NewShareRegistry()
+	rt.shareRegistry = reg
+
+	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)
+		return
+	}
+
+	fmt.Println("File sharing enabled")
 }
 
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,

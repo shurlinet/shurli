@@ -67,7 +67,7 @@ func runSend(args []string) {
 		fatal("Cannot access file: %v", err)
 	}
 	if info.IsDir() {
-		fatal("Cannot send directory (directory transfer is Phase E)")
+		fatal("Cannot send directories yet. Share a directory instead:\n  shurli share add %s", absPath)
 	}
 
 	client := tryDaemonClient()
