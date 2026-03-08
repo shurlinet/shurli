@@ -221,7 +221,7 @@ func printDaemonUsage() {
 func runDaemonStart(args []string) {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	fmt.Printf("shurli daemon %s (%s)\n", version, commit)
 	fmt.Println()
@@ -325,7 +325,7 @@ func tryDaemonClient() *daemon.Client {
 func runDaemonStatus(args []string) {
 	fs := flag.NewFlagSet("daemon status", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -364,7 +364,7 @@ func runDaemonPing(args []string) {
 	count := fs.Int("c", 4, "number of pings")
 	intervalMs := fs.Int("interval", 1000, "interval between pings (ms)")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -397,7 +397,7 @@ func runDaemonPing(args []string) {
 func runDaemonServices(args []string) {
 	fs := flag.NewFlagSet("daemon services", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -424,7 +424,7 @@ func runDaemonPeers(args []string) {
 	fs := flag.NewFlagSet("daemon peers", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	allFlag := fs.Bool("all", false, "show all connected peers (including DHT/IPFS neighbors)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -450,7 +450,7 @@ func runDaemonPeers(args []string) {
 func runDaemonPaths(args []string) {
 	fs := flag.NewFlagSet("daemon paths", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -478,7 +478,7 @@ func runDaemonConnect(args []string) {
 	peerFlag := fs.String("peer", "", "peer name or ID")
 	serviceFlag := fs.String("service", "", "service name")
 	listenFlag := fs.String("listen", "", "local listen address (e.g. 127.0.0.1:2222)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	if *peerFlag == "" || *serviceFlag == "" || *listenFlag == "" {
 		fmt.Fprintln(os.Stderr, "Usage: shurli daemon connect --peer <name> --service <svc> --listen <addr>")

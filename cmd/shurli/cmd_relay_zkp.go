@@ -32,7 +32,7 @@ func runRelayZKPSetup(args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 	keysDir := fs.String("keys-dir", "", "output directory for proving/verifying keys (default: ~/.shurli/zkp/)")
 	force := fs.Bool("force", false, "overwrite existing keys")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return fmt.Errorf("usage: shurli relay zkp-setup [--keys-dir <path>] [--force]")
 	}
 
@@ -81,7 +81,7 @@ func runRelayZKPTest(args []string, stdout io.Writer) error {
 	keysDir := fs.String("keys-dir", "", "ZKP keys directory (default: ~/.shurli/zkp/)")
 	relayAddr := fs.String("relay", "", "relay multiaddr (default: from config)")
 	roleRequired := fs.Uint64("role", 0, "role to prove: 0=any, 1=admin, 2=member")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return fmt.Errorf("usage: shurli relay zkp-test --auth-keys <path> [--relay <multiaddr>] [--role 0|1|2]")
 	}
 

@@ -21,7 +21,7 @@ func runSend(args []string) {
 	streamsFlag := fs.Int("streams", 0, "parallel stream count (0 = auto)")
 	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
 	silentFlag := fs.Bool("silent", false, "no progress output")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 2 {

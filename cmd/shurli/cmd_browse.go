@@ -13,7 +13,7 @@ func runBrowse(args []string) {
 	fs := flag.NewFlagSet("browse", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	pathFlag := fs.String("path", "", "browse within a shared directory")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {

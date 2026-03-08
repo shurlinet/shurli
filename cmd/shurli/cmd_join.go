@@ -37,7 +37,7 @@ func runJoin(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("name", "", "friendly name for this peer (e.g., \"laptop\")")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output for scripting")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// In non-interactive mode, progress goes to stderr so stdout is clean.
 	out := fmt.Printf
