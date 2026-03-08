@@ -17,7 +17,7 @@ import (
 //
 // By default (EnableDataRelay=false), only admin peers and peers with the
 // relay_data=true attribute can create circuits. All other authorized peers
-// can still connect directly for signaling protocols (relay-pair, peer-notify,
+// can still connect directly for signaling protocols (invite, peer-notify,
 // relay-admin, relay-unseal, relay-motd, zkp-auth, pingpong) since those are
 // direct streams to the relay, not relay circuits.
 //

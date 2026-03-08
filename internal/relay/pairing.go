@@ -20,13 +20,13 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
-// PairingProtocol is the protocol ID for PAKE-secured relay pairing.
-const PairingProtocol = "/shurli/relay-pair/2.0.0"
+// InviteProtocol is the protocol ID for PAKE-secured relay invite/join.
+const InviteProtocol = "/shurli/invite/1.0.0"
 
 func init() {
 	// Validate all relay protocol constants at startup.
 	p2pnet.MustValidateProtocolIDs(
-		PairingProtocol,
+		InviteProtocol,
 		PeerNotifyProtocol,
 		MOTDProtocol,
 		UnsealProtocol,

@@ -899,7 +899,7 @@ func (rt *serveRuntime) SetupPeerNotify() {
 
 			// Record introduction in sovereign history.
 			if rt.peerHistory != nil {
-				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "relay-pairing")
+				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "invite")
 			}
 
 			// SECURITY Layer 6: Audit logging.

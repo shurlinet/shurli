@@ -25,30 +25,25 @@ import (
 // UnsealProtocol is the libp2p protocol ID for remote vault unseal.
 const UnsealProtocol = "/shurli/relay-unseal/1.0.0"
 
-// Wire format (v2, with challenge-response nonce for replay protection):
+// Wire format (challenge-response with replay protection):
 //
 //   RELAY -> CLIENT (challenge):
 //     [16 nonce]         random challenge nonce
 //
 //   CLIENT -> RELAY (request):
-//     [1 version]        0x02
+//     [1 version=0x02]   wire version
 //     [16 nonce-echo]    must match the challenge nonce
 //     [2 BE pass-len] [N passphrase] [1 TOTP-len] [M TOTP]
 //
 //   RELAY -> CLIENT (response):
 //     [1 status] [1 msg-len] [N message]
 //
-// v1 (legacy, no nonce) is still accepted for backward compatibility:
-//   CLIENT -> RELAY:
-//     [1 version=0x01] [2 BE pass-len] [N passphrase] [1 TOTP-len] [M TOTP]
-//
 // Status codes:
 //   0x01 = success (unsealed)
 //   0x00 = error (message follows)
 
 const (
-	unsealWireV1      byte = 0x01
-	unsealWireV2      byte = 0x02 // with challenge nonce
+	unsealWireVersion byte = 0x02
 	unsealStatusOK    byte = 0x01
 	unsealStatusErr   byte = 0x00
 	unsealNonceLen         = 16
@@ -244,27 +239,24 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 		return
 	}
 
-	version := versionBuf[0]
-	if version != unsealWireV1 && version != unsealWireV2 {
-		slog.Warn("unseal: unsupported version", "peer", short, "version", version)
+	if versionBuf[0] != unsealWireVersion {
+		slog.Warn("unseal: unsupported version", "peer", short, "version", versionBuf[0])
 		writeUnsealResponse(s, unsealStatusErr, "unsupported protocol version")
 		return
 	}
 
-	// v2: read and verify nonce echo (replay protection).
-	if version == unsealWireV2 {
-		var nonceEcho [unsealNonceLen]byte
-		if _, err := io.ReadFull(s, nonceEcho[:]); err != nil {
-			slog.Warn("unseal: failed to read nonce echo", "peer", short, "err", err)
-			writeUnsealResponse(s, unsealStatusErr, "protocol error")
-			return
-		}
-		if subtle.ConstantTimeCompare(nonce[:], nonceEcho[:]) != 1 {
-			slog.Warn("unseal: nonce mismatch (replay?)", "peer", short)
-			h.recordMetric("replay")
-			writeUnsealResponse(s, unsealStatusErr, "nonce mismatch")
-			return
-		}
+	// Read and verify nonce echo (replay protection).
+	var nonceEcho [unsealNonceLen]byte
+	if _, err := io.ReadFull(s, nonceEcho[:]); err != nil {
+		slog.Warn("unseal: failed to read nonce echo", "peer", short, "err", err)
+		writeUnsealResponse(s, unsealStatusErr, "protocol error")
+		return
+	}
+	if subtle.ConstantTimeCompare(nonce[:], nonceEcho[:]) != 1 {
+		slog.Warn("unseal: nonce mismatch (replay?)", "peer", short)
+		h.recordMetric("replay")
+		writeUnsealResponse(s, unsealStatusErr, "nonce mismatch")
+		return
 	}
 
 	// Read passphrase length (2 bytes BE).
@@ -530,7 +522,7 @@ func EncodeUnsealRequest(nonce []byte, passphrase, totpCode string) []byte {
 
 	// [1 version] [16 nonce-echo] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
 	buf := make([]byte, 1+unsealNonceLen+2+len(passBytes)+1+len(totpBytes))
-	buf[0] = unsealWireV2
+	buf[0] = unsealWireVersion
 	copy(buf[1:1+unsealNonceLen], nonce)
 	off := 1 + unsealNonceLen
 	binary.BigEndian.PutUint16(buf[off:off+2], uint16(len(passBytes)))

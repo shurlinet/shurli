@@ -11,7 +11,7 @@ func TestProtocolID(t *testing.T) {
 		want    string
 	}{
 		{"file-transfer", "1.0.0", "/shurli/file-transfer/1.0.0"},
-		{"relay-pair", "2.0.0", "/shurli/relay-pair/2.0.0"},
+		{"invite", "1.0.0", "/shurli/invite/1.0.0"},
 		{"ssh", "1.0.0", "/shurli/ssh/1.0.0"},
 		{"presence", "1.0.0", "/shurli/presence/1.0.0"},
 		{"zkp-auth", "1.0.0", "/shurli/zkp-auth/1.0.0"},
@@ -70,7 +70,7 @@ func TestValidateProtocolID(t *testing.T) {
 	valid := []string{
 		"/shurli/file-transfer/1.0.0",
 		"/shurli/ssh/1.0.0",
-		"/shurli/relay-pair/2.0.0",
+		"/shurli/invite/1.0.0",
 		"/shurli/zkp-auth/1.0.0",
 	}
 	for _, id := range valid {
