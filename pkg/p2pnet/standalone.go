@@ -50,16 +50,17 @@ func NewStandaloneHost(cfg StandaloneConfig) (*StandaloneResult, error) {
 	config.ResolveConfigPaths(nodeCfg, cfgDir)
 
 	net, err := New(&Config{
-		KeyFile:            nodeCfg.Identity.KeyFile,
-		KeyPassword:        cfg.Password,
-		Config:             &config.Config{Network: nodeCfg.Network},
-		UserAgent:          cfg.UserAgent,
-		Namespace:          nodeCfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         nodeCfg.Relay.Addresses,
-		ForcePrivate:       nodeCfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
+		KeyFile:               nodeCfg.Identity.KeyFile,
+		KeyPassword:           cfg.Password,
+		Config:                &config.Config{Network: nodeCfg.Network},
+		UserAgent:             cfg.UserAgent,
+		Namespace:             nodeCfg.Discovery.Network,
+		EnableRelay:           true,
+		RelayAddrs:            nodeCfg.Relay.Addresses,
+		ForcePrivate:          nodeCfg.Network.ForcePrivateReachability,
+		EnableNATPortMap:      true,
+		EnableHolePunching:    true,
+		ResourceLimitsEnabled: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("P2P network error: %w", err)
