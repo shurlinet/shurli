@@ -1153,8 +1153,10 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 	}
 
 	// Receive data + parity chunks.
+	// Compute remaining frames once: live have.count() changes each iteration.
+	framesRemaining := totalExpected - have.count()
 	framesRead := 0
-	for framesRead < totalExpected-have.count() {
+	for framesRead < framesRemaining {
 		index, wireData, err := readChunkFrame(r)
 		if err != nil {
 			transferErr = fmt.Errorf("read chunk: %w", err)
