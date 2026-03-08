@@ -8,12 +8,20 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            install_deps: sudo apt-get install -y -qq libavahi-compat-libdnssd-dev
+          - os: macos-latest
+            install_deps: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install native mDNS library
-        run: sudo apt-get install -y -qq libavahi-compat-libdnssd-dev
+        if: matrix.install_deps != ''
+        run: ${{ matrix.install_deps }}
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -29,10 +37,31 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
-      - name: Unit Coverage (binary format for merging)
-        run: |
-          mkdir -p coverage/unit
-          go test -cover ./... -args -test.gocoverdir="$PWD/coverage/unit"
+  # Cross-compile check: verify the binary builds for all target platforms.
+  # Does not run tests (no native runner), just confirms compilation.
+  cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o /dev/null ./cmd/shurli
 
   docker-integration:
     runs-on: ubuntu-latest
