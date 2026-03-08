@@ -13,6 +13,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
@@ -55,6 +56,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/invite", s.handleInviteCreate)
 	mux.HandleFunc("GET /v1/invite/{id}/wait", s.handleInviteWait)
 	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleInviteCancel)
+
+	// File transfer
+	mux.HandleFunc("POST /v1/send", s.handleSend)
+	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
+	mux.HandleFunc("GET /v1/transfers/{id}", s.handleTransferStatus)
 }
 
 // --- Format helpers ---
@@ -915,6 +921,101 @@ func (s *Server) SocketPath() string {
 // Listener returns the underlying net.Listener (for health checks).
 func (s *Server) Listener() net.Listener {
 	return s.listener
+}
+
+// --- File transfer handlers ---
+
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	var req SendRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" || req.Peer == "" {
+		respondError(w, http.StatusBadRequest, "path and peer are required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the peer is reachable (DHT lookup + relay fallback).
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Open stream to peer's file-transfer handler.
+	ctx := network.WithAllowLimitedConn(r.Context(), p2pnet.TransferProtocol)
+	stream, err := pnet.Host().NewStream(ctx, targetPeerID, protocol.ID(p2pnet.TransferProtocol))
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open stream to peer: %v", err))
+		return
+	}
+
+	// SendFile runs in background; returns progress tracker immediately.
+	progress, err := ts.SendFile(stream, req.Path)
+	if err != nil {
+		stream.Close()
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
+		return
+	}
+
+	snap := progress.Snapshot()
+	slog.Info("file transfer started via API",
+		"id", snap.ID, "file", snap.Filename, "peer", req.Peer, "size", snap.Size)
+
+	respondJSON(w, http.StatusOK, SendResponse{
+		TransferID: snap.ID,
+		Filename:   snap.Filename,
+		Size:       snap.Size,
+		PeerID:     targetPeerID.String(),
+	})
+}
+
+func (s *Server) handleTransferList(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferProgress{})
+		return
+	}
+
+	transfers := ts.ListTransfers()
+	respondJSON(w, http.StatusOK, transfers)
+}
+
+func (s *Server) handleTransferStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusNotFound, "file transfer is not enabled")
+		return
+	}
+
+	progress, ok := ts.GetTransfer(id)
+	if !ok {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, progress.Snapshot())
 }
 
 // --- Invite handlers (async, relay-delegated) ---

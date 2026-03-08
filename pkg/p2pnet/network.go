@@ -464,6 +464,28 @@ func (n *Network) ExposeService(name, localAddress string, allowedPeers map[peer
 	})
 }
 
+// RegisterHandler registers a custom stream handler as a named service.
+// This is the plugin registration path - unlike ExposeService (which proxies
+// to a local TCP port), the handler processes streams directly.
+func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error {
+	if err := ValidateServiceName(name); err != nil {
+		return err
+	}
+	return n.serviceRegistry.RegisterService(&Service{
+		Name:         name,
+		Protocol:     fmt.Sprintf("/shurli/%s/1.0.0", name),
+		Handler:      handler,
+		Enabled:      true,
+		AllowedPeers: allowedPeers,
+	})
+}
+
+// ServiceRegistry returns the underlying ServiceRegistry for direct access.
+// Plugins that need Use() or other ServiceManager methods use this.
+func (n *Network) ServiceRegistry() *ServiceRegistry {
+	return n.serviceRegistry
+}
+
 // UnexposeService removes a previously exposed service from the P2P network.
 func (n *Network) UnexposeService(name string) error {
 	if err := ValidateServiceName(name); err != nil {
