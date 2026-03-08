@@ -59,6 +59,8 @@ func main() {
 		runJoin(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
+	case "send":
+		runSend(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -132,11 +134,12 @@ func printUsage() {
 	fmt.Println("  daemon connect --peer <p> --service <s> --listen <addr>")
 	fmt.Println("  daemon disconnect <id>                   Tear down proxy")
 	fmt.Println()
-	fmt.Println("Network tools (standalone, no daemon required):")
+	fmt.Println("Network tools:")
 	fmt.Println("  ping <target> [-c N] [--interval 1s] [--json]  P2P ping")
 	fmt.Println("  traceroute <target> [--json]                    P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                         Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>           Forward TCP port")
+	fmt.Println("  send <file> <peer> [--json]                     Send file to peer")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                  Show your peer ID")

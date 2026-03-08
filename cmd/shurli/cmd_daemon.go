@@ -47,8 +47,9 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string  { return rt.config.Discovery.Network }
+func (rt *serveRuntime) RelayAddresses() []string                { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string                 { return rt.config.Discovery.Network }
+func (rt *serveRuntime) TransferService() *p2pnet.TransferService { return rt.transferService }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -238,6 +239,7 @@ func runDaemonStart(args []string) {
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
 	rt.SetupMOTDClient()
+	rt.SetupTransfer()
 
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()

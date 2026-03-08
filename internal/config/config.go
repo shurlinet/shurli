@@ -22,6 +22,18 @@ type HomeNodeConfig struct {
 	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
+	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
+}
+
+// TransferConfig controls peer-to-peer file transfer.
+type TransferConfig struct {
+	// ReceiveDir is the directory where received files are saved.
+	// Default: ~/Downloads/shurli/
+	ReceiveDir string `yaml:"receive_dir,omitempty"`
+
+	// MaxFileSize is the maximum file size to accept (in bytes).
+	// 0 means unlimited (up to protocol max of 1 TB).
+	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

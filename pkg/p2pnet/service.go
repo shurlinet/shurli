@@ -32,11 +32,18 @@ func ValidateServiceName(name string) error {
 	return validate.ServiceName(name)
 }
 
-// Service represents a service that can be exposed over the P2P network
+// Service represents a service that can be exposed over the P2P network.
+// Two modes are supported:
+//   - TCP proxy: set LocalAddress to proxy streams to a local TCP service
+//   - Custom handler: set Handler to process streams directly (for plugins)
+//
+// LocalAddress and Handler are mutually exclusive. If both are set,
+// Handler takes precedence.
 type Service struct {
-	Name         string              // Service name (e.g., "ssh", "http")
+	Name         string              // Service name (e.g., "ssh", "file-transfer")
 	Protocol     string              // libp2p protocol ID (e.g., "/shurli/ssh/1.0.0")
-	LocalAddress string              // Local TCP address (e.g., "localhost:22")
+	LocalAddress string              // TCP proxy target (e.g., "localhost:22"). Mutually exclusive with Handler.
+	Handler      StreamHandler       // Custom stream handler for plugins. Mutually exclusive with LocalAddress.
 	Enabled      bool                // Whether this service is enabled
 	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed)
 }
@@ -76,8 +83,8 @@ func (r *ServiceRegistry) RegisterService(svc *Service) error {
 		return fmt.Errorf("service name cannot be empty")
 	}
 
-	if svc.LocalAddress == "" {
-		return fmt.Errorf("service local_address cannot be empty")
+	if svc.LocalAddress == "" && svc.Handler == nil {
+		return fmt.Errorf("service requires either local_address or handler")
 	}
 
 	r.mu.Lock()
@@ -152,7 +159,13 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 		}
 	}
 
-	// Connect to local service (with timeout to avoid hanging on unreachable services)
+	// Custom handler path: delegate to the plugin's stream handler.
+	if svc.Handler != nil {
+		svc.Handler(svc.Name, s)
+		return
+	}
+
+	// TCP proxy path: connect to local service and proxy bidirectionally.
 	localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)
 	if err != nil {
 		slog.Error("failed to connect to local service", "service", svc.Name, "addr", svc.LocalAddress, "error", err)

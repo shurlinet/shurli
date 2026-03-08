@@ -88,6 +88,9 @@ type serveRuntime struct {
 
 	// MOTD client for relay message queries (populated by SetupMOTDClient)
 	motdClient *relay.MOTDClient
+
+	// File transfer service (populated by SetupTransfer)
+	transferService *p2pnet.TransferService
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1210,6 +1213,33 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 			}
 		}
 	}()
+}
+
+// SetupTransfer initializes the file transfer service and registers the
+// inbound stream handler on the P2P host.
+func (rt *serveRuntime) SetupTransfer() {
+	cfg := p2pnet.TransferConfig{
+		ReceiveDir: rt.config.Transfer.ReceiveDir,
+		MaxSize:    rt.config.Transfer.MaxFileSize,
+	}
+
+	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
+	if err != nil {
+		fmt.Printf("Warning: file transfer disabled: %v\n", err)
+		return
+	}
+	rt.transferService = ts
+
+	// Register the inbound handler as a custom service.
+	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
+		return
+	}
+
+	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
+	if cfg.ReceiveDir == "" {
+		fmt.Println("  (default: ~/Downloads/shurli/)")
+	}
 }
 
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,

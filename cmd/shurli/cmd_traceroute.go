@@ -7,15 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
-	"time"
-
-	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
@@ -112,7 +103,12 @@ func runTraceroute(args []string) {
 	}
 
 	// Bootstrap and connect to target
-	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
+	bootstrapCfg := p2pnet.BootstrapConfig{
+		Namespace:      cfg.Discovery.Network,
+		BootstrapPeers: cfg.Discovery.BootstrapPeers,
+		RelayAddrs:     cfg.Relay.Addresses,
+	}
+	if err := p2pnet.BootstrapAndConnect(ctx, h, p2pNetwork, targetPeerID, bootstrapCfg); err != nil {
 		fatal("Failed to connect: %v", err)
 	}
 
@@ -151,108 +147,6 @@ func runTraceroute(args []string) {
 		}
 	}
 	tc.Wfaint(os.Stdout, "--- path: [%s] ---\n", result.Path)
-}
-
-// bootstrapAndConnect bootstraps the DHT and connects to the target peer.
-// Shared by traceroute and enhanced ping.
-func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeConfig, targetPeerID peer.ID, p2pNetwork *p2pnet.Network) error {
-	// Bootstrap DHT
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
-	kdht, err := dht.New(ctx, h,
-		dht.Mode(dht.ModeClient),
-		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
-		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
-	)
-	if err != nil {
-		return fmt.Errorf("DHT error: %w", err)
-	}
-	if err := kdht.Bootstrap(ctx); err != nil {
-		return fmt.Errorf("DHT bootstrap error: %w", err)
-	}
-
-	// Connect to bootstrap peers
-	var bootstrapPeers []ma.Multiaddr
-	if len(cfg.Discovery.BootstrapPeers) > 0 {
-		for _, addr := range cfg.Discovery.BootstrapPeers {
-			maddr, err := ma.NewMultiaddr(addr)
-			if err != nil {
-				continue
-			}
-			bootstrapPeers = append(bootstrapPeers, maddr)
-		}
-	} else {
-		// Use relay addresses as DHT bootstrap peers.
-		for _, addr := range cfg.Relay.Addresses {
-			maddr, err := ma.NewMultiaddr(addr)
-			if err != nil {
-				continue
-			}
-			bootstrapPeers = append(bootstrapPeers, maddr)
-		}
-	}
-
-	var wg sync.WaitGroup
-	var connected atomic.Int32
-	for _, pAddr := range bootstrapPeers {
-		pi, err := peer.AddrInfoFromP2pAddr(pAddr)
-		if err != nil {
-			continue
-		}
-		wg.Add(1)
-		go func(pi peer.AddrInfo) {
-			defer wg.Done()
-			if err := h.Connect(ctx, pi); err == nil {
-				connected.Add(1)
-			}
-		}(*pi)
-	}
-	wg.Wait()
-
-	// Connect to relay
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
-	if err != nil {
-		return fmt.Errorf("relay address parse error: %w", err)
-	}
-	for _, ai := range relayInfos {
-		h.Connect(ctx, ai)
-	}
-
-	// Find target via DHT
-	findCtx, findCancel := context.WithTimeout(ctx, 60*time.Second)
-	pi, err := kdht.FindPeer(findCtx, targetPeerID)
-	findCancel()
-	if err != nil {
-		// Peer not in DHT  - try connecting via relay
-		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
-			return fmt.Errorf("failed to add relay addresses: %w", err)
-		}
-		connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
-		err = h.Connect(connectCtx, peer.AddrInfo{ID: targetPeerID})
-		connectCancel()
-		if err != nil {
-			return fmt.Errorf("cannot connect to peer: %w", err)
-		}
-		return nil
-	}
-
-	// Connect using DHT-discovered addresses
-	connectCtx, connectCancel := context.WithTimeout(ctx, 15*time.Second)
-	err = h.Connect(connectCtx, pi)
-	connectCancel()
-	if err != nil {
-		// Fallback to relay
-		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
-			return fmt.Errorf("failed to add relay addresses: %w", err)
-		}
-		connectCtx2, connectCancel2 := context.WithTimeout(ctx, 30*time.Second)
-		err = h.Connect(connectCtx2, peer.AddrInfo{ID: targetPeerID})
-		connectCancel2()
-		if err != nil {
-			return fmt.Errorf("cannot connect to peer: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // runTracerouteViaDaemon traces a peer through the running daemon.

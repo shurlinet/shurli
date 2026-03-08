@@ -50,6 +50,7 @@ func (m *networkMockRuntime) IsRelaying() bool                            { retu
 func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
+func (m *networkMockRuntime) TransferService() *p2pnet.TransferService    { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

@@ -69,10 +69,10 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	// presenceProtocol is the libp2p protocol ID for presence announcements.
+	// PresenceProtocol is the libp2p protocol ID for presence announcements.
 	// Both direct push (Layer 1) and gossip forwarding (Layer 2) use this
 	// same protocol. The Hops field distinguishes direct vs forwarded.
-	presenceProtocol = "/shurli/presence/1.0.0"
+	PresenceProtocol = "/shurli/presence/1.0.0"
 
 	// announceInterval is how often this node pushes its own state to
 	// connected peers. 5 minutes balances freshness with overhead.
@@ -233,7 +233,7 @@ func NewNetIntel(h host.Host, m *Metrics, pf PeerFilter, sp NodeStateProvider, i
 func (ni *NetIntel) Start(ctx context.Context) {
 	ni.ctx, ni.cancel = context.WithCancel(ctx)
 
-	ni.host.SetStreamHandler(protocol.ID(presenceProtocol), ni.streamHandler)
+	ni.host.SetStreamHandler(protocol.ID(PresenceProtocol), ni.streamHandler)
 
 	ni.wg.Add(2)
 	go ni.publishLoop()
@@ -244,7 +244,7 @@ func (ni *NetIntel) Start(ctx context.Context) {
 
 // Close stops all background goroutines and removes the stream handler.
 func (ni *NetIntel) Close() {
-	ni.host.RemoveStreamHandler(protocol.ID(presenceProtocol))
+	ni.host.RemoveStreamHandler(protocol.ID(PresenceProtocol))
 	ni.cancel()
 	ni.wg.Wait()
 }
@@ -438,7 +438,7 @@ func (ni *NetIntel) sendToPeer(pid peer.ID, data []byte) {
 	ctx, cancel := context.WithTimeout(ni.ctx, streamTimeout)
 	defer cancel()
 
-	s, err := ni.host.NewStream(ctx, pid, protocol.ID(presenceProtocol))
+	s, err := ni.host.NewStream(ctx, pid, protocol.ID(PresenceProtocol))
 	if err != nil {
 		ni.incSendMetric("error")
 		return

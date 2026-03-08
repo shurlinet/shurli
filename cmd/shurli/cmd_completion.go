@@ -167,7 +167,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve send whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
@@ -338,6 +338,9 @@ _shurli_completions() {
         resolve)
             COMPREPLY=($(compgen -W "--config --json" -- "$cur"))
             return ;;
+        send)
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
+            return ;;
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
             return ;;
@@ -393,6 +396,7 @@ _shurli() {
         'ping:P2P ping'
         'traceroute:P2P traceroute'
         'resolve:Resolve name to peer ID'
+        'send:Send file to peer'
         'whoami:Show your peer ID'
         'auth:Identity and access management'
         'relay:Relay client and server commands'
@@ -637,6 +641,8 @@ _shurli() {
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         resolve)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
+        send)
+            _arguments '--json[Output as JSON]' '*:file:_files' ;;
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
@@ -711,6 +717,7 @@ complete -c shurli -n __shurli_no_subcommand -a proxy       -d 'Forward TCP port
 complete -c shurli -n __shurli_no_subcommand -a ping        -d 'P2P ping'
 complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
+complete -c shurli -n __shurli_no_subcommand -a send        -d 'Send file to peer'
 complete -c shurli -n __shurli_no_subcommand -a whoami      -d 'Show your peer ID'
 complete -c shurli -n __shurli_no_subcommand -a auth        -d 'Identity and access management'
 complete -c shurli -n __shurli_no_subcommand -a relay       -d 'Relay client and server'
@@ -901,6 +908,7 @@ complete -c shurli -n '__shurli_using_command traceroute' -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command traceroute' -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command resolve'    -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command send'       -l json       -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'

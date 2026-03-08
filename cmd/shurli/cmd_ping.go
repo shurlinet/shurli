@@ -138,7 +138,12 @@ func runPing(args []string) {
 	}
 
 	// Bootstrap and connect
-	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
+	bootstrapCfg := p2pnet.BootstrapConfig{
+		Namespace:      cfg.Discovery.Network,
+		BootstrapPeers: cfg.Discovery.BootstrapPeers,
+		RelayAddrs:     cfg.Relay.Addresses,
+	}
+	if err := p2pnet.BootstrapAndConnect(ctx, h, p2pNetwork, targetPeerID, bootstrapCfg); err != nil {
 		fatal("Failed to connect: %v", err)
 	}
 
