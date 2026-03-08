@@ -339,7 +339,7 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--config --json" -- "$cur"))
             return ;;
         send)
-            COMPREPLY=($(compgen -W "--json --follow --no-compress" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --quiet --silent" -- "$cur"))
             return ;;
         transfers)
             COMPREPLY=($(compgen -W "--json --watch" -- "$cur"))
@@ -654,7 +654,7 @@ _shurli() {
         resolve)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
         send)
-            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '*:file:_files' ;;
+            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
         transfers)
             _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' ;;
         accept)
@@ -932,6 +932,9 @@ complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command send'       -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command send'       -l follow       -d 'Follow transfer progress'
 complete -c shurli -n '__shurli_using_command send'       -l no-compress  -d 'Disable zstd compression'
+complete -c shurli -n '__shurli_using_command send'       -l streams      -d 'Parallel stream count' -r
+complete -c shurli -n '__shurli_using_command send'       -l quiet        -d 'Single progress bar'
+complete -c shurli -n '__shurli_using_command send'       -l silent       -d 'No progress output'
 complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
 complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'

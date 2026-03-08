@@ -18,17 +18,23 @@ func runSend(args []string) {
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
 	noCompressFlag := fs.Bool("no-compress", false, "disable zstd compression")
+	streamsFlag := fs.Int("streams", 0, "parallel stream count (0 = auto)")
+	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
+	silentFlag := fs.Bool("silent", false, "no progress output")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 2 {
-		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--no-compress] [--json]")
+		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--no-compress] [--streams N] [--json]")
 		fmt.Println()
 		fmt.Println("Send a file to a peer. By default, submits to daemon and exits.")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --follow       Follow transfer progress (Ctrl+C detaches, transfer continues)")
 		fmt.Println("  --no-compress  Disable zstd compression")
+		fmt.Println("  --streams N    Parallel stream count (0 = auto, default)")
+		fmt.Println("  --quiet        Show only a single progress bar (no per-chunk details)")
+		fmt.Println("  --silent       No progress output at all")
 		fmt.Println("  --json         Output as JSON")
 		fmt.Println()
 		fmt.Println("Examples:")
@@ -76,7 +82,7 @@ func runSend(args []string) {
 			filepath.Base(absPath), humanSize(info.Size()), peer)
 	}
 
-	resp, err := client.Send(absPath, peer, *noCompressFlag)
+	resp, err := client.Send(absPath, peer, *noCompressFlag, *streamsFlag)
 	if err != nil {
 		fatal("Send failed: %v", err)
 	}
@@ -91,17 +97,19 @@ func runSend(args []string) {
 	tc.Wgreen(os.Stdout, "Transfer started")
 	fmt.Printf(" [%s]\n", resp.TransferID)
 
-	if !*followFlag {
-		tc.Wfaint(os.Stdout, "Transfer continues in daemon. Check: shurli transfers\n")
+	if !*followFlag || *silentFlag {
+		if !*silentFlag {
+			tc.Wfaint(os.Stdout, "Transfer continues in daemon. Check: shurli transfers\n")
+		}
 		return
 	}
 
-	pollTransfer(client, resp.TransferID)
+	pollTransfer(client, resp.TransferID, *quietFlag)
 }
 
 const progressBarWidth = 30
 
-func pollTransfer(client *daemon.Client, id string) {
+func pollTransfer(client *daemon.Client, id string, quiet bool) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -146,7 +154,7 @@ func pollTransfer(client *daemon.Client, id string) {
 			lastTime = now
 
 			chunkInfo := ""
-			if progress.ChunksTotal > 0 {
+			if !quiet && progress.ChunksTotal > 0 {
 				chunkInfo = fmt.Sprintf(" [%d/%d chunks]", progress.ChunksDone, progress.ChunksTotal)
 			}
 

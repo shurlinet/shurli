@@ -1,6 +1,7 @@
 package p2pnet
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -39,6 +40,7 @@ const (
 	msgResumeRequest   = 0x06 // receiver -> sender: resume with bitfield
 	msgResumeResponse  = 0x07 // sender -> receiver: resume acknowledged
 	msgRejectReason    = 0x08 // receiver -> sender: reject with reason byte
+	msgWorkerHello     = 0x09 // sender -> receiver: parallel worker stream identification
 
 	// Reject reasons (sent after msgRejectReason).
 	RejectReasonNone  byte = 0x00 // no reason disclosed (same as silent msgReject)
@@ -215,8 +217,9 @@ type TransferService struct {
 	transfers   map[string]*TransferProgress
 	completed   []string
 	nextID      int
-	peerInbound map[string]int
-	pending     map[string]*PendingTransfer // ask mode: transfers awaiting approval
+	peerInbound      map[string]int
+	pending          map[string]*PendingTransfer // ask mode: transfers awaiting approval
+	parallelSessions map[[32]byte]*parallelSession
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -523,7 +526,9 @@ type chunkEntry struct {
 
 // SendOptions configures a single send operation.
 type SendOptions struct {
-	NoCompress bool // override: disable compression for this transfer
+	NoCompress   bool         // override: disable compression for this transfer
+	Streams      int          // parallel stream count (0 = adaptive default based on transport)
+	StreamOpener streamOpener // opens additional streams to the same peer (required for parallel)
 }
 
 // SendFile chunks, compresses, and sends a file over a libp2p stream.
@@ -649,11 +654,26 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
 
+	// Determine parallel stream count.
+	var requestedStreams int
+	var opener streamOpener
+	if len(opts) > 0 {
+		requestedStreams = opts[0].Streams
+		opener = opts[0].StreamOpener
+	}
+	transport := ClassifyTransport(s)
+	numStreams := adaptiveStreamCount(transport, len(chunks), requestedStreams)
+
 	go func() {
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
-		err := ts.sendChunked(s, manifest, chunks, parityEntries, progress)
+		var err error
+		if numStreams > 1 && opener != nil {
+			err = ts.sendParallel(s, opener, manifest, chunks, parityEntries, progress, numStreams)
+		} else {
+			err = ts.sendChunked(s, manifest, chunks, parityEntries, progress)
+		}
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
@@ -791,6 +811,26 @@ func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
 // HandleInbound returns a StreamHandler for receiving chunked files.
 func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
+		// Peek the first byte to detect parallel worker streams.
+		// Worker streams start with msgWorkerHello and are ancillary to an
+		// already-accepted control stream, so they skip all normal checks.
+		// Peek the first byte to detect parallel worker streams.
+		// Worker streams start with msgWorkerHello and are ancillary to an
+		// already-accepted control stream, so they skip all normal checks.
+		br := bufio.NewReaderSize(s, 4096)
+		firstByte, peekErr := br.Peek(1)
+		if peekErr == nil && firstByte[0] == msgWorkerHello {
+			ts.handleWorkerStreamFromReader(s, br)
+			return
+		}
+
+		// Use a combined reader/writer: reads from br (which replays the peeked byte),
+		// writes to s directly.
+		rw := struct {
+			io.Reader
+			io.Writer
+		}{br, s}
+
 		defer s.Close()
 
 		remotePeer := s.Conn().RemotePeer()
@@ -838,7 +878,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		// Read manifest.
-		manifest, err := readManifest(s)
+		manifest, err := readManifest(rw)
 		if err != nil {
 			slog.Warn("file-transfer: bad manifest", "peer", short, "error", err)
 			writeMsg(s, msgReject)
@@ -896,13 +936,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"peer", short, "file", manifest.Filename,
 				"have", ckpt.have.count(), "total", manifest.ChunkCount)
 
-			if err := writeResumeRequest(s, ckpt.have); err != nil {
+			if err := writeResumeRequest(rw, ckpt.have); err != nil {
 				slog.Error("file-transfer: resume request failed", "error", err)
 				return
 			}
 
 			// Wait for resume response.
-			resp, err := readMsg(s)
+			resp, err := readMsg(rw)
 			if err != nil || resp != msgResumeResponse {
 				slog.Error("file-transfer: resume response failed",
 					"error", err, "resp", resp)
@@ -998,7 +1038,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress.setStatus("active")
 
 		// Receive chunks (with resume support).
-		err = ts.receiveChunked(s, manifest, progress, ckpt)
+		err = ts.receiveChunked(rw, manifest, progress, ckpt)
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
