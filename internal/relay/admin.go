@@ -504,7 +504,7 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		quota = maxMemberGroups
 	}
 
-	// Use short 10-byte tokens for v3 short codes.
+	// Use 10-byte tokens for invite codes.
 	tokens, groupID, err := s.store.CreateGroupWithTokenSize(req.Count, ttl, ns, peerTTL, 10, caller, quota)
 	if err != nil {
 		if err == ErrQuotaExceeded {
@@ -546,10 +546,10 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		s.gater.SetEnrollmentMode(true, 10, 10*time.Second)
 	}
 
-	// Encode tokens into short v3 invite codes.
+	// Encode tokens into invite codes.
 	codes := make([]string, len(tokens))
 	for i, tok := range tokens {
-		code, err := invite.EncodeShort(tok)
+		code, err := invite.Encode(tok)
 		if err != nil {
 			respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode code: %v", err))
 			return

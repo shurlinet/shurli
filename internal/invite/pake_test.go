@@ -8,7 +8,7 @@ import (
 )
 
 func TestPAKEHandshakeSuccess(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	// Create both sessions
 	inviter, err := NewPAKESession()
@@ -73,8 +73,8 @@ func TestPAKEHandshakeSuccess(t *testing.T) {
 }
 
 func TestPAKETokenMismatch(t *testing.T) {
-	tokenA := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
-	tokenB := [8]byte{9, 10, 11, 12, 13, 14, 15, 16}
+	tokenA := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	tokenB := []byte{9, 10, 11, 12, 13, 14, 15, 16}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -101,7 +101,7 @@ func TestPAKETokenMismatch(t *testing.T) {
 }
 
 func TestPAKETamperedCiphertext(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -126,7 +126,7 @@ func TestPAKETamperedCiphertext(t *testing.T) {
 }
 
 func TestPAKEEmptyMessage(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -154,7 +154,7 @@ func TestPAKEEmptyMessage(t *testing.T) {
 }
 
 func TestPAKEOversizedMessage(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -180,7 +180,7 @@ func TestPAKEOversizedMessage(t *testing.T) {
 
 func TestPAKEStreamSimulation(t *testing.T) {
 	// Simulate the full wire protocol using io.Pipe
-	token := [8]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22}
+	token := []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22}
 
 	inviterToJoiner := &bytes.Buffer{}
 	joinerToInviter := &bytes.Buffer{}
@@ -190,12 +190,12 @@ func TestPAKEStreamSimulation(t *testing.T) {
 	joinerSession, _ := NewPAKESession()
 
 	// Step 2: Joiner sends [0x02][32-byte pubkey] to inviter
-	joinerToInviter.WriteByte(VersionV1)
+	joinerToInviter.WriteByte(0x01)
 	joinerToInviter.Write(joinerSession.PublicKey())
 
 	// Step 3: Inviter reads version + pubkey from joiner
 	versionByte, _ := joinerToInviter.ReadByte()
-	if versionByte != VersionV1 {
+	if versionByte != 0x01 {
 		t.Fatalf("expected version 0x02, got 0x%02x", versionByte)
 	}
 	joinerPub, err := ReadPublicKey(joinerToInviter)
@@ -246,7 +246,7 @@ func TestPAKEStreamSimulation(t *testing.T) {
 }
 
 func TestPAKEConfirmationMAC(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -286,7 +286,7 @@ func TestPAKENotCompleted(t *testing.T) {
 }
 
 func TestPAKEDecryptTruncated(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -309,7 +309,7 @@ func TestPAKEDecryptTruncated(t *testing.T) {
 }
 
 func TestPAKEDecryptZeroLength(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -328,7 +328,7 @@ func TestPAKEDecryptZeroLength(t *testing.T) {
 }
 
 func TestPAKEDecryptEOF(t *testing.T) {
-	token := [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
+	token := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 
 	inviter, _ := NewPAKESession()
 	joiner, _ := NewPAKESession()
@@ -364,7 +364,7 @@ func TestPAKEUniqueKeysPerSession(t *testing.T) {
 
 // TestPAKEWithIOPipe simulates a real bidirectional stream using io.Pipe.
 func TestPAKEWithIOPipe(t *testing.T) {
-	token := [8]byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
+	token := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE}
 
 	// Create two pipes simulating a bidirectional stream
 	joinerToInviterR, joinerToInviterW := io.Pipe()
@@ -389,7 +389,7 @@ func TestPAKEWithIOPipe(t *testing.T) {
 			errCh <- err
 			return
 		}
-		if vBuf[0] != VersionV1 {
+		if vBuf[0] != 0x01 {
 			errCh <- fmt.Errorf("expected v2, got %d", vBuf[0])
 			return
 		}
@@ -440,7 +440,7 @@ func TestPAKEWithIOPipe(t *testing.T) {
 		}
 
 		// Send version byte + our pubkey
-		if _, err := joinerToInviterW.Write([]byte{VersionV1}); err != nil {
+		if _, err := joinerToInviterW.Write([]byte{0x01}); err != nil {
 			errCh <- err
 			return
 		}
