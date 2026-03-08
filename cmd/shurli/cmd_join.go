@@ -149,11 +149,11 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	}
 	outln("Connected to relay.")
 
-	// Open PAKE v2 pairing protocol stream to relay.
+	// Open PAKE invite protocol stream to relay.
 	outln("Authenticating with invite code...")
 	relayPeerID := relayInfos[0].ID
-	pairCtx := network.WithAllowLimitedConn(ctx, relay.PairingProtocol)
-	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.PairingProtocol))
+	pairCtx := network.WithAllowLimitedConn(ctx, relay.InviteProtocol)
+	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.InviteProtocol))
 	if err != nil {
 		fatal("Failed to open pairing stream: %v", err)
 	}
