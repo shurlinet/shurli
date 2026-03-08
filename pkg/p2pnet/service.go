@@ -45,7 +45,8 @@ type Service struct {
 	LocalAddress string              // TCP proxy target (e.g., "localhost:22"). Mutually exclusive with Handler.
 	Handler      StreamHandler       // Custom stream handler for plugins. Mutually exclusive with LocalAddress.
 	Enabled      bool                // Whether this service is enabled
-	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed)
+	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed). Used by TCP proxy path.
+	Policy       *PluginPolicy        // Transport + peer restrictions (nil = no policy, backward compat for TCP proxies).
 }
 
 // ServiceConn represents a connection to a remote service
@@ -150,8 +151,25 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	short := remotePeer.String()[:16] + "..."
 	slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
 
-	// Per-service access control
-	if svc.AllowedPeers != nil {
+	// Plugin policy enforcement (transport + peer restrictions).
+	if svc.Policy != nil {
+		transport := ClassifyTransport(s)
+		if !svc.Policy.TransportAllowed(transport) {
+			slog.Warn("plugin transport not allowed",
+				"service", svc.Name, "peer", short,
+				"transport", transport, "allowed", svc.Policy.AllowedTransports)
+			s.Reset()
+			return
+		}
+		if !svc.Policy.PeerAllowed(remotePeer) {
+			slog.Warn("peer denied by plugin policy", "service", svc.Name, "peer", short)
+			s.Reset()
+			return
+		}
+	}
+
+	// Per-service access control (legacy path for TCP proxies without Policy).
+	if svc.Policy == nil && svc.AllowedPeers != nil {
 		if _, ok := svc.AllowedPeers[remotePeer]; !ok {
 			slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
 			s.Reset()
@@ -179,25 +197,40 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	slog.Info("closed connection", "service", svc.Name, "peer", short)
 }
 
-// DialService connects to a remote peer's service
+// DialService connects to a remote peer's service.
+// If the protocol matches a locally registered service with a PluginPolicy,
+// the policy's transport restrictions are enforced.
 func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, protocolID string) (ServiceConn, error) {
 	pid := protocol.ID(protocolID)
 
 	slog.Info("dialing service", "peer", peerID.String()[:16]+"...", "protocol", protocolID)
 
-	// Allow limited (relay circuit) connections  - without this, NewStream
-	// refuses to use relay circuits and only tries direct dials, which fail
-	// when hole punching isn't possible (e.g., carrier-grade NAT on 5G).
-	relayCtx := network.WithAllowLimitedConn(ctx, protocolID)
+	// Look up local registration to check policy.
+	var policy *PluginPolicy
+	r.mu.RLock()
+	for _, svc := range r.services {
+		if svc.Protocol == protocolID {
+			policy = svc.Policy
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	// Respect transport policy: only allow relay if policy permits.
+	dialCtx := ctx
+	if policy == nil || policy.RelayAllowed() {
+		dialCtx = network.WithAllowLimitedConn(ctx, protocolID)
+	}
 
 	// Open stream to remote peer
-	s, err := r.host.NewStream(relayCtx, peerID, pid)
+	s, err := r.host.NewStream(dialCtx, peerID, pid)
 	if err != nil {
 		// UX hint: if the peer is only reachable through relay circuits and
 		// the stream failed, the relay likely blocked the data circuit.
-		// This is NOT enforcement (the relay does that server-side via ACL),
-		// it's just a helpful message explaining why the connection failed.
 		if isRelayOnlyPeer(r.host, peerID) {
+			if policy != nil && !policy.RelayAllowed() {
+				return nil, fmt.Errorf("plugin policy does not allow relay, and peer is only reachable via relay: %w", err)
+			}
 			return nil, fmt.Errorf("failed to open stream: %w\n\n%s", err, relayDataHint)
 		}
 		return nil, fmt.Errorf("failed to open stream: %w", err)

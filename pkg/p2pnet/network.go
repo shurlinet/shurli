@@ -10,8 +10,10 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
@@ -467,17 +469,77 @@ func (n *Network) ExposeService(name, localAddress string, allowedPeers map[peer
 // RegisterHandler registers a custom stream handler as a named service.
 // This is the plugin registration path - unlike ExposeService (which proxies
 // to a local TCP port), the handler processes streams directly.
+//
+// All plugins get a default PluginPolicy (LAN + Direct only, relay excluded).
+// To override, set a custom policy on the returned service via GetService + modify,
+// or pass a pre-built Service to ServiceRegistry.RegisterService directly.
 func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error {
 	if err := ValidateServiceName(name); err != nil {
 		return err
 	}
+
+	policy := DefaultPluginPolicy()
+
+	// Merge legacy allowedPeers into the policy if provided.
+	if allowedPeers != nil {
+		policy.AllowPeers = allowedPeers
+	}
+
 	return n.serviceRegistry.RegisterService(&Service{
-		Name:         name,
-		Protocol:     fmt.Sprintf("/shurli/%s/1.0.0", name),
-		Handler:      handler,
-		Enabled:      true,
-		AllowedPeers: allowedPeers,
+		Name:     name,
+		Protocol: fmt.Sprintf("/shurli/%s/1.0.0", name),
+		Handler:  handler,
+		Enabled:  true,
+		Policy:   policy,
 	})
+}
+
+// OpenPluginStream opens a stream to a remote peer for a registered plugin,
+// enforcing the plugin's transport and peer policy.
+//
+// If the plugin's policy forbids relay, the stream will not be opened over
+// relay connections. If the peer is denied by the policy, the call fails
+// immediately without a network round-trip.
+//
+// This is the correct way to initiate outbound plugin streams. Do NOT use
+// Host().NewStream() directly for plugin protocols.
+func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceName string) (network.Stream, error) {
+	svc, ok := n.serviceRegistry.GetService(serviceName)
+	if !ok {
+		return nil, fmt.Errorf("plugin %q not registered", serviceName)
+	}
+
+	// Enforce peer restrictions before touching the network.
+	if svc.Policy != nil && !svc.Policy.PeerAllowed(peerID) {
+		return nil, fmt.Errorf("peer denied by plugin %q policy", serviceName)
+	}
+
+	// Respect transport policy: only use WithAllowLimitedConn if relay is permitted.
+	dialCtx := ctx
+	if svc.Policy == nil || svc.Policy.RelayAllowed() {
+		dialCtx = network.WithAllowLimitedConn(ctx, svc.Protocol)
+	}
+
+	s, err := n.host.NewStream(dialCtx, peerID, protocol.ID(svc.Protocol))
+	if err != nil {
+		// Helpful error when relay-only peer + relay not allowed.
+		if svc.Policy != nil && !svc.Policy.RelayAllowed() && isRelayOnlyPeer(n.host, peerID) {
+			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay: %w", serviceName, err)
+		}
+		return nil, fmt.Errorf("open stream: %w", err)
+	}
+
+	// Post-dial transport verification: the dialer may have chosen a path
+	// that the policy forbids (e.g., relay fallback despite direct attempt).
+	if svc.Policy != nil {
+		transport := ClassifyTransport(s)
+		if !svc.Policy.TransportAllowed(transport) {
+			s.Reset()
+			return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
+		}
+	}
+
+	return s, nil
 }
 
 // ServiceRegistry returns the underlying ServiceRegistry for direct access.
