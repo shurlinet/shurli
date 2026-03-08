@@ -331,9 +331,18 @@ the DHT if the name is not found locally.
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
 .TP
-.B send \fIfile\fR \fIpeer\fR [\fB--json\fR]
-Send a file to a peer over the P2P network. The file is streamed directly
-with SHA-256 integrity verification. Requires a running daemon.
+.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--json\fR]
+Send a file to a peer over the P2P network. Uses chunked transfer with
+BLAKE3 Merkle integrity verification and zstd compression. The command
+submits the transfer to the daemon and exits immediately (fire-and-forget).
+Use \fB--follow\fR to stay attached and watch progress inline. Requires a
+running daemon.
+.TP
+.B transfers \fR[\fB--watch\fR] [\fB--json\fR]
+List pending, active, and completed file transfers. Shows direction, peer,
+progress, compression status, and errors. Use \fB--watch\fR for a live feed
+that refreshes every 2 seconds (read-only; use \fBaccept\fR/\fBreject\fR in
+a separate terminal for actions).
 
 .SH IDENTITY & ACCESS
 Access control in shurli is based on

@@ -34,6 +34,14 @@ type TransferConfig struct {
 	// MaxFileSize is the maximum file size to accept (in bytes).
 	// 0 means unlimited (up to protocol max of 1 TB).
 	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
+
+	// ReceiveMode controls how incoming transfers are handled.
+	// Values: "off", "contacts" (default), "ask", "open"
+	ReceiveMode string `yaml:"receive_mode,omitempty"`
+
+	// Compress enables zstd compression for outgoing transfers.
+	// Default: true. Set to false to disable.
+	Compress *bool `yaml:"compress,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

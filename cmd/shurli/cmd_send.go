@@ -16,27 +16,32 @@ import (
 func runSend(args []string) {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
+	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
 	fs.Parse(args)
 
 	remaining := fs.Args()
 	if len(remaining) < 2 {
-		fmt.Println("Usage: shurli send <file> <peer>")
-		fmt.Println("       shurli send <file> --to <peer>")
+		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--json]")
+		fmt.Println()
+		fmt.Println("Send a file to a peer. By default, submits to daemon and exits.")
 		fmt.Println()
 		fmt.Println("Options:")
+		fmt.Println("  --follow  Follow transfer progress (Ctrl+C detaches, transfer continues)")
 		fmt.Println("  --json    Output as JSON")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  shurli send photo.jpg home-server")
+		fmt.Println("  shurli send photo.jpg home-server              # fire-and-forget")
+		fmt.Println("  shurli send photo.jpg home-server --follow     # watch progress")
 		fmt.Println("  shurli send ~/Documents/report.pdf laptop")
 		fmt.Println("  shurli send backup.tar.gz 12D3KooW...")
+		fmt.Println()
+		fmt.Println("Check status anytime with: shurli transfers")
 		osExit(1)
 	}
 
 	filePath := remaining[0]
 	peer := remaining[1]
 
-	// Strip --to if used as a keyword
 	if peer == "--to" {
 		if len(remaining) < 3 {
 			fatal("Missing peer after --to")
@@ -44,19 +49,17 @@ func runSend(args []string) {
 		peer = remaining[2]
 	}
 
-	// Resolve to absolute path
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		fatal("Invalid path: %v", err)
 	}
 
-	// Check file exists
 	info, err := os.Stat(absPath)
 	if err != nil {
 		fatal("Cannot access file: %v", err)
 	}
 	if info.IsDir() {
-		fatal("Cannot send directory (single files only for now)")
+		fatal("Cannot send directory (directory transfer is Phase E)")
 	}
 
 	client := tryDaemonClient()
@@ -86,15 +89,16 @@ func runSend(args []string) {
 	tc.Wgreen(os.Stdout, "Transfer started")
 	fmt.Printf(" [%s]\n", resp.TransferID)
 
-	// Poll for completion
+	if !*followFlag {
+		tc.Wfaint(os.Stdout, "Transfer continues in daemon. Check: shurli transfers\n")
+		return
+	}
+
 	pollTransfer(client, resp.TransferID)
 }
 
-// progressBarWidth is the number of block characters in the progress bar.
 const progressBarWidth = 30
 
-// pollTransfer polls the daemon for transfer progress until complete,
-// displaying a live progress bar with transfer speed.
 func pollTransfer(client *daemon.Client, id string) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -110,12 +114,10 @@ func pollTransfer(client *daemon.Client, id string) {
 		}
 
 		if progress.Done {
-			// Clear the progress line.
 			fmt.Printf("\r%-70s\r", " ")
 			if progress.Error != "" {
 				tc.Wred(os.Stdout, "Transfer failed: %s\n", progress.Error)
 			} else {
-				// Show completed bar.
 				bar := strings.Repeat("\u2588", progressBarWidth)
 				tc.Wgreen(os.Stdout, "%s 100%%\n", bar)
 				fmt.Println("Transfer complete")
@@ -124,34 +126,37 @@ func pollTransfer(client *daemon.Client, id string) {
 		}
 
 		if progress.Size > 0 {
-			pct := float64(progress.Sent) / float64(progress.Size)
+			pct := float64(progress.Transferred) / float64(progress.Size)
 			filled := int(pct * float64(progressBarWidth))
 			if filled > progressBarWidth {
 				filled = progressBarWidth
 			}
 			bar := strings.Repeat("\u2588", filled) + strings.Repeat("\u2591", progressBarWidth-filled)
 
-			// Speed: bytes transferred since last poll / elapsed time.
 			now := time.Now()
 			elapsed := now.Sub(lastTime).Seconds()
 			var speedStr string
-			if elapsed > 0 && progress.Sent > lastSent {
-				speed := float64(progress.Sent-lastSent) / elapsed
+			if elapsed > 0 && progress.Transferred > lastSent {
+				speed := float64(progress.Transferred-lastSent) / elapsed
 				speedStr = humanSize(int64(speed)) + "/s"
 			}
-			lastSent = progress.Sent
+			lastSent = progress.Transferred
 			lastTime = now
 
+			chunkInfo := ""
+			if progress.ChunksTotal > 0 {
+				chunkInfo = fmt.Sprintf(" [%d/%d chunks]", progress.ChunksDone, progress.ChunksTotal)
+			}
+
 			if speedStr != "" {
-				fmt.Printf("\r%s %.0f%% - %s   ", bar, pct*100, speedStr)
+				fmt.Printf("\r%s %.0f%% - %s%s   ", bar, pct*100, speedStr, chunkInfo)
 			} else {
-				fmt.Printf("\r%s %.0f%%   ", bar, pct*100)
+				fmt.Printf("\r%s %.0f%%%s   ", bar, pct*100, chunkInfo)
 			}
 		}
 	}
 }
 
-// humanSize formats bytes into a human-readable size.
 func humanSize(b int64) string {
 	const unit = 1024
 	if b < unit {

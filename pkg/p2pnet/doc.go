@@ -33,8 +33,11 @@
 //   - Bootstrap: [BootstrapAndConnect] handles DHT client-mode bootstrap,
 //     peer discovery, and relay circuit fallback.
 //
-//   - Transfer: [TransferService] implements file transfer with SHA-256
-//     integrity verification and progress tracking.
+//   - Transfer: [TransferService] implements chunked file transfer with the
+//     SHFT wire format (v2). Features: FastCDC content-defined chunking,
+//     BLAKE3 Merkle integrity, zstd compression (on by default), receive
+//     permissions (off/contacts/ask/open), disk space checks, atomic writes,
+//     and per-chunk hash verification. Protocol: /shurli/file-transfer/2.0.0.
 //
 //   - Protocol IDs: [ProtocolID] and [MustValidateProtocolIDs] enforce valid
 //     protocol ID construction at init time.

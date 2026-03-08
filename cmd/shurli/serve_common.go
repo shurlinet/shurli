@@ -1218,9 +1218,16 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 // SetupTransfer initializes the file transfer service and registers the
 // inbound stream handler on the P2P host.
 func (rt *serveRuntime) SetupTransfer() {
+	compress := true
+	if rt.config.Transfer.Compress != nil {
+		compress = *rt.config.Transfer.Compress
+	}
+
 	cfg := p2pnet.TransferConfig{
-		ReceiveDir: rt.config.Transfer.ReceiveDir,
-		MaxSize:    rt.config.Transfer.MaxFileSize,
+		ReceiveDir:  rt.config.Transfer.ReceiveDir,
+		MaxSize:     rt.config.Transfer.MaxFileSize,
+		ReceiveMode: p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
+		Compress:    compress,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
