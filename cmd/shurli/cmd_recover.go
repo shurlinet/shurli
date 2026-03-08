@@ -19,7 +19,7 @@ func runRecover(args []string) {
 	fs := flag.NewFlagSet("recover", flag.ExitOnError)
 	relayFlag := fs.Bool("relay", false, "also recover relay vault and ZKP keys")
 	dirFlag := fs.String("dir", "", "config directory (default: auto-detect)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// Resolve config directory.
 	var configDir string

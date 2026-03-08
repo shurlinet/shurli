@@ -58,7 +58,7 @@ func doRelayVaultInit(args []string, configFile string, stdout io.Writer, _ io.R
 	fs.SetOutput(io.Discard)
 	enableTOTP := fs.Bool("totp", false, "enable TOTP 2FA for unseal")
 	autoSealMins := fs.Int("auto-seal", 30, "auto-seal timeout in minutes (0 = manual only)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -138,7 +138,7 @@ func doRelaySeal(args []string, configFile string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay seal", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -169,7 +169,7 @@ func doRelayUnseal(args []string, configFile string, stdout io.Writer, stdin io.
 	fs.SetOutput(io.Discard)
 	remoteAddr := fs.String("remote", "", "relay multiaddr for remote P2P unseal")
 	totpFlag := fs.Bool("totp", false, "prompt for TOTP code")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -338,7 +338,7 @@ func doRelaySealStatus(args []string, configFile string, stdout io.Writer) error
 	fs := flag.NewFlagSet("relay seal-status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -419,7 +419,7 @@ func readVaultPasswordConfirm(w io.Writer) (string, error) {
 func runRelayVaultChangePassword(args []string, configFile string) {
 	fs := flag.NewFlagSet("relay vault change-password", flag.ExitOnError)
 	totpFlag := fs.Bool("totp", false, "prompt for TOTP code")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// Load the relay server config to find vault path.
 	cfg, err := config.LoadRelayServerConfig(configFile)

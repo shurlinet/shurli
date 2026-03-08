@@ -17,7 +17,7 @@ func runTransfers(args []string) {
 	fs := flag.NewFlagSet("transfers", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	watchFlag := fs.Bool("watch", false, "live feed (refreshes every 2s)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	client := tryDaemonClient()
 	if client == nil {
