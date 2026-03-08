@@ -655,14 +655,13 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
 
 	// Determine parallel stream count.
-	var requestedStreams int
+	// TODO: parallel receive is not yet wired (registerParallelSession never called
+	// from the receive path), so force single stream until the receive side is complete.
 	var opener streamOpener
 	if len(opts) > 0 {
-		requestedStreams = opts[0].Streams
 		opener = opts[0].StreamOpener
 	}
-	transport := ClassifyTransport(s)
-	numStreams := adaptiveStreamCount(transport, len(chunks), requestedStreams)
+	numStreams := 1
 
 	go func() {
 		defer s.Close()
