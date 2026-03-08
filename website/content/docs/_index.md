@@ -17,6 +17,7 @@ Everything you need to know about Shurli, from getting started to deep architect
   {{< card link="managing-network" title="Managing Your Network" subtitle="Roles, permissions, peer ops" icon="users" >}}
   {{< card link="zkp-setup" title="ZKP Setup" subtitle="Zero-knowledge keys and Merkle tree" icon="key" >}}
   {{< card link="zkp-anonymous-auth" title="Anonymous Auth" subtitle="Prove membership without revealing identity" icon="finger-print" >}}
+  {{< card link="file-transfer" title="File Transfer" subtitle="Send files between peers with integrity verification" icon="document" >}}
   {{< card link="monitoring" title="Monitoring" subtitle="Prometheus, Grafana, and audit logging" icon="chart-bar" >}}
   {{< card link="daemon-api" title="Daemon API" subtitle="REST API reference for the daemon" icon="terminal" >}}
   {{< card link="architecture" title="Architecture" subtitle="How Shurli works under the hood" icon="cube" >}}
