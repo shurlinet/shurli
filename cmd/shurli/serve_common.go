@@ -200,9 +200,9 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		return nil, fmt.Errorf("identity key is encrypted but no session token found.\n  Run 'shurli init' to create an identity.\n  (%w)", err)
 	}
 
-	// If we got the password interactively, persist a session token so
-	// subsequent daemon restarts (e.g., launchd/systemd) work without a TTY.
-	if _, sessionErr := identity.LoadSession(configDir); sessionErr != nil {
+	// If no valid session token exists, persist one so subsequent daemon
+	// restarts (e.g., launchd/systemd) work without a TTY.
+	if !identity.SessionExists(configDir) {
 		if createErr := identity.CreateSession(configDir, pw); createErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not persist session token: %v\n", createErr)
 		}
