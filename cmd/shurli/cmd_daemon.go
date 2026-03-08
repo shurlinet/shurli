@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -196,6 +197,33 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		if oldDir != newDir && newDir != "" {
 			ts.SetReceiveDir(newDir)
 			result.Changed = append(result.Changed, "transfer.receive_dir")
+		}
+	}
+
+	// Transfer max file size.
+	if ts := cr.rt.transferService; ts != nil {
+		if oldCfg.Transfer.MaxFileSize != newCfg.Transfer.MaxFileSize {
+			ts.SetMaxSize(newCfg.Transfer.MaxFileSize)
+			result.Changed = append(result.Changed, "transfer.max_file_size")
+		}
+	}
+
+	// Transfer compression.
+	if ts := cr.rt.transferService; ts != nil {
+		oldCompress := oldCfg.Transfer.Compress == nil || *oldCfg.Transfer.Compress
+		newCompress := newCfg.Transfer.Compress == nil || *newCfg.Transfer.Compress
+		if oldCompress != newCompress {
+			ts.SetCompress(newCompress)
+			result.Changed = append(result.Changed, "transfer.compress")
+		}
+	}
+
+	// Authorized keys (connection gating) - always refresh on reload.
+	if reloader := cr.rt.GaterForHotReload(); reloader != nil {
+		if err := reloader.ReloadFromFile(); err != nil {
+			slog.Warn("config reload: failed to reload authorized_keys", "err", err)
+		} else {
+			result.Changed = append(result.Changed, "security.authorized_keys")
 		}
 	}
 
