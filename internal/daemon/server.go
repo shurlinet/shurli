@@ -41,11 +41,22 @@ type RuntimeInfo interface {
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	TransferService() *p2pnet.TransferService                // nil if transfer disabled
 	ShareRegistry() *p2pnet.ShareRegistry                    // nil if sharing disabled
+	ConfigReloader() ConfigReloader                          // nil if reload not supported
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
 type GaterReloader interface {
 	ReloadFromFile() error // reload authorized_keys and update the gater
+}
+
+// ConfigReloadResult describes what changed during a config reload.
+type ConfigReloadResult struct {
+	Changed []string `json:"changed"` // list of changed fields (e.g. "transfer.receive_mode")
+}
+
+// ConfigReloader allows hot-reloading config from disk without daemon restart.
+type ConfigReloader interface {
+	ReloadConfig() (*ConfigReloadResult, error)
 }
 
 // activeInvite tracks a pending async invite (relay-stored).

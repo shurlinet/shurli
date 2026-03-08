@@ -473,3 +473,12 @@ func (c *Client) InviteWait(ctx context.Context, id string) (*InviteWaitResponse
 func (c *Client) InviteCancel(id string) error {
 	return c.doJSON("DELETE", "/v1/invite/"+id, nil, nil)
 }
+
+// ConfigReload asks the daemon to reload config from disk without restart.
+func (c *Client) ConfigReload() (*ConfigReloadResult, error) {
+	var resp ConfigReloadResult
+	if err := c.doJSON("POST", "/v1/config/reload", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

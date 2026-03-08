@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -26,6 +28,8 @@ func runConfig(args []string) {
 		runConfigShow(args[1:])
 	case "set":
 		runConfigSet(args[1:])
+	case "reload":
+		runConfigReload(args[1:])
 	case "rollback":
 		runConfigRollback(args[1:])
 	case "apply":
@@ -132,6 +136,37 @@ func doConfigShow(args []string, stdout io.Writer) error {
 	return nil
 }
 
+func runConfigReload(args []string) {
+	fs := flag.NewFlagSet("config reload", flag.ExitOnError)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	fs.Parse(reorderFlags(fs, args))
+
+	client := tryDaemonClient()
+	if client == nil {
+		fmt.Println("Daemon not running. Start it with: shurli daemon")
+		osExit(1)
+	}
+
+	result, err := client.ConfigReload()
+	if err != nil {
+		fatal("Config reload failed: %v", err)
+	}
+
+	if *jsonFlag {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(result)
+		return
+	}
+
+	if len(result.Changed) == 0 {
+		fmt.Println("Config reloaded. No changes detected.")
+		return
+	}
+
+	fmt.Printf("Config reloaded. Changed: %s\n", strings.Join(result.Changed, ", "))
+}
+
 func runConfigSet(args []string) {
 	if err := doConfigSet(args, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -179,6 +214,10 @@ var validConfigKeys = []string{
 	"peer_relay.resources.buffer_size",
 	"peer_relay.resources.circuit_duration",
 	"peer_relay.resources.circuit_data_limit",
+	"transfer.receive_dir",
+	"transfer.max_file_size",
+	"transfer.receive_mode",
+	"transfer.compress",
 }
 
 // validateConfigKey checks whether a dotted key path is a known config key.
@@ -297,7 +336,7 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Set %s = %s in %s\n", key, value, cfgFile)
-	fmt.Fprintln(stdout, "Restart daemon to apply: shurli daemon")
+	fmt.Fprintln(stdout, "Apply without restart: shurli config reload")
 	return nil
 }
 
@@ -496,11 +535,13 @@ func printConfigUsage() {
 	fmt.Println("  validate [--config path]                                   Validate config without starting")
 	fmt.Println("  show     [--config path]                                   Show resolved config")
 	fmt.Println("  set      <key> <value> [--config path]                     Set a config value (dotted key path)")
+	fmt.Println("  reload   [--json]                                          Reload config into running daemon")
 	fmt.Println("  rollback [--config path]                                   Restore last-known-good config")
 	fmt.Println("  apply    <new-config> [--config path] [--confirm-timeout]  Apply config with auto-revert safety")
 	fmt.Println("  confirm  [--config path]                                   Confirm applied config (cancel revert)")
 	fmt.Println()
 	fmt.Println("Examples:")
+	fmt.Println("  shurli config set transfer.receive_mode ask")
+	fmt.Println("  shurli config reload                          # apply without restart")
 	fmt.Println("  shurli config set network.force_private_reachability true")
-	fmt.Println("  shurli config set network.force_cgnat true")
 }

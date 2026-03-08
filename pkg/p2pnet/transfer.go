@@ -1444,6 +1444,13 @@ func (ts *TransferService) SetReceiveMode(mode ReceiveMode) {
 	ts.mu.Unlock()
 }
 
+// SetReceiveDir changes the receive directory at runtime.
+func (ts *TransferService) SetReceiveDir(dir string) {
+	ts.mu.Lock()
+	ts.receiveDir = dir
+	ts.mu.Unlock()
+}
+
 // ReceiveDir returns the receive directory path.
 func (ts *TransferService) ReceiveDir() string {
 	return ts.receiveDir
