@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -87,42 +85,19 @@ func runPing(args []string) {
 		cancel()
 	}()
 
-	// Load configuration
-	cfgFile, err := config.FindConfigFile(*configFlag)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-
-	// Create P2P network
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		Namespace:          cfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
+	// Create standalone P2P host from config.
+	pw, _ := resolvePasswordFromConfig(*configFlag)
+	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+		ConfigPath: *configFlag,
+		Password:   pw,
+		UserAgent:  "shurli/" + version,
 	})
 	if err != nil {
-		fatal("P2P network error: %v", err)
+		fatal("%v", err)
 	}
+	p2pNetwork := standalone.Network
+	cfg := standalone.NodeConfig
 	defer p2pNetwork.Close()
-
-	// Load names
-	if cfg.Names != nil {
-		p2pNetwork.LoadNames(cfg.Names)
-	}
 
 	// Resolve target
 	targetPeerID, err := p2pNetwork.ResolveName(target)
