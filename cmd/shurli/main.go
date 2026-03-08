@@ -63,6 +63,10 @@ func main() {
 		runSend(os.Args[2:])
 	case "transfers":
 		runTransfers(os.Args[2:])
+	case "accept":
+		runAccept(os.Args[2:])
+	case "reject":
+		runReject(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -141,8 +145,10 @@ func printUsage() {
 	fmt.Println("  traceroute <target> [--json]                    P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                         Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>           Forward TCP port")
-	fmt.Println("  send <file> <peer> [--follow] [--json]           Send file to peer")
+	fmt.Println("  send <file> <peer> [--follow] [--no-compress] [--json]  Send file to peer")
 	fmt.Println("  transfers [--watch] [--json]                    List/watch file transfers")
+	fmt.Println("  accept <id> [--dest /path/]                     Accept a pending transfer")
+	fmt.Println("  reject <id> [--reason space|busy|size]           Reject a pending transfer")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                  Show your peer ID")

@@ -167,7 +167,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send transfers whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve send transfers accept reject whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
@@ -339,10 +339,16 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--config --json" -- "$cur"))
             return ;;
         send)
-            COMPREPLY=($(compgen -W "--json --follow" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --follow --no-compress" -- "$cur"))
             return ;;
         transfers)
             COMPREPLY=($(compgen -W "--json --watch" -- "$cur"))
+            return ;;
+        accept)
+            COMPREPLY=($(compgen -W "--json --dest" -- "$cur"))
+            return ;;
+        reject)
+            COMPREPLY=($(compgen -W "--json --reason" -- "$cur"))
             return ;;
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
@@ -401,6 +407,8 @@ _shurli() {
         'resolve:Resolve name to peer ID'
         'send:Send file to peer'
         'transfers:List/watch file transfers'
+        'accept:Accept a pending transfer'
+        'reject:Reject a pending transfer'
         'whoami:Show your peer ID'
         'auth:Identity and access management'
         'relay:Relay client and server commands'
@@ -646,9 +654,13 @@ _shurli() {
         resolve)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
         send)
-            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '*:file:_files' ;;
+            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '*:file:_files' ;;
         transfers)
             _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' ;;
+        accept)
+            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' ;;
+        reject)
+            _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' ;;
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
@@ -725,6 +737,8 @@ complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
 complete -c shurli -n __shurli_no_subcommand -a send        -d 'Send file to peer'
 complete -c shurli -n __shurli_no_subcommand -a transfers   -d 'List/watch file transfers'
+complete -c shurli -n __shurli_no_subcommand -a accept      -d 'Accept a pending transfer'
+complete -c shurli -n __shurli_no_subcommand -a reject      -d 'Reject a pending transfer'
 complete -c shurli -n __shurli_no_subcommand -a whoami      -d 'Show your peer ID'
 complete -c shurli -n __shurli_no_subcommand -a auth        -d 'Identity and access management'
 complete -c shurli -n __shurli_no_subcommand -a relay       -d 'Relay client and server'
@@ -915,10 +929,15 @@ complete -c shurli -n '__shurli_using_command traceroute' -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command traceroute' -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command resolve'    -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l json       -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l follow     -d 'Follow transfer progress'
-complete -c shurli -n '__shurli_using_command transfers'  -l json       -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command transfers'  -l watch      -d 'Live feed (refreshes every 2s)'
+complete -c shurli -n '__shurli_using_command send'       -l json         -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command send'       -l follow       -d 'Follow transfer progress'
+complete -c shurli -n '__shurli_using_command send'       -l no-compress  -d 'Disable zstd compression'
+complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
+complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command accept'     -l dest         -d 'Save to specific directory'
+complete -c shurli -n '__shurli_using_command reject'     -l json         -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command reject'     -l reason       -d 'Reject reason (space, busy, size)'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'

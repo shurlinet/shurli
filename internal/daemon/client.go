@@ -320,8 +320,8 @@ func (c *Client) Unlock() error {
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.
-func (c *Client) Send(filePath, peer string) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer}
+func (c *Client) Send(filePath, peer string, noCompress bool) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress}
 	body, _ := json.Marshal(req)
 	var resp SendResponse
 	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
@@ -346,6 +346,29 @@ func (c *Client) TransferList() ([]p2pnet.TransferProgress, error) {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// TransferPending returns the list of transfers awaiting approval (ask mode).
+func (c *Client) TransferPending() ([]PendingTransferInfo, error) {
+	var resp []PendingTransferInfo
+	if err := c.doJSON("GET", "/v1/transfers/pending", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// TransferAccept approves a pending transfer, with an optional destination directory.
+func (c *Client) TransferAccept(id, dest string) error {
+	req := TransferAcceptRequest{Dest: dest}
+	body, _ := json.Marshal(req)
+	return c.doJSON("POST", "/v1/transfers/"+id+"/accept", strings.NewReader(string(body)), nil)
+}
+
+// TransferReject rejects a pending transfer with an optional reason.
+func (c *Client) TransferReject(id, reason string) error {
+	req := TransferRejectRequest{Reason: reason}
+	body, _ := json.Marshal(req)
+	return c.doJSON("POST", "/v1/transfers/"+id+"/reject", strings.NewReader(string(body)), nil)
 }
 
 // --- Invite methods ---
