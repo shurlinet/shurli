@@ -16,8 +16,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/shurlinet/shurli/internal/platform"
 
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -295,9 +296,9 @@ func (s *AdminServer) Start() error {
 	}
 
 	// Bind with restrictive umask to avoid TOCTOU race.
-	oldUmask := syscall.Umask(0077)
+	restoreUmask := platform.RestrictiveUmask()
 	listener, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask)
+	restoreUmask()
 	if err != nil {
 		return fmt.Errorf("failed to listen on admin socket: %w", err)
 	}
