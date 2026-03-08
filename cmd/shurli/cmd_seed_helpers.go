@@ -215,11 +215,34 @@ func confirmSeedBackup(stdout io.Writer, stdin io.Reader, words []string, skip b
 
 		if attempt < maxAttempts-1 {
 			fmt.Fprintln(stdout, "\nYour seed phrase again:")
-			fmt.Fprintf(stdout, "\n  %s\n\n", strings.Join(words, " "))
+			fmt.Fprintln(stdout)
+			fmt.Fprint(stdout, formatSeedGrid(words))
 		}
 	}
 
 	return fmt.Errorf("seed backup confirmation failed after %d attempts", maxAttempts)
+}
+
+// formatSeedGrid formats a BIP39 mnemonic as a numbered 4-column grid.
+// Standard wallet UX: numbered words so users can write them down accurately.
+func formatSeedGrid(words []string) string {
+	rows := (len(words) + 3) / 4 // ceil(len/4)
+	var b strings.Builder
+	for row := 0; row < rows; row++ {
+		for col := 0; col < 4; col++ {
+			idx := row + col*rows
+			if idx >= len(words) {
+				break
+			}
+			num := idx + 1
+			if col > 0 {
+				b.WriteString("   ")
+			}
+			b.WriteString(fmt.Sprintf("%2d. %-12s", num, words[idx]))
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // pickRandomPositions picks n unique random positions from [0, total).
