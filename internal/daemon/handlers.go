@@ -62,6 +62,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/shares", s.handleShareRemove)
 	mux.HandleFunc("POST /v1/browse", s.handleBrowse)
 
+	// Config
+	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
+
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
@@ -819,6 +822,23 @@ func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
 	locked := s.locked
 	s.mu.Unlock()
 	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
+}
+
+func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
+	reloader := s.runtime.ConfigReloader()
+	if reloader == nil {
+		respondError(w, http.StatusNotImplemented, "config reload not supported")
+		return
+	}
+
+	result, err := reloader.ReloadConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("config reload failed: %v", err))
+		return
+	}
+
+	slog.Info("config reloaded via API", "changed", result.Changed)
+	respondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
