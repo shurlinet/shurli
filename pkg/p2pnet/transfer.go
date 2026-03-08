@@ -1451,6 +1451,20 @@ func (ts *TransferService) SetReceiveDir(dir string) {
 	ts.mu.Unlock()
 }
 
+// SetCompress changes the compression setting at runtime.
+func (ts *TransferService) SetCompress(enabled bool) {
+	ts.mu.Lock()
+	ts.compress = enabled
+	ts.mu.Unlock()
+}
+
+// SetMaxSize changes the max file size limit at runtime.
+func (ts *TransferService) SetMaxSize(maxBytes int64) {
+	ts.mu.Lock()
+	ts.maxSize = maxBytes
+	ts.mu.Unlock()
+}
+
 // ReceiveDir returns the receive directory path.
 func (ts *TransferService) ReceiveDir() string {
 	return ts.receiveDir
