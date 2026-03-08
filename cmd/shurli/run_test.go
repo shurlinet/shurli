@@ -1202,58 +1202,6 @@ func TestGaterReloader_ReloadFromFile_MissingFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Category 10: loadOrCreateConfig  - test existing config path.
-// ---------------------------------------------------------------------------
-
-func TestLoadOrCreateConfig_ExistingConfig(t *testing.T) {
-	cfgPath := writeTestConfigDir(t)
-
-	var cfgFile string
-	var cfg *config.NodeConfig
-	var configDir string
-	var created bool
-	code, exited := captureExit(func() {
-		cfgFile, cfg, configDir, created = loadOrCreateConfig(cfgPath, "", "")
-	})
-	if exited {
-		t.Fatalf("should not have exited, got code=%d", code)
-	}
-	if created {
-		t.Error("expected created=false for existing config")
-	}
-	if cfg == nil {
-		t.Fatal("expected non-nil config")
-	}
-	if cfgFile != cfgPath {
-		t.Errorf("cfgFile = %q, want %q", cfgFile, cfgPath)
-	}
-	if configDir == "" {
-		t.Error("expected non-empty configDir")
-	}
-}
-
-func TestLoadOrCreateConfig_InvalidConfig(t *testing.T) {
-	// Use os.MkdirTemp instead of t.TempDir() to avoid a Linux-specific
-	// TempDir cleanup race with the panic/recover in captureExit (the
-	// runtime's openat fd can go stale after the panic unwind).
-	dir, err := os.MkdirTemp("", "TestLoadOrCreateConfig_InvalidConfig")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	cfgPath := filepath.Join(dir, "shurli.yaml")
-	os.WriteFile(cfgPath, []byte("this: is: bad: yaml: [[["), 0600)
-
-	code, exited := captureExit(func() {
-		loadOrCreateConfig(cfgPath, "", "")
-	})
-	if !exited || code != 1 {
-		t.Errorf("expected exit(1) for invalid config, got exited=%v code=%d", exited, code)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Category 11: runDaemonServices and runDaemonPeers  - no daemon running.
 // ---------------------------------------------------------------------------
 

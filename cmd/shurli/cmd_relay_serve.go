@@ -315,13 +315,7 @@ func runRelayServe(args []string) {
 			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
 		}
 	})
-	h.SetStreamHandler(protocol.ID(relay.PairingProtocolV2), func(s network.Stream) {
-		joinedPeer, groupID := pairingHandler.HandleStreamV2(s)
-		if joinedPeer != "" && groupID != "" {
-			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
-		}
-	})
-	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol, "v2", relay.PairingProtocolV2)
+	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol)
 
 	// Start admin socket for relay CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
