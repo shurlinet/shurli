@@ -50,7 +50,7 @@ func doConfigValidate(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -86,7 +86,7 @@ func doConfigShow(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config show", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -248,7 +248,7 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -390,7 +390,7 @@ func doConfigRollback(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config rollback", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -424,7 +424,7 @@ func doConfigApply(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	configFlag := fs.String("config", "", "path to current config file")
 	timeout := fs.Duration("confirm-timeout", 5*time.Minute, "auto-revert timeout (e.g., 5m, 10m)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -472,7 +472,7 @@ func doConfigConfirm(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config confirm", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 

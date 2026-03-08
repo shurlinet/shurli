@@ -13,7 +13,7 @@ func runReject(args []string) {
 	fs := flag.NewFlagSet("reject", flag.ExitOnError)
 	reasonFlag := fs.String("reason", "", "reject reason: space, busy, or size")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {

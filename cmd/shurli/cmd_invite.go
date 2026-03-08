@@ -22,7 +22,7 @@ func runInvite(args []string) {
 	countFlag := fs.Int("count", 1, "number of invite codes to generate")
 	remoteFlag := fs.String("remote", "", "relay address (multiaddr, name, or peer ID)")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output (no QR, bare code to stdout)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// If a daemon is running, delegate to it
 	if client := tryDaemonClient(); client != nil {

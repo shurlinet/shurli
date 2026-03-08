@@ -37,7 +37,7 @@ func runShareAdd(args []string) {
 	peersFlag := fs.String("peers", "", "comma-separated peer IDs (empty = all authorized)")
 	persistFlag := fs.Bool("persist", false, "survive daemon restart")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -88,7 +88,7 @@ func runShareAdd(args []string) {
 func runShareRemove(args []string) {
 	fs := flag.NewFlagSet("share remove", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -125,7 +125,7 @@ func runShareRemove(args []string) {
 func runShareList(args []string) {
 	fs := flag.NewFlagSet("share list", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	client := tryDaemonClient()
 	if client == nil {

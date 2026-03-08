@@ -25,7 +25,7 @@ func runPing(args []string) {
 	intervalStr := fs.String("interval", "1s", "interval between pings")
 	jsonFlag := fs.Bool("json", false, "output as JSON (one line per ping)")
 	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {

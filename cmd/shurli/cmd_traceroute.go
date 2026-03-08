@@ -19,7 +19,7 @@ func runTraceroute(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {

@@ -79,7 +79,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/shurli)")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 

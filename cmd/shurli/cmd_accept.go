@@ -13,7 +13,7 @@ func runAccept(args []string) {
 	fs := flag.NewFlagSet("accept", flag.ExitOnError)
 	destFlag := fs.String("dest", "", "accept to a specific directory")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
