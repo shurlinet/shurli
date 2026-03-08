@@ -21,7 +21,7 @@ type PeerRecord struct {
 	AvgLatencyMs    float64        `json:"avg_latency_ms"`
 	PathTypes       map[string]int `json:"path_types"` // "direct":12, "relay":3
 	IntroducedBy    string         `json:"introduced_by,omitempty"`
-	IntroMethod     string         `json:"intro_method,omitempty"` // "relay-pairing", "invite", "manual"
+	IntroMethod     string         `json:"intro_method,omitempty"` // "invite", "manual"
 }
 
 // PeerHistory manages the local interaction history file.
