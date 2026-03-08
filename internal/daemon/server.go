@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -132,9 +132,9 @@ func (s *Server) Start() error {
 	// Bind Unix socket with restrictive umask to avoid TOCTOU race.
 	// Setting umask(0077) ensures the socket is created with 0600 permissions
 	// atomically, eliminating the window between Listen() and Chmod().
-	oldUmask := syscall.Umask(0077)
+	restoreUmask := platform.RestrictiveUmask()
 	listener, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask)
+	restoreUmask()
 	if err != nil {
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
