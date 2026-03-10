@@ -165,10 +165,16 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 				chunkInfo = fmt.Sprintf(" [%d/%d chunks]", progress.ChunksDone, progress.ChunksTotal)
 			}
 
+			erasureTag := ""
+			if progress.ErasureParity > 0 {
+				erasureTag = fmt.Sprintf(" [RS %.0f%% parity, %d chunks]",
+					progress.ErasureOverhead*100, progress.ErasureParity)
+			}
+
 			if speedStr != "" {
-				fmt.Printf("\r%s %.0f%% - %s%s   ", bar, pct*100, speedStr, chunkInfo)
+				fmt.Printf("\r%s %.0f%% - %s%s%s   ", bar, pct*100, speedStr, chunkInfo, erasureTag)
 			} else {
-				fmt.Printf("\r%s %.0f%%%s   ", bar, pct*100, chunkInfo)
+				fmt.Printf("\r%s %.0f%%%s%s   ", bar, pct*100, chunkInfo, erasureTag)
 			}
 		}
 	}

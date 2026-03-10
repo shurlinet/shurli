@@ -34,8 +34,10 @@ const (
 	EventLogProgress75      = "progress_75"
 	EventLogCompleted       = "completed"
 	EventLogFailed          = "failed"
-	EventLogResumed         = "resumed"
-	EventLogCancelled       = "cancelled"
+	EventLogResumed            = "resumed"
+	EventLogCancelled          = "cancelled"
+	EventLogSpamBlocked        = "spam_blocked"
+	EventLogDiskSpaceRejected  = "disk_space_rejected"
 )
 
 // TransferLogger writes structured JSON transfer events to a rotating log file.
