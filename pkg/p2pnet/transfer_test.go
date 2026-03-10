@@ -992,8 +992,8 @@ func TestSubmitSendCreatesQueuedProgress(t *testing.T) {
 	// Verify it appears in ListTransfers.
 	transfers := ts.ListTransfers()
 	found := false
-	for _, tr := range transfers {
-		if tr.ID == qID && tr.Status == "queued" {
+	for i := range transfers {
+		if transfers[i].ID == qID && transfers[i].Status == "queued" {
 			found = true
 			break
 		}
@@ -1069,8 +1069,8 @@ func TestListTransfersIncludesQueued(t *testing.T) {
 
 	// Queued items should appear first with status "queued".
 	queuedCount := 0
-	for _, tr := range transfers {
-		if tr.Status == "queued" {
+	for i := range transfers {
+		if transfers[i].Status == "queued" {
 			queuedCount++
 		}
 	}
