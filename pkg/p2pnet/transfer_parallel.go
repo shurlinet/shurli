@@ -492,6 +492,7 @@ func (ts *TransferService) receiveParallel(
 	}()
 
 	// Process chunks from worker streams.
+	controlFinished := false
 	workerDone := false
 	for !workerDone {
 		select {
@@ -505,24 +506,30 @@ func (ts *TransferService) receiveParallel(
 				<-controlDone
 				return err
 			}
+			// If control already finished and we have all chunks, stop.
+			if controlFinished && have.missing() == 0 {
+				workerDone = true
+			}
 		case err := <-controlDone:
 			// Control stream finished (got done signal or error).
 			if err != nil {
 				close(session.done)
 				return err
 			}
-			// Drain remaining worker chunks.
-			workerDone = true
+			controlFinished = true
+			// If all chunks received, no need to wait for workers.
+			if have.missing() == 0 {
+				workerDone = true
+			}
+			// Otherwise keep draining worker chunks.
 		}
 	}
 
 	// Wait for control to finish if we exited the worker loop.
-	select {
-	case err := <-controlDone:
-		if err != nil {
+	if !controlFinished {
+		if err := <-controlDone; err != nil {
 			return err
 		}
-	default:
 	}
 
 	// Close the session so workers exit.
