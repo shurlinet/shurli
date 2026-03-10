@@ -272,6 +272,28 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 			})
 			result.Changed = append(result.Changed, "transfer.compress")
 		}
+
+		oldNotify := oldCfg.Transfer.Notify
+		newNotify := newCfg.Transfer.Notify
+		if oldNotify != newNotify {
+			ts.SetNotifyMode(newNotify)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.notify",
+				restore: func() { ts.SetNotifyMode(oldNotify) },
+			})
+			result.Changed = append(result.Changed, "transfer.notify")
+		}
+
+		oldNotifyCmd := oldCfg.Transfer.NotifyCommand
+		newNotifyCmd := newCfg.Transfer.NotifyCommand
+		if oldNotifyCmd != newNotifyCmd {
+			ts.SetNotifyCommand(newNotifyCmd)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.notify_command",
+				restore: func() { ts.SetNotifyCommand(oldNotifyCmd) },
+			})
+			result.Changed = append(result.Changed, "transfer.notify_command")
+		}
 	}
 
 	// Authorized keys (connection gating) - always refresh on reload.

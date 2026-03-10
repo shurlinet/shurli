@@ -167,6 +167,8 @@ type TransferConfig struct {
 	Compress        bool        // enable zstd compression (default: true)
 	ErasureOverhead float64     // RS parity overhead (0.10 = 10%, 0 = disabled)
 	LogPath         string      // path for transfer event log (empty = disabled)
+	Notify          string      // notification mode: "none" (default), "desktop", "command"
+	NotifyCommand   string      // command template for "command" mode ({from}, {file}, {size})
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -212,6 +214,7 @@ type TransferService struct {
 	metrics         *Metrics
 	events          *EventBus
 	logger          *TransferLogger
+	notifier        *TransferNotifier
 
 	inboundSem chan struct{}
 
@@ -264,6 +267,8 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		}
 	}
 
+	notifier := NewTransferNotifier(cfg.Notify, cfg.NotifyCommand)
+
 	return &TransferService{
 		receiveDir:      dir,
 		maxSize:         cfg.MaxSize,
@@ -273,6 +278,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		metrics:         metrics,
 		events:          events,
 		logger:          logger,
+		notifier:        notifier,
 		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
 		transfers:       make(map[string]*TransferProgress),
 		peerInbound:     make(map[string]int),
@@ -914,6 +920,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 		ts.logEvent(EventLogRequestReceived, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
+		// Notify user about incoming transfer request.
+		if ts.notifier != nil {
+			if err := ts.notifier.Notify(peerKey, manifest.Filename, manifest.FileSize); err != nil {
+				slog.Debug("file-transfer: notification failed", "error", err)
+			}
+		}
+
 		// Enforce size limit.
 		if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
 			slog.Warn("file-transfer: file too large",
@@ -1517,6 +1530,20 @@ func (ts *TransferService) SetMaxSize(maxBytes int64) {
 	ts.mu.Lock()
 	ts.maxSize = maxBytes
 	ts.mu.Unlock()
+}
+
+// SetNotifyMode changes the notification mode at runtime (for hot-reload).
+func (ts *TransferService) SetNotifyMode(mode string) {
+	if ts.notifier != nil {
+		ts.notifier.SetMode(mode)
+	}
+}
+
+// SetNotifyCommand changes the notification command template at runtime (for hot-reload).
+func (ts *TransferService) SetNotifyCommand(cmd string) {
+	if ts.notifier != nil {
+		ts.notifier.SetCommand(cmd)
+	}
 }
 
 // ReceiveDir returns the receive directory path.
