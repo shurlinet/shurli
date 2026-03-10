@@ -1243,11 +1243,13 @@ func (rt *serveRuntime) SetupTransfer() {
 	}
 
 	cfg := p2pnet.TransferConfig{
-		ReceiveDir:  rt.config.Transfer.ReceiveDir,
-		MaxSize:     rt.config.Transfer.MaxFileSize,
-		ReceiveMode: p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
-		Compress:    compress,
-		LogPath:     logPath,
+		ReceiveDir:    rt.config.Transfer.ReceiveDir,
+		MaxSize:       rt.config.Transfer.MaxFileSize,
+		ReceiveMode:   p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
+		Compress:      compress,
+		LogPath:       logPath,
+		Notify:        rt.config.Transfer.Notify,
+		NotifyCommand: rt.config.Transfer.NotifyCommand,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())

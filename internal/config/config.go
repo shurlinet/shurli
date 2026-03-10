@@ -47,6 +47,16 @@ type TransferConfig struct {
 	// Default: ~/.config/shurli/logs/transfers.log
 	// Set to empty string to disable transfer logging.
 	LogPath string `yaml:"log_path,omitempty"`
+
+	// Notify controls notifications for incoming transfers.
+	// Values: "none" (default), "desktop" (OS-native), "command" (custom).
+	// Runtime reloadable.
+	Notify string `yaml:"notify,omitempty"`
+
+	// NotifyCommand is the command template for "command" notify mode.
+	// Placeholders: {from} = peer ID, {file} = filename, {size} = size in bytes.
+	// Runtime reloadable.
+	NotifyCommand string `yaml:"notify_command,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for
