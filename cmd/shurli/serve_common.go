@@ -1259,6 +1259,19 @@ func (rt *serveRuntime) SetupTransfer() {
 	}
 	rt.transferService = ts
 
+	// If config specifies timed mode at startup, activate the timer.
+	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
+		durStr := rt.config.Transfer.TimedDuration
+		if durStr == "" {
+			durStr = "10m"
+		}
+		if dur, parseErr := time.ParseDuration(durStr); parseErr == nil {
+			if timedErr := ts.SetTimedMode(dur); timedErr != nil {
+				fmt.Printf("Warning: timed mode failed: %v\n", timedErr)
+			}
+		}
+	}
+
 	// Register the inbound handler as a custom service.
 	// Default policy: LAN + Direct only. Relay is explicitly excluded to protect
 	// relay bandwidth (relays are signaling-only, not data pipes).

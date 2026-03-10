@@ -57,6 +57,11 @@ type TransferConfig struct {
 	// Placeholders: {from} = peer ID, {file} = filename, {size} = size in bytes.
 	// Runtime reloadable.
 	NotifyCommand string `yaml:"notify_command,omitempty"`
+
+	// TimedDuration is the default duration for timed receive mode.
+	// Go duration string (e.g. "10m", "1h"). Default: "10m".
+	// Runtime reloadable.
+	TimedDuration string `yaml:"timed_duration,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

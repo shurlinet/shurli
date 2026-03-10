@@ -188,11 +188,19 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 	// Validate receive_mode value.
 	if newCfg.Transfer.ReceiveMode != "" {
 		switch newCfg.Transfer.ReceiveMode {
-		case "off", "contacts", "ask", "open":
+		case "off", "contacts", "ask", "open", "timed":
 			// valid
 		default:
-			return nil, fmt.Errorf("transfer.receive_mode: invalid value %q (must be off/contacts/ask/open)",
+			return nil, fmt.Errorf("transfer.receive_mode: invalid value %q (must be off/contacts/ask/open/timed)",
 				newCfg.Transfer.ReceiveMode)
+		}
+	}
+
+	// Validate timed_duration if provided.
+	if newCfg.Transfer.TimedDuration != "" {
+		if _, err := time.ParseDuration(newCfg.Transfer.TimedDuration); err != nil {
+			return nil, fmt.Errorf("transfer.timed_duration: invalid duration %q: %w",
+				newCfg.Transfer.TimedDuration, err)
 		}
 	}
 
@@ -224,7 +232,20 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 			newMode = "contacts"
 		}
 		if oldMode != newMode {
-			ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			if newMode == "timed" {
+				// Timed mode: parse duration and activate timer.
+				durStr := newCfg.Transfer.TimedDuration
+				if durStr == "" {
+					durStr = "10m"
+				}
+				dur, _ := time.ParseDuration(durStr) // already validated above
+				if err := ts.SetTimedMode(dur); err != nil {
+					rollbackAll()
+					return nil, fmt.Errorf("transfer.receive_mode timed: %w", err)
+				}
+			} else {
+				ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			}
 			applied = append(applied, rollbackEntry{
 				field:   "transfer.receive_mode",
 				restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
