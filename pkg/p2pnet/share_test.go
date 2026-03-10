@@ -253,3 +253,170 @@ func TestUnshareNotShared(t *testing.T) {
 		t.Fatal("expected error for unsharing non-shared path")
 	}
 }
+
+func TestSavePersistentRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	file1 := filepath.Join(dir, "keep.txt")
+	file2 := filepath.Join(dir, "temp.txt")
+	os.WriteFile(file1, []byte("persistent"), 0644)
+	os.WriteFile(file2, []byte("ephemeral"), 0644)
+
+	persistFile := filepath.Join(dir, "shares.json")
+
+	// Create registry with one persistent and one non-persistent share.
+	reg := NewShareRegistry()
+	reg.SetPersistPath(persistFile)
+	if err := reg.Share(file1, nil, true); err != nil {
+		t.Fatalf("Share persistent: %v", err)
+	}
+	if err := reg.Share(file2, nil, false); err != nil {
+		t.Fatalf("Share non-persistent: %v", err)
+	}
+
+	// Save explicitly.
+	if err := reg.SavePersistent(persistFile); err != nil {
+		t.Fatalf("SavePersistent: %v", err)
+	}
+
+	// Load into new registry.
+	reg2, err := LoadShareRegistry(persistFile)
+	if err != nil {
+		t.Fatalf("LoadShareRegistry: %v", err)
+	}
+
+	shares := reg2.ListShares(nil)
+	if len(shares) != 1 {
+		t.Fatalf("expected 1 persistent share, got %d", len(shares))
+	}
+	if shares[0].Path != file1 {
+		t.Errorf("path: got %q, want %q", shares[0].Path, file1)
+	}
+	if !shares[0].Persistent {
+		t.Error("loaded share should be marked persistent")
+	}
+}
+
+func TestSavePersistentWithPeerACL(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "acl.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	persistFile := filepath.Join(dir, "shares.json")
+
+	peerA, _ := peer.Decode("12D3KooWA7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
+	peerB, _ := peer.Decode("12D3KooWB7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
+
+	reg := NewShareRegistry()
+	if err := reg.Share(file, []peer.ID{peerA}, true); err != nil {
+		t.Fatalf("Share: %v", err)
+	}
+	if err := reg.SavePersistent(persistFile); err != nil {
+		t.Fatalf("SavePersistent: %v", err)
+	}
+
+	reg2, err := LoadShareRegistry(persistFile)
+	if err != nil {
+		t.Fatalf("LoadShareRegistry: %v", err)
+	}
+
+	// peerA should have access.
+	if !reg2.IsPathShared(file, peerA) {
+		t.Error("peerA should have access after reload")
+	}
+	// peerB should not.
+	if reg2.IsPathShared(file, peerB) {
+		t.Error("peerB should not have access after reload")
+	}
+}
+
+func TestLoadShareRegistryMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	persistFile := filepath.Join(dir, "nonexistent.json")
+
+	reg, err := LoadShareRegistry(persistFile)
+	if err != nil {
+		t.Fatalf("LoadShareRegistry should not error on missing file: %v", err)
+	}
+	if len(reg.ListShares(nil)) != 0 {
+		t.Error("expected empty registry from missing file")
+	}
+}
+
+func TestAutoSaveOnShareAndUnshare(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "auto.txt")
+	os.WriteFile(file, []byte("auto"), 0644)
+
+	persistFile := filepath.Join(dir, "shares.json")
+
+	reg := NewShareRegistry()
+	reg.SetPersistPath(persistFile)
+
+	// Share with persistent=true should auto-save.
+	if err := reg.Share(file, nil, true); err != nil {
+		t.Fatalf("Share: %v", err)
+	}
+
+	// File should exist now.
+	if _, err := os.Stat(persistFile); err != nil {
+		t.Fatalf("persist file not created after Share: %v", err)
+	}
+
+	// Load and verify.
+	reg2, err := LoadShareRegistry(persistFile)
+	if err != nil {
+		t.Fatalf("LoadShareRegistry: %v", err)
+	}
+	if len(reg2.ListShares(nil)) != 1 {
+		t.Fatal("expected 1 share after auto-save")
+	}
+
+	// Unshare should auto-save (removing it).
+	if err := reg.Unshare(file); err != nil {
+		t.Fatalf("Unshare: %v", err)
+	}
+
+	reg3, err := LoadShareRegistry(persistFile)
+	if err != nil {
+		t.Fatalf("LoadShareRegistry after unshare: %v", err)
+	}
+	if len(reg3.ListShares(nil)) != 0 {
+		t.Fatal("expected 0 shares after unshare auto-save")
+	}
+}
+
+func TestAtomicWrite(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "atomic.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	persistFile := filepath.Join(dir, "subdir", "shares.json")
+
+	reg := NewShareRegistry()
+	if err := reg.Share(file, nil, true); err != nil {
+		t.Fatalf("Share: %v", err)
+	}
+
+	// SavePersistent should create subdirectory.
+	if err := reg.SavePersistent(persistFile); err != nil {
+		t.Fatalf("SavePersistent: %v", err)
+	}
+
+	// No .tmp file should remain.
+	if _, err := os.Stat(persistFile + ".tmp"); !os.IsNotExist(err) {
+		t.Error("tmp file should not exist after successful save")
+	}
+
+	// Verify JSON is valid and human-readable.
+	data, err := os.ReadFile(persistFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("persist file is empty")
+	}
+	// Should be indented JSON.
+	if data[0] != '{' {
+		t.Errorf("expected JSON object, got %q", string(data[:1]))
+	}
+}

@@ -57,16 +57,144 @@ type BrowseEntry struct {
 }
 
 // ShareRegistry manages shared paths and their per-peer ACLs.
-// Thread-safe. Lives in the daemon, not persisted by default.
+// Thread-safe. Lives in the daemon. Persistent shares survive restarts.
 type ShareRegistry struct {
-	mu     sync.RWMutex
-	shares map[string]*ShareEntry // path -> entry
+	mu          sync.RWMutex
+	shares      map[string]*ShareEntry // path -> entry
+	persistPath string                 // file path for persistent share storage
 }
 
 // NewShareRegistry creates an empty share registry.
 func NewShareRegistry() *ShareRegistry {
 	return &ShareRegistry{
 		shares: make(map[string]*ShareEntry),
+	}
+}
+
+// SetPersistPath sets the file path used for auto-saving persistent shares.
+func (r *ShareRegistry) SetPersistPath(path string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.persistPath = path
+}
+
+// persistentShareFile is the JSON structure written to disk.
+type persistentShareFile struct {
+	Shares []persistentShareEntry `json:"shares"`
+}
+
+// persistentShareEntry is the serializable form of a ShareEntry.
+type persistentShareEntry struct {
+	Path       string   `json:"path"`
+	PeerIDs    []string `json:"peers,omitempty"`
+	SharedAt   int64    `json:"shared_at"`
+	IsDir      bool     `json:"is_dir"`
+}
+
+// SavePersistent writes all persistent shares to the given path.
+// Uses atomic write (tmp + rename) to prevent corruption.
+func (r *ShareRegistry) SavePersistent(path string) error {
+	r.mu.RLock()
+	var entries []persistentShareEntry
+	for _, entry := range r.shares {
+		if !entry.Persistent {
+			continue
+		}
+		pe := persistentShareEntry{
+			Path:     entry.Path,
+			SharedAt: entry.SharedAt.Unix(),
+			IsDir:    entry.IsDir,
+		}
+		if entry.Peers != nil {
+			for pid := range entry.Peers {
+				pe.PeerIDs = append(pe.PeerIDs, pid.String())
+			}
+		}
+		entries = append(entries, pe)
+	}
+	r.mu.RUnlock()
+
+	data, err := json.MarshalIndent(persistentShareFile{Shares: entries}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal shares: %w", err)
+	}
+
+	// Atomic write: tmp file + rename.
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename: %w", err)
+	}
+
+	return nil
+}
+
+// LoadShareRegistry loads persistent shares from a JSON file.
+// Returns an empty registry if the file does not exist.
+func LoadShareRegistry(path string) (*ShareRegistry, error) {
+	reg := NewShareRegistry()
+	reg.persistPath = path
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return reg, nil
+		}
+		return nil, fmt.Errorf("read shares file: %w", err)
+	}
+
+	var file persistentShareFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("parse shares file: %w", err)
+	}
+
+	for _, pe := range file.Shares {
+		var peerMap map[peer.ID]bool
+		if len(pe.PeerIDs) > 0 {
+			peerMap = make(map[peer.ID]bool, len(pe.PeerIDs))
+			for _, pidStr := range pe.PeerIDs {
+				pid, err := peer.Decode(pidStr)
+				if err != nil {
+					slog.Warn("share-persistence: skipping invalid peer ID", "peer", pidStr, "err", err)
+					continue
+				}
+				peerMap[pid] = true
+			}
+		}
+
+		reg.shares[pe.Path] = &ShareEntry{
+			Path:       pe.Path,
+			Peers:      peerMap,
+			Persistent: true,
+			SharedAt:   time.Unix(pe.SharedAt, 0),
+			IsDir:      pe.IsDir,
+		}
+	}
+
+	slog.Info("share-persistence: loaded shares", "count", len(file.Shares))
+	return reg, nil
+}
+
+// savePersistentIfNeeded saves persistent shares if a persist path is configured.
+// Called internally after Share/Unshare. Caller must NOT hold r.mu.
+func (r *ShareRegistry) savePersistentIfNeeded() {
+	r.mu.RLock()
+	path := r.persistPath
+	r.mu.RUnlock()
+
+	if path == "" {
+		return
+	}
+	if err := r.SavePersistent(path); err != nil {
+		slog.Warn("share-persistence: auto-save failed", "err", err)
 	}
 }
 
@@ -93,8 +221,6 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.shares[absPath] = &ShareEntry{
 		Path:       absPath,
 		Peers:      peerMap,
@@ -102,7 +228,9 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 		SharedAt:   time.Now(),
 		IsDir:      info.IsDir(),
 	}
+	r.mu.Unlock()
 
+	r.savePersistentIfNeeded()
 	return nil
 }
 
@@ -114,12 +242,14 @@ func (r *ShareRegistry) Unshare(path string) error {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if _, ok := r.shares[absPath]; !ok {
+		r.mu.Unlock()
 		return fmt.Errorf("path %q not shared", absPath)
 	}
 	delete(r.shares, absPath)
+	r.mu.Unlock()
+
+	r.savePersistentIfNeeded()
 	return nil
 }
 
