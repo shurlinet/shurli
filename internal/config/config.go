@@ -67,6 +67,11 @@ type TransferConfig struct {
 	// 0.10 = 10% parity chunks. 0 = disabled. Default: 0.1 (10%).
 	// Auto-enabled on Direct WAN connections.
 	ErasureOverhead *float64 `yaml:"erasure_overhead,omitempty"`
+
+	// MaxConcurrent limits the number of concurrent outbound transfers.
+	// Transfers beyond this limit are queued with priority ordering.
+	// Default: 5. Minimum: 1.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

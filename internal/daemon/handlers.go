@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -75,6 +74,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/transfers/{id}", s.handleTransferStatus)
 	mux.HandleFunc("POST /v1/transfers/{id}/accept", s.handleTransferAccept)
 	mux.HandleFunc("POST /v1/transfers/{id}/reject", s.handleTransferReject)
+	mux.HandleFunc("POST /v1/transfers/{id}/cancel", s.handleTransferCancel)
 }
 
 // --- Format helpers ---
@@ -1281,13 +1281,6 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// streams as soon as the response is sent.
 	streamCtx := context.Background()
 
-	// Open stream respecting plugin transport policy (relay blocked by default).
-	stream, err := pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
-	if err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open stream to peer: %v", err))
-		return
-	}
-
 	// Build stream opener for parallel transfers and directory sends.
 	opener := func() (network.Stream, error) {
 		return pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
@@ -1298,51 +1291,25 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		StreamOpener: opener,
 	}
 
-	// Check if path is a directory.
-	pathInfo, statErr := os.Stat(req.Path)
-	if statErr != nil {
-		stream.Close()
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot access path: %v", statErr))
-		return
+	// Parse priority.
+	priority := p2pnet.PriorityNormal
+	switch strings.ToLower(req.Priority) {
+	case "low":
+		priority = p2pnet.PriorityLow
+	case "high":
+		priority = p2pnet.PriorityHigh
 	}
 
-	if pathInfo.IsDir() {
-		// Directory transfer: close the pre-opened stream (SendDirectory opens its own).
-		stream.Close()
-
-		// Run directory transfer in background.
-		go func() {
-			allProgress, dirErr := ts.SendDirectory(streamCtx, req.Path, opener, sendOpts)
-			if dirErr != nil {
-				slog.Error("directory transfer failed",
-					"dir", req.Path, "peer", req.Peer, "error", dirErr,
-					"files_sent", len(allProgress))
-			} else {
-				slog.Info("directory transfer complete",
-					"dir", req.Path, "peer", req.Peer, "files", len(allProgress))
-			}
-		}()
-
-		respondJSON(w, http.StatusOK, SendResponse{
-			TransferID: "dir-" + fmt.Sprintf("%d", time.Now().UnixNano()),
-			Filename:   pathInfo.Name(),
-			Size:       0,
-			PeerID:     targetPeerID.String(),
-		})
-		return
-	}
-
-	// Single file: SendFile runs in background; returns progress tracker immediately.
-	progress, err := ts.SendFile(stream, req.Path, sendOpts)
+	// Submit to transfer queue (handles both files and directories).
+	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
 	if err != nil {
-		stream.Close()
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
 		return
 	}
 
 	snap := progress.Snapshot()
-	slog.Info("file transfer started via API",
-		"id", snap.ID, "file", snap.Filename, "peer", req.Peer, "size", snap.Size)
+	slog.Info("file transfer queued via API",
+		"id", snap.ID, "file", snap.Filename, "peer", req.Peer, "status", snap.Status)
 
 	respondJSON(w, http.StatusOK, SendResponse{
 		TransferID: snap.ID,
@@ -1676,6 +1643,28 @@ func (s *Server) handleTransferReject(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("transfer rejected via API", "id", id, "reason", req.Reason)
 	respondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
+}
+
+func (s *Server) handleTransferCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	if !ts.CancelTransfer(id) {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found or already completed", id))
+		return
+	}
+
+	slog.Info("transfer cancelled via API", "id", id)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
