@@ -263,9 +263,11 @@ type ShareInfo struct {
 
 // DownloadRequest is the body for POST /v1/download.
 type DownloadRequest struct {
-	Peer       string `json:"peer"`        // peer name or ID
-	RemotePath string `json:"remote_path"` // path on the remote peer's share
-	LocalDest  string `json:"local_dest"`  // local directory to save into (empty = configured receive dir)
+	Peer       string   `json:"peer"`                  // peer name or ID
+	RemotePath string   `json:"remote_path"`           // path on the remote peer's share
+	LocalDest  string   `json:"local_dest"`            // local directory to save into (empty = configured receive dir)
+	MultiPeer  bool     `json:"multi_peer,omitempty"`   // enable multi-peer swarming download
+	ExtraPeers []string `json:"extra_peers,omitempty"` // additional peer names/IDs that have the file
 }
 
 // DownloadResponse is returned by POST /v1/download.

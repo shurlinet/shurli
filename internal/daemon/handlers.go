@@ -1264,29 +1264,78 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	pnet := s.runtime.Network()
 
-	// Resolve peer name.
+	// Resolve primary peer name.
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
-	// Ensure the peer is reachable.
+	// Ensure the primary peer is reachable.
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
 		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
-		return
-	}
-
-	// Open download protocol stream.
-	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
-	if err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
 		return
 	}
 
 	destDir := req.LocalDest
 	if destDir == "" {
 		destDir = ts.ReceiveDir()
+	}
+
+	// Multi-peer download: requires --multi-peer flag, extra peers, and multi-peer enabled.
+	if req.MultiPeer && ts.MultiPeerEnabled() && len(req.ExtraPeers) > 0 {
+		allPeers := []peer.ID{targetPeerID}
+		for _, name := range req.ExtraPeers {
+			pid, resolveErr := pnet.ResolveName(name)
+			if resolveErr != nil {
+				slog.Warn("multi-peer: cannot resolve extra peer", "name", name, "error", resolveErr)
+				continue
+			}
+			if connectErr := s.runtime.ConnectToPeer(r.Context(), pid); connectErr != nil {
+				slog.Warn("multi-peer: cannot reach extra peer", "name", name, "error", connectErr)
+				continue
+			}
+			allPeers = append(allPeers, pid)
+		}
+
+		// Need at least 2 reachable peers for multi-peer.
+		if len(allPeers) >= 2 {
+			// Get root hash by doing a browse + hash lookup, or probe.
+			// For now: get the root hash from the first peer by doing a quick
+			// single-peer manifest probe. We use the download stream to get the
+			// manifest, then cancel and switch to multi-peer.
+			rootHash, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
+				return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
+			}, req.RemotePath)
+			if probeErr == nil {
+				opener := func(pid peer.ID) (network.Stream, error) {
+					return pnet.OpenPluginStream(r.Context(), pid, "file-multi-peer")
+				}
+				progress, dlErr := ts.DownloadMultiPeer(r.Context(), rootHash, allPeers, opener, destDir)
+				if dlErr == nil {
+					snap := progress.Snapshot()
+					slog.Info("multi-peer download started via API",
+						"id", snap.ID, "file", snap.Filename, "peers", len(allPeers))
+					respondJSON(w, http.StatusOK, DownloadResponse{
+						TransferID: snap.ID,
+						FileName:   snap.Filename,
+						FileSize:   snap.Size,
+					})
+					return
+				}
+				slog.Warn("multi-peer download failed, falling back to single-peer", "error", dlErr)
+			} else {
+				slog.Warn("root hash probe failed, falling back to single-peer", "error", probeErr)
+			}
+		}
+		// Fall through to single-peer download.
+	}
+
+	// Single-peer download (default path).
+	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
+		return
 	}
 
 	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)

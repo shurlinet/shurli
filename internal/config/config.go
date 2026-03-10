@@ -72,6 +72,21 @@ type TransferConfig struct {
 	// Transfers beyond this limit are queued with priority ordering.
 	// Default: 5. Minimum: 1.
 	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
+
+	// MultiPeerEnabled enables multi-peer swarming downloads using RaptorQ
+	// fountain codes. When a file is available from multiple peers, the
+	// receiver downloads from all of them simultaneously.
+	// Default: true.
+	MultiPeerEnabled *bool `yaml:"multi_peer_enabled,omitempty"`
+
+	// MultiPeerMaxPeers limits how many peers to download from simultaneously.
+	// Default: 4.
+	MultiPeerMaxPeers int `yaml:"multi_peer_max_peers,omitempty"`
+
+	// MultiPeerMinSize is the minimum file size (bytes) for multi-peer download.
+	// Files smaller than this use single-peer transfer.
+	// Default: 10485760 (10 MB).
+	MultiPeerMinSize int64 `yaml:"multi_peer_min_size,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

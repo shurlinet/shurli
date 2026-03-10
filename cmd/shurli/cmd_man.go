@@ -359,12 +359,14 @@ Browse files and directories shared by a remote peer. Use \fB--path\fR
 to navigate within a specific shared directory. Only shows content the
 remote peer has explicitly shared with you.
 .TP
-.B download \fIpeer\fR:\fIpath\fR [\fB--dest\fR \fIdir\fR] [\fB--follow\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
+.B download \fIpeer\fR:\fIpath\fR [\fB--dest\fR \fIdir\fR] [\fB--follow\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--multi-peer\fR] [\fB--peers\fR \fIlist\fR] [\fB--json\fR]
 Download a file from a remote peer's shared files. The argument uses
 \fIpeer\fR:\fIpath\fR format where the path is as shown by
 \fBshurli browse\fR. Use \fB--dest\fR to save to a specific local
 directory (default: configured receive directory). Use \fB--follow\fR
-to watch progress inline. Requires a running daemon.
+to watch progress inline. Use \fB--multi-peer\fR with \fB--peers\fR
+to download from multiple peers simultaneously using RaptorQ fountain
+codes for loss-tolerant swarming. Requires a running daemon.
 .TP
 .B transfers \fR[\fB--watch\fR] [\fB--json\fR]
 List pending, active, and completed file transfers. Shows direction, peer,
