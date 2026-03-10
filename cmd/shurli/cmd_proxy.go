@@ -39,9 +39,12 @@ func runProxy(args []string) {
 	serviceName := remaining[1]
 	localPort := remaining[2]
 
+	// Standalone allowed via CLI flag or config setting.
+	allowStandalone := *standaloneFlag || configAllowsStandalone(*configFlag)
+
 	// Try daemon first (faster, uses daemon's managed connection with
 	// PeerManager path upgrades, mDNS, IPv6 probing).
-	if !*standaloneFlag {
+	if !allowStandalone {
 		if client := tryDaemonClient(); client != nil {
 			runProxyViaDaemon(client, target, serviceName, localPort)
 			return
@@ -49,7 +52,7 @@ func runProxy(args []string) {
 	}
 
 	// Standalone P2P host (no daemon running, or --standalone forced)
-	runProxyStandalone(target, serviceName, localPort, *configFlag, *standaloneFlag)
+	runProxyStandalone(target, serviceName, localPort, *configFlag, allowStandalone)
 }
 
 // runProxyViaDaemon creates a TCP proxy through the running daemon.
@@ -101,17 +104,19 @@ func runProxyViaDaemon(client *daemon.Client, target, service, port string) {
 
 // runProxyStandalone creates a TCP proxy with its own P2P host.
 // Used when no daemon is running (debug/development mode).
-func runProxyStandalone(target, serviceName, localPort, configPath string, forceStandalone bool) {
+func runProxyStandalone(target, serviceName, localPort, configPath string, allowStandalone bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Require explicit --standalone when daemon is not available.
-	if !forceStandalone {
+	// Require explicit --standalone or config setting when daemon is not available.
+	if !allowStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
 		fmt.Println("Or use --standalone flag for direct P2P (debug):")
 		fmt.Printf("  shurli proxy --standalone %s %s %s\n", target, serviceName, localPort)
+		fmt.Println()
+		fmt.Println("Or set cli.allow_standalone: true in config for persistent standalone access.")
 		osExit(1)
 	}
 

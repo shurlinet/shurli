@@ -508,6 +508,21 @@ func tryDaemonClient() *daemon.Client {
 	return c
 }
 
+// configAllowsStandalone loads the node config and returns true if
+// cli.allow_standalone is set. Returns false on any config load error
+// (missing config is not an error condition for this check).
+func configAllowsStandalone(configPath string) bool {
+	cfgFile, err := config.FindConfigFile(configPath)
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		return false
+	}
+	return cfg.CLI.AllowStandalone
+}
+
 // --- Client subcommands ---
 
 func runDaemonStatus(args []string) {
