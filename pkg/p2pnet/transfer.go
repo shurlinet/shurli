@@ -171,6 +171,7 @@ type TransferConfig struct {
 	LogPath         string      // path for transfer event log (empty = disabled)
 	Notify          string      // notification mode: "none" (default), "desktop", "command"
 	NotifyCommand   string      // command template for "command" mode ({from}, {file}, {size})
+	MaxConcurrent   int         // max concurrent outbound transfers (default: 5, min: 1)
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -219,6 +220,10 @@ type TransferService struct {
 	notifier        *TransferNotifier
 
 	inboundSem chan struct{}
+
+	// Outbound transfer queue with priority ordering and concurrency limit.
+	queue      *TransferQueue
+	queueReady chan struct{} // signaled when a queue slot frees up
 
 	mu          sync.RWMutex
 	transfers   map[string]*TransferProgress
@@ -277,6 +282,11 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 
 	notifier := NewTransferNotifier(cfg.Notify, cfg.NotifyCommand)
 
+	maxConcurrent := cfg.MaxConcurrent
+	if maxConcurrent < 1 {
+		maxConcurrent = 5
+	}
+
 	return &TransferService{
 		receiveDir:      dir,
 		maxSize:         cfg.MaxSize,
@@ -288,6 +298,8 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		logger:          logger,
 		notifier:        notifier,
 		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
+		queue:           NewTransferQueue(maxConcurrent),
+		queueReady:      make(chan struct{}, 1),
 		transfers:       make(map[string]*TransferProgress),
 		peerInbound:     make(map[string]int),
 		pending:         make(map[string]*PendingTransfer),
@@ -1724,15 +1736,193 @@ func (ts *TransferService) GetTransfer(id string) (*TransferProgress, bool) {
 	return p, ok
 }
 
-// ListTransfers returns snapshots of all tracked transfers.
+// ListTransfers returns snapshots of all tracked transfers, including queued items.
 func (ts *TransferService) ListTransfers() []TransferProgress {
 	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	result := make([]TransferProgress, 0, len(ts.transfers))
+	activeTransfers := make([]TransferProgress, 0, len(ts.transfers))
 	for _, p := range ts.transfers {
-		result = append(result, p.Snapshot())
+		activeTransfers = append(activeTransfers, p.Snapshot())
 	}
+	ts.mu.RUnlock()
+
+	// Include queued (pending) transfers as synthetic progress entries.
+	queued := ts.queue.Pending()
+	result := make([]TransferProgress, 0, len(activeTransfers)+len(queued))
+	for _, qt := range queued {
+		result = append(result, TransferProgress{
+			ID:        qt.ID,
+			Filename:  filepath.Base(qt.FilePath),
+			PeerID:    qt.PeerID,
+			Direction: qt.Direction,
+			Status:    "queued",
+			StartTime: qt.QueuedAt,
+		})
+	}
+	result = append(result, activeTransfers...)
 	return result
+}
+
+// queuedJob holds everything needed to execute a queued transfer.
+type queuedJob struct {
+	queueID    string
+	filePath   string
+	isDir      bool
+	peerID     string
+	priority   TransferPriority
+	opts       SendOptions
+	openStream streamOpener
+	progress   *TransferProgress // synthetic "queued" progress visible to CLI
+}
+
+// SubmitSend enqueues an outbound transfer. If a slot is available it starts
+// immediately; otherwise it waits in the priority queue. Returns a progress
+// tracker with status "queued" or "active".
+func (ts *TransferService) SubmitSend(filePath, peerID string, priority TransferPriority, openStream streamOpener, opts SendOptions) (*TransferProgress, error) {
+	// Validate path exists before queuing.
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot access path: %w", err)
+	}
+
+	queueID := ts.queue.Enqueue(filePath, peerID, "send", priority)
+
+	progress := &TransferProgress{
+		ID:        queueID,
+		Filename:  filepath.Base(filePath),
+		PeerID:    peerID,
+		Direction: "send",
+		Status:    "queued",
+		StartTime: time.Now(),
+	}
+
+	// Track the queued progress so CLI can poll it.
+	ts.mu.Lock()
+	ts.transfers[queueID] = progress
+	ts.mu.Unlock()
+
+	job := &queuedJob{
+		queueID:    queueID,
+		filePath:   filePath,
+		isDir:      info.IsDir(),
+		peerID:     peerID,
+		priority:   priority,
+		opts:       opts,
+		openStream: openStream,
+		progress:   progress,
+	}
+
+	go ts.processQueuedJob(job)
+
+	return progress, nil
+}
+
+// processQueuedJob waits for a queue slot, then executes the transfer.
+func (ts *TransferService) processQueuedJob(job *queuedJob) {
+	// Spin-wait on the queue until this job is dequeued (has a slot).
+	for {
+		qt := ts.queue.Dequeue()
+		if qt != nil && qt.ID == job.queueID {
+			// This job got a slot.
+			break
+		}
+		if qt != nil {
+			// Put it back - different job got dequeued. This shouldn't happen
+			// because each job has its own goroutine, but be safe.
+			ts.queue.Complete(qt.ID)
+		}
+		// Wait for a signal that a slot freed up, or poll.
+		select {
+		case <-ts.queueReady:
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+
+	job.progress.setStatus("active")
+
+	var finalErr error
+	if job.isDir {
+		_, finalErr = ts.SendDirectory(context.Background(), job.filePath, job.openStream, job.opts)
+	} else {
+		stream, err := job.openStream()
+		if err != nil {
+			finalErr = fmt.Errorf("open stream: %w", err)
+		} else {
+			// SendFile runs in background and updates progress internally.
+			// We need to wait for it to complete.
+			sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
+			if sendErr != nil {
+				finalErr = sendErr
+			} else {
+				// Copy the real transfer's progress into our queued progress tracker.
+				// Poll until send completes.
+				for {
+					snap := sendProgress.Snapshot()
+					job.progress.mu.Lock()
+					job.progress.Size = snap.Size
+					job.progress.Transferred = snap.Transferred
+					job.progress.ChunksTotal = snap.ChunksTotal
+					job.progress.ChunksDone = snap.ChunksDone
+					job.progress.Compressed = snap.Compressed
+					job.progress.mu.Unlock()
+					if snap.Done {
+						if snap.Error != "" {
+							finalErr = fmt.Errorf("%s", snap.Error)
+						}
+						break
+					}
+					time.Sleep(200 * time.Millisecond)
+				}
+			}
+		}
+	}
+
+	job.progress.finish(finalErr)
+
+	if finalErr != nil {
+		slog.Error("queued transfer failed",
+			"id", job.queueID, "path", job.filePath, "peer", job.peerID, "error", finalErr)
+	} else {
+		slog.Info("queued transfer complete",
+			"id", job.queueID, "path", job.filePath, "peer", job.peerID)
+	}
+
+	// Free the queue slot and notify waiting jobs.
+	ts.queue.Complete(job.queueID)
+	select {
+	case ts.queueReady <- struct{}{}:
+	default:
+	}
+}
+
+// CancelTransfer cancels a queued or active transfer by ID.
+// Returns true if the transfer was found and cancelled.
+func (ts *TransferService) CancelTransfer(id string) bool {
+	// Try queue first (pending items).
+	if ts.queue.Cancel(id) {
+		// Mark progress as failed/cancelled.
+		ts.mu.Lock()
+		if p, ok := ts.transfers[id]; ok {
+			p.finish(fmt.Errorf("cancelled"))
+		}
+		ts.mu.Unlock()
+
+		// Notify waiters that a slot freed up.
+		select {
+		case ts.queueReady <- struct{}{}:
+		default:
+		}
+		return true
+	}
+
+	// For active transfers, mark as cancelled (best effort - the goroutine
+	// will see the status change on next progress check).
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if p, ok := ts.transfers[id]; ok && !p.Done {
+		p.finish(fmt.Errorf("cancelled"))
+		return true
+	}
+	return false
 }
 
 // SetReceiveMode changes the receive mode at runtime.

@@ -917,3 +917,199 @@ func TestTimedModeRemainingWhenNotActive(t *testing.T) {
 		t.Errorf("TimedModeRemaining when not timed: got %v, want 0", rem)
 	}
 }
+
+func TestTransferServiceQueueInitialized(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:    dir,
+		Compress:      true,
+		MaxConcurrent: 3,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	if ts.queue == nil {
+		t.Fatal("queue should be initialized")
+	}
+	if ts.queue.maxActive != 3 {
+		t.Errorf("queue maxActive: got %d, want 3", ts.queue.maxActive)
+	}
+}
+
+func TestTransferServiceQueueDefaultMax(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	if ts.queue.maxActive != 5 {
+		t.Errorf("queue maxActive: got %d, want 5 (default)", ts.queue.maxActive)
+	}
+}
+
+func TestSubmitSendInvalidPath(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	_, err := ts.SubmitSend("/nonexistent/path", "peer1", PriorityNormal, nil, SendOptions{})
+	if err == nil {
+		t.Fatal("expected error for nonexistent path")
+	}
+}
+
+func TestSubmitSendCreatesQueuedProgress(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a test file to send.
+	testFile := filepath.Join(dir, "test.txt")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	// We can't use a real streamOpener without libp2p, so test the queue tracking
+	// directly via the queue + transfers map.
+	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	progress := &TransferProgress{
+		ID:        qID,
+		Filename:  "test.txt",
+		PeerID:    "peer1",
+		Direction: "send",
+		Status:    "queued",
+	}
+	ts.mu.Lock()
+	ts.transfers[qID] = progress
+	ts.mu.Unlock()
+
+	// Verify it appears in ListTransfers.
+	transfers := ts.ListTransfers()
+	found := false
+	for _, tr := range transfers {
+		if tr.ID == qID && tr.Status == "queued" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("queued transfer not found in ListTransfers")
+	}
+}
+
+func TestCancelQueuedTransfer(t *testing.T) {
+	dir := t.TempDir()
+
+	testFile := filepath.Join(dir, "cancel-me.txt")
+	os.WriteFile(testFile, []byte("data"), 0644)
+
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	// Enqueue and track.
+	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	progress := &TransferProgress{
+		ID:       qID,
+		Filename: "cancel-me.txt",
+		PeerID:   "peer1",
+		Status:   "queued",
+	}
+	ts.mu.Lock()
+	ts.transfers[qID] = progress
+	ts.mu.Unlock()
+
+	// Cancel should succeed.
+	if !ts.CancelTransfer(qID) {
+		t.Fatal("CancelTransfer should return true for queued item")
+	}
+
+	// Progress should show cancelled.
+	ts.mu.RLock()
+	p := ts.transfers[qID]
+	ts.mu.RUnlock()
+	snap := p.Snapshot()
+	if snap.Status != "failed" || snap.Error != "cancelled" {
+		t.Errorf("cancelled transfer: status=%q error=%q, want failed/cancelled", snap.Status, snap.Error)
+	}
+
+	// Cancel again should fail (already removed from queue).
+	if ts.CancelTransfer(qID) {
+		t.Error("second CancelTransfer should return false")
+	}
+}
+
+func TestListTransfersIncludesQueued(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	// Add items to queue (without executing).
+	ts.queue.Enqueue("/file1", "peer1", "send", PriorityHigh)
+	ts.queue.Enqueue("/file2", "peer2", "send", PriorityNormal)
+
+	// Also track an active transfer.
+	ts.trackTransfer("active.txt", 1024, "peer3", "send", 10, true)
+
+	transfers := ts.ListTransfers()
+
+	// Should have 2 queued + 1 active = 3.
+	if len(transfers) != 3 {
+		t.Fatalf("expected 3 transfers, got %d", len(transfers))
+	}
+
+	// Queued items should appear first with status "queued".
+	queuedCount := 0
+	for _, tr := range transfers {
+		if tr.Status == "queued" {
+			queuedCount++
+		}
+	}
+	if queuedCount != 2 {
+		t.Errorf("expected 2 queued transfers, got %d", queuedCount)
+	}
+}
+
+func TestCancelActiveTransfer(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	// Create an active (non-done) transfer.
+	p := ts.trackTransfer("active.txt", 1024, "peer1", "send", 10, true)
+
+	if !ts.CancelTransfer(p.ID) {
+		t.Fatal("CancelTransfer should succeed for active transfer")
+	}
+
+	snap := p.Snapshot()
+	if snap.Status != "failed" || snap.Error != "cancelled" {
+		t.Errorf("cancelled active: status=%q error=%q, want failed/cancelled", snap.Status, snap.Error)
+	}
+}
+
+func TestCancelCompletedTransferFails(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	p := ts.trackTransfer("done.txt", 1024, "peer1", "send", 10, true)
+	p.finish(nil) // mark as complete
+
+	if ts.CancelTransfer(p.ID) {
+		t.Error("CancelTransfer should return false for completed transfer")
+	}
+}

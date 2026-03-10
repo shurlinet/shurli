@@ -368,8 +368,8 @@ func (c *Client) BrowseText(peer, subPath string) (string, error) {
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.
-func (c *Client) Send(filePath, peer string, noCompress bool, streams int) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams}
+func (c *Client) Send(filePath, peer string, noCompress bool, streams int, priority string) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority}
 	body, _ := json.Marshal(req)
 	var resp SendResponse
 	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
@@ -427,6 +427,11 @@ func (c *Client) TransferReject(id, reason string) error {
 	req := TransferRejectRequest{Reason: reason}
 	body, _ := json.Marshal(req)
 	return c.doJSON("POST", "/v1/transfers/"+id+"/reject", strings.NewReader(string(body)), nil)
+}
+
+// CancelTransfer cancels a queued or active transfer by ID.
+func (c *Client) CancelTransfer(id string) error {
+	return c.doJSON("POST", "/v1/transfers/"+id+"/cancel", nil, nil)
 }
 
 // --- Invite methods ---
