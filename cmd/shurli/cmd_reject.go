@@ -13,15 +13,18 @@ func runReject(args []string) {
 	fs := flag.NewFlagSet("reject", flag.ExitOnError)
 	reasonFlag := fs.String("reason", "", "reject reason: space, busy, or size")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
+	allFlag := fs.Bool("all", false, "reject all pending transfers")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
-	if len(remaining) < 1 {
+	if !*allFlag && len(remaining) < 1 {
 		fmt.Println("Usage: shurli reject <id> [--reason space|busy|size] [--json]")
+		fmt.Println("       shurli reject --all [--reason space|busy|size] [--json]")
 		fmt.Println()
 		fmt.Println("Reject a pending incoming file transfer (ask mode).")
 		fmt.Println()
 		fmt.Println("Options:")
+		fmt.Println("  --all         Reject all pending transfers")
 		fmt.Println("  --reason <r>  Announce reject reason to sender (space, busy, size)")
 		fmt.Println("                Without --reason, sender sees generic 'declined'")
 		fmt.Println("  --json        Output as JSON")
@@ -29,8 +32,6 @@ func runReject(args []string) {
 		fmt.Println("Use 'shurli transfers' to see pending transfers.")
 		osExit(1)
 	}
-
-	id := remaining[0]
 
 	// Validate reason flag.
 	reason := *reasonFlag
@@ -44,6 +45,33 @@ func runReject(args []string) {
 		fmt.Println("  shurli daemon")
 		osExit(1)
 	}
+
+	if *allFlag {
+		pending, err := client.TransferPending()
+		if err != nil {
+			fatal("Failed to list pending transfers: %v", err)
+		}
+		if len(pending) == 0 {
+			tc.Wfaint(os.Stdout, "No pending transfers.\n")
+			return
+		}
+		for _, p := range pending {
+			if err := client.TransferReject(p.ID, reason); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: reject %s failed: %v\n", p.ID, err)
+				continue
+			}
+			if *jsonFlag {
+				enc := json.NewEncoder(os.Stdout)
+				enc.Encode(map[string]string{"status": "rejected", "id": p.ID, "reason": reason})
+			} else {
+				tc.Wfaint(os.Stdout, "Rejected")
+				fmt.Printf(" %s (%s from %s)\n", p.ID, p.Filename, p.PeerID)
+			}
+		}
+		return
+	}
+
+	id := remaining[0]
 
 	if err := client.TransferReject(id, reason); err != nil {
 		if *jsonFlag {
