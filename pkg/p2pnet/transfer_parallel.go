@@ -381,17 +381,19 @@ func (ts *TransferService) receiveParallel(
 	compressed := session.compressed
 	hasErasure := session.hasErasure
 	progress := session.progress
-	totalExpected := m.ChunkCount + m.ParityCount
 
 	// Seed progress from checkpoint.
-	var totalWritten int64
 	if have.count() > 0 {
+		var seeded int64
 		for i := 0; i < m.ChunkCount; i++ {
 			if have.has(i) {
-				totalWritten += int64(m.ChunkSizes[i])
+				seeded += int64(m.ChunkSizes[i])
 			}
 		}
-		progress.updateChunks(totalWritten, have.count())
+		session.mu.Lock()
+		session.totalWritten = seeded
+		session.mu.Unlock()
+		progress.updateChunks(seeded, have.count())
 	}
 
 	// Process a single chunk (from any source).
@@ -457,19 +459,22 @@ func (ts *TransferService) receiveParallel(
 
 		session.mu.Lock()
 		have.set(index)
-		totalWritten += int64(len(chunkData))
-		session.totalWritten = totalWritten
+		session.totalWritten += int64(len(chunkData))
+		tw := session.totalWritten
+		haveCount := have.count()
 		session.mu.Unlock()
 
-		progress.updateChunks(totalWritten, have.count())
+		progress.updateChunks(tw, haveCount)
 		return nil
 	}
 
 	// Read from control stream + parallel chunk channel concurrently.
+	// The control goroutine reads until it gets the done signal (index == -1)
+	// or an error. It does not count frames to avoid racing with workers
+	// that also update the have bitfield.
 	controlDone := make(chan error, 1)
 	go func() {
-		framesRead := 0
-		for framesRead < totalExpected-have.count() {
+		for {
 			index, wireData, err := readChunkFrame(controlReader)
 			if err != nil {
 				controlDone <- fmt.Errorf("control read: %w", err)
@@ -482,7 +487,6 @@ func (ts *TransferService) receiveParallel(
 				controlDone <- err
 				return
 			}
-			framesRead++
 		}
 		controlDone <- nil
 	}()
@@ -537,9 +541,9 @@ func (ts *TransferService) receiveParallel(
 		}
 		for _, idx := range corrupted {
 			have.set(idx)
-			totalWritten += int64(m.ChunkSizes[idx])
+			session.totalWritten += int64(m.ChunkSizes[idx])
 		}
-		progress.updateChunks(totalWritten, have.count())
+		progress.updateChunks(session.totalWritten, have.count())
 	} else if have.missing() > 0 {
 		return fmt.Errorf("transfer incomplete: %d chunks missing", have.missing())
 	}
