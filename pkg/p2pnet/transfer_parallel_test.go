@@ -363,7 +363,7 @@ func TestReceiveParallelSingleStream(t *testing.T) {
 func TestWorkerCleanupOnSessionDone(t *testing.T) {
 	session := &parallelSession{
 		done:   make(chan struct{}),
-		chunks: make(chan parallelChunk, 5),
+		chunks: make(chan parallelChunk), // unbuffered: send blocks without receiver
 		manifest: &transferManifest{ChunkCount: 10},
 	}
 

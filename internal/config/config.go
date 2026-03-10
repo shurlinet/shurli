@@ -62,6 +62,11 @@ type TransferConfig struct {
 	// Go duration string (e.g. "10m", "1h"). Default: "10m".
 	// Runtime reloadable.
 	TimedDuration string `yaml:"timed_duration,omitempty"`
+
+	// ErasureOverhead controls Reed-Solomon parity overhead for transfers.
+	// 0.10 = 10% parity chunks. 0 = disabled. Default: 0.1 (10%).
+	// Auto-enabled on Direct WAN connections.
+	ErasureOverhead *float64 `yaml:"erasure_overhead,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for
