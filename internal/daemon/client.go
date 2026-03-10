@@ -365,6 +365,26 @@ func (c *Client) BrowseText(peer, subPath string) (string, error) {
 	return c.doText("POST", "/v1/browse", strings.NewReader(string(body)))
 }
 
+// --- Download methods ---
+
+// Download initiates a receiver-side file download from a peer's shared files.
+func (c *Client) Download(peer, remotePath, localDest string) (*DownloadResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest}
+	body, _ := json.Marshal(req)
+	var resp DownloadResponse
+	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DownloadText initiates a download and returns a plain text summary.
+func (c *Client) DownloadText(peer, remotePath, localDest string) (string, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest}
+	body, _ := json.Marshal(req)
+	return c.doText("POST", "/v1/download", strings.NewReader(string(body)))
+}
+
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.

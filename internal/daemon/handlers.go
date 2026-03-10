@@ -61,6 +61,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/shares", s.handleShareAdd)
 	mux.HandleFunc("DELETE /v1/shares", s.handleShareRemove)
 	mux.HandleFunc("POST /v1/browse", s.handleBrowse)
+	mux.HandleFunc("POST /v1/download", s.handleDownload)
 
 	// Config
 	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
@@ -1240,6 +1241,69 @@ func humanSizeAPI(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// --- Download handler ---
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	var req DownloadRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Peer == "" || req.RemotePath == "" {
+		respondError(w, http.StatusBadRequest, "peer and remote_path are required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the peer is reachable.
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Open download protocol stream.
+	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
+		return
+	}
+
+	destDir := req.LocalDest
+	if destDir == "" {
+		destDir = ts.ReceiveDir()
+	}
+
+	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
+		return
+	}
+
+	snap := progress.Snapshot()
+	slog.Info("file download started via API",
+		"id", snap.ID, "file", snap.Filename, "peer", req.Peer)
+
+	respondJSON(w, http.StatusOK, DownloadResponse{
+		TransferID: snap.ID,
+		FileName:   snap.Filename,
+		FileSize:   snap.Size,
+	})
 }
 
 // --- File transfer handlers ---

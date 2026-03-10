@@ -10,11 +10,16 @@ import (
 
 // checkDiskSpace verifies that the receive directory has enough free space.
 func (ts *TransferService) checkDiskSpace(needed int64) error {
+	return checkDiskSpaceAt(ts.receiveDir, needed)
+}
+
+// checkDiskSpaceAt verifies that the given directory has enough free space.
+func checkDiskSpaceAt(dir string, needed int64) error {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	getDiskFreeSpaceEx := kernel32.NewProc("GetDiskFreeSpaceExW")
 
 	var freeBytesAvailable uint64
-	dirPtr, err := syscall.UTF16PtrFromString(ts.receiveDir)
+	dirPtr, err := syscall.UTF16PtrFromString(dir)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}
