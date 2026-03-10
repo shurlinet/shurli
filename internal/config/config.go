@@ -42,6 +42,11 @@ type TransferConfig struct {
 	// Compress enables zstd compression for outgoing transfers.
 	// Default: true. Set to false to disable.
 	Compress *bool `yaml:"compress,omitempty"`
+
+	// LogPath is the file path for structured transfer event logging.
+	// Default: ~/.config/shurli/logs/transfers.log
+	// Set to empty string to disable transfer logging.
+	LogPath string `yaml:"log_path,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for
