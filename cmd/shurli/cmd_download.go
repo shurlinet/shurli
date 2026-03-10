@@ -17,6 +17,8 @@ func runDownload(args []string) {
 	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
 	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
 	silentFlag := fs.Bool("silent", false, "no progress output")
+	multiPeerFlag := fs.Bool("multi-peer", false, "download from multiple peers using RaptorQ fountain codes")
+	extraPeersFlag := fs.String("peers", "", "comma-separated extra peer names/IDs for multi-peer download")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
@@ -29,16 +31,19 @@ func runDownload(args []string) {
 		fmt.Println("Use 'shurli browse <peer>' to discover available shared files first.")
 		fmt.Println()
 		fmt.Println("Options:")
-		fmt.Println("  --dest <dir>   Local directory to save into (default: configured receive dir)")
-		fmt.Println("  --follow       Follow transfer progress (Ctrl+C detaches, transfer continues)")
-		fmt.Println("  --quiet        Show only a single progress bar")
-		fmt.Println("  --silent       No progress output at all")
-		fmt.Println("  --json         Output as JSON")
+		fmt.Println("  --dest <dir>       Local directory to save into (default: configured receive dir)")
+		fmt.Println("  --follow           Follow transfer progress (Ctrl+C detaches, transfer continues)")
+		fmt.Println("  --quiet            Show only a single progress bar")
+		fmt.Println("  --silent           No progress output at all")
+		fmt.Println("  --json             Output as JSON")
+		fmt.Println("  --multi-peer       Download from multiple peers simultaneously (RaptorQ)")
+		fmt.Println("  --peers <list>     Comma-separated extra peer names/IDs for multi-peer")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli download home-server:/home/user/Photos/vacation.jpg")
 		fmt.Println("  shurli download home-server:/home/user/docs/report.pdf --dest ~/Documents")
 		fmt.Println("  shurli download 12D3KooW...:/shared/file.txt --follow")
+		fmt.Println("  shurli download home-server:/shared/bigfile.tar --multi-peer --peers laptop,nas")
 		fmt.Println()
 		fmt.Println("Browse first, then download:")
 		fmt.Println("  shurli browse home-server")
@@ -63,7 +68,18 @@ func runDownload(args []string) {
 		tc.Wfaint(os.Stdout, "Downloading %s from %s...\n", remotePath, peer)
 	}
 
-	resp, err := client.Download(peer, remotePath, *destFlag)
+	// Parse extra peers for multi-peer download.
+	var extraPeers []string
+	if *extraPeersFlag != "" {
+		for _, p := range strings.Split(*extraPeersFlag, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				extraPeers = append(extraPeers, p)
+			}
+		}
+	}
+
+	resp, err := client.Download(peer, remotePath, *destFlag, *multiPeerFlag, extraPeers)
 	if err != nil {
 		fatal("Download failed: %v", err)
 	}

@@ -1247,16 +1247,24 @@ func (rt *serveRuntime) SetupTransfer() {
 		erasureOverhead = *rt.config.Transfer.ErasureOverhead
 	}
 
+	multiPeerEnabled := true
+	if rt.config.Transfer.MultiPeerEnabled != nil {
+		multiPeerEnabled = *rt.config.Transfer.MultiPeerEnabled
+	}
+
 	cfg := p2pnet.TransferConfig{
-		ReceiveDir:      rt.config.Transfer.ReceiveDir,
-		MaxSize:         rt.config.Transfer.MaxFileSize,
-		ReceiveMode:     p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
-		Compress:        compress,
-		ErasureOverhead: erasureOverhead,
-		LogPath:         logPath,
-		Notify:          rt.config.Transfer.Notify,
-		NotifyCommand:   rt.config.Transfer.NotifyCommand,
-		MaxConcurrent:   rt.config.Transfer.MaxConcurrent,
+		ReceiveDir:        rt.config.Transfer.ReceiveDir,
+		MaxSize:           rt.config.Transfer.MaxFileSize,
+		ReceiveMode:       p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
+		Compress:          compress,
+		ErasureOverhead:   erasureOverhead,
+		LogPath:           logPath,
+		Notify:            rt.config.Transfer.Notify,
+		NotifyCommand:     rt.config.Transfer.NotifyCommand,
+		MaxConcurrent:     rt.config.Transfer.MaxConcurrent,
+		MultiPeerEnabled:  multiPeerEnabled,
+		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
+		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
@@ -1285,6 +1293,12 @@ func (rt *serveRuntime) SetupTransfer() {
 	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
 		return
+	}
+
+	// Register multi-peer download handler (fountain-coded swarming).
+	// Same policy as file-transfer: LAN + Direct only.
+	if err := rt.network.RegisterHandler("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-multi-peer handler: %v\n", err)
 	}
 
 	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
