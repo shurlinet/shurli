@@ -1256,6 +1256,7 @@ func (rt *serveRuntime) SetupTransfer() {
 		LogPath:         logPath,
 		Notify:          rt.config.Transfer.Notify,
 		NotifyCommand:   rt.config.Transfer.NotifyCommand,
+		MaxConcurrent:   rt.config.Transfer.MaxConcurrent,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())

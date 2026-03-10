@@ -19,6 +19,7 @@ func runSend(args []string) {
 	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
 	noCompressFlag := fs.Bool("no-compress", false, "disable zstd compression")
 	streamsFlag := fs.Int("streams", 0, "parallel stream count (0 = auto)")
+	priorityFlag := fs.String("priority", "normal", "queue priority: low, normal, high")
 	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
 	silentFlag := fs.Bool("silent", false, "no progress output")
 	fs.Parse(reorderFlags(fs, args))
@@ -33,6 +34,7 @@ func runSend(args []string) {
 		fmt.Println("  --follow       Follow transfer progress (Ctrl+C detaches, transfer continues)")
 		fmt.Println("  --no-compress  Disable zstd compression")
 		fmt.Println("  --streams N    Parallel stream count (0 = auto, default)")
+		fmt.Println("  --priority P   Queue priority: low, normal (default), high")
 		fmt.Println("  --quiet        Show only a single progress bar (no per-chunk details)")
 		fmt.Println("  --silent       No progress output at all")
 		fmt.Println("  --json         Output as JSON")
@@ -87,7 +89,7 @@ func runSend(args []string) {
 		}
 	}
 
-	resp, err := client.Send(absPath, peer, *noCompressFlag, *streamsFlag)
+	resp, err := client.Send(absPath, peer, *noCompressFlag, *streamsFlag, *priorityFlag)
 	if err != nil {
 		fatal("Send failed: %v", err)
 	}
