@@ -1265,6 +1265,7 @@ func (rt *serveRuntime) SetupTransfer() {
 		MultiPeerEnabled:  multiPeerEnabled,
 		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
 		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
+		RateLimit:         rt.config.Transfer.RateLimit,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())

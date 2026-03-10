@@ -87,6 +87,11 @@ type TransferConfig struct {
 	// Files smaller than this use single-peer transfer.
 	// Default: 10485760 (10 MB).
 	MultiPeerMinSize int64 `yaml:"multi_peer_min_size,omitempty"`
+
+	// RateLimit is the maximum number of transfer requests per peer per minute.
+	// Peers exceeding this limit are silently rejected (stream reset).
+	// Default: 10.
+	RateLimit int `yaml:"rate_limit,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

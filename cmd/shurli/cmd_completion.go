@@ -353,7 +353,7 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent --multi-peer --peers" -- "$cur"))
             return ;;
         send)
-            COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --quiet --silent" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --priority --quiet --silent" -- "$cur"))
             return ;;
         transfers)
             COMPREPLY=($(compgen -W "--json --watch" -- "$cur"))
@@ -684,7 +684,7 @@ _shurli() {
         download)
             _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' '--multi-peer[Download from multiple peers (RaptorQ)]' '--peers[Extra peer names for multi-peer]:peers' ;;
         send)
-            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
+            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--priority[Queue priority (low|normal|high)]:priority:(low normal high)' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
         transfers)
             _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' ;;
         accept)
@@ -967,6 +967,7 @@ complete -c shurli -n '__shurli_using_command send'       -l follow       -d 'Fo
 complete -c shurli -n '__shurli_using_command send'       -l no-compress  -d 'Disable zstd compression'
 complete -c shurli -n '__shurli_using_command send'       -l streams      -d 'Parallel stream count' -r
 complete -c shurli -n '__shurli_using_command send'       -l quiet        -d 'Single progress bar'
+complete -c shurli -n '__shurli_using_command send'       -l priority     -d 'Queue priority (low|normal|high)' -r
 complete -c shurli -n '__shurli_using_command send'       -l silent       -d 'No progress output'
 complete -c shurli -n '__shurli_using_command share'      -a 'add remove list' -d 'Share subcommand'
 complete -c shurli -n '__shurli_using_subcommand share add'    -l peers   -d 'Comma-separated peer IDs' -r

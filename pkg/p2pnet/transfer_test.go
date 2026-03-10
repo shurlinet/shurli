@@ -1113,3 +1113,178 @@ func TestCancelCompletedTransferFails(t *testing.T) {
 		t.Error("CancelTransfer should return false for completed transfer")
 	}
 }
+
+func TestTransferPrefixMatch(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	// Add some pending transfers with known IDs.
+	ts.mu.Lock()
+	ts.pending["pending-abc-1111"] = &PendingTransfer{
+		ID: "pending-abc-1111", Filename: "a.txt",
+		decision: make(chan transferDecision, 1),
+	}
+	ts.pending["pending-abc-2222"] = &PendingTransfer{
+		ID: "pending-abc-2222", Filename: "b.txt",
+		decision: make(chan transferDecision, 1),
+	}
+	ts.pending["pending-xyz-9999"] = &PendingTransfer{
+		ID: "pending-xyz-9999", Filename: "c.txt",
+		decision: make(chan transferDecision, 1),
+	}
+	ts.mu.Unlock()
+
+	// Exact match.
+	ts.mu.RLock()
+	id, p, err := ts.findPendingByPrefix("pending-abc-1111")
+	ts.mu.RUnlock()
+	if err != nil || id != "pending-abc-1111" || p.Filename != "a.txt" {
+		t.Fatalf("exact match failed: id=%q err=%v", id, err)
+	}
+
+	// Unique prefix.
+	ts.mu.RLock()
+	id, p, err = ts.findPendingByPrefix("pending-xyz")
+	ts.mu.RUnlock()
+	if err != nil || id != "pending-xyz-9999" || p.Filename != "c.txt" {
+		t.Fatalf("unique prefix failed: id=%q err=%v", id, err)
+	}
+
+	// Ambiguous prefix.
+	ts.mu.RLock()
+	_, _, err = ts.findPendingByPrefix("pending-abc")
+	ts.mu.RUnlock()
+	if err == nil {
+		t.Fatal("expected error for ambiguous prefix")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous error, got: %v", err)
+	}
+
+	// No match.
+	ts.mu.RLock()
+	_, _, err = ts.findPendingByPrefix("pending-zzz")
+	ts.mu.RUnlock()
+	if err == nil {
+		t.Fatal("expected error for no match")
+	}
+	if !strings.Contains(err.Error(), "no pending") {
+		t.Fatalf("expected 'no pending' error, got: %v", err)
+	}
+}
+
+func TestTransferRateLimit(t *testing.T) {
+	rl := newTransferRateLimiter(3)
+
+	peer := "QmTestPeer1234"
+
+	// First 3 should pass.
+	for i := 0; i < 3; i++ {
+		if !rl.allow(peer) {
+			t.Fatalf("request %d should be allowed", i+1)
+		}
+	}
+
+	// 4th should be rejected.
+	if rl.allow(peer) {
+		t.Fatal("4th request should be rate-limited")
+	}
+
+	// Different peer should be fine.
+	if !rl.allow("QmOtherPeer5678") {
+		t.Fatal("different peer should be allowed")
+	}
+
+	// Simulate window expiry by manipulating the bucket.
+	rl.mu.Lock()
+	rl.peers[peer].windowEnd = time.Now().Add(-1 * time.Second)
+	rl.mu.Unlock()
+
+	// Should be allowed again after window reset.
+	if !rl.allow(peer) {
+		t.Fatal("should be allowed after window reset")
+	}
+
+	// Cleanup should remove expired entries.
+	rl.mu.Lock()
+	rl.peers["QmStalePeer"] = &rateBucket{count: 1, windowEnd: time.Now().Add(-2 * time.Minute)}
+	rl.mu.Unlock()
+
+	rl.cleanup()
+
+	rl.mu.Lock()
+	_, staleExists := rl.peers["QmStalePeer"]
+	rl.mu.Unlock()
+	if staleExists {
+		t.Fatal("stale peer entry should have been cleaned up")
+	}
+}
+
+func TestTransferLogEventConstants(t *testing.T) {
+	// Verify the new event type constants exist and have expected values.
+	if EventLogSpamBlocked != "spam_blocked" {
+		t.Fatalf("EventLogSpamBlocked = %q, want %q", EventLogSpamBlocked, "spam_blocked")
+	}
+	if EventLogDiskSpaceRejected != "disk_space_rejected" {
+		t.Fatalf("EventLogDiskSpaceRejected = %q, want %q", EventLogDiskSpaceRejected, "disk_space_rejected")
+	}
+
+	// Verify they can be logged without panic.
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "test-transfer.log")
+	logger, err := NewTransferLogger(logPath)
+	if err != nil {
+		t.Fatalf("NewTransferLogger: %v", err)
+	}
+	defer logger.Close()
+
+	logger.Log(TransferEvent{EventType: EventLogSpamBlocked, PeerID: "QmTest", FileName: ""})
+	logger.Log(TransferEvent{EventType: EventLogDiskSpaceRejected, PeerID: "QmTest", FileName: "big.dat", FileSize: 999999})
+
+	events, err := ReadTransferEvents(logPath, 10)
+	if err != nil {
+		t.Fatalf("ReadTransferEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].EventType != EventLogDiskSpaceRejected {
+		t.Errorf("events[0] = %q, want disk_space_rejected (newest first)", events[0].EventType)
+	}
+	if events[1].EventType != EventLogSpamBlocked {
+		t.Errorf("events[1] = %q, want spam_blocked", events[1].EventType)
+	}
+}
+
+func TestErasureFieldsOnProgress(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	p := ts.trackTransfer("test.bin", 10000, "peer1", "send", 100, true)
+
+	// Initially zero.
+	snap := p.Snapshot()
+	if snap.ErasureParity != 0 || snap.ErasureOverhead != 0 {
+		t.Fatal("erasure fields should be zero initially")
+	}
+
+	// Set erasure fields.
+	p.mu.Lock()
+	p.ErasureParity = 10
+	p.ErasureOverhead = 0.10
+	p.mu.Unlock()
+
+	snap = p.Snapshot()
+	if snap.ErasureParity != 10 {
+		t.Errorf("ErasureParity = %d, want 10", snap.ErasureParity)
+	}
+	if snap.ErasureOverhead != 0.10 {
+		t.Errorf("ErasureOverhead = %f, want 0.10", snap.ErasureOverhead)
+	}
+}
