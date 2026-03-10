@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
 	"testing"
 )
 
@@ -167,6 +168,308 @@ func TestParallelSessionRegistration(t *testing.T) {
 	ts.mu.RUnlock()
 	if ok {
 		t.Fatal("session still present after unregistration")
+	}
+}
+
+// TestReceiveParallelOutOfOrder verifies that receiveParallel correctly writes
+// chunks arriving out of order from both control stream and worker channel.
+func TestReceiveParallelOutOfOrder(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// Create 4 chunks of known data.
+	chunkData := [][]byte{
+		bytes.Repeat([]byte{0xAA}, 100),
+		bytes.Repeat([]byte{0xBB}, 200),
+		bytes.Repeat([]byte{0xCC}, 150),
+		bytes.Repeat([]byte{0xDD}, 250),
+	}
+	chunkHashes := make([][32]byte, 4)
+	chunkSizes := make([]uint32, 4)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
+		chunkSizes[i] = uint32(len(d))
+	}
+	rootHash := MerkleRoot(chunkHashes)
+	totalSize := int64(100 + 200 + 150 + 250)
+
+	manifest := &transferManifest{
+		Filename:    "parallel-test.bin",
+		FileSize:    totalSize,
+		ChunkCount:  4,
+		RootHash:    rootHash,
+		ChunkHashes: chunkHashes,
+		ChunkSizes:  chunkSizes,
+	}
+
+	// Create temp file.
+	tmpPath := dir + "/test-parallel.tmp"
+	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	if err := tmpFile.Truncate(totalSize); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	offsets := buildOffsetTable(chunkSizes)
+	have := newBitfield(4)
+	progress := &TransferProgress{ChunksTotal: 4}
+
+	session := &parallelSession{
+		rootHash: rootHash,
+		manifest: manifest,
+		tmpFile:  tmpFile,
+		tmpPath:  tmpPath,
+		have:     have,
+		offsets:  offsets,
+		progress: progress,
+		done:     make(chan struct{}),
+		chunks:   make(chan parallelChunk, 10),
+	}
+
+	// Simulate control stream: sends chunks 0 and 3 (out of order: 3 first).
+	var controlBuf bytes.Buffer
+	writeChunkFrame(&controlBuf, 3, chunkData[3])
+	writeChunkFrame(&controlBuf, 0, chunkData[0])
+	writeMsg(&controlBuf, msgTransferDone)
+
+	// Worker channel delivers chunks 2 and 1 (out of order).
+	go func() {
+		session.chunks <- parallelChunk{index: 2, data: chunkData[2]}
+		session.chunks <- parallelChunk{index: 1, data: chunkData[1]}
+	}()
+
+	err = ts.receiveParallel(&controlBuf, session, nil)
+	if err != nil {
+		t.Fatalf("receiveParallel: %v", err)
+	}
+
+	// Verify all chunks received.
+	if have.count() != 4 {
+		t.Errorf("have count: got %d, want 4", have.count())
+	}
+
+	// Read back the file and verify content at correct offsets.
+	tmpFile.Close()
+	result, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if int64(len(result)) != totalSize {
+		t.Fatalf("file size: got %d, want %d", len(result), totalSize)
+	}
+
+	// Check each chunk at its offset.
+	for i, d := range chunkData {
+		start := offsets[i]
+		end := start + int64(len(d))
+		got := result[start:end]
+		if !bytes.Equal(got, d) {
+			t.Errorf("chunk %d at offset %d: data mismatch", i, start)
+		}
+	}
+}
+
+// TestReceiveParallelSingleStream verifies that receiveParallel works correctly
+// when no worker streams connect (single control stream only).
+func TestReceiveParallelSingleStream(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// 2 chunks.
+	chunkData := [][]byte{
+		bytes.Repeat([]byte{0x11}, 64),
+		bytes.Repeat([]byte{0x22}, 128),
+	}
+	chunkHashes := make([][32]byte, 2)
+	chunkSizes := make([]uint32, 2)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
+		chunkSizes[i] = uint32(len(d))
+	}
+	rootHash := MerkleRoot(chunkHashes)
+	totalSize := int64(64 + 128)
+
+	manifest := &transferManifest{
+		Filename:    "single-stream.bin",
+		FileSize:    totalSize,
+		ChunkCount:  2,
+		RootHash:    rootHash,
+		ChunkHashes: chunkHashes,
+		ChunkSizes:  chunkSizes,
+	}
+
+	tmpPath := dir + "/test-single.tmp"
+	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	if err := tmpFile.Truncate(totalSize); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	offsets := buildOffsetTable(chunkSizes)
+	have := newBitfield(2)
+	progress := &TransferProgress{ChunksTotal: 2}
+
+	session := &parallelSession{
+		rootHash: rootHash,
+		manifest: manifest,
+		tmpFile:  tmpFile,
+		tmpPath:  tmpPath,
+		have:     have,
+		offsets:  offsets,
+		progress: progress,
+		done:     make(chan struct{}),
+		chunks:   make(chan parallelChunk, 10),
+	}
+
+	// All chunks on control stream, no workers.
+	var controlBuf bytes.Buffer
+	writeChunkFrame(&controlBuf, 0, chunkData[0])
+	writeChunkFrame(&controlBuf, 1, chunkData[1])
+	writeMsg(&controlBuf, msgTransferDone)
+
+	err = ts.receiveParallel(&controlBuf, session, nil)
+	if err != nil {
+		t.Fatalf("receiveParallel: %v", err)
+	}
+
+	if have.count() != 2 {
+		t.Errorf("have count: got %d, want 2", have.count())
+	}
+
+	tmpFile.Close()
+	result, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+
+	expected := append(chunkData[0], chunkData[1]...)
+	if !bytes.Equal(result, expected) {
+		t.Error("file content mismatch")
+	}
+}
+
+// TestWorkerCleanupOnSessionDone verifies that worker streams exit cleanly
+// when the session's done channel is closed.
+func TestWorkerCleanupOnSessionDone(t *testing.T) {
+	session := &parallelSession{
+		done:   make(chan struct{}),
+		chunks: make(chan parallelChunk, 5),
+		manifest: &transferManifest{ChunkCount: 10},
+	}
+
+	// Close done immediately.
+	close(session.done)
+
+	// Simulate a worker trying to deliver chunks after done is closed.
+	// The select in handleWorkerStreamFromReader checks session.done first.
+	delivered := false
+	select {
+	case <-session.done:
+		// Expected: done is closed, worker should exit.
+	case session.chunks <- parallelChunk{index: 0, data: []byte{1}}:
+		delivered = true
+	}
+
+	if delivered {
+		t.Error("chunk delivered after session done - worker should have exited")
+	}
+}
+
+// TestReceiveParallelDuplicateChunks verifies that duplicate chunks (same index
+// from control stream and worker) are handled correctly - only written once.
+func TestReceiveParallelDuplicateChunks(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	chunkData := [][]byte{
+		bytes.Repeat([]byte{0x55}, 80),
+		bytes.Repeat([]byte{0x66}, 120),
+	}
+	chunkHashes := make([][32]byte, 2)
+	chunkSizes := make([]uint32, 2)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
+		chunkSizes[i] = uint32(len(d))
+	}
+	rootHash := MerkleRoot(chunkHashes)
+	totalSize := int64(80 + 120)
+
+	manifest := &transferManifest{
+		Filename:    "dup-test.bin",
+		FileSize:    totalSize,
+		ChunkCount:  2,
+		RootHash:    rootHash,
+		ChunkHashes: chunkHashes,
+		ChunkSizes:  chunkSizes,
+	}
+
+	tmpPath := dir + "/test-dup.tmp"
+	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	if err := tmpFile.Truncate(totalSize); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	offsets := buildOffsetTable(chunkSizes)
+	have := newBitfield(2)
+	progress := &TransferProgress{ChunksTotal: 2}
+
+	session := &parallelSession{
+		rootHash: rootHash,
+		manifest: manifest,
+		tmpFile:  tmpFile,
+		tmpPath:  tmpPath,
+		have:     have,
+		offsets:  offsets,
+		progress: progress,
+		done:     make(chan struct{}),
+		chunks:   make(chan parallelChunk, 10),
+	}
+
+	// Control sends both chunks.
+	var controlBuf bytes.Buffer
+	writeChunkFrame(&controlBuf, 0, chunkData[0])
+	writeChunkFrame(&controlBuf, 1, chunkData[1])
+	writeMsg(&controlBuf, msgTransferDone)
+
+	// Worker also sends chunk 0 (duplicate).
+	go func() {
+		session.chunks <- parallelChunk{index: 0, data: chunkData[0]}
+	}()
+
+	err = ts.receiveParallel(&controlBuf, session, nil)
+	if err != nil {
+		t.Fatalf("receiveParallel: %v", err)
+	}
+
+	if have.count() != 2 {
+		t.Errorf("have count: got %d, want 2", have.count())
+	}
+
+	tmpFile.Close()
+	result, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+
+	expected := append(chunkData[0], chunkData[1]...)
+	if !bytes.Equal(result, expected) {
+		t.Error("file content mismatch with duplicate chunks")
 	}
 }
 

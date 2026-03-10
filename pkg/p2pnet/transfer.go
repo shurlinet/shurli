@@ -718,14 +718,15 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
 
-	// Determine parallel stream count.
-	// TODO: parallel receive is not yet wired (registerParallelSession never called
-	// from the receive path), so force single stream until the receive side is complete.
+	// Determine parallel stream count based on transport type.
 	var opener streamOpener
+	var requestedStreams int
 	if len(opts) > 0 {
 		opener = opts[0].StreamOpener
+		requestedStreams = opts[0].Streams
 	}
-	numStreams := 1
+	transport := ClassifyTransport(s)
+	numStreams := adaptiveStreamCount(transport, len(chunks), requestedStreams)
 
 	go func() {
 		defer s.Close()
@@ -1225,8 +1226,91 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress.setStatus("active")
 		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
-		// Receive chunks (with resume support).
-		err = ts.receiveChunked(rw, manifest, progress, ckpt)
+		// Set up parallel receive session so worker streams can deliver chunks.
+		// Even if the sender uses a single stream, receiveParallel handles it
+		// (control stream reader works the same, worker channel just stays empty).
+		offsets := buildOffsetTable(manifest.ChunkSizes)
+		var have *bitfield
+		var tmpPath string
+		var tmpFile *os.File
+		hasErasure := manifest.Flags&flagErasureCoded != 0
+
+		if ckpt != nil {
+			tmpPath = ckpt.tmpPath
+			have = ckpt.have
+			var openErr error
+			tmpFile, openErr = os.OpenFile(tmpPath, os.O_WRONLY, 0600)
+			if openErr != nil {
+				ckpt = nil
+			}
+		}
+		if ckpt == nil {
+			have = newBitfield(manifest.ChunkCount)
+			var createErr error
+			tmpPath, tmpFile, createErr = ts.createTempFile(manifest.Filename)
+			if createErr != nil {
+				slog.Error("file-transfer: create temp file failed", "error", createErr)
+				return
+			}
+			if truncErr := tmpFile.Truncate(manifest.FileSize); truncErr != nil {
+				tmpFile.Close()
+				os.Remove(tmpPath)
+				slog.Error("file-transfer: pre-allocate file failed", "error", truncErr)
+				return
+			}
+		}
+
+		session := &parallelSession{
+			rootHash:   manifest.RootHash,
+			manifest:   manifest,
+			tmpFile:    tmpFile,
+			tmpPath:    tmpPath,
+			have:       have,
+			offsets:    offsets,
+			progress:   progress,
+			compressed: compressed,
+			hasErasure: hasErasure,
+			done:       make(chan struct{}),
+			chunks:     make(chan parallelChunk, 64),
+		}
+		if hasErasure && manifest.ParityCount > 0 {
+			session.parityData = make(map[int][]byte, manifest.ParityCount)
+		}
+
+		ts.registerParallelSession(manifest.RootHash, session)
+
+		err = ts.receiveParallel(rw, session, ckpt)
+
+		ts.unregisterParallelSession(manifest.RootHash)
+
+		// Post-receive: finalize file or save checkpoint.
+		if err != nil && have.count() > 0 {
+			cp := &transferCheckpoint{manifest: manifest, have: have, tmpPath: tmpPath}
+			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
+				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
+			}
+			tmpFile.Close()
+		} else if err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+		} else {
+			// Success: flush, rename, clean up.
+			if syncErr := tmpFile.Sync(); syncErr != nil {
+				err = fmt.Errorf("sync file: %w", syncErr)
+				tmpFile.Close()
+			} else {
+				tmpFile.Close()
+				finalPath, fpErr := ts.finalPath(manifest.Filename)
+				if fpErr != nil {
+					err = fmt.Errorf("determine final path: %w", fpErr)
+				} else if renameErr := os.Rename(tmpPath, finalPath); renameErr != nil {
+					err = fmt.Errorf("rename temp to final: %w", renameErr)
+				} else {
+					os.Chmod(finalPath, 0644)
+					removeCheckpoint(ts.receiveDir, manifest.RootHash)
+				}
+			}
+		}
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
