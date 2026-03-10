@@ -80,6 +80,58 @@ const (
 	ReceiveModeTimed    ReceiveMode = "timed"     // temporarily open, reverts after duration
 )
 
+// rateBucket tracks transfer request count per peer within a fixed window.
+type rateBucket struct {
+	count     int
+	windowEnd time.Time
+}
+
+// transferRateLimiter enforces per-peer transfer request rate limits.
+type transferRateLimiter struct {
+	mu        sync.Mutex
+	peers     map[string]*rateBucket
+	maxPerMin int           // max requests per 60s window
+	window    time.Duration // window size (60s)
+}
+
+func newTransferRateLimiter(maxPerMin int) *transferRateLimiter {
+	return &transferRateLimiter{
+		peers:     make(map[string]*rateBucket),
+		maxPerMin: maxPerMin,
+		window:    60 * time.Second,
+	}
+}
+
+// allow checks if a peer is within rate limits. Returns true if allowed.
+func (rl *transferRateLimiter) allow(peerID string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	b, ok := rl.peers[peerID]
+	if !ok || now.After(b.windowEnd) {
+		// New window.
+		rl.peers[peerID] = &rateBucket{count: 1, windowEnd: now.Add(rl.window)}
+		return true
+	}
+
+	b.count++
+	return b.count <= rl.maxPerMin
+}
+
+// cleanup removes stale entries older than the window.
+func (rl *transferRateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	for k, b := range rl.peers {
+		if now.After(b.windowEnd) {
+			delete(rl.peers, k)
+		}
+	}
+}
+
 // TransferProgress tracks the progress of an active transfer.
 type TransferProgress struct {
 	ID          string    `json:"id"`
@@ -88,8 +140,10 @@ type TransferProgress struct {
 	Transferred int64     `json:"transferred"`
 	ChunksTotal int       `json:"chunks_total"`
 	ChunksDone  int       `json:"chunks_done"`
-	Compressed  bool      `json:"compressed"`
-	PeerID      string    `json:"peer_id"`
+	Compressed      bool      `json:"compressed"`
+	ErasureParity   int       `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
+	ErasureOverhead float64   `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
+	PeerID          string    `json:"peer_id"`
 	Direction   string    `json:"direction"` // "send" or "receive"
 	Status      string    `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
 	StartTime   time.Time `json:"start_time"`
@@ -132,6 +186,7 @@ func (p *TransferProgress) Snapshot() TransferProgress {
 		ID: p.ID, Filename: p.Filename, Size: p.Size,
 		Transferred: p.Transferred, ChunksTotal: p.ChunksTotal,
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
+		ErasureParity: p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
 		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, Done: p.Done, Error: p.Error,
 	}
@@ -177,6 +232,8 @@ type TransferConfig struct {
 	MultiPeerEnabled  bool  // enable multi-peer downloads (default: true)
 	MultiPeerMaxPeers int   // max peers to download from simultaneously (default: 4)
 	MultiPeerMinSize  int64 // min file size for multi-peer (default: 10 MB)
+
+	RateLimit int // max transfer requests per peer per minute (default: 10, 0 = disabled)
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -252,6 +309,10 @@ type TransferService struct {
 	// Hash registry: maps root hash -> local file path for multi-peer serving.
 	hashMu       sync.RWMutex
 	hashRegistry map[[32]byte]string
+
+	// Per-peer transfer request rate limiter (nil = disabled).
+	rateLimiter   *transferRateLimiter
+	rateLimiterStop context.CancelFunc
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -310,7 +371,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		multiPeerMinSize = 10 * 1024 * 1024 // 10 MB
 	}
 
-	return &TransferService{
+	ts := &TransferService{
 		receiveDir:        dir,
 		maxSize:           cfg.MaxSize,
 		receiveMode:       mode,
@@ -330,7 +391,32 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		multiPeerMaxPeers: multiPeerMaxPeers,
 		multiPeerMinSize:  multiPeerMinSize,
 		hashRegistry:      make(map[[32]byte]string),
-	}, nil
+	}
+
+	// Per-peer rate limiter (default 10/min, negative = disabled).
+	rateLimit := cfg.RateLimit
+	if rateLimit == 0 {
+		rateLimit = 10 // default
+	}
+	if rateLimit > 0 {
+		ts.rateLimiter = newTransferRateLimiter(rateLimit)
+		ctx, cancel := context.WithCancel(context.Background())
+		ts.rateLimiterStop = cancel
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					ts.rateLimiter.cleanup()
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	return ts, nil
 }
 
 // --- Wire format ---
@@ -757,6 +843,14 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
 
+	// Set erasure info on progress for CLI display.
+	if useErasure && len(parityEntries) > 0 {
+		progress.mu.Lock()
+		progress.ErasureParity = len(parityEntries)
+		progress.ErasureOverhead = ts.erasureOverhead
+		progress.mu.Unlock()
+	}
+
 	// Determine parallel stream count based on transport type.
 	var opener streamOpener
 	var requestedStreams int
@@ -1083,6 +1177,15 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			ts.mu.Unlock()
 		}()
 
+		// Per-peer rate limit check (before parsing manifest to save CPU).
+		if ts.rateLimiter != nil && !ts.rateLimiter.allow(peerKey) {
+			slog.Warn("file-transfer: rate limit exceeded",
+				"peer", short)
+			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, "", 0, 0, "rate limit exceeded", "")
+			s.Reset()
+			return
+		}
+
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		// Read manifest.
@@ -1117,7 +1220,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Warn("file-transfer: insufficient disk space",
 				"peer", short, "file", manifest.Filename, "error", err)
 			writeRejectWithReason(s, RejectReasonSpace)
-			ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "insufficient disk space", "")
+			ts.logEvent(EventLogDiskSpaceRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "insufficient disk space", "")
 			return
 		}
 
@@ -1275,6 +1378,17 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		var tmpPath string
 		var tmpFile *os.File
 		hasErasure := manifest.Flags&flagErasureCoded != 0
+
+		// Set erasure info on progress for CLI display.
+		if hasErasure && manifest.ParityCount > 0 {
+			progress.mu.Lock()
+			progress.ErasureParity = manifest.ParityCount
+			// Compute actual overhead from manifest data.
+			if manifest.ChunkCount > 0 {
+				progress.ErasureOverhead = float64(manifest.ParityCount) / float64(manifest.ChunkCount)
+			}
+			progress.mu.Unlock()
+		}
 
 		if ckpt != nil {
 			tmpPath = ckpt.tmpPath
@@ -2171,13 +2285,42 @@ func (ts *TransferService) ListPending() []PendingTransfer {
 	return result
 }
 
+// findPendingByPrefix resolves a transfer ID or unique prefix to the full ID
+// and PendingTransfer. Exact match is tried first, then prefix match.
+func (ts *TransferService) findPendingByPrefix(prefix string) (string, *PendingTransfer, error) {
+	// Exact match first.
+	if p, ok := ts.pending[prefix]; ok {
+		return prefix, p, nil
+	}
+
+	// Prefix match.
+	var matches []string
+	var match *PendingTransfer
+	for id, p := range ts.pending {
+		if strings.HasPrefix(id, prefix) {
+			matches = append(matches, id)
+			match = p
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", nil, fmt.Errorf("no pending transfer matching %q", prefix)
+	case 1:
+		return matches[0], match, nil
+	default:
+		return "", nil, fmt.Errorf("ambiguous prefix %q, matches: %s", prefix, strings.Join(matches, ", "))
+	}
+}
+
 // AcceptTransfer approves a pending transfer. Optional dest overrides the receive directory.
+// Supports short ID prefix matching (like git).
 func (ts *TransferService) AcceptTransfer(id, dest string) error {
 	ts.mu.RLock()
-	p, ok := ts.pending[id]
+	_, p, err := ts.findPendingByPrefix(id)
 	ts.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("no pending transfer %q", id)
+	if err != nil {
+		return err
 	}
 
 	select {
@@ -2189,12 +2332,13 @@ func (ts *TransferService) AcceptTransfer(id, dest string) error {
 }
 
 // RejectTransfer rejects a pending transfer with an optional reason.
+// Supports short ID prefix matching (like git).
 func (ts *TransferService) RejectTransfer(id string, reason byte) error {
 	ts.mu.RLock()
-	p, ok := ts.pending[id]
+	_, p, err := ts.findPendingByPrefix(id)
 	ts.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("no pending transfer %q", id)
+	if err != nil {
+		return err
 	}
 
 	select {
@@ -2306,6 +2450,16 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		offsets := buildOffsetTable(manifest.ChunkSizes)
 		have := newBitfield(manifest.ChunkCount)
 		hasErasure := manifest.Flags&flagErasureCoded != 0
+
+		// Set erasure info on progress for CLI display.
+		if hasErasure && manifest.ParityCount > 0 {
+			progress.mu.Lock()
+			progress.ErasureParity = manifest.ParityCount
+			if manifest.ChunkCount > 0 {
+				progress.ErasureOverhead = float64(manifest.ParityCount) / float64(manifest.ChunkCount)
+			}
+			progress.mu.Unlock()
+		}
 
 		tmpPath, tmpFile, createErr := createTempFileIn(destDir, manifest.Filename)
 		if createErr != nil {

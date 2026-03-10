@@ -139,9 +139,15 @@ func printTransferTable(transfers []p2pnet.TransferProgress) {
 			compressTag = " [zstd]"
 		}
 
+		erasureTag := ""
+		if t.ErasureParity > 0 {
+			erasureTag = fmt.Sprintf(" [RS %.0f%%, %d parity]",
+				t.ErasureOverhead*100, t.ErasureParity)
+		}
+
 		age := time.Since(t.StartTime).Truncate(time.Second)
 
-		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s  ",
+		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
 			dir,
 			t.ID,
 			t.Filename,
@@ -149,6 +155,7 @@ func printTransferTable(transfers []p2pnet.TransferProgress) {
 			humanSize(t.Transferred), humanSize(t.Size),
 			pctStr,
 			compressTag,
+			erasureTag,
 		)
 
 		// Print status with color.
