@@ -368,8 +368,8 @@ func (c *Client) BrowseText(peer, subPath string) (string, error) {
 // --- Download methods ---
 
 // Download initiates a receiver-side file download from a peer's shared files.
-func (c *Client) Download(peer, remotePath, localDest string) (*DownloadResponse, error) {
-	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest}
+func (c *Client) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string) (*DownloadResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers}
 	body, _ := json.Marshal(req)
 	var resp DownloadResponse
 	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {

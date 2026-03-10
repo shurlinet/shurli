@@ -172,6 +172,11 @@ type TransferConfig struct {
 	Notify          string      // notification mode: "none" (default), "desktop", "command"
 	NotifyCommand   string      // command template for "command" mode ({from}, {file}, {size})
 	MaxConcurrent   int         // max concurrent outbound transfers (default: 5, min: 1)
+
+	// Multi-peer swarming download using RaptorQ fountain codes.
+	MultiPeerEnabled  bool  // enable multi-peer downloads (default: true)
+	MultiPeerMaxPeers int   // max peers to download from simultaneously (default: 4)
+	MultiPeerMinSize  int64 // min file size for multi-peer (default: 10 MB)
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -238,6 +243,15 @@ type TransferService struct {
 	timedGen     uint64             // generation counter to identify active timer
 	timedPrevMode ReceiveMode       // mode to revert to when timer expires
 	timedDeadline time.Time         // when the timer expires
+
+	// Multi-peer download config.
+	multiPeerEnabled  bool
+	multiPeerMaxPeers int
+	multiPeerMinSize  int64
+
+	// Hash registry: maps root hash -> local file path for multi-peer serving.
+	hashMu       sync.RWMutex
+	hashRegistry map[[32]byte]string
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -287,22 +301,35 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		maxConcurrent = 5
 	}
 
+	multiPeerMaxPeers := cfg.MultiPeerMaxPeers
+	if multiPeerMaxPeers < 1 {
+		multiPeerMaxPeers = 4
+	}
+	multiPeerMinSize := cfg.MultiPeerMinSize
+	if multiPeerMinSize <= 0 {
+		multiPeerMinSize = 10 * 1024 * 1024 // 10 MB
+	}
+
 	return &TransferService{
-		receiveDir:      dir,
-		maxSize:         cfg.MaxSize,
-		receiveMode:     mode,
-		compress:        compress,
-		erasureOverhead: cfg.ErasureOverhead,
-		metrics:         metrics,
-		events:          events,
-		logger:          logger,
-		notifier:        notifier,
-		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
-		queue:           NewTransferQueue(maxConcurrent),
-		queueReady:      make(chan struct{}, 1),
-		transfers:       make(map[string]*TransferProgress),
-		peerInbound:     make(map[string]int),
-		pending:         make(map[string]*PendingTransfer),
+		receiveDir:        dir,
+		maxSize:           cfg.MaxSize,
+		receiveMode:       mode,
+		compress:          compress,
+		erasureOverhead:   cfg.ErasureOverhead,
+		metrics:           metrics,
+		events:            events,
+		logger:            logger,
+		notifier:          notifier,
+		inboundSem:        make(chan struct{}, maxConcurrentTransfers),
+		queue:             NewTransferQueue(maxConcurrent),
+		queueReady:        make(chan struct{}, 1),
+		transfers:         make(map[string]*TransferProgress),
+		peerInbound:       make(map[string]int),
+		pending:           make(map[string]*PendingTransfer),
+		multiPeerEnabled:  cfg.MultiPeerEnabled,
+		multiPeerMaxPeers: multiPeerMaxPeers,
+		multiPeerMinSize:  multiPeerMinSize,
+		hashRegistry:      make(map[[32]byte]string),
 	}, nil
 }
 
@@ -767,6 +794,8 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "chunks", manifest.ChunkCount)
 			ts.logEvent(EventLogCompleted, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
+			// Register hash so this node can serve multi-peer requests for this file.
+			ts.RegisterHash(manifest.RootHash, filePath)
 		}
 
 		if ts.events != nil {
@@ -1337,6 +1366,11 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"size", manifest.FileSize,
 				"path", filepath.Join(ts.receiveDir, manifest.Filename))
 			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
+			// Register hash so this node can serve multi-peer requests for this file.
+			finalPath, _ := ts.finalPath(manifest.Filename)
+			if finalPath != "" {
+				ts.RegisterHash(manifest.RootHash, finalPath)
+			}
 		}
 
 		if ts.events != nil {
@@ -2058,6 +2092,39 @@ func (ts *TransferService) ReceiveDir() string {
 	return ts.receiveDir
 }
 
+// MultiPeerEnabled returns whether multi-peer download is enabled.
+func (ts *TransferService) MultiPeerEnabled() bool {
+	return ts.multiPeerEnabled
+}
+
+// MultiPeerMaxPeers returns the max peers for multi-peer download.
+func (ts *TransferService) MultiPeerMaxPeers() int {
+	return ts.multiPeerMaxPeers
+}
+
+// MultiPeerMinSize returns the min file size for multi-peer download.
+func (ts *TransferService) MultiPeerMinSize() int64 {
+	return ts.multiPeerMinSize
+}
+
+// --- Hash Registry ---
+
+// RegisterHash maps a file's Merkle root hash to its local path.
+// Called after successful send, receive, or share operations.
+func (ts *TransferService) RegisterHash(rootHash [32]byte, localPath string) {
+	ts.hashMu.Lock()
+	ts.hashRegistry[rootHash] = localPath
+	ts.hashMu.Unlock()
+}
+
+// LookupHash returns the local file path for a given root hash, if known.
+func (ts *TransferService) LookupHash(rootHash [32]byte) (string, bool) {
+	ts.hashMu.RLock()
+	path, ok := ts.hashRegistry[rootHash]
+	ts.hashMu.RUnlock()
+	return path, ok
+}
+
 // LogPath returns the transfer event log file path (empty if logging disabled).
 func (ts *TransferService) LogPath() string {
 	if ts.logger == nil {
@@ -2310,10 +2377,55 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 				"size", manifest.FileSize,
 				"dest", destDir)
 			ts.logEvent(EventLogCompleted, "download", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
+			// Register hash so this node can serve multi-peer requests for this file.
+			fp := filepath.Join(destDir, filepath.Base(manifest.Filename))
+			ts.RegisterHash(manifest.RootHash, fp)
 		}
 	}()
 
 	return progress, nil
+}
+
+// ProbeRootHash opens a download stream to a peer, reads just enough of the
+// SHFT manifest to extract the root hash, then closes the stream. This is used
+// by multi-peer download to discover the file's root hash before fanning out.
+func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error) {
+	var zero [32]byte
+
+	stream, err := openStream()
+	if err != nil {
+		return zero, fmt.Errorf("open stream: %w", err)
+	}
+	defer stream.Close()
+
+	stream.SetDeadline(time.Now().Add(30 * time.Second))
+
+	// Send download request.
+	reqErr := RequestDownload(stream, remotePath)
+	if reqErr == nil {
+		return zero, fmt.Errorf("unexpected: download request returned nil")
+	}
+	ready, ok := reqErr.(*downloadReady)
+	if !ok {
+		return zero, reqErr
+	}
+
+	// Read manifest from the prefixed reader.
+	r := ready.PrefixedReader(stream)
+	rw := struct {
+		io.Reader
+		io.Writer
+	}{r, stream}
+
+	manifest, manifestErr := readManifest(rw)
+	if manifestErr != nil {
+		return zero, fmt.Errorf("read manifest: %w", manifestErr)
+	}
+
+	// We got the root hash. Reject the transfer (we'll use multi-peer instead).
+	writeMsg(stream, msgReject)
+
+	return manifest.RootHash, nil
 }
 
 // createTempFileIn creates a temp file in the given directory.

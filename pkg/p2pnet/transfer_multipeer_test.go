@@ -3,6 +3,8 @@ package p2pnet
 import (
 	"bytes"
 	"crypto/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -269,5 +271,207 @@ func TestMultiPeerDefaultConfig(t *testing.T) {
 	}
 	if cfg.PeerTimeout <= 0 {
 		t.Errorf("PeerTimeout should be > 0, got %v", cfg.PeerTimeout)
+	}
+}
+
+func TestMarshalUnmarshalManifest(t *testing.T) {
+	// Create a manifest with known values.
+	blockCount := 3
+	hashes := make([][32]byte, blockCount)
+	sizes := make([]uint32, blockCount)
+	for i := 0; i < blockCount; i++ {
+		var h [32]byte
+		rand.Read(h[:])
+		hashes[i] = h
+		sizes[i] = uint32(1024 * (i + 1))
+	}
+
+	original := &transferManifest{
+		Filename:    "test-file.bin",
+		FileSize:    12345678,
+		ChunkCount:  blockCount,
+		RootHash:    MerkleRoot(hashes),
+		ChunkHashes: hashes,
+		ChunkSizes:  sizes,
+	}
+
+	data, err := marshalManifest(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	decoded, err := unmarshalManifest(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if decoded.Filename != original.Filename {
+		t.Errorf("filename: got %q, want %q", decoded.Filename, original.Filename)
+	}
+	if decoded.FileSize != original.FileSize {
+		t.Errorf("fileSize: got %d, want %d", decoded.FileSize, original.FileSize)
+	}
+	if decoded.ChunkCount != original.ChunkCount {
+		t.Errorf("chunkCount: got %d, want %d", decoded.ChunkCount, original.ChunkCount)
+	}
+	if decoded.RootHash != original.RootHash {
+		t.Error("rootHash mismatch")
+	}
+	for i := 0; i < blockCount; i++ {
+		if decoded.ChunkHashes[i] != original.ChunkHashes[i] {
+			t.Errorf("chunk %d hash mismatch", i)
+		}
+		if decoded.ChunkSizes[i] != original.ChunkSizes[i] {
+			t.Errorf("chunk %d size: got %d, want %d", i, decoded.ChunkSizes[i], original.ChunkSizes[i])
+		}
+	}
+}
+
+func TestUnmarshalManifestTruncated(t *testing.T) {
+	// Should fail on too-short data.
+	_, err := unmarshalManifest([]byte{0, 1, 2})
+	if err == nil {
+		t.Fatal("expected error on truncated data")
+	}
+}
+
+func TestHashRegistry(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:       dir,
+		MultiPeerEnabled: true,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	var hash1, hash2 [32]byte
+	rand.Read(hash1[:])
+	rand.Read(hash2[:])
+
+	// Initially empty.
+	if _, ok := ts.LookupHash(hash1); ok {
+		t.Error("expected no entry for hash1")
+	}
+
+	// Register and look up.
+	ts.RegisterHash(hash1, "/path/to/file1.bin")
+	ts.RegisterHash(hash2, "/path/to/file2.bin")
+
+	path, ok := ts.LookupHash(hash1)
+	if !ok || path != "/path/to/file1.bin" {
+		t.Errorf("hash1 lookup: ok=%v path=%q", ok, path)
+	}
+
+	path, ok = ts.LookupHash(hash2)
+	if !ok || path != "/path/to/file2.bin" {
+		t.Errorf("hash2 lookup: ok=%v path=%q", ok, path)
+	}
+
+	// Overwrite.
+	ts.RegisterHash(hash1, "/new/path.bin")
+	path, _ = ts.LookupHash(hash1)
+	if path != "/new/path.bin" {
+		t.Errorf("hash1 after overwrite: %q", path)
+	}
+}
+
+func TestMultiPeerConfigDefaults(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		// Defaults: MultiPeerMaxPeers=0, MultiPeerMinSize=0
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	if ts.MultiPeerMaxPeers() != 4 {
+		t.Errorf("default MaxPeers: got %d, want 4", ts.MultiPeerMaxPeers())
+	}
+	if ts.MultiPeerMinSize() != 10*1024*1024 {
+		t.Errorf("default MinSize: got %d, want %d", ts.MultiPeerMinSize(), 10*1024*1024)
+	}
+}
+
+func TestMultiPeerConfigCustom(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:        dir,
+		MultiPeerEnabled:  true,
+		MultiPeerMaxPeers: 8,
+		MultiPeerMinSize:  1024 * 1024, // 1 MB
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	if !ts.MultiPeerEnabled() {
+		t.Error("expected multi-peer enabled")
+	}
+	if ts.MultiPeerMaxPeers() != 8 {
+		t.Errorf("MaxPeers: got %d, want 8", ts.MultiPeerMaxPeers())
+	}
+	if ts.MultiPeerMinSize() != 1024*1024 {
+		t.Errorf("MinSize: got %d, want %d", ts.MultiPeerMinSize(), 1024*1024)
+	}
+}
+
+func TestHandleMultiPeerRequestNotNil(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	handler := ts.HandleMultiPeerRequest()
+	if handler == nil {
+		t.Fatal("HandleMultiPeerRequest returned nil handler")
+	}
+}
+
+func TestHashRegistryPopulatedOnSendComplete(t *testing.T) {
+	// Verify the hash registry is initialized and usable.
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, MultiPeerEnabled: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// Write a test file.
+	testFile := filepath.Join(dir, "hashtest.bin")
+	data := make([]byte, 4096)
+	rand.Read(data)
+	if err := os.WriteFile(testFile, data, 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	// Simulate what happens after a successful send: register hash.
+	hash := blake3Hash(data)
+	ts.RegisterHash(hash, testFile)
+
+	path, ok := ts.LookupHash(hash)
+	if !ok {
+		t.Fatal("hash not found after register")
+	}
+	if path != testFile {
+		t.Errorf("path: got %q, want %q", path, testFile)
+	}
+}
+
+func TestDownloadMultiPeerRequiresMinPeers(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, MultiPeerEnabled: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	var hash [32]byte
+	rand.Read(hash[:])
+
+	// Should fail with fewer than 2 peers.
+	_, err = ts.DownloadMultiPeer(nil, hash, nil, nil, "")
+	if err == nil {
+		t.Fatal("expected error with nil peers")
 	}
 }

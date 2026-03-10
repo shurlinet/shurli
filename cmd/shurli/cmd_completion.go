@@ -350,7 +350,7 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--json --path" -- "$cur"))
             return ;;
         download)
-            COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent --multi-peer --peers" -- "$cur"))
             return ;;
         send)
             COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --quiet --silent" -- "$cur"))
@@ -682,7 +682,7 @@ _shurli() {
         browse)
             _arguments '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
         download)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' ;;
+            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' '--multi-peer[Download from multiple peers (RaptorQ)]' '--peers[Extra peer names for multi-peer]:peers' ;;
         send)
             _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
         transfers)
@@ -981,6 +981,8 @@ complete -c shurli -n '__shurli_using_command download'   -l dest         -d 'Sa
 complete -c shurli -n '__shurli_using_command download'   -l follow       -d 'Follow transfer progress'
 complete -c shurli -n '__shurli_using_command download'   -l quiet        -d 'Single progress bar'
 complete -c shurli -n '__shurli_using_command download'   -l silent       -d 'No progress output'
+complete -c shurli -n '__shurli_using_command download'   -l multi-peer   -d 'Download from multiple peers (RaptorQ)'
+complete -c shurli -n '__shurli_using_command download'   -l peers        -d 'Extra peer names for multi-peer' -r
 complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
 complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'
