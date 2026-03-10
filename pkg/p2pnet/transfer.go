@@ -414,13 +414,8 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 		return nil, fmt.Errorf("invalid chunk count: %d", m.ChunkCount)
 	}
 
-	// Sanitize filename.
-	m.Filename = filepath.Base(m.Filename)
-	if m.Filename == "." || m.Filename == ".." || m.Filename == "/" {
-		return nil, fmt.Errorf("invalid filename: %q", m.Filename)
-	}
-	// Strip null bytes and control characters.
-	m.Filename = sanitizeFilename(m.Filename)
+	// Sanitize filename: preserve relative paths but strip traversal attacks.
+	m.Filename = sanitizeRelativePath(m.Filename)
 	if m.Filename == "" {
 		return nil, fmt.Errorf("filename is empty after sanitization")
 	}
@@ -469,6 +464,36 @@ func sanitizeFilename(name string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// sanitizeRelativePath cleans a relative path for safe use under a destination directory.
+// It strips leading slashes, ".." components, empty segments, and backslashes.
+// Returns only the base filename if the path resolves to something unsafe.
+func sanitizeRelativePath(name string) string {
+	// Normalize backslashes to forward slashes (Windows compat).
+	name = strings.ReplaceAll(name, "\\", "/")
+
+	var parts []string
+	for _, part := range strings.Split(name, "/") {
+		// Skip empty parts and current-dir markers.
+		if part == "" || part == "." {
+			continue
+		}
+		// Skip parent-dir traversal.
+		if part == ".." {
+			continue
+		}
+		// Strip null bytes and control characters from each component.
+		part = sanitizeFilename(part)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "/")
 }
 
 // writeChunkFrame writes a single chunk to the wire.
@@ -562,6 +587,7 @@ type SendOptions struct {
 	NoCompress   bool         // override: disable compression for this transfer
 	Streams      int          // parallel stream count (0 = adaptive default based on transport)
 	StreamOpener streamOpener // opens additional streams to the same peer (required for parallel)
+	RelativeName string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
 }
 
 // SendFile chunks, compresses, and sends a file over a libp2p stream.
@@ -581,7 +607,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	}
 	if stat.IsDir() {
 		f.Close()
-		return nil, fmt.Errorf("cannot send directory (directory transfer is Phase E)")
+		return nil, fmt.Errorf("cannot send directory directly; use SendDirectory()")
 	}
 	if stat.Size() > maxFileSize {
 		f.Close()
@@ -628,8 +654,13 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		flags |= flagCompressed
 	}
 
+	manifestName := filepath.Base(filePath)
+	if len(opts) > 0 && opts[0].RelativeName != "" {
+		manifestName = opts[0].RelativeName
+	}
+
 	manifest := &transferManifest{
-		Filename:    filepath.Base(filePath),
+		Filename:    manifestName,
 		FileSize:    stat.Size(),
 		ChunkCount:  len(chunks),
 		Flags:       flags,
@@ -735,6 +766,100 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	}()
 
 	return progress, nil
+}
+
+// SendDirectory walks a directory and sends each regular file to the peer
+// sequentially, preserving relative directory structure in filenames.
+// openStream is called once per file to get a fresh stream.
+// Returns progress trackers for all files sent.
+func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, openStream func() (network.Stream, error), opts SendOptions) ([]*TransferProgress, error) {
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("not a directory: %s", dirPath)
+	}
+
+	// Collect regular files with their relative paths.
+	type fileEntry struct {
+		absPath  string
+		relPath  string
+	}
+	var files []fileEntry
+	dirBase := filepath.Base(dirPath)
+
+	err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Skip symlinks, device files, sockets (regular files only).
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dirPath, path)
+		if relErr != nil {
+			return relErr
+		}
+		// Prefix with directory name so receiver gets "mydir/subdir/file.txt".
+		files = append(files, fileEntry{
+			absPath: path,
+			relPath: filepath.Join(dirBase, rel),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk directory: %w", err)
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("directory is empty: %s", dirPath)
+	}
+
+	// Send each file sequentially, one stream per file.
+	var allProgress []*TransferProgress
+	for _, fe := range files {
+		if ctx.Err() != nil {
+			return allProgress, ctx.Err()
+		}
+
+		stream, streamErr := openStream()
+		if streamErr != nil {
+			return allProgress, fmt.Errorf("open stream for %s: %w", fe.relPath, streamErr)
+		}
+
+		fileOpts := opts
+		// Use forward slashes in relative name for cross-platform wire format.
+		fileOpts.RelativeName = filepath.ToSlash(fe.relPath)
+
+		progress, sendErr := ts.SendFile(stream, fe.absPath, fileOpts)
+		if sendErr != nil {
+			stream.Close()
+			return allProgress, fmt.Errorf("send %s: %w", fe.relPath, sendErr)
+		}
+		allProgress = append(allProgress, progress)
+
+		// Wait for this file to complete before starting the next (sequential).
+		for {
+			snap := progress.Snapshot()
+			if snap.Done {
+				if snap.Error != "" {
+					return allProgress, fmt.Errorf("transfer %s failed: %s", fe.relPath, snap.Error)
+				}
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return allProgress, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+
+	return allProgress, nil
 }
 
 // sendChunked sends the manifest, waits for accept or resume, then streams chunks.
@@ -1394,7 +1519,9 @@ func blake3Hash(data []byte) [32]byte {
 
 // createTempFile creates a temporary file in the receive directory.
 func (ts *TransferService) createTempFile(filename string) (string, *os.File, error) {
-	tmpPath := filepath.Join(ts.receiveDir, ".shurli-tmp-"+randomHex(8)+"-"+filename)
+	// Use base name for temp file to avoid needing subdirectories for temp storage.
+	base := filepath.Base(filename)
+	tmpPath := filepath.Join(ts.receiveDir, ".shurli-tmp-"+randomHex(8)+"-"+base)
 	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return "", nil, err
@@ -1403,8 +1530,19 @@ func (ts *TransferService) createTempFile(filename string) (string, *os.File, er
 }
 
 // finalPath determines a non-colliding final path for the received file.
+// If filename contains directory separators (e.g., "subdir/file.txt"),
+// subdirectories are created under the receive directory.
 func (ts *TransferService) finalPath(filename string) (string, error) {
 	path := filepath.Join(ts.receiveDir, filename)
+
+	// Create parent directories for relative paths (e.g., "mydir/subdir/file.txt").
+	dir := filepath.Dir(path)
+	if dir != ts.receiveDir {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("create directories: %w", err)
+		}
+	}
+
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err == nil {
 		f.Close()
@@ -1415,10 +1553,11 @@ func (ts *TransferService) finalPath(filename string) (string, error) {
 		return "", err
 	}
 
-	ext := filepath.Ext(filename)
-	base := strings.TrimSuffix(filename, ext)
+	base := filepath.Base(filename)
+	ext := filepath.Ext(base)
+	nameOnly := strings.TrimSuffix(base, ext)
 	for i := 1; i < 10000; i++ {
-		candidate := filepath.Join(ts.receiveDir, fmt.Sprintf("%s (%d)%s", base, i, ext))
+		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", nameOnly, i, ext))
 		f, err = os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 		if err == nil {
 			f.Close()
