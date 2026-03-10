@@ -51,8 +51,11 @@ func runPing(args []string) {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
 	}
 
+	// Standalone allowed via CLI flag or config setting.
+	allowStandalone := *standaloneFlag || configAllowsStandalone(*configFlag)
+
 	// Always try daemon first (uses existing connections, supports direct paths).
-	if !*standaloneFlag {
+	if !allowStandalone {
 		if client := tryDaemonClient(); client != nil {
 			if *count == 0 {
 				// Continuous: loop single pings client-side, Ctrl+C stops.
@@ -64,13 +67,15 @@ func runPing(args []string) {
 		}
 	}
 
-	// Daemon not available. Require explicit --standalone.
-	if !*standaloneFlag {
+	// Daemon not available. Require explicit --standalone or config setting.
+	if !allowStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
 		fmt.Println("Or use --standalone flag for direct P2P (debug):")
 		fmt.Printf("  shurli ping --standalone %s -c 5\n", target)
+		fmt.Println()
+		fmt.Println("Or set cli.allow_standalone: true in config for persistent standalone access.")
 		osExit(1)
 	}
 
