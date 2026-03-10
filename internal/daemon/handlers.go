@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -1287,8 +1288,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SendFile runs in background; returns progress tracker immediately.
-	// Build stream opener for parallel transfers.
+	// Build stream opener for parallel transfers and directory sends.
 	opener := func() (network.Stream, error) {
 		return pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
 	}
@@ -1297,6 +1297,42 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		Streams:      req.Streams,
 		StreamOpener: opener,
 	}
+
+	// Check if path is a directory.
+	pathInfo, statErr := os.Stat(req.Path)
+	if statErr != nil {
+		stream.Close()
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot access path: %v", statErr))
+		return
+	}
+
+	if pathInfo.IsDir() {
+		// Directory transfer: close the pre-opened stream (SendDirectory opens its own).
+		stream.Close()
+
+		// Run directory transfer in background.
+		go func() {
+			allProgress, dirErr := ts.SendDirectory(streamCtx, req.Path, opener, sendOpts)
+			if dirErr != nil {
+				slog.Error("directory transfer failed",
+					"dir", req.Path, "peer", req.Peer, "error", dirErr,
+					"files_sent", len(allProgress))
+			} else {
+				slog.Info("directory transfer complete",
+					"dir", req.Path, "peer", req.Peer, "files", len(allProgress))
+			}
+		}()
+
+		respondJSON(w, http.StatusOK, SendResponse{
+			TransferID: "dir-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+			Filename:   pathInfo.Name(),
+			Size:       0,
+			PeerID:     targetPeerID.String(),
+		})
+		return
+	}
+
+	// Single file: SendFile runs in background; returns progress tracker immediately.
 	progress, err := ts.SendFile(stream, req.Path, sendOpts)
 	if err != nil {
 		stream.Close()
