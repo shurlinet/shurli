@@ -63,6 +63,8 @@ func main() {
 		runShare(os.Args[2:])
 	case "browse":
 		runBrowse(os.Args[2:])
+	case "download":
+		runDownload(os.Args[2:])
 	case "send":
 		runSend(os.Args[2:])
 	case "transfers":
@@ -154,6 +156,7 @@ func printUsage() {
 	fmt.Println("  share remove <path>                              Stop sharing a path")
 	fmt.Println("  share list [--json]                              List shared paths")
 	fmt.Println("  browse <peer> [--path /sub/dir] [--json]         Browse a peer's shared files")
+	fmt.Println("  download <peer>:<path> [--dest dir] [--follow]  Download from a peer's shares")
 	fmt.Println("  transfers [--watch] [--json]                    List/watch file transfers")
 	fmt.Println("  accept <id> [--dest /path/]                     Accept a pending transfer")
 	fmt.Println("  reject <id> [--reason space|busy|size]           Reject a pending transfer")

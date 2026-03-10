@@ -261,6 +261,20 @@ type ShareInfo struct {
 	SharedAt   string   `json:"shared_at"`
 }
 
+// DownloadRequest is the body for POST /v1/download.
+type DownloadRequest struct {
+	Peer       string `json:"peer"`        // peer name or ID
+	RemotePath string `json:"remote_path"` // path on the remote peer's share
+	LocalDest  string `json:"local_dest"`  // local directory to save into (empty = configured receive dir)
+}
+
+// DownloadResponse is returned by POST /v1/download.
+type DownloadResponse struct {
+	TransferID string `json:"transfer_id"`
+	FileName   string `json:"filename"`
+	FileSize   int64  `json:"file_size"`
+}
+
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
 	Error string `json:"error"`

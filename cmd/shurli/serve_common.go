@@ -1312,6 +1312,13 @@ func (rt *serveRuntime) SetupSharing() {
 		return
 	}
 
+	// Register download protocol handler (requires transfer service).
+	if rt.transferService != nil {
+		if err := rt.network.RegisterHandler("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
+			fmt.Printf("Warning: failed to register file-download handler: %v\n", err)
+		}
+	}
+
 	fmt.Println("File sharing enabled")
 }
 
