@@ -1242,14 +1242,20 @@ func (rt *serveRuntime) SetupTransfer() {
 		logPath = filepath.Join(filepath.Dir(rt.configFile), "logs", "transfers.log")
 	}
 
+	erasureOverhead := 0.1 // default 10% RS parity
+	if rt.config.Transfer.ErasureOverhead != nil {
+		erasureOverhead = *rt.config.Transfer.ErasureOverhead
+	}
+
 	cfg := p2pnet.TransferConfig{
-		ReceiveDir:    rt.config.Transfer.ReceiveDir,
-		MaxSize:       rt.config.Transfer.MaxFileSize,
-		ReceiveMode:   p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
-		Compress:      compress,
-		LogPath:       logPath,
-		Notify:        rt.config.Transfer.Notify,
-		NotifyCommand: rt.config.Transfer.NotifyCommand,
+		ReceiveDir:      rt.config.Transfer.ReceiveDir,
+		MaxSize:         rt.config.Transfer.MaxFileSize,
+		ReceiveMode:     p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
+		Compress:        compress,
+		ErasureOverhead: erasureOverhead,
+		LogPath:         logPath,
+		Notify:          rt.config.Transfer.Notify,
+		NotifyCommand:   rt.config.Transfer.NotifyCommand,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
