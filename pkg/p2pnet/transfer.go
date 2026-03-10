@@ -2,6 +2,7 @@ package p2pnet
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -76,6 +77,7 @@ const (
 	ReceiveModeContacts ReceiveMode = "contacts"  // auto-accept from authorized peers (default)
 	ReceiveModeAsk      ReceiveMode = "ask"       // queue for manual approval
 	ReceiveModeOpen     ReceiveMode = "open"      // accept from any authorized peer
+	ReceiveModeTimed    ReceiveMode = "timed"     // temporarily open, reverts after duration
 )
 
 // TransferProgress tracks the progress of an active transfer.
@@ -225,6 +227,12 @@ type TransferService struct {
 	peerInbound      map[string]int
 	pending          map[string]*PendingTransfer // ask mode: transfers awaiting approval
 	parallelSessions map[[32]byte]*parallelSession
+
+	// Timed mode: temporarily switches to open/contacts then reverts.
+	timedCancel  context.CancelFunc // cancels the timer goroutine (nil = no active timer)
+	timedGen     uint64             // generation counter to identify active timer
+	timedPrevMode ReceiveMode       // mode to revert to when timer expires
+	timedDeadline time.Time         // when the timer expires
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -1505,10 +1513,96 @@ func (ts *TransferService) ListTransfers() []TransferProgress {
 }
 
 // SetReceiveMode changes the receive mode at runtime.
+// If a timed mode timer is running, it is cancelled.
 func (ts *TransferService) SetReceiveMode(mode ReceiveMode) {
 	ts.mu.Lock()
+	if ts.timedCancel != nil {
+		ts.timedCancel()
+		ts.timedCancel = nil
+		ts.timedDeadline = time.Time{}
+	}
 	ts.receiveMode = mode
 	ts.mu.Unlock()
+}
+
+// SetTimedMode temporarily switches to open mode for the given duration,
+// then reverts to the previous mode. If a timed mode is already active,
+// it is replaced (old timer cancelled).
+func (ts *TransferService) SetTimedMode(duration time.Duration) error {
+	if duration <= 0 {
+		return fmt.Errorf("timed mode duration must be positive")
+	}
+
+	ts.mu.Lock()
+	// Cancel any existing timed mode.
+	if ts.timedCancel != nil {
+		ts.timedCancel()
+	}
+
+	// Save the current mode to revert to (unless already in timed mode,
+	// in which case keep the original saved mode).
+	if ts.receiveMode != ReceiveModeTimed {
+		ts.timedPrevMode = ts.receiveMode
+	}
+	ts.receiveMode = ReceiveModeTimed
+	ts.timedDeadline = time.Now().Add(duration)
+	ts.timedGen++
+	gen := ts.timedGen
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ts.timedCancel = cancel
+	ts.mu.Unlock()
+
+	slog.Info("file-transfer: timed mode activated",
+		"duration", duration.String(),
+		"revert_to", string(ts.timedPrevMode))
+
+	go func() {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			ts.mu.Lock()
+			// Only revert if we are still the active timed mode (not replaced).
+			if ts.timedGen == gen {
+				prev := ts.timedPrevMode
+				ts.receiveMode = prev
+				ts.timedCancel = nil
+				ts.timedDeadline = time.Time{}
+				ts.mu.Unlock()
+				slog.Info("file-transfer: timed mode expired, reverted",
+					"mode", string(prev))
+			} else {
+				ts.mu.Unlock()
+			}
+		case <-ctx.Done():
+			// Cancelled by SetReceiveMode or a new SetTimedMode call.
+		}
+	}()
+
+	return nil
+}
+
+// TimedModeRemaining returns the remaining duration for timed mode.
+// Returns 0 if timed mode is not active.
+func (ts *TransferService) TimedModeRemaining() time.Duration {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	if ts.timedCancel == nil || ts.timedDeadline.IsZero() {
+		return 0
+	}
+	remaining := time.Until(ts.timedDeadline)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// GetReceiveMode returns the current receive mode.
+func (ts *TransferService) GetReceiveMode() ReceiveMode {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.receiveMode
 }
 
 // SetReceiveDir changes the receive directory at runtime.

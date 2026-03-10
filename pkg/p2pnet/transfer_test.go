@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 )
@@ -635,5 +636,121 @@ func TestCustomHandlerServiceRegistration(t *testing.T) {
 	}
 	if svc.Handler == nil {
 		t.Error("Handler should be set")
+	}
+}
+
+// --- Timed receive mode tests ---
+
+func TestSetTimedModeActivatesAndReverts(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir:  dir,
+		ReceiveMode: ReceiveModeContacts,
+		Compress:    true,
+	}, nil, nil)
+
+	if err := ts.SetTimedMode(100 * time.Millisecond); err != nil {
+		t.Fatalf("SetTimedMode: %v", err)
+	}
+
+	// Should be in timed mode now.
+	if got := ts.GetReceiveMode(); got != ReceiveModeTimed {
+		t.Errorf("after SetTimedMode: got %q, want timed", got)
+	}
+
+	// Remaining should be > 0.
+	if rem := ts.TimedModeRemaining(); rem <= 0 {
+		t.Errorf("TimedModeRemaining: got %v, want > 0", rem)
+	}
+
+	// Wait for expiry.
+	time.Sleep(200 * time.Millisecond)
+
+	// Should have reverted to contacts.
+	if got := ts.GetReceiveMode(); got != ReceiveModeContacts {
+		t.Errorf("after expiry: got %q, want contacts", got)
+	}
+
+	// Remaining should be 0.
+	if rem := ts.TimedModeRemaining(); rem != 0 {
+		t.Errorf("TimedModeRemaining after expiry: got %v, want 0", rem)
+	}
+}
+
+func TestSetReceiveModesCancelTimedMode(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir:  dir,
+		ReceiveMode: ReceiveModeContacts,
+		Compress:    true,
+	}, nil, nil)
+
+	if err := ts.SetTimedMode(1 * time.Hour); err != nil {
+		t.Fatalf("SetTimedMode: %v", err)
+	}
+
+	// Cancel by switching to off.
+	ts.SetReceiveMode(ReceiveModeOff)
+
+	if got := ts.GetReceiveMode(); got != ReceiveModeOff {
+		t.Errorf("after SetReceiveMode(off): got %q, want off", got)
+	}
+
+	// Timer should be cancelled, remaining = 0.
+	if rem := ts.TimedModeRemaining(); rem != 0 {
+		t.Errorf("TimedModeRemaining after cancel: got %v, want 0", rem)
+	}
+}
+
+func TestSetTimedModeReplacesExisting(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir:  dir,
+		ReceiveMode: ReceiveModeAsk,
+		Compress:    true,
+	}, nil, nil)
+
+	// First timed mode.
+	if err := ts.SetTimedMode(1 * time.Hour); err != nil {
+		t.Fatalf("SetTimedMode(1h): %v", err)
+	}
+
+	// Replace with shorter.
+	if err := ts.SetTimedMode(100 * time.Millisecond); err != nil {
+		t.Fatalf("SetTimedMode(100ms): %v", err)
+	}
+
+	// Should still revert to ask (original mode, not timed).
+	time.Sleep(200 * time.Millisecond)
+
+	if got := ts.GetReceiveMode(); got != ReceiveModeAsk {
+		t.Errorf("after second expiry: got %q, want ask", got)
+	}
+}
+
+func TestSetTimedModeInvalidDuration(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	if err := ts.SetTimedMode(0); err == nil {
+		t.Error("SetTimedMode(0) should fail")
+	}
+	if err := ts.SetTimedMode(-1 * time.Second); err == nil {
+		t.Error("SetTimedMode(-1s) should fail")
+	}
+}
+
+func TestTimedModeRemainingWhenNotActive(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	if rem := ts.TimedModeRemaining(); rem != 0 {
+		t.Errorf("TimedModeRemaining when not timed: got %v, want 0", rem)
 	}
 }

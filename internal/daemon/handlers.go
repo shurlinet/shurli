@@ -207,6 +207,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
+	// Transfer receive mode and timed mode status.
+	if ts := rt.TransferService(); ts != nil {
+		resp.ReceiveMode = string(ts.GetReceiveMode())
+		if remaining := ts.TimedModeRemaining(); remaining > 0 {
+			resp.TimedModeRemainingSeconds = int(remaining.Seconds())
+		}
+	}
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -254,6 +262,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(cr.LastReverted) > 0 {
 				fmt.Fprintf(&sb, "  reverted: %s\n", strings.Join(cr.LastReverted, ", "))
+			}
+		}
+		if resp.ReceiveMode != "" {
+			fmt.Fprintf(&sb, "receive_mode: %s\n", resp.ReceiveMode)
+			if resp.TimedModeRemainingSeconds > 0 {
+				fmt.Fprintf(&sb, "  timed_mode_remaining: %ds\n", resp.TimedModeRemainingSeconds)
 			}
 		}
 		respondText(w, http.StatusOK, sb.String())
