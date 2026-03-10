@@ -1237,11 +1237,17 @@ func (rt *serveRuntime) SetupTransfer() {
 		compress = *rt.config.Transfer.Compress
 	}
 
+	logPath := rt.config.Transfer.LogPath
+	if logPath == "" {
+		logPath = filepath.Join(filepath.Dir(rt.configFile), "logs", "transfers.log")
+	}
+
 	cfg := p2pnet.TransferConfig{
 		ReceiveDir:  rt.config.Transfer.ReceiveDir,
 		MaxSize:     rt.config.Transfer.MaxFileSize,
 		ReceiveMode: p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
 		Compress:    compress,
+		LogPath:     logPath,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())

@@ -69,6 +69,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
+	mux.HandleFunc("GET /v1/transfers/history", s.handleTransferHistory)
 	mux.HandleFunc("GET /v1/transfers/pending", s.handleTransferPending)
 	mux.HandleFunc("GET /v1/transfers/{id}", s.handleTransferStatus)
 	mux.HandleFunc("POST /v1/transfers/{id}/accept", s.handleTransferAccept)
@@ -1310,6 +1311,45 @@ func (s *Server) handleTransferList(w http.ResponseWriter, r *http.Request) {
 
 	transfers := ts.ListTransfers()
 	respondJSON(w, http.StatusOK, transfers)
+}
+
+func (s *Server) handleTransferHistory(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		return
+	}
+
+	logPath := ts.LogPath()
+	if logPath == "" {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		return
+	}
+
+	maxStr := r.URL.Query().Get("max")
+	max := 50
+	if maxStr != "" {
+		if n, err := fmt.Sscanf(maxStr, "%d", &max); n != 1 || err != nil {
+			max = 50
+		}
+		if max <= 0 {
+			max = 50
+		}
+		if max > 1000 {
+			max = 1000
+		}
+	}
+
+	events, err := p2pnet.ReadTransferEvents(logPath, max)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("read transfer log: %v", err))
+		return
+	}
+	if events == nil {
+		events = []p2pnet.TransferEvent{}
+	}
+
+	respondJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleTransferStatus(w http.ResponseWriter, r *http.Request) {

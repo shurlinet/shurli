@@ -396,6 +396,16 @@ func (c *Client) TransferList() ([]p2pnet.TransferProgress, error) {
 	return resp, nil
 }
 
+// TransferHistory returns recent transfer events from the log file.
+func (c *Client) TransferHistory(max int) ([]p2pnet.TransferEvent, error) {
+	path := fmt.Sprintf("/v1/transfers/history?max=%d", max)
+	var resp []p2pnet.TransferEvent
+	if err := c.doJSON("GET", path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // TransferPending returns the list of transfers awaiting approval (ask mode).
 func (c *Client) TransferPending() ([]PendingTransferInfo, error) {
 	var resp []PendingTransferInfo

@@ -166,6 +166,7 @@ type TransferConfig struct {
 	ReceiveMode     ReceiveMode // default: contacts
 	Compress        bool        // enable zstd compression (default: true)
 	ErasureOverhead float64     // RS parity overhead (0.10 = 10%, 0 = disabled)
+	LogPath         string      // path for transfer event log (empty = disabled)
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -210,6 +211,7 @@ type TransferService struct {
 	erasureOverhead float64
 	metrics         *Metrics
 	events          *EventBus
+	logger          *TransferLogger
 
 	inboundSem chan struct{}
 
@@ -253,6 +255,15 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		compress = true
 	}
 
+	var logger *TransferLogger
+	if cfg.LogPath != "" {
+		var err error
+		logger, err = NewTransferLogger(cfg.LogPath)
+		if err != nil {
+			return nil, fmt.Errorf("transfer log: %w", err)
+		}
+	}
+
 	return &TransferService{
 		receiveDir:      dir,
 		maxSize:         cfg.MaxSize,
@@ -261,6 +272,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		erasureOverhead: cfg.ErasureOverhead,
 		metrics:         metrics,
 		events:          events,
+		logger:          logger,
 		inboundSem:      make(chan struct{}, maxConcurrentTransfers),
 		transfers:       make(map[string]*TransferProgress),
 		peerInbound:     make(map[string]int),
@@ -674,6 +686,9 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
+		sendStart := time.Now()
+		ts.logEvent(EventLogStarted, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, 0, "", "")
+
 		var err error
 		if numStreams > 1 && opener != nil {
 			err = ts.sendParallel(s, opener, manifest, chunks, parityEntries, progress, numStreams)
@@ -684,13 +699,16 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		ts.markCompleted(progress.ID)
 
 		short := remotePeer.String()[:16] + "..."
+		dur := time.Since(sendStart).Truncate(time.Millisecond).String()
 		if err != nil {
 			slog.Error("file-transfer: send failed",
 				"peer", short, "file", manifest.Filename, "error", err)
+			ts.logEvent(EventLogFailed, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, progress.Sent(), err.Error(), dur)
 		} else {
 			slog.Info("file-transfer: sent",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "chunks", manifest.ChunkCount)
+			ts.logEvent(EventLogCompleted, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
 		}
 
 		if ts.events != nil {
@@ -843,10 +861,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		short := remotePeer.String()[:16] + "..."
 		peerKey := remotePeer.String()
 
+		recvStart := time.Now()
+
 		// Receive mode check.
 		if ts.receiveMode == ReceiveModeOff {
 			slog.Debug("file-transfer: receive mode off, rejecting", "peer", short)
 			writeMsg(s, msgReject)
+			ts.logEvent(EventLogRejected, "receive", peerKey, "", 0, 0, "receive mode off", "")
 			return
 		}
 
@@ -891,12 +912,15 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
+		ts.logEvent(EventLogRequestReceived, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+
 		// Enforce size limit.
 		if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
 			slog.Warn("file-transfer: file too large",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "max", ts.maxSize)
 			writeRejectWithReason(s, RejectReasonSize)
+			ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "file too large", "")
 			return
 		}
 
@@ -905,6 +929,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Warn("file-transfer: insufficient disk space",
 				"peer", short, "file", manifest.Filename, "error", err)
 			writeRejectWithReason(s, RejectReasonSpace)
+			ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "insufficient disk space", "")
 			return
 		}
 
@@ -941,6 +966,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Info("file-transfer: resuming",
 				"peer", short, "file", manifest.Filename,
 				"have", ckpt.have.count(), "total", manifest.ChunkCount)
+			ts.logEvent(EventLogResumed, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 			if err := writeResumeRequest(rw, ckpt.have); err != nil {
 				slog.Error("file-transfer: resume request failed", "error", err)
@@ -988,11 +1014,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			defer timer.Stop()
 
 			var decision transferDecision
+			timedOut := false
 			select {
 			case decision = <-pt.decision:
 				// User decided.
 			case <-timer.C:
 				// Timeout: silent reject.
+				timedOut = true
 				decision = transferDecision{accept: false, reason: RejectReasonBusy}
 				slog.Info("file-transfer: ask mode timeout, rejecting",
 					"peer", short, "file", manifest.Filename, "id", pendingID)
@@ -1005,6 +1033,11 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 					writeRejectWithReason(s, decision.reason)
 				} else {
 					writeMsg(s, msgReject)
+				}
+				if timedOut {
+					ts.logEvent(EventLogCancelled, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "ask mode timeout", "")
+				} else {
+					ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "user rejected", "")
 				}
 				return
 			}
@@ -1021,6 +1054,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 			slog.Info("file-transfer: approved",
 				"peer", short, "file", manifest.Filename, "id", pendingID)
+			ts.logEvent(EventLogAccepted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 			if err := writeMsg(s, msgAccept); err != nil {
 				slog.Error("file-transfer: accept write failed", "error", err)
@@ -1031,6 +1065,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize, "chunks", manifest.ChunkCount,
 				"compressed", compressed)
+			ts.logEvent(EventLogAccepted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 			// Accept (fresh transfer - contacts/open mode).
 			if err := writeMsg(s, msgAccept); err != nil {
@@ -1042,20 +1077,24 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
+		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 		// Receive chunks (with resume support).
 		err = ts.receiveChunked(rw, manifest, progress, ckpt)
 		progress.finish(err)
 		ts.markCompleted(progress.ID)
 
+		dur := time.Since(recvStart).Truncate(time.Millisecond).String()
 		if err != nil {
 			slog.Error("file-transfer: receive failed",
 				"peer", short, "file", manifest.Filename, "error", err)
+			ts.logEvent(EventLogFailed, "receive", peerKey, manifest.Filename, manifest.FileSize, progress.Sent(), err.Error(), dur)
 		} else {
 			slog.Info("file-transfer: received",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize,
 				"path", filepath.Join(ts.receiveDir, manifest.Filename))
+			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
 		}
 
 		if ts.events != nil {
@@ -1251,6 +1290,21 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		framesRead++
 		totalWritten += int64(len(chunkData))
 		progress.updateChunks(totalWritten, have.count())
+
+		// Log progress milestones at 25%, 50%, 75%.
+		if m.FileSize > 0 {
+			pct := int(totalWritten * 100 / m.FileSize)
+			prevPct := int((totalWritten - int64(len(chunkData))) * 100 / m.FileSize)
+			peerID := progress.PeerID
+			switch {
+			case pct >= 75 && prevPct < 75:
+				ts.logEvent(EventLogProgress75, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
+			case pct >= 50 && prevPct < 50:
+				ts.logEvent(EventLogProgress50, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
+			case pct >= 25 && prevPct < 25:
+				ts.logEvent(EventLogProgress25, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
+			}
+		}
 	}
 
 	// Read the done message (if not already consumed by the loop).
@@ -1468,6 +1522,33 @@ func (ts *TransferService) SetMaxSize(maxBytes int64) {
 // ReceiveDir returns the receive directory path.
 func (ts *TransferService) ReceiveDir() string {
 	return ts.receiveDir
+}
+
+// LogPath returns the transfer event log file path (empty if logging disabled).
+func (ts *TransferService) LogPath() string {
+	if ts.logger == nil {
+		return ""
+	}
+	return ts.logger.path
+}
+
+// logEvent writes a structured transfer event to the log file.
+// No-op if logging is disabled.
+func (ts *TransferService) logEvent(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string) {
+	if ts.logger == nil {
+		return
+	}
+	ts.logger.Log(TransferEvent{
+		Timestamp: time.Now(),
+		EventType: eventType,
+		Direction: direction,
+		PeerID:    peerID,
+		FileName:  fileName,
+		FileSize:  fileSize,
+		BytesDone: bytesDone,
+		Error:     errStr,
+		Duration:  duration,
+	})
 }
 
 // --- Ask mode: pending transfer management ---
