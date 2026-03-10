@@ -183,7 +183,7 @@ func TestMultiPeerSessionTwoPeers(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for bi := 0; bi < blockCount; bi++ {
-			for sid := half; sid < k+2; sid++ { // +2 repair for safety
+			for sid := half; sid < k+5; sid++ { // +5 repair for RaptorQ probabilistic margin
 				sym := encoders[bi].genSymbol(sid)
 				session.addSymbol(bi, sid, sym)
 			}
