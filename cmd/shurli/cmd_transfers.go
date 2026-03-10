@@ -17,6 +17,8 @@ func runTransfers(args []string) {
 	fs := flag.NewFlagSet("transfers", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	watchFlag := fs.Bool("watch", false, "live feed (refreshes every 2s)")
+	historyFlag := fs.Bool("history", false, "show transfer event history from log")
+	maxFlag := fs.Int("max", 50, "max events to show with --history")
 	fs.Parse(reorderFlags(fs, args))
 
 	client := tryDaemonClient()
@@ -24,6 +26,11 @@ func runTransfers(args []string) {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		osExit(1)
+	}
+
+	if *historyFlag {
+		showTransferHistory(client, *maxFlag, *jsonFlag)
+		return
 	}
 
 	if *watchFlag {
@@ -49,6 +56,55 @@ func runTransfers(args []string) {
 	}
 
 	printTransferTable(transfers)
+}
+
+func showTransferHistory(client *daemon.Client, max int, jsonOutput bool) {
+	events, err := client.TransferHistory(max)
+	if err != nil {
+		fatal("Failed to get transfer history: %v", err)
+	}
+
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(events)
+		return
+	}
+
+	if len(events) == 0 {
+		tc.Wfaint(os.Stdout, "No transfer history.\n")
+		return
+	}
+
+	for _, ev := range events {
+		ts := ev.Timestamp.Local().Format("2006-01-02 15:04:05")
+		dir := "\u2191"
+		if ev.Direction == "receive" {
+			dir = "\u2193"
+		}
+
+		sizeStr := ""
+		if ev.FileSize > 0 {
+			sizeStr = humanSize(ev.FileSize)
+		}
+
+		fmt.Printf("  %s  %s %s  %-18s  %s", ts, dir, ev.FileName, ev.EventType, sizeStr)
+
+		if ev.Duration != "" {
+			fmt.Printf("  %s", ev.Duration)
+		}
+		if ev.Error != "" {
+			fmt.Printf("  ")
+			tc.Wred(os.Stdout, "%s", ev.Error)
+		}
+
+		peerShort := ev.PeerID
+		if len(peerShort) > 16 {
+			peerShort = peerShort[:16] + "..."
+		}
+		fmt.Printf("  %s", peerShort)
+		fmt.Println()
+	}
 }
 
 func printTransferTable(transfers []p2pnet.TransferProgress) {
