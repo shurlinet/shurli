@@ -1293,9 +1293,17 @@ func (rt *serveRuntime) SetupTransfer() {
 }
 
 // SetupSharing initializes the share registry and registers the browse
-// protocol handler on the P2P host.
+// protocol handler on the P2P host. Persistent shares are loaded from disk.
 func (rt *serveRuntime) SetupSharing() {
-	reg := p2pnet.NewShareRegistry()
+	configDir := filepath.Dir(rt.configFile)
+	persistPath := filepath.Join(configDir, "shares.json")
+
+	reg, err := p2pnet.LoadShareRegistry(persistPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to load persistent shares: %v\n", err)
+		reg = p2pnet.NewShareRegistry()
+		reg.SetPersistPath(persistPath)
+	}
 	rt.shareRegistry = reg
 
 	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
