@@ -25,9 +25,9 @@ func runSend(args []string) {
 
 	remaining := fs.Args()
 	if len(remaining) < 2 {
-		fmt.Println("Usage: shurli send <file> <peer> [--follow] [--no-compress] [--streams N] [--json]")
+		fmt.Println("Usage: shurli send <file|dir> <peer> [--follow] [--no-compress] [--streams N] [--json]")
 		fmt.Println()
-		fmt.Println("Send a file to a peer. By default, submits to daemon and exits.")
+		fmt.Println("Send a file or directory to a peer. By default, submits to daemon and exits.")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --follow       Follow transfer progress (Ctrl+C detaches, transfer continues)")
@@ -41,6 +41,7 @@ func runSend(args []string) {
 		fmt.Println("  shurli send photo.jpg home-server              # fire-and-forget")
 		fmt.Println("  shurli send photo.jpg home-server --follow     # watch progress")
 		fmt.Println("  shurli send ~/Documents/report.pdf laptop")
+		fmt.Println("  shurli send mydir/ home-server                 # send entire directory")
 		fmt.Println("  shurli send backup.tar.gz 12D3KooW...")
 		fmt.Println()
 		fmt.Println("Check status anytime with: shurli transfers")
@@ -66,9 +67,6 @@ func runSend(args []string) {
 	if err != nil {
 		fatal("Cannot access file: %v", err)
 	}
-	if info.IsDir() {
-		fatal("Cannot send directories yet. Share a directory instead:\n  shurli share add %s", absPath)
-	}
 
 	client := tryDaemonClient()
 	if client == nil {
@@ -77,9 +75,16 @@ func runSend(args []string) {
 		osExit(1)
 	}
 
-	if !*jsonFlag {
-		tc.Wfaint(os.Stdout, "Sending %s (%s) to %s...\n",
-			filepath.Base(absPath), humanSize(info.Size()), peer)
+	if info.IsDir() {
+		if !*jsonFlag {
+			tc.Wfaint(os.Stdout, "Sending directory %s to %s...\n",
+				filepath.Base(absPath), peer)
+		}
+	} else {
+		if !*jsonFlag {
+			tc.Wfaint(os.Stdout, "Sending %s (%s) to %s...\n",
+				filepath.Base(absPath), humanSize(info.Size()), peer)
+		}
 	}
 
 	resp, err := client.Send(absPath, peer, *noCompressFlag, *streamsFlag)

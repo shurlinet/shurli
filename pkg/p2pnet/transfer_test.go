@@ -2,8 +2,11 @@ package p2pnet
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,11 +76,11 @@ func TestManifestPathTraversal(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"../../../etc/passwd", "passwd"},
-		{"/etc/shadow", "shadow"},
+		{"../../../etc/passwd", "etc/passwd"},
+		{"/etc/shadow", "etc/shadow"},
 		{"../../secret.txt", "secret.txt"},
 		{"normal-file.txt", "normal-file.txt"},
-		{"sub/dir/file.txt", "file.txt"},
+		{"sub/dir/file.txt", "sub/dir/file.txt"},
 	}
 
 	for _, tt := range tests {
@@ -602,6 +605,166 @@ func TestSanitizeFilename(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("sanitize(%q): got %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestSanitizeRelativePath(t *testing.T) {
+	tests := []struct {
+		input, expected string
+	}{
+		// Path traversal attacks.
+		{"../../etc/passwd", "etc/passwd"},
+		{"../../../secret.txt", "secret.txt"},
+		// Leading slash (absolute path prevention).
+		{"/etc/shadow", "etc/shadow"},
+		{"/absolute/path/file.txt", "absolute/path/file.txt"},
+		// Normal relative paths preserved.
+		{"mydir/subdir/file.txt", "mydir/subdir/file.txt"},
+		{"simple.txt", "simple.txt"},
+		// Mixed traversal and valid components.
+		{"foo/../bar/baz.txt", "foo/bar/baz.txt"},
+		{"./current/file.txt", "current/file.txt"},
+		// Empty and dot-only paths.
+		{"", ""},
+		{".", ""},
+		{"..", ""},
+		{"../..", ""},
+		// Backslash normalization.
+		{"dir\\subdir\\file.txt", "dir/subdir/file.txt"},
+		// Empty segments.
+		{"dir//subdir///file.txt", "dir/subdir/file.txt"},
+		// Control characters stripped from components.
+		{"dir/fi\x00le.txt", "dir/file.txt"},
+	}
+	for _, tt := range tests {
+		got := sanitizeRelativePath(tt.input)
+		if got != tt.expected {
+			t.Errorf("sanitizeRelativePath(%q): got %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestFinalPathCreatesSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+
+	// Should create subdirectories for relative paths.
+	path, err := ts.finalPath("mydir/subdir/file.txt")
+	if err != nil {
+		t.Fatalf("finalPath with subdirs: %v", err)
+	}
+
+	expected := filepath.Join(dir, "mydir", "subdir", "file.txt")
+	if path != expected {
+		t.Errorf("finalPath: got %q, want %q", path, expected)
+	}
+
+	// Verify parent directories were created.
+	parentDir := filepath.Join(dir, "mydir", "subdir")
+	info, err := os.Stat(parentDir)
+	if err != nil {
+		t.Fatalf("parent dir not created: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("parent path is not a directory")
+	}
+}
+
+func TestFinalPathSubdirCollision(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+
+	// Create the first file.
+	path1, err := ts.finalPath("sub/file.txt")
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	os.WriteFile(path1, []byte("x"), 0644)
+
+	// Second call should get collision-avoidance name.
+	path2, err := ts.finalPath("sub/file.txt")
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if filepath.Base(path2) != "file (1).txt" {
+		t.Errorf("collision: got %q, want file (1).txt", filepath.Base(path2))
+	}
+	// Should be in the same subdirectory.
+	if filepath.Dir(path2) != filepath.Dir(path1) {
+		t.Errorf("collision should be in same dir: %q vs %q", filepath.Dir(path2), filepath.Dir(path1))
+	}
+}
+
+func TestSendDirectoryNotADirectory(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+
+	// Create a regular file.
+	f := filepath.Join(dir, "regular.txt")
+	os.WriteFile(f, []byte("hello"), 0644)
+
+	_, err := ts.SendDirectory(
+		context.Background(),
+		f,
+		nil,
+		SendOptions{},
+	)
+	if err == nil {
+		t.Error("expected error for non-directory")
+	}
+}
+
+func TestSendDirectoryEmpty(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+
+	emptyDir := filepath.Join(dir, "empty")
+	os.Mkdir(emptyDir, 0755)
+
+	_, err := ts.SendDirectory(
+		context.Background(),
+		emptyDir,
+		nil,
+		SendOptions{},
+	)
+	if err == nil {
+		t.Error("expected error for empty directory")
+	}
+}
+
+func TestSendDirectorySkipsSymlinksAndSpecialFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create directory structure.
+	srcDir := filepath.Join(dir, "src")
+	os.MkdirAll(filepath.Join(srcDir, "sub"), 0755)
+
+	// Regular files.
+	os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("aaa"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "sub", "b.txt"), []byte("bbb"), 0644)
+
+	// Symlink (should be skipped).
+	os.Symlink(filepath.Join(srcDir, "a.txt"), filepath.Join(srcDir, "link.txt"))
+
+	// Walk and collect - we test the walk logic indirectly by verifying
+	// SendDirectory rejects empty dirs but accepts dirs with regular files.
+	ts, _ := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+
+	// This will fail at stream open (nil opener) but only AFTER walking - proving the walk found files.
+	_, err := ts.SendDirectory(
+		context.Background(),
+		srcDir,
+		func() (network.Stream, error) {
+			return nil, fmt.Errorf("test: no stream")
+		},
+		SendOptions{},
+	)
+	// Should fail at stream open, not at "empty directory".
+	if err == nil {
+		t.Error("expected error from stream opener")
+	}
+	if strings.Contains(err.Error(), "empty") {
+		t.Errorf("should not be empty error, got: %v", err)
 	}
 }
 
