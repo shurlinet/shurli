@@ -167,7 +167,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send share browse transfers accept reject whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
@@ -349,6 +349,9 @@ _shurli_completions() {
         browse)
             COMPREPLY=($(compgen -W "--json --path" -- "$cur"))
             return ;;
+        download)
+            COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent" -- "$cur"))
+            return ;;
         send)
             COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --quiet --silent" -- "$cur"))
             return ;;
@@ -417,6 +420,7 @@ _shurli() {
         'traceroute:P2P traceroute'
         'resolve:Resolve name to peer ID'
         'send:Send file to peer'
+        'download:Download from a peer'"'"'s shares'
         'share:Share files and directories'
         'browse:Browse a peer'"'"'s shared files'
         'transfers:List/watch file transfers'
@@ -677,6 +681,8 @@ _shurli() {
             ;;
         browse)
             _arguments '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
+        download)
+            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' ;;
         send)
             _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
         transfers)
@@ -760,6 +766,7 @@ complete -c shurli -n __shurli_no_subcommand -a ping        -d 'P2P ping'
 complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
 complete -c shurli -n __shurli_no_subcommand -a send        -d 'Send file to peer'
+complete -c shurli -n __shurli_no_subcommand -a download    -d 'Download from a peer'"'"'s shares'
 complete -c shurli -n __shurli_no_subcommand -a share       -d 'Share files and directories'
 complete -c shurli -n __shurli_no_subcommand -a browse      -d 'Browse a peer'"'"'s shared files'
 complete -c shurli -n __shurli_no_subcommand -a transfers   -d 'List/watch file transfers'
@@ -969,6 +976,11 @@ complete -c shurli -n '__shurli_using_subcommand share remove' -l json    -d 'Ou
 complete -c shurli -n '__shurli_using_subcommand share list'   -l json    -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command browse'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command browse'     -l path         -d 'Browse within a shared directory'
+complete -c shurli -n '__shurli_using_command download'   -l json         -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command download'   -l dest         -d 'Save to specific directory' -r
+complete -c shurli -n '__shurli_using_command download'   -l follow       -d 'Follow transfer progress'
+complete -c shurli -n '__shurli_using_command download'   -l quiet        -d 'Single progress bar'
+complete -c shurli -n '__shurli_using_command download'   -l silent       -d 'No progress output'
 complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
 complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'

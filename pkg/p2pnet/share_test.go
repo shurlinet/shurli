@@ -1,8 +1,12 @@
 package p2pnet
 
 import (
+	"bytes"
+	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -418,5 +422,110 @@ func TestAtomicWrite(t *testing.T) {
 	// Should be indented JSON.
 	if data[0] != '{' {
 		t.Errorf("expected JSON object, got %q", string(data[:1]))
+	}
+}
+
+func TestDownloadProtocolConstants(t *testing.T) {
+	// Verify protocol ID is valid.
+	if DownloadProtocol != "/shurli/file-download/1.0.0" {
+		t.Errorf("unexpected protocol: %s", DownloadProtocol)
+	}
+	// Error marker must be distinct from SHFT magic first byte.
+	if msgDownloadError != 0xFF {
+		t.Errorf("msgDownloadError should be 0xFF, got 0x%02X", msgDownloadError)
+	}
+}
+
+func TestWriteDownloadError(t *testing.T) {
+	var buf bytes.Buffer
+	writeDownloadError(&buf, "access denied")
+
+	data := buf.Bytes()
+	if len(data) < 3 {
+		t.Fatalf("too short: %d bytes", len(data))
+	}
+	if data[0] != msgDownloadError {
+		t.Errorf("first byte: got 0x%02X, want 0xFF", data[0])
+	}
+	errLen := binary.BigEndian.Uint16(data[1:3])
+	if int(errLen) != len("access denied") {
+		t.Errorf("error length: got %d, want %d", errLen, len("access denied"))
+	}
+	if string(data[3:]) != "access denied" {
+		t.Errorf("error message: got %q, want %q", string(data[3:]), "access denied")
+	}
+}
+
+func TestDownloadReadySingleByteReader(t *testing.T) {
+	ready := &downloadReady{firstByte: 'S'}
+
+	// PrefixedReader should return the consumed byte followed by the rest.
+	rest := bytes.NewReader([]byte("HFT-rest"))
+	r := ready.PrefixedReader(rest)
+
+	all, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(all) != "SHFT-rest" {
+		t.Errorf("got %q, want %q", string(all), "SHFT-rest")
+	}
+}
+
+func TestNonCollidingPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// First call: no collision.
+	path1 := filepath.Join(dir, "file.txt")
+	result, err := nonCollidingPath(path1)
+	if err != nil {
+		t.Fatalf("nonCollidingPath: %v", err)
+	}
+	if result != path1 {
+		t.Errorf("expected %q, got %q", path1, result)
+	}
+
+	// Create the file so next call collides.
+	os.WriteFile(path1, []byte("data"), 0644)
+
+	result2, err := nonCollidingPath(path1)
+	if err != nil {
+		t.Fatalf("nonCollidingPath collision: %v", err)
+	}
+	expected := filepath.Join(dir, "file (1).txt")
+	if result2 != expected {
+		t.Errorf("expected %q, got %q", expected, result2)
+	}
+
+	// Create (1) too.
+	os.WriteFile(expected, []byte("data"), 0644)
+	result3, err := nonCollidingPath(path1)
+	if err != nil {
+		t.Fatalf("nonCollidingPath double collision: %v", err)
+	}
+	expected3 := filepath.Join(dir, "file (2).txt")
+	if result3 != expected3 {
+		t.Errorf("expected %q, got %q", expected3, result3)
+	}
+}
+
+func TestCreateTempFileIn(t *testing.T) {
+	dir := t.TempDir()
+
+	path, f, err := createTempFileIn(dir, "test.txt")
+	if err != nil {
+		t.Fatalf("createTempFileIn: %v", err)
+	}
+	defer f.Close()
+
+	if !strings.HasPrefix(filepath.Base(path), ".shurli-tmp-") {
+		t.Errorf("temp file name should start with .shurli-tmp-, got %q", filepath.Base(path))
+	}
+	if !strings.HasSuffix(path, "-test.txt") {
+		t.Errorf("temp file name should end with -test.txt, got %q", filepath.Base(path))
+	}
+	// File should exist.
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("temp file should exist: %v", err)
 	}
 }

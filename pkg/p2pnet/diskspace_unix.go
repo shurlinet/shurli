@@ -10,8 +10,13 @@ import (
 
 // checkDiskSpace verifies that the receive directory has enough free space.
 func (ts *TransferService) checkDiskSpace(needed int64) error {
+	return checkDiskSpaceAt(ts.receiveDir, needed)
+}
+
+// checkDiskSpaceAt verifies that the given directory has enough free space.
+func checkDiskSpaceAt(dir string, needed int64) error {
 	var stat unix.Statfs_t
-	if err := unix.Statfs(ts.receiveDir, &stat); err != nil {
+	if err := unix.Statfs(dir, &stat); err != nil {
 		return fmt.Errorf("statfs: %w", err)
 	}
 	available := int64(stat.Bavail) * int64(stat.Bsize)

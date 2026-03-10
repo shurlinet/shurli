@@ -23,11 +23,19 @@ const (
 	// BrowseProtocol is the protocol ID for browsing shared content.
 	BrowseProtocol = "/shurli/file-browse/1.0.0"
 
+	// DownloadProtocol is the protocol ID for receiver-initiated file download.
+	// Single-stream: receiver sends path, sharer verifies ACL, then sends file
+	// data using the existing SHFT chunked transfer format.
+	DownloadProtocol = "/shurli/file-download/1.0.0"
+
 	// Browse wire messages.
 	msgBrowseRequest  = 0x01
 	msgBrowseResponse = 0x02
 	msgBrowseError    = 0x03
 	msgDownloadReq    = 0x04
+
+	// Download wire error marker.
+	msgDownloadError = 0xFF
 
 	// Limits.
 	maxSharesPerPeer  = 100
@@ -635,6 +643,201 @@ func BrowsePeer(s network.Stream, subPath string) (*BrowseResult, error) {
 	}
 
 	return &BrowseResult{Entries: entries}, nil
+}
+
+// --- Download protocol handler (sharer side) ---
+
+// HandleDownload returns a stream handler for the download protocol.
+// When a peer opens a download stream, the handler:
+// 1. Reads the requested path
+// 2. Verifies the peer has ACL access to the path
+// 3. Sends the file using the SHFT chunked transfer format
+//
+// For directory downloads, the caller iterates browse entries and downloads
+// each file separately.
+func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
+	return func(serviceName string, s network.Stream) {
+		remotePeer := s.Conn().RemotePeer()
+
+		// Check if peer has any visible shares.
+		shares := r.ListShares(&remotePeer)
+		if len(shares) == 0 {
+			s.Reset()
+			return
+		}
+
+		s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
+		// Read requested path: pathLen(2) + path.
+		var pathLen uint16
+		if err := binary.Read(s, binary.BigEndian, &pathLen); err != nil {
+			return
+		}
+		if pathLen == 0 || pathLen > maxPathLength {
+			writeDownloadError(s, "invalid path length")
+			s.Close()
+			return
+		}
+
+		pathBuf := make([]byte, pathLen)
+		if _, err := io.ReadFull(s, pathBuf); err != nil {
+			return
+		}
+		requestedPath := string(pathBuf)
+
+		// Sanitize: resolve to absolute, no traversal.
+		absPath, err := filepath.Abs(requestedPath)
+		if err != nil {
+			writeDownloadError(s, "invalid path")
+			s.Close()
+			return
+		}
+
+		// No symlink following: resolve and verify it's still within shared tree.
+		realPath, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			writeDownloadError(s, "not found")
+			s.Close()
+			return
+		}
+
+		// Verify ACL.
+		if !r.IsPathShared(realPath, remotePeer) {
+			writeDownloadError(s, "access denied")
+			s.Close()
+			return
+		}
+
+		info, err := os.Stat(realPath)
+		if err != nil {
+			writeDownloadError(s, "not found")
+			s.Close()
+			return
+		}
+
+		if info.IsDir() {
+			writeDownloadError(s, "cannot download directory; use browse + per-file download")
+			s.Close()
+			return
+		}
+
+		// Regular file only (no device files, pipes, sockets).
+		if !info.Mode().IsRegular() {
+			writeDownloadError(s, "not a regular file")
+			s.Close()
+			return
+		}
+
+		short := remotePeer.String()[:16] + "..."
+		slog.Info("file-download: serving file",
+			"peer", short, "path", filepath.Base(realPath),
+			"size", info.Size())
+
+		// Send the file using existing chunked transfer (SHFT format).
+		// SendFile writes manifest, waits for accept/reject, then sends chunks.
+		// The stream is closed by SendFile's background goroutine.
+		_, sendErr := ts.SendFile(s, realPath)
+		if sendErr != nil {
+			slog.Error("file-download: send failed",
+				"peer", short, "path", filepath.Base(realPath), "error", sendErr)
+			writeDownloadError(s, "internal error")
+			s.Close()
+		}
+		// SendFile runs in background and closes stream when done.
+	}
+}
+
+// writeDownloadError sends an error on the download stream.
+// Wire format: 0xFF + errLen(2) + errMsg.
+func writeDownloadError(w io.Writer, msg string) {
+	data := []byte(msg)
+	var header [3]byte
+	header[0] = msgDownloadError
+	binary.BigEndian.PutUint16(header[1:], uint16(len(data)))
+	w.Write(header[:])
+	w.Write(data)
+}
+
+// RequestDownload opens a download request on a stream and reads the response.
+// On success, the stream will have SHFT manifest data ready to read.
+// On error, returns the error message from the sharer.
+// The caller is responsible for reading the SHFT data after a successful return.
+func RequestDownload(s network.Stream, remotePath string) error {
+	s.SetDeadline(time.Now().Add(browseTimeout))
+
+	// Send path request: pathLen(2) + path.
+	pathBytes := []byte(remotePath)
+	if err := binary.Write(s, binary.BigEndian, uint16(len(pathBytes))); err != nil {
+		return fmt.Errorf("write path length: %w", err)
+	}
+	if _, err := s.Write(pathBytes); err != nil {
+		return fmt.Errorf("write path: %w", err)
+	}
+
+	// Peek first byte to determine success or error.
+	var firstByte [1]byte
+	if _, err := io.ReadFull(s, firstByte[:]); err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	if firstByte[0] == msgDownloadError {
+		// Read error message: errLen(2) + errMsg.
+		var errLen uint16
+		if err := binary.Read(s, binary.BigEndian, &errLen); err != nil {
+			return fmt.Errorf("read error length: %w", err)
+		}
+		if errLen > maxPathLength {
+			return fmt.Errorf("error message too large")
+		}
+		errBuf := make([]byte, errLen)
+		if _, err := io.ReadFull(s, errBuf); err != nil {
+			return fmt.Errorf("read error message: %w", err)
+		}
+		return fmt.Errorf("remote: %s", string(errBuf))
+	}
+
+	// Success: the first byte is the start of SHFT magic.
+	// We need to "unread" it. The caller needs this byte as part of the SHFT header.
+	// Return the first byte info so the caller can reconstruct.
+	// We'll use a different approach: the caller wraps the stream with a prefixed reader.
+	// Store the first byte for the caller.
+	s.SetDeadline(time.Time{}) // reset deadline for transfer
+	return &downloadReady{firstByte: firstByte[0]}
+}
+
+// downloadReady signals that the download stream has SHFT data ready.
+// The firstByte field contains the first byte already consumed (part of SHFT magic).
+// Callers should check for this with errors.As() and use PrefixedReader().
+type downloadReady struct {
+	firstByte byte
+}
+
+func (d *downloadReady) Error() string {
+	return "download ready"
+}
+
+// PrefixedReader returns a reader that replays the consumed first byte
+// followed by the rest of the stream.
+func (d *downloadReady) PrefixedReader(s io.Reader) io.Reader {
+	return io.MultiReader(
+		&singleByteReader{b: d.firstByte, read: false},
+		s,
+	)
+}
+
+// singleByteReader delivers exactly one byte, then EOF.
+type singleByteReader struct {
+	b    byte
+	read bool
+}
+
+func (r *singleByteReader) Read(p []byte) (int, error) {
+	if r.read || len(p) == 0 {
+		return 0, io.EOF
+	}
+	r.read = true
+	p[0] = r.b
+	return 1, nil
 }
 
 // --- Directory transfer ---

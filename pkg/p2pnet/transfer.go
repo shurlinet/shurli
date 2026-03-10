@@ -2144,3 +2144,217 @@ func (ts *TransferService) removePending(id string) {
 	delete(ts.pending, id)
 	ts.mu.Unlock()
 }
+
+// ReceiveFrom initiates a receiver-side download. It sends a download request
+// on the given stream, reads the SHFT manifest from the sharer, auto-accepts,
+// and receives the file to destDir (or the default receive directory if empty).
+//
+// This is the inverse of a push transfer: the receiver opens the stream and
+// pulls data. The sharer's HandleDownload handler calls SendFile(), which
+// writes SHFT manifest + chunks. This method reads that data.
+func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error) {
+	if destDir == "" {
+		destDir = ts.receiveDir
+	}
+
+	// Ensure destDir exists.
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return nil, fmt.Errorf("create destination directory: %w", err)
+	}
+
+	// Send the download request (path).
+	err := RequestDownload(s, remotePath)
+	if err == nil {
+		return nil, fmt.Errorf("unexpected: download request returned nil error without ready signal")
+	}
+
+	ready, ok := err.(*downloadReady)
+	if !ok {
+		// Actual error from remote.
+		return nil, err
+	}
+
+	// Create a combined reader that replays the consumed first byte.
+	r := ready.PrefixedReader(s)
+	rw := struct {
+		io.Reader
+		io.Writer
+	}{r, s}
+
+	remotePeer := s.Conn().RemotePeer()
+	peerKey := remotePeer.String()
+	short := peerKey[:16] + "..."
+
+	s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
+	// Read manifest (SHFT header).
+	manifest, err := readManifest(rw)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+
+	ts.logEvent(EventLogRequestReceived, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+
+	// Size limit check.
+	if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
+		writeMsg(s, msgReject)
+		return nil, fmt.Errorf("file too large: %d bytes (max %d)", manifest.FileSize, ts.maxSize)
+	}
+
+	// Disk space check using destDir.
+	if err := checkDiskSpaceAt(destDir, manifest.FileSize); err != nil {
+		writeRejectWithReason(s, RejectReasonSpace)
+		return nil, fmt.Errorf("insufficient disk space: %w", err)
+	}
+
+	// Verify Merkle root.
+	computedRoot := MerkleRoot(manifest.ChunkHashes)
+	if computedRoot != manifest.RootHash {
+		writeMsg(s, msgReject)
+		return nil, fmt.Errorf("manifest root hash mismatch")
+	}
+
+	compressed := manifest.Flags&flagCompressed != 0
+
+	slog.Info("file-download: receiving",
+		"peer", short, "file", manifest.Filename,
+		"size", manifest.FileSize, "chunks", manifest.ChunkCount)
+	ts.logEvent(EventLogAccepted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+
+	// Auto-accept (receiver initiated this download).
+	if err := writeMsg(s, msgAccept); err != nil {
+		return nil, fmt.Errorf("write accept: %w", err)
+	}
+
+	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
+		peerKey, "download", manifest.ChunkCount, compressed)
+	progress.setStatus("active")
+	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+
+	// Receive chunks (reuses the parallel receive path).
+	go func() {
+		defer s.Close()
+		recvStart := time.Now()
+
+		offsets := buildOffsetTable(manifest.ChunkSizes)
+		have := newBitfield(manifest.ChunkCount)
+		hasErasure := manifest.Flags&flagErasureCoded != 0
+
+		tmpPath, tmpFile, createErr := createTempFileIn(destDir, manifest.Filename)
+		if createErr != nil {
+			progress.finish(createErr)
+			ts.markCompleted(progress.ID)
+			return
+		}
+		if truncErr := tmpFile.Truncate(manifest.FileSize); truncErr != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			progress.finish(truncErr)
+			ts.markCompleted(progress.ID)
+			return
+		}
+
+		session := &parallelSession{
+			rootHash:   manifest.RootHash,
+			manifest:   manifest,
+			tmpFile:    tmpFile,
+			tmpPath:    tmpPath,
+			have:       have,
+			offsets:    offsets,
+			progress:   progress,
+			compressed: compressed,
+			hasErasure: hasErasure,
+			done:       make(chan struct{}),
+			chunks:     make(chan parallelChunk, 64),
+		}
+		if hasErasure && manifest.ParityCount > 0 {
+			session.parityData = make(map[int][]byte, manifest.ParityCount)
+		}
+
+		ts.registerParallelSession(manifest.RootHash, session)
+		recvErr := ts.receiveParallel(rw, session, nil)
+		ts.unregisterParallelSession(manifest.RootHash)
+
+		if recvErr != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+		} else {
+			if syncErr := tmpFile.Sync(); syncErr != nil {
+				recvErr = fmt.Errorf("sync file: %w", syncErr)
+				tmpFile.Close()
+			} else {
+				tmpFile.Close()
+				finalPath := filepath.Join(destDir, filepath.Base(manifest.Filename))
+				finalPath, fpErr := nonCollidingPath(finalPath)
+				if fpErr != nil {
+					recvErr = fmt.Errorf("determine final path: %w", fpErr)
+				} else if renameErr := os.Rename(tmpPath, finalPath); renameErr != nil {
+					recvErr = fmt.Errorf("rename temp to final: %w", renameErr)
+				} else {
+					os.Chmod(finalPath, 0644)
+				}
+			}
+		}
+
+		progress.finish(recvErr)
+		ts.markCompleted(progress.ID)
+
+		dur := time.Since(recvStart).Truncate(time.Millisecond).String()
+		if recvErr != nil {
+			slog.Error("file-download: receive failed",
+				"peer", short, "file", manifest.Filename, "error", recvErr)
+			ts.logEvent(EventLogFailed, "download", peerKey, manifest.Filename, manifest.FileSize, progress.Sent(), recvErr.Error(), dur)
+		} else {
+			slog.Info("file-download: received",
+				"peer", short, "file", manifest.Filename,
+				"size", manifest.FileSize,
+				"dest", destDir)
+			ts.logEvent(EventLogCompleted, "download", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
+		}
+	}()
+
+	return progress, nil
+}
+
+// createTempFileIn creates a temp file in the given directory.
+func createTempFileIn(dir, filename string) (string, *os.File, error) {
+	base := filepath.Base(filename)
+	tmpPath := filepath.Join(dir, ".shurli-tmp-"+randomHex(8)+"-"+base)
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", nil, err
+	}
+	return tmpPath, f, nil
+}
+
+// nonCollidingPath returns a path that doesn't collide with existing files.
+// If path doesn't exist, returns it as-is. Otherwise appends (1), (2), etc.
+func nonCollidingPath(path string) (string, error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err == nil {
+		f.Close()
+		os.Remove(path) // remove empty placeholder; rename will replace it
+		return path, nil
+	}
+	if !os.IsExist(err) {
+		return "", err
+	}
+
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	nameOnly := strings.TrimSuffix(base, ext)
+	for i := 1; i < 10000; i++ {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", nameOnly, i, ext))
+		f, err = os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			f.Close()
+			os.Remove(candidate)
+			return candidate, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
+		}
+	}
+	return path, nil // fall back
+}
