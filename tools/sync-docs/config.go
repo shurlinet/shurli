@@ -30,7 +30,7 @@ var docEntries = []docEntry{
 	// Weight 12: Engineering Journal (_index.md)
 	{"MONITORING.md", "monitoring.md", 13, "Monitoring", "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."},
 	{"DAEMON-API.md", "daemon-api.md", 14, "Daemon API", "REST API reference for the Shurli daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."},
-	{"ARCHITECTURE.md", "architecture.md", 11, "Architecture", "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."},
+	{"ARCHITECTURE.md", "architecture.md", 11, "Architecture", "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, file transfer, connection gating, and naming system."},
 	// ROADMAP.md is excluded from auto-sync. The website splits it into 3 pages
 	// under website/content/docs/roadmap/ (overview, completed, planned) for better
 	// readability. The source docs/ROADMAP.md stays as one file for GitHub readers.
