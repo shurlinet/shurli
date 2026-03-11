@@ -214,7 +214,7 @@ func doRelayUnseal(args []string, configFile string, stdout io.Writer, stdin io.
 		totpCode = strings.TrimSpace(line)
 	}
 
-	if err := client.Unseal(passphrase, totpCode); err != nil {
+	if err := client.Unseal(passphrase, totpCode, nil); err != nil {
 		return fmt.Errorf("unseal failed: %w", err)
 	}
 
@@ -452,7 +452,7 @@ func runRelayVaultChangePassword(args []string, configFile string) {
 		totpCode = strings.TrimSpace(line)
 	}
 
-	if err := v.Unseal(oldPassword, totpCode); err != nil {
+	if err := v.Unseal(oldPassword, totpCode, nil); err != nil {
 		fatal("Failed to unseal vault: %v", err)
 	}
 

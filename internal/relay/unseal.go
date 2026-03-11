@@ -305,8 +305,9 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 		totpCode = string(totpBuf)
 	}
 
-	// Attempt unseal.
-	if err := h.Vault.Unseal(passphrase, totpCode); err != nil {
+	// Attempt unseal. Remote unseal does not support Yubikey (requires
+	// physical key on the relay server). Pass nil for yubikey response.
+	if err := h.Vault.Unseal(passphrase, totpCode, nil); err != nil {
 		switch {
 		case errors.Is(err, vault.ErrInvalidPassword):
 			h.recordFailure(remotePeer)
@@ -320,6 +321,11 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 			slog.Warn("unseal: invalid TOTP", "peer", short, "failures", failures)
 			h.recordMetric("failure")
 			writeUnsealResponse(s, unsealStatusErr, h.failureMessage("invalid TOTP code", failures))
+		case errors.Is(err, vault.ErrInvalidYubikey):
+			h.recordFailure(remotePeer)
+			slog.Warn("unseal: yubikey required (remote unseal not supported)", "peer", short)
+			h.recordMetric("failure")
+			writeUnsealResponse(s, unsealStatusErr, "yubikey required: unseal locally via admin socket")
 		case errors.Is(err, vault.ErrVaultAlreadyUnsealed):
 			h.recordMetric("success")
 			writeUnsealResponse(s, unsealStatusOK, "already unsealed")

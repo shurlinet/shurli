@@ -2315,6 +2315,18 @@ func (ts *TransferService) LogPath() string {
 	return ts.logger.path
 }
 
+// Close releases resources held by the transfer service, including
+// closing the transfer log file. Should be called during daemon shutdown.
+func (ts *TransferService) Close() error {
+	if ts.rateLimiterStop != nil {
+		ts.rateLimiterStop()
+	}
+	if ts.logger != nil {
+		return ts.logger.Close()
+	}
+	return nil
+}
+
 // logEvent writes a structured transfer event to the log file.
 // No-op if logging is disabled.
 func (ts *TransferService) logEvent(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string) {
