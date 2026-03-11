@@ -671,6 +671,7 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		// Read requested path: pathLen(2) + path.
 		var pathLen uint16
 		if err := binary.Read(s, binary.BigEndian, &pathLen); err != nil {
+			s.Close()
 			return
 		}
 		if pathLen == 0 || pathLen > maxPathLength {
@@ -681,6 +682,7 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 
 		pathBuf := make([]byte, pathLen)
 		if _, err := io.ReadFull(s, pathBuf); err != nil {
+			s.Close()
 			return
 		}
 		requestedPath := string(pathBuf)

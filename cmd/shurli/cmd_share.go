@@ -47,7 +47,7 @@ func runShareAdd(args []string) {
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli share add <path> [--to <peer>] [--peers id1,id2] [--persist]")
+		fmt.Println("Usage: shurli share add <path> [--to <peer>] [--peers id1,id2] [--persist] [--json]")
 		osExit(1)
 	}
 
@@ -100,7 +100,7 @@ func runShareRemove(args []string) {
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli share remove <path>")
+		fmt.Println("Usage: shurli share remove <path> [--json]")
 		osExit(1)
 	}
 
@@ -170,15 +170,16 @@ func printShareUsage() {
 	fmt.Println("Usage: shurli share <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  add <path> [--to <peer>] [--peers id1,id2] [--persist]")
+	fmt.Println("  add <path> [--to <peer>] [--peers id1,id2] [--persist] [--json]")
 	fmt.Println("                                              Share a file or directory")
-	fmt.Println("  remove <path>                               Stop sharing a path")
-	fmt.Println("  list                                        List shared paths")
+	fmt.Println("  remove <path> [--json]                       Stop sharing a path")
+	fmt.Println("  list [--json]                               List shared paths")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  --to <peer>       Share with a single peer (alias for --peers)")
 	fmt.Println("  --peers id1,id2   Share with multiple peers")
 	fmt.Println("  --persist         Survive daemon restart")
+	fmt.Println("  --json            Output as JSON")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli share add ~/Photos                   # share with all authorized peers")
