@@ -387,6 +387,10 @@ Reject a pending incoming file transfer. Use \fB--all\fR to reject all
 pending transfers at once. Use \fB--reason\fR to announce the rejection
 reason to the sender. Without \fB--reason\fR, the sender sees a generic
 "declined" message.
+.TP
+.B cancel \fIid\fR [\fB--json\fR]
+Cancel a queued or active file transfer. Queued transfers are removed from
+the queue. Active transfers are stopped with best effort.
 
 .SH IDENTITY & ACCESS
 Access control in shurli is based on
