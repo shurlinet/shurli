@@ -486,8 +486,11 @@ func unmarshalManifest(data []byte) (*transferManifest, error) {
 	if off+nameLen > len(data) {
 		return nil, fmt.Errorf("truncated filename")
 	}
-	filename := string(data[off : off+nameLen])
+	filename := sanitizeRelativePath(string(data[off : off+nameLen]))
 	off += nameLen
+	if filename == "" {
+		return nil, fmt.Errorf("invalid filename after sanitization")
+	}
 
 	need := off + chunkCount*(32+4)
 	if need > len(data) {
