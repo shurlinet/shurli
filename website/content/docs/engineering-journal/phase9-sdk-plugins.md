@@ -1,6 +1,6 @@
 ---
 title: "Phase 9 - SDK, Plugins & Protocol Consolidation"
-weight: 21
+weight: 22
 description: "Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin."
 ---
 <!-- Auto-synced from docs/engineering-journal/phase9-sdk-plugins.md by sync-docs - do not edit directly -->
@@ -43,7 +43,7 @@ Specifically:
 
 -1,322 lines deleted across 10 files. Single code path, single wire protocol. Discarded code archived on `discarded` branch (`invite-v1v2/` folder) per project convention.
 
-### Why This Was Done
+### Why This Was Instructed
 
 > "Make v3 invite code v1. Erase ALL v1 and v2 invite code implementation AND any sort of backward compatibility code from the WHOLE codebase."
 
@@ -77,7 +77,7 @@ Protocol IDs (`/shurli/<name>/<version>`) were string literals scattered across 
 
 ### Decision
 
-Add `pkg/p2pnet/protocolid.go`:
+Add `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/protocolid.go`:
 - `ProtocolID(name, version)` - constructor that panics on empty, slash, or whitespace
 - `ValidateProtocolID(id)` - runtime validation
 - `MustValidateProtocolIDs(ids...)` - batch validation for `init()` blocks
@@ -97,7 +97,7 @@ Standalone CLI commands (ping, traceroute) duplicated ~50 lines of DHT bootstrap
 
 ### Decision
 
-Extract to `pkg/p2pnet/bootstrap.go`:
+Extract to `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/bootstrap.go`:
 - `BootstrapConfig` struct (namespace, bootstrap peers, relay addrs)
 - `BootstrapAndConnect()` function: DHT client mode, connect to bootstrap peers, connect to relays, find peer via DHT, fallback to relay circuit
 
@@ -116,7 +116,7 @@ File transfer is the first concrete plugin built on the Phase 9A service infrast
 
 ### Decision
 
-`pkg/p2pnet/transfer.go` implements:
+`https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` implements:
 - Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
 - `TransferService` with `HandleInbound()` returning a `StreamHandler`
 - `SendFile()` for outbound transfers with background progress tracking
