@@ -118,14 +118,16 @@ func (n *TransferNotifier) notifyDesktop(from, fileName string, fileSize int64) 
 
 // notifyCommand executes a user-provided command template.
 // Placeholders: {from} = peer ID, {file} = filename, {size} = file size in bytes.
+// All placeholder values are shell-escaped to prevent command injection from
+// attacker-controlled filenames (e.g., filenames containing $(), backticks, ;, |).
 func (n *TransferNotifier) notifyCommand(template, from, fileName string, fileSize int64) error {
 	if template == "" {
 		return nil
 	}
 
 	expanded := template
-	expanded = strings.ReplaceAll(expanded, "{from}", from)
-	expanded = strings.ReplaceAll(expanded, "{file}", fileName)
+	expanded = strings.ReplaceAll(expanded, "{from}", shellEscape(from))
+	expanded = strings.ReplaceAll(expanded, "{file}", shellEscape(fileName))
 	expanded = strings.ReplaceAll(expanded, "{size}", strconv.FormatInt(fileSize, 10))
 
 	cmd := exec.Command("sh", "-c", expanded)
@@ -135,6 +137,13 @@ func (n *TransferNotifier) notifyCommand(template, from, fileName string, fileSi
 	}
 
 	return nil
+}
+
+// shellEscape wraps a string in single quotes for safe shell interpolation.
+// Any embedded single quotes are escaped as '\'' (end quote, escaped quote, start quote).
+// This prevents injection via $(), backticks, semicolons, pipes, etc.
+func shellEscape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // shortPeerID returns the first 16 chars of a peer ID + "..." for display.
