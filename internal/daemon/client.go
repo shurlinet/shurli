@@ -408,8 +408,8 @@ func (c *Client) TransferStatus(id string) (*p2pnet.TransferProgress, error) {
 }
 
 // TransferList returns all tracked transfers.
-func (c *Client) TransferList() ([]p2pnet.TransferProgress, error) {
-	var resp []p2pnet.TransferProgress
+func (c *Client) TransferList() ([]p2pnet.TransferSnapshot, error) {
+	var resp []p2pnet.TransferSnapshot
 	if err := c.doJSON("GET", "/v1/transfers", nil, &resp); err != nil {
 		return nil, err
 	}
