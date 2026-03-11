@@ -175,7 +175,7 @@ func printUsage() {
 	fmt.Println("  init                                    Set up shurli configuration")
 	fmt.Println("  config validate [--config path]          Validate config")
 	fmt.Println("  config show     [--config path]          Show resolved config")
-	fmt.Println("  config set <key> <value>                 Set a config value")
+	fmt.Println("  config set <key> <value> [--duration 10m] Set a config value")
 	fmt.Println("  config rollback [--config path]          Restore last-known-good config")
 	fmt.Println("  config apply <new> [--confirm-timeout]   Apply with auto-revert")
 	fmt.Println("  config confirm  [--config path]          Confirm applied config")

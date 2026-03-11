@@ -440,10 +440,12 @@ Parse and validate the config file. Reports errors without starting anything.
 Print the fully resolved configuration (with defaults filled in and relative
 paths expanded).
 .TP
-.B config set \fIkey\fR \fIvalue\fR [\fB--config\fR \fIpath\fR]
+.B config set \fIkey\fR \fIvalue\fR [\fB--config\fR \fIpath\fR] [\fB--duration\fR \fI10m\fR]
 Set a single config value using a dotted key path (e.g.,
 \fBnetwork.force_private_reachability true\fR). Preserves YAML structure and
-comments. Restart the daemon to apply changes.
+comments. Use \fB--duration\fR with \fBtransfer.receive_mode timed\fR to set
+both the mode and duration in a single command. Apply without restart:
+\fBshurli config reload\fR.
 .TP
 .B config rollback \fR[\fB--config\fR \fIpath\fR]
 Replace the current config with the last-known-good backup (created
