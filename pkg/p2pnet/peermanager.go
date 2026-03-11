@@ -595,7 +595,7 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 	// If we got a relay connection but a direct connection already
 	// exists (established by mDNS while we were dialing), discard
 	// the relay. Direct is always preferred over relay.
-	if result.PathType == "RELAYED" && !allConnsRelayed(pm.host.Network().ConnsToPeer(target)) {
+	if result.PathType == "RELAYED" && hasLiveDirectConnection(pm.host, target) {
 		pm.mu.Unlock()
 		// Close the relay connection we just established.
 		for _, c := range pm.host.Network().ConnsToPeer(target) {
@@ -947,6 +947,58 @@ func allConnsRelayed(conns []network.Conn) bool {
 		}
 	}
 	return true
+}
+
+// hasLiveDirectConnection returns true if the peer has at least one
+// non-relay connection whose local IP is still present on an active
+// interface. Connections whose local IP has been removed (e.g. USB LAN
+// unplugged) are considered dead even if they linger in the swarm:
+// when the source interface disappears, the OS cannot send a TCP FIN,
+// so the connection sits in the swarm for tens of seconds until the
+// kernel finally tears it down. Treating such zombie connections as
+// "direct already active" would block relay fallback indefinitely.
+func hasLiveDirectConnection(h host.Host, pid peer.ID) bool {
+	conns := h.Network().ConnsToPeer(pid)
+	if len(conns) == 0 {
+		return false
+	}
+
+	// Build current active IPs from all up interfaces.
+	activeIPs := make(map[string]struct{})
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			addrs, _ := iface.Addrs()
+			for _, a := range addrs {
+				ipNet, ok := a.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				activeIPs[ipNet.IP.String()] = struct{}{}
+			}
+		}
+	}
+	activeIPs["127.0.0.1"] = struct{}{}
+	activeIPs["::1"] = struct{}{}
+
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue // relay connection - not direct
+		}
+		localIP := extractIPFromMultiaddrObj(c.LocalMultiaddr())
+		if localIP == "" {
+			continue
+		}
+		if _, ok := activeIPs[localIP]; ok {
+			return true // live direct connection on an active interface
+		}
+		// Local IP not on any active interface. This connection is a
+		// zombie: the interface was removed but the TCP socket hasn't
+		// been torn down yet. Do not count it as a live direct path.
+	}
+	return false
 }
 
 // peerHasIPv6 returns true if any multiaddr contains an IPv6 component.

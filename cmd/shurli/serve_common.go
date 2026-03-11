@@ -596,6 +596,9 @@ func (rt *serveRuntime) Bootstrap() error {
 		// If a relayed peer is reachable via IPv6 on a secondary
 		// interface (e.g., USB LAN), upgrade to direct.
 		//
+		// Only probe when new IPs were added (not on pure removal
+		// events - there is nothing new to bind to in that case).
+		//
 		// Two-phase wait:
 		// 1. DAD (Duplicate Address Detection): 100-500ms. Our IPv6
 		//    address is tentative and can't be source-bound.
@@ -604,7 +607,7 @@ func (rt *serveRuntime) Bootstrap() error {
 		//
 		// We poll bind-readiness for DAD, then retry the probe up to
 		// 3 times with 2s spacing to cover NDP neighbor resolution.
-		if rt.peerManager != nil {
+		if rt.peerManager != nil && len(change.Added) > 0 {
 			go func() {
 				if !waitForIPv6BindReady(rt.ctx, 5*time.Second) {
 					return
