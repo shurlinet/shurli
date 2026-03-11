@@ -165,12 +165,14 @@ func (c *AdminClient) RevokeGroup(id string) error {
 	return nil
 }
 
-// Unseal sends a passphrase (and optional TOTP code) to unseal the relay vault.
-func (c *AdminClient) Unseal(passphrase, totpCode string) error {
-	reqBody, _ := json.Marshal(map[string]string{
-		"passphrase": passphrase,
-		"totp_code":  totpCode,
-	})
+// Unseal sends a passphrase (and optional TOTP code and Yubikey response) to unseal the relay vault.
+func (c *AdminClient) Unseal(passphrase, totpCode string, yubikeyResponse []byte) error {
+	req := UnsealRequest{
+		Passphrase:      passphrase,
+		TOTPCode:        totpCode,
+		YubikeyResponse: yubikeyResponse,
+	}
+	reqBody, _ := json.Marshal(req)
 
 	data, status, err := c.do("POST", "/v1/unseal", strings.NewReader(string(reqBody)))
 	if err != nil {

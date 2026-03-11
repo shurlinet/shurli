@@ -276,6 +276,14 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 		remotePeer := s.Conn().RemotePeer()
 		short := remotePeer.String()[:16] + "..."
 
+		// Rate limit multi-peer requests (same limiter as inbound transfers).
+		peerKey := remotePeer.String()
+		if ts.rateLimiter != nil && !ts.rateLimiter.allow(peerKey) {
+			slog.Warn("file-multi-peer: rate limit exceeded", "peer", short)
+			s.Reset()
+			return
+		}
+
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		// Read msgMultiPeerRequest: type(1) + rootHash(32) + startSymbolID(4) + count(4)

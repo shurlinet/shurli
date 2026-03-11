@@ -360,6 +360,11 @@ func runRelayServe(args []string) {
 		}
 	}
 
+	// Wire macaroon verification: root key comes from vault (available only when unsealed).
+	if relayVault != nil {
+		pairingHandler.RootKeyFunc = relayVault.RootKey
+	}
+
 	// Wire up invite deposit store. The root key comes from the vault dynamically
 	// (available only when unsealed). The deposit store itself is always available.
 	adminSrv.SetDepositStore(depositStore)
