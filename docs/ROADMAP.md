@@ -223,7 +223,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | File transfer, service templates, WoL, Python SDK, Swift SDK, service discovery | Planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE. 9C-9E (discovery, Python SDK, Swift SDK) planned |
 
 **Deliverables**:
 
@@ -745,10 +745,10 @@ Future:          authorized_keys becomes optional cache layer
 
 ---
 
-#### Phase 9A: Core Interfaces & Library Consolidation
+#### Phase 9A: Core Interfaces & Library Consolidation ✅ DONE
 
 **Timeline**: 1-2 weeks
-**Status**: 🚧 In Progress
+**Status**: ✅ Complete
 
 **Goal**: Define the public API contracts that third-party code will depend on. This is design-first work - get the interfaces right before building implementations, because changing them later breaks downstream users.
 
@@ -765,12 +765,12 @@ Future:          authorized_keys becomes optional cache layer
 - [x] Constructor injection - `Network.Config` accepts optional `Resolver`
 - [x] Event hook system - `OnEvent(handler)` with subscribe/unsubscribe, thread-safe `EventBus`
 - [x] Stream middleware - `ServiceRegistry.Use(middleware)` wraps inbound stream handlers
-- [ ] Protocol ID formatter - configurable protocol namespace and versioning (deferred to 9B)
+- [x] Protocol ID formatter - `ProtocolID()` constructor + `MustValidateProtocolIDs()` for init-time validation *(completed in 9B)*
 
-**Library Consolidation** (deferred to 9B - needs real consumer to validate API shape):
-- [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
-- [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
-- [ ] Package-level documentation for `pkg/p2pnet/`
+**Library Consolidation** (completed in 9B):
+- [x] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go` - `BootstrapAndConnect()` for standalone CLI commands
+- [x] Centralize orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
+- [x] Package-level documentation for `pkg/p2pnet/` - `doc.go`
 
 **Interface Preview**:
 ```go
@@ -802,42 +802,124 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 
 **Compile-time checks**: `var _ PeerNetwork = (*Network)(nil)` etc. enforce interface satisfaction.
 
-**Exit Criteria**: All interfaces compile, compile-time satisfaction checks pass, zero regressions in test suite (20/20 packages PASS).
+**Exit Criteria**: All interfaces compile, compile-time satisfaction checks pass, zero regressions in test suite (21/21 packages PASS).
 
 ---
 
-#### Phase 9B: File Transfer Plugin
+#### Phase 9B: File Transfer Plugin ✅ DONE
 
-**Timeline**: 1-2 weeks
-**Status**: 📋 Planned
+**Timeline**: 3 weeks
+**Status**: ✅ Complete (core in 9B, hardened across FT-A through FT-H + audit-fix batches)
 
-**Goal**: Build file transfer as the first real plugin. This validates the `ServiceManager` and stream middleware interfaces from 9A. Universal use case, builds on existing streams, proves the full lifecycle. If the interfaces need adjustment, this is where we catch it. Also includes bootstrap extraction deferred from 9A (needs a real consumer to validate the API shape).
+**Goal**: Build file transfer as the first real plugin. Validates the `ServiceManager` and stream middleware interfaces from 9A. Also includes bootstrap extraction and protocol ID helpers deferred from 9A.
 
-**Deliverables** (proves `ServiceManager` + stream middleware):
-- [ ] `shurli send <file> --to <peer>` - send a file to an authorized peer
-- [ ] `shurli receive` - listen for incoming file transfers
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar and transfer speed display (stream middleware)
-- [ ] Resume interrupted transfers
-- [ ] Directory transfer support (`shurli send ./folder --to laptop`)
+**Core Transfer (9B)**:
+- [x] `shurli send <file> <peer>` - fire-and-forget by default, `--follow` for inline progress, `--priority` for queue priority
+- [x] `shurli transfers` - transfer inbox with `--watch` for live updates, `--history` for completed, `--json` for scripting
+- [x] FastCDC content-defined chunking (own implementation, adaptive targets 128K-2M)
+- [x] BLAKE3 Merkle tree integrity (binary tree, odd-node promotion, root verification)
+- [x] zstd compression on by default with incompressible detection and bomb protection (10x ratio cap)
+- [x] SHFT v2 wire format (magic + version + flags + manifest + chunk data)
+- [x] Receive modes: off / contacts (default) / ask / open / timed
+- [x] Disk space checks before each chunk write
+- [x] Atomic writes (write to `.tmp`, rename on completion)
+- [x] `PluginPolicy` - transport-aware access control (LAN + Direct only, relay blocked by default)
+- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go` (standalone CLI commands)
+- [x] `ProtocolID()` + `MustValidateProtocolIDs()` for init-time protocol validation
 
-**Usage**:
-```bash
-# Send a file
-$ shurli send photo.jpg --to laptop
-Sending photo.jpg (4.2 MB) to laptop...
-████████████████████████████ 100% - 4.2 MB/s
-Transfer complete
+**Download Protocol (FT-A)**:
+- [x] `shurli download <file> <peer>` - download from shared catalog
+- [x] `shurli browse <peer>` - browse peer's shared files
+- [x] Browse protocol (`/shurli/file-browse/1.0.0`) and download protocol (`/shurli/file-download/1.0.0`)
 
-# Send to multiple peers
-$ shurli send presentation.pdf --to home --to phone
+**Transfer Queue (FT-B)**:
+- [x] `TransferQueue` with priority ordering and configurable concurrency (default: 3 active)
+- [x] Queue status visible in `shurli transfers` and daemon API
 
-# Receive mode (optional - auto-accept if peer is authorized)
-$ shurli receive --save-to ~/Downloads/
-Waiting for transfers...
-```
+**Share Persistence (FT-C)**:
+- [x] `ShareRegistry` with persistent storage (`shares.json`)
+- [x] `shurli share add/remove/list` - manage shared files
+- [x] Shares survive daemon restarts
 
-**Exit Criteria**: File transfer works end-to-end across relay and direct connections. Interface adjustments from this phase fed back into 9A interfaces.
+**RaptorQ Multi-Source (FT-D)**:
+- [x] `shurli download --multi-peer --peers home,laptop` - download from multiple peers simultaneously
+- [x] RaptorQ fountain codes: any sufficient subset of symbols reconstructs the file
+- [x] Multi-peer wire protocol (`/shurli/file-multi-peer/1.0.0`)
+- [x] Per-peer contribution tracking and garbage symbol detection
+
+**Gaps & Hardening (FT-E)**:
+- [x] Per-peer rate limiting: 10 transfer requests/minute, fixed-window, silent rejection
+- [x] Peer ID prefix matching for CLI convenience
+- [x] Erasure coding display in transfer progress
+
+**Compression Ratio Display (FT-F)**:
+- [x] Compression ratio shown in transfer output (e.g., "compressed 42%")
+
+**Per-Stream Progress (FT-G)**:
+- [x] Per-stream progress display for parallel transfers
+
+**--to Alias (FT-H)**:
+- [x] `shurli share add <path> --to <peer>` for selective sharing (restrict individual shares to specific peers)
+
+**Resume + Checkpoint (9B-2)**:
+- [x] Checkpoint files (`.shurli-ckpt-<hash>`) store bitfield of received chunks
+- [x] Interrupted transfers resume from last checkpoint
+
+**Erasure Coding (9B-3)**:
+- [x] Reed-Solomon erasure coding with stripe-based layout
+- [x] Auto-enabled on Direct WAN only (overhead not justified on LAN)
+- [x] Parity bounded at 50% overhead max
+
+**Parallel Streams (9B-4)**:
+- [x] Adaptive parallel QUIC streams (1 for LAN, up to 4 for WAN)
+
+**Directory Transfer (9B-5 + 3B)**:
+- [x] Recursive directory transfer with path structure preserved
+- [x] Path sanitization: strip `..`, absolute paths, null bytes, control chars
+
+**Audit-Fix Batches (1A, 1B, 2A-2C, 3A-3C, 4A-4C)**:
+- [x] Macaroon `Verify()` wired into pairing consume flow (1A)
+- [x] Yubikey challenge-response wired into vault unseal (1B)
+- [x] Transfer event logging - JSON-line log with rotation (2A)
+- [x] Transfer notifications - desktop and command modes (2B)
+- [x] Timed receive mode - temporarily open, reverts after duration (2C)
+- [x] Batch accept/reject - `shurli accept --all`, `shurli reject --all` (3A)
+- [x] Parallel receive streams (3C)
+- [x] AllowStandalone config wiring (4A)
+- [x] Erasure config gap fix (4C)
+
+**Security hardening (FT-I, FT-J)**:
+- [x] Full integration audit: all exported functions wired, config fields validated, CLI flags consistent
+- [x] Privacy sweep: 17 checks all ZERO
+- [x] Command injection fix in notification command templates
+- [x] Multi-peer filename sanitization
+- [x] Transfer IDs changed from sequential to random hex (`xfer-<12hex>`)
+- [x] Rate limiter applied to multi-peer request path
+- [x] `TransferService.Close()` cleanup on daemon shutdown
+
+**New P2P protocols** (4):
+- `/shurli/file-transfer/2.0.0` - core send/receive
+- `/shurli/file-browse/1.0.0` - share browsing
+- `/shurli/file-download/1.0.0` - file download
+- `/shurli/file-multi-peer/1.0.0` - multi-source download
+
+**New daemon API endpoints** (15 new, 38 total):
+- `POST /v1/send`, `GET /v1/transfers`, `GET /v1/transfers/history`, `GET /v1/transfers/pending`, `GET /v1/transfers/{id}`, `POST /v1/transfers/{id}/accept`, `POST /v1/transfers/{id}/reject`, `POST /v1/transfers/{id}/cancel`, `GET /v1/shares`, `POST /v1/shares`, `DELETE /v1/shares`, `POST /v1/browse`, `POST /v1/download`, `POST /v1/config/reload`, `GET /v1/config/reload`
+
+**New CLI commands** (8): `send`, `download`, `share`, `browse`, `transfers`, `accept`, `reject`, `cancel`
+
+**Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT)
+
+**New files**: 22 source files (~10,000 lines) across `pkg/p2pnet/` and `cmd/shurli/` + matching test files.
+
+**Test status**: 1100 tests across 21 packages, race detector clean.
+
+**Exit Criteria**: File transfer works end-to-end on physical hardware (tested across CGNAT, LAN, and direct connections). Interface adjustments from this phase fed back into 9A interfaces.
+
+**Future considerations** (not in scope for this phase):
+- AI/neural compression: deferred to 2028-2029 when NNCP/neural codecs have stable Go implementations
+- Network file sync: rsync-like continuous background sync mode
+- TUI dashboard: ncurses-style transfer monitoring
 
 ---
 
@@ -878,7 +960,7 @@ Waiting for transfers...
 **Goal**: Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples - no synthetic demos, real working code.
 
 **Python SDK** (`shurli-sdk`):
-- [ ] Thin wrapper around daemon Unix socket API (23+ endpoints already implemented)
+- [ ] Thin wrapper around daemon Unix socket API (38 endpoints already implemented)
 - [ ] `pip install shurli-sdk`
 - [ ] Core operations: connect, expose_service, discover_services, proxy, status
 - [ ] Async support (asyncio) for integration with event-driven applications
