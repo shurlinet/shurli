@@ -215,11 +215,33 @@ func (p *TransferProgress) finish(err error) {
 	p.mu.Unlock()
 }
 
-// Snapshot returns a copy safe for JSON serialization.
-func (p *TransferProgress) Snapshot() TransferProgress {
+// TransferSnapshot is a mutex-free copy of TransferProgress, safe for JSON
+// serialization and value passing.
+type TransferSnapshot struct {
+	ID              string       `json:"id"`
+	Filename        string       `json:"filename"`
+	Size            int64        `json:"size"`
+	Transferred     int64        `json:"transferred"`
+	ChunksTotal     int          `json:"chunks_total"`
+	ChunksDone      int          `json:"chunks_done"`
+	Compressed      bool         `json:"compressed"`
+	CompressedSize  int64        `json:"compressed_size,omitempty"`
+	ErasureParity   int          `json:"erasure_parity,omitempty"`
+	ErasureOverhead float64      `json:"erasure_overhead,omitempty"`
+	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`
+	PeerID          string       `json:"peer_id"`
+	Direction       string       `json:"direction"`
+	Status          string       `json:"status"`
+	StartTime       time.Time    `json:"start_time"`
+	Done            bool         `json:"done"`
+	Error           string       `json:"error,omitempty"`
+}
+
+// Snapshot returns a mutex-free copy safe for JSON serialization.
+func (p *TransferProgress) Snapshot() TransferSnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	snap := TransferProgress{
+	snap := TransferSnapshot{
 		ID: p.ID, Filename: p.Filename, Size: p.Size,
 		Transferred: p.Transferred, ChunksTotal: p.ChunksTotal,
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
@@ -1931,9 +1953,9 @@ func (ts *TransferService) GetTransfer(id string) (*TransferProgress, bool) {
 }
 
 // ListTransfers returns snapshots of all tracked transfers, including queued items.
-func (ts *TransferService) ListTransfers() []TransferProgress {
+func (ts *TransferService) ListTransfers() []TransferSnapshot {
 	ts.mu.RLock()
-	activeTransfers := make([]TransferProgress, 0, len(ts.transfers))
+	activeTransfers := make([]TransferSnapshot, 0, len(ts.transfers))
 	for _, p := range ts.transfers {
 		activeTransfers = append(activeTransfers, p.Snapshot())
 	}
@@ -1941,9 +1963,9 @@ func (ts *TransferService) ListTransfers() []TransferProgress {
 
 	// Include queued (pending) transfers as synthetic progress entries.
 	queued := ts.queue.Pending()
-	result := make([]TransferProgress, 0, len(activeTransfers)+len(queued))
+	result := make([]TransferSnapshot, 0, len(activeTransfers)+len(queued))
 	for _, qt := range queued {
-		result = append(result, TransferProgress{
+		result = append(result, TransferSnapshot{
 			ID:        qt.ID,
 			Filename:  filepath.Base(qt.FilePath),
 			PeerID:    qt.PeerID,
