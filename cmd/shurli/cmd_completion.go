@@ -220,6 +220,9 @@ _shurli_completions() {
                 apply)
                     COMPREPLY=($(compgen -W "--config --confirm-timeout" -- "$cur"))
                     return ;;
+                set)
+                    COMPREPLY=($(compgen -W "--config --duration" -- "$cur"))
+                    return ;;
                 validate|show|rollback|confirm)
                     COMPREPLY=($(compgen -W "--config" -- "$cur"))
                     return ;;
@@ -593,7 +596,14 @@ _shurli() {
             if (( CURRENT == 3 )); then
                 _describe -t config_cmds 'config subcommand' config_cmds
             else
-                _arguments '--config[Config file]:file:_files' '--confirm-timeout[Auto-revert timeout]:duration'
+                case "${words[3]}" in
+                    set)
+                        _arguments '--config[Config file]:file:_files' '--duration[Timed receive mode duration]:duration' ;;
+                    apply)
+                        _arguments '--config[Config file]:file:_files' '--confirm-timeout[Auto-revert timeout]:duration' ;;
+                    *)
+                        _arguments '--config[Config file]:file:_files' ;;
+                esac
             fi
             ;;
         relay)
@@ -854,7 +864,8 @@ complete -c shurli -n '__shurli_using_command config' -a confirm  -d 'Confirm ap
 
 complete -c shurli -n '__shurli_using_subcommand config validate' -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config show'     -l config -d 'Config file'
-complete -c shurli -n '__shurli_using_subcommand config set'      -l config -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand config set'      -l config   -d 'Config file'
+complete -c shurli -n '__shurli_using_subcommand config set'      -l duration -d 'Timed receive mode duration (e.g. 10m)'
 complete -c shurli -n '__shurli_using_subcommand config rollback' -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config apply'    -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand config apply'    -l confirm-timeout -d 'Auto-revert timeout'
