@@ -35,71 +35,67 @@ Checked after each phase completion:
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
-### Phase 9A: Core Interfaces & Library Consolidation
+### Phase 9A: Core Interfaces & Library Consolidation - DONE
 
-**Timeline**: 1-2 weeks
+**Timeline**: 1 week
 
-Define the public API contracts that third-party code will depend on. Design-first: get the interfaces right before building implementations, because changing them later breaks downstream users.
+Defined the public API contracts that third-party code depends on. Design-first: interfaces validated by the file transfer plugin (9B) before any third-party consumers.
 
-**Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
-- [ ] `PeerNetwork` - interface for core network operations
-- [ ] `Resolver` - interface for name resolution (enables chaining: local -> DNS -> DHT -> blockchain)
-- [ ] `ServiceManager` - interface for service registration and dialing (enables middleware)
-- [ ] `Authorizer` - interface for authorization decisions (enables pluggable auth)
-- [ ] `Logger` - interface for structured logging injection
+**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+- [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
+- [x] `Resolver` - interface for name resolution with fallback chaining
+- [x] `ServiceManager` - interface for service registration and dialing, with middleware support
+- [x] `Authorizer` - interface for authorization decisions (pluggable auth)
+- [x] `StreamMiddleware` / `StreamHandler` - functional middleware chain for stream handlers
+- [x] `EventType` / `Event` / `EventHandler` - typed event system for network lifecycle
+- Logger: uses Go stdlib `*slog.Logger` (no custom interface - deletion over addition)
 
 **Extension Points**:
-- [ ] Constructor injection - optional `Resolver`, `ConnectionGater`, `Logger`
-- [ ] Event hook system - `OnEvent(handler)` for peer connected/disconnected, auth allow/deny
-- [ ] Stream middleware - `ServiceRegistry.Use(middleware)` for compression, bandwidth limiting
-- [ ] Protocol ID formatter - configurable protocol namespace and versioning
+- [x] Constructor injection - `Network.Config` accepts optional `Resolver`
+- [x] Event hook system - `OnEvent(handler)` with subscribe/unsubscribe, thread-safe `EventBus`
+- [x] Stream middleware - `ServiceRegistry.Use(middleware)` wraps inbound stream handlers
+- [x] Protocol ID formatter - `ProtocolID()` + `MustValidateProtocolIDs()` for init-time validation
 
-**Library Consolidation**:
-- [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
-- [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
-- [ ] Package-level documentation for `pkg/p2pnet/`
+**Library Consolidation** (completed in 9B):
+- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go`
+- [x] Centralized orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
+- [x] Package-level documentation in `pkg/p2pnet/doc.go`
 
-**Interface Preview**:
-```go
-// Third-party resolver
-type DNSResolver struct { ... }
-func (r *DNSResolver) Resolve(name string) (peer.ID, error) { ... }
+### Phase 9B: File Transfer Plugin - DONE
 
-// Third-party auth
-type DatabaseAuthorizer struct { ... }
-func (a *DatabaseAuthorizer) IsAuthorized(p peer.ID) bool { ... }
+**Timeline**: 3 weeks (core in 9B, hardened across FT-A through FT-H + audit-fix batches)
 
-// Wire it up
-net, _ := p2pnet.New(&p2pnet.Config{
-    Resolver:        &DNSResolver{},
-    ConnectionGater: &DatabaseAuthorizer{},
-    Logger:          slog.Default(),
-})
+Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. 4 new P2P protocols, 15 new daemon API endpoints, 8 new CLI commands.
 
-// React to events
-net.OnEvent(func(e p2pnet.Event) {
-    if e.Type == p2pnet.EventPeerConnected {
-        metrics.PeerConnections.Inc()
-    }
-})
-```
+**Core Features**:
+- [x] `shurli send <file> <peer>` - fire-and-forget (exits immediately), `--follow` for inline progress, `--priority` for queue priority
+- [x] `shurli download <file> <peer>` - download from shared catalog, `--multi-peer` for RaptorQ multi-source
+- [x] `shurli share add/remove/list` - manage shared files (`--to` for selective sharing)
+- [x] `shurli browse <peer>` - browse peer's shared file catalog
+- [x] `shurli transfers` - transfer inbox (`--watch`, `--history`, `--json`)
+- [x] `shurli accept/reject <id>` - manage pending transfers (`--all` for batch)
+- [x] `shurli cancel <id>` - cancel outbound transfer
 
-### Phase 9B: File Transfer Plugin
+**Architecture**:
+- FastCDC content-defined chunking (own implementation, adaptive targets 128K-2M)
+- BLAKE3 Merkle tree integrity (binary tree, odd-node promotion, root verification)
+- zstd compression on by default with bomb protection (10x ratio cap)
+- Reed-Solomon erasure coding (auto-enabled on Direct WAN, 50% max overhead)
+- RaptorQ fountain codes for multi-source download from multiple peers
+- Parallel QUIC streams (adaptive: 1 for LAN, up to 4 for WAN)
+- Checkpoint-based resume (bitfield of received chunks, `.shurli-ckpt` files)
+- Receive modes: off / contacts (default) / ask / open / timed
+- Transfer queue with priority ordering and configurable concurrency
+- Share registry with persistent storage (survives daemon restarts)
+- Transfer event logging (JSON lines, rotation) and notifications (desktop/command)
+- Per-peer rate limiting (10/min, silent rejection)
+- `PluginPolicy` blocks relay transport by default (drives own-relay adoption)
 
-**Timeline**: 1-2 weeks
+**Security**: path traversal protection, resource exhaustion caps, disk space checks, random transfer IDs, compression bomb protection, command injection prevention in notifications.
 
-Build file transfer as the first real plugin. Validates the `ServiceManager` and stream middleware interfaces from 9A. If the interfaces need adjustment, this is where we catch it.
+**Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT).
 
-- [ ] `shurli send <file> --to <peer>` and `shurli receive`
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar, resume interrupted transfers, directory support
-
-```bash
-$ shurli send photo.jpg --to laptop
-Sending photo.jpg (4.2 MB) to laptop...
-████████████████████████████ 100% - 4.2 MB/s
-Transfer complete
-```
+**Test status**: 1100 tests across 21 packages, race detector clean.
 
 ### Phase 9C: Service Discovery & Additional Plugins
 
