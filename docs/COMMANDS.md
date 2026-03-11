@@ -1,6 +1,6 @@
 # Commands
 
-Shurli ships as a single binary with 24 subcommands. All commands support `--config <path>` to specify a config file.
+Shurli ships as a single binary with 33 subcommands. All commands support `--config <path>` to specify a config file.
 
 ## Daemon
 
@@ -13,6 +13,7 @@ Shurli ships as a single binary with 24 subcommands. All commands support `--con
 | `shurli daemon services [--json]` | List exposed services via daemon |
 | `shurli daemon peers [--all] [--json]` | List connected peers (shurli-only by default) |
 | `shurli daemon connect --peer <p> --service <s> --listen <addr>` | Create a TCP proxy via daemon |
+| `shurli daemon paths [--json]` | Show connection paths for each peer |
 | `shurli daemon disconnect <id>` | Tear down a proxy |
 
 ## Network Tools (standalone, no daemon required)
@@ -41,11 +42,10 @@ Shurli ships as a single binary with 24 subcommands. All commands support `--con
 | `shurli init` | Interactive setup wizard (config, keys, authorized_keys) |
 | `shurli config validate` | Validate config file |
 | `shurli config show` | Show resolved configuration |
+| `shurli config set <key> <value> [--duration 10m]` | Set a config value (dotted path, e.g. `network.force_private_reachability true`) |
 | `shurli config rollback` | Restore last-known-good config |
 | `shurli config apply <file> [--confirm-timeout 5m]` | Apply config with auto-revert safety net |
 | `shurli config confirm` | Confirm applied config (cancels auto-revert) |
-| `shurli relay add/list/remove` | Manage relay server addresses |
-| `shurli service add/remove/enable/disable/list` | Manage exposed services |
 
 ## Pairing
 
@@ -61,8 +61,42 @@ Shurli ships as a single binary with 24 subcommands. All commands support `--con
 
 | Command | Description |
 |---------|-------------|
-| `shurli send <peer> <file>` | Send a file to a peer (FastCDC chunked, zstd compressed, BLAKE3 verified) |
-| `shurli transfers` | List active and recent transfers |
+| `shurli send <file> <peer> [--follow] [--no-compress] [--streams N] [--priority P] [--quiet] [--silent] [--json]` | Send a file to a peer. Fire-and-forget by default (exits immediately). `--follow` stays attached for inline progress. `--streams` sets parallel stream count (0 = auto). `--priority` sets queue priority (low/normal/high). |
+| `shurli transfers [--watch] [--history] [--max N] [--json]` | List pending, active, and completed transfers. `--watch` for live feed (refreshes every 2s). `--history` shows the structured event log. |
+| `shurli accept <id\|--all> [--dest /path/] [--json]` | Accept a pending incoming transfer. `--all` accepts all pending at once. `--dest` overrides the default receive directory. |
+| `shurli reject <id\|--all> [--reason space\|busy\|size] [--json]` | Reject a pending incoming transfer. `--reason` announces the rejection reason to the sender. |
+| `shurli cancel <id> [--json]` | Cancel a queued or active transfer. |
+
+## Selective Sharing
+
+| Command | Description |
+|---------|-------------|
+| `shurli share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]` | Share a file or directory. `--to` for a single peer, `--peers` for multiple. Without either, all authorized peers have access. `--persist` survives daemon restarts. |
+| `shurli share remove <path> [--json]` | Stop sharing a path. |
+| `shurli share list [--json]` | List all shared paths with type and peer restrictions. |
+| `shurli browse <peer> [--path /sub/dir] [--json]` | Browse files shared by a remote peer. `--path` navigates within a shared directory. |
+| `shurli download <peer>:<path> [--dest dir] [--follow] [--multi-peer] [--peers list] [--quiet] [--silent] [--json]` | Download from a peer's shares. `--multi-peer` with `--peers` enables RaptorQ multi-source swarming. |
+
+## Identity Security
+
+| Command | Description |
+|---------|-------------|
+| `shurli recover [--relay] [--dir path]` | Recover identity from BIP39 seed phrase |
+| `shurli change-password [--dir path]` | Change identity password |
+| `shurli lock` | Lock daemon (disable sensitive operations until unlocked) |
+| `shurli unlock` | Unlock a locked daemon with password verification |
+| `shurli session refresh` | Rotate session token |
+| `shurli session destroy` | Delete session token |
+
+## Services
+
+| Command | Description |
+|---------|-------------|
+| `shurli service add <name> <address>` | Expose a local TCP service to authorized peers |
+| `shurli service remove <name>` | Remove a service |
+| `shurli service enable <name>` | Re-enable a disabled service |
+| `shurli service disable <name>` | Disable a service without removing its config |
+| `shurli service list` | List configured services |
 
 ## Diagnostics
 
@@ -86,7 +120,7 @@ The daemon runs as a long-lived background process. It starts the full P2P host,
 - Unix socket at `~/.config/shurli/shurli.sock` (no TCP exposure)
 - Cookie-based auth (`~/.config/shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
-- 23 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths
+- 38 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths, file transfers, shares, config reload
 
 **Example:**
 ```bash
