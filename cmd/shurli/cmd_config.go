@@ -244,6 +244,16 @@ var validConfigKeys = []string{
 	"transfer.max_file_size",
 	"transfer.receive_mode",
 	"transfer.compress",
+	"transfer.timed_duration",
+	"transfer.log_path",
+	"transfer.notify",
+	"transfer.notify_command",
+	"transfer.max_concurrent",
+	"transfer.erasure_overhead",
+	"transfer.rate_limit",
+	"transfer.multi_peer_enabled",
+	"transfer.multi_peer_max_peers",
+	"transfer.multi_peer_min_size",
 }
 
 // validateConfigKey checks whether a dotted key path is a known config key.
@@ -313,6 +323,7 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
+	durationFlag := fs.String("duration", "", "timed receive mode duration (e.g. 10m, 1h)")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
@@ -324,6 +335,16 @@ func doConfigSet(args []string, stdout io.Writer) error {
 
 	key := remaining[0]
 	value := remaining[1]
+
+	// Validate --duration flag: only valid with transfer.receive_mode timed.
+	if *durationFlag != "" {
+		if key != "transfer.receive_mode" || value != "timed" {
+			return fmt.Errorf("--duration is only valid with: config set transfer.receive_mode timed")
+		}
+		if _, err := time.ParseDuration(*durationFlag); err != nil {
+			return fmt.Errorf("invalid duration %q: %w", *durationFlag, err)
+		}
+	}
 
 	// Validate key against known config schema before writing.
 	if err := validateConfigKey(key); err != nil {
@@ -352,6 +373,14 @@ func doConfigSet(args []string, stdout io.Writer) error {
 		return fmt.Errorf("failed to set %s: %w", key, err)
 	}
 
+	// If --duration provided, also set transfer.timed_duration.
+	if *durationFlag != "" {
+		durParts := splitDottedKey("transfer.timed_duration")
+		if err := yamlNodeSet(&root, durParts, *durationFlag); err != nil {
+			return fmt.Errorf("failed to set transfer.timed_duration: %w", err)
+		}
+	}
+
 	// Write back
 	out, err := yaml.Marshal(&root)
 	if err != nil {
@@ -362,6 +391,9 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Set %s = %s in %s\n", key, value, cfgFile)
+	if *durationFlag != "" {
+		fmt.Fprintf(stdout, "Set transfer.timed_duration = %s\n", *durationFlag)
+	}
 	fmt.Fprintln(stdout, "Apply without restart: shurli config reload")
 	return nil
 }
@@ -560,7 +592,7 @@ func printConfigUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  validate [--config path]                                   Validate config without starting")
 	fmt.Println("  show     [--config path]                                   Show resolved config")
-	fmt.Println("  set      <key> <value> [--config path]                     Set a config value (dotted key path)")
+	fmt.Println("  set      <key> <value> [--config path] [--duration 10m]    Set a config value (dotted key path)")
 	fmt.Println("  reload   [--json] [--status]                               Reload config into running daemon")
 	fmt.Println("  rollback [--config path]                                   Restore last-known-good config")
 	fmt.Println("  apply    <new-config> [--config path] [--confirm-timeout]  Apply config with auto-revert safety")
@@ -568,6 +600,7 @@ func printConfigUsage() {
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli config set transfer.receive_mode ask")
+	fmt.Println("  shurli config set transfer.receive_mode timed --duration 10m")
 	fmt.Println("  shurli config reload                          # apply without restart")
 	fmt.Println("  shurli config set network.force_private_reachability true")
 }
