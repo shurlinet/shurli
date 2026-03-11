@@ -132,6 +132,12 @@ func (rl *transferRateLimiter) cleanup() {
 	}
 }
 
+// StreamInfo tracks per-stream progress for parallel transfers.
+type StreamInfo struct {
+	ChunksDone int   `json:"chunks_done"`
+	BytesDone  int64 `json:"bytes_done"`
+}
+
 // TransferProgress tracks the progress of an active transfer.
 type TransferProgress struct {
 	ID          string    `json:"id"`
@@ -144,6 +150,7 @@ type TransferProgress struct {
 	CompressedSize  int64     `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
 	ErasureParity   int       `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
 	ErasureOverhead float64   `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
+	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"` // per-stream progress (parallel only)
 	PeerID          string    `json:"peer_id"`
 	Direction   string    `json:"direction"` // "send" or "receive"
 	Status      string    `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
@@ -158,6 +165,28 @@ func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
 	p.mu.Lock()
 	p.Transferred = transferred
 	p.ChunksDone = chunksDone
+	p.mu.Unlock()
+}
+
+// initStreams initializes per-stream progress counters for N streams.
+func (p *TransferProgress) initStreams(n int) {
+	p.mu.Lock()
+	p.StreamProgress = make([]StreamInfo, n)
+	p.mu.Unlock()
+}
+
+// updateStream increments a specific stream's counters.
+// Grows the slice if needed (receive side discovers workers dynamically).
+func (p *TransferProgress) updateStream(streamIdx int, chunkBytes int64) {
+	if streamIdx < 0 {
+		return
+	}
+	p.mu.Lock()
+	for streamIdx >= len(p.StreamProgress) {
+		p.StreamProgress = append(p.StreamProgress, StreamInfo{})
+	}
+	p.StreamProgress[streamIdx].ChunksDone++
+	p.StreamProgress[streamIdx].BytesDone += chunkBytes
 	p.mu.Unlock()
 }
 
@@ -190,7 +219,7 @@ func (p *TransferProgress) finish(err error) {
 func (p *TransferProgress) Snapshot() TransferProgress {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return TransferProgress{
+	snap := TransferProgress{
 		ID: p.ID, Filename: p.Filename, Size: p.Size,
 		Transferred: p.Transferred, ChunksTotal: p.ChunksTotal,
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
@@ -199,6 +228,11 @@ func (p *TransferProgress) Snapshot() TransferProgress {
 		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, Done: p.Done, Error: p.Error,
 	}
+	if len(p.StreamProgress) > 0 {
+		snap.StreamProgress = make([]StreamInfo, len(p.StreamProgress))
+		copy(snap.StreamProgress, p.StreamProgress)
+	}
+	return snap
 }
 
 // Sent returns the transferred bytes (compatibility alias for CLI polling).

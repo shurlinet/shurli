@@ -1324,3 +1324,117 @@ func TestErasureFieldsOnProgress(t *testing.T) {
 		t.Errorf("ErasureOverhead = %f, want 0.10", snap.ErasureOverhead)
 	}
 }
+
+func TestStreamProgressTracking(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	p := ts.trackTransfer("big.bin", 100000, "peer1", "send", 200, true)
+
+	// Initialize 4 streams.
+	p.initStreams(4)
+	snap := p.Snapshot()
+	if len(snap.StreamProgress) != 4 {
+		t.Fatalf("stream count: got %d, want 4", len(snap.StreamProgress))
+	}
+	for i, sp := range snap.StreamProgress {
+		if sp.ChunksDone != 0 || sp.BytesDone != 0 {
+			t.Errorf("stream %d should be zero initially", i)
+		}
+	}
+
+	// Deliver chunks to different streams.
+	p.updateStream(0, 1024)
+	p.updateStream(0, 2048)
+	p.updateStream(1, 512)
+	p.updateStream(2, 4096)
+	p.updateStream(3, 768)
+	p.updateStream(3, 256)
+
+	snap = p.Snapshot()
+	expected := []StreamInfo{
+		{ChunksDone: 2, BytesDone: 3072},
+		{ChunksDone: 1, BytesDone: 512},
+		{ChunksDone: 1, BytesDone: 4096},
+		{ChunksDone: 2, BytesDone: 1024},
+	}
+	for i, want := range expected {
+		got := snap.StreamProgress[i]
+		if got.ChunksDone != want.ChunksDone || got.BytesDone != want.BytesDone {
+			t.Errorf("stream %d: got {%d, %d}, want {%d, %d}",
+				i, got.ChunksDone, got.BytesDone, want.ChunksDone, want.BytesDone)
+		}
+	}
+}
+
+func TestStreamProgressSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+	}, nil, nil)
+
+	p := ts.trackTransfer("test.bin", 5000, "peer1", "send", 50, false)
+
+	// No streams - snapshot should have nil/empty StreamProgress.
+	snap := p.Snapshot()
+	if len(snap.StreamProgress) != 0 {
+		t.Fatalf("expected empty stream progress, got %d", len(snap.StreamProgress))
+	}
+
+	// Initialize and populate.
+	p.initStreams(2)
+	p.updateStream(0, 100)
+	p.updateStream(1, 200)
+
+	snap = p.Snapshot()
+	if len(snap.StreamProgress) != 2 {
+		t.Fatalf("stream count: got %d, want 2", len(snap.StreamProgress))
+	}
+
+	// Verify snapshot is a copy (modifying original doesn't affect snapshot).
+	p.updateStream(0, 300)
+	if snap.StreamProgress[0].BytesDone != 100 {
+		t.Errorf("snapshot should be independent copy, got %d", snap.StreamProgress[0].BytesDone)
+	}
+
+	// JSON includes stream_progress.
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"stream_progress"`) {
+		t.Errorf("JSON missing stream_progress: %s", data)
+	}
+}
+
+func TestStreamProgressDynamicGrow(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+	}, nil, nil)
+
+	p := ts.trackTransfer("test.bin", 5000, "peer1", "receive", 50, false)
+
+	// Without initStreams, updateStream should grow dynamically (receive side).
+	p.updateStream(0, 100)
+	p.updateStream(2, 200) // skip index 1
+
+	snap := p.Snapshot()
+	if len(snap.StreamProgress) != 3 {
+		t.Fatalf("stream count: got %d, want 3", len(snap.StreamProgress))
+	}
+	if snap.StreamProgress[0].ChunksDone != 1 || snap.StreamProgress[0].BytesDone != 100 {
+		t.Errorf("stream 0: got {%d, %d}, want {1, 100}",
+			snap.StreamProgress[0].ChunksDone, snap.StreamProgress[0].BytesDone)
+	}
+	if snap.StreamProgress[1].ChunksDone != 0 {
+		t.Errorf("stream 1 should be zero (skipped)")
+	}
+	if snap.StreamProgress[2].ChunksDone != 1 || snap.StreamProgress[2].BytesDone != 200 {
+		t.Errorf("stream 2: got {%d, %d}, want {1, 200}",
+			snap.StreamProgress[2].ChunksDone, snap.StreamProgress[2].BytesDone)
+	}
+}

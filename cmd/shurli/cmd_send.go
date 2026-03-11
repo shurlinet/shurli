@@ -121,6 +121,7 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 	defer ticker.Stop()
 
 	var lastSent int64
+	var lastStreamCount int
 	lastTime := time.Now()
 
 	for range ticker.C {
@@ -179,11 +180,30 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 					progress.ErasureOverhead*100, progress.ErasureParity)
 			}
 
+			// Per-stream progress lines (only in non-quiet mode with multiple streams).
+			streamLines := 0
+			if !quiet && len(progress.StreamProgress) > 1 {
+				// Move cursor up to overwrite previous stream lines.
+				if lastStreamCount > 0 {
+					fmt.Printf("\033[%dA", lastStreamCount+1)
+				}
+				for i, sp := range progress.StreamProgress {
+					fmt.Printf("\r  Stream %d: %d chunks  %s   \n",
+						i+1, sp.ChunksDone, humanSize(sp.BytesDone))
+				}
+				streamLines = len(progress.StreamProgress)
+			} else if lastStreamCount > 0 {
+				// Streams went away (transfer finishing) - move up.
+				fmt.Printf("\033[%dA", lastStreamCount+1)
+				lastStreamCount = 0
+			}
+
 			if speedStr != "" {
 				fmt.Printf("\r%s %.0f%% - %s%s%s%s   ", bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag)
 			} else {
 				fmt.Printf("\r%s %.0f%%%s%s%s   ", bar, pct*100, chunkInfo, compressTag, erasureTag)
 			}
+			lastStreamCount = streamLines
 		}
 	}
 }
