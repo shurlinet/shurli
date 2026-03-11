@@ -34,14 +34,20 @@ func runShare(args []string) {
 
 func runShareAdd(args []string) {
 	fs := flag.NewFlagSet("share add", flag.ExitOnError)
+	toFlag := fs.String("to", "", "peer ID to share with (alias for --peers with single peer)")
 	peersFlag := fs.String("peers", "", "comma-separated peer IDs (empty = all authorized)")
 	persistFlag := fs.Bool("persist", false, "survive daemon restart")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	fs.Parse(reorderFlags(fs, args))
 
+	if *toFlag != "" && *peersFlag != "" {
+		fmt.Fprintln(os.Stderr, "Error: use --to or --peers, not both")
+		osExit(1)
+	}
+
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli share add <path> [--peers id1,id2] [--persist]")
+		fmt.Println("Usage: shurli share add <path> [--to <peer>] [--peers id1,id2] [--persist]")
 		osExit(1)
 	}
 
@@ -56,7 +62,9 @@ func runShareAdd(args []string) {
 	}
 
 	var peers []string
-	if *peersFlag != "" {
+	if *toFlag != "" {
+		peers = []string{*toFlag}
+	} else if *peersFlag != "" {
 		peers = strings.Split(*peersFlag, ",")
 	}
 
@@ -162,13 +170,20 @@ func printShareUsage() {
 	fmt.Println("Usage: shurli share <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  add <path> [--peers id1,id2] [--persist]   Share a file or directory")
+	fmt.Println("  add <path> [--to <peer>] [--peers id1,id2] [--persist]")
+	fmt.Println("                                              Share a file or directory")
 	fmt.Println("  remove <path>                               Stop sharing a path")
 	fmt.Println("  list                                        List shared paths")
 	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  --to <peer>       Share with a single peer (alias for --peers)")
+	fmt.Println("  --peers id1,id2   Share with multiple peers")
+	fmt.Println("  --persist         Survive daemon restart")
+	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  shurli share add ~/Photos                   # share with all authorized peers")
-	fmt.Println("  shurli share add ~/secret.txt --peers 12D3KooW...")
+	fmt.Println("  shurli share add ~/secret.txt --to home-server")
+	fmt.Println("  shurli share add ~/docs --peers 12D3KooW...,12D3KooX...")
 	fmt.Println("  shurli share remove ~/Photos")
 	fmt.Println("  shurli share list")
 }

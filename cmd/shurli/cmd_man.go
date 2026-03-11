@@ -341,11 +341,12 @@ Use \fB--follow\fR to stay attached and watch progress inline.
 Use \fB--quiet\fR for a single progress bar (no chunk details) or
 \fB--silent\fR for no progress output. Requires a running daemon.
 .TP
-.B share add \fIpath\fR [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
-Share a file or directory with authorized peers. When \fB--peers\fR is
-specified, only those peers can see and download the shared content.
-Without \fB--peers\fR, all authorized peers have access.
-Use \fB--persist\fR to survive daemon restarts.
+.B share add \fIpath\fR [\fB--to\fR \fIpeer\fR] [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
+Share a file or directory with authorized peers. Use \fB--to\fR to share
+with a single peer, or \fB--peers\fR for multiple peers. Using both
+\fB--to\fR and \fB--peers\fR together is an error. Without either flag,
+all authorized peers have access. Use \fB--persist\fR to survive daemon
+restarts.
 .TP
 .B share remove \fIpath\fR [\fB--json\fR]
 Stop sharing a previously shared path.
