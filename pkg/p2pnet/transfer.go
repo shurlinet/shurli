@@ -69,6 +69,15 @@ const (
 	askModeTimeout         = 5 * time.Minute // receiver approval timeout in ask mode
 )
 
+func init() {
+	MustValidateProtocolIDs(
+		TransferProtocol,
+		BrowseProtocol,
+		DownloadProtocol,
+		MultiPeerProtocol,
+	)
+}
+
 // ReceiveMode controls how incoming transfers are handled.
 type ReceiveMode string
 

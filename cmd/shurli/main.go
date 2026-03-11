@@ -73,6 +73,8 @@ func main() {
 		runAccept(os.Args[2:])
 	case "reject":
 		runReject(os.Args[2:])
+	case "cancel":
+		runCancel(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -160,6 +162,7 @@ func printUsage() {
 	fmt.Println("  transfers [--watch] [--history] [--json]         List/watch file transfers")
 	fmt.Println("  accept <id|--all> [--dest /path/] [--json]      Accept a pending transfer")
 	fmt.Println("  reject <id|--all> [--reason space|busy|size] [--json]  Reject a pending transfer")
+	fmt.Println("  cancel <id> [--json]                                   Cancel a queued/active transfer")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                  Show your peer ID")

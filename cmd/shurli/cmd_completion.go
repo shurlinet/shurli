@@ -167,7 +167,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject cancel whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
@@ -364,6 +364,9 @@ _shurli_completions() {
         reject)
             COMPREPLY=($(compgen -W "--json --reason --all" -- "$cur"))
             return ;;
+        cancel)
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
+            return ;;
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
             return ;;
@@ -426,6 +429,7 @@ _shurli() {
         'transfers:List/watch file transfers'
         'accept:Accept a pending transfer'
         'reject:Reject a pending transfer'
+        'cancel:Cancel a queued or active transfer'
         'whoami:Show your peer ID'
         'auth:Identity and access management'
         'relay:Relay client and server commands'
@@ -691,6 +695,8 @@ _shurli() {
             _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--all[Accept all pending transfers]' ;;
         reject)
             _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' '--all[Reject all pending transfers]' ;;
+        cancel)
+            _arguments '--json[Output as JSON]' ;;
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
@@ -772,6 +778,7 @@ complete -c shurli -n __shurli_no_subcommand -a browse      -d 'Browse a peer'"'
 complete -c shurli -n __shurli_no_subcommand -a transfers   -d 'List/watch file transfers'
 complete -c shurli -n __shurli_no_subcommand -a accept      -d 'Accept a pending transfer'
 complete -c shurli -n __shurli_no_subcommand -a reject      -d 'Reject a pending transfer'
+complete -c shurli -n __shurli_no_subcommand -a cancel      -d 'Cancel a queued or active transfer'
 complete -c shurli -n __shurli_no_subcommand -a whoami      -d 'Show your peer ID'
 complete -c shurli -n __shurli_no_subcommand -a auth        -d 'Identity and access management'
 complete -c shurli -n __shurli_no_subcommand -a relay       -d 'Relay client and server'
@@ -995,6 +1002,7 @@ complete -c shurli -n '__shurli_using_command accept'     -l all          -d 'Ac
 complete -c shurli -n '__shurli_using_command reject'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command reject'     -l reason       -d 'Reject reason (space, busy, size)'
 complete -c shurli -n '__shurli_using_command reject'     -l all          -d 'Reject all pending transfers'
+complete -c shurli -n '__shurli_using_command cancel'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'
