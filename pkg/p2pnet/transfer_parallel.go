@@ -139,6 +139,7 @@ func (ts *TransferService) sendParallel(
 			totalSent += int64(len(c.data))
 			sent++
 			progress.updateChunks(totalSent, sent+have.count())
+			progress.addWireBytes(int64(len(c.data)))
 		}
 		if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
 			return pErr
@@ -211,9 +212,11 @@ func (ts *TransferService) sendParallel(
 					recordErr(fmt.Errorf("worker %d chunk %d: %w", streamIdx, idx, err))
 					return
 				}
-				totalSent.Add(int64(len(chunks[idx].data)))
+				wireBytes := int64(len(chunks[idx].data))
+				totalSent.Add(wireBytes)
 				done := chunksDone.Add(1)
 				progress.updateChunks(totalSent.Load(), int(done))
+				progress.addWireBytes(wireBytes)
 			}
 		}(i+1, ws, partitions[i+1])
 	}
@@ -224,9 +227,11 @@ func (ts *TransferService) sendParallel(
 			recordErr(fmt.Errorf("control chunk %d: %w", idx, err))
 			break
 		}
-		totalSent.Add(int64(len(chunks[idx].data)))
+		wireBytes := int64(len(chunks[idx].data))
+		totalSent.Add(wireBytes)
 		done := chunksDone.Add(1)
 		progress.updateChunks(totalSent.Load(), int(done))
+		progress.addWireBytes(wireBytes)
 	}
 
 	// Wait for all workers to finish.
@@ -398,6 +403,8 @@ func (ts *TransferService) receiveParallel(
 
 	// Process a single chunk (from any source).
 	processChunk := func(index int, wireData []byte) error {
+		progress.addWireBytes(int64(len(wireData)))
+
 		// Parity chunk.
 		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
 			parityIdx := index - m.ChunkCount

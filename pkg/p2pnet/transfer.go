@@ -141,6 +141,7 @@ type TransferProgress struct {
 	ChunksTotal int       `json:"chunks_total"`
 	ChunksDone  int       `json:"chunks_done"`
 	Compressed      bool      `json:"compressed"`
+	CompressedSize  int64     `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
 	ErasureParity   int       `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
 	ErasureOverhead float64   `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
 	PeerID          string    `json:"peer_id"`
@@ -157,6 +158,13 @@ func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
 	p.mu.Lock()
 	p.Transferred = transferred
 	p.ChunksDone = chunksDone
+	p.mu.Unlock()
+}
+
+// addWireBytes adds n bytes to CompressedSize (tracks compressed wire bytes).
+func (p *TransferProgress) addWireBytes(n int64) {
+	p.mu.Lock()
+	p.CompressedSize += n
 	p.mu.Unlock()
 }
 
@@ -186,6 +194,7 @@ func (p *TransferProgress) Snapshot() TransferProgress {
 		ID: p.ID, Filename: p.Filename, Size: p.Size,
 		Transferred: p.Transferred, ChunksTotal: p.ChunksTotal,
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
+		CompressedSize: p.CompressedSize,
 		ErasureParity: p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
 		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, Done: p.Done, Error: p.Error,
@@ -1061,6 +1070,7 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			totalSent += int64(len(c.data))
 			sent++
 			progress.updateChunks(totalSent, skipped+sent)
+			progress.addWireBytes(int64(len(c.data)))
 		}
 
 		// Send parity chunks (always resent on resume for reconstruction).
@@ -1081,6 +1091,7 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			}
 			totalSent += int64(len(c.data))
 			progress.updateChunks(totalSent, i+1)
+			progress.addWireBytes(int64(len(c.data)))
 		}
 
 		// Send parity chunks after data chunks.
@@ -1601,6 +1612,7 @@ func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, prog
 		if index == -1 {
 			break // done signal
 		}
+		progress.addWireBytes(int64(len(wireData)))
 
 		// Parity chunk (index >= ChunkCount).
 		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
