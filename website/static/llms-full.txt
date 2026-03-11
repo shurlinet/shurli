@@ -12,7 +12,7 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 ### Build from source
 
-**Requirements:** [Go 1.24+](https://go.dev/dl/)
+**Requirements:** [Go 1.26+](https://go.dev/dl/)
 
 **Linux** - install the mDNS development library first:
 ```bash
@@ -98,6 +98,9 @@ ssh -p 2222 user@localhost
 | Share Jellyfin with a friend | `shurli invite` on your side, `shurli join <code>` on theirs |
 | AI inference on a friend's GPU | `shurli proxy friend ollama 11434` then `curl localhost:11434` |
 | Any TCP service, zero port forwarding | `shurli proxy <peer> <service> <local-port>` |
+| Send a file to a friend | `shurli send photo.jpg home` |
+| Share a folder with a peer | `shurli share add ~/Public --to laptop` |
+| Download from a peer's shares | `shurli download home:documents/report.pdf` |
 | Check connectivity | `shurli ping home` or `shurli traceroute home` |
 
 Shurli works with **two machines and zero network effect** - useful from day one.
@@ -140,7 +143,9 @@ Shurli uses a different model. Devices connect outbound to a lightweight relay f
 | **Daemon Mode** | Background service with Unix socket API, cookie auth, hot-reload |
 | **Private DHT** | Kademlia peer discovery on `/shurli/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | `home`, `laptop`, `gpu-server` instead of raw peer IDs |
-| **Single Binary** | One `shurli` binary with 24 subcommands. No runtime dependencies |
+| **File Transfer** | Chunked P2P file transfer with FastCDC, BLAKE3 Merkle integrity, zstd compression, Reed-Solomon erasure coding, RaptorQ multi-source, parallel streams, resume support |
+| **Selective Sharing** | Share files and directories with per-peer access control. AirDrop-style receive permissions (off/contacts/ask/open) |
+| **Single Binary** | One `shurli` binary with 33 subcommands. No runtime dependencies |
 | **Cross-Platform** | Linux, macOS, Windows, ARM |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects |
@@ -175,8 +180,8 @@ sudo systemctl enable --now shurli
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [COMMANDS.md](docs/COMMANDS.md) | Complete command reference (all 24 subcommands) |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (23 endpoints) |
+| [COMMANDS.md](docs/COMMANDS.md) | Complete command reference (all 33 subcommands) |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (38 endpoints) |
 | [RELAY-SETUP.md](docs/RELAY-SETUP.md) | Relay server VPS deployment guide |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [FAQ](docs/faq/) | Security FAQ, relay hardening, troubleshooting |
@@ -212,10 +217,22 @@ Shurli is developed with significant AI assistance (Claude). All AI-generated co
 
 ## Dependencies
 
-- [go-libp2p](https://github.com/libp2p/go-libp2p) v0.47.0
-- [go-libp2p-kad-dht](https://github.com/libp2p/go-libp2p-kad-dht) v0.28.1
-- [go-multiaddr](https://github.com/multiformats/go-multiaddr)
-- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1
+**Networking:**
+- [go-libp2p](https://github.com/libp2p/go-libp2p) v0.47.0 - P2P transport, relay, hole-punching
+- [go-libp2p-kad-dht](https://github.com/libp2p/go-libp2p-kad-dht) v0.28.1 - Distributed peer discovery
+- [go-multiaddr](https://github.com/multiformats/go-multiaddr) - Network address format
+
+**File Transfer:**
+- [zeebo/blake3](https://github.com/zeebo/blake3) v0.2.4 (CC0) - Per-chunk hash + Merkle tree integrity
+- [klauspost/compress](https://github.com/klauspost/compress) v1.18.4 (BSD-3) - zstd streaming compression
+- [klauspost/reedsolomon](https://github.com/klauspost/reedsolomon) v1.13.2 (MIT) - Erasure coding for loss recovery
+- [xssnick/raptorq](https://github.com/xssnick/raptorq) v1.3.0 (MIT) - Fountain codes for multi-source download
+
+**ZKP:**
+- [gnark](https://github.com/Consensys/gnark) v0.14.0 - PLONK zero-knowledge proofs
+
+**Other:**
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1 - Configuration
 
 ## License
 
@@ -4854,6 +4871,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 8: Identity & Remote Admin](phase8-identity-remote-admin.md) | ADR-O01 to ADR-O17 | Unified BIP39 seed, encrypted identity, recovery, remote admin, MOTD, goodbye, session tokens |
 | [Seed Relay Separation & Init Flow](seed-relay-separation.md) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
 | [Phase 9: SDK, Plugins & Protocol Consolidation](phase9-sdk-plugins.md) | ADR-Q01 to ADR-Q05 | Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin |
+| [Phase 9: File Transfer Architecture](phase9-file-transfer.md) | ADR-R01 to ADR-R09 | FastCDC, BLAKE3, zstd, Reed-Solomon, RaptorQ, parallel streams, receive permissions, rate limiting |
 
 
 ---
@@ -7388,6 +7406,581 @@ Machine binding: token encrypted with key derived from hostname + machine ID. Co
 **Why separate lock/unlock from session**: Session is about startup convenience. Lock/unlock is about runtime security. Different concerns, different commands.
 
 **Reference**: `internal/identity/session.go`, `cmd/shurli/cmd_lock.go`
+
+
+---
+
+# Seed Relay Separation & Init Flow
+
+**Date**: 2026-03-03
+**Status**: Complete
+**ADRs**: ADR-P01 to ADR-P05
+
+Public seed relays are reclassified as discovery-only nodes. Data forwarding (SSH, XRDP, etc.) through seed relays is blocked at the relay server. The init flow defaults to the public Shurli network. A generic `config set` subcommand is added.
+
+---
+
+## ADR-P01: Seed Relays Are Discovery Nodes, Not Data Relays
+
+**Context**: Shurli ships hardcoded seed relay addresses and resolves DNS seeds at startup. These public relays serve two purposes: (1) DHT bootstrap and peer discovery, and (2) circuit relay for data forwarding (SSH, XRDP). Problem: Satinder's seed relays were forwarding arbitrary data traffic from every user on the network. SSH sessions, XRDP streams, file transfers - all flowing through infrastructure he pays for. At scale, this is unsustainable and creates a central point of failure. If seed relays go down under load, the entire network loses both discovery AND data transport simultaneously.
+
+**Alternatives considered**:
+- **Rate-limit data circuits on seed relays** - Solves bandwidth but not the architectural problem. Users would still depend on public infrastructure for private data transfer. Partial failure mode: rate-limited SSH is worse than no SSH (timeouts, stalls, corrupted sessions).
+- **Separate "discovery relay" and "data relay" binaries** - Doubles operational complexity. Two binaries, two configs, two sets of deployment scripts. The relay code is the same; only the policy differs.
+- **Client-side enforcement** - Rejected. A client that voluntarily refuses to use seed relays for data can be recompiled to ignore that restriction. Client-side enforcement is security theater. The attacker changes one boolean and recompiles. Server-side is the only enforcement point that matters.
+
+**Decision**: Seed relays are reclassified as **discovery and signaling nodes**. They handle:
+- DHT bootstrap and peer discovery (`/shurli/kad/`)
+- Relay pairing ceremonies (`/shurli/relay-pair/`)
+- Peer introduction delivery (`/shurli/peer-notify/`)
+- Remote admin (`/shurli/relay-admin/`)
+- Remote unseal (`/shurli/relay-unseal/`)
+- MOTD delivery (`/shurli/relay-motd/`)
+- ZKP auth (`/shurli/zkp-auth/`)
+- Ping/pong (`/pingpong/`)
+
+All of these are **direct streams** between the peer and the relay itself - they do NOT use circuit relay forwarding. The relay is one endpoint of the conversation.
+
+Data forwarding (circuit relay, where the relay blindly forwards bytes between two peers) is **disabled by default** via `enable_data_relay: false` in the relay server config. This is enforced server-side using libp2p's `relayv2.WithACL()` filter.
+
+**Key insight**: Signaling protocols are direct streams. Circuit relay is a separate mechanism. Blocking circuit relay does NOT affect any signaling protocol. The distinction is architectural, not a policy hack.
+
+**Consequence for users**: Peers that can only reach each other through a seed relay (both behind NAT, hole punching fails) will NOT be able to transfer data. They get a clear error explaining that seed relays enable discovery and direct connections only. The path forward: deploy your own relay server, which is a single command (`shurli relay setup`).
+
+**Reference**: `internal/relay/circuit_acl.go`, `cmd/shurli/cmd_relay_serve.go`
+
+---
+
+## ADR-P02: Server-Side Circuit ACL (relayv2.WithACL)
+
+**Context**: libp2p's circuit relay v2 supports an `ACLFilter` interface with two methods: `AllowReserve(peer.ID, ma.Multiaddr) bool` and `AllowConnect(src peer.ID, srcAddr ma.Multiaddr, dest peer.ID) bool`. `AllowReserve` controls whether a peer can make a relay reservation (claim a slot). `AllowConnect` controls whether a peer-to-peer data circuit can be established through the relay.
+
+**Alternatives considered**:
+- **Firewall-level blocking** - Too coarse. Cannot distinguish between authorized admin traffic and unauthorized user data. Would block everything or nothing.
+- **Protocol-level filtering** - The relay cannot inspect circuit traffic. It forwards bytes blindly. There is no protocol ID visible at the circuit layer. The relay sees "peer A wants to relay to peer B", not "peer A wants SSH to peer B."
+- **Client-side enforcement** - Rejected on principle (ADR-P01). If enforcement is not at the server, it does not exist.
+
+**Decision**: Implement `CircuitACL` struct satisfying `relayv2.ACLFilter`. Behavior:
+
+- `AllowReserve`: Always returns true. Connection gating (`authorized_keys`) already controls who can connect at all. Double-gating reservations would break legitimate signaling peers.
+- `AllowConnect`: If `enable_data_relay` is true globally, allow all circuits. Otherwise, allow only if either the source or destination peer has data relay privileges (admin role OR `relay_data=true` attribute in authorized_keys).
+
+Wired in at relay startup:
+```go
+circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay)
+relayv2.New(h, relayv2.WithACL(circuitACL), ...)
+```
+
+**Per-peer override**: `relay_data=true` attribute on any authorized_keys entry grants that specific peer circuit relay access without enabling it globally. Added via `shurli relay authorize <peer-id>` and then setting the attribute. Uses the same `parseLine()`/`formatLine()` machinery from `internal/auth/manage.go`.
+
+**Consequences**: Zero protocol changes. Zero wire format changes. The relay simply refuses to forward data circuits for unauthorized peers. Authorized peers and admin peers are unaffected. The ACL reads authorized_keys on every `AllowConnect` call (no caching), so attribute changes take effect immediately without relay restart.
+
+**Reference**: `internal/relay/circuit_acl.go`, `internal/relay/circuit_acl_test.go`, `internal/auth/manage.go` (`HasRelayData`, `RelayData` field on `PeerEntry`)
+
+---
+
+## ADR-P03: Client-Side UX Error Mapping (Not Enforcement)
+
+**Context**: When a seed relay blocks a data circuit, the client gets a generic libp2p error ("failed to open stream" or "relay connection failed"). This tells the user nothing about why it failed or what to do about it.
+
+**Alternatives considered**:
+- **Do nothing** - Generic error is confusing. Users would assume the network is broken, not that data relay is intentionally disabled.
+- **Custom error protocol** - Add a protocol where the relay explains why it rejected the circuit. Over-engineered for a case that has a simple heuristic solution.
+
+**Decision**: Client-side heuristic in `DialService()`. When a stream open fails for a data protocol AND the peer's only connections are relay circuits, append a hint to the error:
+
+```
+This relay is a discovery node, NOT a full data relay.
+It enables peer discovery and direct connections only.
+No SSH, XRDP, or other data is forwarded through it.
+
+To transfer data between your devices, deploy your own relay server:
+  shurli relay setup
+  https://shurli.io/docs/relay-setup/
+
+To override (for testing only):
+  shurli config set relay.allow_seed_data true
+```
+
+This is **UX only**. The client does not make any enforcement decisions. Even if this code is removed or bypassed, the server-side ACL still blocks the circuit. The message exists purely to save the user from confusion.
+
+**Why "discovery node" language**: Satinder's directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
+
+**Reference**: `pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
+
+---
+
+## ADR-P04: Init Flow Defaults to Public Network
+
+**Context**: `shurli init` previously required the user to manually enter a relay address. But the binary already ships with hardcoded seed addresses (`seeds.go`) and resolves DNS seeds at startup. The default experience should be "join the Shurli network" with zero manual input, not "paste a multiaddr you probably don't have."
+
+**Alternatives considered**:
+- **Auto-detect from config** - There is no config yet; `init` creates it. Chicken-and-egg.
+- **Remove manual option entirely** - Some users will run private networks with their own relays. The option must exist but should not be the default.
+
+**Decision**: `shurli init` now presents a choice:
+
+```
+Network setup:
+  1. Join the Shurli public network (default)
+  2. Use my own relay server
+
+Choice [1]:
+```
+
+Option 1 (default, just press Enter): writes all `HardcodedSeeds` addresses into the config's `relay.addresses` list. Clear messaging: "Uses public seed nodes for peer discovery and direct connections. NOTE: Seed nodes enable discovery only, NOT data relay."
+
+Option 2: existing flow (prompt for relay multiaddr, validate, write single address).
+
+The `nodeConfigTemplate` function signature changed from `relayAddr string` to `relayAddrs []string` to support multiple relay addresses in the config.
+
+**Consequences**: First-run friction drops to near zero for public network users. Private network users still have a clear path. The config file now contains all seed addresses, making the relay list auditable.
+
+**Reference**: `cmd/shurli/cmd_init.go`, `cmd/shurli/config_template.go`
+
+---
+
+## ADR-P05: Generic Config Set Subcommand
+
+**Context**: The seed relay data override (`relay.allow_seed_data`) needs a way to be set from the CLI without hand-editing YAML. Rather than adding a one-off flag, build the generic mechanism.
+
+**Alternatives considered**:
+- **Dedicated flag per setting** - Does not scale. Every new config knob requires a new CLI flag, new tests, new man page entry.
+- **Interactive config editor** - Over-engineered. Users know what key they want to set.
+
+**Decision**: `shurli config set <key> <value>` with dotted key path navigation. Implementation uses `yaml.Node` tree traversal to preserve YAML structure and comments when modifying values.
+
+```
+$ shurli config set relay.allow_seed_data true
+Set relay.allow_seed_data = true in /path/to/config.yaml
+```
+
+If intermediate keys don't exist, they are created as mapping nodes. Boolean values (`true`/`false`) are stored as YAML booleans, not strings. The config file's existing formatting and comments are preserved.
+
+**Consequences**: Any YAML config value can be set from the CLI. New config knobs require zero CLI code. The man page and completion scripts include `config set`. Trade-off: no validation against a schema. `shurli config set typo.key value` will happily create a nonsense key. Acceptable: `shurli config show` makes the full config visible for review, and the parser ignores unknown keys.
+
+**Reference**: `cmd/shurli/cmd_config.go` (`doConfigSet`, `yamlNodeSet`), `cmd/shurli/cmd_config_test.go`
+
+
+---
+
+# Phase 9: SDK, Plugins & Protocol Consolidation
+
+**Date**: 2026-03-08
+**Status**: In Progress
+**ADRs**: ADR-Q01 to ADR-Q05
+
+Phase 9 builds the plugin system, SDK interfaces, and file transfer - the first concrete plugin. It also consolidates legacy protocol versions that accumulated during rapid iteration.
+
+---
+
+## ADR-Q01: Delete Invite v1/v2 Code
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Three invite code formats accumulated over development:
+- **v1**: Base32 encoding, direct PAKE between peers (no relay)
+- **v2**: Base32 encoding, relay-mediated pairing with raw token
+- **v3**: Base36 short codes (16 chars like `KXMT-9FWR-PBLZ-4YAN`), async relay pairing with PAKE
+
+v3 was strictly superior: shorter codes, better UX, PAKE-secured wire protocol, async deposit model. v1 and v2 existed only for backward compatibility that nobody needed (no deployed users on those versions).
+
+### Decision
+
+Delete all v1 and v2 code. Make v3 the only format. No version constants, no dispatch switches, no backward compatibility shims.
+
+Specifically:
+- `invite/code.go`: Delete v1 base32 and v2 base32+relay encoding. Keep only base36.
+- `invite/pake.go`: Unify `Complete()` + `CompleteWithSalt()` into single `Complete(remotePub, salt []byte, channelBinding ...[]byte)`.
+- `relay/pairing.go`: Delete v1 raw-token `HandleStream`. Rename v2 PAKE handler to `HandleStream`.
+- `cmd_join.go`: Delete old `runPairJoin` (~200 lines). Rename v3 flow to `runPairJoin`.
+- `cmd_relay_serve.go`: Remove v1 protocol handler registration.
+
+### Result
+
+-1,322 lines deleted across 10 files. Single code path, single wire protocol. Discarded code archived on `discarded` branch (`invite-v1v2/` folder) per project convention.
+
+### Why Satinder Instructed This
+
+> "Make v3 invite code v1. Erase ALL v1 and v2 invite code implementation AND any sort of backward compatibility code from the WHOLE codebase."
+
+The reasoning: backward compatibility for formats with zero users is pure complexity. Every version switch, every dispatch branch, every `V2` suffix in a function name is cognitive overhead that slows down the next person reading the code. Delete it. If you need functionality from the old code to make the new code work, move it to the new code and delete the old.
+
+---
+
+## ADR-Q02: Pairing Protocol Wire Version Retained
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+After deleting v1, the remaining pairing protocol is `/shurli/relay-pair/2.0.0`. Should it be renumbered to `1.0.0`?
+
+### Decision
+
+Keep the `2.0.0` wire version. The protocol ID is a wire identifier, not a marketing version. Relay servers already running `2.0.0` would break if we renumbered. The code constant is now just `PairingProtocol` (no version suffix).
+
+---
+
+## ADR-Q03: Protocol ID Helpers
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Protocol IDs (`/shurli/<name>/<version>`) were string literals scattered across packages. Typos or formatting mistakes would silently create incompatible protocols.
+
+### Decision
+
+Add `pkg/p2pnet/protocolid.go`:
+- `ProtocolID(name, version)` - constructor that panics on empty, slash, or whitespace
+- `ValidateProtocolID(id)` - runtime validation
+- `MustValidateProtocolIDs(ids...)` - batch validation for `init()` blocks
+
+All relay protocol constants validated at startup via `init()`.
+
+---
+
+## ADR-Q04: Bootstrap Extraction
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Standalone CLI commands (ping, traceroute) duplicated ~50 lines of DHT bootstrap + relay connect + peer discovery logic each.
+
+### Decision
+
+Extract to `pkg/p2pnet/bootstrap.go`:
+- `BootstrapConfig` struct (namespace, bootstrap peers, relay addrs)
+- `BootstrapAndConnect()` function: DHT client mode, connect to bootstrap peers, connect to relays, find peer via DHT, fallback to relay circuit
+
+CLI commands now call one function instead of duplicating the pattern.
+
+---
+
+## ADR-Q05: File Transfer Plugin (Phase 9B)
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+File transfer is the first concrete plugin built on the Phase 9A service infrastructure. It validates the `ServiceManager`, `StreamHandler`, and event bus interfaces.
+
+### Decision
+
+`pkg/p2pnet/transfer.go` implements:
+- Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
+- `TransferService` with `HandleInbound()` returning a `StreamHandler`
+- `SendFile()` for outbound transfers with background progress tracking
+- Path traversal protection (`filepath.Base`), checksum verification, unique filename collision avoidance
+- Max 1 TB per file, 64 KB copy buffer
+
+Daemon integration:
+- `POST /send` endpoint, `GET /transfers` listing, `GET /transfer/{id}` status
+- `shurli send <file> <peer>` CLI with progress polling
+
+### Trade-offs
+
+- No directory transfer yet (single files only)
+- No encryption beyond libp2p transport security (adequate for authorized peers)
+- Progress polling (500ms ticker) rather than streaming updates
+
+
+---
+
+# Phase 9: File Transfer Architecture
+
+**Date**: 2026-03-11
+**Status**: Complete
+**ADRs**: ADR-R01 to ADR-R09
+
+File transfer is the first production plugin built on the Phase 9A service infrastructure. It spans ~6,100 lines across 10 source files in `pkg/p2pnet/`, with full daemon integration, CLI commands, and a management API.
+
+---
+
+## ADR-R01: Own FastCDC Implementation
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Content-defined chunking (CDC) is required for deduplication and resumable transfers. Options: use an existing Go CDC library, or write our own.
+
+### Decision
+
+Write our own FastCDC in `pkg/p2pnet/chunker.go` (180 lines). Single-pass streaming: each byte is hashed with BLAKE3 as the chunk boundary is found, so the chunk hash is available the moment the boundary is detected. No second pass.
+
+Chunk sizes are adaptive based on file size:
+
+| File size | Min | Avg | Max |
+|-----------|-----|-----|-----|
+| < 250 MB | 64 KB | 128 KB | 256 KB |
+| < 1 GB | 128 KB | 256 KB | 512 KB |
+| < 4 GB | 256 KB | 512 KB | 1 MB |
+| >= 4 GB | 512 KB | 1 MB | 2 MB |
+
+### Why Not a Library
+
+Every Go CDC library we evaluated either required a second pass for hashing, pulled in unnecessary dependencies, or didn't support adaptive chunk sizes. 180 lines of self-contained code with zero dependencies (beyond BLAKE3 which we already use for Merkle) is simpler than managing an external dependency for marginal benefit.
+
+**Reference**: `pkg/p2pnet/chunker.go`
+
+---
+
+## ADR-R02: BLAKE3 for All Hashing
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+File transfer needs hashing for: per-chunk integrity, Merkle tree root verification, and checkpoint matching.
+
+### Decision
+
+BLAKE3 everywhere. `zeebo/blake3` (CC0/public domain). Used for:
+- Per-chunk hash during FastCDC (single-pass, computed as chunks are cut)
+- Merkle tree nodes (`pkg/p2pnet/merkle.go`, 48 lines, binary tree with odd-node promotion)
+- Transfer checkpoint filenames (`.shurli-ckpt-<root-hash>`)
+
+### Why Not SHA-256
+
+BLAKE3 is ~3-5x faster than SHA-256 on modern hardware. For large file transfers where every chunk is hashed, this matters. The CC0 license means zero legal overhead. SHA-256 would work correctly but slower for no benefit.
+
+**Reference**: `pkg/p2pnet/merkle.go`, `pkg/p2pnet/chunker.go`
+
+---
+
+## ADR-R03: zstd On-By-Default with Bomb Protection
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Compression reduces transfer time on all but already-compressed data. The question is whether to make it opt-in or opt-out.
+
+### Decision
+
+zstd compression on by default (`klauspost/compress/zstd`, BSD-3). Opt-out via `transfer.compress: false` in config.
+
+Incompressible data is auto-detected: if compressed output is larger than input, the chunk is sent uncompressed (flagged in the wire format).
+
+Bomb protection: `maxDecompressRatio = 10`. If decompressed output exceeds 10x compressed input size, decompression aborts immediately. This prevents a malicious peer from sending a tiny compressed payload that expands to fill disk or memory.
+
+### Why On-By-Default
+
+95%+ of real files (documents, source code, logs, databases) compress well. The 5% that don't (JPEG, MP4, ZIP) are detected automatically and sent uncompressed. The cost of attempting compression on incompressible data is negligible (one comparison). The benefit of not requiring users to remember a flag is significant.
+
+**Reference**: `pkg/p2pnet/compress.go` (41 lines), `pkg/p2pnet/transfer.go` (maxDecompressRatio)
+
+---
+
+## ADR-R04: Reed-Solomon Stripe-Based Erasure Coding
+
+**Date**: 2026-03-09
+**Status**: Accepted
+
+### Context
+
+WAN transfers lose chunks to network instability. Without forward error correction, every lost chunk requires a full round-trip retransmit.
+
+### Decision
+
+Reed-Solomon erasure coding via `klauspost/reedsolomon` (MIT). Stripe-based: file is divided into stripes of `defaultStripeSize = 100` data chunks each. Parity chunks are generated per stripe and appended to the manifest.
+
+Key constraints:
+- Max parity overhead: `maxParityOverhead = 0.50` (50% cap)
+- Max total parity chunks: `maxParityCount = maxChunkCount / 2`
+- Auto-enabled on Direct WAN only (disabled on LAN where loss is negligible)
+- Configurable via `transfer.erasure_overhead` (default 0.2 = 20%)
+
+### Why Stripe-Based
+
+The alternative is whole-file RS encoding, which requires holding the entire file's chunk set in memory. Stripe-based encoding bounds memory to one stripe (100 chunks) regardless of file size. A 100 GB file uses the same memory as a 100 MB file.
+
+**Reference**: `pkg/p2pnet/transfer_erasure.go` (384 lines)
+
+---
+
+## ADR-R05: RaptorQ Fountain Codes for Multi-Source
+
+**Date**: 2026-03-09
+**Status**: Accepted
+
+### Context
+
+When multiple peers hold the same file, downloading from all of them simultaneously increases throughput. Traditional chunk-based multi-source requires coordination to avoid duplicates. Fountain codes solve this: each peer generates statistically independent symbols, so any combination of enough symbols from any peers reconstructs the data.
+
+### Decision
+
+RaptorQ via `xssnick/raptorq` (MIT). Constants:
+- `raptorqSymbolSize = 1024` bytes
+- `raptorqRepairRatio = 0.2` (20% repair symbols per peer)
+
+Wire protocol: `/shurli/file-multi-peer/1.0.0` (`pkg/p2pnet/transfer_multipeer.go`, 874 lines). Requesting peer sends a manifest to each source, each source encodes independently and streams symbols back. The receiver collects symbols from all sources and decodes when it has enough.
+
+### Why RaptorQ Over Plain Multi-Source
+
+Plain multi-source (each peer sends different chunks) requires a coordinator to prevent duplicates and handle stragglers. RaptorQ eliminates coordination entirely: symbols are statistically independent, so peers can encode at their own pace. The receiver just needs "enough" symbols from any combination. This is the same approach TON uses for its DHT, battle-tested at scale.
+
+**Reference**: `pkg/p2pnet/transfer_raptorq.go` (105 lines), `pkg/p2pnet/transfer_multipeer.go`
+
+---
+
+## ADR-R06: Adaptive Parallel Streams
+
+**Date**: 2026-03-09
+**Status**: Accepted
+
+### Context
+
+A single QUIC stream underutilizes available bandwidth on high-BDP (bandwidth-delay product) links. Multiple streams allow the transport to fill the pipe.
+
+### Decision
+
+Parallel chunk transfer with transport-aware defaults (`pkg/p2pnet/transfer_parallel.go`, 592 lines):
+
+| Transport | Default Streams | Max Streams |
+|-----------|----------------|-------------|
+| LAN | 8 | 32 |
+| Direct WAN | 4 | 20 |
+| Relay | 1 (single stream) | 1 |
+
+Auto-reduction: if chunks < `minChunksPerStream * streamCount` (minimum 4 chunks per stream), stream count is reduced to avoid overhead exceeding benefit.
+
+### Why Different Defaults
+
+LAN has near-zero latency and high bandwidth. 8 streams is conservative for gigabit+. WAN has higher latency and congestion is likelier; 4 streams balances throughput against congestion. Relay is already bandwidth-limited (signaling-only by default); parallel streams through relay would multiply relay load for minimal gain.
+
+**Reference**: `pkg/p2pnet/transfer_parallel.go`
+
+---
+
+## ADR-R07: AirDrop-Style Receive Permissions
+
+**Date**: 2026-03-08
+**Status**: Accepted
+
+### Context
+
+Unsolicited file transfers are a spam vector. The system needs a permission model that balances convenience with control.
+
+### Decision
+
+Five receive modes, controlled via `transfer.receive_mode` config:
+
+| Mode | Behavior |
+|------|----------|
+| `off` | Reject all incoming transfers |
+| `contacts` | Auto-accept from authorized peers (default) |
+| `ask` | Queue all transfers for manual approval |
+| `open` | Accept from any authorized peer without prompt |
+| `timed` | Temporarily open, reverts to previous mode after duration |
+
+The `contacts` default means: if a peer passed the connection gater (is in `authorized_keys`), their transfers are accepted automatically. Unknown peers are rejected silently (no error message, no information leakage).
+
+### Why This Model
+
+Apple's AirDrop proved this UX works: most users want "contacts only" and occasionally switch to "everyone" for a specific situation. The `timed` mode handles the "open for 10 minutes" scenario without forgetting to turn it off. Silent rejection for unauthorized peers follows the same principle as the connection gater: don't reveal your existence to strangers.
+
+**Reference**: `pkg/p2pnet/transfer.go` (ReceiveMode constants)
+
+---
+
+## ADR-R08: Fixed-Window Rate Limiting with Silent Rejection
+
+**Date**: 2026-03-09
+**Status**: Accepted
+
+### Context
+
+A malicious or buggy peer could flood transfer requests. Rate limiting is needed, but the choice of algorithm affects complexity and information leakage.
+
+### Decision
+
+Fixed-window rate limiter: 10 transfer requests per minute per peer. 60-second window. Excess requests are silently rejected (stream reset, no error message).
+
+Implementation: `transferRateLimiter` struct in `pkg/p2pnet/transfer.go`. Per-peer counters with periodic cleanup of stale entries.
+
+Also applied to multi-peer requests in `HandleMultiPeerRequest` (same limiter instance).
+
+### Why Fixed-Window Over Sliding Window
+
+Fixed-window is simpler (a counter and a timestamp per peer) and sufficient for anti-spam. Sliding window adds complexity (sorted event lists or ring buffers) for marginal accuracy improvement at window boundaries. The 2x worst-case burst at window edges is acceptable: 20 requests in 2 seconds instead of 10 is not a meaningful attack vector when each request still requires connection gater approval.
+
+### Why Silent Rejection
+
+Informative error messages ("rate limited, try again in X seconds") help attackers calibrate their request rate. Silent stream resets are indistinguishable from network failures. The legitimate peer experience is unaffected: 10 transfers per minute is generous for real use.
+
+**Reference**: `pkg/p2pnet/transfer.go` (transferRateLimiter)
+
+---
+
+## ADR-R09: AI Compression Deferral
+
+**Date**: 2026-03-09
+**Status**: Accepted (Revisit 2028-2029)
+
+### Context
+
+Neural compression achieves better ratios than classical algorithms for some data types. Should Shurli use AI-based compression for file transfer?
+
+### Decision
+
+No. Classical zstd is the right choice today. AI compression deferred with a 2028-2029 checkpoint.
+
+Technologies assessed:
+- **DZip** (neural lossless): ~10-30x slower than zstd. Compute cost is prohibitive for real-time P2P transfer where both sides need to encode/decode.
+- **DCVC-RT / Cool-Chic** (neural video): inference requires GPU. Most Shurli nodes are headless Linux boxes or phones.
+- **NVIDIA NTC** (GPU neural textures): CUDA-only. Not portable.
+
+### Revisit Criteria
+
+Re-evaluate when:
+1. Hardware accelerators for neural codecs ship in consumer devices (NPUs, dedicated silicon)
+2. A neural lossless codec achieves within 2x of zstd encode speed on CPU
+3. A cross-platform (CPU + GPU) implementation exists with a permissive license
+
+Until then, zstd's combination of speed, ratio, and universality is unmatched for general-purpose P2P file transfer. No point adding 100x compute overhead for 10-20% better ratios.
+
+---
+
+## Summary: Transport Policy
+
+All file transfer operations are gated by `PluginPolicy` (`pkg/p2pnet/plugin_policy.go`, 106 lines):
+
+| Transport | Bitmask | File Transfer |
+|-----------|---------|---------------|
+| LAN | `TransportLAN` (1) | Allowed |
+| Direct WAN | `TransportDirect` (2) | Allowed |
+| Relay | `TransportRelay` (4) | Blocked by default |
+
+Default: `TransportLAN | TransportDirect`. Relay is excluded because file transfer through relay would consume relay bandwidth that should be reserved for signaling. This drives adoption of direct connectivity and own-relay deployment.
+
+## Summary: Wire Protocols
+
+| Protocol | ID | Purpose |
+|----------|----|---------|
+| File Transfer | `/shurli/file-transfer/2.0.0` | Send/receive files |
+| File Browse | `/shurli/file-browse/1.0.0` | Browse shared files |
+| File Download | `/shurli/file-download/1.0.0` | Download shared files |
+| Multi-Peer | `/shurli/file-multi-peer/1.0.0` | RaptorQ multi-source |
+
+## Summary: Fire-and-Forget Daemon Model
+
+`shurli send <file> <peer>` POSTs to the daemon's `/v1/send` endpoint, receives a transfer ID, and exits. The daemon manages the transfer in the background. No terminal needs to stay open. Users check progress with `shurli transfers` or opt into inline progress with `shurli send --follow`.
+
+This is deliberate: a CLI that blocks until transfer completion ties up a terminal and fails if the terminal is closed. The daemon-mediated model means transfers survive terminal disconnection, SSH timeouts, and laptop lid closes.
 
 
 ---
