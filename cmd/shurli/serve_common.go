@@ -220,7 +220,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		BandwidthTracker:      rt.bwTracker,
 		EnableRelay:           true,
 		RelayAddrs:            cfg.Relay.Addresses,
-		ForcePrivate:          cfg.Network.ForcePrivateReachability,
+		ForcePrivate:          true, // Always maintain relay reservations in daemon mode. Network changes are frequent; relay must be a permanent fallback.
 		EnableNATPortMap:      true,
 		EnableHolePunching:    true,
 		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
@@ -563,6 +563,11 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
 		}
 
+		// Reset libp2p's black hole detectors. A network change invalidates
+		// the previous state: IPv6/UDP may work on the new network even if
+		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
+		rt.network.ResetBlackHoles()
+
 		// Re-evaluate peer relay eligibility on network change
 		if rt.peerRelay != nil {
 			rt.peerRelay.AutoDetect(newSummary)
@@ -590,8 +595,31 @@ func (rt *serveRuntime) Bootstrap() error {
 		// Probe direct paths through newly available interfaces.
 		// If a relayed peer is reachable via IPv6 on a secondary
 		// interface (e.g., USB LAN), upgrade to direct.
+		//
+		// Two-phase wait:
+		// 1. DAD (Duplicate Address Detection): 100-500ms. Our IPv6
+		//    address is tentative and can't be source-bound.
+		// 2. NDP route convergence: 1-3s. Our address is ready but
+		//    the route to the peer isn't resolved yet (no route to host).
+		//
+		// We poll bind-readiness for DAD, then retry the probe up to
+		// 3 times with 2s spacing to cover NDP neighbor resolution.
 		if rt.peerManager != nil {
-			go rt.peerManager.ProbeAndUpgradeRelayed()
+			go func() {
+				if !waitForIPv6BindReady(rt.ctx, 5*time.Second) {
+					return
+				}
+				for attempt := 0; attempt < 3; attempt++ {
+					if attempt > 0 {
+						select {
+						case <-rt.ctx.Done():
+							return
+						case <-time.After(2 * time.Second):
+						}
+					}
+					rt.peerManager.ProbeAndUpgradeRelayed()
+				}
+			}()
 		}
 
 		// Re-announce network state immediately so peers get fresh capabilities.
@@ -1432,4 +1460,41 @@ func parseByteSize(s string) int64 {
 		n = n*10 + int64(c-'0')
 	}
 	return n * multiplier
+}
+
+// waitForIPv6BindReady polls until a global IPv6 address can be bound,
+// indicating DAD (Duplicate Address Detection) has completed. Returns
+// true when ready, false on timeout or context cancellation.
+func waitForIPv6BindReady(ctx context.Context, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			slog.Warn("waitForIPv6BindReady: timed out waiting for DAD")
+			return false
+		case <-ticker.C:
+			summary, err := p2pnet.DiscoverInterfaces()
+			if err != nil || summary == nil || len(summary.GlobalIPv6Addrs) == 0 {
+				continue
+			}
+			for _, addr := range summary.GlobalIPv6Addrs {
+				ip := net.ParseIP(addr)
+				if ip == nil {
+					continue
+				}
+				// Try binding a UDP socket. If it succeeds, the address
+				// is past DAD and usable for source-bound connections.
+				conn, err := net.ListenPacket("udp6", net.JoinHostPort(addr, "0"))
+				if err == nil {
+					conn.Close()
+					return true
+				}
+			}
+		}
+	}
 }

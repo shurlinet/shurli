@@ -14,7 +14,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -104,6 +106,12 @@ type Network struct {
 	events          *EventBus
 	ctx             context.Context
 	cancel          context.CancelFunc
+
+	// Black hole detector counters. Stored so NetworkMonitor can reset
+	// them on network change (a new interface invalidates the previous
+	// black hole state - the new network may have working IPv6/UDP).
+	udpBlackHole  *swarm.BlackHoleSuccessCounter
+	ipv6BlackHole *swarm.BlackHoleSuccessCounter
 }
 
 // Config for creating a new P2P network
@@ -219,7 +227,15 @@ func New(cfg *Config) (*Network, error) {
 		}
 
 		if len(relayInfos) > 0 {
-			hostOpts = append(hostOpts, libp2p.EnableAutoRelayWithStaticRelays(relayInfos))
+			// WithBackoff: reduce from default 1h to 30s. Autorelay sets backoff BEFORE
+			// every reservation attempt (even successful ones). After a network change
+			// kills the relay connection (CloseStaleConnections), autorelay tries to
+			// re-reserve but the 1h backoff from the initial startup attempt is still
+			// active → relay skipped for up to 1 hour. 30s means relay is retried within
+			// one rsvpRefreshInterval after the connection is re-established.
+			hostOpts = append(hostOpts, libp2p.EnableAutoRelayWithStaticRelays(relayInfos,
+				autorelay.WithBackoff(30*time.Second),
+			))
 		}
 
 		if cfg.EnableNATPortMap {
@@ -278,6 +294,17 @@ func New(cfg *Config) (*Network, error) {
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(gater))
 	}
 
+	// Create black hole detector counters with libp2p defaults. We store
+	// references so NetworkMonitor can reset them on network change (a WiFi
+	// switch invalidates black hole state - the new network may have working
+	// IPv6/UDP even if the old one didn't).
+	udpBH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "UDP"}
+	ipv6BH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "IPv6"}
+	hostOpts = append(hostOpts,
+		libp2p.UDPBlackHoleSuccessCounter(udpBH),
+		libp2p.IPv6BlackHoleSuccessCounter(ipv6BH),
+	)
+
 	// Create libp2p host
 	h, err := libp2p.New(hostOpts...)
 	if err != nil {
@@ -304,6 +331,8 @@ func New(cfg *Config) (*Network, error) {
 		events:          events,
 		ctx:             ctx,
 		cancel:          cancel,
+		udpBlackHole:    udpBH,
+		ipv6BlackHole:   ipv6BH,
 	}
 
 	return net, nil
@@ -439,6 +468,22 @@ func globalIPv6AddrsFactory(addrs []ma.Multiaddr) []ma.Multiaddr {
 		"tcpPort", tcpPort, "quicPort", quicPort)
 
 	return addrs
+}
+
+// ResetBlackHoles resets libp2p's UDP and IPv6 black hole detectors.
+// Call after a network change: the previous black hole state is invalid
+// because the new network may have different connectivity (e.g., switching
+// from cellular CGNAT with no IPv6 to a WiFi network with full IPv6).
+// Without this, the swarm refuses to dial IPv6/UDP addresses even when
+// our raw probes confirm reachability.
+func (n *Network) ResetBlackHoles() {
+	if n.udpBlackHole != nil {
+		n.udpBlackHole.RecordResult(true)
+	}
+	if n.ipv6BlackHole != nil {
+		n.ipv6BlackHole.RecordResult(true)
+	}
+	slog.Info("libp2p: black hole detectors reset (network change)")
 }
 
 // Host returns the underlying libp2p host
