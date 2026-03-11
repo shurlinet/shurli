@@ -343,7 +343,7 @@ _shurli_completions() {
             if [[ $COMP_CWORD -eq 2 ]]; then
                 COMPREPLY=($(compgen -W "$share_cmds" -- "$cur"))
             else
-                COMPREPLY=($(compgen -W "--peers --persist --json" -- "$cur"))
+                COMPREPLY=($(compgen -W "--to --peers --persist --json" -- "$cur"))
             fi
             return ;;
         browse)
@@ -676,7 +676,7 @@ _shurli() {
                 share_cmds=('add:Share a file or directory' 'remove:Stop sharing a path' 'list:List shared paths')
                 _describe -t share_cmds 'share subcommand' share_cmds
             else
-                _arguments '--peers[Comma-separated peer IDs]:peers' '--persist[Survive daemon restart]' '--json[Output as JSON]' '*:path:_files'
+                _arguments '--to[Share with a single peer]:peer' '--peers[Comma-separated peer IDs]:peers' '--persist[Survive daemon restart]' '--json[Output as JSON]' '*:path:_files'
             fi
             ;;
         browse)
@@ -970,6 +970,7 @@ complete -c shurli -n '__shurli_using_command send'       -l quiet        -d 'Si
 complete -c shurli -n '__shurli_using_command send'       -l priority     -d 'Queue priority (low|normal|high)' -r
 complete -c shurli -n '__shurli_using_command send'       -l silent       -d 'No progress output'
 complete -c shurli -n '__shurli_using_command share'      -a 'add remove list' -d 'Share subcommand'
+complete -c shurli -n '__shurli_using_subcommand share add'    -l to      -d 'Share with a single peer' -r
 complete -c shurli -n '__shurli_using_subcommand share add'    -l peers   -d 'Comma-separated peer IDs' -r
 complete -c shurli -n '__shurli_using_subcommand share add'    -l persist -d 'Survive daemon restart'
 complete -c shurli -n '__shurli_using_subcommand share add'    -l json    -d 'Output as JSON'
