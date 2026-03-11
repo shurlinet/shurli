@@ -12,7 +12,7 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 ### Build from source
 
-**Requirements:** [Go 1.24+](https://go.dev/dl/)
+**Requirements:** [Go 1.26+](https://go.dev/dl/)
 
 **Linux** - install the mDNS development library first:
 ```bash
@@ -98,6 +98,9 @@ ssh -p 2222 user@localhost
 | Share Jellyfin with a friend | `shurli invite` on your side, `shurli join <code>` on theirs |
 | AI inference on a friend's GPU | `shurli proxy friend ollama 11434` then `curl localhost:11434` |
 | Any TCP service, zero port forwarding | `shurli proxy <peer> <service> <local-port>` |
+| Send a file to a friend | `shurli send photo.jpg home` |
+| Share a folder with a peer | `shurli share add ~/Public --to laptop` |
+| Download from a peer's shares | `shurli download home:documents/report.pdf` |
 | Check connectivity | `shurli ping home` or `shurli traceroute home` |
 
 Shurli works with **two machines and zero network effect** - useful from day one.
@@ -140,7 +143,9 @@ Shurli uses a different model. Devices connect outbound to a lightweight relay f
 | **Daemon Mode** | Background service with Unix socket API, cookie auth, hot-reload |
 | **Private DHT** | Kademlia peer discovery on `/shurli/kad/1.0.0` - isolated from public networks |
 | **Friendly Names** | `home`, `laptop`, `gpu-server` instead of raw peer IDs |
-| **Single Binary** | One `shurli` binary with 24 subcommands. No runtime dependencies |
+| **File Transfer** | Chunked P2P file transfer with FastCDC, BLAKE3 Merkle integrity, zstd compression, Reed-Solomon erasure coding, RaptorQ multi-source, parallel streams, resume support |
+| **Selective Sharing** | Share files and directories with per-peer access control. AirDrop-style receive permissions (off/contacts/ask/open) |
+| **Single Binary** | One `shurli` binary with 33 subcommands. No runtime dependencies |
 | **Cross-Platform** | Linux, macOS, Windows, ARM |
 | **systemd + launchd** | Service files included for both Linux and macOS |
 | **Reusable Library** | `pkg/p2pnet` - import into your own Go projects |
@@ -175,8 +180,8 @@ sudo systemctl enable --now shurli
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: relay circuit, DHT, proxy, auth system |
-| [COMMANDS.md](docs/COMMANDS.md) | Complete command reference (all 24 subcommands) |
-| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (23 endpoints) |
+| [COMMANDS.md](docs/COMMANDS.md) | Complete command reference (all 33 subcommands) |
+| [DAEMON-API.md](docs/DAEMON-API.md) | Daemon REST API reference (38 endpoints) |
 | [RELAY-SETUP.md](docs/RELAY-SETUP.md) | Relay server VPS deployment guide |
 | [NETWORK-TOOLS.md](docs/NETWORK-TOOLS.md) | Ping, traceroute, resolve usage guide |
 | [FAQ](docs/faq/) | Security FAQ, relay hardening, troubleshooting |
@@ -212,10 +217,22 @@ Shurli is developed with significant AI assistance (Claude). All AI-generated co
 
 ## Dependencies
 
-- [go-libp2p](https://github.com/libp2p/go-libp2p) v0.47.0
-- [go-libp2p-kad-dht](https://github.com/libp2p/go-libp2p-kad-dht) v0.28.1
-- [go-multiaddr](https://github.com/multiformats/go-multiaddr)
-- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1
+**Networking:**
+- [go-libp2p](https://github.com/libp2p/go-libp2p) v0.47.0 - P2P transport, relay, hole-punching
+- [go-libp2p-kad-dht](https://github.com/libp2p/go-libp2p-kad-dht) v0.28.1 - Distributed peer discovery
+- [go-multiaddr](https://github.com/multiformats/go-multiaddr) - Network address format
+
+**File Transfer:**
+- [zeebo/blake3](https://github.com/zeebo/blake3) v0.2.4 (CC0) - Per-chunk hash + Merkle tree integrity
+- [klauspost/compress](https://github.com/klauspost/compress) v1.18.4 (BSD-3) - zstd streaming compression
+- [klauspost/reedsolomon](https://github.com/klauspost/reedsolomon) v1.13.2 (MIT) - Erasure coding for loss recovery
+- [xssnick/raptorq](https://github.com/xssnick/raptorq) v1.3.0 (MIT) - Fountain codes for multi-source download
+
+**ZKP:**
+- [gnark](https://github.com/Consensys/gnark) v0.14.0 - PLONK zero-knowledge proofs
+
+**Other:**
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1 - Configuration
 
 ## License
 
