@@ -35,67 +35,7 @@ Checked after each phase completion:
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
-### Phase 9A: Core Interfaces & Library Consolidation - DONE
-
-**Timeline**: 1 week
-
-Defined the public API contracts that third-party code depends on. Design-first: interfaces validated by the file transfer plugin (9B) before any third-party consumers.
-
-**Core Interfaces** (`pkg/p2pnet/contracts.go`):
-- [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
-- [x] `Resolver` - interface for name resolution with fallback chaining
-- [x] `ServiceManager` - interface for service registration and dialing, with middleware support
-- [x] `Authorizer` - interface for authorization decisions (pluggable auth)
-- [x] `StreamMiddleware` / `StreamHandler` - functional middleware chain for stream handlers
-- [x] `EventType` / `Event` / `EventHandler` - typed event system for network lifecycle
-- Logger: uses Go stdlib `*slog.Logger` (no custom interface - deletion over addition)
-
-**Extension Points**:
-- [x] Constructor injection - `Network.Config` accepts optional `Resolver`
-- [x] Event hook system - `OnEvent(handler)` with subscribe/unsubscribe, thread-safe `EventBus`
-- [x] Stream middleware - `ServiceRegistry.Use(middleware)` wraps inbound stream handlers
-- [x] Protocol ID formatter - `ProtocolID()` + `MustValidateProtocolIDs()` for init-time validation
-
-**Library Consolidation** (completed in 9B):
-- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go`
-- [x] Centralized orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
-- [x] Package-level documentation in `pkg/p2pnet/doc.go`
-
-### Phase 9B: File Transfer Plugin - DONE
-
-**Timeline**: 3 weeks (core in 9B, hardened across FT-A through FT-H + audit-fix batches)
-
-Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. 4 new P2P protocols, 15 new daemon API endpoints, 8 new CLI commands.
-
-**Core Features**:
-- [x] `shurli send <file> <peer>` - fire-and-forget (exits immediately), `--follow` for inline progress, `--priority` for queue priority
-- [x] `shurli download <file> <peer>` - download from shared catalog, `--multi-peer` for RaptorQ multi-source
-- [x] `shurli share add/remove/list` - manage shared files (`--to` for selective sharing)
-- [x] `shurli browse <peer>` - browse peer's shared file catalog
-- [x] `shurli transfers` - transfer inbox (`--watch`, `--history`, `--json`)
-- [x] `shurli accept/reject <id>` - manage pending transfers (`--all` for batch)
-- [x] `shurli cancel <id>` - cancel outbound transfer
-
-**Architecture**:
-- FastCDC content-defined chunking (own implementation, adaptive targets 128K-2M)
-- BLAKE3 Merkle tree integrity (binary tree, odd-node promotion, root verification)
-- zstd compression on by default with bomb protection (10x ratio cap)
-- Reed-Solomon erasure coding (auto-enabled on Direct WAN, 50% max overhead)
-- RaptorQ fountain codes for multi-source download from multiple peers
-- Parallel QUIC streams (adaptive: 1 for LAN, up to 4 for WAN)
-- Checkpoint-based resume (bitfield of received chunks, `.shurli-ckpt` files)
-- Receive modes: off / contacts (default) / ask / open / timed
-- Transfer queue with priority ordering and configurable concurrency
-- Share registry with persistent storage (survives daemon restarts)
-- Transfer event logging (JSON lines, rotation) and notifications (desktop/command)
-- Per-peer rate limiting (10/min, silent rejection)
-- `PluginPolicy` blocks relay transport by default (drives own-relay adoption)
-
-**Security**: path traversal protection, resource exhaustion caps, disk space checks, random transfer IDs, compression bomb protection, command injection prevention in notifications.
-
-**Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT).
-
-**Test status**: 1100 tests across 21 packages, race detector clean.
+Phase 9A (Core Interfaces) and Phase 9B (File Transfer) are complete. See [Completed Work](../completed/) for details.
 
 ### Phase 9C: Service Discovery & Additional Plugins
 
