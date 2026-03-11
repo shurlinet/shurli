@@ -17,6 +17,7 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/invite"
+	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -61,7 +62,8 @@ type PairingHandler struct {
 	AuthKeysPath string
 	Gater        GaterInterface
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
-	authMu       sync.Mutex      // serializes authorized_keys file mutations
+	RootKeyFunc  func() ([]byte, error) // returns vault root key for macaroon verification
+	authMu       sync.Mutex             // serializes authorized_keys file mutations
 }
 
 // GaterInterface is the subset of AuthorizedPeerGater needed by pairing.
@@ -305,8 +307,13 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 		if err != nil {
 			slog.Warn("pairing: deposit consume failed", "deposit", depositID, "err", err)
 		} else if m != nil {
-			mJSON, _ := json.Marshal(m)
-			pairResp.Macaroon = string(mJSON)
+			// Verify HMAC chain + caveats before delivering to joiner.
+			if verifyErr := ph.verifyMacaroon(m, group.ID); verifyErr != nil {
+				slog.Warn("pairing: macaroon verification failed", "deposit", depositID, "err", verifyErr)
+			} else {
+				mJSON, _ := json.Marshal(m)
+				pairResp.Macaroon = string(mJSON)
+			}
 		}
 	}
 
@@ -330,5 +337,23 @@ func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	}
 
 	return remotePeer, group.ID
+}
+
+// verifyMacaroon validates a macaroon's HMAC chain and caveats using the
+// vault root key. Returns nil if valid, error otherwise.
+func (ph *PairingHandler) verifyMacaroon(m *macaroon.Macaroon, groupID string) error {
+	if ph.RootKeyFunc == nil {
+		return fmt.Errorf("no root key function configured")
+	}
+	rootKey, err := ph.RootKeyFunc()
+	if err != nil {
+		return fmt.Errorf("failed to get root key: %w", err)
+	}
+	verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
+		Group:  groupID,
+		Action: "invite",
+		Now:    time.Now(),
+	})
+	return m.Verify(rootKey, verifier)
 }
 

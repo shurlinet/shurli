@@ -138,8 +138,9 @@ type VaultInitResponse struct {
 
 // UnsealRequest is the JSON body for POST /v1/unseal.
 type UnsealRequest struct {
-	Passphrase string `json:"passphrase"`
-	TOTPCode   string `json:"totp_code,omitempty"`
+	Passphrase      string `json:"passphrase"`
+	TOTPCode        string `json:"totp_code,omitempty"`
+	YubikeyResponse []byte `json:"yubikey_response,omitempty"`
 }
 
 // SealStatusResponse is the JSON response for GET /v1/seal-status.
@@ -894,12 +895,14 @@ func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.vault.Unseal(req.Passphrase, req.TOTPCode); err != nil {
+	if err := s.vault.Unseal(req.Passphrase, req.TOTPCode, req.YubikeyResponse); err != nil {
 		switch {
 		case errors.Is(err, vault.ErrInvalidPassword):
 			respondAdminError(w, http.StatusForbidden, "invalid passphrase")
 		case errors.Is(err, vault.ErrInvalidTOTP):
 			respondAdminError(w, http.StatusForbidden, "invalid TOTP code")
+		case errors.Is(err, vault.ErrInvalidYubikey):
+			respondAdminError(w, http.StatusForbidden, "invalid Yubikey response")
 		case errors.Is(err, vault.ErrVaultAlreadyUnsealed):
 			respondAdminError(w, http.StatusConflict, "vault is already unsealed")
 		default:

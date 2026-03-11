@@ -67,7 +67,7 @@ func TestSealAndUnseal(t *testing.T) {
 	}
 
 	// Unseal
-	if err := v.Unseal("my-password", ""); err != nil {
+	if err := v.Unseal("my-password", "", nil); err != nil {
 		t.Fatalf("Unseal: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestUnsealWrongPassword(t *testing.T) {
 
 	v.Seal()
 
-	err := v.Unseal("wrong-password", "")
+	err := v.Unseal("wrong-password", "", nil)
 	if !errors.Is(err, ErrInvalidPassword) {
 		t.Fatalf("expected ErrInvalidPassword, got: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestUnsealWithTOTP(t *testing.T) {
 	v.Seal()
 
 	// Unseal with correct TOTP
-	if err := v.Unseal("password123", code); err != nil {
+	if err := v.Unseal("password123", code, nil); err != nil {
 		t.Fatalf("Unseal with TOTP: %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestUnsealWithWrongTOTP(t *testing.T) {
 
 	v.Seal()
 
-	err := v.Unseal("password123", "000000")
+	err := v.Unseal("password123", "000000", nil)
 	if !errors.Is(err, ErrInvalidTOTP) {
 		t.Fatalf("expected ErrInvalidTOTP, got: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	// Unseal and verify key matches
-	if err := loaded.Unseal("password123", ""); err != nil {
+	if err := loaded.Unseal("password123", "", nil); err != nil {
 		t.Fatalf("Unseal loaded: %v", err)
 	}
 	loadedKey, _ := loaded.RootKey()
@@ -205,7 +205,7 @@ func TestSeedRecovery(t *testing.T) {
 
 	// Verify the recovered vault can be sealed and unsealed with the new password.
 	recovered.Seal()
-	if err := recovered.Unseal("new-password", ""); err != nil {
+	if err := recovered.Unseal("new-password", "", nil); err != nil {
 		t.Fatalf("Unseal recovered: %v", err)
 	}
 }
@@ -250,7 +250,7 @@ func TestAutoSealDisabled(t *testing.T) {
 func TestDoubleUnseal(t *testing.T) {
 	v, _ := testCreate(t, "password123", false, 0)
 
-	err := v.Unseal("password123", "")
+	err := v.Unseal("password123", "", nil)
 	if !errors.Is(err, ErrVaultAlreadyUnsealed) {
 		t.Fatalf("expected ErrVaultAlreadyUnsealed, got: %v", err)
 	}
@@ -327,18 +327,18 @@ func TestChangePassword(t *testing.T) {
 
 	// Seal and unseal with new password.
 	v.Seal()
-	if err := v.Unseal("new-password", ""); err != nil {
+	if err := v.Unseal("new-password", "", nil); err != nil {
 		t.Fatalf("Unseal with new password: %v", err)
 	}
 
 	// Old password should fail.
 	v.Seal()
-	if err := v.Unseal("old-password", ""); !errors.Is(err, ErrInvalidPassword) {
+	if err := v.Unseal("old-password", "", nil); !errors.Is(err, ErrInvalidPassword) {
 		t.Fatalf("expected ErrInvalidPassword with old password, got: %v", err)
 	}
 
 	// Root key should be unchanged.
-	v.Unseal("new-password", "")
+	v.Unseal("new-password", "", nil)
 	key, _ := v.RootKey()
 	for i := range keyCopy {
 		if key[i] != keyCopy[i] {

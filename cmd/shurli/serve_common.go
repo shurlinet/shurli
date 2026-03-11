@@ -1340,6 +1340,12 @@ func (rt *serveRuntime) SetupSharing() {
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	// Close transfer service (flushes log file, stops rate limiter cleanup).
+	if rt.transferService != nil {
+		if err := rt.transferService.Close(); err != nil {
+			slog.Warn("transfer-service: close failed", "err", err)
+		}
+	}
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {
