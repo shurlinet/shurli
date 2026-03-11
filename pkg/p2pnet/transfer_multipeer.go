@@ -27,6 +27,9 @@ import (
 // the root hash + requested symbol ID range. The peer responds with RaptorQ
 // symbols (not raw chunks) using msgFountainSymbol frames.
 
+// MultiPeerProtocol is the protocol ID for multi-peer fountain-coded downloads.
+const MultiPeerProtocol = "/shurli/file-multi-peer/1.0.0"
+
 // Multi-peer wire constants.
 const (
 	// msgMultiPeerRequest is sent by receiver to request symbols from a peer.
