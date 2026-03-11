@@ -356,13 +356,13 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --priority --quiet --silent" -- "$cur"))
             return ;;
         transfers)
-            COMPREPLY=($(compgen -W "--json --watch" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --watch --history --max" -- "$cur"))
             return ;;
         accept)
-            COMPREPLY=($(compgen -W "--json --dest" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --dest --all" -- "$cur"))
             return ;;
         reject)
-            COMPREPLY=($(compgen -W "--json --reason" -- "$cur"))
+            COMPREPLY=($(compgen -W "--json --reason --all" -- "$cur"))
             return ;;
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
@@ -686,11 +686,11 @@ _shurli() {
         send)
             _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--priority[Queue priority (low|normal|high)]:priority:(low normal high)' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
         transfers)
-            _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' ;;
+            _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' '--history[Show transfer event history]' '--max[Max history events]:count' ;;
         accept)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' ;;
+            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--all[Accept all pending transfers]' ;;
         reject)
-            _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' ;;
+            _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' '--all[Reject all pending transfers]' ;;
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
@@ -987,10 +987,14 @@ complete -c shurli -n '__shurli_using_command download'   -l multi-peer   -d 'Do
 complete -c shurli -n '__shurli_using_command download'   -l peers        -d 'Extra peer names for multi-peer' -r
 complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
+complete -c shurli -n '__shurli_using_command transfers'  -l history      -d 'Show transfer event history'
+complete -c shurli -n '__shurli_using_command transfers'  -l max          -d 'Max history events' -r
 complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command accept'     -l dest         -d 'Save to specific directory'
+complete -c shurli -n '__shurli_using_command accept'     -l all          -d 'Accept all pending transfers'
 complete -c shurli -n '__shurli_using_command reject'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command reject'     -l reason       -d 'Reject reason (space, busy, size)'
+complete -c shurli -n '__shurli_using_command reject'     -l all          -d 'Reject all pending transfers'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'
