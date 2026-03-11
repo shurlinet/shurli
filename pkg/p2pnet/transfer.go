@@ -364,7 +364,6 @@ type TransferService struct {
 	mu          sync.RWMutex
 	transfers   map[string]*TransferProgress
 	completed   []string
-	nextID      int
 	peerInbound      map[string]int
 	pending          map[string]*PendingTransfer // ask mode: transfers awaiting approval
 	parallelSessions map[[32]byte]*parallelSession
@@ -1915,8 +1914,7 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 		}
 	}
 
-	ts.nextID++
-	id := fmt.Sprintf("xfer-%d", ts.nextID)
+	id := fmt.Sprintf("xfer-%s", randomHex(6))
 
 	p := &TransferProgress{
 		ID:          id,
