@@ -331,14 +331,15 @@ the DHT if the name is not found locally.
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
 .TP
-.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--streams\fR \fIN\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
+.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--streams\fR \fIN\fR] [\fB--priority\fR \fIP\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
 Send a file to a peer over the P2P network. Uses chunked transfer with
 BLAKE3 Merkle integrity verification and zstd compression (on by default).
 Use \fB--no-compress\fR to disable compression. Use \fB--streams\fR to set
-the parallel stream count (0 = auto based on transport type). The command
-submits the transfer to the daemon and exits immediately (fire-and-forget).
-Use \fB--follow\fR to stay attached and watch progress inline.
-Use \fB--quiet\fR for a single progress bar (no chunk details) or
+the parallel stream count (0 = auto based on transport type). Use
+\fB--priority\fR to set queue priority (low, normal, high; default: normal).
+The command submits the transfer to the daemon and exits immediately
+(fire-and-forget). Use \fB--follow\fR to stay attached and watch progress
+inline. Use \fB--quiet\fR for a single progress bar (no chunk details) or
 \fB--silent\fR for no progress output. Requires a running daemon.
 .TP
 .B share add \fIpath\fR [\fB--to\fR \fIpeer\fR] [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
@@ -369,20 +370,23 @@ to watch progress inline. Use \fB--multi-peer\fR with \fB--peers\fR
 to download from multiple peers simultaneously using RaptorQ fountain
 codes for loss-tolerant swarming. Requires a running daemon.
 .TP
-.B transfers \fR[\fB--watch\fR] [\fB--json\fR]
+.B transfers \fR[\fB--watch\fR] [\fB--history\fR] [\fB--max\fR \fIN\fR] [\fB--json\fR]
 List pending, active, and completed file transfers. Shows direction, peer,
 progress, compression status, and errors. Use \fB--watch\fR for a live feed
 that refreshes every 2 seconds (read-only; use \fBaccept\fR/\fBreject\fR in
-a separate terminal for actions).
+a separate terminal for actions). Use \fB--history\fR to show the structured
+transfer event log. Use \fB--max\fR to limit history output (default: 50).
 .TP
-.B accept \fIid\fR [\fB--dest\fR \fIpath\fR] [\fB--json\fR]
-Accept a pending incoming file transfer (ask mode). Use \fB--dest\fR to
-save to a specific directory instead of the default receive directory.
+.B accept \fIid\fR|\fB--all\fR [\fB--dest\fR \fIpath\fR] [\fB--json\fR]
+Accept a pending incoming file transfer (ask mode). Use \fB--all\fR to
+accept all pending transfers at once. Use \fB--dest\fR to save to a specific
+directory instead of the default receive directory.
 .TP
-.B reject \fIid\fR [\fB--reason\fR space|busy|size] [\fB--json\fR]
-Reject a pending incoming file transfer. Use \fB--reason\fR to announce
-the rejection reason to the sender. Without \fB--reason\fR, the sender
-sees a generic "declined" message.
+.B reject \fIid\fR|\fB--all\fR [\fB--reason\fR space|busy|size] [\fB--json\fR]
+Reject a pending incoming file transfer. Use \fB--all\fR to reject all
+pending transfers at once. Use \fB--reason\fR to announce the rejection
+reason to the sender. Without \fB--reason\fR, the sender sees a generic
+"declined" message.
 
 .SH IDENTITY & ACCESS
 Access control in shurli is based on
