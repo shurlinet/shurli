@@ -152,6 +152,7 @@ func (ts *TransferService) sendParallel(
 	}
 
 	progress.setStatus("active")
+	progress.initStreams(numStreams)
 
 	// Partition data chunks across streams (round-robin).
 	partitions := make([][]int, numStreams)
@@ -217,6 +218,7 @@ func (ts *TransferService) sendParallel(
 				done := chunksDone.Add(1)
 				progress.updateChunks(totalSent.Load(), int(done))
 				progress.addWireBytes(wireBytes)
+				progress.updateStream(streamIdx, wireBytes)
 			}
 		}(i+1, ws, partitions[i+1])
 	}
@@ -232,6 +234,7 @@ func (ts *TransferService) sendParallel(
 		done := chunksDone.Add(1)
 		progress.updateChunks(totalSent.Load(), int(done))
 		progress.addWireBytes(wireBytes)
+		progress.updateStream(0, wireBytes)
 	}
 
 	// Wait for all workers to finish.
@@ -268,6 +271,7 @@ type parallelSession struct {
 	totalWritten int64
 	parityData   map[int][]byte
 	corrupted    []int
+	nextWorkerID int32 // atomically incremented to assign stream indices to workers
 
 	// done is closed when receiveChunked completes.
 	done chan struct{}
@@ -277,9 +281,10 @@ type parallelSession struct {
 
 // parallelChunk is a verified chunk delivered from any stream.
 type parallelChunk struct {
-	index int
-	data  []byte
-	isParity bool
+	index       int
+	data        []byte
+	isParity    bool
+	streamIndex int // which stream delivered this chunk (0-indexed)
 }
 
 // writeWorkerHello writes the worker hello message: msgWorkerHello + rootHash.
@@ -330,7 +335,10 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 		return
 	}
 
-	slog.Debug("file-transfer: worker stream attached", "peer", short)
+	// Assign a stream index (workers start at 1, control is 0).
+	streamIdx := int(atomic.AddInt32(&session.nextWorkerID, 1))
+
+	slog.Debug("file-transfer: worker stream attached", "peer", short, "stream", streamIdx)
 
 	// Read chunks and deliver to session.
 	for {
@@ -349,9 +357,10 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 		}
 
 		session.chunks <- parallelChunk{
-			index:    index,
-			data:     wireData,
-			isParity: index >= session.manifest.ChunkCount,
+			index:       index,
+			data:        wireData,
+			isParity:    index >= session.manifest.ChunkCount,
+			streamIndex: streamIdx,
 		}
 	}
 }
@@ -401,8 +410,8 @@ func (ts *TransferService) receiveParallel(
 		progress.updateChunks(seeded, have.count())
 	}
 
-	// Process a single chunk (from any source).
-	processChunk := func(index int, wireData []byte) error {
+	// Process a single chunk (from any source). streamIdx identifies which stream delivered it.
+	processChunk := func(index int, wireData []byte, streamIdx int) error {
 		progress.addWireBytes(int64(len(wireData)))
 
 		// Parity chunk.
@@ -472,6 +481,7 @@ func (ts *TransferService) receiveParallel(
 		session.mu.Unlock()
 
 		progress.updateChunks(tw, haveCount)
+		progress.updateStream(streamIdx, int64(len(chunkData)))
 		return nil
 	}
 
@@ -490,7 +500,7 @@ func (ts *TransferService) receiveParallel(
 			if index == -1 {
 				break // done signal
 			}
-			if err := processChunk(index, wireData); err != nil {
+			if err := processChunk(index, wireData, 0); err != nil {
 				controlDone <- err
 				return
 			}
@@ -508,7 +518,7 @@ func (ts *TransferService) receiveParallel(
 				workerDone = true
 				break
 			}
-			if err := processChunk(chunk.index, chunk.data); err != nil {
+			if err := processChunk(chunk.index, chunk.data, chunk.streamIndex); err != nil {
 				close(session.done)
 				<-controlDone
 				return err
