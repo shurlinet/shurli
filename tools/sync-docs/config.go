@@ -62,6 +62,9 @@ var journalEntries = []journalEntry{
 	{"phase6-acl-relay-security.md", 18, "Phase 6 - ACL + Relay Security", "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."},
 	{"phase7-zkp-privacy.md", 19, "Phase 7 - ZKP Privacy Layer", "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."},
 	{"phase8-identity-remote-admin.md", 20, "Phase 8 - Identity & Remote Admin", "Unified BIP39 seed, encrypted identity, session tokens, remote admin over P2P, MOTD/goodbye, relay recovery."},
+	{"seed-relay-separation.md", 21, "Seed Relay Separation & Init Flow", "Discovery-only seed relays, server-side circuit ACL, init flow, config set."},
+	{"phase9-sdk-plugins.md", 22, "Phase 9 - SDK, Plugins & Protocol Consolidation", "Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin."},
+	{"phase9-file-transfer.md", 23, "Phase 9 - File Transfer Architecture", "FastCDC chunking, BLAKE3 Merkle, zstd compression, Reed-Solomon erasure, RaptorQ multi-source, parallel streams, receive permissions."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).
