@@ -1044,8 +1044,8 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 - [x] Elegant landing page with visual storytelling - hero with problem-first hook, terminal demo section, 3-step "How It Works" grid, network diagram, tabbed install commands (macOS/Linux/source), bottom CTA grid *(enhanced post-Batch G)*
 - [x] Seven retroactive blog posts for Batches A-G (outcomes-focused)
 - [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev/next-iteration` (see deployment note below)
-- [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS on Cloudflare, CNAME deployed, site live *(2026-02-20)*
-- [x] DNS managed on Cloudflare - A/AAAA records → GitHub Pages, Cloudflare proxy enabled (CDN + DDoS protection), SSL mode "Full" *(2026-02-20)*
+- [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS provider configured, CNAME deployed, site live *(2026-02-20)*
+- [x] DNS managed via DNS provider - A/AAAA records → GitHub Pages, CDN + DDoS protection enabled, SSL mode "Full" *(2026-02-20)*
 - [ ] CNAME `get.shurli.io` → serves install script
 - [x] Landing page - hero section, feature grid (NAT traversal, single binary, SSH trust, 60s pairing, TCP proxy, self-healing) *(Batch G)*
 - [x] Existing docs rendered as site pages - `tools/sync-docs` transforms ARCHITECTURE, FAQ, TESTING, ROADMAP, DAEMON-API, NETWORK-TOOLS, ENGINEERING-JOURNAL into Hugo-ready content *(Batch G)*
@@ -1102,19 +1102,19 @@ When to reconsider: if the project grows to have multiple active development bra
 
 **Distribution Resilience** (gradual rollout):
 
-The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. Every user-facing URL goes through the domain, never directly to a third-party host. If any host disappears, one DNS record change restores service.
+The domain (`shurli.io`) is the anchor. DNS is managed under our control. Every user-facing URL goes through the domain, never directly to a third-party host. If any host disappears, one DNS record change restores service.
 
 | Layer | GitHub (primary) | GitLab (mirror) | IPFS (fallback) |
 |-------|-----------------|-----------------|-----------------|
 | Source code | Primary repo | Push-hook mirror | - |
 | Release binaries | GitHub Releases | GitLab Releases (GoReleaser) | Pinned on Filebase |
 | Static site | GitHub Pages | GitLab Pages | Pinned + DNSLink ready |
-| DNS failover | CNAME → GitHub Pages | Manual flip to GitLab Pages | Manual flip to Cloudflare IPFS gateway |
+| DNS failover | CNAME → GitHub Pages | Manual flip to GitLab Pages | Manual flip to IPFS gateway |
 
 Rollout phases:
 1. **Phase 1**: GitHub Pages only. CNAME `shurli.io` → GitHub. Simple, free, fast.
-2. **Phase 2**: Mirror site + releases to GitLab Pages + GitLab Releases. Same Hugo CI. Manual DNS failover if needed (CNAME swap on Cloudflare).
-3. **Phase 3**: IPFS pinning on every release. DNSLink TXT record pre-configured. Nuclear fallback if both GitHub and GitLab die - flip CNAME to Cloudflare IPFS gateway.
+2. **Phase 2**: Mirror site + releases to GitLab Pages + GitLab Releases. Same Hugo CI. Manual DNS failover if needed (CNAME swap on DNS provider).
+3. **Phase 3**: IPFS pinning on every release. DNSLink TXT record pre-configured. Nuclear fallback if both GitHub and GitLab die - flip CNAME to IPFS gateway.
 
 Deliverables:
 - [ ] Git mirror to GitLab via push hook or CI (source code resilience)

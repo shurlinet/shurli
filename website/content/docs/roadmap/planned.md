@@ -119,7 +119,7 @@ Different languages have different release cycles, CI pipelines, and dependency 
 
 **Website & Documentation (shurli.io)**:
 - [x] Hugo + Hextra site, automated docs sync, landing page, blog, CI/CD deploy
-- [x] GitHub Pages hosting with custom domain, Cloudflare DNS + CDN + DDoS protection
+- [x] GitHub Pages hosting with custom domain, DNS provider + CDN + DDoS protection
 - [x] AI-Agent discoverability: `/llms.txt` and `/llms-full.txt`
 - [ ] `pkg/p2pnet` library reference (godoc-style)
 - [ ] Use-case guides (GPU inference, IoT, game servers)
@@ -132,14 +132,14 @@ Different languages have different release cycles, CI pipelines, and dependency 
 
 **Distribution Resilience** (gradual rollout):
 
-The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. If any host disappears, one DNS record change restores service.
+The domain (`shurli.io`) is the anchor. DNS is managed under our control. If any host disappears, one DNS record change restores service.
 
 | Layer | GitHub (primary) | GitLab (mirror) | IPFS (fallback) |
 |-------|-----------------|-----------------|-----------------|
 | Source code | Primary repo | Push-hook mirror | - |
 | Release binaries | GitHub Releases | GitLab Releases (GoReleaser) | Pinned on Filebase |
 | Static site | GitHub Pages | GitLab Pages | Pinned + DNSLink ready |
-| DNS failover | CNAME -> GitHub Pages | Manual flip to GitLab Pages | Manual flip to Cloudflare IPFS gateway |
+| DNS failover | CNAME -> GitHub Pages | Manual flip to GitLab Pages | Manual flip to IPFS gateway |
 | Source links | `shurli.io/source/*` redirects | Same URLs, different target | Same URLs, different target |
 
 All documentation source references (code paths in engineering journal, architecture docs, etc.) link through `shurli.io/source/` instead of directly to any git host. When the primary moves, update one redirect config. Old search engine cached URLs and LLM training snapshots still resolve through the domain we control.
