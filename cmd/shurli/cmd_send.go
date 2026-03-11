@@ -165,6 +165,14 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 				chunkInfo = fmt.Sprintf(" [%d/%d chunks]", progress.ChunksDone, progress.ChunksTotal)
 			}
 
+			compressTag := ""
+			if progress.Compressed && progress.CompressedSize > 0 && progress.Size > 0 {
+				ratio := float64(progress.Size) / float64(progress.CompressedSize)
+				compressTag = fmt.Sprintf(" [zstd %.1f:1]", ratio)
+			} else if progress.Compressed {
+				compressTag = " [zstd]"
+			}
+
 			erasureTag := ""
 			if progress.ErasureParity > 0 {
 				erasureTag = fmt.Sprintf(" [RS %.0f%% parity, %d chunks]",
@@ -172,9 +180,9 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 			}
 
 			if speedStr != "" {
-				fmt.Printf("\r%s %.0f%% - %s%s%s   ", bar, pct*100, speedStr, chunkInfo, erasureTag)
+				fmt.Printf("\r%s %.0f%% - %s%s%s%s   ", bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag)
 			} else {
-				fmt.Printf("\r%s %.0f%%%s%s   ", bar, pct*100, chunkInfo, erasureTag)
+				fmt.Printf("\r%s %.0f%%%s%s%s   ", bar, pct*100, chunkInfo, compressTag, erasureTag)
 			}
 		}
 	}

@@ -135,7 +135,10 @@ func printTransferTable(transfers []p2pnet.TransferProgress) {
 		}
 
 		compressTag := ""
-		if t.Compressed {
+		if t.Compressed && t.CompressedSize > 0 && t.Size > 0 {
+			ratio := float64(t.Size) / float64(t.CompressedSize)
+			compressTag = fmt.Sprintf(" [zstd %.1f:1]", ratio)
+		} else if t.Compressed {
 			compressTag = " [zstd]"
 		}
 

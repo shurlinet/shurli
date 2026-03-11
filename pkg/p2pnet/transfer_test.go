@@ -3,6 +3,7 @@ package p2pnet
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -567,6 +568,41 @@ func TestTransferProgress(t *testing.T) {
 	list := ts.ListTransfers()
 	if len(list) != 1 {
 		t.Fatalf("list: got %d, want 1", len(list))
+	}
+}
+
+func TestCompressionRatioOnProgress(t *testing.T) {
+	dir := t.TempDir()
+	ts, _ := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+	}, nil, nil)
+
+	p := ts.trackTransfer("test.bin", 1000, "peer1", "send", 10, true)
+	p.addWireBytes(200)
+	p.addWireBytes(200)
+
+	snap := p.Snapshot()
+	if snap.CompressedSize != 400 {
+		t.Errorf("compressed_size: got %d, want 400", snap.CompressedSize)
+	}
+	if !snap.Compressed {
+		t.Error("expected Compressed=true")
+	}
+
+	// Ratio: 1000 / 400 = 2.5
+	ratio := float64(snap.Size) / float64(snap.CompressedSize)
+	if ratio < 2.49 || ratio > 2.51 {
+		t.Errorf("compression ratio: got %.2f, want 2.50", ratio)
+	}
+
+	// JSON includes compressed_size.
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"compressed_size":400`) {
+		t.Errorf("JSON missing compressed_size: %s", data)
 	}
 }
 
