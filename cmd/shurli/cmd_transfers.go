@@ -107,7 +107,7 @@ func showTransferHistory(client *daemon.Client, max int, jsonOutput bool) {
 	}
 }
 
-func printTransferTable(transfers []p2pnet.TransferProgress) {
+func printTransferTable(transfers []p2pnet.TransferSnapshot) {
 	// Sort: active first, then by start time descending.
 	sort.Slice(transfers, func(i, j int) bool {
 		if transfers[i].Done != transfers[j].Done {

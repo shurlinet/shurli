@@ -1435,7 +1435,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTransferList(w http.ResponseWriter, r *http.Request) {
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondJSON(w, http.StatusOK, []p2pnet.TransferProgress{})
+		respondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
 		return
 	}
 
