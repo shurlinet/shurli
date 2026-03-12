@@ -37,7 +37,7 @@ Specifically:
 
 -1,322 lines deleted across 10 files. Single code path, single wire protocol. Discarded code archived on `discarded` branch (`invite-v1v2/` folder) per project convention.
 
-### Why This Was Instructed
+### Design Rationale
 
 > "Make v3 invite code v1. Erase ALL v1 and v2 invite code implementation AND any sort of backward compatibility code from the WHOLE codebase."
 
