@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -47,8 +48,10 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string  { return rt.config.Discovery.Network }
+func (rt *serveRuntime) RelayAddresses() []string                { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string                 { return rt.config.Discovery.Network }
+func (rt *serveRuntime) TransferService() *p2pnet.TransferService { return rt.transferService }
+func (rt *serveRuntime) ShareRegistry() *p2pnet.ShareRegistry     { return rt.shareRegistry }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -113,6 +116,10 @@ func parseRelayName(agentVersion string) string {
 	return ""
 }
 
+func (rt *serveRuntime) ConfigReloader() daemon.ConfigReloader {
+	return &configReloader{rt: rt}
+}
+
 func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 	if rt.gater == nil || rt.authKeys == "" {
 		return nil
@@ -144,6 +151,189 @@ func (g *gaterReloader) ReloadFromFile() error {
 		g.peerManager.SetWatchlist(g.gater.GetAuthorizedPeerIDs())
 	}
 	return nil
+}
+
+// configReloader implements daemon.ConfigReloader by re-reading the
+// config file from disk and cascading changes to live subsystems.
+type configReloader struct {
+	rt *serveRuntime
+}
+
+func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
+	result := &daemon.ConfigReloadResult{}
+
+	// Re-read config from disk.
+	newCfg, err := config.LoadNodeConfig(cr.rt.configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	config.ResolveConfigPaths(newCfg, filepath.Dir(cr.rt.configFile))
+	if err := config.ValidateNodeConfig(newCfg); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	oldCfg := cr.rt.config
+
+	// Phase 1: Pre-validate changes that can fail.
+	// Check receive_dir exists before applying (prevents partial apply + rollback).
+	if ts := cr.rt.transferService; ts != nil {
+		newDir := newCfg.Transfer.ReceiveDir
+		if newDir != "" && newDir != oldCfg.Transfer.ReceiveDir {
+			if err := os.MkdirAll(newDir, 0700); err != nil {
+				return nil, fmt.Errorf("transfer.receive_dir %q: %w", newDir, err)
+			}
+		}
+	}
+
+	// Validate receive_mode value.
+	if newCfg.Transfer.ReceiveMode != "" {
+		switch newCfg.Transfer.ReceiveMode {
+		case "off", "contacts", "ask", "open", "timed":
+			// valid
+		default:
+			return nil, fmt.Errorf("transfer.receive_mode: invalid value %q (must be off/contacts/ask/open/timed)",
+				newCfg.Transfer.ReceiveMode)
+		}
+	}
+
+	// Validate timed_duration if provided.
+	if newCfg.Transfer.TimedDuration != "" {
+		if _, err := time.ParseDuration(newCfg.Transfer.TimedDuration); err != nil {
+			return nil, fmt.Errorf("transfer.timed_duration: invalid duration %q: %w",
+				newCfg.Transfer.TimedDuration, err)
+		}
+	}
+
+	// Phase 2: Apply changes. All pre-validation passed.
+	// Save rollback state in case a subsystem fails mid-apply.
+	type rollbackEntry struct {
+		field   string
+		restore func()
+	}
+	var applied []rollbackEntry
+
+	rollbackAll := func() {
+		for i := len(applied) - 1; i >= 0; i-- {
+			applied[i].restore()
+			result.Reverted = append(result.Reverted, applied[i].field)
+		}
+		// Restore old config pointer.
+		cr.rt.config = oldCfg
+	}
+
+	// Transfer receive mode.
+	if ts := cr.rt.transferService; ts != nil {
+		oldMode := string(oldCfg.Transfer.ReceiveMode)
+		newMode := string(newCfg.Transfer.ReceiveMode)
+		if oldMode == "" {
+			oldMode = "contacts"
+		}
+		if newMode == "" {
+			newMode = "contacts"
+		}
+		if oldMode != newMode {
+			if newMode == "timed" {
+				// Timed mode: parse duration and activate timer.
+				durStr := newCfg.Transfer.TimedDuration
+				if durStr == "" {
+					durStr = "10m"
+				}
+				dur, _ := time.ParseDuration(durStr) // already validated above
+				if err := ts.SetTimedMode(dur); err != nil {
+					rollbackAll()
+					return nil, fmt.Errorf("transfer.receive_mode timed: %w", err)
+				}
+			} else {
+				ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			}
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.receive_mode",
+				restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
+			})
+			result.Changed = append(result.Changed, "transfer.receive_mode")
+		}
+	}
+
+	// Transfer receive directory.
+	if ts := cr.rt.transferService; ts != nil {
+		oldDir := oldCfg.Transfer.ReceiveDir
+		newDir := newCfg.Transfer.ReceiveDir
+		if oldDir != newDir && newDir != "" {
+			ts.SetReceiveDir(newDir)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.receive_dir",
+				restore: func() { ts.SetReceiveDir(oldDir) },
+			})
+			result.Changed = append(result.Changed, "transfer.receive_dir")
+		}
+	}
+
+	// Transfer max file size.
+	if ts := cr.rt.transferService; ts != nil {
+		oldMax := oldCfg.Transfer.MaxFileSize
+		if oldMax != newCfg.Transfer.MaxFileSize {
+			ts.SetMaxSize(newCfg.Transfer.MaxFileSize)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.max_file_size",
+				restore: func() { ts.SetMaxSize(oldMax) },
+			})
+			result.Changed = append(result.Changed, "transfer.max_file_size")
+		}
+	}
+
+	// Transfer compression.
+	if ts := cr.rt.transferService; ts != nil {
+		oldCompress := oldCfg.Transfer.Compress == nil || *oldCfg.Transfer.Compress
+		newCompress := newCfg.Transfer.Compress == nil || *newCfg.Transfer.Compress
+		if oldCompress != newCompress {
+			ts.SetCompress(newCompress)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.compress",
+				restore: func() { ts.SetCompress(oldCompress) },
+			})
+			result.Changed = append(result.Changed, "transfer.compress")
+		}
+
+		oldNotify := oldCfg.Transfer.Notify
+		newNotify := newCfg.Transfer.Notify
+		if oldNotify != newNotify {
+			ts.SetNotifyMode(newNotify)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.notify",
+				restore: func() { ts.SetNotifyMode(oldNotify) },
+			})
+			result.Changed = append(result.Changed, "transfer.notify")
+		}
+
+		oldNotifyCmd := oldCfg.Transfer.NotifyCommand
+		newNotifyCmd := newCfg.Transfer.NotifyCommand
+		if oldNotifyCmd != newNotifyCmd {
+			ts.SetNotifyCommand(newNotifyCmd)
+			applied = append(applied, rollbackEntry{
+				field:   "transfer.notify_command",
+				restore: func() { ts.SetNotifyCommand(oldNotifyCmd) },
+			})
+			result.Changed = append(result.Changed, "transfer.notify_command")
+		}
+	}
+
+	// Authorized keys (connection gating) - always refresh on reload.
+	if reloader := cr.rt.GaterForHotReload(); reloader != nil {
+		if err := reloader.ReloadFromFile(); err != nil {
+			slog.Warn("config reload: failed to reload authorized_keys, rolling back all changes", "err", err)
+			rollbackAll()
+			return nil, fmt.Errorf("authorized_keys reload failed (all changes rolled back): %w", err)
+		}
+		result.Changed = append(result.Changed, "security.authorized_keys")
+	}
+
+	// Update the stored config pointer for future comparisons.
+	cr.rt.config = newCfg
+
+	if len(result.Changed) == 0 {
+		result.Changed = []string{} // empty slice, not nil (cleaner JSON)
+	}
+	return result, nil
 }
 
 // --- Daemon paths ---
@@ -219,7 +409,7 @@ func printDaemonUsage() {
 func runDaemonStart(args []string) {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	fmt.Printf("shurli daemon %s (%s)\n", version, commit)
 	fmt.Println()
@@ -238,6 +428,8 @@ func runDaemonStart(args []string) {
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
 	rt.SetupMOTDClient()
+	rt.SetupTransfer()
+	rt.SetupSharing()
 
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()
@@ -316,12 +508,27 @@ func tryDaemonClient() *daemon.Client {
 	return c
 }
 
+// configAllowsStandalone loads the node config and returns true if
+// cli.allow_standalone is set. Returns false on any config load error
+// (missing config is not an error condition for this check).
+func configAllowsStandalone(configPath string) bool {
+	cfgFile, err := config.FindConfigFile(configPath)
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		return false
+	}
+	return cfg.CLI.AllowStandalone
+}
+
 // --- Client subcommands ---
 
 func runDaemonStatus(args []string) {
 	fs := flag.NewFlagSet("daemon status", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -360,7 +567,7 @@ func runDaemonPing(args []string) {
 	count := fs.Int("c", 4, "number of pings")
 	intervalMs := fs.Int("interval", 1000, "interval between pings (ms)")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -393,7 +600,7 @@ func runDaemonPing(args []string) {
 func runDaemonServices(args []string) {
 	fs := flag.NewFlagSet("daemon services", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -420,7 +627,7 @@ func runDaemonPeers(args []string) {
 	fs := flag.NewFlagSet("daemon peers", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	allFlag := fs.Bool("all", false, "show all connected peers (including DHT/IPFS neighbors)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -446,7 +653,7 @@ func runDaemonPeers(args []string) {
 func runDaemonPaths(args []string) {
 	fs := flag.NewFlagSet("daemon paths", flag.ExitOnError)
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	c := daemonClient()
 
@@ -474,7 +681,7 @@ func runDaemonConnect(args []string) {
 	peerFlag := fs.String("peer", "", "peer name or ID")
 	serviceFlag := fs.String("service", "", "service name")
 	listenFlag := fs.String("listen", "", "local listen address (e.g. 127.0.0.1:2222)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	if *peerFlag == "" || *serviceFlag == "" || *listenFlag == "" {
 		fmt.Fprintln(os.Stderr, "Usage: shurli daemon connect --peer <name> --service <svc> --listen <addr>")

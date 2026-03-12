@@ -1,7 +1,7 @@
 ---
 title: "Architecture"
 weight: 11
-description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, connection gating, and naming system."
+description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, file transfer, connection gating, and naming system."
 ---
 <!-- Auto-synced from docs/ARCHITECTURE.md by sync-docs - do not edit directly -->
 
@@ -10,8 +10,8 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 8 Complete)](#current-architecture-phase-8-complete) - what's built and working
-- [Target Architecture (Phase 9+)](#target-architecture-phase-9) - planned additions
+- [Current Architecture (Phase 9B Complete)](#current-architecture-phase-9b-complete) - what's built and working
+- [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
 - [Core Concepts](#core-concepts) - implemented patterns
@@ -29,13 +29,14 @@ This document describes the technical architecture of Shurli, from current imple
   - [Remote Admin Protocol (Phase 8)](#remote-admin-protocol-phase-8) - full relay management over P2P
   - [MOTD and Goodbye (Phase 8)](#motd-and-goodbye-phase-8) - signed operator announcements
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
+  - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
 - [Federation Model](#federation-model) - planned (Phase 13)
 - [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
 
 ---
 
-## Current Architecture (Phase 8 Complete)
+## Current Architecture (Phase 9B Complete)
 
 ### Component Overview
 
@@ -45,8 +46,10 @@ Shurli/
 │   ├── shurli/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
 │   │   │                    #   proxy, whoami, auth, relay, config, service, invite,
-│   │   │                    #   join, verify, status, init, recover, change-password,
-│   │   │                    #   lock, unlock, session, doctor, completion, man, version)
+│   │   │                    #   join, verify, send, download, share, browse, transfers,
+│   │   │                    #   accept, reject, cancel, status, init, recover,
+│   │   │                    #   change-password, lock, unlock, session, doctor,
+│   │   │                    #   completion, man, version)
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
@@ -69,6 +72,14 @@ Shurli/
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
 │   │   ├── cmd_relay_motd.go # MOTD/goodbye CLI: set/clear/status, goodbye set/retract/shutdown
 │   │   ├── cmd_relay_remote.go # Remote admin --remote flag dispatcher
+│   │   ├── cmd_send.go        # Send file to peer (fire-and-forget, --follow for inline progress)
+│   │   ├── cmd_download.go   # Download from shared peer catalog (--multi-peer for RaptorQ)
+│   │   ├── cmd_share.go      # Share add/remove/list (selective file sharing)
+│   │   ├── cmd_browse.go     # Browse a peer's shared files
+│   │   ├── cmd_transfers.go  # Transfer inbox (--watch, --history, --json)
+│   │   ├── cmd_accept.go     # Accept pending transfer (--all for batch)
+│   │   ├── cmd_reject.go     # Reject pending transfer (--all for batch)
+│   │   ├── cmd_cancel.go     # Cancel outbound transfer
 │   │   ├── cmd_relay_recover.go # Relay identity recovery from seed phrase
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── cmd_recover.go    # Top-level identity recovery from seed phrase
@@ -111,6 +122,20 @@ Shurli/
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
 │   ├── peermanager.go       # Background reconnection with exponential backoff
 │   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
+│   ├── transfer.go          # SHFT v2 wire format, chunked transfer, receive modes, rate limiting
+│   ├── transfer_erasure.go  # Reed-Solomon erasure coding (stripe-based, auto-enable on Direct WAN)
+│   ├── transfer_resume.go   # Checkpoint-based resume (bitfield of received chunks, .shurli-ckpt files)
+│   ├── transfer_parallel.go # Parallel QUIC streams (adaptive, 1 for LAN, up to 4 for WAN)
+│   ├── transfer_multipeer.go # RaptorQ fountain codes for multi-source download
+│   ├── transfer_raptorq.go  # RaptorQ symbol encoding/decoding
+│   ├── transfer_log.go      # Transfer event logger (JSON lines, file rotation)
+│   ├── transfer_notify.go   # Transfer notifications (desktop/command modes)
+│   ├── chunker.go           # FastCDC content-defined chunking (own impl, adaptive targets)
+│   ├── merkle.go            # BLAKE3 Merkle tree (binary, odd-node promotion)
+│   ├── compress.go          # zstd compress/decompress with bomb protection
+│   ├── share.go             # ShareRegistry, TransferQueue, browse/download protocols
+│   ├── plugin_policy.go     # Transport-aware plugin access control (LAN/Direct/Relay bitmask)
+│   ├── standalone.go        # Standalone mode helpers for CLI commands
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
@@ -268,7 +293,7 @@ echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
 
 ---
 
-## Target Architecture (Phase 9+)
+## Target Architecture (Phase 9C+)
 
 ### Planned Additions
 
@@ -277,14 +302,12 @@ Building on the current structure, future phases will add:
 ```
 Shurli/
 ├── cmd/
-│   ├── shurli/              # ✅ Single binary (daemon, serve, ping, traceroute, resolve,
-│   │                        #   proxy, whoami, auth, relay, config, service, invite, join,
-│   │                        #   status, init, version)
+│   ├── shurli/              # ✅ Single binary (33 subcommands including file transfer)
 │   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
-├── pkg/p2pnet/              # ✅ Core library (importable)
+├── pkg/p2pnet/              # ✅ Core library (importable) - includes file transfer, chunking,
+│   │                        #   Merkle, compression, erasure, share registry, plugin policy
 │   ├── ...existing...
-│   ├── interfaces.go        # 🆕 Phase 9: Plugin interfaces (note: pkg/p2pnet/interfaces.go already exists for Batch I interface discovery)
 │   └── federation.go        # 🆕 Phase 13: Network peering
 │
 ├── internal/
@@ -293,14 +316,14 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   ├── transfer/            # 🆕 Phase 9: File transfer plugin
 │   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
 │
-├── mobile/                  # 🆕 Phase 12: Apple multiplatform app
-│   ├── ios/
-│   └── android/
-│
 └── ...existing (deploy/, tools/, configs, docs, examples)
+
+# External repositories (separate repos, independent release cycles):
+# shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
+# shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
+# shurlinet/shurli-ios    -> App Store (Phase 12)
 ```
 
 ### Service Exposure Architecture
@@ -309,7 +332,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 11](../roadmap/) for details.
+> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -317,7 +340,7 @@ Shurli/
 
 ## Daemon Architecture
 
-![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 23 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
+![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 38 endpoints), with P2P Network below left and CLI/Scripts below right](/images/docs/daemon-api-architecture.svg)
 
 `shurli daemon` is the single command for running a P2P host. It starts the full P2P lifecycle plus a Unix domain socket API for programmatic control (zero overhead if unused - it's just a listener).
 
@@ -374,6 +397,7 @@ type RuntimeInfo interface {
     PathTracker() *p2pnet.PathTracker             // nil before bootstrap
     STUNResult() *p2pnet.STUNResult               // nil before probe
     IsRelaying() bool                             // true if peer relay enabled
+    TransferService() *p2pnet.TransferService     // file transfer service (nil if not configured)
 }
 ```
 
@@ -391,7 +415,7 @@ No PID files. On startup, the daemon dials the existing socket:
 
 ### Unix Socket API
 
-23 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
+38 HTTP endpoints over Unix domain socket. Every endpoint supports JSON (default) and plain text (`?format=text` or `Accept: text/plain`). Full API reference in [Daemon API](../daemon-api/).
 
 ### Dynamic Proxy Management
 
@@ -908,7 +932,7 @@ The key is decrypted at daemon startup with the node password. Raw (unencrypted)
 
 > **Status: Implemented**
 
-Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
+Full relay management over encrypted P2P connections using `/shurli/relay-admin/1.0.0`. All 28 relay admin API endpoints (pairing, vault, invites, ZKP, MOTD, goodbye) are accessible remotely from any admin peer.
 
 **Wire format**: JSON-over-stream with request/response framing. The remote admin handler adapts P2P stream requests into HTTP requests against the local admin socket, then streams responses back.
 
@@ -949,9 +973,116 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 **Reference**: `internal/identity/session.go`, `cmd/shurli/cmd_lock.go`
 
+### File Transfer (Phase 9B)
+
+> **Status: Implemented**
+
+Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay is blocked for file transfer by default (drives own-relay adoption via `PluginPolicy`).
+
+**Four P2P protocols**:
+
+| Protocol | Purpose |
+|----------|---------|
+| `/shurli/file-transfer/2.0.0` | Core send/receive with SHFT v2 wire format |
+| `/shurli/file-browse/1.0.0` | Browse a peer's shared file catalog |
+| `/shurli/file-download/1.0.0` | Download specific files from a share |
+| `/shurli/file-multi-peer/1.0.0` | RaptorQ fountain code multi-source download |
+
+**Wire Format (SHFT v2)**: Fixed magic bytes (`SHFT`) + version + flags + length-prefixed manifest + chunk data. Every field has max bounds enforced before parsing. Chunk hashes verified before writing to disk.
+
+**Chunking**: Own FastCDC implementation (content-defined chunking). Adaptive target sizes from 128KB to 2MB based on file size. Single-pass chunking with BLAKE3 hash per chunk.
+
+**Integrity**: BLAKE3 Merkle tree over all chunk hashes. Binary tree with odd-node promotion. Root hash verified after all chunks received. Chunk-level verification prevents partial corruption.
+
+**Compression**: zstd compression on by default, auto-detects incompressible data (skips re-compression). Bomb protection: decompression aborted if output exceeds 10x compressed size. Opt-out via `transfer.compress: false`.
+
+**Erasure Coding**: Reed-Solomon erasure coding with stripe-based layout. Auto-enabled on Direct WAN connections only (overhead not justified on LAN). Parity chunk count bounded at 50% overhead maximum. Configurable via `transfer.erasure_overhead`.
+
+**RaptorQ Multi-Source**: Fountain codes for downloading from multiple peers simultaneously. Each peer contributes RaptorQ symbols; any sufficient subset reconstructs the file. Per-peer contribution tracking detects garbage symbols. Symbol count validated against file size. `shurli download --multi-peer --peers home,laptop`.
+
+**Parallel Streams**: Adaptive parallel QUIC streams per transfer. Defaults: 1 stream on LAN (already fast), up to 4 on WAN. Configurable via `transfer.parallel_streams`.
+
+**Receive Modes** (AirDrop-style, configurable via `transfer.receive_mode`):
+
+| Mode | Behavior |
+|------|----------|
+| `off` | Reject all incoming transfers |
+| `contacts` | Auto-accept from authorized peers (default) |
+| `ask` | Queue for manual approval via `shurli accept`/`shurli reject` |
+| `open` | Accept from any authorized peer without prompting |
+| `timed` | Temporarily open, reverts to previous mode after duration |
+
+**Transfer Queue**: Priority-ordered outbound queue with configurable concurrency limit (default: 3 active). `TransferQueue` manages pending/active/completed states. Priority flag via `shurli send --priority`.
+
+**Share Registry**: Persistent file sharing via `ShareRegistry`. `shurli share add <path> [--to peer]` registers files for browsing and download by authorized peers. Shares survive daemon restarts (persisted to `~/.config/shurli/shares.json`). Selective sharing: restrict individual shares to specific peers via `--to`.
+
+**Directory Transfer**: Recursive directory transfer with path structure preserved. `shurli send ./folder peer`. Relative paths sanitized (strip `..`, absolute paths, null bytes, control chars). Regular files only (no device files, pipes, sockets).
+
+**Resume**: Checkpoint files (`.shurli-ckpt-<hash>`) store a bitfield of received chunks. Matched by BLAKE3 Merkle root hash. Cleaned up on successful completion. Interrupted transfers resume from the last checkpoint.
+
+**Rate Limiting**: Fixed-window rate limiter - 10 transfer requests per minute per peer. Silent rejection (no information leakage to non-friends). Applied to both single-peer and multi-peer request paths.
+
+**Transfer Logging**: `TransferLogger` writes JSON-line events to `~/.config/shurli/transfers.log`. File rotation at configurable size (default 10MB). Events: send, receive, accept, reject, cancel, complete, fail.
+
+**Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
+
+**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect` (relay excluded). Per-plugin peer allow/deny lists. Applied before any transfer operation.
+
+**Security**:
+- Path traversal: `filepath.Base()` + sanitization on every received filename. Receive directory is a jail.
+- Resource exhaustion: max 3 pending transfers per peer, max 5 concurrent active, 1M chunk limit, 64MB manifest limit, 1h timeout.
+- Disk space: re-checked before each chunk write (not just at accept time).
+- Transfer IDs: random hex (`xfer-<12hex>`), not sequential (prevents enumeration).
+- Compression bombs: zstd decompression capped at 10x ratio per chunk.
+- No symlink following in share paths.
+
+**Daemon API Endpoints** (15 new, 38 total):
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /v1/send` | Send file to peer |
+| `GET /v1/transfers` | List active transfers |
+| `GET /v1/transfers/history` | List completed transfers |
+| `GET /v1/transfers/pending` | List pending (awaiting accept) transfers |
+| `GET /v1/transfers/{id}` | Get transfer status with progress |
+| `POST /v1/transfers/{id}/accept` | Accept pending transfer |
+| `POST /v1/transfers/{id}/reject` | Reject pending transfer |
+| `POST /v1/transfers/{id}/cancel` | Cancel active transfer |
+| `GET /v1/shares` | List shared files |
+| `POST /v1/shares` | Add file to shares |
+| `DELETE /v1/shares` | Remove file from shares |
+| `POST /v1/browse` | Browse remote peer's shares |
+| `POST /v1/download` | Download file from peer's shares |
+| `POST /v1/config/reload` | Hot-reload configuration |
+| `GET /v1/config/reload` | Get reload status |
+
+**CLI Commands** (8 new):
+
+| Command | Description |
+|---------|-------------|
+| `shurli send <file> <peer>` | Send file (fire-and-forget, `--follow` for progress, `--priority`) |
+| `shurli download <file> <peer>` | Download from shared catalog (`--multi-peer`, `--peers`) |
+| `shurli share add/remove/list` | Manage shared files (`--to` for selective sharing) |
+| `shurli browse <peer>` | Browse peer's shared files |
+| `shurli transfers` | Transfer inbox (`--watch`, `--history`, `--json`) |
+| `shurli accept <id>` | Accept pending transfer (`--all` for batch) |
+| `shurli reject <id>` | Reject pending transfer (`--all` for batch) |
+| `shurli cancel <id>` | Cancel outbound transfer |
+
+**Dependencies**:
+
+| Library | License | Purpose |
+|---------|---------|---------|
+| zeebo/blake3 | CC0 (Public Domain) | Per-chunk hash + Merkle tree |
+| klauspost/compress/zstd | BSD 3-Clause | Streaming compression |
+| klauspost/reedsolomon | MIT | Erasure coding |
+| xssnick/raptorq | MIT | Fountain codes (multi-source) |
+
+**Reference**: `pkg/p2pnet/transfer.go`, `pkg/p2pnet/chunker.go`, `pkg/p2pnet/merkle.go`, `pkg/p2pnet/compress.go`, `pkg/p2pnet/share.go`, `pkg/p2pnet/transfer_erasure.go`, `pkg/p2pnet/transfer_multipeer.go`, `pkg/p2pnet/transfer_raptorq.go`, `pkg/p2pnet/transfer_parallel.go`, `pkg/p2pnet/transfer_resume.go`, `pkg/p2pnet/transfer_log.go`, `pkg/p2pnet/transfer_notify.go`, `pkg/p2pnet/plugin_policy.go`
+
 ### Federation Trust Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 13](../roadmap/).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -994,7 +1125,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 13](../roadmap/).
+> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](../roadmap/).
 
 ### Relay Peering
 
@@ -1004,7 +1135,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 12](../roadmap/).
+> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -1052,7 +1183,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
 
 ### Binary Size
 
-> **37 MB** stripped (Go 1.26, darwin/arm64, `-ldflags="-s -w" -trimpath`)
+> **39 MB** stripped (Go 1.26, darwin/arm64, `-ldflags="-s -w" -trimpath`)
 
 ![Binary size breakdown: pie chart showing Go FIPS crypto (60%), runtime (28%), gnark ZKP (7%), libp2p (3%), and Shurli application code (0.8%)](/images/docs/binary-size-breakdown.svg)
 
@@ -1160,6 +1291,13 @@ Validated at four points:
 - ✅ ZKP replay attacks (single-use nonces, 30s TTL, cryptographic randomness)
 - ✅ Reputation score inflation (range proofs - prove score >= threshold without revealing exact value)
 - ✅ DNS seed spoofing (DNSSEC-signed `_dnsaddr` TXT records + hardcoded fallback seeds + ConnectionGater rejects unauthorized peers post-bootstrap)
+- ✅ File transfer path traversal (filepath.Base + sanitization, receive dir jail, no symlinks, regular files only)
+- ✅ File transfer resource exhaustion (per-peer rate limiting, pending/active caps, chunk count limit, manifest size limit, timeout)
+- ✅ File transfer disk exhaustion (disk space re-checked before each chunk write)
+- ✅ Compression bombs (zstd output capped at 10x compressed size per chunk)
+- ✅ Transfer ID enumeration (random hex IDs, not sequential)
+- ✅ File transfer relay abuse (PluginPolicy blocks relay transport by default for transfers)
+- ✅ Command injection in notifications (shell-escape all placeholder values)
 
 **Threats NOT Addressed** (out of scope):
 - ❌ Relay compromise (relay can see metadata, not content)
@@ -1217,6 +1355,10 @@ Validated at four points:
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
 - AutoNAT v2 (per-address reachability testing)
 - gnark v0.14.0 + gnark-crypto v0.19.0 (PLONK zero-knowledge proofs, BN254 curve, pure Go)
+- zeebo/blake3 v0.2.4 (BLAKE3 hashing for chunk integrity + Merkle trees)
+- klauspost/compress (zstd streaming compression)
+- klauspost/reedsolomon (Reed-Solomon erasure coding)
+- xssnick/raptorq (RaptorQ fountain codes for multi-source download)
 
 **Why libp2p**: Shurli's networking foundation is the same stack used by Ethereum's consensus layer (Beacon Chain), Filecoin, and Polkadot - networks collectively securing hundreds of billions in value. When Ethereum chose a P2P stack for their most critical infrastructure, they picked libp2p. Improvements driven by these ecosystems (transport optimizations, Noise hardening, gossipsub refinements) flow back to the shared codebase. See the [FAQ comparisons](../faq/comparisons/#how-do-p2p-networking-stacks-compare) for detailed comparisons.
 
@@ -1227,5 +1369,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-06
-**Architecture Version**: 4.1 (Phase 8 Complete: Unified Seed, Encrypted Identity, Remote Admin, MOTD/Goodbye, Session Tokens)
+**Last Updated**: 2026-03-11
+**Architecture Version**: 5.0 (Phase 9B Complete: File Transfer, FastCDC Chunking, BLAKE3 Merkle, zstd Compression, Reed-Solomon Erasure, RaptorQ Multi-Source, Parallel Streams, Share Registry, Plugin Policy)

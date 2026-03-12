@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -39,11 +39,37 @@ type RuntimeInfo interface {
 	RelayAddresses() []string                                // relay multiaddrs from config
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
+	TransferService() *p2pnet.TransferService                // nil if transfer disabled
+	ShareRegistry() *p2pnet.ShareRegistry                    // nil if sharing disabled
+	ConfigReloader() ConfigReloader                          // nil if reload not supported
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
 type GaterReloader interface {
 	ReloadFromFile() error // reload authorized_keys and update the gater
+}
+
+// ConfigReloadResult describes what changed during a config reload.
+type ConfigReloadResult struct {
+	Changed []string `json:"changed"`           // list of changed fields (e.g. "transfer.receive_mode")
+	Reverted []string `json:"reverted,omitempty"` // fields that were rolled back due to errors
+}
+
+// ConfigReloader allows hot-reloading config from disk without daemon restart.
+type ConfigReloader interface {
+	ReloadConfig() (*ConfigReloadResult, error)
+}
+
+// ConfigReloadState tracks the last config reload for self-healing and admin visibility.
+type ConfigReloadState struct {
+	LastReloadTime      time.Time `json:"last_reload_time,omitempty"`
+	LastSuccess         bool      `json:"last_success"`
+	LastError           string    `json:"last_error,omitempty"`
+	LastChanged         []string  `json:"last_changed,omitempty"`
+	LastReverted        []string  `json:"last_reverted,omitempty"`
+	ConsecutiveFailures int       `json:"consecutive_failures"`
+	TotalReloads        int       `json:"total_reloads"`
+	TotalFailures       int       `json:"total_failures"`
 }
 
 // activeInvite tracks a pending async invite (relay-stored).
@@ -85,6 +111,9 @@ type Server struct {
 	pendingInvite *activeInvite // nil when no invite active
 	nextID       int
 	locked       bool // sensitive ops disabled when true (default: true)
+
+	// Config reload self-healing state
+	reloadState ConfigReloadState
 }
 
 // NewServer creates a new daemon API server.
@@ -131,9 +160,9 @@ func (s *Server) Start() error {
 	// Bind Unix socket with restrictive umask to avoid TOCTOU race.
 	// Setting umask(0077) ensures the socket is created with 0600 permissions
 	// atomically, eliminating the window between Listen() and Chmod().
-	oldUmask := syscall.Umask(0077)
+	restoreUmask := platform.RestrictiveUmask()
 	listener, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask)
+	restoreUmask()
 	if err != nil {
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}

@@ -18,6 +18,15 @@ const TokenSize = 16
 // Maximum failed attempts per code before it is burned.
 const maxAttempts = 3
 
+// MaxCodesPerGroup caps the number of codes in a single group to prevent
+// memory exhaustion from a malicious CreateGroup(count=1B) call.
+const MaxCodesPerGroup = 10000
+
+// inProgressTimeout is the maximum time a slot can remain InProgress
+// before being automatically cleared. Prevents permanently stuck slots
+// when a peer crashes mid-PAKE handshake.
+const inProgressTimeout = 60 * time.Second
+
 var (
 	ErrTokenNotFound  = errors.New("pairing failed")
 	ErrTokenUsed      = errors.New("pairing failed")
@@ -36,8 +45,9 @@ type CodeSlot struct {
 	PeerID     peer.ID   // filled after use
 	Name       string    // peer's friendly name
 	UsedAt     time.Time // zero = unused
-	InProgress bool      // true while PAKE handshake is in flight (prevents TOCTOU)
-	Attempts   int       // failed attempts (max 3)
+	InProgress   bool      // true while PAKE handshake is in flight (prevents TOCTOU)
+	InProgressAt time.Time // when InProgress was set (for timeout cleanup)
+	Attempts     int       // failed attempts (max 3)
 	HMACProof  []byte    // HMAC-SHA256(token, groupID) computed at pairing time
 }
 
@@ -72,12 +82,19 @@ type GroupInfo struct {
 	Peers     []PeerInfo
 }
 
+// hashEntry maps a token hash to its group and slot index for O(1) lookup.
+type hashEntry struct {
+	groupID string
+	slotIdx int
+}
+
 // TokenStore manages in-memory pairing tokens for the relay.
 // All tokens are lost on relay restart (by design).
 type TokenStore struct {
 	mu        sync.RWMutex
 	groups    map[string]*PairingGroup
-	maxGroups int // 0 = unlimited (default 10000)
+	hashIndex map[[32]byte]hashEntry // token hash -> (group, slot) for O(1) lookup
+	maxGroups int                    // 0 = unlimited (default 10000)
 }
 
 // DefaultMaxGroups is the default cap on total pairing groups in memory.
@@ -88,6 +105,7 @@ const DefaultMaxGroups = 10000
 func NewTokenStore() *TokenStore {
 	return &TokenStore{
 		groups:    make(map[string]*PairingGroup),
+		hashIndex: make(map[[32]byte]hashEntry),
 		maxGroups: DefaultMaxGroups,
 	}
 }
@@ -97,6 +115,7 @@ func NewTokenStore() *TokenStore {
 func NewTokenStoreWithCapacity(maxGroups int) *TokenStore {
 	return &TokenStore{
 		groups:    make(map[string]*PairingGroup),
+		hashIndex: make(map[[32]byte]hashEntry),
 		maxGroups: maxGroups,
 	}
 }
@@ -121,6 +140,9 @@ var ErrQuotaExceeded = fmt.Errorf("group creation quota exceeded")
 func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns string, peerTTL time.Duration, tokenSize int, createdBy peer.ID, maxGroupsPerPeer int) (tokens [][]byte, groupID string, err error) {
 	if count < 1 {
 		return nil, "", fmt.Errorf("count must be at least 1")
+	}
+	if count > MaxCodesPerGroup {
+		return nil, "", fmt.Errorf("count exceeds maximum (%d)", MaxCodesPerGroup)
 	}
 	if tokenSize < 8 || tokenSize > 32 {
 		return nil, "", fmt.Errorf("token size must be 8-32 bytes, got %d", tokenSize)
@@ -183,6 +205,10 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 		return nil, "", fmt.Errorf("group ID collision (retry)")
 	}
 	ts.groups[groupID] = group
+	// Populate hash index for O(1) token lookup.
+	for i := range group.codes {
+		ts.hashIndex[group.codes[i].TokenHash] = hashEntry{groupID: groupID, slotIdx: i}
+	}
 	ts.mu.Unlock()
 
 	return tokens, groupID, nil
@@ -190,6 +216,7 @@ func (ts *TokenStore) CreateGroupWithTokenSize(count int, ttl time.Duration, ns 
 
 // ValidateAndUse atomically validates a token and marks it as used.
 // Returns the group and the slot index on success.
+// Uses the hash index for O(1) lookup instead of scanning all groups.
 func (ts *TokenStore) ValidateAndUse(token []byte, peerID peer.ID, name string) (*PairingGroup, int, error) {
 	if len(token) < 8 || len(token) > 32 {
 		return nil, -1, ErrTokenNotFound
@@ -198,45 +225,43 @@ func (ts *TokenStore) ValidateAndUse(token []byte, peerID peer.ID, name string) 
 	hash := sha256.Sum256(token)
 
 	ts.mu.RLock()
-	defer ts.mu.RUnlock()
+	entry, ok := ts.hashIndex[hash]
+	if !ok {
+		ts.mu.RUnlock()
+		return nil, -1, ErrTokenNotFound
+	}
+	group, gok := ts.groups[entry.groupID]
+	ts.mu.RUnlock()
 
-	for _, group := range ts.groups {
-		group.mu.Lock()
-
-		if time.Now().After(group.ExpiresAt) {
-			group.mu.Unlock()
-			continue
-		}
-
-		for i := range group.codes {
-			slot := &group.codes[i]
-
-			if subtle.ConstantTimeCompare(slot.TokenHash[:], hash[:]) != 1 {
-				continue
-			}
-
-			// Found the matching slot.
-			if slot.Attempts >= maxAttempts {
-				group.mu.Unlock()
-				return nil, -1, ErrTokenBurned
-			}
-
-			if !slot.UsedAt.IsZero() {
-				group.mu.Unlock()
-				return nil, -1, ErrTokenUsed
-			}
-
-			slot.PeerID = peerID
-			slot.Name = name
-			slot.UsedAt = time.Now()
-			group.mu.Unlock()
-			return group, i, nil
-		}
-
-		group.mu.Unlock()
+	if !gok {
+		return nil, -1, ErrTokenNotFound
 	}
 
-	return nil, -1, ErrTokenNotFound
+	group.mu.Lock()
+	defer group.mu.Unlock()
+
+	if time.Now().After(group.ExpiresAt) {
+		return nil, -1, ErrTokenExpired
+	}
+
+	slot := &group.codes[entry.slotIdx]
+
+	// Constant-time verify the hash matches (defense-in-depth).
+	if subtle.ConstantTimeCompare(slot.TokenHash[:], hash[:]) != 1 {
+		return nil, -1, ErrTokenNotFound
+	}
+
+	if slot.Attempts >= maxAttempts {
+		return nil, -1, ErrTokenBurned
+	}
+	if !slot.UsedAt.IsZero() {
+		return nil, -1, ErrTokenUsed
+	}
+
+	slot.PeerID = peerID
+	slot.Name = name
+	slot.UsedAt = time.Now()
+	return group, entry.slotIdx, nil
 }
 
 // SetDepositID links a deposit to all code slots in a group.
@@ -262,57 +287,54 @@ var ErrTokenInProgress = errors.New("pairing failed")
 // raw token for PAKE session key derivation.
 // The slot is NOT consumed; call MarkUsed after PAKE succeeds, or
 // ClearInProgress if PAKE fails.
+// Uses the hash index for O(1) lookup instead of scanning all groups.
 func (ts *TokenStore) ValidateForPAKE(tokenHash [32]byte) (*PairingGroup, int, []byte, error) {
 	ts.mu.RLock()
-	defer ts.mu.RUnlock()
+	entry, ok := ts.hashIndex[tokenHash]
+	if !ok {
+		ts.mu.RUnlock()
+		return nil, -1, nil, ErrTokenNotFound
+	}
+	group, gok := ts.groups[entry.groupID]
+	ts.mu.RUnlock()
 
-	for _, group := range ts.groups {
-		group.mu.Lock()
-
-		if time.Now().After(group.ExpiresAt) {
-			group.mu.Unlock()
-			continue
-		}
-
-		for i := range group.codes {
-			slot := &group.codes[i]
-
-			if subtle.ConstantTimeCompare(slot.TokenHash[:], tokenHash[:]) != 1 {
-				continue
-			}
-
-			if slot.Attempts >= maxAttempts {
-				group.mu.Unlock()
-				return nil, -1, nil, ErrTokenBurned
-			}
-
-			if !slot.UsedAt.IsZero() {
-				group.mu.Unlock()
-				return nil, -1, nil, ErrTokenUsed
-			}
-
-			if slot.InProgress {
-				group.mu.Unlock()
-				return nil, -1, nil, ErrTokenInProgress
-			}
-
-			if len(slot.RawToken) == 0 {
-				group.mu.Unlock()
-				return nil, -1, nil, fmt.Errorf("raw token not available")
-			}
-
-			// Atomically claim the slot for this PAKE handshake.
-			slot.InProgress = true
-			rawToken := make([]byte, len(slot.RawToken))
-			copy(rawToken, slot.RawToken)
-			group.mu.Unlock()
-			return group, i, rawToken, nil
-		}
-
-		group.mu.Unlock()
+	if !gok {
+		return nil, -1, nil, ErrTokenNotFound
 	}
 
-	return nil, -1, nil, ErrTokenNotFound
+	group.mu.Lock()
+	defer group.mu.Unlock()
+
+	if time.Now().After(group.ExpiresAt) {
+		return nil, -1, nil, ErrTokenExpired
+	}
+
+	slot := &group.codes[entry.slotIdx]
+
+	// Constant-time verify the hash matches (defense-in-depth).
+	if subtle.ConstantTimeCompare(slot.TokenHash[:], tokenHash[:]) != 1 {
+		return nil, -1, nil, ErrTokenNotFound
+	}
+
+	if slot.Attempts >= maxAttempts {
+		return nil, -1, nil, ErrTokenBurned
+	}
+	if !slot.UsedAt.IsZero() {
+		return nil, -1, nil, ErrTokenUsed
+	}
+	if slot.InProgress {
+		return nil, -1, nil, ErrTokenInProgress
+	}
+	if len(slot.RawToken) == 0 {
+		return nil, -1, nil, fmt.Errorf("raw token not available")
+	}
+
+	// Atomically claim the slot for this PAKE handshake.
+	slot.InProgress = true
+	slot.InProgressAt = time.Now()
+	rawToken := make([]byte, len(slot.RawToken))
+	copy(rawToken, slot.RawToken)
+	return group, entry.slotIdx, rawToken, nil
 }
 
 // ClearInProgress releases the in-progress flag on a slot after a failed PAKE.
@@ -367,20 +389,24 @@ func (ts *TokenStore) MarkUsed(groupID string, idx int, peerID peer.ID, name str
 }
 
 // RecordFailedAttemptByHash increments the attempt counter for a token by its hash.
+// Uses the hash index for O(1) lookup.
 func (ts *TokenStore) RecordFailedAttemptByHash(tokenHash [32]byte) {
 	ts.mu.RLock()
-	defer ts.mu.RUnlock()
+	entry, ok := ts.hashIndex[tokenHash]
+	if !ok {
+		ts.mu.RUnlock()
+		return
+	}
+	group, gok := ts.groups[entry.groupID]
+	ts.mu.RUnlock()
+	if !gok {
+		return
+	}
 
-	for _, group := range ts.groups {
-		group.mu.Lock()
-		for i := range group.codes {
-			if subtle.ConstantTimeCompare(group.codes[i].TokenHash[:], tokenHash[:]) == 1 {
-				group.codes[i].Attempts++
-				group.mu.Unlock()
-				return
-			}
-		}
-		group.mu.Unlock()
+	group.mu.Lock()
+	defer group.mu.Unlock()
+	if entry.slotIdx >= 0 && entry.slotIdx < len(group.codes) {
+		group.codes[entry.slotIdx].Attempts++
 	}
 }
 
@@ -406,23 +432,8 @@ func (ts *TokenStore) RecordFailedAttempt(token []byte) {
 	if len(token) < 8 || len(token) > 32 {
 		return
 	}
-
 	hash := sha256.Sum256(token)
-
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
-	for _, group := range ts.groups {
-		group.mu.Lock()
-		for i := range group.codes {
-			if subtle.ConstantTimeCompare(group.codes[i].TokenHash[:], hash[:]) == 1 {
-				group.codes[i].Attempts++
-				group.mu.Unlock()
-				return
-			}
-		}
-		group.mu.Unlock()
-	}
+	ts.RecordFailedAttemptByHash(hash)
 }
 
 // SetHMACProof stores the HMAC commitment proof for a code slot.
@@ -504,7 +515,8 @@ func (ts *TokenStore) GroupCount(groupID string) int {
 	return len(group.codes)
 }
 
-// CleanExpired removes all expired groups and returns how many were removed.
+// CleanExpired removes all expired groups and clears stale InProgress flags.
+// Returns how many groups were removed.
 func (ts *TokenStore) CleanExpired() int {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -513,9 +525,24 @@ func (ts *TokenStore) CleanExpired() int {
 	removed := 0
 	for id, group := range ts.groups {
 		if now.After(group.ExpiresAt) {
+			// Remove hash index entries for this group's codes.
+			for i := range group.codes {
+				delete(ts.hashIndex, group.codes[i].TokenHash)
+			}
 			delete(ts.groups, id)
 			removed++
+			continue
 		}
+		// Clear stale InProgress flags (F-9: peer crashed mid-PAKE).
+		group.mu.Lock()
+		for i := range group.codes {
+			slot := &group.codes[i]
+			if slot.InProgress && !slot.InProgressAt.IsZero() && now.Sub(slot.InProgressAt) > inProgressTimeout {
+				slot.InProgress = false
+				slot.InProgressAt = time.Time{}
+			}
+		}
+		group.mu.Unlock()
 	}
 	return removed
 }
@@ -622,8 +649,13 @@ func (ts *TokenStore) Revoke(groupID string) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	if _, ok := ts.groups[groupID]; !ok {
+	group, ok := ts.groups[groupID]
+	if !ok {
 		return ErrGroupNotFound
+	}
+	// Remove hash index entries for this group's codes.
+	for i := range group.codes {
+		delete(ts.hashIndex, group.codes[i].TokenHash)
 	}
 	delete(ts.groups, groupID)
 	return nil

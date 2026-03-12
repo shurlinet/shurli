@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -27,7 +25,7 @@ func runPing(args []string) {
 	intervalStr := fs.String("interval", "1s", "interval between pings")
 	jsonFlag := fs.Bool("json", false, "output as JSON (one line per ping)")
 	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -53,8 +51,11 @@ func runPing(args []string) {
 		fatal("Invalid interval %q: %v", *intervalStr, err)
 	}
 
+	// Standalone allowed via CLI flag or config setting.
+	allowStandalone := *standaloneFlag || configAllowsStandalone(*configFlag)
+
 	// Always try daemon first (uses existing connections, supports direct paths).
-	if !*standaloneFlag {
+	if !allowStandalone {
 		if client := tryDaemonClient(); client != nil {
 			if *count == 0 {
 				// Continuous: loop single pings client-side, Ctrl+C stops.
@@ -66,13 +67,15 @@ func runPing(args []string) {
 		}
 	}
 
-	// Daemon not available. Require explicit --standalone.
-	if !*standaloneFlag {
+	// Daemon not available. Require explicit --standalone or config setting.
+	if !allowStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
 		fmt.Println("Or use --standalone flag for direct P2P (debug):")
 		fmt.Printf("  shurli ping --standalone %s -c 5\n", target)
+		fmt.Println()
+		fmt.Println("Or set cli.allow_standalone: true in config for persistent standalone access.")
 		osExit(1)
 	}
 
@@ -87,59 +90,26 @@ func runPing(args []string) {
 		cancel()
 	}()
 
-	// Load configuration
-	cfgFile, err := config.FindConfigFile(*configFlag)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-
-	// Create P2P network
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		Namespace:          cfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
+	// Create standalone P2P host, resolve target, bootstrap, and connect.
+	pw, _ := resolvePasswordFromConfig(*configFlag)
+	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+		ConfigPath: *configFlag,
+		Password:   pw,
+		UserAgent:  "shurli/" + version,
 	})
 	if err != nil {
-		fatal("P2P network error: %v", err)
+		fatal("%v", err)
 	}
-	defer p2pNetwork.Close()
-
-	// Load names
-	if cfg.Names != nil {
-		p2pNetwork.LoadNames(cfg.Names)
-	}
-
-	// Resolve target
-	targetPeerID, err := p2pNetwork.ResolveName(target)
-	if err != nil {
-		fatal("Cannot resolve target %q: %v", target, err)
-	}
-
-	h := p2pNetwork.Host()
+	defer standalone.Network.Close()
 
 	if !*jsonFlag {
-		tc.Wfaint(os.Stdout, "PING %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "PING %s\n", target)
 		fmt.Println("Connecting...")
 	}
 
-	// Bootstrap and connect
-	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
-		fatal("Failed to connect: %v", err)
+	targetPeerID, err := standalone.ResolveAndConnect(ctx, target)
+	if err != nil {
+		fatal("%v", err)
 	}
 
 	if !*jsonFlag {
@@ -147,8 +117,8 @@ func runPing(args []string) {
 	}
 
 	// Ping loop using shared logic
-	protocolID := cfg.Protocols.PingPong.ID
-	ch := p2pnet.PingPeer(ctx, h, targetPeerID, protocolID, *count, interval)
+	protocolID := standalone.NodeConfig.Protocols.PingPong.ID
+	ch := p2pnet.PingPeer(ctx, standalone.Network.Host(), targetPeerID, protocolID, *count, interval)
 
 	var results []p2pnet.PingResult
 	for result := range ch {

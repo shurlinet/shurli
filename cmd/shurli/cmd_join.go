@@ -37,7 +37,7 @@ func runJoin(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("name", "", "friendly name for this peer (e.g., \"laptop\")")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output for scripting")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// In non-interactive mode, progress goes to stderr so stdout is clean.
 	out := fmt.Printf
@@ -79,229 +79,12 @@ func runJoin(args []string) {
 		fatal("Invalid invite code: %v", err)
 	}
 
-	// Dispatch based on version.
-	switch data.Version {
-	case invite.VersionV2:
-		runPairJoin(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
-		return
-	case invite.VersionV3:
-		runPairJoinV3(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
-		return
-	default:
-		fatal("Unsupported invite code version: %d", data.Version)
-	}
+	runPairJoin(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
 }
 
-// runPairJoin handles v2 relay pairing codes.
-func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
-	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
-
-	outln("=== Shurli pair-join ===")
-	outln()
-	out("Relay:   %s\n", data.RelayAddr)
-	if data.Network != "" {
-		out("Network: %s\n", data.Network)
-	}
-	outln()
-
-	// Resolve config.
-	cfgFile, cfg, configDir, created := loadOrCreateConfig(configFlag, data.RelayAddr, data.Network)
-	if created {
-		out("Created new config: %s\n", cfgFile)
-	} else {
-		out("Using config: %s\n", cfgFile)
-	}
-	outln()
-
-	// Ensure relay address from invite code is in config.
-	// New configs include it via template, but existing configs
-	// may not have it (e.g., after "relay remove").
-	hasRelay := false
-	for _, a := range cfg.Relay.Addresses {
-		if a == data.RelayAddr {
-			hasRelay = true
-			break
-		}
-	}
-	if !hasRelay {
-		if err := addRelayToConfigFile(cfgFile, data.RelayAddr); err != nil {
-			log.Printf("Warning: could not add relay to config: %v", err)
-		} else {
-			cfg.Relay.Addresses = append(cfg.Relay.Addresses, data.RelayAddr)
-			out("Added relay address to config.\n")
-		}
-	}
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(configDir)
-
-	// Create P2P network (no connection gating for joining).
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		Namespace:          cfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         []string{data.RelayAddr},
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
-	})
-	if err != nil {
-		fatal("P2P network error: %v", err)
-	}
-	defer p2pNetwork.Close()
-
-	h := p2pNetwork.Host()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	out("Your Peer ID: %s\n", h.ID())
-	outln()
-
-	// Connect to relay.
-	outln("Connecting to relay...")
-	relayInfos, err := p2pnet.ParseRelayAddrs([]string{data.RelayAddr})
-	if err != nil {
-		fatal("Failed to parse relay address: %v", err)
-	}
-	for _, ai := range relayInfos {
-		if err := h.Connect(ctx, ai); err != nil {
-			fatal("Failed to connect to relay: %v", err)
-		}
-	}
-	outln("Connected to relay.")
-
-	// Open pairing protocol stream to relay.
-	outln("Sending pairing code...")
-	relayPeerID := relayInfos[0].ID
-	pairCtx := network.WithAllowLimitedConn(ctx, relay.PairingProtocol)
-	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.PairingProtocol))
-	if err != nil {
-		fatal("Failed to open pairing stream: %v", err)
-	}
-	defer s.Close()
-
-	// Send token + name.
-	reqBytes := relay.EncodePairingRequest(data.TokenV2, nameFlag)
-	if _, err := s.Write(reqBytes); err != nil {
-		fatal("Failed to send pairing request: %v", err)
-	}
-	// Signal we're done writing so the relay can read.
-	s.CloseWrite()
-
-	// Read response.
-	status, groupID, _, peers, err := relay.ReadPairingResponse(s)
-	if err != nil {
-		fatal("Pairing failed: %v", err)
-	}
-	if status != relay.StatusOK {
-		fatal("Pairing failed (status 0x%02x)", status)
-	}
-
-	outln()
-	outln("=== Paired successfully! ===")
-	outln()
-
-	// Add discovered peers to authorized_keys and config names.
-	authKeysPath := cfg.Security.AuthorizedKeysFile
-
-	// Authorize relay and annotate with group ID so hasGroupMembership() works
-	// for peer-notify validation (even if this peer joined first with 0 peers).
-	if groupID != "" {
-		if err := auth.AddPeer(authKeysPath, relayPeerID.String(), "relay"); err != nil {
-			if !strings.Contains(err.Error(), "already authorized") {
-				log.Printf("Warning: failed to authorize relay: %v", err)
-			}
-		}
-		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "group", groupID)
-
-		// Compute and store own HMAC commitment proof for this group.
-		// proof = HMAC-SHA256(token, groupID) - matches what the relay stored.
-		mac := hmac.New(sha256.New, data.TokenV2)
-		mac.Write([]byte(groupID))
-		ownProof := mac.Sum(nil)
-		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "hmac_proof", hex.EncodeToString(ownProof))
-	}
-
-	// Load existing names for conflict resolution.
-	existingNames := make(map[string]bool)
-	if cfg.Names != nil {
-		for n := range cfg.Names {
-			existingNames[n] = true
-		}
-	}
-
-	for _, p := range peers {
-		peerName := sanitizeYAMLName(p.Name)
-		if peerName == "" {
-			peerName = "peer-" + p.PeerID.String()[:8]
-		}
-
-		// Resolve name conflicts.
-		finalName := uniqueName(peerName, existingNames)
-		if finalName != peerName {
-			out("Name \"%s\" already in use. Registered as \"%s\".\n", peerName, finalName)
-			out("  Rename with: shurli config rename %s <newname>\n", finalName)
-		}
-		existingNames[finalName] = true
-
-		// Authorize peer.
-		if err := auth.AddPeer(authKeysPath, p.PeerID.String(), finalName); err != nil {
-			if !strings.Contains(err.Error(), "already authorized") {
-				log.Printf("Warning: failed to authorize peer: %v", err)
-			}
-		}
-		if groupID != "" {
-			auth.SetPeerAttr(authKeysPath, p.PeerID.String(), "group", groupID)
-		}
-
-		// Add to config names.
-		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
-
-		// Show verification fingerprint.
-		emoji, numeric := p2pnet.ComputeFingerprint(h.ID(), p.PeerID)
-		out("Peer \"%s\" authorized. [UNVERIFIED]\n", finalName)
-		out("  Verification code: %s  (%s)\n", emoji, numeric)
-		out("  Verify with: shurli verify %s\n", finalName)
-		outln()
-	}
-
-	if len(peers) == 0 {
-		outln("Authorized on relay. No other peers in this group yet.")
-		outln()
-	}
-
-	out("Config: %s\n", cfgFile)
-	out("Authorized keys: %s\n", authKeysPath)
-	outln()
-
-	// Auto-start daemon (detached from terminal).
-	outln("Starting daemon...")
-	if started := kickServiceDaemon(); !started {
-		// No system service - start manually with output detached.
-		daemonCmd := exec.Command(os.Args[0], "daemon")
-		daemonCmd.Stdout = nil
-		daemonCmd.Stderr = nil
-		daemonCmd.SysProcAttr = detachedProcAttr()
-		if err := daemonCmd.Start(); err != nil {
-			out("Could not auto-start daemon: %v\n", err)
-			out("Start manually with: shurli daemon\n")
-		} else {
-			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonCmd.Process.Pid)
-		}
-	}
-	if !nonInteractive && len(peers) > 0 {
-		outln()
-		outln("Try:")
-		out("  shurli ping %s\n", sanitizeYAMLName(peers[0].Name))
-	}
-}
-
-// runPairJoinV3 handles v3 short async invite codes with PAKE.
+// runPairJoin handles invite codes with PAKE-secured relay pairing.
 // The code contains only the token (no relay address). The joiner uses their configured relay.
-func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
+func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
 	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
 
 	outln("=== Shurli join ===")
@@ -310,7 +93,7 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 	// Resolve config. v3 codes have no relay address, so use existing config.
 	cfgFile, err := config.FindConfigFile(configFlag)
 	if err != nil {
-		fatal("No config found. Run 'shurli init' first.\n(v3 short codes require a configured relay)")
+		fatal("No config found. Run 'shurli init' first.\n(Invite codes require a configured relay)")
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
@@ -366,18 +149,18 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 	}
 	outln("Connected to relay.")
 
-	// Open PAKE v2 pairing protocol stream to relay.
+	// Open PAKE invite protocol stream to relay.
 	outln("Authenticating with invite code...")
 	relayPeerID := relayInfos[0].ID
-	pairCtx := network.WithAllowLimitedConn(ctx, relay.PairingProtocolV2)
-	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.PairingProtocolV2))
+	pairCtx := network.WithAllowLimitedConn(ctx, relay.InviteProtocol)
+	s, err := h.NewStream(pairCtx, relayPeerID, protocol.ID(relay.InviteProtocol))
 	if err != nil {
 		fatal("Failed to open pairing stream: %v", err)
 	}
 	defer s.Close()
 
 	// PAKE handshake: send [32] SHA-256(token) + [32] X25519 pubkey.
-	tokenHash := sha256.Sum256(data.TokenV3)
+	tokenHash := sha256.Sum256(data.Token)
 	session, err := invite.NewPAKESession()
 	if err != nil {
 		fatal("PAKE session error: %v", err)
@@ -407,7 +190,7 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 	// Complete PAKE with token as salt.
 	// Channel binding: include relay's peer ID to prevent relay swap attacks.
 	relayBinding := []byte(relayPeerID)
-	if err := session.CompleteWithSalt(relayPub, data.TokenV3, relayBinding); err != nil {
+	if err := session.Complete(relayPub, data.Token, relayBinding); err != nil {
 		fatal("PAKE key exchange failed: %v", err)
 	}
 
@@ -416,14 +199,14 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 		fatal("Failed to send encrypted name: %v", err)
 	}
 
-	// Read encrypted response (PairingV2Response JSON).
+	// Read encrypted response (PairingResponse JSON).
 	respBytes, err := session.Decrypt(s)
 	if err != nil {
 		fatal("Authentication failed (wrong invite code?): %v", err)
 	}
 
-	var v2resp relay.PairingV2Response
-	if err := json.Unmarshal(respBytes, &v2resp); err != nil {
+	var pairResp relay.PairingResponse
+	if err := json.Unmarshal(respBytes, &pairResp); err != nil {
 		fatal("Failed to parse relay response: %v", err)
 	}
 
@@ -435,25 +218,25 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 	authKeysPath := cfg.Security.AuthorizedKeysFile
 
 	// Authorize relay and annotate with group ID.
-	if v2resp.GroupID != "" {
+	if pairResp.GroupID != "" {
 		if err := auth.AddPeer(authKeysPath, relayPeerID.String(), "relay"); err != nil {
 			if !strings.Contains(err.Error(), "already authorized") {
 				log.Printf("Warning: failed to authorize relay: %v", err)
 			}
 		}
-		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "group", v2resp.GroupID)
+		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "group", pairResp.GroupID)
 
 		// Compute and store own HMAC commitment proof.
-		mac := hmac.New(sha256.New, data.TokenV3)
-		mac.Write([]byte(v2resp.GroupID))
+		mac := hmac.New(sha256.New, data.Token)
+		mac.Write([]byte(pairResp.GroupID))
 		ownProof := mac.Sum(nil)
 		auth.SetPeerAttr(authKeysPath, relayPeerID.String(), "hmac_proof", hex.EncodeToString(ownProof))
 	}
 
 	// Store macaroon if received.
-	if v2resp.Macaroon != "" {
+	if pairResp.Macaroon != "" {
 		macFile := filepath.Join(configDir, "macaroon.json")
-		if err := os.WriteFile(macFile, []byte(v2resp.Macaroon), 0600); err != nil {
+		if err := os.WriteFile(macFile, []byte(pairResp.Macaroon), 0600); err != nil {
 			log.Printf("Warning: could not save macaroon: %v", err)
 		} else {
 			out("Macaroon saved: %s\n", macFile)
@@ -468,7 +251,7 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 		}
 	}
 
-	for _, p := range v2resp.Peers {
+	for _, p := range pairResp.Peers {
 		peerName := sanitizeYAMLName(p.Name)
 		if peerName == "" {
 			peerName = "peer-" + p.PeerID.String()[:8]
@@ -485,8 +268,8 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 				log.Printf("Warning: failed to authorize peer: %v", err)
 			}
 		}
-		if v2resp.GroupID != "" {
-			auth.SetPeerAttr(authKeysPath, p.PeerID.String(), "group", v2resp.GroupID)
+		if pairResp.GroupID != "" {
+			auth.SetPeerAttr(authKeysPath, p.PeerID.String(), "group", pairResp.GroupID)
 		}
 
 		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
@@ -498,7 +281,7 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 		outln()
 	}
 
-	if len(v2resp.Peers) == 0 {
+	if len(pairResp.Peers) == 0 {
 		outln("Authorized on relay. No other peers in this group yet.")
 		outln()
 	}
@@ -521,10 +304,10 @@ func runPairJoinV3(data *invite.InviteData, nameFlag, configFlag string, nonInte
 			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonCmd.Process.Pid)
 		}
 	}
-	if !nonInteractive && len(v2resp.Peers) > 0 {
+	if !nonInteractive && len(pairResp.Peers) > 0 {
 		outln()
 		outln("Try:")
-		out("  shurli ping %s\n", sanitizeYAMLName(v2resp.Peers[0].Name))
+		out("  shurli ping %s\n", sanitizeYAMLName(pairResp.Peers[0].Name))
 	}
 }
 
@@ -540,72 +323,6 @@ func uniqueName(name string, existing map[string]bool) string {
 		}
 	}
 	return fmt.Sprintf("%s-%d", name, time.Now().Unix())
-}
-
-// loadOrCreateConfig tries to load an existing config, or creates a minimal one
-// using the relay address and network namespace from the invite code. Returns
-// the config file path, loaded config, config directory, and whether a new
-// config was created.
-func loadOrCreateConfig(explicitConfig, relayAddr, networkNS string) (string, *config.NodeConfig, string, bool) {
-	// Try loading existing config
-	cfgFile, err := config.FindConfigFile(explicitConfig)
-	if err == nil {
-		cfg, err := config.LoadNodeConfig(cfgFile)
-		if err != nil {
-			fatal("Config error: %v", err)
-		}
-		configDir := filepath.Dir(cfgFile)
-		config.ResolveConfigPaths(cfg, configDir)
-		return cfgFile, cfg, configDir, false
-	}
-
-	// No config found  - create one
-	fmt.Println("No existing config found. Creating new configuration...")
-	fmt.Println()
-
-	configDir, err := config.DefaultConfigDir()
-	if err != nil {
-		fatal("Failed to determine config directory: %v", err)
-	}
-
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		fatal("Failed to create config directory: %v", err)
-	}
-
-	// Generate identity
-	keyFile := filepath.Join(configDir, "identity.key")
-	pw, _ := resolvePassword(configDir)
-	peerID, err := p2pnet.PeerIDFromKeyFile(keyFile, pw)
-	if err != nil {
-		fatal("Failed to generate identity: %v", err)
-	}
-	fmt.Printf("Generated identity: %s\n", peerID)
-
-	// Create authorized_keys
-	authKeysFile := filepath.Join(configDir, "authorized_keys")
-	if _, err := os.Stat(authKeysFile); os.IsNotExist(err) {
-		content := "# authorized_keys - Peer ID allowlist (one per line)\n"
-		if err := os.WriteFile(authKeysFile, []byte(content), 0600); err != nil {
-			fatal("Failed to create authorized_keys: %v", err)
-		}
-	}
-
-	// Write config
-	cfgFile = filepath.Join(configDir, "config.yaml")
-	configContent := nodeConfigTemplate([]string{relayAddr}, "shurli join", networkNS)
-
-	if err := os.WriteFile(cfgFile, []byte(configContent), 0600); err != nil {
-		fatal("Failed to write config: %v", err)
-	}
-
-	// Load the config we just wrote
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Failed to load newly created config: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, configDir)
-
-	return cfgFile, cfg, configDir, true
 }
 
 // sanitizeYAMLName strips characters unsafe for use as a bare YAML key.

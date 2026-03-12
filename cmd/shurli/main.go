@@ -59,6 +59,22 @@ func main() {
 		runJoin(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
+	case "share":
+		runShare(os.Args[2:])
+	case "browse":
+		runBrowse(os.Args[2:])
+	case "download":
+		runDownload(os.Args[2:])
+	case "send":
+		runSend(os.Args[2:])
+	case "transfers":
+		runTransfers(os.Args[2:])
+	case "accept":
+		runAccept(os.Args[2:])
+	case "reject":
+		runReject(os.Args[2:])
+	case "cancel":
+		runCancel(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -132,11 +148,21 @@ func printUsage() {
 	fmt.Println("  daemon connect --peer <p> --service <s> --listen <addr>")
 	fmt.Println("  daemon disconnect <id>                   Tear down proxy")
 	fmt.Println()
-	fmt.Println("Network tools (standalone, no daemon required):")
+	fmt.Println("Network tools:")
 	fmt.Println("  ping <target> [-c N] [--interval 1s] [--json]  P2P ping")
 	fmt.Println("  traceroute <target> [--json]                    P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                         Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>           Forward TCP port")
+	fmt.Println("  send <file> <peer> [--follow] [--no-compress] [--streams N] [--priority P] [--quiet] [--silent] [--json]")
+	fmt.Println("  share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]  Share a file or directory")
+	fmt.Println("  share remove <path>                              Stop sharing a path")
+	fmt.Println("  share list [--json]                              List shared paths")
+	fmt.Println("  browse <peer> [--path /sub/dir] [--json]         Browse a peer's shared files")
+	fmt.Println("  download <peer>:<path> [--dest dir] [--follow] [--multi-peer] [--peers list] [--quiet] [--silent] [--json]")
+	fmt.Println("  transfers [--watch] [--history] [--max N] [--json]  List/watch file transfers")
+	fmt.Println("  accept <id|--all> [--dest /path/] [--json]      Accept a pending transfer")
+	fmt.Println("  reject <id|--all> [--reason space|busy|size] [--json]  Reject a pending transfer")
+	fmt.Println("  cancel <id> [--json]                                   Cancel a queued/active transfer")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                  Show your peer ID")
@@ -149,7 +175,7 @@ func printUsage() {
 	fmt.Println("  init                                    Set up shurli configuration")
 	fmt.Println("  config validate [--config path]          Validate config")
 	fmt.Println("  config show     [--config path]          Show resolved config")
-	fmt.Println("  config set <key> <value>                 Set a config value")
+	fmt.Println("  config set <key> <value> [--duration 10m] Set a config value")
 	fmt.Println("  config rollback [--config path]          Restore last-known-good config")
 	fmt.Println("  config apply <new> [--confirm-timeout]   Apply with auto-revert")
 	fmt.Println("  config confirm  [--config path]          Confirm applied config")

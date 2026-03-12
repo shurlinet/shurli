@@ -14,8 +14,8 @@ func TestEncodeUnsealRequest(t *testing.T) {
 	req := EncodeUnsealRequest(nonce, "my-passphrase", "123456")
 
 	// Verify wire format: [1 version] [16 nonce] [2 BE pass-len] [N pass] [1 TOTP-len] [M TOTP]
-	if req[0] != unsealWireV2 {
-		t.Errorf("version = %d, want %d", req[0], unsealWireV2)
+	if req[0] != unsealWireVersion {
+		t.Errorf("version = %d, want %d", req[0], unsealWireVersion)
 	}
 
 	// Verify nonce echo.
@@ -350,7 +350,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 
 	req := EncodeUnsealRequest(nonce, "test-pass", "654321")
 
-	if req[0] != unsealWireV2 {
+	if req[0] != unsealWireVersion {
 		t.Fatal("wrong version")
 	}
 

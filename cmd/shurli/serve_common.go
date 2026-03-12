@@ -27,6 +27,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
 	"github.com/shurlinet/shurli/internal/watchdog"
@@ -88,6 +89,12 @@ type serveRuntime struct {
 
 	// MOTD client for relay message queries (populated by SetupMOTDClient)
 	motdClient *relay.MOTDClient
+
+	// File transfer service (populated by SetupTransfer)
+	transferService *p2pnet.TransferService
+
+	// Share registry (populated by SetupSharing)
+	shareRegistry *p2pnet.ShareRegistry
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -186,9 +193,19 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	}
 
 	// Resolve identity password for SHRL-encrypted key.
-	pw, err := resolvePassword(filepath.Dir(cfgFile))
+	// Try session token first; fall back to interactive prompt if TTY available.
+	configDir := filepath.Dir(cfgFile)
+	pw, err := resolvePasswordInteractive(configDir, os.Stdout)
 	if err != nil {
 		return nil, fmt.Errorf("identity key is encrypted but no session token found.\n  Run 'shurli init' to create an identity.\n  (%w)", err)
+	}
+
+	// If no valid session token exists, persist one so subsequent daemon
+	// restarts (e.g., launchd/systemd) work without a TTY.
+	if !identity.SessionExists(configDir) {
+		if createErr := identity.CreateSession(configDir, pw); createErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not persist session token: %v\n", createErr)
+		}
 	}
 
 	// Create P2P network
@@ -203,7 +220,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		BandwidthTracker:      rt.bwTracker,
 		EnableRelay:           true,
 		RelayAddrs:            cfg.Relay.Addresses,
-		ForcePrivate:          cfg.Network.ForcePrivateReachability,
+		ForcePrivate:          true, // Always maintain relay reservations in daemon mode. Network changes are frequent; relay must be a permanent fallback.
 		EnableNATPortMap:      true,
 		EnableHolePunching:    true,
 		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
@@ -546,6 +563,11 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
 		}
 
+		// Reset libp2p's black hole detectors. A network change invalidates
+		// the previous state: IPv6/UDP may work on the new network even if
+		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
+		rt.network.ResetBlackHoles()
+
 		// Re-evaluate peer relay eligibility on network change
 		if rt.peerRelay != nil {
 			rt.peerRelay.AutoDetect(newSummary)
@@ -573,8 +595,34 @@ func (rt *serveRuntime) Bootstrap() error {
 		// Probe direct paths through newly available interfaces.
 		// If a relayed peer is reachable via IPv6 on a secondary
 		// interface (e.g., USB LAN), upgrade to direct.
-		if rt.peerManager != nil {
-			go rt.peerManager.ProbeAndUpgradeRelayed()
+		//
+		// Only probe when new IPs were added (not on pure removal
+		// events - there is nothing new to bind to in that case).
+		//
+		// Two-phase wait:
+		// 1. DAD (Duplicate Address Detection): 100-500ms. Our IPv6
+		//    address is tentative and can't be source-bound.
+		// 2. NDP route convergence: 1-3s. Our address is ready but
+		//    the route to the peer isn't resolved yet (no route to host).
+		//
+		// We poll bind-readiness for DAD, then retry the probe up to
+		// 3 times with 2s spacing to cover NDP neighbor resolution.
+		if rt.peerManager != nil && len(change.Added) > 0 {
+			go func() {
+				if !waitForIPv6BindReady(rt.ctx, 5*time.Second) {
+					return
+				}
+				for attempt := 0; attempt < 3; attempt++ {
+					if attempt > 0 {
+						select {
+						case <-rt.ctx.Done():
+							return
+						case <-time.After(2 * time.Second):
+						}
+					}
+					rt.peerManager.ProbeAndUpgradeRelayed()
+				}
+			}()
 		}
 
 		// Re-announce network state immediately so peers get fresh capabilities.
@@ -896,7 +944,7 @@ func (rt *serveRuntime) SetupPeerNotify() {
 
 			// Record introduction in sovereign history.
 			if rt.peerHistory != nil {
-				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "relay-pairing")
+				rt.peerHistory.RecordIntroduction(p.PeerID, remotePeer.String(), "invite")
 			}
 
 			// SECURITY Layer 6: Audit logging.
@@ -1212,9 +1260,123 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 	}()
 }
 
+// SetupTransfer initializes the file transfer service and registers the
+// inbound stream handler on the P2P host.
+func (rt *serveRuntime) SetupTransfer() {
+	compress := true
+	if rt.config.Transfer.Compress != nil {
+		compress = *rt.config.Transfer.Compress
+	}
+
+	logPath := rt.config.Transfer.LogPath
+	if logPath == "" {
+		logPath = filepath.Join(filepath.Dir(rt.configFile), "logs", "transfers.log")
+	}
+
+	erasureOverhead := 0.1 // default 10% RS parity
+	if rt.config.Transfer.ErasureOverhead != nil {
+		erasureOverhead = *rt.config.Transfer.ErasureOverhead
+	}
+
+	multiPeerEnabled := true
+	if rt.config.Transfer.MultiPeerEnabled != nil {
+		multiPeerEnabled = *rt.config.Transfer.MultiPeerEnabled
+	}
+
+	cfg := p2pnet.TransferConfig{
+		ReceiveDir:        rt.config.Transfer.ReceiveDir,
+		MaxSize:           rt.config.Transfer.MaxFileSize,
+		ReceiveMode:       p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
+		Compress:          compress,
+		ErasureOverhead:   erasureOverhead,
+		LogPath:           logPath,
+		Notify:            rt.config.Transfer.Notify,
+		NotifyCommand:     rt.config.Transfer.NotifyCommand,
+		MaxConcurrent:     rt.config.Transfer.MaxConcurrent,
+		MultiPeerEnabled:  multiPeerEnabled,
+		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
+		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
+		RateLimit:         rt.config.Transfer.RateLimit,
+	}
+
+	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
+	if err != nil {
+		fmt.Printf("Warning: file transfer disabled: %v\n", err)
+		return
+	}
+	rt.transferService = ts
+
+	// If config specifies timed mode at startup, activate the timer.
+	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
+		durStr := rt.config.Transfer.TimedDuration
+		if durStr == "" {
+			durStr = "10m"
+		}
+		if dur, parseErr := time.ParseDuration(durStr); parseErr == nil {
+			if timedErr := ts.SetTimedMode(dur); timedErr != nil {
+				fmt.Printf("Warning: timed mode failed: %v\n", timedErr)
+			}
+		}
+	}
+
+	// Register the inbound handler as a custom service.
+	// Default policy: LAN + Direct only. Relay is explicitly excluded to protect
+	// relay bandwidth (relays are signaling-only, not data pipes).
+	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
+		return
+	}
+
+	// Register multi-peer download handler (fountain-coded swarming).
+	// Same policy as file-transfer: LAN + Direct only.
+	if err := rt.network.RegisterHandler("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-multi-peer handler: %v\n", err)
+	}
+
+	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
+	if cfg.ReceiveDir == "" {
+		fmt.Println("  (default: ~/Downloads/shurli/)")
+	}
+}
+
+// SetupSharing initializes the share registry and registers the browse
+// protocol handler on the P2P host. Persistent shares are loaded from disk.
+func (rt *serveRuntime) SetupSharing() {
+	configDir := filepath.Dir(rt.configFile)
+	persistPath := filepath.Join(configDir, "shares.json")
+
+	reg, err := p2pnet.LoadShareRegistry(persistPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to load persistent shares: %v\n", err)
+		reg = p2pnet.NewShareRegistry()
+		reg.SetPersistPath(persistPath)
+	}
+	rt.shareRegistry = reg
+
+	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
+		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)
+		return
+	}
+
+	// Register download protocol handler (requires transfer service).
+	if rt.transferService != nil {
+		if err := rt.network.RegisterHandler("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
+			fmt.Printf("Warning: failed to register file-download handler: %v\n", err)
+		}
+	}
+
+	fmt.Println("File sharing enabled")
+}
+
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 func (rt *serveRuntime) Shutdown() {
+	// Close transfer service (flushes log file, stops rate limiter cleanup).
+	if rt.transferService != nil {
+		if err := rt.transferService.Close(); err != nil {
+			slog.Warn("transfer-service: close failed", "err", err)
+		}
+	}
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {
@@ -1301,4 +1463,41 @@ func parseByteSize(s string) int64 {
 		n = n*10 + int64(c-'0')
 	}
 	return n * multiplier
+}
+
+// waitForIPv6BindReady polls until a global IPv6 address can be bound,
+// indicating DAD (Duplicate Address Detection) has completed. Returns
+// true when ready, false on timeout or context cancellation.
+func waitForIPv6BindReady(ctx context.Context, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			slog.Warn("waitForIPv6BindReady: timed out waiting for DAD")
+			return false
+		case <-ticker.C:
+			summary, err := p2pnet.DiscoverInterfaces()
+			if err != nil || summary == nil || len(summary.GlobalIPv6Addrs) == 0 {
+				continue
+			}
+			for _, addr := range summary.GlobalIPv6Addrs {
+				ip := net.ParseIP(addr)
+				if ip == nil {
+					continue
+				}
+				// Try binding a UDP socket. If it succeeds, the address
+				// is past DAD and usable for source-bound connections.
+				conn, err := net.ListenPacket("udp6", net.JoinHostPort(addr, "0"))
+				if err == nil {
+					conn.Close()
+					return true
+				}
+			}
+		}
+	}
 }

@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, and Phase 8 Identity Security + Remote Admin."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, and Phase 9B File Transfer."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -525,3 +525,104 @@ Ed25519-signed relay operator announcements.
 - 30 physically tested (ALL PASS)
 - 4 covered by unit tests only
 - 2 bugs found and fixed (same-password acceptance, completion/man sudo requirement)
+
+---
+
+## Phase 9A: Core Interfaces & Library Consolidation
+
+**Goal**: Define public API contracts for third-party extensibility. Design-first: get interfaces right before building implementations.
+
+**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+- [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
+- [x] `Resolver` - interface for name resolution with fallback chaining
+- [x] `ServiceManager` - interface for service registration and dialing, with middleware support
+- [x] `Authorizer` - interface for authorization decisions (pluggable auth)
+- [x] `StreamMiddleware` / `StreamHandler` - functional middleware chain for stream handlers
+- [x] `EventType` / `Event` / `EventHandler` - typed event system for network lifecycle
+- Logger: Go stdlib `*slog.Logger` (no custom interface - deletion over addition)
+
+**Extension Points**:
+- [x] Constructor injection - `Network.Config` accepts optional `Resolver`
+- [x] Event hook system - `OnEvent(handler)` with subscribe/unsubscribe, thread-safe `EventBus`
+- [x] Stream middleware - `ServiceRegistry.Use(middleware)` wraps inbound stream handlers
+- [x] Protocol ID formatter - `ProtocolID()` + `MustValidateProtocolIDs()` for init-time validation
+
+**Library Consolidation** (completed in 9B):
+- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go`
+- [x] Centralized orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
+- [x] Package-level documentation in `pkg/p2pnet/doc.go`
+
+---
+
+## Phase 9B: File Transfer Plugin
+
+**Goal**: Build file transfer as the first real plugin. Validates the `ServiceManager` and stream middleware interfaces from 9A. Also includes bootstrap extraction deferred from 9A.
+
+Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Hardened across FT-A through FT-H + audit-fix batches (1A, 1B, 2A-2C, 3A-3C, 4A, 4C).
+
+### Core Transfer
+
+- [x] `shurli send <file> <peer>` - fire-and-forget by default, `--follow` for inline progress, `--priority` for queue priority
+- [x] `shurli transfers` - transfer inbox with `--watch` for live updates, `--history` for completed
+- [x] FastCDC content-defined chunking (own implementation, adaptive targets 128K-2M)
+- [x] BLAKE3 Merkle tree integrity (binary tree, odd-node promotion, root verification)
+- [x] zstd compression on by default with incompressible detection and bomb protection (10x ratio cap)
+- [x] SHFT v2 wire format (magic + version + flags + manifest + chunk data)
+- [x] Receive modes: off / contacts (default) / ask / open / timed
+- [x] Disk space checks before each chunk write
+- [x] Atomic writes (write to `.tmp`, rename on completion)
+- [x] `PluginPolicy` - transport-aware access control (LAN + Direct only, relay blocked by default)
+
+### Download, Share & Browse
+
+- [x] `shurli download <file> <peer>` - download from shared catalog (`--multi-peer` for RaptorQ)
+- [x] `shurli browse <peer>` - browse peer's shared files
+- [x] `shurli share add/remove/list` - manage shared files (`--to` for selective sharing)
+- [x] `ShareRegistry` with persistent storage (`shares.json`, survives daemon restarts)
+- [x] Browse protocol (`/shurli/file-browse/1.0.0`) and download protocol (`/shurli/file-download/1.0.0`)
+
+### Transfer Queue & Management
+
+- [x] `TransferQueue` with priority ordering and configurable concurrency (default: 3 active)
+- [x] `shurli accept/reject <id>` - manage pending transfers (`--all` for batch)
+- [x] `shurli cancel <id>` - cancel outbound transfer
+
+### Advanced Features
+
+- [x] Reed-Solomon erasure coding (auto-enabled on Direct WAN, 50% max overhead)
+- [x] RaptorQ fountain codes for multi-source download (`/shurli/file-multi-peer/1.0.0`)
+- [x] Parallel QUIC streams (adaptive: 1 for LAN, up to 4 for WAN)
+- [x] Checkpoint-based resume (bitfield of received chunks, `.shurli-ckpt` files)
+- [x] Recursive directory transfer with path sanitization
+- [x] Transfer event logging (JSON lines, rotation) and notifications (desktop/command)
+- [x] Per-peer rate limiting (10/min, fixed-window, silent rejection)
+- [x] Compression ratio display in transfer output
+
+### Audit-Fix Batches
+
+- [x] Macaroon `Verify()` wired into pairing consume flow (1A)
+- [x] Yubikey challenge-response wired into vault unseal (1B)
+- [x] Transfer event logging with file rotation (2A)
+- [x] Transfer notifications - desktop and command modes (2B)
+- [x] Timed receive mode - temporarily open, reverts after duration (2C)
+- [x] Batch accept/reject with `--all` flag (3A)
+- [x] Parallel receive streams (3C)
+- [x] AllowStandalone config wiring (4A)
+- [x] Erasure config gap fix (4C)
+
+### Security Hardening (FT-I, FT-J)
+
+- [x] Full integration audit: all exported functions wired, config fields validated, CLI flags consistent
+- [x] Command injection fix in notification command templates
+- [x] Multi-peer filename sanitization
+- [x] Transfer IDs changed from sequential to random hex (`xfer-<12hex>`)
+- [x] Rate limiter applied to multi-peer request path
+- [x] `TransferService.Close()` cleanup on daemon shutdown
+
+**New P2P protocols** (4): `/shurli/file-transfer/2.0.0`, `/shurli/file-browse/1.0.0`, `/shurli/file-download/1.0.0`, `/shurli/file-multi-peer/1.0.0`
+
+**New daemon API endpoints** (15 new, 38 total)
+
+**Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT)
+
+**Test status**: 1100 tests across 21 packages, race detector clean.

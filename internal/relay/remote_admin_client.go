@@ -99,12 +99,14 @@ func (c *RemoteAdminClient) do(method, path string, body io.Reader) ([]byte, int
 
 // --- High-level methods (mirror AdminClient interface) ---
 
-// Unseal sends a password (and optional TOTP code) to unseal the relay vault.
-func (c *RemoteAdminClient) Unseal(password, totpCode string) error {
-	reqBody, _ := json.Marshal(map[string]string{
-		"passphrase": password,
-		"totp_code":  totpCode,
-	})
+// Unseal sends a password (and optional TOTP code and Yubikey response) to unseal the relay vault.
+func (c *RemoteAdminClient) Unseal(password, totpCode string, yubikeyResponse []byte) error {
+	req := UnsealRequest{
+		Passphrase:      password,
+		TOTPCode:        totpCode,
+		YubikeyResponse: yubikeyResponse,
+	}
+	reqBody, _ := json.Marshal(req)
 	data, status, err := c.do("POST", "/v1/unseal", strings.NewReader(string(reqBody)))
 	if err != nil {
 		return err
