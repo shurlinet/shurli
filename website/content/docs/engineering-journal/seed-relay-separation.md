@@ -16,7 +16,7 @@ Public seed relays are reclassified as discovery-only nodes. Data forwarding (SS
 
 ## ADR-P01: Seed Relays Are Discovery Nodes, Not Data Relays
 
-**Context**: Shurli ships hardcoded seed relay addresses and resolves DNS seeds at startup. These public relays serve two purposes: (1) DHT bootstrap and peer discovery, and (2) circuit relay for data forwarding (SSH, XRDP). Problem: Satinder's seed relays were forwarding arbitrary data traffic from every user on the network. SSH sessions, XRDP streams, file transfers - all flowing through infrastructure he pays for. At scale, this is unsustainable and creates a central point of failure. If seed relays go down under load, the entire network loses both discovery AND data transport simultaneously.
+**Context**: Shurli ships hardcoded seed relay addresses and resolves DNS seeds at startup. These public relays serve two purposes: (1) DHT bootstrap and peer discovery, and (2) circuit relay for data forwarding (SSH, XRDP). Problem: Shurli's seed relays were forwarding arbitrary data traffic from every user on the network. SSH sessions, XRDP streams, file transfers - all flowing through infrastructure he pays for. At scale, this is unsustainable and creates a central point of failure. If seed relays go down under load, the entire network loses both discovery AND data transport simultaneously.
 
 **Alternatives considered**:
 - **Rate-limit data circuits on seed relays** - Solves bandwidth but not the architectural problem. Users would still depend on public infrastructure for private data transfer. Partial failure mode: rate-limited SSH is worse than no SSH (timeouts, stalls, corrupted sessions).
@@ -98,7 +98,7 @@ To override (for testing only):
 
 This is **UX only**. The client does not make any enforcement decisions. Even if this code is removed or bypassed, the server-side ACL still blocks the circuit. The message exists purely to save the user from confusion.
 
-**Why "discovery node" language**: Satinder's directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
+**Why "discovery node" language**: Design directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
 
 **Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
 
