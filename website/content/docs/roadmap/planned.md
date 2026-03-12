@@ -17,18 +17,6 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## ZKP Watching List
-
-Checked after each phase completion:
-1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
-2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
-3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
-
-**Deferred from Phase 7**:
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
-
----
-
 ## Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins. The plugins ARE the SDK examples.
@@ -361,6 +349,18 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 - [ ] eBPF/XDP relay acceleration - kernel-bypass packet forwarding
 - [ ] W3C DID-compatible identity - `did:key`, `did:peer` format
 - [ ] Formal verification of invite/join protocol state machine
+
+---
+
+## ZKP Watching List
+
+Checked after each phase completion:
+1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
+2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
+3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
+
+**Deferred from Phase 7**:
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
 
 ---
 
