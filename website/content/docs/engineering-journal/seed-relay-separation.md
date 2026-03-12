@@ -1,7 +1,7 @@
 ---
 title: "Seed Relay Separation & Init Flow"
 weight: 21
-description: "Discovery-only seed relays, server-side circuit ACL enforcement, public network init default, config set subcommand."
+description: "Discovery-only seed relays, server-side circuit ACL, init flow, config set."
 ---
 <!-- Auto-synced from docs/engineering-journal/seed-relay-separation.md by sync-docs - do not edit directly -->
 
@@ -16,7 +16,7 @@ Public seed relays are reclassified as discovery-only nodes. Data forwarding (SS
 
 ## ADR-P01: Seed Relays Are Discovery Nodes, Not Data Relays
 
-**Context**: Shurli ships hardcoded seed relay addresses and resolves DNS seeds at startup. These public relays serve two purposes: (1) DHT bootstrap and peer discovery, and (2) circuit relay for data forwarding (SSH, XRDP). Problem: the project's seed relays were forwarding arbitrary data traffic from every user on the network. SSH sessions, XRDP streams, file transfers - all flowing through shared infrastructure. At scale, this is unsustainable and creates a central point of failure. If seed relays go down under load, the entire network loses both discovery AND data transport simultaneously.
+**Context**: Shurli ships hardcoded seed relay addresses and resolves DNS seeds at startup. These public relays serve two purposes: (1) DHT bootstrap and peer discovery, and (2) circuit relay for data forwarding (SSH, XRDP). Problem: Shurli's seed relays were forwarding arbitrary data traffic from every user on the network. SSH sessions, XRDP streams, file transfers - all flowing through infrastructure he pays for. At scale, this is unsustainable and creates a central point of failure. If seed relays go down under load, the entire network loses both discovery AND data transport simultaneously.
 
 **Alternatives considered**:
 - **Rate-limit data circuits on seed relays** - Solves bandwidth but not the architectural problem. Users would still depend on public infrastructure for private data transfer. Partial failure mode: rate-limited SSH is worse than no SSH (timeouts, stalls, corrupted sessions).
@@ -41,7 +41,7 @@ Data forwarding (circuit relay, where the relay blindly forwards bytes between t
 
 **Consequence for users**: Peers that can only reach each other through a seed relay (both behind NAT, hole punching fails) will NOT be able to transfer data. They get a clear error explaining that seed relays enable discovery and direct connections only. The path forward: deploy your own relay server, which is a single command (`shurli relay setup`).
 
-**Reference**: `internal/relay/circuit_acl.go`, `cmd/shurli/cmd_relay_serve.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay_serve.go`
 
 ---
 
@@ -65,11 +65,11 @@ circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.
 relayv2.New(h, relayv2.WithACL(circuitACL), ...)
 ```
 
-**Per-peer override**: `relay_data=true` attribute on any authorized_keys entry grants that specific peer circuit relay access without enabling it globally. Added via `shurli relay authorize <peer-id>` and then setting the attribute. Uses the same `parseLine()`/`formatLine()` machinery from `internal/auth/manage.go`.
+**Per-peer override**: `relay_data=true` attribute on any authorized_keys entry grants that specific peer circuit relay access without enabling it globally. Added via `shurli relay authorize <peer-id>` and then setting the attribute. Uses the same `parseLine()`/`formatLine()` machinery from `https://github.com/shurlinet/shurli/blob/main/internal/auth/manage.go`.
 
 **Consequences**: Zero protocol changes. Zero wire format changes. The relay simply refuses to forward data circuits for unauthorized peers. Authorized peers and admin peers are unaffected. The ACL reads authorized_keys on every `AllowConnect` call (no caching), so attribute changes take effect immediately without relay restart.
 
-**Reference**: `internal/relay/circuit_acl.go`, `internal/relay/circuit_acl_test.go`, `internal/auth/manage.go` (`HasRelayData`, `RelayData` field on `PeerEntry`)
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl.go`, `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl_test.go`, `https://github.com/shurlinet/shurli/blob/main/internal/auth/manage.go` (`HasRelayData`, `RelayData` field on `PeerEntry`)
 
 ---
 
@@ -98,9 +98,9 @@ To override (for testing only):
 
 This is **UX only**. The client does not make any enforcement decisions. Even if this code is removed or bypassed, the server-side ACL still blocks the circuit. The message exists purely to save the user from confusion.
 
-**Why "discovery node" language**: Design rule: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
+**Why "discovery node" language**: Design directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
 
-**Reference**: `pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
 
 ---
 
@@ -130,7 +130,7 @@ The `nodeConfigTemplate` function signature changed from `relayAddr string` to `
 
 **Consequences**: First-run friction drops to near zero for public network users. Private network users still have a clear path. The config file now contains all seed addresses, making the relay list auditable.
 
-**Reference**: `cmd/shurli/cmd_init.go`, `cmd/shurli/config_template.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_init.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/config_template.go`
 
 ---
 
@@ -153,4 +153,4 @@ If intermediate keys don't exist, they are created as mapping nodes. Boolean val
 
 **Consequences**: Any YAML config value can be set from the CLI. New config knobs require zero CLI code. The man page and completion scripts include `config set`. Trade-off: no validation against a schema. `shurli config set typo.key value` will happily create a nonsense key. Acceptable: `shurli config show` makes the full config visible for review, and the parser ignores unknown keys.
 
-**Reference**: `cmd/shurli/cmd_config.go` (`doConfigSet`, `yamlNodeSet`), `cmd/shurli/cmd_config_test.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_config.go` (`doConfigSet`, `yamlNodeSet`), `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_config_test.go`

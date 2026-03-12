@@ -17,14 +17,24 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/invite"
+	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
-// Protocol IDs for relay pairing.
-const (
-	PairingProtocol   = "/shurli/relay-pair/1.0.0"
-	PairingProtocolV2 = "/shurli/relay-pair/2.0.0"
-)
+// InviteProtocol is the protocol ID for PAKE-secured relay invite/join.
+const InviteProtocol = "/shurli/invite/1.0.0"
+
+func init() {
+	// Validate all relay protocol constants at startup.
+	p2pnet.MustValidateProtocolIDs(
+		InviteProtocol,
+		PeerNotifyProtocol,
+		MOTDProtocol,
+		UnsealProtocol,
+		RemoteAdminProtocol,
+		ZKPAuthProtocol,
+	)
+}
 
 // Wire status bytes.
 const (
@@ -52,7 +62,8 @@ type PairingHandler struct {
 	AuthKeysPath string
 	Gater        GaterInterface
 	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
-	authMu       sync.Mutex      // serializes authorized_keys file mutations
+	RootKeyFunc  func() ([]byte, error) // returns vault root key for macaroon verification
+	authMu       sync.Mutex             // serializes authorized_keys file mutations
 }
 
 // GaterInterface is the subset of AuthorizedPeerGater needed by pairing.
@@ -64,134 +75,6 @@ type GaterInterface interface {
 
 // pairingStreamDeadline is the max time allowed for a complete pairing handshake.
 const pairingStreamDeadline = 30 * time.Second
-
-// HandleStream processes an incoming pairing stream from a client.
-// Wire format: [16] token + [1] name length + [N] name bytes.
-// Returns the joined peer ID and group ID on success (for notification triggers).
-func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
-	defer s.Close()
-	s.SetDeadline(time.Now().Add(pairingStreamDeadline))
-	remotePeer := s.Conn().RemotePeer()
-	short := remotePeer.String()[:16] + "..."
-
-	// Read 16-byte token.
-	var token [TokenSize]byte
-	if _, err := io.ReadFull(s, token[:]); err != nil {
-		slog.Warn("pairing: failed to read token", "peer", short, "err", err)
-		writeError(s)
-		return "", ""
-	}
-
-	// Read name.
-	var nameLen [1]byte
-	if _, err := io.ReadFull(s, nameLen[:]); err != nil {
-		slog.Warn("pairing: failed to read name length", "peer", short, "err", err)
-		writeError(s)
-		return "", ""
-	}
-	if nameLen[0] > maxNameLen {
-		slog.Warn("pairing: name too long", "peer", short, "len", nameLen[0])
-		writeError(s)
-		return "", ""
-	}
-	nameBytes := make([]byte, nameLen[0])
-	if nameLen[0] > 0 {
-		if _, err := io.ReadFull(s, nameBytes); err != nil {
-			slog.Warn("pairing: failed to read name", "peer", short, "err", err)
-			writeError(s)
-			return "", ""
-		}
-	}
-	name := string(nameBytes)
-
-	// Validate and use the token.
-	group, idx, err := ph.Store.ValidateAndUse(token[:], remotePeer, name)
-	if err != nil {
-		slog.Warn("pairing: validation failed", "peer", short)
-		ph.recordPairing("failure")
-		writeError(s)
-		return "", ""
-	}
-
-	slog.Info("pairing: peer joined", "peer", short, "name", name, "group", group.ID)
-
-	// Compute HMAC group commitment proof while we have the raw token.
-	// proof = HMAC-SHA256(token, groupID) - proves this peer held a valid token.
-	mac := hmac.New(sha256.New, token[:])
-	mac.Write([]byte(group.ID))
-	proof := mac.Sum(nil)
-	ph.Store.SetHMACProof(group.ID, idx, proof)
-
-	// Authorize the peer on the relay (mutex prevents file races on concurrent pairing).
-	ph.authMu.Lock()
-	comment := name
-	if comment == "" {
-		comment = "paired-" + time.Now().Format("2006-01-02")
-	}
-	if err := auth.AddPeer(ph.AuthKeysPath, remotePeer.String(), comment); err != nil {
-		if !strings.Contains(err.Error(), "already authorized") {
-			ph.authMu.Unlock()
-			slog.Error("pairing: failed to authorize peer", "peer", short, "err", err)
-			writeError(s)
-			return "", ""
-		}
-	}
-
-	// Annotate peer with group ID for introduction delivery.
-	auth.SetPeerAttr(ph.AuthKeysPath, remotePeer.String(), "group", group.ID)
-
-	// Auto-assign role: first peer becomes admin, all others become members.
-	adminCount, _ := auth.CountAdmins(ph.AuthKeysPath)
-	if adminCount == 0 {
-		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleAdmin)
-		slog.Info("pairing: first peer promoted to admin", "peer", short)
-	} else {
-		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleMember)
-	}
-	ph.authMu.Unlock()
-
-	// Promote from probation in the gater.
-	if ph.Gater != nil {
-		ph.Gater.PromotePeer(remotePeer)
-
-		// Set expiry if configured.
-		if group.PeerTTL > 0 {
-			ph.Gater.SetPeerExpiry(remotePeer, time.Now().Add(group.PeerTTL))
-		}
-	}
-
-	// Get already-joined peers in this group.
-	peers := ph.Store.GetGroupPeers(group.ID, idx)
-	complete := ph.Store.IsGroupComplete(group.ID)
-
-	// Write response.
-	// STATUS_OK + [1] group ID len + [N] group ID + [1] group size + [1] peer count + peer list.
-	groupIDBytes := []byte(group.ID)
-	var resp []byte
-	resp = append(resp, StatusOK)
-	resp = append(resp, byte(len(groupIDBytes)))
-	resp = append(resp, groupIDBytes...)
-	resp = append(resp, byte(len(group.codes)))
-
-	resp = append(resp, byte(len(peers)))
-	for _, p := range peers {
-		resp = append(resp, encodePeerInfo(p)...)
-	}
-	s.Write(resp)
-	ph.recordPairing("success")
-
-	if complete || len(group.codes) == 1 {
-		slog.Info("pairing: group complete", "group", group.ID, "peers", len(peers)+1)
-	}
-
-	// Auto-disable enrollment if all groups are fully consumed.
-	if ph.Gater != nil && ph.Store.AllGroupsUsed() {
-		ph.Gater.SetEnrollmentMode(false, 0, 0)
-		slog.Info("pairing: all groups complete, enrollment disabled")
-	}
-
-	return remotePeer, group.ID
-}
 
 // recordPairing increments the pairing counter. Nil-safe.
 func (ph *PairingHandler) recordPairing(result string) {
@@ -255,104 +138,24 @@ func DecodePeerInfos(data []byte, count int) ([]PeerInfo, error) {
 	return peers, nil
 }
 
-// EncodePairingRequest creates the wire-format request a client sends to the relay.
-// Format: [16] token + [1] name length + [N] name bytes.
-func EncodePairingRequest(token []byte, name string) []byte {
-	if len(name) > maxNameLen {
-		name = name[:maxNameLen]
-	}
-	buf := make([]byte, 0, TokenSize+1+len(name))
-	buf = append(buf, token...)
-	buf = append(buf, byte(len(name)))
-	buf = append(buf, []byte(name)...)
-	return buf
-}
-
-// ReadPairingResponse reads and parses the relay's pairing response.
-// Returns status, group ID, group size, peer list, and any error.
-func ReadPairingResponse(r io.Reader) (status byte, groupID string, groupSize int, peers []PeerInfo, err error) {
-	var statusByte [1]byte
-	if _, err := io.ReadFull(r, statusByte[:]); err != nil {
-		return 0, "", 0, nil, fmt.Errorf("failed to read status: %w", err)
-	}
-	status = statusByte[0]
-
-	if status == StatusErr {
-		// Read error message length + message.
-		var msgLen [1]byte
-		if _, err := io.ReadFull(r, msgLen[:]); err != nil {
-			return status, "", 0, nil, fmt.Errorf("pairing failed")
-		}
-		msg := make([]byte, msgLen[0])
-		io.ReadFull(r, msg)
-		return status, "", 0, nil, fmt.Errorf("%s", string(msg))
-	}
-
-	if status != StatusOK {
-		return status, "", 0, nil, fmt.Errorf("unexpected status: 0x%02x", status)
-	}
-
-	// Read group ID (length-prefixed).
-	var gidLen [1]byte
-	if _, err := io.ReadFull(r, gidLen[:]); err != nil {
-		return status, "", 0, nil, fmt.Errorf("failed to read group ID length: %w", err)
-	}
-	gidBytes := make([]byte, gidLen[0])
-	if _, err := io.ReadFull(r, gidBytes); err != nil {
-		return status, "", 0, nil, fmt.Errorf("failed to read group ID: %w", err)
-	}
-	groupID = string(gidBytes)
-
-	// Read group size.
-	var gsizeByte [1]byte
-	if _, err := io.ReadFull(r, gsizeByte[:]); err != nil {
-		return status, groupID, 0, nil, fmt.Errorf("failed to read group size: %w", err)
-	}
-	groupSize = int(gsizeByte[0])
-
-	// Read peer count.
-	var countByte [1]byte
-	if _, err := io.ReadFull(r, countByte[:]); err != nil {
-		return status, groupID, groupSize, nil, fmt.Errorf("failed to read peer count: %w", err)
-	}
-	count := int(countByte[0])
-
-	if count == 0 {
-		return status, groupID, groupSize, nil, nil
-	}
-
-	// Read remaining bytes for peer data (capped: max 255 peers * 300 bytes each).
-	peerData, err := io.ReadAll(io.LimitReader(r, 255*300))
-	if err != nil {
-		return status, groupID, groupSize, nil, fmt.Errorf("failed to read peer data: %w", err)
-	}
-
-	peers, err = DecodePeerInfos(peerData, count)
-	if err != nil {
-		return status, groupID, groupSize, nil, fmt.Errorf("failed to decode peers: %w", err)
-	}
-
-	return status, groupID, groupSize, peers, nil
-}
-
-// PairingV2Response is the JSON payload encrypted and sent to the joiner in v2 PAKE.
-type PairingV2Response struct {
+// PairingResponse is the JSON payload encrypted and sent to the joiner via PAKE.
+type PairingResponse struct {
 	GroupID  string     `json:"group_id"`
 	Peers    []PeerInfo `json:"peers"`
 	Macaroon string     `json:"macaroon,omitempty"` // serialized macaroon JSON
 }
 
-// HandleStreamV2 processes a v2 PAKE-secured pairing stream.
+// HandleStream processes a v2 PAKE-secured pairing stream.
 //
 // Wire format:
 //
 //	Joiner -> Relay: [32] SHA-256(token) + [32] X25519 pubkey
 //	Relay  -> Joiner: [1] status + [32] X25519 pubkey
 //	Joiner -> Relay: Encrypt(name)
-//	Relay  -> Joiner: Encrypt(PairingV2Response JSON)
+//	Relay  -> Joiner: Encrypt(PairingResponse JSON)
 //
 // Returns the joined peer ID and group ID on success (for notification triggers).
-func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
+func (ph *PairingHandler) HandleStream(s network.Stream) (peer.ID, string) {
 	defer s.Close()
 	s.SetDeadline(time.Now().Add(pairingStreamDeadline))
 	remotePeer := s.Conn().RemotePeer()
@@ -361,7 +164,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	// Read [32] token hash + [32] joiner X25519 public key.
 	var buf [64]byte
 	if _, err := io.ReadFull(s, buf[:]); err != nil {
-		slog.Warn("pairing-v2: failed to read handshake", "peer", short, "err", err)
+		slog.Warn("pairing: failed to read handshake", "peer", short, "err", err)
 		s.Write([]byte{StatusErr})
 		return "", ""
 	}
@@ -372,7 +175,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	// Look up the token by hash and atomically claim it (InProgress flag).
 	group, idx, rawToken, err := ph.Store.ValidateForPAKE(tokenHash)
 	if err != nil {
-		slog.Warn("pairing-v2: token lookup failed", "peer", short)
+		slog.Warn("pairing: token lookup failed", "peer", short)
 		ph.recordPairing("failure")
 		s.Write([]byte{StatusErr})
 		return "", ""
@@ -393,7 +196,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	// Create relay-side PAKE session.
 	session, err := invite.NewPAKESession()
 	if err != nil {
-		slog.Error("pairing-v2: session creation failed", "err", err)
+		slog.Error("pairing: session creation failed", "err", err)
 		s.Write([]byte{StatusErr})
 		return "", ""
 	}
@@ -401,15 +204,15 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	// Send [1] StatusOK + [32] relay X25519 public key.
 	resp := append([]byte{StatusOK}, session.PublicKey()...)
 	if _, err := s.Write(resp); err != nil {
-		slog.Warn("pairing-v2: failed to send pubkey", "peer", short, "err", err)
+		slog.Warn("pairing: failed to send pubkey", "peer", short, "err", err)
 		return "", ""
 	}
 
 	// Complete PAKE with the raw token as salt.
 	// Channel binding: include relay's peer ID in HKDF info to prevent relay swap attacks.
 	relayBinding := []byte(s.Conn().LocalPeer())
-	if err := session.CompleteWithSalt(joinerPub, rawToken, relayBinding); err != nil {
-		slog.Warn("pairing-v2: key exchange failed", "peer", short, "err", err)
+	if err := session.Complete(joinerPub, rawToken, relayBinding); err != nil {
+		slog.Warn("pairing: key exchange failed", "peer", short, "err", err)
 		ph.Store.RecordFailedAttemptByHash(tokenHash)
 		return "", ""
 	}
@@ -418,7 +221,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	nameBytes, err := session.Decrypt(s)
 	if err != nil {
 		// Token mismatch causes AEAD decryption failure.
-		slog.Warn("pairing-v2: invalid token (decryption failed)", "peer", short)
+		slog.Warn("pairing: invalid token (decryption failed)", "peer", short)
 		ph.Store.RecordFailedAttemptByHash(tokenHash)
 		ph.recordPairing("failure")
 		return "", ""
@@ -430,12 +233,12 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 
 	// Mark the token as used (also clears InProgress flag).
 	if err := ph.Store.MarkUsed(group.ID, idx, remotePeer, name); err != nil {
-		slog.Error("pairing-v2: failed to mark token used", "peer", short, "err", err)
+		slog.Error("pairing: failed to mark token used", "peer", short, "err", err)
 		return "", ""
 	}
 	pakeClaimedSlot = false // MarkUsed succeeded; don't ClearInProgress in defer
 
-	slog.Info("pairing-v2: peer joined", "peer", short, "name", name, "group", group.ID)
+	slog.Info("pairing: peer joined", "peer", short, "name", name, "group", group.ID)
 
 	// Compute HMAC group commitment proof.
 	mac := hmac.New(sha256.New, rawToken)
@@ -452,7 +255,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	if err := auth.AddPeer(ph.AuthKeysPath, remotePeer.String(), comment); err != nil {
 		if !strings.Contains(err.Error(), "already authorized") {
 			ph.authMu.Unlock()
-			slog.Error("pairing-v2: failed to authorize peer", "peer", short, "err", err)
+			slog.Error("pairing: failed to authorize peer", "peer", short, "err", err)
 			return "", ""
 		}
 	}
@@ -464,7 +267,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	adminCount, _ := auth.CountAdmins(ph.AuthKeysPath)
 	if adminCount == 0 {
 		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleAdmin)
-		slog.Info("pairing-v2: first peer promoted to admin", "peer", short)
+		slog.Info("pairing: first peer promoted to admin", "peer", short)
 	} else {
 		auth.SetPeerRole(ph.AuthKeysPath, remotePeer.String(), auth.RoleMember)
 	}
@@ -492,7 +295,7 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 		peers = append([]PeerInfo{{PeerID: creator, Name: creatorName}}, peers...)
 	}
 
-	v2resp := PairingV2Response{
+	pairResp := PairingResponse{
 		GroupID: group.ID,
 		Peers:   peers,
 	}
@@ -502,21 +305,26 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	if depositID != "" && ph.Deposits != nil {
 		m, err := ph.Deposits.Consume(depositID, remotePeer.String())
 		if err != nil {
-			slog.Warn("pairing-v2: deposit consume failed", "deposit", depositID, "err", err)
+			slog.Warn("pairing: deposit consume failed", "deposit", depositID, "err", err)
 		} else if m != nil {
-			mJSON, _ := json.Marshal(m)
-			v2resp.Macaroon = string(mJSON)
+			// Verify HMAC chain + caveats before delivering to joiner.
+			if verifyErr := ph.verifyMacaroon(m, group.ID); verifyErr != nil {
+				slog.Warn("pairing: macaroon verification failed", "deposit", depositID, "err", verifyErr)
+			} else {
+				mJSON, _ := json.Marshal(m)
+				pairResp.Macaroon = string(mJSON)
+			}
 		}
 	}
 
 	// Send encrypted response.
-	respJSON, err := json.Marshal(v2resp)
+	respJSON, err := json.Marshal(pairResp)
 	if err != nil {
-		slog.Error("pairing-v2: failed to marshal response", "err", err)
+		slog.Error("pairing: failed to marshal response", "err", err)
 		return "", ""
 	}
 	if err := session.WriteEncrypted(s, respJSON); err != nil {
-		slog.Warn("pairing-v2: failed to send response", "peer", short, "err", err)
+		slog.Warn("pairing: failed to send response", "peer", short, "err", err)
 		return "", ""
 	}
 
@@ -525,19 +333,27 @@ func (ph *PairingHandler) HandleStreamV2(s network.Stream) (peer.ID, string) {
 	// Auto-disable enrollment if all groups are fully consumed.
 	if ph.Gater != nil && ph.Store.AllGroupsUsed() {
 		ph.Gater.SetEnrollmentMode(false, 0, 0)
-		slog.Info("pairing-v2: all groups complete, enrollment disabled")
+		slog.Info("pairing: all groups complete, enrollment disabled")
 	}
 
 	return remotePeer, group.ID
 }
 
-// HandleStreamV1Legacy rejects v1 pairing with an upgrade message.
-func (ph *PairingHandler) HandleStreamV1Legacy(s network.Stream) {
-	defer s.Close()
-	msg := []byte("upgrade to latest shurli version")
-	buf := make([]byte, 0, 2+len(msg))
-	buf = append(buf, StatusErr)
-	buf = append(buf, byte(len(msg)))
-	buf = append(buf, msg...)
-	s.Write(buf)
+// verifyMacaroon validates a macaroon's HMAC chain and caveats using the
+// vault root key. Returns nil if valid, error otherwise.
+func (ph *PairingHandler) verifyMacaroon(m *macaroon.Macaroon, groupID string) error {
+	if ph.RootKeyFunc == nil {
+		return fmt.Errorf("no root key function configured")
+	}
+	rootKey, err := ph.RootKeyFunc()
+	if err != nil {
+		return fmt.Errorf("failed to get root key: %w", err)
+	}
+	verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
+		Group:  groupID,
+		Action: "invite",
+		Now:    time.Now(),
+	})
+	return m.Verify(rootKey, verifier)
 }
+

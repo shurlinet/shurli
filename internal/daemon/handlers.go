@@ -55,6 +55,27 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/invite", s.handleInviteCreate)
 	mux.HandleFunc("GET /v1/invite/{id}/wait", s.handleInviteWait)
 	mux.HandleFunc("DELETE /v1/invite/{id}", s.handleInviteCancel)
+
+	// File sharing
+	mux.HandleFunc("GET /v1/shares", s.handleShareList)
+	mux.HandleFunc("POST /v1/shares", s.handleShareAdd)
+	mux.HandleFunc("DELETE /v1/shares", s.handleShareRemove)
+	mux.HandleFunc("POST /v1/browse", s.handleBrowse)
+	mux.HandleFunc("POST /v1/download", s.handleDownload)
+
+	// Config
+	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
+	mux.HandleFunc("GET /v1/config/reload", s.handleConfigReloadStatus)
+
+	// File transfer
+	mux.HandleFunc("POST /v1/send", s.handleSend)
+	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
+	mux.HandleFunc("GET /v1/transfers/history", s.handleTransferHistory)
+	mux.HandleFunc("GET /v1/transfers/pending", s.handleTransferPending)
+	mux.HandleFunc("GET /v1/transfers/{id}", s.handleTransferStatus)
+	mux.HandleFunc("POST /v1/transfers/{id}/accept", s.handleTransferAccept)
+	mux.HandleFunc("POST /v1/transfers/{id}/reject", s.handleTransferReject)
+	mux.HandleFunc("POST /v1/transfers/{id}/cancel", s.handleTransferCancel)
 }
 
 // --- Format helpers ---
@@ -180,6 +201,22 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// MOTD/goodbye messages from relays
 	resp.MOTDs = rt.RelayMOTDs()
 
+	// Config reload state (only include if reloads have happened)
+	s.mu.Lock()
+	if s.reloadState.TotalReloads > 0 {
+		state := s.reloadState
+		resp.ConfigReload = &state
+	}
+	s.mu.Unlock()
+
+	// Transfer receive mode and timed mode status.
+	if ts := rt.TransferService(); ts != nil {
+		resp.ReceiveMode = string(ts.GetReceiveMode())
+		if remaining := ts.TimedModeRemaining(); remaining > 0 {
+			resp.TimedModeRemainingSeconds = int(remaining.Seconds())
+		}
+	}
+
 	if wantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -209,6 +246,31 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "relay_addresses: %d\n", len(resp.RelayAddrs))
 		for _, a := range resp.RelayAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)
+		}
+		if resp.ConfigReload != nil {
+			cr := resp.ConfigReload
+			ago := time.Since(cr.LastReloadTime).Round(time.Second)
+			if cr.LastSuccess {
+				fmt.Fprintf(&sb, "config_reload: ok (%s ago)", ago)
+				if len(cr.LastChanged) > 0 {
+					fmt.Fprintf(&sb, " changed: %s", strings.Join(cr.LastChanged, ", "))
+				}
+				fmt.Fprintln(&sb)
+			} else {
+				fmt.Fprintf(&sb, "config_reload: FAILED (%s ago) error: %s\n", ago, cr.LastError)
+				if cr.ConsecutiveFailures > 1 {
+					fmt.Fprintf(&sb, "  consecutive_failures: %d\n", cr.ConsecutiveFailures)
+				}
+			}
+			if len(cr.LastReverted) > 0 {
+				fmt.Fprintf(&sb, "  reverted: %s\n", strings.Join(cr.LastReverted, ", "))
+			}
+		}
+		if resp.ReceiveMode != "" {
+			fmt.Fprintf(&sb, "receive_mode: %s\n", resp.ReceiveMode)
+			if resp.TimedModeRemainingSeconds > 0 {
+				fmt.Fprintf(&sb, "  timed_mode_remaining: %ds\n", resp.TimedModeRemainingSeconds)
+			}
 		}
 		respondText(w, http.StatusOK, sb.String())
 		return
@@ -807,6 +869,86 @@ func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
 }
 
+func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
+	reloader := s.runtime.ConfigReloader()
+	if reloader == nil {
+		respondError(w, http.StatusNotImplemented, "config reload not supported")
+		return
+	}
+
+	s.mu.Lock()
+	s.reloadState.TotalReloads++
+	s.mu.Unlock()
+
+	result, err := reloader.ReloadConfig()
+
+	s.mu.Lock()
+	s.reloadState.LastReloadTime = time.Now()
+	if err != nil {
+		s.reloadState.LastSuccess = false
+		s.reloadState.LastError = err.Error()
+		s.reloadState.LastChanged = nil
+		s.reloadState.LastReverted = nil
+		s.reloadState.ConsecutiveFailures++
+		s.reloadState.TotalFailures++
+		failures := s.reloadState.ConsecutiveFailures
+		s.mu.Unlock()
+
+		if failures >= 3 {
+			slog.Warn("config reload: repeated failures",
+				"consecutive", failures, "error", err)
+		}
+
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("config reload failed: %v", err))
+		return
+	}
+
+	s.reloadState.LastSuccess = true
+	s.reloadState.LastError = ""
+	s.reloadState.LastChanged = result.Changed
+	s.reloadState.LastReverted = result.Reverted
+	s.reloadState.ConsecutiveFailures = 0
+	s.mu.Unlock()
+
+	slog.Info("config reloaded via API", "changed", result.Changed)
+	if len(result.Reverted) > 0 {
+		slog.Warn("config reload: some changes reverted", "reverted", result.Reverted)
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfigReloadStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	state := s.reloadState
+	s.mu.Unlock()
+
+	if wantsText(r) {
+		var sb strings.Builder
+		if state.TotalReloads == 0 {
+			fmt.Fprintln(&sb, "No config reloads performed.")
+		} else {
+			fmt.Fprintf(&sb, "last_reload: %s\n", state.LastReloadTime.Format(time.RFC3339))
+			fmt.Fprintf(&sb, "last_success: %v\n", state.LastSuccess)
+			if state.LastError != "" {
+				fmt.Fprintf(&sb, "last_error: %s\n", state.LastError)
+			}
+			if len(state.LastChanged) > 0 {
+				fmt.Fprintf(&sb, "last_changed: %s\n", strings.Join(state.LastChanged, ", "))
+			}
+			if len(state.LastReverted) > 0 {
+				fmt.Fprintf(&sb, "last_reverted: %s\n", strings.Join(state.LastReverted, ", "))
+			}
+			fmt.Fprintf(&sb, "consecutive_failures: %d\n", state.ConsecutiveFailures)
+			fmt.Fprintf(&sb, "total_reloads: %d\n", state.TotalReloads)
+			fmt.Fprintf(&sb, "total_failures: %d\n", state.TotalFailures)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, state)
+}
+
 func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
 	bt := s.runtime.BandwidthTracker()
 	if bt == nil {
@@ -915,6 +1057,451 @@ func (s *Server) SocketPath() string {
 // Listener returns the underlying net.Listener (for health checks).
 func (s *Server) Listener() net.Listener {
 	return s.listener
+}
+
+// --- File sharing handlers ---
+
+func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondJSON(w, http.StatusOK, []ShareInfo{})
+		return
+	}
+
+	shares := reg.ListShares(nil)
+	infos := make([]ShareInfo, 0, len(shares))
+	for _, entry := range shares {
+		info := ShareInfo{
+			Path:       entry.Path,
+			Persistent: entry.Persistent,
+			IsDir:      entry.IsDir,
+			SharedAt:   entry.SharedAt.Format(time.RFC3339),
+		}
+		if entry.Peers != nil {
+			for pid := range entry.Peers {
+				info.Peers = append(info.Peers, pid.String())
+			}
+		}
+		infos = append(infos, info)
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, info := range infos {
+			kind := "file"
+			if info.IsDir {
+				kind = "dir "
+			}
+			peerStr := "all"
+			if len(info.Peers) > 0 {
+				peerStr = fmt.Sprintf("%d peers", len(info.Peers))
+			}
+			fmt.Fprintf(&sb, "%s\t%s\t%s\n", kind, info.Path, peerStr)
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, infos)
+}
+
+func (s *Server) handleShareAdd(w http.ResponseWriter, r *http.Request) {
+	var req ShareRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" {
+		respondError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		return
+	}
+
+	// Parse peer IDs if specified.
+	var peerIDs []peer.ID
+	for _, pidStr := range req.Peers {
+		pid, err := peer.Decode(pidStr)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID %q: %v", pidStr, err))
+			return
+		}
+		peerIDs = append(peerIDs, pid)
+	}
+
+	if err := reg.Share(req.Path, peerIDs, req.Persistent); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
+	respondJSON(w, http.StatusOK, map[string]string{"status": "shared"})
+}
+
+func (s *Server) handleShareRemove(w http.ResponseWriter, r *http.Request) {
+	var req UnshareRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" {
+		respondError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	reg := s.runtime.ShareRegistry()
+	if reg == nil {
+		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		return
+	}
+
+	if err := reg.Unshare(req.Path); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("path unshared via API", "path", req.Path)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
+}
+
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	var req BrowseRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Peer == "" {
+		respondError(w, http.StatusBadRequest, "peer is required")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the peer is reachable.
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Open browse stream.
+	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %v", err))
+		return
+	}
+	defer stream.Close()
+
+	result, err := p2pnet.BrowsePeer(stream, req.SubPath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
+		return
+	}
+
+	if result.Error != "" {
+		respondError(w, http.StatusForbidden, result.Error)
+		return
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, e := range result.Entries {
+			kind := "     "
+			if e.IsDir {
+				kind = "[dir]"
+			}
+			fmt.Fprintf(&sb, "%s %s\t%s\n", kind, e.Name, humanSizeAPI(e.Size))
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, BrowseResponse{Entries: result.Entries})
+}
+
+// humanSizeAPI formats bytes for text output.
+func humanSizeAPI(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// --- Download handler ---
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	var req DownloadRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Peer == "" || req.RemotePath == "" {
+		respondError(w, http.StatusBadRequest, "peer and remote_path are required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve primary peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the primary peer is reachable.
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	destDir := req.LocalDest
+	if destDir == "" {
+		destDir = ts.ReceiveDir()
+	}
+
+	// Multi-peer download: requires --multi-peer flag, extra peers, and multi-peer enabled.
+	if req.MultiPeer && ts.MultiPeerEnabled() && len(req.ExtraPeers) > 0 {
+		allPeers := []peer.ID{targetPeerID}
+		for _, name := range req.ExtraPeers {
+			pid, resolveErr := pnet.ResolveName(name)
+			if resolveErr != nil {
+				slog.Warn("multi-peer: cannot resolve extra peer", "name", name, "error", resolveErr)
+				continue
+			}
+			if connectErr := s.runtime.ConnectToPeer(r.Context(), pid); connectErr != nil {
+				slog.Warn("multi-peer: cannot reach extra peer", "name", name, "error", connectErr)
+				continue
+			}
+			allPeers = append(allPeers, pid)
+		}
+
+		// Need at least 2 reachable peers for multi-peer.
+		if len(allPeers) >= 2 {
+			// Get root hash by doing a browse + hash lookup, or probe.
+			// For now: get the root hash from the first peer by doing a quick
+			// single-peer manifest probe. We use the download stream to get the
+			// manifest, then cancel and switch to multi-peer.
+			rootHash, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
+				return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
+			}, req.RemotePath)
+			if probeErr == nil {
+				opener := func(pid peer.ID) (network.Stream, error) {
+					return pnet.OpenPluginStream(r.Context(), pid, "file-multi-peer")
+				}
+				progress, dlErr := ts.DownloadMultiPeer(r.Context(), rootHash, allPeers, opener, destDir)
+				if dlErr == nil {
+					snap := progress.Snapshot()
+					slog.Info("multi-peer download started via API",
+						"id", snap.ID, "file", snap.Filename, "peers", len(allPeers))
+					respondJSON(w, http.StatusOK, DownloadResponse{
+						TransferID: snap.ID,
+						FileName:   snap.Filename,
+						FileSize:   snap.Size,
+					})
+					return
+				}
+				slog.Warn("multi-peer download failed, falling back to single-peer", "error", dlErr)
+			} else {
+				slog.Warn("root hash probe failed, falling back to single-peer", "error", probeErr)
+			}
+		}
+		// Fall through to single-peer download.
+	}
+
+	// Single-peer download (default path).
+	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
+		return
+	}
+
+	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
+		return
+	}
+
+	snap := progress.Snapshot()
+	slog.Info("file download started via API",
+		"id", snap.ID, "file", snap.Filename, "peer", req.Peer)
+
+	respondJSON(w, http.StatusOK, DownloadResponse{
+		TransferID: snap.ID,
+		FileName:   snap.Filename,
+		FileSize:   snap.Size,
+	})
+}
+
+// --- File transfer handlers ---
+
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	var req SendRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" || req.Peer == "" {
+		respondError(w, http.StatusBadRequest, "path and peer are required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	// Resolve peer name.
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Ensure the peer is reachable (DHT lookup + relay fallback).
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	// Use a detached context for streams: the transfer runs asynchronously
+	// after we return the HTTP response. Using r.Context() would cancel the
+	// streams as soon as the response is sent.
+	streamCtx := context.Background()
+
+	// Build stream opener for parallel transfers and directory sends.
+	opener := func() (network.Stream, error) {
+		return pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
+	}
+	sendOpts := p2pnet.SendOptions{
+		NoCompress:   req.NoCompress,
+		Streams:      req.Streams,
+		StreamOpener: opener,
+	}
+
+	// Parse priority.
+	priority := p2pnet.PriorityNormal
+	switch strings.ToLower(req.Priority) {
+	case "low":
+		priority = p2pnet.PriorityLow
+	case "high":
+		priority = p2pnet.PriorityHigh
+	}
+
+	// Submit to transfer queue (handles both files and directories).
+	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
+		return
+	}
+
+	snap := progress.Snapshot()
+	slog.Info("file transfer queued via API",
+		"id", snap.ID, "file", snap.Filename, "peer", req.Peer, "status", snap.Status)
+
+	respondJSON(w, http.StatusOK, SendResponse{
+		TransferID: snap.ID,
+		Filename:   snap.Filename,
+		Size:       snap.Size,
+		PeerID:     targetPeerID.String(),
+	})
+}
+
+func (s *Server) handleTransferList(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
+		return
+	}
+
+	transfers := ts.ListTransfers()
+	respondJSON(w, http.StatusOK, transfers)
+}
+
+func (s *Server) handleTransferHistory(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		return
+	}
+
+	logPath := ts.LogPath()
+	if logPath == "" {
+		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		return
+	}
+
+	maxStr := r.URL.Query().Get("max")
+	max := 50
+	if maxStr != "" {
+		if n, err := fmt.Sscanf(maxStr, "%d", &max); n != 1 || err != nil {
+			max = 50
+		}
+		if max <= 0 {
+			max = 50
+		}
+		if max > 1000 {
+			max = 1000
+		}
+	}
+
+	events, err := p2pnet.ReadTransferEvents(logPath, max)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("read transfer log: %v", err))
+		return
+	}
+	if events == nil {
+		events = []p2pnet.TransferEvent{}
+	}
+
+	respondJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) handleTransferStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusNotFound, "file transfer is not enabled")
+		return
+	}
+
+	progress, ok := ts.GetTransfer(id)
+	if !ok {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, progress.Snapshot())
 }
 
 // --- Invite handlers (async, relay-delegated) ---
@@ -1083,6 +1670,114 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *Server) handleTransferPending(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondJSON(w, http.StatusOK, []PendingTransferInfo{})
+		return
+	}
+
+	pending := ts.ListPending()
+	infos := make([]PendingTransferInfo, len(pending))
+	for i, p := range pending {
+		infos[i] = PendingTransferInfo{
+			ID:       p.ID,
+			Filename: p.Filename,
+			Size:     p.Size,
+			PeerID:   p.PeerID,
+			Time:     p.Time.Format(time.RFC3339),
+		}
+	}
+
+	respondJSON(w, http.StatusOK, infos)
+}
+
+func (s *Server) handleTransferAccept(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	var req TransferAcceptRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+	}
+
+	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("transfer accepted via API", "id", id)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+}
+
+func (s *Server) handleTransferReject(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	var req TransferRejectRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+	}
+
+	reason := p2pnet.RejectReasonNone
+	switch req.Reason {
+	case "space":
+		reason = p2pnet.RejectReasonSpace
+	case "busy":
+		reason = p2pnet.RejectReasonBusy
+	case "size":
+		reason = p2pnet.RejectReasonSize
+	}
+
+	if err := ts.RejectTransfer(id, reason); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	slog.Info("transfer rejected via API", "id", id, "reason", req.Reason)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
+}
+
+func (s *Server) handleTransferCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "transfer id is required")
+		return
+	}
+
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	if !ts.CancelTransfer(id) {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found or already completed", id))
+		return
+	}
+
+	slog.Info("transfer cancelled via API", "id", id)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {

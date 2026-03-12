@@ -79,7 +79,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/shurli)")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -171,7 +171,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
 	tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
 	fmt.Fprintln(stdout)
-	fmt.Fprintf(stdout, "  %s\n", mnemonic)
+	fmt.Fprint(stdout, formatSeedGrid(words))
 	fmt.Fprintln(stdout)
 	tc.Wyellow(stdout, "===========================\n")
 	fmt.Fprintln(stdout)
@@ -193,9 +193,23 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	// Set identity password (interactive).
 	fmt.Fprintln(stdout, "Set a password to protect your identity:")
-	password, pwErr := readPasswordConfirm("Password: ", "Confirm: ", stdout)
-	if pwErr != nil {
-		return pwErr
+	fmt.Fprintf(stdout, "  Requirements: %d+ characters, at least 3 of: uppercase, lowercase, digit, symbol\n", validate.MinPasswordLen)
+	fmt.Fprintln(stdout)
+
+	var password string
+	const maxPasswordAttempts = 3
+	for attempt := 1; attempt <= maxPasswordAttempts; attempt++ {
+		pw, pwErr := readPasswordConfirm("Password: ", "Confirm: ", stdout)
+		if pwErr == nil {
+			password = pw
+			break
+		}
+		fmt.Fprintf(stdout, "  %v\n", pwErr)
+		if attempt < maxPasswordAttempts {
+			fmt.Fprintf(stdout, "  Try again (%d of %d)\n\n", attempt+1, maxPasswordAttempts)
+		} else {
+			return fmt.Errorf("password setup failed after %d attempts", maxPasswordAttempts)
+		}
 	}
 	fmt.Fprintln(stdout)
 

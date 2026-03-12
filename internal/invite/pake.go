@@ -34,26 +34,12 @@ const (
 	// maxEncryptedMsgLen caps the length of a single encrypted message
 	// to prevent memory exhaustion from a malicious peer.
 	maxEncryptedMsgLen = 4096
-
-	// VersionV1 identifies the PAKE-secured invite protocol (peer-to-peer).
-	VersionV1 byte = 0x01
-
-	// VersionV2 identifies the relay pairing protocol (relay-mediated).
-	VersionV2 byte = 0x02
-
-	// VersionV3 identifies the short async invite code (token-only, no relay addr).
-	VersionV3 byte = 0x03
 )
 
 // PAKESession holds the state for one side of a PAKE handshake.
 type PAKESession struct {
 	privKey *ecdh.PrivateKey
 	key     []byte // derived AEAD key (32 bytes)
-}
-
-// deriveKey computes the shared AEAD key from the DH shared secret and token.
-func deriveKey(sharedSecret []byte, token [8]byte) ([]byte, error) {
-	return deriveKeyBytes(sharedSecret, token[:])
 }
 
 // deriveKeyBytes computes the shared AEAD key from the DH shared secret and arbitrary salt.
@@ -99,16 +85,10 @@ func (s *PAKESession) PublicKey() []byte {
 
 // Complete performs the DH exchange and derives the AEAD key.
 // remotePub is the other side's 32-byte X25519 public key.
-// token is the invite token (shared secret).
-func (s *PAKESession) Complete(remotePub []byte, token [8]byte) error {
-	return s.CompleteWithSalt(remotePub, token[:])
-}
-
-// CompleteWithSalt performs the DH exchange with an arbitrary-length salt.
-// Used for relay-side PAKE where the token may be 10 or 16 bytes.
+// salt is the invite token (shared secret).
 // Optional channelBinding binds the session to a specific relay peer ID,
 // preventing relay swap attacks (PAKE fails if redirected to a different relay).
-func (s *PAKESession) CompleteWithSalt(remotePub []byte, salt []byte, channelBinding ...[]byte) error {
+func (s *PAKESession) Complete(remotePub []byte, salt []byte, channelBinding ...[]byte) error {
 	peerKey, err := ecdh.X25519().NewPublicKey(remotePub)
 	if err != nil {
 		return fmt.Errorf("invalid remote public key: %w", err)

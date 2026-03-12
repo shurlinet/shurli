@@ -36,6 +36,7 @@ var (
 	ErrVaultAlreadyUnsealed = errors.New("vault is already unsealed")
 	ErrInvalidPassword   = errors.New("invalid password")
 	ErrInvalidTOTP         = errors.New("invalid TOTP code")
+	ErrInvalidYubikey      = errors.New("invalid Yubikey response")
 	ErrInvalidSeed         = errors.New("invalid seed phrase")
 	ErrVaultNotInitialized = errors.New("vault not initialized")
 )
@@ -63,8 +64,9 @@ type SealedData struct {
 	LastTOTPCounter uint64 `json:"last_totp_counter,omitempty"` // replay prevention (RFC 6238)
 	SeedHash        []byte `json:"seed_hash"`       // SHA-256 of seed for verification
 	AutoSealMins    int    `json:"auto_seal_mins"`  // auto-reseal timeout (0 = manual)
-	YubikeyEnabled  bool   `json:"yubikey_enabled"` // Yubikey HMAC-SHA1 challenge-response
-	YubikeySlot     int    `json:"yubikey_slot,omitempty"` // 1 or 2
+	YubikeyEnabled      bool   `json:"yubikey_enabled"`                // Yubikey HMAC-SHA1 challenge-response
+	YubikeySlot         int    `json:"yubikey_slot,omitempty"`         // 1 or 2
+	YubikeyResponseHash []byte `json:"yubikey_response_hash,omitempty"` // SHA-256 of expected response
 }
 
 // Vault manages the relay's root key material.
@@ -192,8 +194,11 @@ func (v *Vault) Save(path string) error {
 	return nil
 }
 
-// Unseal decrypts the root key using the password and validates the TOTP code.
-func (v *Vault) Unseal(password, totpCode string) error {
+// Unseal decrypts the root key using the password, validates the TOTP code,
+// and checks the Yubikey HMAC-SHA1 challenge-response if enabled.
+// The yubikeyResponse parameter is the raw HMAC-SHA1 response from the YubiKey;
+// it is only checked when YubikeyEnabled is true in the vault config.
+func (v *Vault) Unseal(password, totpCode string, yubikeyResponse []byte) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -236,11 +241,59 @@ func (v *Vault) Unseal(password, totpCode string) error {
 		v.persistCounterLocked()
 	}
 
+	// Validate Yubikey HMAC-SHA1 challenge-response if enabled.
+	if sd.YubikeyEnabled {
+		if len(yubikeyResponse) == 0 {
+			zeroBytes(rootKey)
+			return ErrInvalidYubikey
+		}
+		respHash := sha256.Sum256(yubikeyResponse)
+		if subtle.ConstantTimeCompare(respHash[:], sd.YubikeyResponseHash) != 1 {
+			zeroBytes(rootKey)
+			return ErrInvalidYubikey
+		}
+	}
+
 	v.rootKey = rootKey
 	v.sealed = false
 	v.unsealedAt = time.Now()
 
 	return nil
+}
+
+// YubikeyChallenge returns the challenge bytes to send to the YubiKey.
+// Derived from SHA-256(salt)[:20] (20 bytes = standard HMAC-SHA1 challenge length).
+func (v *Vault) YubikeyChallenge() ([]byte, error) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.sealedData == nil {
+		return nil, ErrVaultNotInitialized
+	}
+	h := sha256.Sum256(v.sealedData.Salt)
+	return h[:20], nil
+}
+
+// EnableYubikey configures Yubikey HMAC-SHA1 challenge-response on this vault.
+// The responseHash is SHA-256 of the expected Yubikey response for the salt-derived challenge.
+// slot is 1 or 2 (matching the YubiKey HMAC-SHA1 slot).
+func (v *Vault) EnableYubikey(slot int, responseHash []byte) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.sealedData == nil {
+		return ErrVaultNotInitialized
+	}
+	v.sealedData.YubikeyEnabled = true
+	v.sealedData.YubikeySlot = slot
+	v.sealedData.YubikeyResponseHash = make([]byte, len(responseHash))
+	copy(v.sealedData.YubikeyResponseHash, responseHash)
+	if v.filePath == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(v.sealedData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal vault: %w", err)
+	}
+	return os.WriteFile(v.filePath, data, 0600)
 }
 
 // persistCounterLocked saves the sealed data to disk to persist the TOTP counter.

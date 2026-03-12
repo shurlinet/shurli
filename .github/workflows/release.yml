@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            os: ubuntu-latest
+            install_deps: sudo apt-get install -y -qq libavahi-compat-libdnssd-dev
+            cgo: "1"
+            suffix: ""
+          - goos: linux
+            goarch: arm64
+            os: ubuntu-latest
+            install_deps: ""
+            cgo: "0"
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            os: macos-latest
+            install_deps: ""
+            cgo: "1"
+            suffix: ""
+          - goos: darwin
+            goarch: arm64
+            os: macos-latest
+            install_deps: ""
+            cgo: "1"
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            os: ubuntu-latest
+            install_deps: ""
+            cgo: "0"
+            suffix: ".exe"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # needed for git describe
+
+      - name: Install native mDNS library
+        if: matrix.install_deps != ''
+        run: ${{ matrix.install_deps }}
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE} -s -w"
+
+          OUTNAME="shurli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
+          go build -ldflags "${LDFLAGS}" -trimpath -o "${OUTNAME}" ./cmd/shurli
+          echo "ARTIFACT=${OUTNAME}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shurli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARTIFACT }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum shurli-* > checksums-sha256.txt
+
+      - name: Detect release type
+        id: release_type
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Tags with hyphen suffix are pre-releases (v0.1.1-dev.1, v0.2.0-rc.1, etc.)
+          if [[ "$TAG" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "title=Shurli $TAG (pre-release)" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "title=Shurli $TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ steps.release_type.outputs.title }}" \
+            --generate-notes \
+            ${{ steps.release_type.outputs.prerelease == 'true' && '--prerelease' || '' }} \
+            dist/*

@@ -14,7 +14,7 @@ func TestPeerHistory_RoundTrip(t *testing.T) {
 	h := NewPeerHistory(path)
 	h.RecordConnection("peer-A", "direct", 10.0)
 	h.RecordConnection("peer-A", "relay", 50.0)
-	h.RecordIntroduction("peer-A", "relay-001", "relay-pairing")
+	h.RecordIntroduction("peer-A", "relay-001", "invite")
 	h.RecordConnection("peer-B", "direct", 5.0)
 
 	if err := h.Save(); err != nil {
@@ -37,8 +37,8 @@ func TestPeerHistory_RoundTrip(t *testing.T) {
 	if r.IntroducedBy != "relay-001" {
 		t.Errorf("introduced_by = %q, want %q", r.IntroducedBy, "relay-001")
 	}
-	if r.IntroMethod != "relay-pairing" {
-		t.Errorf("intro_method = %q, want %q", r.IntroMethod, "relay-pairing")
+	if r.IntroMethod != "invite" {
+		t.Errorf("intro_method = %q, want %q", r.IntroMethod, "invite")
 	}
 	if r.PathTypes["direct"] != 1 {
 		t.Errorf("path_types[direct] = %d, want 1", r.PathTypes["direct"])

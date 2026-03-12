@@ -16,8 +16,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/shurlinet/shurli/internal/platform"
 
 	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -137,8 +138,9 @@ type VaultInitResponse struct {
 
 // UnsealRequest is the JSON body for POST /v1/unseal.
 type UnsealRequest struct {
-	Passphrase string `json:"passphrase"`
-	TOTPCode   string `json:"totp_code,omitempty"`
+	Passphrase      string `json:"passphrase"`
+	TOTPCode        string `json:"totp_code,omitempty"`
+	YubikeyResponse []byte `json:"yubikey_response,omitempty"`
 }
 
 // SealStatusResponse is the JSON response for GET /v1/seal-status.
@@ -295,9 +297,9 @@ func (s *AdminServer) Start() error {
 	}
 
 	// Bind with restrictive umask to avoid TOCTOU race.
-	oldUmask := syscall.Umask(0077)
+	restoreUmask := platform.RestrictiveUmask()
 	listener, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask)
+	restoreUmask()
 	if err != nil {
 		return fmt.Errorf("failed to listen on admin socket: %w", err)
 	}
@@ -504,7 +506,7 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		quota = maxMemberGroups
 	}
 
-	// Use short 10-byte tokens for v3 short codes.
+	// Use 10-byte tokens for invite codes.
 	tokens, groupID, err := s.store.CreateGroupWithTokenSize(req.Count, ttl, ns, peerTTL, 10, caller, quota)
 	if err != nil {
 		if err == ErrQuotaExceeded {
@@ -546,10 +548,10 @@ func (s *AdminServer) handleCreatePair(w http.ResponseWriter, r *http.Request) {
 		s.gater.SetEnrollmentMode(true, 10, 10*time.Second)
 	}
 
-	// Encode tokens into short v3 invite codes.
+	// Encode tokens into invite codes.
 	codes := make([]string, len(tokens))
 	for i, tok := range tokens {
-		code, err := invite.EncodeShort(tok)
+		code, err := invite.Encode(tok)
 		if err != nil {
 			respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode code: %v", err))
 			return
@@ -893,12 +895,14 @@ func (s *AdminServer) handleUnseal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.vault.Unseal(req.Passphrase, req.TOTPCode); err != nil {
+	if err := s.vault.Unseal(req.Passphrase, req.TOTPCode, req.YubikeyResponse); err != nil {
 		switch {
 		case errors.Is(err, vault.ErrInvalidPassword):
 			respondAdminError(w, http.StatusForbidden, "invalid passphrase")
 		case errors.Is(err, vault.ErrInvalidTOTP):
 			respondAdminError(w, http.StatusForbidden, "invalid TOTP code")
+		case errors.Is(err, vault.ErrInvalidYubikey):
+			respondAdminError(w, http.StatusForbidden, "invalid Yubikey response")
 		case errors.Is(err, vault.ErrVaultAlreadyUnsealed):
 			respondAdminError(w, http.StatusConflict, "vault is already unsealed")
 		default:

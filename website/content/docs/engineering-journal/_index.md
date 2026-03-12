@@ -41,3 +41,5 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 7: ZKP Privacy Layer](phase7-zkp-privacy/) | ADR-N01 to ADR-N18 | gnark PLONK, Poseidon2 Merkle tree, membership proofs, range proofs, BIP39 keys |
 | [Phase 8: Identity & Remote Admin](phase8-identity-remote-admin/) | ADR-O01 to ADR-O17 | Unified BIP39 seed, encrypted identity, recovery, remote admin, MOTD, goodbye, session tokens |
 | [Seed Relay Separation & Init Flow](seed-relay-separation/) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
+| [Phase 9: SDK, Plugins & Protocol Consolidation](phase9-sdk-plugins/) | ADR-Q01 to ADR-Q05 | Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin |
+| [Phase 9: File Transfer Architecture](phase9-file-transfer/) | ADR-R01 to ADR-R09 | FastCDC, BLAKE3, zstd, Reed-Solomon, RaptorQ, parallel streams, receive permissions, rate limiting |

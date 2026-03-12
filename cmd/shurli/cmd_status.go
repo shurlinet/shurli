@@ -26,7 +26,7 @@ func doStatus(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 

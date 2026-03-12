@@ -11,6 +11,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+// RTTProbeProtocol is the protocol ID used for traceroute RTT measurement.
+const RTTProbeProtocol = "/shurli/rtt-probe/1.0.0"
+
 // TraceHop represents a single hop in a P2P traceroute.
 type TraceHop struct {
 	Hop      int     `json:"hop"`
@@ -172,8 +175,8 @@ func measurePeerRTT(ctx context.Context, h host.Host, peerID peer.ID) (float64, 
 	// Try to open a stream with a probe protocol  - the peer will either
 	// accept (unlikely) or reject it quickly. Either way, the round-trip
 	// gives us RTT.
-	probeCtx := network.WithAllowLimitedConn(measureCtx, "/shurli/rtt-probe/1.0.0")
-	s, err := h.NewStream(probeCtx, peerID, "/shurli/rtt-probe/1.0.0")
+	probeCtx := network.WithAllowLimitedConn(measureCtx, RTTProbeProtocol)
+	s, err := h.NewStream(probeCtx, peerID, RTTProbeProtocol)
 	rtt := time.Since(start)
 
 	if err != nil {

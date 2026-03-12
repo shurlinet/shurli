@@ -355,19 +355,44 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		defer cancel()
 
 		if needsUpgrade {
-			// Force a direct dial even though relay connection exists.
-			// This establishes direct without dropping relay first.
+			// Force a direct dial using ONLY TCP LAN addresses. QUIC
+			// addresses hit the UDP black hole detector (poisoned from
+			// previous CGNAT networks) and cascade-fail. TCP over LAN
+			// is reliable and what mDNS guarantees.
 			ctx = network.WithForceDirectDial(ctx, "mdns-upgrade")
-		}
 
-		if err := md.host.Connect(ctx, pi); err != nil {
-			slog.Debug("mdns: connect failed", "peer", short, "error", err)
-			// Still add all addrs so other subsystems can use them.
+			tcpAddrs := filterTCPAddrs(pi.Addrs)
+			if len(tcpAddrs) == 0 {
+				slog.Warn("mdns: no TCP LAN addresses for upgrade", "peer", short)
+				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+				return
+			}
+
+			// Temporarily restrict peerstore to TCP LAN addresses only,
+			// same technique as probeAndUpgrade fix #3.
+			savedAddrs := md.host.Peerstore().Addrs(pi.ID)
+			md.host.Peerstore().ClearAddrs(pi.ID)
+			md.host.Peerstore().AddAddrs(pi.ID, tcpAddrs, 10*time.Minute)
+
+			_, dialErr := md.host.Network().DialPeer(ctx, pi.ID)
+
+			// Restore full address set regardless of outcome.
+			md.host.Peerstore().AddAddrs(pi.ID, savedAddrs, 10*time.Minute)
 			md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
-			return
-		}
 
-		slog.Info("mdns: connected to LAN peer", "peer", short)
+			if dialErr != nil {
+				slog.Info("mdns: upgrade to direct failed", "peer", short, "error", dialErr)
+				return
+			}
+			slog.Info("mdns: upgraded to DIRECT via LAN", "peer", short)
+		} else {
+			if err := md.host.Connect(ctx, pi); err != nil {
+				slog.Info("mdns: connect failed", "peer", short, "error", err)
+				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+				return
+			}
+			slog.Info("mdns: connected to LAN peer", "peer", short)
+		}
 		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
 		}
@@ -375,47 +400,14 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		// Add the full address set now that connect succeeded.
 		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
 
-		// Close any relay connections. After an mDNS LAN connect, relay
-		// is always redundant. Sweep multiple times to catch relay
-		// connections that PeerManager may establish concurrently
-		// (its reconnect loop runs every 30s, may already be mid-dial).
-		go func() {
-			closeRelay := func() int {
-				closed := 0
-				for _, conn := range md.host.Network().ConnsToPeer(pi.ID) {
-					if conn.Stat().Limited {
-						conn.Close()
-						closed++
-					}
-				}
-				return closed
-			}
-
-			// Immediate close + 3 sweeps over 30s to cover PeerManager's
-			// reconnect loop window.
-			if n := closeRelay(); n > 0 {
-				slog.Info("mdns: closed relay conns (LAN direct active)",
-					"peer", short, "closed", n)
-			}
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			timer := time.NewTimer(30 * time.Second)
-			defer timer.Stop()
-			for {
-				select {
-				case <-md.ctx.Done():
-					return
-				case <-timer.C:
-					closeRelay()
-					return
-				case <-ticker.C:
-					if n := closeRelay(); n > 0 {
-						slog.Info("mdns: closed relay conns (sweep)",
-							"peer", short, "closed", n)
-					}
-				}
-			}
-		}()
+		// Don't close relay connections here. Let direct and relay
+		// coexist. libp2p prefers non-limited (direct) connections for
+		// new streams, so relay traffic stops naturally. Aggressively
+		// closing relay triggers a fight with the remote peer's
+		// PeerManager reconnect loop: we close relay, they re-establish
+		// it, the churn eventually kills the direct connection too.
+		// Relay cleanup is handled by probeAndUpgrade's closeRelayConns
+		// after confirming the direct path is stable.
 	}()
 }
 
@@ -528,6 +520,27 @@ func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 		}
 	}
 	return lan
+}
+
+// filterTCPAddrs returns only multiaddrs using TCP transport.
+// QUIC/UDP addresses are excluded because the UDP black hole detector
+// may be in Blocked state from a previous CGNAT network.
+func filterTCPAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
+	var tcp []ma.Multiaddr
+	for _, addr := range addrs {
+		hasTCP := false
+		ma.ForEach(addr, func(c ma.Component) bool {
+			if c.Protocol().Code == ma.P_TCP {
+				hasTCP = true
+				return false
+			}
+			return true
+		})
+		if hasTCP {
+			tcp = append(tcp, addr)
+		}
+	}
+	return tcp
 }
 
 // localIPv4Subnets returns the CIDR networks of all private IPv4

@@ -17,89 +17,13 @@ After Phase 5 PeerManager provides the data:
 
 ---
 
-## ZKP Watching List
-
-Checked after each phase completion:
-1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
-2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
-3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
-
-**Deferred from Phase 7**:
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
-
----
-
 ## Phase 9: Plugin Architecture, SDK & First Plugins
 
 **Goal**: Make Shurli extensible by third parties - and prove the architecture works by shipping real plugins. The plugins ARE the SDK examples.
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
-### Phase 9A: Core Interfaces & Library Consolidation
-
-**Timeline**: 1-2 weeks
-
-Define the public API contracts that third-party code will depend on. Design-first: get the interfaces right before building implementations, because changing them later breaks downstream users.
-
-**Core Interfaces** (new file: `pkg/p2pnet/interfaces.go`):
-- [ ] `PeerNetwork` - interface for core network operations
-- [ ] `Resolver` - interface for name resolution (enables chaining: local -> DNS -> DHT -> blockchain)
-- [ ] `ServiceManager` - interface for service registration and dialing (enables middleware)
-- [ ] `Authorizer` - interface for authorization decisions (enables pluggable auth)
-- [ ] `Logger` - interface for structured logging injection
-
-**Extension Points**:
-- [ ] Constructor injection - optional `Resolver`, `ConnectionGater`, `Logger`
-- [ ] Event hook system - `OnEvent(handler)` for peer connected/disconnected, auth allow/deny
-- [ ] Stream middleware - `ServiceRegistry.Use(middleware)` for compression, bandwidth limiting
-- [ ] Protocol ID formatter - configurable protocol namespace and versioning
-
-**Library Consolidation**:
-- [ ] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go`
-- [ ] Centralize orchestration - new commands become ~20 lines instead of ~200
-- [ ] Package-level documentation for `pkg/p2pnet/`
-
-**Interface Preview**:
-```go
-// Third-party resolver
-type DNSResolver struct { ... }
-func (r *DNSResolver) Resolve(name string) (peer.ID, error) { ... }
-
-// Third-party auth
-type DatabaseAuthorizer struct { ... }
-func (a *DatabaseAuthorizer) IsAuthorized(p peer.ID) bool { ... }
-
-// Wire it up
-net, _ := p2pnet.New(&p2pnet.Config{
-    Resolver:        &DNSResolver{},
-    ConnectionGater: &DatabaseAuthorizer{},
-    Logger:          slog.Default(),
-})
-
-// React to events
-net.OnEvent(func(e p2pnet.Event) {
-    if e.Type == p2pnet.EventPeerConnected {
-        metrics.PeerConnections.Inc()
-    }
-})
-```
-
-### Phase 9B: File Transfer Plugin
-
-**Timeline**: 1-2 weeks
-
-Build file transfer as the first real plugin. Validates the `ServiceManager` and stream middleware interfaces from 9A. If the interfaces need adjustment, this is where we catch it.
-
-- [ ] `shurli send <file> --to <peer>` and `shurli receive`
-- [ ] Auto-accept from authorized peers (configurable)
-- [ ] Progress bar, resume interrupted transfers, directory support
-
-```bash
-$ shurli send photo.jpg --to laptop
-Sending photo.jpg (4.2 MB) to laptop...
-████████████████████████████ 100% - 4.2 MB/s
-Transfer complete
-```
+Phase 9A (Core Interfaces) and Phase 9B (File Transfer) are complete. See [Completed Work](../completed/) for details.
 
 ### Phase 9C: Service Discovery & Additional Plugins
 
@@ -124,6 +48,7 @@ Service discovery protocol and two more plugins that prove different interface p
 ### Phase 9D: Python SDK & Documentation
 
 **Timeline**: 1-2 weeks
+**Repository**: `shurlinet/shurli-sdk-python` (separate repo, ships to PyPI)
 
 Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE the SDK examples.
 
@@ -137,6 +62,39 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 - [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
 - [ ] Example walkthroughs: file transfer, service templates, custom resolver, auth middleware
 
+### Phase 9E: Swift SDK
+
+**Timeline**: 1-2 weeks
+**Repository**: `shurlinet/shurli-sdk-swift` (separate repo, ships via Swift Package Manager)
+
+Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 12) will be built on. Building it before the app validates the API surface from a non-Go language and catches design issues early.
+
+**Swift SDK** (`ShurliSDK`):
+- [ ] Swift Package (SPM) wrapping daemon HTTP API (Unix socket + cookie auth)
+- [ ] `Codable` model types matching all daemon API responses
+- [ ] Core operations: connect, status, expose/unexpose services, discover, proxy, peer management
+- [ ] Event streaming (SSE or WebSocket) for real-time peer status and network transitions
+- [ ] Async/await native (Swift concurrency)
+- [ ] Platform-adaptive transport: Unix socket on macOS, HTTP over localhost on iOS
+- [ ] Example: connect to daemon and list peers in <10 lines of Swift
+
+**Design Constraints**: Zero external dependencies (Foundation + Network framework only). Strict concurrency from day one. Works in App Extension context (Network Extensions have restricted APIs).
+
+---
+
+### SDK & App Repository Strategy
+
+Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/p2pnet`) stays in this repo since it IS the core library.
+
+| Repository | What | Ships To |
+|-----------|------|----------|
+| `shurlinet/shurli` | Core daemon + Go library + CLI + plugins | Homebrew, apt, binary releases |
+| `shurlinet/shurli-sdk-python` | Python daemon client | PyPI (`shurli-sdk`) |
+| `shurlinet/shurli-sdk-swift` | Swift daemon client | Swift Package Manager (`ShurliSDK`) |
+| `shurlinet/shurli-ios` | Apple multiplatform app (consumer of Swift SDK) | App Store |
+
+Different languages have different release cycles, CI pipelines, and dependency ecosystems. Separate repos let each SDK version independently of the daemon.
+
 ---
 
 ## Phase 10: Distribution & Launch
@@ -149,7 +107,7 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 
 **Website & Documentation (shurli.io)**:
 - [x] Hugo + Hextra site, automated docs sync, landing page, blog, CI/CD deploy
-- [x] GitHub Pages hosting with custom domain, Cloudflare DNS + CDN + DDoS protection
+- [x] GitHub Pages hosting with custom domain, DNS provider + CDN + DDoS protection
 - [x] AI-Agent discoverability: `/llms.txt` and `/llms-full.txt`
 - [ ] `pkg/p2pnet` library reference (godoc-style)
 - [ ] Use-case guides (GPU inference, IoT, game servers)
@@ -162,14 +120,14 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 
 **Distribution Resilience** (gradual rollout):
 
-The domain (`shurli.io`) is the anchor. DNS is on Cloudflare under our control. If any host disappears, one DNS record change restores service.
+The domain (`shurli.io`) is the anchor. DNS is managed under our control. If any host disappears, one DNS record change restores service.
 
 | Layer | GitHub (primary) | GitLab (mirror) | IPFS (fallback) |
 |-------|-----------------|-----------------|-----------------|
 | Source code | Primary repo | Push-hook mirror | - |
 | Release binaries | GitHub Releases | GitLab Releases (GoReleaser) | Pinned on Filebase |
 | Static site | GitHub Pages | GitLab Pages | Pinned + DNSLink ready |
-| DNS failover | CNAME -> GitHub Pages | Manual flip to GitLab Pages | Manual flip to Cloudflare IPFS gateway |
+| DNS failover | CNAME -> GitHub Pages | Manual flip to GitLab Pages | Manual flip to IPFS gateway |
 | Source links | `shurli.io/source/*` redirects | Same URLs, different target | Same URLs, different target |
 
 All documentation source references (code paths in engineering journal, architecture docs, etc.) link through `shurli.io/source/` instead of directly to any git host. When the primary moves, update one redirect config. Old search engine cached URLs and LLM training snapshots still resolve through the domain we control.
@@ -249,8 +207,9 @@ sudo shurli-gateway --mode tun --network 10.64.0.0/16
 ## Phase 12: Apple Multiplatform App
 
 **Timeline**: 3-4 weeks
+**Repository**: `shurlinet/shurli-ios` (separate repo, depends on `shurli-sdk-swift` from Phase 9E)
 
-**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing.
+**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing. The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
 
 **iOS Strategy**:
 - **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
@@ -393,6 +352,18 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
+## ZKP Watching List
+
+Checked after each phase completion:
+1. **Halo 2 in Go** - if a native Go implementation appears, it would be a strict upgrade (removes ceremony dependency). Zero activity as of 2026-03-01.
+2. **gnark Vortex** - ConsenSys's lattice-based transparent setup. Would remove ceremony dependency entirely if it reaches production.
+3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
+
+**Deferred from Phase 7**:
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
+
+---
+
 ## Success Metrics
 
 **Phase 4A**: Library importable, 3+ services documented, SSH/XRDP/TCP working
@@ -407,7 +378,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 **Phase 8**: Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye
 
-**Phase 9**: Third-party plugins work, file transfer between peers, SDK published
+**Phase 9**: Third-party plugins work, file transfer between peers, Python + Swift SDKs published (separate repos)
 
 **Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 

@@ -14,7 +14,7 @@ import (
 func runChangePassword(args []string) {
 	fs := flag.NewFlagSet("change-password", flag.ExitOnError)
 	dirFlag := fs.String("dir", "", "config directory (default: auto-detect)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// Resolve config directory.
 	var configDir string

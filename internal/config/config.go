@@ -22,6 +22,76 @@ type HomeNodeConfig struct {
 	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
+	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
+}
+
+// TransferConfig controls peer-to-peer file transfer.
+type TransferConfig struct {
+	// ReceiveDir is the directory where received files are saved.
+	// Default: ~/Downloads/shurli/
+	ReceiveDir string `yaml:"receive_dir,omitempty"`
+
+	// MaxFileSize is the maximum file size to accept (in bytes).
+	// 0 means unlimited (up to protocol max of 1 TB).
+	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
+
+	// ReceiveMode controls how incoming transfers are handled.
+	// Values: "off", "contacts" (default), "ask", "open"
+	ReceiveMode string `yaml:"receive_mode,omitempty"`
+
+	// Compress enables zstd compression for outgoing transfers.
+	// Default: true. Set to false to disable.
+	Compress *bool `yaml:"compress,omitempty"`
+
+	// LogPath is the file path for structured transfer event logging.
+	// Default: ~/.config/shurli/logs/transfers.log
+	// Set to empty string to disable transfer logging.
+	LogPath string `yaml:"log_path,omitempty"`
+
+	// Notify controls notifications for incoming transfers.
+	// Values: "none" (default), "desktop" (OS-native), "command" (custom).
+	// Runtime reloadable.
+	Notify string `yaml:"notify,omitempty"`
+
+	// NotifyCommand is the command template for "command" notify mode.
+	// Placeholders: {from} = peer ID, {file} = filename, {size} = size in bytes.
+	// Runtime reloadable.
+	NotifyCommand string `yaml:"notify_command,omitempty"`
+
+	// TimedDuration is the default duration for timed receive mode.
+	// Go duration string (e.g. "10m", "1h"). Default: "10m".
+	// Runtime reloadable.
+	TimedDuration string `yaml:"timed_duration,omitempty"`
+
+	// ErasureOverhead controls Reed-Solomon parity overhead for transfers.
+	// 0.10 = 10% parity chunks. 0 = disabled. Default: 0.1 (10%).
+	// Auto-enabled on Direct WAN connections.
+	ErasureOverhead *float64 `yaml:"erasure_overhead,omitempty"`
+
+	// MaxConcurrent limits the number of concurrent outbound transfers.
+	// Transfers beyond this limit are queued with priority ordering.
+	// Default: 5. Minimum: 1.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
+
+	// MultiPeerEnabled enables multi-peer swarming downloads using RaptorQ
+	// fountain codes. When a file is available from multiple peers, the
+	// receiver downloads from all of them simultaneously.
+	// Default: true.
+	MultiPeerEnabled *bool `yaml:"multi_peer_enabled,omitempty"`
+
+	// MultiPeerMaxPeers limits how many peers to download from simultaneously.
+	// Default: 4.
+	MultiPeerMaxPeers int `yaml:"multi_peer_max_peers,omitempty"`
+
+	// MultiPeerMinSize is the minimum file size (bytes) for multi-peer download.
+	// Files smaller than this use single-peer transfer.
+	// Default: 10485760 (10 MB).
+	MultiPeerMinSize int64 `yaml:"multi_peer_min_size,omitempty"`
+
+	// RateLimit is the maximum number of transfer requests per peer per minute.
+	// Peers exceeding this limit are silently rejected (stream reset).
+	// Default: 10.
+	RateLimit int `yaml:"rate_limit,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for
