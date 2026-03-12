@@ -6,18 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sync"
-	"sync/atomic"
-	"time"
 
-	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	ma "github.com/multiformats/go-multiaddr"
-
-	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -30,7 +19,7 @@ func runTraceroute(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
@@ -40,84 +29,56 @@ func runTraceroute(args []string) {
 
 	target := remaining[0]
 
+	// Standalone allowed via CLI flag or config setting.
+	allowStandalone := *standaloneFlag || configAllowsStandalone(*configFlag)
+
 	// Always try daemon first (uses existing connections, supports direct paths).
-	if !*standaloneFlag {
+	if !allowStandalone {
 		if client := tryDaemonClient(); client != nil {
 			runTracerouteViaDaemon(client, target, *jsonFlag)
 			return
 		}
 	}
 
-	// Daemon not available. Require explicit --standalone.
-	if !*standaloneFlag {
+	// Daemon not available. Require explicit --standalone or config setting.
+	if !allowStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
 		fmt.Println("Or use --standalone flag for direct P2P (debug):")
 		fmt.Printf("  shurli traceroute --standalone %s\n", target)
+		fmt.Println()
+		fmt.Println("Or set cli.allow_standalone: true in config for persistent standalone access.")
 		osExit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Load configuration
-	cfgFile, err := config.FindConfigFile(*configFlag)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-
-	// Create P2P network
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		Namespace:          cfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
+	// Create standalone P2P host, resolve target, bootstrap, and connect.
+	pw, _ := resolvePasswordFromConfig(*configFlag)
+	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+		ConfigPath: *configFlag,
+		Password:   pw,
+		UserAgent:  "shurli/" + version,
 	})
 	if err != nil {
-		fatal("P2P network error: %v", err)
+		fatal("%v", err)
 	}
-	defer p2pNetwork.Close()
-
-	// Load names
-	if cfg.Names != nil {
-		p2pNetwork.LoadNames(cfg.Names)
-	}
-
-	// Resolve target
-	targetPeerID, err := p2pNetwork.ResolveName(target)
-	if err != nil {
-		fatal("Cannot resolve target %q: %v", target, err)
-	}
-
-	h := p2pNetwork.Host()
+	defer standalone.Network.Close()
 
 	if !*jsonFlag {
-		tc.Wfaint(os.Stdout, "traceroute to %s (%s)\n", target, targetPeerID.String()[:16]+"...")
+		tc.Wfaint(os.Stdout, "traceroute to %s\n", target)
 		fmt.Println("Connecting...")
 	}
 
-	// Bootstrap and connect to target
-	if err := bootstrapAndConnect(ctx, h, cfg, targetPeerID, p2pNetwork); err != nil {
-		fatal("Failed to connect: %v", err)
+	targetPeerID, err := standalone.ResolveAndConnect(ctx, target)
+	if err != nil {
+		fatal("%v", err)
 	}
 
 	// Run traceroute
-	result, err := p2pnet.TracePeer(ctx, h, targetPeerID)
+	result, err := p2pnet.TracePeer(ctx, standalone.Network.Host(), targetPeerID)
 	if err != nil {
 		fatal("Traceroute failed: %v", err)
 	}
@@ -151,108 +112,6 @@ func runTraceroute(args []string) {
 		}
 	}
 	tc.Wfaint(os.Stdout, "--- path: [%s] ---\n", result.Path)
-}
-
-// bootstrapAndConnect bootstraps the DHT and connects to the target peer.
-// Shared by traceroute and enhanced ping.
-func bootstrapAndConnect(ctx context.Context, h host.Host, cfg *config.HomeNodeConfig, targetPeerID peer.ID, p2pNetwork *p2pnet.Network) error {
-	// Bootstrap DHT
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
-	kdht, err := dht.New(ctx, h,
-		dht.Mode(dht.ModeClient),
-		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
-		dht.RoutingTablePeerDiversityFilter(dht.NewRTPeerDiversityFilter(h, 3, 50)),
-	)
-	if err != nil {
-		return fmt.Errorf("DHT error: %w", err)
-	}
-	if err := kdht.Bootstrap(ctx); err != nil {
-		return fmt.Errorf("DHT bootstrap error: %w", err)
-	}
-
-	// Connect to bootstrap peers
-	var bootstrapPeers []ma.Multiaddr
-	if len(cfg.Discovery.BootstrapPeers) > 0 {
-		for _, addr := range cfg.Discovery.BootstrapPeers {
-			maddr, err := ma.NewMultiaddr(addr)
-			if err != nil {
-				continue
-			}
-			bootstrapPeers = append(bootstrapPeers, maddr)
-		}
-	} else {
-		// Use relay addresses as DHT bootstrap peers.
-		for _, addr := range cfg.Relay.Addresses {
-			maddr, err := ma.NewMultiaddr(addr)
-			if err != nil {
-				continue
-			}
-			bootstrapPeers = append(bootstrapPeers, maddr)
-		}
-	}
-
-	var wg sync.WaitGroup
-	var connected atomic.Int32
-	for _, pAddr := range bootstrapPeers {
-		pi, err := peer.AddrInfoFromP2pAddr(pAddr)
-		if err != nil {
-			continue
-		}
-		wg.Add(1)
-		go func(pi peer.AddrInfo) {
-			defer wg.Done()
-			if err := h.Connect(ctx, pi); err == nil {
-				connected.Add(1)
-			}
-		}(*pi)
-	}
-	wg.Wait()
-
-	// Connect to relay
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
-	if err != nil {
-		return fmt.Errorf("relay address parse error: %w", err)
-	}
-	for _, ai := range relayInfos {
-		h.Connect(ctx, ai)
-	}
-
-	// Find target via DHT
-	findCtx, findCancel := context.WithTimeout(ctx, 60*time.Second)
-	pi, err := kdht.FindPeer(findCtx, targetPeerID)
-	findCancel()
-	if err != nil {
-		// Peer not in DHT  - try connecting via relay
-		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
-			return fmt.Errorf("failed to add relay addresses: %w", err)
-		}
-		connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
-		err = h.Connect(connectCtx, peer.AddrInfo{ID: targetPeerID})
-		connectCancel()
-		if err != nil {
-			return fmt.Errorf("cannot connect to peer: %w", err)
-		}
-		return nil
-	}
-
-	// Connect using DHT-discovered addresses
-	connectCtx, connectCancel := context.WithTimeout(ctx, 15*time.Second)
-	err = h.Connect(connectCtx, pi)
-	connectCancel()
-	if err != nil {
-		// Fallback to relay
-		if err := p2pNetwork.AddRelayAddressesForPeer(cfg.Relay.Addresses, targetPeerID); err != nil {
-			return fmt.Errorf("failed to add relay addresses: %w", err)
-		}
-		connectCtx2, connectCancel2 := context.WithTimeout(ctx, 30*time.Second)
-		err = h.Connect(connectCtx2, peer.AddrInfo{ID: targetPeerID})
-		connectCancel2()
-		if err != nil {
-			return fmt.Errorf("cannot connect to peer: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // runTracerouteViaDaemon traces a peer through the running daemon.

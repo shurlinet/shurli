@@ -51,10 +51,11 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;6** | **ACL&nbsp;+&nbsp;Relay&nbsp;Security** | Macaroon tokens, sealed vault, async invites, roles | **Done** |
 | **Phase&nbsp;7** | **ZKP&nbsp;Privacy** | Anonymous auth, Poseidon2 Merkle tree, range proofs | **Done** |
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
-| 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | Planned |
-| 9B | **File&nbsp;Transfer** | First plugin: send/receive files between peers | Planned |
+| 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | **Done** |
+| 9B | **File&nbsp;Transfer** | Chunked P2P transfer, erasure coding, multi-source download | **Done** |
 | 9C | **Discovery&nbsp;&&nbsp;Plugins** | Service discovery, service templates, Wake-on-LAN | Planned |
-| 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK, SDK documentation | Planned |
+| 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK (separate repo), SDK documentation | Planned |
+| 9E | **Swift&nbsp;SDK** | Swift SDK for Apple platforms (separate repo, SPM) | Planned |
 
 ---
 
@@ -74,18 +75,21 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 6: ACL + Relay Security + Client Invites** | 1 day | **Complete** |
 | **Phase 7: ZKP Privacy Layer** | 1 day | **Complete** |
 | **Phase 8: Identity Security + Remote Admin** | 1 day | **Complete** |
-| Phase 9A: Core Interfaces & Library | 1-2 weeks | Planned |
-| Phase 9B: File Transfer Plugin | 1-2 weeks | Planned |
+| **Phase 9A: Core Interfaces & Library** | 1 week | **Complete** |
+| **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
 | Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
 | Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
+| Phase 9E: Swift SDK | 1-2 weeks | Planned |
 | Phase 10: Distribution & Launch | 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
-| Phase 12: Apple Multiplatform App | 3-4 weeks | Planned |
+| Phase 12: Apple Multiplatform App | 3-4 weeks | Planned (separate repo: shurli-ios) |
 | Phase 13: Federation | 2-3 weeks | Planned |
 | Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces and plugins (9A-9D) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces and file transfer (9A-9B done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+
+**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/p2pnet`) stays in this repo.
 
 ---
 
@@ -101,4 +105,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-07. Current: Phase 8 complete. Next: Phase 9A (Core Interfaces & Library Consolidation).*
+*Last updated: 2026-03-11. Current: Phase 9B complete (File Transfer). Next: Phase 9C-9E (Discovery, Python SDK, Swift SDK).*

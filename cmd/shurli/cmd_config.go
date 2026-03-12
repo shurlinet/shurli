@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -26,6 +28,8 @@ func runConfig(args []string) {
 		runConfigShow(args[1:])
 	case "set":
 		runConfigSet(args[1:])
+	case "reload":
+		runConfigReload(args[1:])
 	case "rollback":
 		runConfigRollback(args[1:])
 	case "apply":
@@ -50,7 +54,7 @@ func doConfigValidate(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -86,7 +90,7 @@ func doConfigShow(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config show", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -130,6 +134,63 @@ func doConfigShow(args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func runConfigReload(args []string) {
+	fs := flag.NewFlagSet("config reload", flag.ExitOnError)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	statusFlag := fs.Bool("status", false, "show reload state instead of triggering reload")
+	fs.Parse(reorderFlags(fs, args))
+
+	client := tryDaemonClient()
+	if client == nil {
+		fmt.Println("Daemon not running. Start it with: shurli daemon")
+		osExit(1)
+	}
+
+	if *statusFlag {
+		if *jsonFlag {
+			state, err := client.ConfigReloadStatus()
+			if err != nil {
+				fatal("Failed to get reload status: %v", err)
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(state)
+		} else {
+			text, err := client.ConfigReloadStatusText()
+			if err != nil {
+				fatal("Failed to get reload status: %v", err)
+			}
+			fmt.Print(text)
+		}
+		return
+	}
+
+	result, err := client.ConfigReload()
+	if err != nil {
+		fatal("Config reload failed: %v", err)
+	}
+
+	if *jsonFlag {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(result)
+		return
+	}
+
+	if len(result.Reverted) > 0 {
+		fmt.Printf("Config reload partial: changed [%s], reverted [%s]\n",
+			strings.Join(result.Changed, ", "), strings.Join(result.Reverted, ", "))
+		return
+	}
+
+	if len(result.Changed) == 0 {
+		fmt.Println("Config reloaded. No changes detected.")
+		return
+	}
+
+	fmt.Printf("Config reloaded. Changed: %s\n", strings.Join(result.Changed, ", "))
 }
 
 func runConfigSet(args []string) {
@@ -179,6 +240,20 @@ var validConfigKeys = []string{
 	"peer_relay.resources.buffer_size",
 	"peer_relay.resources.circuit_duration",
 	"peer_relay.resources.circuit_data_limit",
+	"transfer.receive_dir",
+	"transfer.max_file_size",
+	"transfer.receive_mode",
+	"transfer.compress",
+	"transfer.timed_duration",
+	"transfer.log_path",
+	"transfer.notify",
+	"transfer.notify_command",
+	"transfer.max_concurrent",
+	"transfer.erasure_overhead",
+	"transfer.rate_limit",
+	"transfer.multi_peer_enabled",
+	"transfer.multi_peer_max_peers",
+	"transfer.multi_peer_min_size",
 }
 
 // validateConfigKey checks whether a dotted key path is a known config key.
@@ -248,7 +323,8 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	durationFlag := fs.String("duration", "", "timed receive mode duration (e.g. 10m, 1h)")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -259,6 +335,16 @@ func doConfigSet(args []string, stdout io.Writer) error {
 
 	key := remaining[0]
 	value := remaining[1]
+
+	// Validate --duration flag: only valid with transfer.receive_mode timed.
+	if *durationFlag != "" {
+		if key != "transfer.receive_mode" || value != "timed" {
+			return fmt.Errorf("--duration is only valid with: config set transfer.receive_mode timed")
+		}
+		if _, err := time.ParseDuration(*durationFlag); err != nil {
+			return fmt.Errorf("invalid duration %q: %w", *durationFlag, err)
+		}
+	}
 
 	// Validate key against known config schema before writing.
 	if err := validateConfigKey(key); err != nil {
@@ -287,6 +373,14 @@ func doConfigSet(args []string, stdout io.Writer) error {
 		return fmt.Errorf("failed to set %s: %w", key, err)
 	}
 
+	// If --duration provided, also set transfer.timed_duration.
+	if *durationFlag != "" {
+		durParts := splitDottedKey("transfer.timed_duration")
+		if err := yamlNodeSet(&root, durParts, *durationFlag); err != nil {
+			return fmt.Errorf("failed to set transfer.timed_duration: %w", err)
+		}
+	}
+
 	// Write back
 	out, err := yaml.Marshal(&root)
 	if err != nil {
@@ -297,7 +391,10 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Set %s = %s in %s\n", key, value, cfgFile)
-	fmt.Fprintln(stdout, "Restart daemon to apply: shurli daemon")
+	if *durationFlag != "" {
+		fmt.Fprintf(stdout, "Set transfer.timed_duration = %s\n", *durationFlag)
+	}
+	fmt.Fprintln(stdout, "Apply without restart: shurli config reload")
 	return nil
 }
 
@@ -390,7 +487,7 @@ func doConfigRollback(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config rollback", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -408,7 +505,7 @@ func doConfigRollback(args []string, stdout io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Restored %s from last-known-good archive\n", cfgFile)
-	fmt.Fprintln(stdout, "Config restored. Restart daemon to apply all changes.")
+	fmt.Fprintln(stdout, "Apply without restart: shurli config reload")
 	return nil
 }
 
@@ -424,7 +521,7 @@ func doConfigApply(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	configFlag := fs.String("config", "", "path to current config file")
 	timeout := fs.Duration("confirm-timeout", 5*time.Minute, "auto-revert timeout (e.g., 5m, 10m)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -456,8 +553,8 @@ func doConfigApply(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "Applied %s → %s\n", newConfigPath, cfgFile)
 	fmt.Fprintf(stdout, "Auto-revert in %s unless confirmed.\n", timeout)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "After restarting shurli daemon and verifying connectivity:")
-	fmt.Fprintln(stdout, "  shurli config confirm")
+	fmt.Fprintln(stdout, "Apply to running daemon: shurli config reload")
+	fmt.Fprintln(stdout, "Cancel auto-revert:      shurli config confirm")
 	return nil
 }
 
@@ -472,7 +569,7 @@ func doConfigConfirm(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("config confirm", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -495,12 +592,15 @@ func printConfigUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  validate [--config path]                                   Validate config without starting")
 	fmt.Println("  show     [--config path]                                   Show resolved config")
-	fmt.Println("  set      <key> <value> [--config path]                     Set a config value (dotted key path)")
+	fmt.Println("  set      <key> <value> [--config path] [--duration 10m]    Set a config value (dotted key path)")
+	fmt.Println("  reload   [--json] [--status]                               Reload config into running daemon")
 	fmt.Println("  rollback [--config path]                                   Restore last-known-good config")
 	fmt.Println("  apply    <new-config> [--config path] [--confirm-timeout]  Apply config with auto-revert safety")
 	fmt.Println("  confirm  [--config path]                                   Confirm applied config (cancel revert)")
 	fmt.Println()
 	fmt.Println("Examples:")
+	fmt.Println("  shurli config set transfer.receive_mode ask")
+	fmt.Println("  shurli config set transfer.receive_mode timed --duration 10m")
+	fmt.Println("  shurli config reload                          # apply without restart")
 	fmt.Println("  shurli config set network.force_private_reachability true")
-	fmt.Println("  shurli config set network.force_cgnat true")
 }

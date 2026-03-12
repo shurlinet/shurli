@@ -7,16 +7,28 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// NameResolver resolves names to peer IDs
+// NameResolver resolves names to peer IDs.
+// An optional fallback Resolver is consulted when local names don't match.
 type NameResolver struct {
-	names map[string]peer.ID
-	mu    sync.RWMutex
+	names    map[string]peer.ID
+	fallback Resolver // nil = no fallback, try peer.Decode only
+	mu       sync.RWMutex
 }
 
 // NewNameResolver creates a new name resolver
 func NewNameResolver() *NameResolver {
 	return &NameResolver{
 		names: make(map[string]peer.ID),
+	}
+}
+
+// newNameResolverFrom wraps a custom Resolver so it can be used as the
+// primary resolver while still supporting local Register/LoadFromMap.
+// Local names take priority; the custom resolver is the fallback.
+func newNameResolverFrom(custom Resolver) *NameResolver {
+	return &NameResolver{
+		names:    make(map[string]peer.ID),
+		fallback: custom,
 	}
 }
 
@@ -51,6 +63,13 @@ func (r *NameResolver) Resolve(name string) (peer.ID, error) {
 		return peerID, nil
 	}
 	r.mu.RUnlock()
+
+	// Try custom fallback resolver if configured.
+	if r.fallback != nil {
+		if peerID, err := r.fallback.Resolve(name); err == nil {
+			return peerID, nil
+		}
+	}
 
 	// Try to parse as direct peer ID
 	peerID, err := peer.Decode(name)

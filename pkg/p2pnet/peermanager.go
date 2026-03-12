@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -212,6 +211,7 @@ func (pm *PeerManager) OnNetworkChange() {
 	for _, mp := range pm.peers {
 		mp.BackoffUntil = time.Time{}
 		mp.ConsecFailures = 0
+		mp.ProbeUntil = time.Time{} // network changed - probe cooldown is stale, don't block reconnect
 	}
 	pm.mu.Unlock()
 
@@ -226,22 +226,54 @@ func (pm *PeerManager) OnNetworkChange() {
 }
 
 // CloseStaleConnections closes connections to watched peers whose local
-// address matches a removed IP. When a network interface disappears
-// (WiFi switch, USB LAN unplug), connections bound to that interface are
-// dead but libp2p may not detect it for minutes (TCP keepalive timeout).
-// Closing them immediately lets the reconnect loop redial via the new
-// active interface.
+// address is no longer present on any active interface. When a network
+// interface disappears (WiFi switch, USB LAN unplug), connections bound
+// to that interface are dead but libp2p may not detect it for minutes
+// (TCP keepalive timeout). Closing them immediately lets the reconnect
+// loop redial via the new active interface.
+//
+// IPv6 addresses go through DAD (Duplicate Address Detection) after a
+// network change. During DAD (100-500ms), the address is "tentative"
+// and invisible to net.Interfaces(). Connections using those addresses
+// are still valid but would be killed by a naive "not in current IPs"
+// check. To avoid this, IPv6 connections that are not explicitly in
+// the removedIPs set are given the benefit of the doubt (TCP keepalive
+// will catch truly dead ones). IPv4 has no DAD delay, so missing IPv4
+// addresses mean the interface is truly gone.
 func (pm *PeerManager) CloseStaleConnections(removedIPs []string) {
-	if len(removedIPs) == 0 {
-		return
-	}
-
+	// Build explicit removal set from NetworkMonitor signal.
 	removed := make(map[string]struct{}, len(removedIPs))
 	for _, ip := range removedIPs {
 		removed[ip] = struct{}{}
 	}
 
-	var closed int
+	// Build a set of ALL IPs currently on active interfaces (private
+	// and global). We read directly from net.Interfaces rather than
+	// InterfaceSummary because the summary only has global IPs.
+	currentIPs := make(map[string]struct{})
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, a := range addrs {
+				ipNet, ok := a.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				currentIPs[ipNet.IP.String()] = struct{}{}
+			}
+		}
+	}
+	// Always include loopback - those connections are never stale.
+	currentIPs["127.0.0.1"] = struct{}{}
+	currentIPs["::1"] = struct{}{}
+
+	var closed, skippedDAD int
 	pm.mu.RLock()
 	watchedPeers := make(map[peer.ID]struct{}, len(pm.peers))
 	for pid := range pm.peers {
@@ -256,7 +288,9 @@ func (pm *PeerManager) CloseStaleConnections(removedIPs []string) {
 			if localIP == "" {
 				continue
 			}
-			if _, stale := removed[localIP]; stale {
+			// Explicitly removed by NetworkMonitor - close immediately.
+			// This check takes priority over currentIPs (NetworkMonitor is authoritative).
+			if _, wasRemoved := removed[localIP]; wasRemoved {
 				short := pid.String()
 				if len(short) > 16 {
 					short = short[:16] + "..."
@@ -267,10 +301,38 @@ func (pm *PeerManager) CloseStaleConnections(removedIPs []string) {
 					"remote", c.RemoteMultiaddr())
 				c.Close()
 				closed++
+				continue
 			}
+			// Still on an active interface - keep.
+			if _, current := currentIPs[localIP]; current {
+				continue
+			}
+			// Not visible on any interface and not explicitly removed.
+			// IPv6 may be in DAD (tentative) - skip to avoid killing
+			// valid connections during network transitions.
+			ip := net.ParseIP(localIP)
+			if ip != nil && ip.To4() == nil {
+				skippedDAD++
+				continue
+			}
+			// IPv4 not on any active interface - interface is gone.
+			short := pid.String()
+			if len(short) > 16 {
+				short = short[:16] + "..."
+			}
+			slog.Info("peermanager: closing stale connection",
+				"peer", short,
+				"localIP", localIP,
+				"remote", c.RemoteMultiaddr())
+			c.Close()
+			closed++
 		}
 	}
 
+	if skippedDAD > 0 {
+		slog.Debug("peermanager: skipped IPv6 connections during possible DAD",
+			"count", skippedDAD)
+	}
 	if closed > 0 {
 		slog.Info("peermanager: closed stale connections", "count", closed)
 		pm.incMetric("stale_close")
@@ -367,11 +429,12 @@ func (pm *PeerManager) eventLoop() {
 					mp.LastDialError = ""
 				case network.NotConnected:
 					if !mp.ProbeUntil.IsZero() && time.Now().Before(mp.ProbeUntil) {
-						slog.Debug("peermanager: probe-upgraded peer disconnected",
+						slog.Info("peermanager: probe-upgraded peer disconnected, clearing cooldown",
 							"peer", e.Peer,
 							"probeUntil", mp.ProbeUntil.Format("15:04:05"))
 					}
 					mp.Connected = false
+					mp.ProbeUntil = time.Time{} // peer gone - cooldown invalid, reconnect immediately
 				}
 			}
 			pm.mu.Unlock()
@@ -532,7 +595,7 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 	// If we got a relay connection but a direct connection already
 	// exists (established by mDNS while we were dialing), discard
 	// the relay. Direct is always preferred over relay.
-	if result.PathType == "RELAYED" && !allConnsRelayed(pm.host.Network().ConnsToPeer(target)) {
+	if result.PathType == "RELAYED" && hasLiveDirectConnection(pm.host, target) {
 		pm.mu.Unlock()
 		// Close the relay connection we just established.
 		for _, c := range pm.host.Network().ConnsToPeer(target) {
@@ -743,12 +806,18 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 		return
 	}
 
-	// Collect unique global IPv6 TCP targets from the peer's addresses.
+	// Collect unique global IPv6 TCP targets from the peer's DIRECT
+	// addresses only. Circuit/relay addresses are excluded: their outer
+	// IP:port belongs to the relay server, not the peer. Probing those
+	// would confirm relay reachability, not direct-path viability.
 	type target struct{ ip6, port string }
 	seen := map[string]bool{}
 	var targets []target
 	addrs := pm.host.Peerstore().Addrs(pid)
 	for _, a := range addrs {
+		if isCircuitAddr(a) {
+			continue
+		}
 		ip6, port := extractIPv6TCPAddr(a)
 		if ip6 == "" {
 			continue
@@ -770,9 +839,14 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 		return
 	}
 
-	slog.Info("peermanager: probing direct IPv6 paths",
+	// Log target details for diagnostic visibility.
+	var targetStrs []string
+	for _, t := range targets {
+		targetStrs = append(targetStrs, net.JoinHostPort(t.ip6, t.port))
+	}
+	slog.Debug("peermanager: probing direct IPv6 paths",
 		"peer", short,
-		"targets", len(targets),
+		"targets", targetStrs,
 		"localIPs", len(localIPs))
 
 	// Try each target with each local source address.
@@ -794,41 +868,37 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			}
 			conn.Close()
 
-			slog.Info("peermanager: direct IPv6 path confirmed, upgrading from relay",
+			slog.Debug("peermanager: direct IPv6 path confirmed, upgrading from relay",
 				"peer", short, "via", remote, "localIP", localIP)
 
-			// Build IPv6-only address list for the direct dial.
-			var directAddrs []ma.Multiaddr
-			for _, pa := range pm.host.Peerstore().Addrs(pid) {
-				pIP6, _ := extractIPv6TCPAddr(pa)
-				if pIP6 == "" {
-					continue
-				}
-				pip := net.ParseIP(pIP6)
-				if pip != nil && isGlobalIPv6(pip) {
-					directAddrs = append(directAddrs, pa)
-				}
-			}
-			// Also include QUIC addresses for the same global IPv6.
-			for _, pa := range pm.host.Peerstore().Addrs(pid) {
-				str := pa.String()
-				for _, tgt := range targets {
-					if strings.Contains(str, "/ip6/"+tgt.ip6+"/") && strings.Contains(str, "/quic-v1") {
-						directAddrs = append(directAddrs, pa)
-					}
-				}
+			// Build the confirmed TCP multiaddr from the probe result.
+			// Only use the address we KNOW works. The swarm's DialPeer
+			// tries ALL peerstore addresses; when many are unreachable
+			// (QUIC through utun, ULA, stale), the cascade of rapid
+			// failures causes macOS to throttle even valid addresses.
+			confirmedTCP, mErr := ma.NewMultiaddr("/ip6/" + t.ip6 + "/tcp/" + t.port)
+			if mErr != nil {
+				slog.Warn("peermanager: failed to build confirmed addr",
+					"error", mErr)
+				return
 			}
 
-			// Add IPv6 addresses to the peerstore so the swarm can use them.
-			pm.host.Peerstore().AddAddrs(pid, directAddrs, 10*time.Minute)
+			// Save all current addresses, then temporarily restrict the
+			// peerstore to ONLY the confirmed address. Existing relay
+			// connections survive (they're independent of the peerstore).
+			allPeerAddrs := pm.host.Peerstore().Addrs(pid)
+			pm.host.Peerstore().ClearAddrs(pid)
+			pm.host.Peerstore().AddAddrs(pid, []ma.Multiaddr{confirmedTCP}, 10*time.Minute)
 
-			// Force a direct dial even though a relay connection exists.
-			// Without this, host.Connect() no-ops when the peer is already
-			// connected (returns nil without dialing).
+			// Force a direct dial using only the confirmed address.
 			ctx, cancel := context.WithTimeout(pm.ctx, probeConnectTimeout)
 			ctx = network.WithForceDirectDial(ctx, "probe-upgrade")
 			_, err = pm.host.Network().DialPeer(ctx, pid)
 			cancel()
+
+			// Restore the full address set regardless of outcome.
+			pm.host.Peerstore().AddAddrs(pid, allPeerAddrs, 10*time.Minute)
+
 			if err != nil {
 				slog.Warn("peermanager: direct dial failed, relay stays",
 					"peer", short, "error", err)
@@ -879,6 +949,58 @@ func allConnsRelayed(conns []network.Conn) bool {
 	return true
 }
 
+// hasLiveDirectConnection returns true if the peer has at least one
+// non-relay connection whose local IP is still present on an active
+// interface. Connections whose local IP has been removed (e.g. USB LAN
+// unplugged) are considered dead even if they linger in the swarm:
+// when the source interface disappears, the OS cannot send a TCP FIN,
+// so the connection sits in the swarm for tens of seconds until the
+// kernel finally tears it down. Treating such zombie connections as
+// "direct already active" would block relay fallback indefinitely.
+func hasLiveDirectConnection(h host.Host, pid peer.ID) bool {
+	conns := h.Network().ConnsToPeer(pid)
+	if len(conns) == 0 {
+		return false
+	}
+
+	// Build current active IPs from all up interfaces.
+	activeIPs := make(map[string]struct{})
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			addrs, _ := iface.Addrs()
+			for _, a := range addrs {
+				ipNet, ok := a.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				activeIPs[ipNet.IP.String()] = struct{}{}
+			}
+		}
+	}
+	activeIPs["127.0.0.1"] = struct{}{}
+	activeIPs["::1"] = struct{}{}
+
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue // relay connection - not direct
+		}
+		localIP := extractIPFromMultiaddrObj(c.LocalMultiaddr())
+		if localIP == "" {
+			continue
+		}
+		if _, ok := activeIPs[localIP]; ok {
+			return true // live direct connection on an active interface
+		}
+		// Local IP not on any active interface. This connection is a
+		// zombie: the interface was removed but the TCP socket hasn't
+		// been torn down yet. Do not count it as a live direct path.
+	}
+	return false
+}
+
 // peerHasIPv6 returns true if any multiaddr contains an IPv6 component.
 func peerHasIPv6(addrs []ma.Multiaddr) bool {
 	for _, a := range addrs {
@@ -905,4 +1027,19 @@ func extractIPv6TCPAddr(addr ma.Multiaddr) (ip6, port string) {
 		return "", ""
 	}
 	return ip6, port
+}
+
+// isCircuitAddr returns true if the multiaddr contains a /p2p-circuit
+// component, indicating it is a relay circuit address rather than a
+// direct address.
+func isCircuitAddr(addr ma.Multiaddr) bool {
+	found := false
+	ma.ForEach(addr, func(c ma.Component) bool {
+		if c.Protocol().Code == ma.P_CIRCUIT {
+			found = true
+			return false // stop iteration
+		}
+		return true
+	})
+	return found
 }

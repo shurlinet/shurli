@@ -81,7 +81,7 @@ else
 	sudo cp $(SYSTEMD_SERVICE) $(SYSTEMD_DEST)
 	sudo sed -i 's|^User=.*|User=$(SERVICE_USER)|' $(SYSTEMD_DEST)
 	sudo sed -i 's|^Group=.*|Group=$(SERVICE_USER)|' $(SYSTEMD_DEST)
-	sudo sed -i 's|^ReadWritePaths=.*|ReadWritePaths=/home/$(SERVICE_USER)/.config/shurli /run/user|' $(SYSTEMD_DEST)
+	sudo sed -i 's|^ReadWritePaths=.*|ReadWritePaths=/home/$(SERVICE_USER)/.config/shurli /home/$(SERVICE_USER)/Downloads/shurli /run/user|' $(SYSTEMD_DEST)
 	sudo systemctl daemon-reload
 	sudo systemctl enable shurli-daemon
 	@echo ""

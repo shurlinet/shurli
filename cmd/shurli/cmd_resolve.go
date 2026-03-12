@@ -28,7 +28,7 @@ func doResolve(args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 

@@ -21,7 +21,7 @@ import (
 // Usage: shurli relay recover
 func runRelayRecover(args []string, configFile string) {
 	fs := flag.NewFlagSet("relay recover", flag.ExitOnError)
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	// Read seed phrase with hidden input (no echo, no ps aux exposure).
 	mnemonic, err := readSeedPhrase(os.Stdout)

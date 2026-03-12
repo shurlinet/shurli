@@ -248,7 +248,7 @@ func runRelayServe(args []string) {
 	// Start the relay service with configured resource limits.
 	// Circuit ACL controls which peers can relay data through this server.
 	// By default (enable_data_relay: false), only admin peers and peers with
-	// relay_data=true can create circuits. Signaling protocols (relay-pair,
+	// relay_data=true can create circuits. Signaling protocols (invite,
 	// peer-notify, etc.) are direct streams and are unaffected by this ACL.
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
 	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay, cfg.Security.EnableConnectionGating)
@@ -309,19 +309,13 @@ func runRelayServe(args []string) {
 		Deposits:     depositStore,
 	}
 	notifier := &relay.PeerNotifier{Host: h, AuthKeysPath: cfg.Security.AuthorizedKeysFile, Store: tokenStore}
-	h.SetStreamHandler(protocol.ID(relay.PairingProtocol), func(s network.Stream) {
+	h.SetStreamHandler(protocol.ID(relay.InviteProtocol), func(s network.Stream) {
 		joinedPeer, groupID := pairingHandler.HandleStream(s)
 		if joinedPeer != "" && groupID != "" {
 			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
 		}
 	})
-	h.SetStreamHandler(protocol.ID(relay.PairingProtocolV2), func(s network.Stream) {
-		joinedPeer, groupID := pairingHandler.HandleStreamV2(s)
-		if joinedPeer != "" && groupID != "" {
-			go notifier.NotifyGroupMembers(ctx, groupID, joinedPeer)
-		}
-	})
-	slog.Info("pairing protocol registered", "protocol", relay.PairingProtocol, "v2", relay.PairingProtocolV2)
+	slog.Info("pairing protocol registered", "protocol", relay.InviteProtocol)
 
 	// Start admin socket for relay CLI.
 	adminSocketPath := filepath.Join(filepath.Dir(configFile), ".relay-admin.sock")
@@ -364,6 +358,11 @@ func runRelayServe(args []string) {
 			adminSrv.SetVault(nil, cfg.Security.VaultFile)
 			fmt.Printf("Vault not initialized (run 'shurli relay vault init')\n")
 		}
+	}
+
+	// Wire macaroon verification: root key comes from vault (available only when unsealed).
+	if relayVault != nil {
+		pairingHandler.RootKeyFunc = relayVault.RootKey
 	}
 
 	// Wire up invite deposit store. The root key comes from the vault dynamically
@@ -1060,23 +1059,13 @@ func runRelayInfo(configFile string) {
 		fatal("Failed to load config: %v", err)
 	}
 
-	// Read identity key (don't auto-create  - info is read-only).
-	// Try raw key first (legacy/tests), then encrypted SHRL with session token.
-	data, err := os.ReadFile(cfg.Identity.KeyFile)
-	if err != nil {
-		fatal("Cannot read identity key %s: %v\n  Run the relay server once to generate a key.", cfg.Identity.KeyFile, err)
+	// Read encrypted SHRL identity key (read-only, don't auto-create).
+	relayConfigDir := filepath.Dir(configFile)
+	pw, pwErr := resolvePasswordInteractive(relayConfigDir, os.Stdout)
+	if pwErr != nil {
+		fatal("Identity error: %v", pwErr)
 	}
-	var priv crypto.PrivKey
-	if identity.IsEncrypted(data) {
-		relayConfigDir := filepath.Dir(configFile)
-		pw, pwErr := resolvePasswordInteractive(relayConfigDir, os.Stdout)
-		if pwErr != nil {
-			fatal("Identity error: %v", pwErr)
-		}
-		priv, err = identity.LoadIdentity(cfg.Identity.KeyFile, pw)
-	} else {
-		priv, err = crypto.UnmarshalPrivateKey(data)
-	}
+	priv, err := identity.LoadIdentity(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		fatal("Invalid identity key %s: %v", cfg.Identity.KeyFile, err)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 )
 
 // ----- buildRelayResources tests -----
@@ -141,18 +142,18 @@ func writeRelayServerTestConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Write identity key
+	// Write encrypted SHRL identity key + session token.
+	const testPassword = "test-password-123!"
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 0)
 	if err != nil {
 		t.Fatalf("generate key pair: %v", err)
 	}
-	data, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
-	}
 	keyFile := filepath.Join(dir, "identity.key")
-	if err := os.WriteFile(keyFile, data, 0600); err != nil {
-		t.Fatalf("write identity key: %v", err)
+	if err := identity.SaveIdentity(keyFile, priv, testPassword); err != nil {
+		t.Fatalf("save encrypted identity: %v", err)
+	}
+	if err := identity.CreateSession(dir, testPassword); err != nil {
+		t.Fatalf("create session token: %v", err)
 	}
 
 	// Write authorized_keys (empty)

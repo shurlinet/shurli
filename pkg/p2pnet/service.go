@@ -32,13 +32,21 @@ func ValidateServiceName(name string) error {
 	return validate.ServiceName(name)
 }
 
-// Service represents a service that can be exposed over the P2P network
+// Service represents a service that can be exposed over the P2P network.
+// Two modes are supported:
+//   - TCP proxy: set LocalAddress to proxy streams to a local TCP service
+//   - Custom handler: set Handler to process streams directly (for plugins)
+//
+// LocalAddress and Handler are mutually exclusive. If both are set,
+// Handler takes precedence.
 type Service struct {
-	Name         string              // Service name (e.g., "ssh", "http")
+	Name         string              // Service name (e.g., "ssh", "file-transfer")
 	Protocol     string              // libp2p protocol ID (e.g., "/shurli/ssh/1.0.0")
-	LocalAddress string              // Local TCP address (e.g., "localhost:22")
+	LocalAddress string              // TCP proxy target (e.g., "localhost:22"). Mutually exclusive with Handler.
+	Handler      StreamHandler       // Custom stream handler for plugins. Mutually exclusive with LocalAddress.
 	Enabled      bool                // Whether this service is enabled
-	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed)
+	AllowedPeers map[peer.ID]struct{} // Per-service ACL (nil = all authorized peers allowed). Used by TCP proxy path.
+	Policy       *PluginPolicy        // Transport + peer restrictions (nil = no policy, backward compat for TCP proxies).
 }
 
 // ServiceConn represents a connection to a remote service
@@ -49,10 +57,11 @@ type ServiceConn interface {
 
 // ServiceRegistry manages service registration and connections
 type ServiceRegistry struct {
-	host     host.Host
-	services map[string]*Service
-	metrics  *Metrics // nil when metrics disabled
-	mu       sync.RWMutex
+	host       host.Host
+	services   map[string]*Service
+	metrics    *Metrics // nil when metrics disabled
+	middleware []StreamMiddleware
+	mu         sync.RWMutex
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -75,8 +84,8 @@ func (r *ServiceRegistry) RegisterService(svc *Service) error {
 		return fmt.Errorf("service name cannot be empty")
 	}
 
-	if svc.LocalAddress == "" {
-		return fmt.Errorf("service local_address cannot be empty")
+	if svc.LocalAddress == "" && svc.Handler == nil {
+		return fmt.Errorf("service requires either local_address or handler")
 	}
 
 	r.mu.Lock()
@@ -90,66 +99,138 @@ func (r *ServiceRegistry) RegisterService(svc *Service) error {
 	// Register service
 	r.services[svc.Name] = svc
 
-	// Set up stream handler
+	// Set up stream handler with middleware chain
 	pid := protocol.ID(svc.Protocol)
-	r.host.SetStreamHandler(pid, r.handleServiceStream(svc))
+	r.host.SetStreamHandler(pid, r.wrapWithMiddleware(svc))
 
 	slog.Info("registered service", "service", svc.Name, "protocol", svc.Protocol, "local", svc.LocalAddress)
 
 	return nil
 }
 
-// handleServiceStream creates a stream handler for a service
-func (r *ServiceRegistry) handleServiceStream(svc *Service) func(network.Stream) {
+// wrapWithMiddleware builds a libp2p stream handler for a service, wrapping
+// the core handler with any registered middleware.
+func (r *ServiceRegistry) wrapWithMiddleware(svc *Service) func(network.Stream) {
+	// Snapshot middleware at registration time so adding middleware later
+	// doesn't silently change behavior of already-registered services.
+	mw := make([]StreamMiddleware, len(r.middleware))
+	copy(mw, r.middleware)
+
+	if len(mw) == 0 {
+		return r.handleServiceStream(svc)
+	}
+
+	// Build the core handler as a StreamHandler.
+	core := func(serviceName string, s network.Stream) {
+		r.handleServiceStreamInner(svc, s)
+	}
+
+	// Apply middleware in reverse order so first-added is outermost.
+	wrapped := core
+	for i := len(mw) - 1; i >= 0; i-- {
+		wrapped = mw[i](wrapped)
+	}
+
 	return func(s network.Stream) {
-		remotePeer := s.Conn().RemotePeer()
-		tag := connectionTag(s)
-		short := remotePeer.String()[:16] + "..."
-		slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
-
-		// Per-service access control
-		if svc.AllowedPeers != nil {
-			if _, ok := svc.AllowedPeers[remotePeer]; !ok {
-				slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
-				s.Reset()
-				return
-			}
-		}
-
-		// Connect to local service (with timeout to avoid hanging on unreachable services)
-		localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)
-		if err != nil {
-			slog.Error("failed to connect to local service", "service", svc.Name, "addr", svc.LocalAddress, "error", err)
-			s.Reset()
-			return
-		}
-
-		// Bidirectional proxy with half-close propagation and optional metrics
-		InstrumentedBidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name, r.metrics)
-
-		slog.Info("closed connection", "service", svc.Name, "peer", short)
+		wrapped(svc.Name, s)
 	}
 }
 
-// DialService connects to a remote peer's service
+// handleServiceStream creates a stream handler for a service (no middleware)
+func (r *ServiceRegistry) handleServiceStream(svc *Service) func(network.Stream) {
+	return func(s network.Stream) {
+		r.handleServiceStreamInner(svc, s)
+	}
+}
+
+// handleServiceStreamInner is the core stream handler logic, shared by both
+// the direct handler and the middleware-wrapped handler.
+func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Stream) {
+	remotePeer := s.Conn().RemotePeer()
+	tag := connectionTag(s)
+	short := remotePeer.String()[:16] + "..."
+	slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
+
+	// Plugin policy enforcement (transport + peer restrictions).
+	if svc.Policy != nil {
+		transport := ClassifyTransport(s)
+		if !svc.Policy.TransportAllowed(transport) {
+			slog.Warn("plugin transport not allowed",
+				"service", svc.Name, "peer", short,
+				"transport", transport, "allowed", svc.Policy.AllowedTransports)
+			s.Reset()
+			return
+		}
+		if !svc.Policy.PeerAllowed(remotePeer) {
+			slog.Warn("peer denied by plugin policy", "service", svc.Name, "peer", short)
+			s.Reset()
+			return
+		}
+	}
+
+	// Per-service access control (legacy path for TCP proxies without Policy).
+	if svc.Policy == nil && svc.AllowedPeers != nil {
+		if _, ok := svc.AllowedPeers[remotePeer]; !ok {
+			slog.Warn("peer not in service ACL", "service", svc.Name, "peer", short)
+			s.Reset()
+			return
+		}
+	}
+
+	// Custom handler path: delegate to the plugin's stream handler.
+	if svc.Handler != nil {
+		svc.Handler(svc.Name, s)
+		return
+	}
+
+	// TCP proxy path: connect to local service and proxy bidirectionally.
+	localConn, err := net.DialTimeout("tcp", svc.LocalAddress, 10*time.Second)
+	if err != nil {
+		slog.Error("failed to connect to local service", "service", svc.Name, "addr", svc.LocalAddress, "error", err)
+		s.Reset()
+		return
+	}
+
+	// Bidirectional proxy with half-close propagation and optional metrics
+	InstrumentedBidirectionalProxy(&serviceStream{stream: s}, &tcpHalfCloser{localConn}, svc.Name, r.metrics)
+
+	slog.Info("closed connection", "service", svc.Name, "peer", short)
+}
+
+// DialService connects to a remote peer's service.
+// If the protocol matches a locally registered service with a PluginPolicy,
+// the policy's transport restrictions are enforced.
 func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, protocolID string) (ServiceConn, error) {
 	pid := protocol.ID(protocolID)
 
 	slog.Info("dialing service", "peer", peerID.String()[:16]+"...", "protocol", protocolID)
 
-	// Allow limited (relay circuit) connections  - without this, NewStream
-	// refuses to use relay circuits and only tries direct dials, which fail
-	// when hole punching isn't possible (e.g., carrier-grade NAT on 5G).
-	relayCtx := network.WithAllowLimitedConn(ctx, protocolID)
+	// Look up local registration to check policy.
+	var policy *PluginPolicy
+	r.mu.RLock()
+	for _, svc := range r.services {
+		if svc.Protocol == protocolID {
+			policy = svc.Policy
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	// Respect transport policy: only allow relay if policy permits.
+	dialCtx := ctx
+	if policy == nil || policy.RelayAllowed() {
+		dialCtx = network.WithAllowLimitedConn(ctx, protocolID)
+	}
 
 	// Open stream to remote peer
-	s, err := r.host.NewStream(relayCtx, peerID, pid)
+	s, err := r.host.NewStream(dialCtx, peerID, pid)
 	if err != nil {
 		// UX hint: if the peer is only reachable through relay circuits and
 		// the stream failed, the relay likely blocked the data circuit.
-		// This is NOT enforcement (the relay does that server-side via ACL),
-		// it's just a helpful message explaining why the connection failed.
 		if isRelayOnlyPeer(r.host, peerID) {
+			if policy != nil && !policy.RelayAllowed() {
+				return nil, fmt.Errorf("plugin policy does not allow relay, and peer is only reachable via relay: %w", err)
+			}
 			return nil, fmt.Errorf("failed to open stream: %w\n\n%s", err, relayDataHint)
 		}
 		return nil, fmt.Errorf("failed to open stream: %w", err)
@@ -213,6 +294,14 @@ func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 
 	svc, exists := r.services[name]
 	return svc, exists
+}
+
+// Use adds stream middleware that wraps every inbound stream handler.
+// Middleware is applied in the order added (first added = outermost wrapper).
+func (r *ServiceRegistry) Use(middleware ...StreamMiddleware) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.middleware = append(r.middleware, middleware...)
 }
 
 // ListServices returns all registered services

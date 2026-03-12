@@ -7,14 +7,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -24,7 +22,7 @@ func runProxy(args []string) {
 	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	standaloneFlag := fs.Bool("standalone", false, "use direct P2P without daemon (debug)")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 3 {
@@ -41,9 +39,12 @@ func runProxy(args []string) {
 	serviceName := remaining[1]
 	localPort := remaining[2]
 
+	// Standalone allowed via CLI flag or config setting.
+	allowStandalone := *standaloneFlag || configAllowsStandalone(*configFlag)
+
 	// Try daemon first (faster, uses daemon's managed connection with
 	// PeerManager path upgrades, mDNS, IPv6 probing).
-	if !*standaloneFlag {
+	if !allowStandalone {
 		if client := tryDaemonClient(); client != nil {
 			runProxyViaDaemon(client, target, serviceName, localPort)
 			return
@@ -51,7 +52,7 @@ func runProxy(args []string) {
 	}
 
 	// Standalone P2P host (no daemon running, or --standalone forced)
-	runProxyStandalone(target, serviceName, localPort, *configFlag, *standaloneFlag)
+	runProxyStandalone(target, serviceName, localPort, *configFlag, allowStandalone)
 }
 
 // runProxyViaDaemon creates a TCP proxy through the running daemon.
@@ -103,64 +104,40 @@ func runProxyViaDaemon(client *daemon.Client, target, service, port string) {
 
 // runProxyStandalone creates a TCP proxy with its own P2P host.
 // Used when no daemon is running (debug/development mode).
-func runProxyStandalone(target, serviceName, localPort, configPath string, forceStandalone bool) {
+func runProxyStandalone(target, serviceName, localPort, configPath string, allowStandalone bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Find and load config
-	cfgFile, err := config.FindConfigFile(configPath)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	cfg, err := config.LoadNodeConfig(cfgFile)
-	if err != nil {
-		fatal("Config error: %v", err)
-	}
-	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
-
-	// Require explicit --standalone when daemon is not available.
-	if !forceStandalone {
+	// Require explicit --standalone or config setting when daemon is not available.
+	if !allowStandalone {
 		fmt.Println("Daemon not running. Start it with:")
 		fmt.Println("  shurli daemon")
 		fmt.Println()
 		fmt.Println("Or use --standalone flag for direct P2P (debug):")
 		fmt.Printf("  shurli proxy --standalone %s %s %s\n", target, serviceName, localPort)
+		fmt.Println()
+		fmt.Println("Or set cli.allow_standalone: true in config for persistent standalone access.")
 		osExit(1)
 	}
 
+	// Create standalone P2P host from config.
+	pw, _ := resolvePasswordFromConfig(configPath)
+	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+		ConfigPath: configPath,
+		Password:   pw,
+		UserAgent:  "shurli/" + version,
+	})
+	if err != nil {
+		fatal("%v", err)
+	}
+	p2pNetwork := standalone.Network
+	cfg := standalone.NodeConfig
+	defer p2pNetwork.Close()
+
 	tc.Wblue(os.Stdout, "=== TCP Proxy via P2P (standalone) ===\n")
-	tc.Wfaint(os.Stdout, "Config: %s\n", cfgFile)
 	tc.Wblue(os.Stdout, "Service: ")
 	fmt.Printf("%s\n", serviceName)
 	fmt.Println()
-
-	// Resolve password for SHRL-encrypted identity key.
-	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-
-	// Create P2P network
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
-		KeyFile:            cfg.Identity.KeyFile,
-		KeyPassword:        pw,
-		Config:             &config.Config{Network: cfg.Network},
-		UserAgent:          "shurli/" + version,
-		Namespace:          cfg.Discovery.Network,
-		EnableRelay:        true,
-		RelayAddrs:         cfg.Relay.Addresses,
-		ForcePrivate:       cfg.Network.ForcePrivateReachability,
-		EnableNATPortMap:   true,
-		EnableHolePunching: true,
-	})
-	if err != nil {
-		fatal("P2P network error: %v", err)
-	}
-	defer p2pNetwork.Close()
-
-	// Load names from config for resolution
-	if cfg.Names != nil {
-		if err := p2pNetwork.LoadNames(cfg.Names); err != nil {
-			log.Printf("Failed to load names: %v", err)
-		}
-	}
 
 	// Resolve target (name or peer ID)
 	homePeerID, err := p2pNetwork.ResolveName(target)
