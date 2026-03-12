@@ -38,7 +38,7 @@ func doRelayMOTDSet(args []string, configFile string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay motd set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -72,7 +72,7 @@ func doRelayMOTDClear(args []string, configFile string, stdout io.Writer) error 
 	fs := flag.NewFlagSet("relay motd clear", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -101,7 +101,7 @@ func doRelayMOTDStatus(args []string, configFile string, stdout io.Writer) error
 	fs := flag.NewFlagSet("relay motd status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -163,7 +163,7 @@ func doRelayGoodbyeSet(args []string, configFile string, stdout io.Writer) error
 	fs := flag.NewFlagSet("relay goodbye set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -198,7 +198,7 @@ func doRelayGoodbyeRetract(args []string, configFile string, stdout io.Writer) e
 	fs := flag.NewFlagSet("relay goodbye retract", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -227,7 +227,7 @@ func doRelayGoodbyeShutdown(args []string, configFile string, stdout io.Writer) 
 	fs := flag.NewFlagSet("relay goodbye shutdown", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 

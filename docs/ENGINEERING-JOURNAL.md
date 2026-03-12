@@ -19,3 +19,5 @@ This document has been split into per-batch files for easier navigation. See the
 - [Phase 5: Network Resilience](engineering-journal/phase5-network-resilience.md) - ADR-L01 to ADR-L08
 - [Dev Tooling](engineering-journal/dev-tooling.md) - ADR-DT01 to ADR-DT02
 - [Phase 6: ACL + Relay Security + Client Invites](engineering-journal/phase6-acl-relay-security.md) - ADR-M01 to ADR-M08
+- [Phase 9: SDK, Plugins & Protocol Consolidation](engineering-journal/phase9-sdk-plugins.md) - ADR-Q01 to ADR-Q05
+- [Phase 9: File Transfer Architecture](engineering-journal/phase9-file-transfer.md) - ADR-R01 to ADR-R09

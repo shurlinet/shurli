@@ -54,6 +54,9 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Services  ServicesConfig  `yaml:"services,omitempty"`
 		Names     NamesConfig     `yaml:"names,omitempty"`
 		Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
+		PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
+		Transfer  TransferConfig  `yaml:"transfer,omitempty"`
+		CLI       CLIConfig       `yaml:"cli,omitempty"`
 	}
 
 	if err := yaml.Unmarshal(data, &rawConfig); err != nil {
@@ -85,6 +88,9 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Services:  rawConfig.Services,
 		Names:     rawConfig.Names,
 		Telemetry: rawConfig.Telemetry,
+		PeerRelay: rawConfig.PeerRelay,
+		Transfer:  rawConfig.Transfer,
+		CLI:       rawConfig.CLI,
 		Relay: RelayConfig{
 			Addresses:           rawConfig.Relay.Addresses,
 			ReservationInterval: reservationInterval,

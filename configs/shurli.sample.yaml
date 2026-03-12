@@ -88,6 +88,16 @@ protocols:
 names: {}
 #  home: "12D3KooW..."
 
+# File transfer settings
+# transfer:
+#   receive_dir: "~/Downloads/shurli/"   # where received files are saved
+#   receive_mode: "contacts"             # off, contacts (default), ask, open
+#   compress: true                       # zstd compression (default: true)
+#   erasure_overhead: 0.1                # Reed-Solomon parity: 0.1 = 10% (default), 0 = disabled
+#   notify: "none"                       # none (default), desktop, command
+#   notify_command: ""                   # template for command mode ({from}, {file}, {size})
+#   timed_duration: "10m"                # default duration for timed receive mode
+
 # CLI behavior (subcommand settings)
 # cli:
 #   # Allow subcommands to create their own P2P connections when no daemon

@@ -330,6 +330,67 @@ the DHT if the name is not found locally.
 .B proxy \fItarget\fR \fIservice\fR \fIlocal-port\fR
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
+.TP
+.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--streams\fR \fIN\fR] [\fB--priority\fR \fIP\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
+Send a file to a peer over the P2P network. Uses chunked transfer with
+BLAKE3 Merkle integrity verification and zstd compression (on by default).
+Use \fB--no-compress\fR to disable compression. Use \fB--streams\fR to set
+the parallel stream count (0 = auto based on transport type). Use
+\fB--priority\fR to set queue priority (low, normal, high; default: normal).
+The command submits the transfer to the daemon and exits immediately
+(fire-and-forget). Use \fB--follow\fR to stay attached and watch progress
+inline. Use \fB--quiet\fR for a single progress bar (no chunk details) or
+\fB--silent\fR for no progress output. Requires a running daemon.
+.TP
+.B share add \fIpath\fR [\fB--to\fR \fIpeer\fR] [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
+Share a file or directory with authorized peers. Use \fB--to\fR to share
+with a single peer, or \fB--peers\fR for multiple peers. Using both
+\fB--to\fR and \fB--peers\fR together is an error. Without either flag,
+all authorized peers have access. Use \fB--persist\fR to survive daemon
+restarts.
+.TP
+.B share remove \fIpath\fR [\fB--json\fR]
+Stop sharing a previously shared path.
+.TP
+.B share list [\fB--json\fR]
+List all currently shared paths, their type (file or directory),
+and peer restrictions.
+.TP
+.B browse \fIpeer\fR [\fB--path\fR \fI/sub/dir\fR] [\fB--json\fR]
+Browse files and directories shared by a remote peer. Use \fB--path\fR
+to navigate within a specific shared directory. Only shows content the
+remote peer has explicitly shared with you.
+.TP
+.B download \fIpeer\fR:\fIpath\fR [\fB--dest\fR \fIdir\fR] [\fB--follow\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--multi-peer\fR] [\fB--peers\fR \fIlist\fR] [\fB--json\fR]
+Download a file from a remote peer's shared files. The argument uses
+\fIpeer\fR:\fIpath\fR format where the path is as shown by
+\fBshurli browse\fR. Use \fB--dest\fR to save to a specific local
+directory (default: configured receive directory). Use \fB--follow\fR
+to watch progress inline. Use \fB--multi-peer\fR with \fB--peers\fR
+to download from multiple peers simultaneously using RaptorQ fountain
+codes for loss-tolerant swarming. Requires a running daemon.
+.TP
+.B transfers \fR[\fB--watch\fR] [\fB--history\fR] [\fB--max\fR \fIN\fR] [\fB--json\fR]
+List pending, active, and completed file transfers. Shows direction, peer,
+progress, compression status, and errors. Use \fB--watch\fR for a live feed
+that refreshes every 2 seconds (read-only; use \fBaccept\fR/\fBreject\fR in
+a separate terminal for actions). Use \fB--history\fR to show the structured
+transfer event log. Use \fB--max\fR to limit history output (default: 50).
+.TP
+.B accept \fIid\fR|\fB--all\fR [\fB--dest\fR \fIpath\fR] [\fB--json\fR]
+Accept a pending incoming file transfer (ask mode). Use \fB--all\fR to
+accept all pending transfers at once. Use \fB--dest\fR to save to a specific
+directory instead of the default receive directory.
+.TP
+.B reject \fIid\fR|\fB--all\fR [\fB--reason\fR space|busy|size] [\fB--json\fR]
+Reject a pending incoming file transfer. Use \fB--all\fR to reject all
+pending transfers at once. Use \fB--reason\fR to announce the rejection
+reason to the sender. Without \fB--reason\fR, the sender sees a generic
+"declined" message.
+.TP
+.B cancel \fIid\fR [\fB--json\fR]
+Cancel a queued or active file transfer. Queued transfers are removed from
+the queue. Active transfers are stopped with best effort.
 
 .SH IDENTITY & ACCESS
 Access control in shurli is based on
@@ -379,10 +440,12 @@ Parse and validate the config file. Reports errors without starting anything.
 Print the fully resolved configuration (with defaults filled in and relative
 paths expanded).
 .TP
-.B config set \fIkey\fR \fIvalue\fR [\fB--config\fR \fIpath\fR]
+.B config set \fIkey\fR \fIvalue\fR [\fB--config\fR \fIpath\fR] [\fB--duration\fR \fI10m\fR]
 Set a single config value using a dotted key path (e.g.,
 \fBnetwork.force_private_reachability true\fR). Preserves YAML structure and
-comments. Restart the daemon to apply changes.
+comments. Use \fB--duration\fR with \fBtransfer.receive_mode timed\fR to set
+both the mode and duration in a single command. Apply without restart:
+\fBshurli config reload\fR.
 .TP
 .B config rollback \fR[\fB--config\fR \fIpath\fR]
 Replace the current config with the last-known-good backup (created

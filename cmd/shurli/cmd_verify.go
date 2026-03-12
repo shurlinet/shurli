@@ -19,7 +19,7 @@ import (
 func runVerify(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: shurli verify <peer-name-or-id> [--config path]")

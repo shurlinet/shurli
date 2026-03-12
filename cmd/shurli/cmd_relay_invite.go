@@ -40,7 +40,7 @@ func doRelayInviteCreate(args []string, configFile string, stdout io.Writer) err
 	ttlFlag := fs.Duration("ttl", time.Hour, "how long the invite code is valid")
 	expiresFlag := fs.Duration("expires", 0, "authorization expiry for joined peer (0 = never)")
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		return err
 	}
 
@@ -87,7 +87,7 @@ func doRelayInviteList(args []string, configFile string, stdout io.Writer) error
 	fs := flag.NewFlagSet("relay invite list", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
 	if err != nil {
@@ -130,7 +130,7 @@ func doRelayInviteRevoke(args []string, configFile string, stdout io.Writer) err
 	fs := flag.NewFlagSet("relay invite revoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
-	fs.Parse(args)
+	fs.Parse(reorderFlags(fs, args))
 
 	if fs.NArg() < 1 {
 		return fmt.Errorf("usage: shurli relay invite revoke <group-id> [--remote <addr>]")

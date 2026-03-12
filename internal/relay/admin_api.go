@@ -11,7 +11,7 @@ var (
 // implement this interface, allowing CLI commands to work with either
 // transport transparently.
 type RelayAdminAPI interface {
-	Unseal(password, totpCode string) error
+	Unseal(password, totpCode string, yubikeyResponse []byte) error
 	Seal() error
 	SealStatus() (*SealStatusResponse, error)
 	// InitVault removed from interface: seed material must never travel over
