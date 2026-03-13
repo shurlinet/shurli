@@ -392,7 +392,17 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
 				return
 			}
-			slog.Info("mdns: connected to LAN peer", "peer", short)
+			// Verify we actually established a direct connection. If pathDialer
+			// won the race while this goroutine was starting, Connect() returns
+			// nil immediately (peer already connected via relay) with no direct
+			// established. The false "connected to LAN peer" log masked this
+			// TOCTOU race — the real direct arrives later via home-node inbound.
+			if allConnsRelayed(md.host.Network().ConnsToPeer(pi.ID)) {
+				slog.Info("mdns: connect nil but relay-only (pathDialer won race, awaiting inbound direct)",
+					"peer", short)
+			} else {
+				slog.Info("mdns: connected to LAN peer", "peer", short)
+			}
 		}
 		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
