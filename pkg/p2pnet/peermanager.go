@@ -115,6 +115,20 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
 		"local", c.LocalMultiaddr())
+
+	// When a direct connection arrives (especially inbound from home-node
+	// after pathDialer already established relay), clean up the idle relay
+	// immediately. Without this, relay lingers until the 2-minute probe
+	// cycle catches it. The guard in startRelayCleanup prevents duplicates.
+	if !c.Stat().Limited {
+		pid := c.RemotePeer()
+		for _, existing := range n.ConnsToPeer(pid) {
+			if existing.Stat().Limited {
+				cl.pm.startRelayCleanup(pid)
+				break
+			}
+		}
+	}
 }
 func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
 	cl.pm.mu.RLock()
@@ -184,6 +198,11 @@ type PeerManager struct {
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
 
+	// relayCleanup tracks peers with an active closeRelayConns goroutine.
+	// Prevents duplicate 90-second sweep goroutines from stacking up when
+	// multiple triggers (connLogger, probeLoop) detect the same condition.
+	relayCleanup map[peer.ID]struct{}
+
 	// reconnectNow is a non-blocking trigger that causes the reconnect
 	// loop to run a cycle immediately instead of waiting for the next
 	// 30-second tick. Used after network changes to avoid stale delays.
@@ -203,6 +222,7 @@ func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect Connect
 		metrics:      m,
 		onReconnect:  onReconnect,
 		peers:        make(map[peer.ID]*ManagedPeer),
+		relayCleanup: make(map[peer.ID]struct{}),
 		reconnectNow: make(chan struct{}, 1),
 	}
 }
@@ -711,11 +731,20 @@ func (pm *PeerManager) incMetric(result string) {
 // direct connections intact. Runs periodically for the probe cooldown
 // duration to catch relay connections re-established by the remote
 // peer's reconnect loop.
+//
+// Guarded by relayCleanup map: only one goroutine runs per peer at a time.
+// Call via startRelayCleanup() which handles the guard check.
 func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 	short := pid.String()
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
+
+	defer func() {
+		pm.mu.Lock()
+		delete(pm.relayCleanup, pid)
+		pm.mu.Unlock()
+	}()
 
 	// Close immediately, then periodically for 90s.
 	// The remote peer's reconnect loop runs every 30s, so we need
@@ -764,6 +793,21 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 	}
 }
 
+// startRelayCleanup launches closeRelayConns for a peer if one isn't
+// already running. Returns true if a new goroutine was launched.
+func (pm *PeerManager) startRelayCleanup(pid peer.ID) bool {
+	pm.mu.Lock()
+	if _, running := pm.relayCleanup[pid]; running {
+		pm.mu.Unlock()
+		return false
+	}
+	pm.relayCleanup[pid] = struct{}{}
+	pm.mu.Unlock()
+
+	go pm.closeRelayConns(pid)
+	return true
+}
+
 // ProbeAndUpgradeRelayed checks if any watched peers currently connected
 // via relay have a direct IPv6 path available through any local interface.
 // For each candidate, a raw TCP probe confirms reachability before closing
@@ -799,6 +843,18 @@ func (pm *PeerManager) ProbeAndUpgradeRelayed() {
 		}
 
 		if !relayed {
+			// Peer has a direct connection. Clean up any relay connections
+			// that accumulated alongside it — e.g., pathDialer established
+			// relay just before mDNS or home-node's inbound direct arrived.
+			// probeAndUpgrade normally skips non-relayed peers, so without
+			// this, idle relay connections linger indefinitely wasting relay
+			// server resources.
+			for _, c := range conns {
+				if c.Stat().Limited {
+					pm.startRelayCleanup(pid)
+					break
+				}
+			}
 			slog.Debug("peermanager: probe skip (direct)", "peer", short)
 			continue
 		}
@@ -999,7 +1055,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			// Close relay connections now that direct is established.
 			// Runs as goroutine to keep sweeping for 90s in case the
 			// remote peer's reconnect loop re-establishes relay.
-			go pm.closeRelayConns(pid)
+			pm.startRelayCleanup(pid)
 
 			pm.incMetric("probe_upgrade")
 			return
