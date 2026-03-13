@@ -484,40 +484,61 @@ func randomString(l int) string {
 	return string(s)
 }
 
-// filterLANAddrs returns only the multiaddrs with a private IPv4 address
-// on the same subnet as one of our local interfaces. mDNS means "same
-// LAN", so only private IPv4 addresses are reliable for direct connection.
-//
-// Why not IPv6/ULA: many consumer routers give all clients the same IPv6
-// prefix but block inter-client IPv6 traffic (client isolation). ULA
-// prefixes (fd00::/8) match our subnet but may also be blocked. Private
-// IPv4 is the universal LAN signal: if both devices share a 10.x/16 or
-// 192.168.x/24 subnet, they can talk.
-func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
-	localNets := localIPv4Subnets()
-	if len(localNets) == 0 {
-		return nil // can't determine local subnets, don't filter
+// rfc1918Nets are the globally-defined private IPv4 ranges (RFC 1918) plus
+// RFC 6598 shared address space (100.64.0.0/10, used by CGNAT). These are
+// the authoritative "local" ranges — any IP in them is non-routable on the
+// public internet, and if mDNS delivered a packet from a peer advertising
+// such an address, the peer is reachable on the local network by definition.
+// Subnet mask size is irrelevant: a /16 LAN and a /24 LAN are equally local.
+var rfc1918Nets = func() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10", // RFC 6598 shared address space (CGNAT)
 	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, n, _ := net.ParseCIDR(cidr)
+		nets = append(nets, n)
+	}
+	return nets
+}()
 
+// isPrivateIPv4 returns true if ip falls within any RFC 1918 or RFC 6598 range.
+func isPrivateIPv4(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	for _, n := range rfc1918Nets {
+		if n.Contains(ip4) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterLANAddrs returns only the multiaddrs with a private IPv4 address
+// (RFC 1918 / RFC 6598). mDNS multicast is link-local — receiving a peer's
+// advertisement proves the peer is on the same physical network. The peer's
+// private IPv4 addresses are therefore directly reachable regardless of the
+// subnet mask size (/16, /24, etc.). Public IPv6, ULA, and relay addresses
+// are excluded: many routers block inter-client IPv6 (client isolation), and
+// relay addresses should never be used for direct LAN connects.
+func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	var lan []ma.Multiaddr
 	for _, addr := range addrs {
 		first, _ := ma.SplitFirst(addr)
-		if first == nil {
-			continue
-		}
-		if first.Protocol().Code != ma.P_IP4 {
+		if first == nil || first.Protocol().Code != ma.P_IP4 {
 			continue
 		}
 		ip := net.ParseIP(first.Value())
 		if ip == nil || ip.IsLoopback() {
 			continue
 		}
-		// Keep if the IPv4 is on any of our local subnets
-		for _, ln := range localNets {
-			if ln.Contains(ip) {
-				lan = append(lan, addr)
-				break
-			}
+		if isPrivateIPv4(ip) {
+			lan = append(lan, addr)
 		}
 	}
 	return lan
@@ -544,36 +565,3 @@ func filterTCPAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	return tcp
 }
 
-// localIPv4Subnets returns the CIDR networks of all private IPv4
-// addresses on active, non-loopback interfaces.
-func localIPv4Subnets() []*net.IPNet {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return nil
-	}
-	var nets []*net.IPNet
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			ipNet, ok := a.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			ip4 := ipNet.IP.To4()
-			if ip4 == nil {
-				continue // IPv6, skip
-			}
-			if ip4.IsLinkLocalUnicast() || ip4.IsLoopback() {
-				continue
-			}
-			nets = append(nets, ipNet)
-		}
-	}
-	return nets
-}
