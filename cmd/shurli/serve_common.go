@@ -568,6 +568,13 @@ func (rt *serveRuntime) Bootstrap() error {
 		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
 		rt.network.ResetBlackHoles()
 
+		// Clear swarm dial backoffs for watched peers. Previous "no route to
+		// host" failures are invalid after a network change (e.g., VPN with
+		// local network sharing now allows LAN paths that previously failed).
+		if rt.peerManager != nil && rt.gater != nil {
+			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+		}
+
 		// Re-evaluate peer relay eligibility on network change
 		if rt.peerRelay != nil {
 			rt.peerRelay.AutoDetect(newSummary)
