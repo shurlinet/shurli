@@ -50,8 +50,12 @@ func watchNetworkChanges(ctx context.Context, ch chan<- struct{}) {
 		hdr := (*routeMessageHeader)(unsafe.Pointer(&buf[0]))
 		switch hdr.Type {
 		case syscall.RTM_NEWADDR, syscall.RTM_DELADDR,
-			syscall.RTM_IFINFO:
-			// Interface address added/removed or interface state changed
+			syscall.RTM_IFINFO,
+			syscall.RTM_ADD, syscall.RTM_DELETE, syscall.RTM_CHANGE:
+			// Address added/removed, interface state changed, or route changed.
+			// Route changes (ADD/DELETE/CHANGE) catch WiFi hotspot switches
+			// where only the default gateway changes (private IPv4, no global IP diff).
+			slog.Debug("netmonitor: route socket event", "type", hdr.Type)
 			select {
 			case ch <- struct{}{}:
 			default:

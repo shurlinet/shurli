@@ -648,8 +648,8 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.netIntel.AnnounceNow()
 		}
 
-		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
-			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
+		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v gw=%v)\n",
+			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed, change.GatewayChanged)
 
 		// Re-probe STUN on network change (external address may have changed)
 		if rt.stunProber != nil {
