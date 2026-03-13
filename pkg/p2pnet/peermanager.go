@@ -318,6 +318,53 @@ func (pm *PeerManager) OnNetworkChange() {
 	}
 }
 
+// StripPrivateAddrs removes private/LAN addresses from the peerstore for
+// all watched peers. Called during network changes BEFORE triggering
+// reconnect or mDNS browse. This prevents the swarm dial worker from
+// caching stale LAN address failures that poison concurrent direct dials
+// (see libp2p-overrides.md section 6: dial worker deduplication race).
+// mDNS re-populates LAN addresses from fresh discovery after the strip.
+func (pm *PeerManager) StripPrivateAddrs() {
+	pm.mu.RLock()
+	var peerIDs []peer.ID
+	for pid := range pm.peers {
+		peerIDs = append(peerIDs, pid)
+	}
+	pm.mu.RUnlock()
+
+	ps := pm.host.Peerstore()
+	stripped := 0
+	for _, pid := range peerIDs {
+		addrs := ps.Addrs(pid)
+		// Count stale addrs first to avoid allocating keep slice when
+		// all addrs are public (common case for relay-connected peers).
+		staleCount := 0
+		for _, a := range addrs {
+			if isStaleOnNetworkChange(a) {
+				staleCount++
+			}
+		}
+		if staleCount == 0 {
+			continue
+		}
+		keep := make([]ma.Multiaddr, 0, len(addrs)-staleCount)
+		for _, a := range addrs {
+			if !isStaleOnNetworkChange(a) {
+				keep = append(keep, a)
+			}
+		}
+		ps.ClearAddrs(pid)
+		if len(keep) > 0 {
+			ps.AddAddrs(pid, keep, discoveredAddrTTL)
+		}
+		stripped += staleCount
+	}
+	if stripped > 0 {
+		slog.Debug("peermanager: stripped private addrs from peerstore",
+			"count", stripped, "peers", len(peerIDs))
+	}
+}
+
 // CloseStaleConnections closes connections to watched peers whose local
 // address is no longer present on any active interface. When a network
 // interface disappears (WiFi switch, USB LAN unplug), connections bound
@@ -891,7 +938,7 @@ func (pm *PeerManager) ProbeAndUpgradeRelayed() {
 				continue
 			}
 			// AddAddrs to peerstore so probeAndUpgrade can use them.
-			pm.host.Peerstore().AddAddrs(pid, pi.Addrs, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, pi.Addrs, discoveredAddrTTL)
 
 			slog.Debug("peermanager: DHT refreshed addrs", "peer", short,
 				"count", len(pi.Addrs))
@@ -1018,7 +1065,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			// connections survive (they're independent of the peerstore).
 			allPeerAddrs := pm.host.Peerstore().Addrs(pid)
 			pm.host.Peerstore().ClearAddrs(pid)
-			pm.host.Peerstore().AddAddrs(pid, []ma.Multiaddr{confirmedTCP}, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, []ma.Multiaddr{confirmedTCP}, discoveredAddrTTL)
 
 			// Force a direct dial using only the confirmed address.
 			ctx, cancel := context.WithTimeout(pm.ctx, probeConnectTimeout)
@@ -1027,7 +1074,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			cancel()
 
 			// Restore the full address set regardless of outcome.
-			pm.host.Peerstore().AddAddrs(pid, allPeerAddrs, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, allPeerAddrs, discoveredAddrTTL)
 
 			if err != nil {
 				slog.Warn("peermanager: direct dial failed, relay stays",
