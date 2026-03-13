@@ -805,6 +805,7 @@ func probeTCPReachable(ctx context.Context, network, addr string, budget time.Du
 			conn.Close()
 			return true
 		}
+		slog.Debug("mdns: probe attempt failed", "addr", addr, "error", err)
 		if ctx.Err() != nil {
 			return false
 		}
