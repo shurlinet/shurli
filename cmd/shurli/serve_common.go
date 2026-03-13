@@ -563,6 +563,17 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
 		}
 
+		// Strip private/LAN addresses from watched peers' peerstore FIRST,
+		// before any subsystem can trigger a DialPeer that reads the peerstore.
+		// The swarm's dial worker caches dial failures per address; if any
+		// subsystem tries a stale LAN address during WiFi settling, the cached
+		// "no route to host" poisons concurrent mDNS upgrades joining the same
+		// worker. mDNS re-populates LAN addresses from fresh multicast discovery.
+		// Order: strip → reset black holes → clear backoffs → reconnectNow → BrowseNow
+		if rt.peerManager != nil {
+			rt.peerManager.StripPrivateAddrs()
+		}
+
 		// Reset libp2p's black hole detectors. A network change invalidates
 		// the previous state: IPv6/UDP may work on the new network even if
 		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
