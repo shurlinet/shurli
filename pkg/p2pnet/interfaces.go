@@ -30,6 +30,12 @@ type InterfaceSummary struct {
 	// when global IPs don't change (VPN tunnels typically carry only
 	// private IPv4, invisible to the global IP diff).
 	TunnelInterfaces []string `json:"tunnel_interfaces,omitempty"`
+
+	// DefaultGateway is the IPv4 default gateway address. Used by
+	// diffSummaries to detect network switches between private-IPv4-only
+	// networks (e.g., two different CGNAT carriers) where no global IP
+	// changes occur. Platform-specific: parsed from route table.
+	DefaultGateway string `json:"default_gateway,omitempty"`
 }
 
 // DiscoverInterfaces enumerates all network interfaces, filters for global
@@ -37,7 +43,12 @@ type InterfaceSummary struct {
 // IPv4 addresses are excluded from the global lists but the interface itself
 // is still reported (for debugging).
 func DiscoverInterfaces() (*InterfaceSummary, error) {
-	return discoverInterfacesFrom(net.Interfaces)
+	s, err := discoverInterfacesFrom(net.Interfaces)
+	if err != nil {
+		return nil, err
+	}
+	s.DefaultGateway = defaultGateway()
+	return s, nil
 }
 
 // discoverInterfacesFrom is the testable core. It accepts a function matching
