@@ -78,6 +78,72 @@ const (
 // serve_common.go wires it to PeerHistory.RecordConnection().
 type ConnectionRecorder func(peerID, pathType string, latencyMs float64)
 
+// connLogger implements network.Notifee to log every connection close
+// event for watched peers. This is the only way to capture the closing
+// connection's RemoteMultiaddr and direction before libp2p removes it
+// from ConnsToPeer. Used to diagnose why direct connections die unexpectedly
+// (flag #1: 13s direct connection death after mDNS upgrade).
+// Registered on Start(), deregistered on Close().
+type connLogger struct {
+	pm *PeerManager
+}
+
+func (cl *connLogger) Listen(n network.Network, addr ma.Multiaddr)      {}
+func (cl *connLogger) ListenClose(n network.Network, addr ma.Multiaddr) {}
+func (cl *connLogger) Connected(n network.Network, c network.Conn) {
+	cl.pm.mu.RLock()
+	_, watched := cl.pm.peers[c.RemotePeer()]
+	cl.pm.mu.RUnlock()
+	if !watched {
+		return
+	}
+	dir := "outbound"
+	if c.Stat().Direction == network.DirInbound {
+		dir = "inbound"
+	}
+	connType := "direct"
+	if c.Stat().Limited {
+		connType = "relay"
+	}
+	short := c.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: connection opened",
+		"peer", short,
+		"type", connType,
+		"direction", dir,
+		"remote", c.RemoteMultiaddr(),
+		"local", c.LocalMultiaddr())
+}
+func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
+	cl.pm.mu.RLock()
+	_, watched := cl.pm.peers[c.RemotePeer()]
+	cl.pm.mu.RUnlock()
+	if !watched {
+		return
+	}
+
+	dir := "outbound"
+	if c.Stat().Direction == network.DirInbound {
+		dir = "inbound"
+	}
+	connType := "direct"
+	if c.Stat().Limited {
+		connType = "relay"
+	}
+	short := c.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: connection closed",
+		"peer", short,
+		"type", connType,
+		"direction", dir,
+		"remote", c.RemoteMultiaddr(),
+		"local", c.LocalMultiaddr())
+}
+
 // ManagedPeer tracks the lifecycle state of a single watched peer.
 type ManagedPeer struct {
 	ID              peer.ID
@@ -113,6 +179,7 @@ type PeerManager struct {
 	pathDialer  *PathDialer
 	metrics     *Metrics
 	onReconnect ConnectionRecorder // nil-safe
+	connLog     *connLogger        // logs connection close events for watched peers
 
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
@@ -146,6 +213,9 @@ func (pm *PeerManager) Start(ctx context.Context) {
 	pm.ctx, pm.cancel = context.WithCancel(ctx)
 	pm.snapshotExisting()
 
+	pm.connLog = &connLogger{pm: pm}
+	pm.host.Network().Notify(pm.connLog)
+
 	pm.wg.Add(3)
 	go pm.eventLoop()
 	go pm.reconnectLoop()
@@ -156,6 +226,9 @@ func (pm *PeerManager) Start(ctx context.Context) {
 
 // Close stops all background goroutines and waits for them to finish.
 func (pm *PeerManager) Close() {
+	if pm.connLog != nil {
+		pm.host.Network().StopNotify(pm.connLog)
+	}
 	pm.cancel()
 	pm.wg.Wait()
 }
@@ -656,8 +729,9 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 		for _, c := range pm.host.Network().ConnsToPeer(pid) {
 			if c.Stat().Limited {
 				c.Close()
-				slog.Debug("peermanager: closed relay conn (direct exists)",
-					"peer", short)
+				slog.Info("peermanager: closed relay conn (direct exists)",
+					"peer", short,
+					"remote", c.RemoteMultiaddr())
 			}
 		}
 	}
