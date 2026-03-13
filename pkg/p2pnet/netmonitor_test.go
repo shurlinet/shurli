@@ -153,6 +153,115 @@ func TestMakeIPSet_Nil(t *testing.T) {
 	}
 }
 
+func TestDiffSummaries_TunnelAdded(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::1"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun5"},
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when tunnel added, got nil")
+	}
+	if !change.TunnelChanged {
+		t.Error("expected TunnelChanged=true")
+	}
+	// Global IPs didn't change
+	if len(change.Added) != 0 || len(change.Removed) != 0 {
+		t.Errorf("expected no IP changes, got added=%v removed=%v", change.Added, change.Removed)
+	}
+}
+
+func TestDiffSummaries_TunnelRemoved(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun5"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::1"},
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when tunnel removed, got nil")
+	}
+	if !change.TunnelChanged {
+		t.Error("expected TunnelChanged=true")
+	}
+}
+
+func TestDiffSummaries_TunnelUnchanged(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun3"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun3"},
+	}
+
+	change := diffSummaries(old, current)
+	if change != nil {
+		t.Errorf("expected nil change when tunnel unchanged, got %+v", change)
+	}
+}
+
+func TestTunnelSetChanged(t *testing.T) {
+	tests := []struct {
+		name    string
+		a, b    []string
+		changed bool
+	}{
+		{"both empty", nil, nil, false},
+		{"same", []string{"utun3"}, []string{"utun3"}, false},
+		{"added", nil, []string{"utun5"}, true},
+		{"removed", []string{"utun5"}, nil, true},
+		{"different", []string{"utun3"}, []string{"utun5"}, true},
+		{"added second", []string{"utun3"}, []string{"utun3", "utun5"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tunnelSetChanged(tt.a, tt.b)
+			if got != tt.changed {
+				t.Errorf("tunnelSetChanged = %v, want %v", got, tt.changed)
+			}
+		})
+	}
+}
+
+func TestIsTunnelInterface(t *testing.T) {
+	tests := []struct {
+		name   string
+		iface  string
+		tunnel bool
+	}{
+		{"utun macOS", "utun5", true},
+		{"tun Linux", "tun0", true},
+		{"wg WireGuard", "wg0", true},
+		{"ppp L2TP", "ppp0", true},
+		{"en0 WiFi", "en0", false},
+		{"lo0 loopback", "lo0", false},
+		{"bridge", "bridge0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTunnelInterface(tt.iface)
+			if got != tt.tunnel {
+				t.Errorf("isTunnelInterface(%q) = %v, want %v", tt.iface, got, tt.tunnel)
+			}
+		})
+	}
+}
+
 func TestIPVersionChanged(t *testing.T) {
 	tests := []struct {
 		name    string

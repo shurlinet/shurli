@@ -486,6 +486,24 @@ func (n *Network) ResetBlackHoles() {
 	slog.Info("libp2p: black hole detectors reset (network change)")
 }
 
+// ClearDialBackoffs clears the swarm's per-peer dial backoff cache.
+// Call after a network change: the previous "no route to host" failures
+// are invalid because the new network may have different routing (e.g.,
+// VPN with local network sharing now allows LAN paths that previously failed).
+// Without this, mDNS upgrade attempts are rejected by stale swarm backoffs.
+func (n *Network) ClearDialBackoffs(peers []peer.ID) {
+	sw, ok := n.host.Network().(*swarm.Swarm)
+	if !ok {
+		return
+	}
+	for _, pid := range peers {
+		sw.Backoff().Clear(pid)
+	}
+	if len(peers) > 0 {
+		slog.Info("libp2p: swarm dial backoffs cleared (network change)", "peers", len(peers))
+	}
+}
+
 // Host returns the underlying libp2p host
 func (n *Network) Host() host.Host {
 	return n.host
