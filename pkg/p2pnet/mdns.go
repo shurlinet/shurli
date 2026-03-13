@@ -327,20 +327,8 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		pi.Addrs = lanAddrs
 		md.host.Peerstore().AddAddrs(pi.ID, lanAddrs, 10*time.Minute)
 		slog.Info("mdns: filtered to LAN addresses", "peer", short, "lan_addrs", len(lanAddrs))
-	} else if !needsUpgrade {
-		// No LAN-reachable addresses and peer not relay-connected.
-		// The subnet is too broad (e.g., Starlink /16) or there's no
-		// IPv4 overlap — this "LAN" path routes through the provider
-		// backbone and is unreliable. Add all addrs to peerstore for
-		// identify exchange but skip the connect; the PeerManager
-		// reconnect loop will establish a relay connection.
-		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
-		slog.Debug("mdns: no LAN-reachable addresses, skipping connect", "peer", short)
-		return
 	} else {
-		// No LAN addresses but already relay-connected: fall through to
-		// the upgrade path, which will try the peer's TCP addresses.
-		// Upgrade will fail fast if none are reachable directly.
+		// No LAN match: add all and let libp2p try everything.
 		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
 	}
 	if needsUpgrade {
@@ -496,27 +484,15 @@ func randomString(l int) string {
 	return string(s)
 }
 
-// minLANPrefixLen is the tightest subnet prefix we accept as a "true LAN"
-// for mDNS direct connections. Subnets wider than /20 (i.e., prefix < 20)
-// are provider-managed and span multiple physical locations — devices within
-// them route through the provider backbone, not direct L2 switching. The
-// canonical failure case is Starlink: it assigns /16 subnets (65536 hosts)
-// across satellite terminals that cannot talk directly; mDNS propagates via
-// satellite forwarding but TCP to 10.1.x.x routes through the satellite too
-// and is killed by Starlink's client isolation in ~13s. Home and office LANs
-// are universally /24 to /20 (256–4096 hosts), well within this threshold.
-const minLANPrefixLen = 20
-
 // filterLANAddrs returns only the multiaddrs with a private IPv4 address
-// on the same subnet as one of our local interfaces, where that subnet is
-// tight enough to represent a single physical network segment (>= /20).
-// mDNS means "same LAN", so only private IPv4 addresses that can be reached
-// without provider-backbone routing are reliable for direct connection.
+// on the same subnet as one of our local interfaces. mDNS means "same
+// LAN", so only private IPv4 addresses are reliable for direct connection.
 //
 // Why not IPv6/ULA: many consumer routers give all clients the same IPv6
 // prefix but block inter-client IPv6 traffic (client isolation). ULA
 // prefixes (fd00::/8) match our subnet but may also be blocked. Private
-// IPv4 on a tight subnet (e.g., 192.168.x.0/24) is the universal LAN signal.
+// IPv4 is the universal LAN signal: if both devices share a 10.x/16 or
+// 192.168.x/24 subnet, they can talk.
 func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	localNets := localIPv4Subnets()
 	if len(localNets) == 0 {
@@ -536,13 +512,8 @@ func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 		if ip == nil || ip.IsLoopback() {
 			continue
 		}
+		// Keep if the IPv4 is on any of our local subnets
 		for _, ln := range localNets {
-			ones, _ := ln.Mask.Size()
-			if ones < minLANPrefixLen {
-				// Subnet too broad: provider-managed (e.g., Starlink /16).
-				// Cannot guarantee true LAN adjacency — skip.
-				continue
-			}
 			if ln.Contains(ip) {
 				lan = append(lan, addr)
 				break
