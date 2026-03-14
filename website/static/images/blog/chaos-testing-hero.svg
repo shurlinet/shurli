@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 320" width="800" height="320">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="activeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#38353b"/>
+      <stop offset="100%" style="stop-color:#2c2a2e"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="320" fill="url(#bg)" rx="8"/>
+
+  <!-- Title -->
+  <text x="400" y="36" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="#c0caf5">Chaos Testing: Network Transition Hardening</text>
+  <text x="400" y="54" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#565f89">16 test cases | 5 ISPs | 3 VPNs | 11 root causes found and fixed</text>
+
+  <!-- Network nodes row -->
+  <!-- Satellite WiFi -->
+  <rect x="30" y="80" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="90" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#c0caf5">Satellite WiFi</text>
+  <text x="90" y="120" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">LAN + IPv6</text>
+  <circle cx="90" cy="132" r="3" fill="#9ece6a"/>
+
+  <!-- Cellular 5G -->
+  <rect x="180" y="80" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="240" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#c0caf5">Cellular 5G</text>
+  <text x="240" y="120" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">CGNAT only</text>
+  <circle cx="240" cy="132" r="3" fill="#e0af68"/>
+
+  <!-- USB LAN -->
+  <rect x="330" y="80" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="390" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#c0caf5">USB LAN</text>
+  <text x="390" y="120" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Public IPv6</text>
+  <circle cx="390" cy="132" r="3" fill="#9ece6a"/>
+
+  <!-- VPN Tunnel -->
+  <rect x="480" y="80" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="540" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#c0caf5">VPN Tunnel</text>
+  <text x="540" y="120" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">utun IPv4</text>
+  <circle cx="540" cy="132" r="3" fill="#f7768e"/>
+
+  <!-- Carrier 2 -->
+  <rect x="630" y="80" width="120" height="60" rx="8" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="690" y="105" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#c0caf5">Carrier 2</text>
+  <text x="690" y="120" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">IPv4 + IPv6</text>
+  <circle cx="690" cy="132" r="3" fill="#9ece6a"/>
+
+  <!-- Transition arrows (bidirectional chaos) -->
+  <line x1="150" y1="110" x2="180" y2="110" stroke="#e8729a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="300" y1="110" x2="330" y2="110" stroke="#e8729a" stroke-width="1.5"/>
+  <line x1="450" y1="110" x2="480" y2="110" stroke="#e8729a" stroke-width="1.5"/>
+  <line x1="600" y1="110" x2="630" y2="110" stroke="#e8729a" stroke-width="1.5"/>
+
+  <!-- Switch indicators -->
+  <text x="165" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#e8729a">switch</text>
+  <text x="315" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#e8729a">insert</text>
+  <text x="465" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#e8729a">connect</text>
+  <text x="615" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#e8729a">switch</text>
+
+  <!-- Recovery chain (center section) -->
+  <rect x="80" y="165" width="640" height="55" rx="10" fill="url(#activeFill)" stroke="#da1c5c" stroke-width="0.8" stroke-opacity="0.4"/>
+  <text x="400" y="182" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e8729a">Recovery Chain (automatic, zero restarts)</text>
+
+  <!-- Chain steps -->
+  <rect x="100" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="140" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">detect</text>
+
+  <text x="190" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">&gt;</text>
+
+  <rect x="200" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="240" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">strip stale</text>
+
+  <text x="290" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">&gt;</text>
+
+  <rect x="300" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="340" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">reset BH</text>
+
+  <text x="390" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">&gt;</text>
+
+  <rect x="400" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="440" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">reconnect</text>
+
+  <text x="490" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">&gt;</text>
+
+  <rect x="500" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="540" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">mDNS</text>
+
+  <text x="590" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="8" fill="#565f89">&gt;</text>
+
+  <rect x="600" y="192" width="80" height="20" rx="4" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
+  <text x="640" y="205" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">DIRECT</text>
+
+  <!-- Stats row -->
+  <rect x="80" y="240" width="150" height="55" rx="8" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5" stroke-opacity="0.5"/>
+  <text x="155" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#9ece6a">11</text>
+  <text x="155" y="280" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">root causes fixed</text>
+
+  <rect x="250" y="240" width="150" height="55" rx="8" fill="url(#nodeFill)" stroke="#e8729a" stroke-width="0.5" stroke-opacity="0.5"/>
+  <text x="325" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#e8729a">16</text>
+  <text x="325" y="280" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">test cases passed</text>
+
+  <rect x="420" y="240" width="150" height="55" rx="8" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="0.5" stroke-opacity="0.5"/>
+  <text x="495" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#bb9af7">8</text>
+  <text x="495" y="280" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">post-chaos flags resolved</text>
+
+  <rect x="590" y="240" width="150" height="55" rx="8" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.5" stroke-opacity="0.5"/>
+  <text x="665" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#e0af68">0</text>
+  <text x="665" y="280" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">daemon restarts needed</text>
+</svg>
