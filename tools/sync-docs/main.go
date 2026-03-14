@@ -24,6 +24,9 @@ func main() {
 	}
 }
 
+// cfg is the loaded configuration. Set once at the start of run().
+var cfg *syncConfig
+
 func run(args []string) error {
 	fs := flag.NewFlagSet("sync-docs", flag.ContinueOnError)
 	rootDir := fs.String("root-dir", "", "project root directory (default: auto-detect from go.mod)")
@@ -35,6 +38,13 @@ func run(args []string) error {
 	root, err := resolveRoot(*rootDir)
 	if err != nil {
 		return err
+	}
+
+	// Load config from sync-docs.yaml (lives next to the Go source).
+	toolDir := filepath.Join(root, "tools", "sync-docs")
+	cfg, err = loadConfig(toolDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	docsDir := filepath.Join(root, "docs")
@@ -55,7 +65,7 @@ func run(args []string) error {
 
 	// 2. Sync main docs
 	fmt.Println("Syncing docs/ -> website/content/docs/")
-	for _, entry := range docEntries {
+	for _, entry := range cfg.Docs {
 		if syncMainDoc(docsDir, outDir, entry, *dryRun) {
 			count++
 		}
@@ -73,7 +83,7 @@ func run(args []string) error {
 
 	// 5. Sync FAQ sub-pages
 	faqOutDir := filepath.Join(outDir, "faq")
-	for _, entry := range faqEntries {
+	for _, entry := range cfg.FAQ {
 		if syncFaqEntry(docsDir, faqOutDir, entry, *dryRun) {
 			count++
 		}
@@ -81,7 +91,7 @@ func run(args []string) error {
 
 	// 6. Sync engineering journal
 	journalOutDir := filepath.Join(outDir, "engineering-journal")
-	for _, entry := range journalEntries {
+	for _, entry := range cfg.Journal {
 		if syncJournalEntry(docsDir, journalOutDir, entry, *dryRun) {
 			count++
 		}
@@ -225,7 +235,7 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 	body = promoteHeadings(body)
 	body = rewriteQuickStartLinks(body)
 
-	output := buildFrontMatter(quickStartMeta.Title, quickStartMeta.Weight, quickStartMeta.Description)
+	output := buildFrontMatter(cfg.QuickStart.Title, cfg.QuickStart.Weight, cfg.QuickStart.Description)
 	output += buildSyncComment("README.md")
 	output += "\n" + body
 
@@ -246,21 +256,21 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 // syncRelaySetup syncs docs/RELAY-SETUP.md.
 func syncRelaySetup(root, outDir string, dryRun bool) bool {
 	docsDir := filepath.Join(root, "docs")
-	srcPath := filepath.Join(docsDir, relaySetupMeta.Source)
+	srcPath := filepath.Join(docsDir, cfg.RelaySetup.Source)
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		fmt.Printf("  SKIP relay-setup (%s not found)\n", relaySetupMeta.Source)
+		fmt.Printf("  SKIP relay-setup (%s not found)\n", cfg.RelaySetup.Source)
 		return false
 	}
 
 	body := stripFirstHeading(string(data))
 
-	output := buildFrontMatter(relaySetupMeta.Title, relaySetupMeta.Weight, relaySetupMeta.Description)
-	output += buildSyncComment(relaySetupMeta.Source)
+	output := buildFrontMatter(cfg.RelaySetup.Title, cfg.RelaySetup.Weight, cfg.RelaySetup.Description)
+	output += buildSyncComment(cfg.RelaySetup.Source)
 	output += "\n" + body
 
 	if dryRun {
-		fmt.Printf("  WOULD SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
+		fmt.Printf("  WOULD SYNC %s -> relay-setup.md\n", cfg.RelaySetup.Source)
 		return true
 	}
 
@@ -269,7 +279,7 @@ func syncRelaySetup(root, outDir string, dryRun bool) bool {
 		fmt.Printf("  ERROR relay-setup.md: %v\n", err)
 		return false
 	}
-	fmt.Printf("  SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
+	fmt.Printf("  SYNC %s -> relay-setup.md\n", cfg.RelaySetup.Source)
 	return true
 }
 
@@ -362,22 +372,22 @@ func generateLLMSFull(root, docsDir, websiteDir string, dryRun bool) bool {
 	appendFile(&b, filepath.Join(root, "README.md"), separator)
 
 	// Docs in user-journey order
-	for _, entry := range docEntries {
+	for _, entry := range cfg.Docs {
 		appendFile(&b, filepath.Join(docsDir, entry.Source), separator)
 	}
 
 	// FAQ sub-pages in order
-	for _, entry := range faqEntries {
+	for _, entry := range cfg.FAQ {
 		appendFile(&b, filepath.Join(docsDir, "faq", entry.Source), separator)
 	}
 
 	// Engineering journal in order
-	for _, entry := range journalEntries {
+	for _, entry := range cfg.Journal {
 		appendFile(&b, filepath.Join(docsDir, "engineering-journal", entry.Source), separator)
 	}
 
 	// Relay setup last
-	appendFile(&b, filepath.Join(docsDir, relaySetupMeta.Source), separator)
+	appendFile(&b, filepath.Join(docsDir, cfg.RelaySetup.Source), separator)
 
 	outPath := filepath.Join(websiteDir, "static", "llms-full.txt")
 	content := b.String()
