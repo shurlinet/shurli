@@ -1,0 +1,254 @@
+# sync-docs configuration
+# Defines which files to sync from docs/ to the Hugo website.
+
+github_base: "https://github.com/shurlinet/shurli/blob/main"
+
+# Main docs synced to website/content/docs/
+docs:
+  - source: NETWORK-TOOLS.md
+    output: network-tools.md
+    weight: 2
+    title: Network Tools
+    description: "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
+
+  # FAQ.md removed - FAQ is now split into sub-pages under docs/faq/.
+  # Weights 6-10 reserved for manual user journey guides:
+  # relay-security(6), inviting-peers(7), managing-network(8), zkp-setup(9), zkp-anonymous-auth(10)
+
+  - source: ARCHITECTURE.md
+    output: architecture.md
+    weight: 11
+    title: Architecture
+    description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, file transfer, connection gating, and naming system."
+
+  - source: MONITORING.md
+    output: monitoring.md
+    weight: 13
+    title: Monitoring
+    description: "Set up Prometheus and Grafana to visualize Shurli metrics. Pre-built dashboard, PromQL examples, audit logging, and alerting rules."
+
+  - source: DAEMON-API.md
+    output: daemon-api.md
+    weight: 14
+    title: Daemon API
+    description: "REST API reference for the Shurli daemon. Unix socket endpoints for managing peers, services, proxies, ping, traceroute, and more."
+
+  # ROADMAP.md excluded - website splits it into 3 pages under website/content/docs/roadmap/
+  # (overview, completed, planned). Update those manually when ROADMAP.md changes.
+  # Weight 15: Roadmap (_index.md, manual)
+  # Weight 16: Development Philosophy (manual)
+
+  - source: TESTING.md
+    output: testing.md
+    weight: 17
+    title: Testing
+    description: "Test strategy for Shurli: unit tests, Docker integration tests, coverage targets, and CI pipeline configuration."
+
+# Quick-start (extracted from root README.md, not from docs/)
+quick_start:
+  source: README.md
+  output: quick-start.md
+  weight: 1
+  title: Quick Start
+  description: "Get two devices connected with Shurli in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."
+
+# Relay setup guide
+relay_setup:
+  source: RELAY-SETUP.md
+  output: relay-setup.md
+  weight: 5
+  title: Relay Setup
+  description: "Complete guide to deploying your own Shurli relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."
+
+# Engineering journal entries (ordered by weight, README.md becomes _index.md)
+journal:
+  - source: README.md
+    weight: 12
+    title: Engineering Journal
+    description: "Architecture Decision Records for Shurli. The why behind every significant design choice."
+
+  - source: core-architecture.md
+    weight: 2
+    title: Core Architecture
+    description: "Foundational technology choices: Go, libp2p, private DHT, circuit relay v2, connection gating, single binary."
+
+  - source: batch-a-reliability.md
+    weight: 3
+    title: Batch A - Reliability
+    description: "Timeouts, retries, DHT in the proxy path, and in-process integration tests."
+
+  - source: batch-b-code-quality.md
+    weight: 4
+    title: Batch B - Code Quality
+    description: "Relay address deduplication, structured logging, sentinel errors, build version embedding."
+
+  - source: batch-c-self-healing.md
+    weight: 5
+    title: Batch C - Self-Healing
+    description: "Config archive and rollback, commit-confirmed pattern, watchdog with pure-Go sd_notify."
+
+  - source: batch-d-libp2p-features.md
+    weight: 6
+    title: Batch D - libp2p Features
+    description: "AutoNAT v2, QUIC transport ordering, Identify UserAgent, smart dialing."
+
+  - source: batch-e-new-capabilities.md
+    weight: 7
+    title: Batch E - New Capabilities
+    description: "Relay health endpoint and headless invite/join for scripting."
+
+  - source: batch-f-daemon-mode.md
+    weight: 8
+    title: Batch F - Daemon Mode
+    description: "Unix socket IPC, cookie authentication, RuntimeInfo interface, hot-reload authorized_keys."
+
+  - source: batch-g-test-coverage.md
+    weight: 9
+    title: Batch G - Test Coverage
+    description: "Coverage-instrumented Docker tests, relay binary, injectable exit, post-phase audit protocol."
+
+  - source: batch-h-observability.md
+    weight: 10
+    title: Batch H - Observability
+    description: "Prometheus metrics, nil-safe observability pattern, auth decision callback."
+
+  - source: pre-batch-i.md
+    weight: 11
+    title: Pre-Batch I
+    description: "Makefile and build tooling, PAKE-secured invite/join, private DHT namespace isolation."
+
+  - source: batch-i-adaptive-path.md
+    weight: 12
+    title: Batch I - Adaptive Path Selection
+    description: "Interface discovery, parallel dial racing, path quality tracking, network change monitoring, STUN hole-punching, every-peer-is-a-relay."
+
+  - source: post-i-2-trust-and-delivery.md
+    weight: 13
+    title: Post-I-2 - Trust & Delivery
+    description: "Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verification, reachability grades, sovereign interaction history."
+
+  - source: pre-phase5-hardening.md
+    weight: 14
+    title: Pre-Phase 5 Hardening
+    description: "Startup race fix, stale address detection, systemd/launchd service deployment."
+
+  - source: phase5-network-resilience.md
+    weight: 15
+    title: Phase 5 - Network Resilience
+    description: "Native mDNS via dns_sd.h, PeerManager lifecycle, stale connection cleanup, IPv6 path probing, mDNS LAN-first connect, relay-discard logic."
+
+  - source: phase5-relay-decentralization.md
+    weight: 16
+    title: Phase 5 - Relay Decentralization
+    description: "Peer relay service, DHT relay discovery, health-aware EWMA selection, bandwidth tracking, layered bootstrap (config > DNS seeds > hardcoded > relay)."
+
+  - source: dev-tooling.md
+    weight: 17
+    title: Dev Tooling
+    description: "Go doc sync pipeline, relay setup subcommand, directory consolidation (relay-server/ eliminated, FHS system paths)."
+
+  - source: phase6-acl-relay-security.md
+    weight: 18
+    title: Phase 6 - ACL + Relay Security
+    description: "Role-based access, macaroon HMAC-chain tokens, async invite deposits, passphrase-sealed vault, remote P2P unseal, TOTP, Yubikey."
+
+  - source: phase7-zkp-privacy.md
+    weight: 19
+    title: Phase 7 - ZKP Privacy Layer
+    description: "Zero-knowledge membership proofs using gnark PLONK on BN254. Poseidon2 Merkle tree, role-aware proofs, range proofs, BIP39 key management."
+
+  - source: phase8-identity-remote-admin.md
+    weight: 20
+    title: Phase 8 - Identity & Remote Admin
+    description: "Unified BIP39 seed, encrypted identity, session tokens, remote admin over P2P, MOTD/goodbye, relay recovery."
+
+  - source: seed-relay-separation.md
+    weight: 21
+    title: Seed Relay Separation & Init Flow
+    description: "Discovery-only seed relays, server-side circuit ACL, init flow, config set."
+
+  - source: phase9-sdk-plugins.md
+    weight: 22
+    title: Phase 9 - SDK, Plugins & Protocol Consolidation
+    description: "Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin."
+
+  - source: phase9-file-transfer.md
+    weight: 23
+    title: Phase 9 - File Transfer Architecture
+    description: "FastCDC chunking, BLAKE3 Merkle, zstd compression, Reed-Solomon erasure, RaptorQ multi-source, parallel streams, receive permissions."
+
+  - source: post-chaos-network-hardening.md
+    weight: 24
+    title: Post-Chaos Network Hardening
+    description: "Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning."
+
+# FAQ sub-pages (ordered by weight, README.md becomes _index.md)
+faq:
+  - source: README.md
+    weight: 3
+    title: FAQ
+    description: "Frequently asked questions about Shurli, organized by topic."
+
+  - source: design-philosophy.md
+    weight: 1
+    title: Design Philosophy
+    description: "Why Shurli uses no accounts, no central servers, and no vendor dependencies."
+
+  - source: comparisons.md
+    weight: 2
+    title: Comparisons
+    description: "How different approaches to remote access compare: centralized VPNs, P2P mesh tools, relay architectures."
+
+  - source: relay-and-nat.md
+    weight: 3
+    title: Relay & NAT Traversal
+    description: "How connections work: Circuit Relay v2, hole-punching, symmetric NAT, self-hosted relays."
+
+  - source: security-and-features.md
+    weight: 4
+    title: Security & Features
+    description: "How pairing, verification, reachability grading, encrypted invites, and private DHT networks work."
+
+  - source: technical-deep-dives.md
+    weight: 5
+    title: Technical Deep Dives
+    description: "libp2p improvements, emerging technologies, and the Go vs Rust trade-off."
+
+# Docs excluded from sync but still need link rewriting
+# (other docs reference these files, so cross-doc links must resolve)
+link_only:
+  - source: ROADMAP.md
+    output: roadmap
+  - source: FAQ.md
+    output: faq
+  - source: faq/comparisons.md
+    output: faq/comparisons
+  - source: faq/design-philosophy.md
+    output: faq/design-philosophy
+  - source: faq/relay-and-nat.md
+    output: faq/relay-and-nat
+  - source: faq/security-and-features.md
+    output: faq/security-and-features
+  - source: faq/technical-deep-dives.md
+    output: faq/technical-deep-dives
+
+# Directories whose relative links (../dir/) get rewritten to GitHub URLs
+github_source_dirs:
+  - cmd/
+  - pkg/
+  - internal/
+  - tools/
+  - deploy/
+  - test/
+  - .github/
+
+# Directories for quick-start root-relative links (dir/ without ../)
+quick_start_link_dirs:
+  - tools/
+  - docs/
+  - configs/
+  - deploy/
+  - cmd/
+  - pkg/
+  - internal/
+  - test/
