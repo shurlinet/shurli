@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shurlinet/shurli/internal/daemon"
@@ -41,6 +42,27 @@ func runTransfers(args []string) {
 	transfers, err := client.TransferList()
 	if err != nil {
 		fatal("Failed to list transfers: %v", err)
+	}
+
+	// Include pending approval transfers (ask mode) in the list.
+	pending, pendingErr := client.TransferPending()
+	if pendingErr != nil {
+		// Warn on real errors (timeout, server error). Silent only on 404 (old daemon).
+		if !strings.Contains(pendingErr.Error(), "404") && !strings.Contains(pendingErr.Error(), "not found") {
+			fmt.Fprintf(os.Stderr, "Warning: could not fetch pending transfers: %v\n", pendingErr)
+		}
+	}
+	for _, p := range pending {
+		t, _ := time.Parse(time.RFC3339, p.Time)
+		transfers = append(transfers, p2pnet.TransferSnapshot{
+			ID:        p.ID,
+			Filename:  p.Filename,
+			Size:      p.Size,
+			PeerID:    p.PeerID,
+			Direction: "receive",
+			Status:    "awaiting_approval",
+			StartTime: t,
+		})
 	}
 
 	if *jsonFlag {
@@ -88,7 +110,7 @@ func showTransferHistory(client *daemon.Client, max int, jsonOutput bool) {
 			sizeStr = humanSize(ev.FileSize)
 		}
 
-		fmt.Printf("  %s  %s %s  %-18s  %s", ts, dir, ev.FileName, ev.EventType, sizeStr)
+		fmt.Printf("  %s  %s %s  %-18s  %s", ts, dir, p2pnet.SanitizeDisplayName(ev.FileName), ev.EventType, sizeStr)
 
 		if ev.Duration != "" {
 			fmt.Printf("  %s", ev.Duration)
@@ -153,7 +175,7 @@ func printTransferTable(transfers []p2pnet.TransferSnapshot) {
 		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
 			dir,
 			t.ID,
-			t.Filename,
+			p2pnet.SanitizeDisplayName(t.Filename),
 			peerShort,
 			humanSize(t.Transferred), humanSize(t.Size),
 			pctStr,
@@ -171,6 +193,8 @@ func printTransferTable(transfers []p2pnet.TransferSnapshot) {
 			tc.Wyellow(os.Stdout, "active")
 		case "pending":
 			tc.Wfaint(os.Stdout, "pending")
+		case "awaiting_approval":
+			tc.Wcyan(os.Stdout, "awaiting approval")
 		default:
 			fmt.Print(t.Status)
 		}
@@ -202,6 +226,21 @@ func printWatchRound(client *daemon.Client, jsonOutput bool) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 		return
+	}
+
+	// Include pending approval transfers in watch view.
+	pending, _ := client.TransferPending()
+	for _, p := range pending {
+		t, _ := time.Parse(time.RFC3339, p.Time)
+		transfers = append(transfers, p2pnet.TransferSnapshot{
+			ID:        p.ID,
+			Filename:  p.Filename,
+			Size:      p.Size,
+			PeerID:    p.PeerID,
+			Direction: "receive",
+			Status:    "awaiting_approval",
+			StartTime: t,
+		})
 	}
 
 	if jsonOutput {

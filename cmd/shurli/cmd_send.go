@@ -11,6 +11,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runSend(args []string) {
@@ -37,7 +38,7 @@ func runSend(args []string) {
 		fmt.Println("  --priority P   Queue priority: low, normal (default), high")
 		fmt.Println("  --quiet        Show only a single progress bar (no per-chunk details)")
 		fmt.Println("  --silent       No progress output at all")
-		fmt.Println("  --json         Output as JSON")
+		fmt.Println("  --json         Output as JSON (contains peer IDs and filenames; treat as untrusted in pipelines)")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli send photo.jpg home-server              # fire-and-forget")
@@ -96,8 +97,20 @@ func runSend(args []string) {
 
 	if *jsonFlag {
 		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		enc.Encode(resp)
+		if *followFlag {
+			// Stream JSON progress events (one JSON object per line, NDJSON).
+			enc.Encode(map[string]any{
+				"event":       "started",
+				"transfer_id": resp.TransferID,
+				"filename":    resp.Filename,
+				"size":        resp.Size,
+				"peer_id":     resp.PeerID,
+			})
+			pollTransferJSON(client, resp.TransferID)
+		} else {
+			enc.SetIndent("", "  ")
+			enc.Encode(resp)
+		}
 		return
 	}
 
@@ -114,15 +127,78 @@ func runSend(args []string) {
 	pollTransfer(client, resp.TransferID, *quietFlag)
 }
 
-const progressBarWidth = 30
+// progressBarWidth returns the bar width scaled to terminal width.
+// Reserves space for percentage, speed, chunk info, and padding.
+// Minimum 10, maximum 60.
+func progressBarWidth() int {
+	w := termWidth()
+	barW := w - 50
+	if barW < 10 {
+		barW = 10
+	}
+	if barW > 60 {
+		barW = 60
+	}
+	return barW
+}
+
+// pollTransferJSON streams NDJSON progress events for --follow --json mode.
+// Emits: started (once), progress (every 500ms), completed/failed (once).
+// JSON output may contain peer IDs and filenames - treat as untrusted in automated pipelines.
+func pollTransferJSON(client *daemon.Client, id string) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	enc := json.NewEncoder(os.Stdout)
+
+	for range ticker.C {
+		progress, err := client.TransferStatus(id)
+		if err != nil {
+			enc.Encode(map[string]any{"event": "error", "error": err.Error()})
+			return
+		}
+
+		if progress.Done {
+			ev := map[string]any{
+				"event":           "completed",
+				"transfer_id":     progress.ID,
+				"transferred":     progress.Transferred,
+				"size":            progress.Size,
+				"compressed_size": progress.CompressedSize,
+			}
+			if progress.Error != "" {
+				ev["event"] = "failed"
+				ev["error"] = progress.Error
+			}
+			enc.Encode(ev)
+			return
+		}
+
+		ev := map[string]any{
+			"event":           "progress",
+			"transfer_id":     progress.ID,
+			"transferred":     progress.Transferred,
+			"size":            progress.Size,
+			"chunks_done":     progress.ChunksDone,
+			"chunks_total":    progress.ChunksTotal,
+			"compressed_size": progress.CompressedSize,
+		}
+		if len(progress.StreamProgress) > 0 {
+			ev["stream_progress"] = progress.StreamProgress
+		}
+		enc.Encode(ev)
+	}
+}
 
 func pollTransfer(client *daemon.Client, id string, quiet bool) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	var lastSent int64
-	var lastStreamCount int
+	var headerPrinted bool
+	var speedHistory []float64
+	var stallCount int
 	lastTime := time.Now()
+	startTime := time.Now()
 
 	for range ticker.C {
 		progress, err := client.TransferStatus(id)
@@ -132,34 +208,97 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 		}
 
 		if progress.Done {
-			fmt.Printf("\r%-70s\r", " ")
+			fmt.Printf("\r\033[2K")
 			if progress.Error != "" {
 				tc.Wred(os.Stdout, "Transfer failed: %s\n", progress.Error)
 			} else {
-				bar := strings.Repeat("\u2588", progressBarWidth)
+				bar := strings.Repeat("\u2588", progressBarWidth())
 				tc.Wgreen(os.Stdout, "%s 100%%\n", bar)
-				fmt.Println("Transfer complete")
+
+				dur := time.Since(startTime).Truncate(time.Millisecond)
+				avgSpeed := float64(0)
+				if dur.Seconds() > 0 {
+					avgSpeed = float64(progress.Size) / dur.Seconds()
+				}
+				fmt.Printf("  %s  %s in %s (%s/s avg)",
+					p2pnet.SanitizeDisplayName(progress.Filename),
+					humanSize(progress.Size), dur, humanSize(int64(avgSpeed)))
+				if progress.Compressed && progress.CompressedSize > 0 {
+					ratio := float64(progress.Size) / float64(progress.CompressedSize)
+					fmt.Printf("  [zstd %.1f:1, %s wire]", ratio, humanSize(progress.CompressedSize))
+				}
+				if len(progress.StreamProgress) > 1 {
+					fmt.Printf("  [%d streams]", len(progress.StreamProgress))
+				}
+				fmt.Println()
 			}
 			return
 		}
 
 		if progress.Size > 0 {
-			pct := float64(progress.Transferred) / float64(progress.Size)
-			filled := int(pct * float64(progressBarWidth))
-			if filled > progressBarWidth {
-				filled = progressBarWidth
+			if !headerPrinted {
+				tc.Wfaint(os.Stdout, "  File: %s (%s)\n",
+					p2pnet.SanitizeDisplayName(progress.Filename), humanSize(progress.Size))
+				mode := "1 stream"
+				if len(progress.StreamProgress) > 1 {
+					mode = fmt.Sprintf("%d streams", len(progress.StreamProgress))
+				}
+				if progress.Compressed {
+					mode += ", zstd"
+				}
+				if progress.ErasureParity > 0 {
+					mode += fmt.Sprintf(", RS %.0f%% parity", progress.ErasureOverhead*100)
+				}
+				tc.Wfaint(os.Stdout, "  Mode: %s\n", mode)
+				headerPrinted = true
 			}
-			bar := strings.Repeat("\u2588", filled) + strings.Repeat("\u2591", progressBarWidth-filled)
+
+			pct := float64(progress.Transferred) / float64(progress.Size)
+			barW := progressBarWidth()
+			filled := int(pct * float64(barW))
+			if filled > barW {
+				filled = barW
+			}
+			bar := strings.Repeat("\u2588", filled) + strings.Repeat("\u2591", barW-filled)
 
 			now := time.Now()
 			elapsed := now.Sub(lastTime).Seconds()
+			var speed float64
 			var speedStr string
 			if elapsed > 0 && progress.Transferred > lastSent {
-				speed := float64(progress.Transferred-lastSent) / elapsed
+				speed = float64(progress.Transferred-lastSent) / elapsed
 				speedStr = humanSize(int64(speed)) + "/s"
+				stallCount = 0
+			} else {
+				stallCount++
 			}
 			lastSent = progress.Transferred
 			lastTime = now
+
+			if speed > 0 {
+				speedHistory = append(speedHistory, speed)
+				if len(speedHistory) > 5 {
+					speedHistory = speedHistory[len(speedHistory)-5:]
+				}
+			}
+
+			etaStr := ""
+			remaining := progress.Size - progress.Transferred
+			if stallCount >= 3 {
+				etaStr = " ETA stalled"
+			} else if len(speedHistory) >= 2 && remaining > 0 {
+				var avgSpeed float64
+				for _, s := range speedHistory {
+					avgSpeed += s
+				}
+				avgSpeed /= float64(len(speedHistory))
+				if avgSpeed > 0 {
+					etaSec := float64(remaining) / avgSpeed
+					if etaSec >= 2 {
+						etaStr = fmt.Sprintf(" ETA %s", (time.Duration(etaSec) * time.Second).Truncate(time.Second))
+					}
+				}
+			}
 
 			chunkInfo := ""
 			if !quiet && progress.ChunksTotal > 0 {
@@ -180,30 +319,8 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 					progress.ErasureOverhead*100, progress.ErasureParity)
 			}
 
-			// Per-stream progress lines (only in non-quiet mode with multiple streams).
-			streamLines := 0
-			if !quiet && len(progress.StreamProgress) > 1 {
-				// Move cursor up to overwrite previous stream lines.
-				if lastStreamCount > 0 {
-					fmt.Printf("\033[%dA", lastStreamCount+1)
-				}
-				for i, sp := range progress.StreamProgress {
-					fmt.Printf("\r  Stream %d: %d chunks  %s   \n",
-						i+1, sp.ChunksDone, humanSize(sp.BytesDone))
-				}
-				streamLines = len(progress.StreamProgress)
-			} else if lastStreamCount > 0 {
-				// Streams went away (transfer finishing) - move up.
-				fmt.Printf("\033[%dA", lastStreamCount+1)
-				lastStreamCount = 0
-			}
-
-			if speedStr != "" {
-				fmt.Printf("\r%s %.0f%% - %s%s%s%s   ", bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag)
-			} else {
-				fmt.Printf("\r%s %.0f%%%s%s%s   ", bar, pct*100, chunkInfo, compressTag, erasureTag)
-			}
-			lastStreamCount = streamLines
+			// Single-line progress: \r overwrites in place, \033[K clears to end of line.
+			fmt.Printf("\r  %s %3.0f%% %s%s%s%s%s\033[K", bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag, etaStr)
 		}
 	}
 }

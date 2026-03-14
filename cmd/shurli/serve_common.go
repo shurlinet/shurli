@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -1301,6 +1302,45 @@ func (rt *serveRuntime) SetupTransfer() {
 		multiPeerEnabled = *rt.config.Transfer.MultiPeerEnabled
 	}
 
+	// Parse failure backoff config.
+	var fbThreshold int
+	var fbWindow, fbBlock time.Duration
+	fb := rt.config.Transfer.FailureBackoff
+	fbThreshold = fb.Threshold
+	if fb.Window != "" {
+		if d, err := time.ParseDuration(fb.Window); err == nil {
+			fbWindow = d
+		}
+	}
+	if fb.Block != "" {
+		if d, err := time.ParseDuration(fb.Block); err == nil {
+			fbBlock = d
+		}
+	}
+
+	// Parse temp file expiry (default: 1h).
+	var tempExpiry time.Duration
+	if rt.config.Transfer.TempFileExpiry != "" {
+		if d, err := time.ParseDuration(rt.config.Transfer.TempFileExpiry); err == nil {
+			tempExpiry = d
+		}
+	}
+
+	// Derive HMAC key for queue persistence from identity key file.
+	// Uses SHA256(file_contents + domain_separator) for a stable per-node key.
+	var queueHMACKey []byte
+	configDir := filepath.Dir(rt.configFile)
+	queueFile := rt.config.Transfer.QueueFile
+	if queueFile == "" {
+		queueFile = filepath.Join(configDir, "queue.json")
+	}
+	if keyData, err := os.ReadFile(rt.config.Identity.KeyFile); err == nil {
+		h := sha256.New()
+		h.Write(keyData)
+		h.Write([]byte("shurli/queue/v1"))
+		queueHMACKey = h.Sum(nil)
+	}
+
 	cfg := p2pnet.TransferConfig{
 		ReceiveDir:        rt.config.Transfer.ReceiveDir,
 		MaxSize:           rt.config.Transfer.MaxFileSize,
@@ -1315,6 +1355,22 @@ func (rt *serveRuntime) SetupTransfer() {
 		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
 		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
 		RateLimit:         rt.config.Transfer.RateLimit,
+
+		// DDoS defenses.
+		GlobalRateLimit:         rt.config.Transfer.GlobalRateLimit,
+		MaxQueuedPerPeer:        rt.config.Transfer.MaxQueuedPerPeer,
+		MinSpeedBytes:           rt.config.Transfer.MinSpeedBytes,
+		MinSpeedSeconds:         rt.config.Transfer.MinSpeedSeconds,
+		MaxTempSize:             rt.config.Transfer.MaxTempSize,
+		TempFileExpiry:          tempExpiry,
+		BandwidthBudget:         rt.config.Transfer.BandwidthBudget,
+		FailureBackoffThreshold: fbThreshold,
+		FailureBackoffWindow:    fbWindow,
+		FailureBackoffBlock:     fbBlock,
+
+		// Queue persistence.
+		QueueFile:    queueFile,
+		QueueHMACKey: queueHMACKey,
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
@@ -1370,6 +1426,15 @@ func (rt *serveRuntime) SetupSharing() {
 		reg.SetPersistPath(persistPath)
 	}
 	rt.shareRegistry = reg
+
+	// Set browse rate limit (default: 10/min per peer).
+	browseLimit := rt.config.Transfer.BrowseRateLimit
+	if browseLimit == 0 {
+		browseLimit = 10
+	}
+	if browseLimit > 0 {
+		reg.SetBrowseRateLimit(browseLimit)
+	}
 
 	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)

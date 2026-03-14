@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	libp2pnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 
@@ -434,6 +435,19 @@ func runDaemonStart(args []string) {
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()
 		fatal("Bootstrap failed: %v", err)
+	}
+
+	// Re-enqueue persisted transfers now that the network is ready.
+	if rt.transferService != nil {
+		rt.transferService.RequeuePersisted(func(peerID string) func() (libp2pnet.Stream, error) {
+			return func() (libp2pnet.Stream, error) {
+				pid, err := peer.Decode(peerID)
+				if err != nil {
+					return nil, fmt.Errorf("decode peer ID: %w", err)
+				}
+				return rt.network.Host().NewStream(context.Background(), pid, p2pnet.TransferProtocol)
+			}
+		})
 	}
 
 	rt.ExposeConfiguredServices()
