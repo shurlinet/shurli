@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, and Phase 9B File Transfer."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, Phase 9B File Transfer, and Post-9B Chaos Testing."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -626,3 +626,38 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 **Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT)
 
 **Test status**: 1100 tests across 21 packages, race detector clean.
+
+---
+
+## Post-9B: Chaos Testing and Network Hardening
+
+**Timeline**: 4 days (2026-03-11 to 2026-03-14)
+**Goal**: Physical chaos testing of all network transitions. Verify the daemon handles real-world network switches without restarts.
+
+16 test cases across 5 ISPs and 3 VPN providers. 11 root causes found and fixed. 8 post-chaos flags investigated (6 fixed, 2 informational).
+
+### Root Causes Fixed (FT-K through FT-P)
+
+- [x] Black hole detector blocks valid transports after network switch
+- [x] Probe targets relay server IP instead of peer IP
+- [x] ForceDirectDial tries all peerstore addresses, cascade failure
+- [x] mDNS relay cleanup fights remote PeerManager reconnect
+- [x] CloseStaleConnections misses private IPs
+- [x] Autorelay drops reservations on public networks
+- [x] mDNS upgrade poisoned by UDP black hole state
+- [x] CloseStaleConnections kills valid IPv6 during DAD window
+- [x] Autorelay 1-hour backoff prevents re-reservation
+- [x] ProbeUntil cooldown blocks reconnect after direct death
+- [x] Swarm reports closed connection as live for 57s
+
+### Post-Chaos Investigation (FT-R through FT-X)
+
+- [x] Flag #1: TOCTOU race in mDNS + idle relay cleanup
+- [x] Flag #5: Default gateway tracking for private IPv4-only switches
+- [x] Flag #7: Dial worker cache poisoning workaround (3-part fix)
+- [x] Flag #8: VPN tunnel interface detection
+- [x] Autorelay tuning for static relays (faster reconnection)
+- [x] ARCHITECTURE.md libp2p upstream overrides section (10 overrides documented)
+- [x] Engineering journal ADR-S01 through ADR-S07
+
+**libp2p upstream overrides** (10): TCP source binding, black hole reset, autorelay tuning (backoff/minInterval/bootDelay/minCandidates), ForceReachabilityPrivate, global IPv6 address factory, custom mDNS, route socket expansion (macOS), VPN tunnel detection, default gateway tracking.
