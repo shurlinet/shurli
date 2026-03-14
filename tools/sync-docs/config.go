@@ -57,8 +57,61 @@ func loadConfig(toolDir string) (*syncConfig, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Convert linkOnly entries to docEntry format for link rewriting compatibility.
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// validate checks required fields and detects duplicate sources.
+func (c *syncConfig) validate() error {
+	if c.GithubBase == "" {
+		return fmt.Errorf("github_base is required")
+	}
+	if c.QuickStart.Source == "" {
+		return fmt.Errorf("quick_start.source is required")
+	}
+	if c.RelaySetup.Source == "" {
+		return fmt.Errorf("relay_setup.source is required")
+	}
+
+	// Check for duplicate sources within each section.
+	// README.md can appear in both journal and FAQ (different directories).
+	checkDups := func(section string, sources []string) error {
+		seen := make(map[string]bool, len(sources))
+		for _, s := range sources {
+			if seen[s] {
+				return fmt.Errorf("duplicate source %q in %s", s, section)
+			}
+			seen[s] = true
+		}
+		return nil
+	}
+
+	docSources := make([]string, len(c.Docs))
+	for i, e := range c.Docs {
+		docSources[i] = e.Source
+	}
+	if err := checkDups("docs", docSources); err != nil {
+		return err
+	}
+
+	journalSources := make([]string, len(c.Journal))
+	for i, e := range c.Journal {
+		journalSources[i] = e.Source
+	}
+	if err := checkDups("journal", journalSources); err != nil {
+		return err
+	}
+
+	faqSources := make([]string, len(c.FAQ))
+	for i, e := range c.FAQ {
+		faqSources[i] = e.Source
+	}
+	if err := checkDups("faq", faqSources); err != nil {
+		return err
+	}
+	return nil
 }
 
 // linkOnlyDocEntries converts linkOnly entries to docEntry slice for link rewriting.
