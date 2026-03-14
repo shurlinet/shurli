@@ -7,6 +7,7 @@ import (
 	"os"
 
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runReject(args []string) {
@@ -65,7 +66,7 @@ func runReject(args []string) {
 				enc.Encode(map[string]string{"status": "rejected", "id": p.ID, "reason": reason})
 			} else {
 				tc.Wfaint(os.Stdout, "Rejected")
-				fmt.Printf(" %s (%s from %s)\n", p.ID, p.Filename, p.PeerID)
+				fmt.Printf(" %s (%s from %s)\n", p.ID, p2pnet.SanitizeDisplayName(p.Filename), p.PeerID)
 			}
 		}
 		return

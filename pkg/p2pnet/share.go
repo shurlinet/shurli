@@ -47,7 +47,9 @@ const (
 
 // ShareEntry represents a single shared path with its ACL.
 type ShareEntry struct {
-	Path       string            `json:"path"`        // absolute path on sharer's filesystem
+	ID         string            `json:"id"`          // opaque share ID (never reveals filesystem path)
+	Path       string            `json:"path"`        // absolute path on sharer's filesystem (NEVER sent to peers)
+	Name       string            `json:"name"`        // user-friendly name shown to peers (defaults to dir/file basename)
 	Peers      map[peer.ID]bool  `json:"-"`           // allowed peers (nil = all authorized)
 	PeerIDs    []string          `json:"peers"`       // serialization form
 	Persistent bool              `json:"persistent"`  // survive daemon restart
@@ -56,20 +58,24 @@ type ShareEntry struct {
 }
 
 // BrowseEntry is a single item returned by the browse protocol.
+// Path is ALWAYS relative to the share root. Never contains absolute paths.
+// ShareID identifies which share this entry belongs to (for download requests).
 type BrowseEntry struct {
 	Name    string `json:"name"`
-	Path    string `json:"path"`     // relative path within shared root
+	Path    string `json:"path"`      // relative path within shared root (NEVER absolute)
+	ShareID string `json:"share_id"`  // opaque share identifier for download
 	Size    int64  `json:"size"`
 	IsDir   bool   `json:"is_dir"`
-	ModTime int64  `json:"mod_time"` // unix timestamp
+	ModTime int64  `json:"mod_time"`  // unix timestamp
 }
 
 // ShareRegistry manages shared paths and their per-peer ACLs.
 // Thread-safe. Lives in the daemon. Persistent shares survive restarts.
 type ShareRegistry struct {
-	mu          sync.RWMutex
-	shares      map[string]*ShareEntry // path -> entry
-	persistPath string                 // file path for persistent share storage
+	mu              sync.RWMutex
+	shares          map[string]*ShareEntry // path -> entry
+	persistPath     string                 // file path for persistent share storage
+	browseRateLimit *transferRateLimiter    // per-peer browse rate limiter (nil = disabled)
 }
 
 // NewShareRegistry creates an empty share registry.
@@ -86,6 +92,14 @@ func (r *ShareRegistry) SetPersistPath(path string) {
 	r.persistPath = path
 }
 
+// SetBrowseRateLimit sets the per-peer browse request rate limit (max per minute).
+// Call with 0 to disable. Must be called before HandleBrowse is registered.
+func (r *ShareRegistry) SetBrowseRateLimit(maxPerMin int) {
+	if maxPerMin > 0 {
+		r.browseRateLimit = newTransferRateLimiter(maxPerMin)
+	}
+}
+
 // persistentShareFile is the JSON structure written to disk.
 type persistentShareFile struct {
 	Shares []persistentShareEntry `json:"shares"`
@@ -93,7 +107,9 @@ type persistentShareFile struct {
 
 // persistentShareEntry is the serializable form of a ShareEntry.
 type persistentShareEntry struct {
+	ID         string   `json:"id"`
 	Path       string   `json:"path"`
+	Name       string   `json:"name,omitempty"`
 	PeerIDs    []string `json:"peers,omitempty"`
 	SharedAt   int64    `json:"shared_at"`
 	IsDir      bool     `json:"is_dir"`
@@ -109,7 +125,9 @@ func (r *ShareRegistry) SavePersistent(path string) error {
 			continue
 		}
 		pe := persistentShareEntry{
+			ID:       entry.ID,
 			Path:     entry.Path,
+			Name:     entry.Name,
 			SharedAt: entry.SharedAt.Unix(),
 			IsDir:    entry.IsDir,
 		}
@@ -178,8 +196,19 @@ func LoadShareRegistry(path string) (*ShareRegistry, error) {
 			}
 		}
 
+		// Restore or generate share ID.
+		shareID := pe.ID
+		if shareID == "" {
+			shareID = generateShareID() // backward compat: old files without ID
+		}
+		shareName := pe.Name
+		if shareName == "" {
+			shareName = filepath.Base(pe.Path)
+		}
 		reg.shares[pe.Path] = &ShareEntry{
+			ID:         shareID,
 			Path:       pe.Path,
+			Name:       shareName,
 			Peers:      peerMap,
 			Persistent: true,
 			SharedAt:   time.Unix(pe.SharedAt, 0),
@@ -206,6 +235,12 @@ func (r *ShareRegistry) savePersistentIfNeeded() {
 	}
 }
 
+// generateShareID creates an opaque share ID. Uses random hex to avoid
+// leaking any information about the shared path or timing.
+func generateShareID() string {
+	return "share-" + randomHex(8)
+}
+
 // Share adds or updates a shared path.
 func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) error {
 	absPath, err := filepath.Abs(path)
@@ -229,8 +264,18 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 	}
 
 	r.mu.Lock()
+	// Reuse existing ID if re-sharing same path.
+	existingID := ""
+	if existing, ok := r.shares[absPath]; ok {
+		existingID = existing.ID
+	}
+	if existingID == "" {
+		existingID = generateShareID()
+	}
 	r.shares[absPath] = &ShareEntry{
+		ID:         existingID,
 		Path:       absPath,
+		Name:       filepath.Base(absPath),
 		Peers:      peerMap,
 		Persistent: persistent,
 		SharedAt:   time.Now(),
@@ -289,6 +334,23 @@ func (r *ShareRegistry) LookupShare(path string) (*ShareEntry, bool) {
 	return entry, ok
 }
 
+// LookupShareByID finds a share entry by its opaque share ID.
+// Returns the entry and whether the given peer has access.
+func (r *ShareRegistry) LookupShareByID(shareID string, peerID peer.ID) (*ShareEntry, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, entry := range r.shares {
+		if entry.ID == shareID {
+			if !r.peerAllowed(entry, peerID) {
+				return nil, false
+			}
+			return entry, true
+		}
+	}
+	return nil, false
+}
+
 // IsPathShared checks if the given path is within any shared directory
 // and the peer is allowed to access it.
 func (r *ShareRegistry) IsPathShared(path string, peerID peer.ID) bool {
@@ -320,6 +382,8 @@ func (r *ShareRegistry) peerAllowed(entry *ShareEntry, peerID peer.ID) bool {
 }
 
 // BrowseForPeer returns browsable entries for a specific peer.
+// All paths in the response are RELATIVE to the share root. The absolute
+// server-side path is NEVER exposed to remote peers.
 func (r *ShareRegistry) BrowseForPeer(peerID peer.ID) []BrowseEntry {
 	shares := r.ListShares(&peerID)
 
@@ -334,7 +398,8 @@ func (r *ShareRegistry) BrowseForPeer(peerID peer.ID) []BrowseEntry {
 			// Single file share.
 			entries = append(entries, BrowseEntry{
 				Name:    filepath.Base(share.Path),
-				Path:    share.Path,
+				Path:    filepath.Base(share.Path),
+				ShareID: share.ID,
 				Size:    info.Size(),
 				IsDir:   false,
 				ModTime: info.ModTime().Unix(),
@@ -368,7 +433,8 @@ func (r *ShareRegistry) BrowseForPeer(peerID peer.ID) []BrowseEntry {
 
 			entries = append(entries, BrowseEntry{
 				Name:    de.Name(),
-				Path:    filepath.Join(share.Path, de.Name()),
+				Path:    de.Name(),
+				ShareID: share.ID,
 				Size:    deInfo.Size(),
 				IsDir:   de.IsDir(),
 				ModTime: deInfo.ModTime().Unix(),
@@ -395,6 +461,14 @@ func (r *ShareRegistry) HandleBrowse() StreamHandler {
 		shares := r.ListShares(&remotePeer)
 		if len(shares) == 0 {
 			// Silent reset - no information leakage.
+			s.Reset()
+			return
+		}
+
+		// Per-peer browse rate limit check.
+		if r.browseRateLimit != nil && !r.browseRateLimit.allow(remotePeer.String()) {
+			slog.Warn("file-browse: rate limit exceeded",
+				"peer", remotePeer.String()[:16]+"...")
 			s.Reset()
 			return
 		}
@@ -441,12 +515,41 @@ func (r *ShareRegistry) handleBrowseRequest(s network.Stream, peerID peer.ID) {
 	if browseRoot == "" {
 		entries = r.BrowseForPeer(peerID)
 	} else {
-		// Browse within a specific shared directory.
-		if !r.IsPathShared(browseRoot, peerID) {
+		// browseRoot is now shareID or shareID/subpath.
+		// Parse share ID and optional subpath.
+		shareID, subPath := browseRoot, ""
+		if idx := strings.IndexByte(browseRoot, '/'); idx >= 0 {
+			shareID = browseRoot[:idx]
+			subPath = browseRoot[idx+1:]
+		}
+
+		share, ok := r.LookupShareByID(shareID, peerID)
+		if !ok {
 			writeBrowseError(s, "access denied")
 			return
 		}
-		entries = r.listDirectory(browseRoot, peerID)
+
+		// Use os.Root for atomic path safety.
+		root, err := os.OpenRoot(share.Path)
+		if err != nil {
+			writeBrowseError(s, "not found")
+			return
+		}
+		defer root.Close()
+
+		dirPath := share.Path
+		if subPath != "" {
+			// Validate subpath is within share using os.Root.
+			sub, err := root.Open(subPath)
+			if err != nil {
+				writeBrowseError(s, "not found")
+				return
+			}
+			sub.Close()
+			dirPath = filepath.Join(share.Path, subPath)
+		}
+
+		entries = r.listDirectory(dirPath, share.Path, share.ID)
 	}
 
 	// Serialize response.
@@ -472,14 +575,15 @@ func (r *ShareRegistry) handleBrowseRequest(s network.Stream, peerID peer.ID) {
 }
 
 func (r *ShareRegistry) handleDownloadRequest(s network.Stream, peerID peer.ID) {
-	// Read requested path.
+	// Read requested path: format is "shareID/relativePath" or "shareID"
+	// for single-file shares. NEVER accepts absolute paths.
 	var pathLen uint16
 	if err := binary.Read(s, binary.BigEndian, &pathLen); err != nil {
-		writeBrowseError(s, "invalid request")
+		writeDownloadError(s, "invalid request")
 		return
 	}
 	if pathLen == 0 || pathLen > maxPathLength {
-		writeBrowseError(s, "invalid path length")
+		writeDownloadError(s, "invalid path length")
 		return
 	}
 
@@ -489,28 +593,70 @@ func (r *ShareRegistry) handleDownloadRequest(s network.Stream, peerID peer.ID) 
 	}
 	requestedPath := string(pathBuf)
 
-	// Sanitize: resolve symlinks, ensure within shared path.
-	absPath, err := filepath.Abs(requestedPath)
-	if err != nil {
-		writeBrowseError(s, "invalid path")
+	// Reject absolute paths (security: never let clients reference server filesystem).
+	if filepath.IsAbs(requestedPath) {
+		writeDownloadError(s, "absolute paths not allowed")
 		return
 	}
 
-	// Verify access.
-	if !r.IsPathShared(absPath, peerID) {
-		writeBrowseError(s, "access denied")
+	// Parse shareID and relative path.
+	shareID, relPath := requestedPath, ""
+	if idx := strings.IndexByte(requestedPath, '/'); idx >= 0 {
+		shareID = requestedPath[:idx]
+		relPath = requestedPath[idx+1:]
+	}
+
+	// Look up the share and verify peer access.
+	share, ok := r.LookupShareByID(shareID, peerID)
+	if !ok {
+		writeDownloadError(s, "access denied")
 		return
 	}
 
-	info, err := os.Stat(absPath)
+	// Use os.Root for atomic path traversal safety.
+	// This prevents TOCTOU races, symlink escapes, and ../../../ attacks.
+	root, err := os.OpenRoot(share.Path)
 	if err != nil {
-		writeBrowseError(s, "not found")
+		writeDownloadError(s, "not found")
+		return
+	}
+	defer root.Close()
+
+	// For single-file shares without a subpath, use the share's basename.
+	if relPath == "" && !share.IsDir {
+		relPath = filepath.Base(share.Path)
+		// Single file share: open the parent as root, file as relative.
+		root.Close()
+		root, err = os.OpenRoot(filepath.Dir(share.Path))
+		if err != nil {
+			writeDownloadError(s, "not found")
+			return
+		}
+	}
+
+	if relPath == "" {
+		writeDownloadError(s, "no file specified")
+		return
+	}
+
+	// Open within the jailed root. os.Root blocks traversal atomically.
+	f, err := root.Open(relPath)
+	if err != nil {
+		writeDownloadError(s, "not found")
+		return
+	}
+
+	info, err := f.Stat()
+	f.Close()
+	if err != nil {
+		writeDownloadError(s, "not found")
 		return
 	}
 
 	if info.IsDir() {
-		// Return directory listing.
-		entries := r.listDirectory(absPath, peerID)
+		// Return directory listing with relative paths.
+		absDir := filepath.Join(share.Path, relPath)
+		entries := r.listDirectory(absDir, share.Path, share.ID)
 		data, _ := json.Marshal(entries)
 		var header [5]byte
 		header[0] = msgBrowseResponse
@@ -520,12 +666,16 @@ func (r *ShareRegistry) handleDownloadRequest(s network.Stream, peerID peer.ID) 
 		return
 	}
 
-	// Single file download: the caller opens a file-transfer stream
-	// separately. We just confirm the file exists and is accessible.
-	// Response: msgBrowseResponse + file info as JSON.
+	// Single file: confirm exists and return metadata (no absolute paths).
+	if !info.Mode().IsRegular() {
+		writeDownloadError(s, "not a regular file")
+		return
+	}
+
 	entry := BrowseEntry{
-		Name:    filepath.Base(absPath),
-		Path:    absPath,
+		Name:    info.Name(),
+		Path:    relPath,
+		ShareID: share.ID,
 		Size:    info.Size(),
 		IsDir:   false,
 		ModTime: info.ModTime().Unix(),
@@ -539,7 +689,9 @@ func (r *ShareRegistry) handleDownloadRequest(s network.Stream, peerID peer.ID) 
 }
 
 // listDirectory returns entries for a directory path.
-func (r *ShareRegistry) listDirectory(dirPath string, peerID peer.ID) []BrowseEntry {
+// relativeTo is the share root - all paths in the result are relative to it.
+// shareID is included in each entry for download requests.
+func (r *ShareRegistry) listDirectory(dirPath, relativeTo, shareID string) []BrowseEntry {
 	dirEntries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil
@@ -564,9 +716,17 @@ func (r *ShareRegistry) listDirectory(dirPath string, peerID peer.ID) []BrowseEn
 			continue
 		}
 
+		// Build path relative to share root.
+		fullPath := filepath.Join(dirPath, de.Name())
+		relPath, err := filepath.Rel(relativeTo, fullPath)
+		if err != nil {
+			relPath = de.Name()
+		}
+
 		entries = append(entries, BrowseEntry{
 			Name:    de.Name(),
-			Path:    filepath.Join(dirPath, de.Name()),
+			Path:    relPath,
+			ShareID: shareID,
 			Size:    info.Size(),
 			IsDir:   de.IsDir(),
 			ModTime: info.ModTime().Unix(),
@@ -687,30 +847,65 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		}
 		requestedPath := string(pathBuf)
 
-		// Sanitize: resolve to absolute, no traversal.
-		absPath, err := filepath.Abs(requestedPath)
-		if err != nil {
-			writeDownloadError(s, "invalid path")
+		// Reject absolute paths (never let clients reference server filesystem).
+		if filepath.IsAbs(requestedPath) {
+			writeDownloadError(s, "absolute paths not allowed")
 			s.Close()
 			return
 		}
 
-		// No symlink following: resolve and verify it's still within shared tree.
-		realPath, err := filepath.EvalSymlinks(absPath)
+		// Parse shareID and relative path: "shareID/file.bin" or "shareID".
+		shareID, relPath := requestedPath, ""
+		if idx := strings.IndexByte(requestedPath, '/'); idx >= 0 {
+			shareID = requestedPath[:idx]
+			relPath = requestedPath[idx+1:]
+		}
+
+		// Look up the share and verify peer access.
+		share, ok := r.LookupShareByID(shareID, remotePeer)
+		if !ok {
+			writeDownloadError(s, "access denied")
+			s.Close()
+			return
+		}
+
+		// Use os.Root for atomic path traversal safety.
+		root, err := os.OpenRoot(share.Path)
+		if err != nil {
+			writeDownloadError(s, "not found")
+			s.Close()
+			return
+		}
+		defer root.Close()
+
+		// For single-file shares without a subpath, use the share's basename.
+		if relPath == "" && !share.IsDir {
+			relPath = filepath.Base(share.Path)
+			root.Close()
+			root, err = os.OpenRoot(filepath.Dir(share.Path))
+			if err != nil {
+				writeDownloadError(s, "not found")
+				s.Close()
+				return
+			}
+		}
+
+		if relPath == "" {
+			writeDownloadError(s, "no file specified")
+			s.Close()
+			return
+		}
+
+		// Open within the jailed root. os.Root blocks traversal atomically.
+		f, err := root.Open(relPath)
 		if err != nil {
 			writeDownloadError(s, "not found")
 			s.Close()
 			return
 		}
 
-		// Verify ACL.
-		if !r.IsPathShared(realPath, remotePeer) {
-			writeDownloadError(s, "access denied")
-			s.Close()
-			return
-		}
-
-		info, err := os.Stat(realPath)
+		info, err := f.Stat()
+		f.Close()
 		if err != nil {
 			writeDownloadError(s, "not found")
 			s.Close()
@@ -723,29 +918,31 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 			return
 		}
 
-		// Regular file only (no device files, pipes, sockets).
 		if !info.Mode().IsRegular() {
 			writeDownloadError(s, "not a regular file")
 			s.Close()
 			return
 		}
 
+		// Resolve the full filesystem path for SendFile (within jailed root).
+		filePath := filepath.Join(share.Path, relPath)
+		if !share.IsDir {
+			filePath = share.Path
+		}
+
 		short := remotePeer.String()[:16] + "..."
 		slog.Info("file-download: serving file",
-			"peer", short, "path", filepath.Base(realPath),
+			"peer", short, "path", info.Name(),
 			"size", info.Size())
 
 		// Send the file using existing chunked transfer (SHFT format).
-		// SendFile writes manifest, waits for accept/reject, then sends chunks.
-		// The stream is closed by SendFile's background goroutine.
-		_, sendErr := ts.SendFile(s, realPath)
+		_, sendErr := ts.SendFile(s, filePath)
 		if sendErr != nil {
 			slog.Error("file-download: send failed",
-				"peer", short, "path", filepath.Base(realPath), "error", sendErr)
+				"peer", short, "path", info.Name(), "error", sendErr)
 			writeDownloadError(s, "internal error")
 			s.Close()
 		}
-		// SendFile runs in background and closes stream when done.
 	}
 }
 

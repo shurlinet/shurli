@@ -34,6 +34,15 @@ func runBrowse(args []string) {
 
 	peer := remaining[0]
 
+	// Accept optional second positional argument as browse path.
+	browsePath := *pathFlag
+	if len(remaining) > 1 {
+		if browsePath != "" {
+			fatal("Specify path as argument or --path, not both")
+		}
+		browsePath = remaining[1]
+	}
+
 	client := tryDaemonClient()
 	if client == nil {
 		fmt.Println("Daemon not running. Start it with: shurli daemon")
@@ -41,7 +50,7 @@ func runBrowse(args []string) {
 	}
 
 	if *jsonFlag {
-		resp, err := client.Browse(peer, *pathFlag)
+		resp, err := client.Browse(peer, browsePath)
 		if err != nil {
 			fatal("Browse failed: %v", err)
 		}
@@ -51,7 +60,7 @@ func runBrowse(args []string) {
 		return
 	}
 
-	text, err := client.BrowseText(peer, *pathFlag)
+	text, err := client.BrowseText(peer, browsePath)
 	if err != nil {
 		fatal("Browse failed: %v", err)
 	}
