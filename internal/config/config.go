@@ -92,6 +92,68 @@ type TransferConfig struct {
 	// Peers exceeding this limit are silently rejected (stream reset).
 	// Default: 10.
 	RateLimit int `yaml:"rate_limit,omitempty"`
+
+	// --- DDoS defense settings ---
+
+	// BrowseRateLimit is the maximum number of browse requests per peer per minute.
+	// Peers exceeding this are silently rejected. Default: 10. 0 = disabled.
+	BrowseRateLimit int `yaml:"browse_rate_limit,omitempty"`
+
+	// GlobalRateLimit is the maximum total inbound transfer requests per minute
+	// across all peers. Protects against distributed flooding. Default: 30. 0 = disabled.
+	GlobalRateLimit int `yaml:"global_rate_limit,omitempty"`
+
+	// MaxQueuedPerPeer limits pending (ask-mode) + active transfers per peer.
+	// Prevents a single peer from monopolizing the receive queue. Default: 10.
+	MaxQueuedPerPeer int `yaml:"max_queued_per_peer,omitempty"`
+
+	// FailureBackoff configures automatic blocking of peers with repeated transfer failures.
+	// After threshold failures within the window, the peer is blocked for the block duration.
+	FailureBackoff FailureBackoffConfig `yaml:"failure_backoff,omitempty"`
+
+	// MinSpeedBytes is the minimum transfer speed in bytes/sec.
+	// If a transfer sustains below this speed for MinSpeedSeconds, it is killed.
+	// Default: 1024 (1 KB/s). 0 = disabled.
+	MinSpeedBytes int `yaml:"min_speed_bytes,omitempty"`
+
+	// MinSpeedSeconds is the observation window for minimum speed enforcement.
+	// Default: 30.
+	MinSpeedSeconds int `yaml:"min_speed_seconds,omitempty"`
+
+	// MaxTempSize is the maximum total size (bytes) of in-progress .tmp files
+	// in the receive directory. New transfers are rejected when the budget is exceeded.
+	// Default: 1073741824 (1 GB). 0 = unlimited.
+	MaxTempSize int64 `yaml:"max_temp_size,omitempty"`
+
+	// TempFileExpiry is how long incomplete .tmp files are kept before auto-cleanup.
+	// Expired files are removed to reclaim disk space and temp budget. Resume will
+	// re-download from scratch for expired transfers. Default: "1h". 0 = never expire.
+	TempFileExpiry string `yaml:"temp_file_expiry,omitempty"`
+
+	// BandwidthBudget is the maximum bytes a single peer can transfer per hour.
+	// Prevents bandwidth exhaustion from a single peer. Default: 104857600 (100 MB). 0 = unlimited.
+	BandwidthBudget int64 `yaml:"bandwidth_budget,omitempty"`
+
+	// --- Queue persistence ---
+
+	// QueueFile is the path for persisting queued transfers across daemon restarts.
+	// Default: ~/.config/shurli/queue.json. Set to empty string to disable.
+	QueueFile string `yaml:"queue_file,omitempty"`
+}
+
+// FailureBackoffConfig controls peer blocking after repeated transfer failures.
+type FailureBackoffConfig struct {
+	// Threshold is the number of failures within the window to trigger a block.
+	// Default: 3.
+	Threshold int `yaml:"threshold,omitempty"`
+
+	// Window is the time window for counting failures. Go duration string.
+	// Default: "5m".
+	Window string `yaml:"window,omitempty"`
+
+	// Block is the duration to block the peer after threshold is reached. Go duration string.
+	// Default: "60s".
+	Block string `yaml:"block,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

@@ -76,6 +76,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/transfers/{id}/accept", s.handleTransferAccept)
 	mux.HandleFunc("POST /v1/transfers/{id}/reject", s.handleTransferReject)
 	mux.HandleFunc("POST /v1/transfers/{id}/cancel", s.handleTransferCancel)
+	mux.HandleFunc("POST /v1/clean", s.handleClean)
 }
 
 // --- Format helpers ---
@@ -1122,12 +1123,19 @@ func (s *Server) handleShareAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse peer IDs if specified.
+	// Parse peer IDs if specified. Supports both full peer IDs and name aliases.
+	pnet := s.runtime.Network()
 	var peerIDs []peer.ID
 	for _, pidStr := range req.Peers {
+		// Try name resolution first (e.g., "home-node").
+		if resolved, err := pnet.ResolveName(pidStr); err == nil {
+			peerIDs = append(peerIDs, resolved)
+			continue
+		}
+		// Fall back to direct peer ID decode.
 		pid, err := peer.Decode(pidStr)
 		if err != nil {
-			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID %q: %v", pidStr, err))
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID or name %q: %v", pidStr, err))
 			return
 		}
 		peerIDs = append(peerIDs, pid)
@@ -1220,7 +1228,12 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			if e.IsDir {
 				kind = "[dir]"
 			}
-			fmt.Fprintf(&sb, "%s %s\t%s\n", kind, e.Name, humanSizeAPI(e.Size))
+			// Show share ID + relative path for easy download copy-paste.
+			downloadPath := e.Path
+			if e.ShareID != "" {
+				downloadPath = e.ShareID + "/" + e.Path
+			}
+			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, e.Name, humanSizeAPI(e.Size), downloadPath)
 		}
 		respondText(w, http.StatusOK, sb.String())
 		return
@@ -1771,13 +1784,28 @@ func (s *Server) handleTransferCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !ts.CancelTransfer(id) {
-		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found or already completed", id))
+	if err := ts.CancelTransfer(id); err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("transfer cancelled via API", "id", id)
 	respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
+	ts := s.runtime.TransferService()
+	if ts == nil {
+		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		return
+	}
+
+	count, bytes := ts.CleanTempFiles()
+	slog.Info("temp files cleaned via API", "files", count, "bytes", bytes)
+	respondJSON(w, http.StatusOK, map[string]any{
+		"files_removed": count,
+		"bytes_freed":   bytes,
+	})
 }
 
 func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {

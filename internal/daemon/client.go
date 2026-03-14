@@ -454,6 +454,18 @@ func (c *Client) CancelTransfer(id string) error {
 	return c.doJSON("POST", "/v1/transfers/"+id+"/cancel", nil, nil)
 }
 
+// CleanTempFiles removes all incomplete .tmp files via the daemon.
+func (c *Client) CleanTempFiles() (int, int64, error) {
+	var resp struct {
+		FilesRemoved int   `json:"files_removed"`
+		BytesFreed   int64 `json:"bytes_freed"`
+	}
+	if err := c.doJSON("POST", "/v1/clean", nil, &resp); err != nil {
+		return 0, 0, err
+	}
+	return resp.FilesRemoved, resp.BytesFreed, nil
+}
+
 // --- Invite methods ---
 
 // InviteCreate creates a new async invite via the daemon (relay-delegated).

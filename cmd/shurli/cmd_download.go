@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runDownload(args []string) {
@@ -23,12 +24,12 @@ func runDownload(args []string) {
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli download <peer>:<path> [--dest /local/dir] [--follow] [--json]")
+		fmt.Println("Usage: shurli download <peer>:<shareID/filename> [--dest /local/dir] [--follow] [--json]")
 		fmt.Println()
 		fmt.Println("Download a file from a peer's shared files.")
 		fmt.Println()
-		fmt.Println("The <peer>:<path> argument specifies the remote peer and the path to download.")
-		fmt.Println("Use 'shurli browse <peer>' to discover available shared files first.")
+		fmt.Println("The <peer>:<shareID/filename> argument specifies the remote peer, the share,")
+		fmt.Println("and the file to download. Use 'shurli browse <peer>' to discover share IDs.")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --dest <dir>       Local directory to save into (default: configured receive dir)")
@@ -40,14 +41,13 @@ func runDownload(args []string) {
 		fmt.Println("  --peers <list>     Comma-separated extra peer names/IDs for multi-peer")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  shurli download home-server:/home/user/Photos/vacation.jpg")
-		fmt.Println("  shurli download home-server:/home/user/docs/report.pdf --dest ~/Documents")
-		fmt.Println("  shurli download 12D3KooW...:/shared/file.txt --follow")
-		fmt.Println("  shurli download home-server:/shared/bigfile.tar --multi-peer --peers laptop,nas")
+		fmt.Println("  shurli download home-server:share-a1b2c3d4/photo.jpg")
+		fmt.Println("  shurli download home-server:share-a1b2c3d4/docs/report.pdf --dest ~/Documents")
+		fmt.Println("  shurli download home-server:share-a1b2c3d4/bigfile.tar --multi-peer --peers laptop,nas")
 		fmt.Println()
 		fmt.Println("Browse first, then download:")
 		fmt.Println("  shurli browse home-server")
-		fmt.Println("  shurli download home-server:/path/shown/in/browse")
+		fmt.Println("  shurli download home-server:<shareID>/<filename>")
 		osExit(1)
 	}
 
@@ -55,7 +55,7 @@ func runDownload(args []string) {
 	arg := remaining[0]
 	peer, remotePath := parsePeerPath(arg)
 	if peer == "" || remotePath == "" {
-		fatal("Invalid format. Use: <peer>:<path>\n  Example: home-server:/home/user/file.txt")
+		fatal("Invalid format. Use: <peer>:<shareID/filename>\n  Example: home-server:share-a1b2c3d4/photo.jpg\n\nUse 'shurli browse <peer>' to discover share IDs and files.")
 	}
 
 	client := tryDaemonClient()
@@ -92,7 +92,7 @@ func runDownload(args []string) {
 	}
 
 	tc.Wgreen(os.Stdout, "Download started")
-	fmt.Printf(" [%s] %s (%s)\n", resp.TransferID, resp.FileName, humanSize(resp.FileSize))
+	fmt.Printf(" [%s] %s (%s)\n", resp.TransferID, p2pnet.SanitizeDisplayName(resp.FileName), humanSize(resp.FileSize))
 
 	if !*followFlag || *silentFlag {
 		if !*silentFlag {
