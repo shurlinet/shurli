@@ -44,6 +44,7 @@ relay_authorized_keys
 !test/**/compose.yaml
 !website/hugo.yaml
 !.github/workflows/*.yaml
+!tools/sync-docs/sync-docs.yaml
 
 # Claude Code project instructions (private, never commit)
 CLAUDE.md
