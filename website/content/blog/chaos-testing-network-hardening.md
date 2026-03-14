@@ -2,11 +2,14 @@
 title: "Chaos Testing: 16 Network Transitions, 11 Root Causes, Zero Daemon Restarts"
 date: 2026-03-14
 tags: [release, network, chaos-testing]
+image: /images/blog/chaos-testing-hero.svg
 description: "How physical chaos testing across 5 ISPs and 3 VPNs exposed 11 root causes in libp2p's network transition handling - and how we fixed all of them."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
 ---
+
+![Chaos testing overview: 5 network types, automatic recovery chain, 11 root causes fixed, 16 test cases passed, 0 daemon restarts](/images/blog/chaos-testing-hero.svg)
 
 ## What happened
 
