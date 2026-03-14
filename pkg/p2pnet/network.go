@@ -227,14 +227,22 @@ func New(cfg *Config) (*Network, error) {
 		}
 
 		if len(relayInfos) > 0 {
-			// WithBackoff: reduce from default 1h to 30s. Autorelay sets backoff BEFORE
-			// every reservation attempt (even successful ones). After a network change
-			// kills the relay connection (CloseStaleConnections), autorelay tries to
-			// re-reserve but the 1h backoff from the initial startup attempt is still
-			// active → relay skipped for up to 1 hour. 30s means relay is retried within
-			// one rsvpRefreshInterval after the connection is re-established.
+			// Static relay tuning (all defaults are designed for DHT-discovered relays):
+			// - WithBackoff(30s): reduced from 1h default. Backoff is set BEFORE every
+			//   reservation attempt. After network change kills the relay connection,
+			//   30s means retry within one rsvpRefreshInterval.
+			// - WithMinInterval(5s): reduced from 30s default. Rate-limits peer source
+			//   calls. For static relays the peer source returns a hardcoded list (no
+			//   network cost), so 5s is safe and reduces reconnection delay from ~30s to ~5s.
+			// - WithBootDelay(0): default 3min waits for minCandidates (4) before connecting.
+			//   We have known static relays, no discovery phase needed.
+			// - WithMinCandidates(1): default 4. We have 2 static relays and want to
+			//   connect to the first available immediately, not wait for more candidates.
 			hostOpts = append(hostOpts, libp2p.EnableAutoRelayWithStaticRelays(relayInfos,
 				autorelay.WithBackoff(30*time.Second),
+				autorelay.WithMinInterval(5*time.Second),
+				autorelay.WithBootDelay(0),
+				autorelay.WithMinCandidates(1),
 			))
 		}
 
