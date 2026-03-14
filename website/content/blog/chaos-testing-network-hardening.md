@@ -1,106 +1,98 @@
 ---
-title: "Chaos Testing: 16 Network Transitions, 11 Root Causes, Zero Daemon Restarts"
+title: "From Broken to Bulletproof: How Chaos Testing Transformed Shurli's Network Layer"
 date: 2026-03-14
 tags: [release, network, chaos-testing]
 image: /images/blog/chaos-testing-hero.svg
-description: "How physical chaos testing across 5 ISPs and 3 VPNs exposed 11 root causes in libp2p's network transition handling - and how we fixed all of them."
+description: "4 days of physical chaos testing across 5 ISPs and 3 VPNs. 11 root causes found and fixed. The daemon now handles every network transition automatically."
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
 ---
 
-![Chaos testing overview: 5 network types, automatic recovery chain, 11 root causes fixed, 16 test cases passed, 0 daemon restarts](/images/blog/chaos-testing-hero.svg)
+![Before and after: network transitions went from broken (manual restarts needed) to bulletproof (zero restarts, all automatic)](/images/blog/chaos-testing-hero.svg)
 
-## What happened
+## The problem we solved
 
-We put Shurli's network layer through physical chaos testing: switching between real networks on real hardware, watching what breaks, fixing it live, and switching again. No simulations. No mocks. Real WiFi switches, real mobile hotspots, real VPN tunnels.
+Before this work, switching WiFi networks could leave Shurli stuck on relay indefinitely. Connecting a VPN could isolate you completely. Switching between two mobile hotspots was invisible to the daemon. Every one of these scenarios required a manual daemon restart to recover.
 
-**16 test cases** across 5 ISPs and 3 VPN providers. Every transition a user might hit in daily life: WiFi to cellular, cellular to LAN, LAN insertion while on cellular, VPN connect while on WiFi, VPN disconnect, rapid switching between carriers.
+After 4 days of physical chaos testing, live debugging, and targeted fixes: every network transition is now automatic. Zero restarts needed. The daemon detects changes, cleans up stale state, and re-establishes the best available path within seconds.
 
-The result: **11 root causes** found in how libp2p handles network transitions, all fixed. Then 8 additional flags from extended chaos testing, all investigated and resolved. The daemon now handles every network transition automatically. No restarts.
+## How we tested it
 
-## Why it matters
+No simulations. No mocks. Real hardware, real networks, real switches.
 
-A P2P daemon that can't survive a WiFi switch is a toy. Real devices move between networks constantly: home WiFi, office WiFi, cellular, VPN, tethering. Each transition changes IP addresses, routing tables, NAT behavior, and transport availability. If any of these transitions require a daemon restart, the network isn't ready for production.
+The setup: a MacBook switching between 5 different ISPs (satellite WiFi, two mobile carriers, USB ethernet, and WiFi hotspots) and 3 VPN providers (Mullvad, ProtonVPN, ExpressVPN). A home server on the local network. Two relay servers in different regions. Three devices, real CGNAT, real IPv6, real VPN tunnels.
 
-After this work, Shurli handles all of these transitions automatically:
+The test loop: switch networks, watch the logs, check if the daemon recovered, fix what broke, rebuild, restart, switch again. Repeat across 16 test cases covering every transition a real user would encounter.
 
-| Transition | Detection | Recovery |
-|-----------|-----------|----------|
-| WiFi to cellular | < 1s | 5-15s to RELAYED |
-| Cellular to WiFi (same LAN as peer) | < 1s | < 5s to DIRECT via mDNS |
-| USB LAN insertion | instant | < 1s to DIRECT via IPv6 |
-| USB LAN removal | instant | 5-10s to RELAYED |
-| VPN connect (hard tunnel) | < 1s | 5-15s to RELAYED |
-| VPN disconnect | < 1s | 5-30s to DIRECT |
-| Between two CGNAT carriers (no IPv6) | < 2s | 5-15s to RELAYED |
+This took roughly 40+ hours across 4 days. Not because the fixes were complex individually, but because each fix exposed the next layer. Fixing the black hole detector revealed the dial worker cache. Fixing the dial cache revealed the VPN blind spot. Fixing the VPN detection revealed the gateway tracking gap. Each layer peeled back to reveal something deeper.
 
-## What we found
+## What changed
 
-### The black hole detector problem
+### Shurli now sees every network switch
 
-libp2p tracks IPv6 and UDP dial success rates. After enough failures (5 out of 100), it enters a "Blocked" state and refuses further dials of that type. Designed to avoid wasting resources on known-bad transports.
+The network monitor used to only watch for global IP address changes. Three entire categories of network switches were invisible:
 
-The problem: this state persists across network switches. Switch from a CGNAT network (where IPv6 always fails) to a WiFi network with working IPv6, and the detector still blocks IPv6. The daemon is stuck on relay even though a direct path exists.
+1. **VPN tunnels**: Connecting a VPN adds a `utun` or `tun` interface with a private IPv4. No global IPs change. The daemon was blind.
+2. **CGNAT carrier switches**: Switching between two mobile hotspots (both private IPv4, no IPv6). No global IPs change. Invisible.
+3. **WiFi hotspot switches on macOS**: The operating system fires route table changes but not always address events. The daemon's route socket wasn't listening for the right messages.
 
-Fix: custom `BlackHoleSuccessCounter` instances with a `ResetBlackHoles()` method, called on every network change event.
+Now: the monitor detects tunnel interface names, tracks the default gateway, and listens for route changes alongside address events. Every switch fires a recovery chain within 1-2 seconds.
 
-### Relay connections that refuse to die
+### Stale connections are cleaned up correctly
 
-After switching networks, old relay connections stay in the swarm's connection list even after `conn.Close()` is called. libp2p's swarm removes closed connections asynchronously, and the closing connection can linger for up to 57 seconds. During this window, the reconnect loop sees it and thinks "direct connection is still active" - so it discards the new relay connection. The peer is stranded with no working path.
+After a network switch, old connections can linger. libp2p's swarm takes up to 57 seconds to fully remove a closed connection from its internal list. During that window, the reconnect logic sees the ghost connection and refuses to establish a new one.
 
-Fix: `hasLiveDirectConnection()` checks whether a connection's local IP still exists on any active interface before treating it as "live". Closed connections on vanished interfaces are correctly identified as dead.
+We fixed this at multiple levels: connections on vanished interfaces are identified as dead regardless of swarm state. IPv6 addresses get a grace period during the DAD (Duplicate Address Detection) window so valid connections aren't killed prematurely. The recovery chain runs in a specific order: strip stale addresses first, reset transport state, clear backoffs, then reconnect.
 
-### The dial worker cache
+### The daemon recovers in seconds, not minutes
 
-This was the subtlest bug. libp2p creates one dial worker per peer. All concurrent `DialPeer` calls share it. The worker caches results in a hashmap. After a network switch, PeerManager (or DHT, or autonat) dials the peer's stale LAN address. WiFi is still settling, the dial fails. This error is cached. When mDNS discovers the peer on the new LAN and calls `DialPeer`, it gets the cached error from a hashmap lookup - never actually dials.
+The most frustrating issue was recovery speed. Even when the daemon detected a switch, it could take 30+ seconds to re-establish a relay connection. We traced this to libp2p's autorelay subsystem, which is tuned for DHT-discovered relays (1-hour backoff, 30-second query interval, 3-minute boot delay). For known static relays, every one of these defaults was wrong.
 
-Fix: three-part approach. (1) Strip all private/LAN addresses from the peerstore before triggering reconnect. (2) mDNS runs a TCP readiness probe before `DialPeer` to avoid self-poisoning. (3) Retry with backoff handles probe failure on first attempt.
+After tuning: relay reconnection takes 5-10 seconds. Direct LAN connection via mDNS takes under 5 seconds. IPv6 path probing takes 1-3 seconds.
 
-### Invisible network switches
+### The subtlest bug: dial worker cache poisoning
 
-The network monitor only diffed global IP addresses. Switching between two CGNAT carriers (both private IPv4, no IPv6) produced zero change events. The daemon was blind.
+This one took the longest to find. After a network switch, any subsystem (PeerManager, DHT, autonat) that dials a peer's stale LAN address gets a "no route to host" error. This error is cached in a shared hashmap. When mDNS discovers the peer on the new LAN and tries to dial, it gets the cached error from a hashmap lookup. It never actually dials. The "instant failure" (1-5ms) that looked like a transport bug was actually a hashmap lookup returning a cached error from a different subsystem's failed attempt.
 
-Two fixes: (1) VPN tunnel detection - watch for `utun`/`tun`/`wg`/`ppp` interface names appearing or disappearing. (2) Default gateway tracking - parse the routing table to detect gateway changes even when no global IPs change.
+The fix required three coordinated changes: strip stale addresses before any reconnect attempt, probe TCP reachability before calling into libp2p's dial path, and retry with backoff when the probe fails during WiFi settling. All three are needed. Removing any one re-opens the cache poisoning window.
 
-On macOS, we also discovered that WiFi hotspot switches fire route table changes (`RTM_ADD`/`RTM_DELETE`) but not always address events (`RTM_NEWADDR`/`RTM_DELADDR`). The route socket listener now watches both.
+## The hurdles
 
-### Autorelay defaults that don't fit
+**macOS Local Network Privacy**: macOS 15+ silently blocks daemon TCP connections to private IPs with EHOSTUNREACH. The daemon was running fine, the network was fine, but TCP connects to LAN peers failed. Took hours to identify as a macOS privacy setting, not a code bug.
 
-libp2p's autorelay is tuned for DHT-discovered relay networks: 1-hour backoff, 30-second peer source rate limit, 3-minute boot delay waiting for 4 candidates. For static relays (known VPS addresses), every one of these defaults is wrong. The peer source returns a hardcoded list instantly, there's no discovery phase, and there are exactly 2 known relays.
+**Wrong assumptions about the network**: We initially assumed "60-80s ARP timeout" on satellite WiFi was the root cause of slow mDNS upgrades. Hours of investigation later: the real cause was inside libp2p's dial path (the hashmap cache poisoning). The ARP assumption led us down a wrong path before we found the real issue through source code analysis.
 
-Fix: backoff 30s, peer source interval 5s, boot delay 0, min candidates 1. Reconnection after relay loss dropped from ~30s to ~5-10s.
+**Route socket blind spots**: The macOS route socket was listening for address events (RTM_NEWADDR/RTM_DELADDR), but WiFi hotspot switches fire route changes (RTM_ADD/RTM_DELETE) instead. Discovering this required adding diagnostic logging, deploying a test binary, switching networks, and reading the raw route socket message types. Then we discovered the `route` command needed a full path (`/sbin/route`) because launchd's PATH doesn't include `/sbin`. Two separate issues, discovered one after the other.
 
-## The full list
+**Each fix exposed the next bug**: Fixing the black hole detector let the daemon attempt IPv6 dials, which revealed the ForceDirectDial shotgun problem. Fixing ForceDirectDial let mDNS connect, which revealed the relay cleanup fight. Fixing the relay fight exposed the VPN blind spot. This layered discovery pattern meant we couldn't plan all 11 fixes upfront. Each one had to be found through physical testing of the previous fix.
 
-| # | Root Cause | Fix |
-|---|-----------|-----|
-| 1 | Black hole detector blocks valid transports after network switch | Custom instances with reset on network change |
-| 2 | Probe targets relay server IP instead of peer IP (circuit addr parsing) | Skip `/p2p-circuit` addresses in probe target extraction |
-| 3 | ForceDirectDial tries all peerstore addresses, cascade failure | Constrain dial to confirmed address only, restore after |
-| 4 | mDNS relay cleanup fights remote PeerManager reconnect | Remove aggressive relay closing from mDNS, let coexist |
-| 5 | CloseStaleConnections misses private IPs (only checked global) | Read all interface IPs, close any with vanished local IP |
-| 6 | Autorelay drops reservations on public networks | ForceReachabilityPrivate always in daemon mode |
-| 7 | mDNS upgrade poisoned by UDP black hole state | Filter to TCP-only addresses for LAN upgrade |
-| 8 | CloseStaleConnections kills valid IPv6 during DAD window | Three-tier close logic with DAD grace for IPv6 |
-| 9 | Autorelay 1-hour backoff prevents re-reservation after network change | WithBackoff(30s) |
-| 10 | ProbeUntil cooldown blocks reconnect after direct connection dies | Clear cooldown on disconnect and network change |
-| 11 | Swarm reports closed connection as live for up to 57s | hasLiveDirectConnection checks interface membership |
+## The numbers
 
-### Post-chaos investigation (8 additional flags)
+| Metric | Value |
+|--------|-------|
+| Test cases | 16 |
+| ISPs tested | 5 |
+| VPN providers | 3 |
+| Root causes found | 11 |
+| Post-chaos flags | 8 (6 fixed, 2 informational) |
+| Total commits | 14 (FT-K through FT-X) |
+| Days of testing | 4 |
+| Daemon restarts needed | 0 |
 
-| Flag | Issue | Resolution |
-|------|-------|-----------|
-| #1 | Short-lived direct connection death (13s) | TOCTOU race in mDNS + idle relay cleanup |
-| #2 | Time-to-DIRECT 4min vs 74-82s baseline | Resolved by flag #1 fix |
-| #5 | Network monitor blind to private IPv4 switches | Default gateway tracking + route socket expansion |
-| #7 | mDNS TCP outbound fails on settling WiFi | Dial worker cache poisoning workaround (3-part fix) |
-| #8 | VPN tunnel invisible to network monitor | Tunnel interface name detection |
-| #4 | "Peer relay disabled" log on CGNAT switch | Cosmetic - peer relay correctly disables without public IP |
+## Before and after
 
-Flags #3 and #6 were informational (Starlink IPv6 path diversity, carrier IPv6 availability).
+| Transition | Before | After |
+|-----------|--------|-------|
+| WiFi to cellular | stuck RELAYED, restart needed | RELAYED in 5-15s, automatic |
+| Cellular to WiFi (LAN) | stuck RELAYED, restart needed | DIRECT in <5s via mDNS, automatic |
+| USB LAN insertion | no upgrade | DIRECT in <1s via IPv6, automatic |
+| USB LAN removal | stranded 90s | RELAYED instant, automatic |
+| VPN connect | total isolation | RELAYED in 5-15s, automatic |
+| VPN disconnect | slow recovery | DIRECT in 5-30s, automatic |
+| CGNAT to CGNAT (no IPv6) | invisible to daemon | detected + recovered, automatic |
 
 ## What's next
 
-The network layer is now tested against every transition we can physically reproduce. The blog post on Shurli's file transfer plugin is coming after physical network testing of file transfers across these same transitions. Reputation system wiring is next after that.
+The network layer is now tested against every transition we can physically reproduce. File transfer testing across these same transitions is next. Then: wiring the reputation system for autonomous trust decisions.
 
