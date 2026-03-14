@@ -65,6 +65,7 @@ var journalEntries = []journalEntry{
 	{"seed-relay-separation.md", 21, "Seed Relay Separation & Init Flow", "Discovery-only seed relays, server-side circuit ACL, init flow, config set."},
 	{"phase9-sdk-plugins.md", 22, "Phase 9 - SDK, Plugins & Protocol Consolidation", "Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin."},
 	{"phase9-file-transfer.md", 23, "Phase 9 - File Transfer Architecture", "FastCDC chunking, BLAKE3 Merkle, zstd compression, Reed-Solomon erasure, RaptorQ multi-source, parallel streams, receive permissions."},
+	{"post-chaos-network-hardening.md", 24, "Post-Chaos Network Hardening", "Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning."},
 }
 
 // Quick-start metadata (extracted from README.md, not from docs/).
