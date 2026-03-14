@@ -43,3 +43,4 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Seed Relay Separation & Init Flow](seed-relay-separation/) | ADR-P01 to ADR-P05 | Discovery-only seed relays, server-side circuit ACL, init flow, config set |
 | [Phase 9: SDK, Plugins & Protocol Consolidation](phase9-sdk-plugins/) | ADR-Q01 to ADR-Q05 | Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin |
 | [Phase 9: File Transfer Architecture](phase9-file-transfer/) | ADR-R01 to ADR-R09 | FastCDC, BLAKE3, zstd, Reed-Solomon, RaptorQ, parallel streams, receive permissions, rate limiting |
+| [Post-Chaos Network Hardening](post-chaos-network-hardening/) | ADR-S01 to ADR-S07 | Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning |
