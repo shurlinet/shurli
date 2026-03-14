@@ -8,6 +8,7 @@ This document describes the technical architecture of Shurli, from current imple
 - [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
+  - [libp2p Upstream Overrides](#libp2p-upstream-overrides) - where Shurli diverges from stock libp2p
 - [Core Concepts](#core-concepts) - implemented patterns
 - [Security Model](#security-model) - implemented + planned extensions
   - [Role-Based Access Control (Phase 6)](#role-based-access-control-phase-6) - admin/member tiers
@@ -574,7 +575,7 @@ Six components work together to find and maintain the best connection path to ea
 
 **Path Quality Tracking** (`pkg/p2pnet/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
 
-**Network Change Monitoring** (`pkg/p2pnet/netmonitor.go`): `NetworkMonitor` watches for interface/address changes by polling `DiscoverInterfaces()` and diffing against the previous snapshot. On change, fires registered callbacks. Triggers: interface re-scan, STUN re-probe, peer relay auto-detect update.
+**Network Change Monitoring** (`pkg/p2pnet/netmonitor.go`, `netmonitor_darwin.go`, `netmonitor_linux.go`): Event-driven on macOS (BSD route socket) and Linux (Netlink), polling fallback on other platforms. Detects three types of changes: global IP address changes, VPN tunnel interface appearance/disappearance, and default gateway changes (private IPv4 network switches). On change, fires the full recovery chain: strip stale LAN addresses, reset black hole detectors, clear dial backoffs, close stale connections, trigger reconnect, re-browse mDNS.
 
 **STUN NAT Detection** (`pkg/p2pnet/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
 
@@ -583,6 +584,35 @@ Six components work together to find and maintain the best connection path to ea
 **Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
 **Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `cmd/shurli/serve_common.go`
+
+### libp2p Upstream Overrides
+
+Shurli overrides several default libp2p behaviors to handle real-world network transitions (WiFi switches, VPN activation, CGNAT migration). These are the places where Shurli's behavior diverges from stock libp2p. Check these first when debugging dial or connection issues.
+
+| Override | Default libp2p | Shurli Behavior | File |
+|----------|---------------|-----------------|------|
+| TCP dialer | reuseport / sharedTcp | Source-bound `net.Dialer` (IPv6 binds to global addr) | `network.go` |
+| Black hole detector | Internal, no reset API | Custom instances with `ResetBlackHoles()` on network change | `network.go` |
+| Autorelay backoff | 1 hour | 30 seconds | `network.go` |
+| Autorelay minInterval | 30 seconds | 5 seconds (static relays return instantly) | `network.go` |
+| Autorelay boot delay | 3 minutes / 4 candidates | 0 / 1 (known static relays, no discovery phase) | `network.go` |
+| Reachability | autonat (dynamic) | `ForceReachabilityPrivate` always (permanent relay fallback) | `serve_common.go` |
+| Address factory | Default route interface only | `globalIPv6AddrsFactory` (all interface IPv6) | `network.go` |
+| mDNS | libp2p mdns wrapper | Custom: zeroconf + native DNS-SD browse | `mdns.go` |
+| Route socket (macOS) | RTM_NEWADDR / RTM_DELADDR / RTM_IFINFO | Also RTM_ADD / RTM_DELETE / RTM_CHANGE (catches WiFi hotspot switches) | `netmonitor_darwin.go` |
+| Network change detection | Global IP diff only | Also: VPN tunnel interface diff + default gateway diff | `netmonitor.go`, `interfaces.go` |
+
+**TCP source binding** (`sourceBindDialerForAddr`): Overrides all TCP dials. IPv6 destinations get source-bound to the host's global IPv6 address, preventing macOS VPN utun interfaces from capturing outgoing traffic through stale default routes. IPv4 destinations use a plain dialer. This replaces libp2p's reuseport and sharedTcp paths entirely.
+
+**Black hole detector reset**: Custom `BlackHoleSuccessCounter` instances for UDP and IPv6. A network switch invalidates the detector's state (IPv6 might work on the new network even if the old one was a black hole). `ResetBlackHoles()` fires on every network change event.
+
+**Autorelay tuning for static relays**: libp2p's autorelay defaults assume DHT-discovered relay networks with many candidates. Shurli uses known static VPS relays, so: backoff reduced from 1h to 30s (prevents relay blackout after network change), peer source rate limit reduced from 30s to 5s (faster reconnection, zero cost for static list), boot delay eliminated (no discovery phase needed), min candidates reduced to 1 (connect immediately).
+
+**ForceReachabilityPrivate**: Daemon always maintains relay reservations regardless of detected reachability. Without this, autorelay drops reservations on networks with public IPv6, creating a gap when switching to CGNAT.
+
+**Dial worker deduplication workaround**: libp2p's `dial_sync.go` creates one worker per peer; all concurrent `DialPeer` calls share cached results. After a network switch, any subsystem dialing stale LAN IPv4 poisons the cache. Workaround: `PeerManager.StripPrivateAddrs()` removes stale LAN addresses from the peerstore before reconnect. mDNS uses a TCP readiness probe before `DialPeer` to avoid self-poisoning.
+
+**Network change detection**: Extended beyond libp2p's default. Detects: global IP changes (original), VPN tunnel interface appearance/disappearance (`utun`/`tun`/`wg`/`ppp` name patterns), and default gateway changes (catches private-IPv4-only network switches where no global IPs change). macOS route socket expanded to include route table changes (`RTM_ADD`/`RTM_DELETE`/`RTM_CHANGE`), not just address events. Gateway detection: macOS via `/sbin/route -n get default`, Linux via `/sbin/ip route show default`.
 
 ---
 
