@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="chainFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#38353b"/>
+      <stop offset="100%" style="stop-color:#2c2a2e"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="800" height="200" fill="url(#bg)" rx="8"/>
+  <text x="400" y="28" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#c0caf5">How Recovery Works</text>
+  <text x="400" y="44" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">The entire chain runs automatically within seconds of any network change</text>
+
+  <!-- Trigger -->
+  <rect x="20" y="65" width="90" height="50" rx="8" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1"/>
+  <text x="65" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e0af68">Network</text>
+  <text x="65" y="100" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e0af68">Change</text>
+  <text x="65" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#565f89">&lt;1 second</text>
+
+  <!-- Arrow -->
+  <line x1="115" y1="90" x2="135" y2="90" stroke="#e0af68" stroke-width="1.5"/>
+  <polygon points="135,86 143,90 135,94" fill="#e0af68"/>
+
+  <!-- Step 1: Detect -->
+  <rect x="148" y="65" width="90" height="50" rx="8" fill="url(#chainFill)" stroke="#da1c5c" stroke-width="0.8" stroke-opacity="0.6"/>
+  <text x="193" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e8729a">Detect</text>
+  <text x="193" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">gateway + VPN</text>
+  <text x="193" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#565f89">500ms debounce</text>
+
+  <!-- Arrow -->
+  <line x1="243" y1="90" x2="263" y2="90" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="263,86 271,90 263,94" fill="#e8729a"/>
+
+  <!-- Step 2: Clean -->
+  <rect x="276" y="65" width="90" height="50" rx="8" fill="url(#chainFill)" stroke="#da1c5c" stroke-width="0.8" stroke-opacity="0.6"/>
+  <text x="321" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e8729a">Clean Up</text>
+  <text x="321" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">stale + backoffs</text>
+  <text x="321" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#565f89">instant</text>
+
+  <!-- Arrow -->
+  <line x1="371" y1="90" x2="391" y2="90" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="391,86 399,90 391,94" fill="#e8729a"/>
+
+  <!-- Step 3: Reset -->
+  <rect x="404" y="65" width="90" height="50" rx="8" fill="url(#chainFill)" stroke="#da1c5c" stroke-width="0.8" stroke-opacity="0.6"/>
+  <text x="449" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e8729a">Reset</text>
+  <text x="449" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">transport state</text>
+  <text x="449" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#565f89">instant</text>
+
+  <!-- Arrow -->
+  <line x1="499" y1="90" x2="519" y2="90" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="519,86 527,90 519,94" fill="#e8729a"/>
+
+  <!-- Step 4: Reconnect -->
+  <rect x="532" y="65" width="90" height="50" rx="8" fill="url(#chainFill)" stroke="#da1c5c" stroke-width="0.8" stroke-opacity="0.6"/>
+  <text x="577" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#e8729a">Reconnect</text>
+  <text x="577" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">relay + mDNS</text>
+  <text x="577" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#565f89">5-10 seconds</text>
+
+  <!-- Arrow -->
+  <line x1="627" y1="90" x2="647" y2="90" stroke="#e8729a" stroke-width="1.5"/>
+  <polygon points="647,86 655,90 647,94" fill="#e8729a"/>
+
+  <!-- Result -->
+  <rect x="660" y="65" width="110" height="50" rx="8" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="1" filter="url(#glow)"/>
+  <text x="715" y="86" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#9ece6a">Connected</text>
+  <text x="715" y="100" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9aa5ce">best path found</text>
+  <text x="715" y="130" text-anchor="middle" font-family="SF Mono, monospace" font-size="7" fill="#9ece6a">zero restarts</text>
+
+  <!-- Bottom: what each step does -->
+  <rect x="20" y="150" width="760" height="35" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.3"/>
+  <text x="400" y="167" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#9aa5ce">Detect: gateway + VPN + route changes</text>
+  <text x="400" y="179" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#565f89">Clean: strip stale addresses, close dead connections | Reset: black hole detectors, dial backoffs | Reconnect: relay + mDNS + IPv6 probe</text>
+</svg>
