@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="340" fill="url(#bg)" rx="8"/>
+  <text x="400" y="28" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#c0caf5">Every Transition, Automatic</text>
+  <text x="400" y="44" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">What you do on the left. What Shurli does on the right.</text>
+
+  <!-- Row 1: WiFi to cellular -->
+  <rect x="30" y="58" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="78" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Switch from WiFi to phone hotspot</text>
+  <line x1="285" y1="74" x2="370" y2="74" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,70 380,74 370,78" fill="#e0af68"/>
+  <rect x="385" y="58" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="78" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">RELAYED in 5-15s</text>
+  <text x="760" y="78" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 2: Come back to home WiFi -->
+  <rect x="30" y="96" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="116" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Come back to home WiFi</text>
+  <line x1="285" y1="112" x2="370" y2="112" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,108 380,112 370,116" fill="#e0af68"/>
+  <rect x="385" y="96" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="116" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">DIRECT via mDNS in &lt;5s</text>
+  <text x="760" y="116" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 3: Plug in USB ethernet -->
+  <rect x="30" y="134" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="154" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Plug in USB ethernet cable</text>
+  <line x1="285" y1="150" x2="370" y2="150" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,146 380,150 370,154" fill="#e0af68"/>
+  <rect x="385" y="134" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="154" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">DIRECT via IPv6 in &lt;1s</text>
+  <text x="760" y="154" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 4: Unplug the cable -->
+  <rect x="30" y="172" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="192" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Unplug the cable</text>
+  <line x1="285" y1="188" x2="370" y2="188" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,184 380,188 370,192" fill="#e0af68"/>
+  <rect x="385" y="172" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="192" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">Falls back to relay instantly</text>
+  <text x="760" y="192" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 5: Connect VPN -->
+  <rect x="30" y="210" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="230" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Connect a VPN</text>
+  <line x1="285" y1="226" x2="370" y2="226" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,222 380,226 370,230" fill="#e0af68"/>
+  <rect x="385" y="210" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="230" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">RELAYED in 5-15s</text>
+  <text x="760" y="230" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 6: Disconnect VPN -->
+  <rect x="30" y="248" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="268" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Disconnect the VPN</text>
+  <line x1="285" y1="264" x2="370" y2="264" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,260 380,264 370,268" fill="#e0af68"/>
+  <rect x="385" y="248" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="268" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">DIRECT restored in 5-30s</text>
+  <text x="760" y="268" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+
+  <!-- Row 7: Switch between hotspots -->
+  <rect x="30" y="286" width="250" height="32" rx="6" fill="url(#nodeFill)" stroke="#565f89" stroke-width="0.5"/>
+  <text x="45" y="306" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5">Switch between two hotspots</text>
+  <line x1="285" y1="302" x2="370" y2="302" stroke="#e0af68" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <polygon points="370,298 380,302 370,306" fill="#e0af68"/>
+  <rect x="385" y="286" width="385" height="32" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.5"/>
+  <text x="400" y="306" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">Detected + re-established in 5-15s</text>
+  <text x="760" y="306" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">automatic</text>
+</svg>

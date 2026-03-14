@@ -77,6 +77,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 8: Identity Security + Remote Admin** | 1 day | **Complete** |
 | **Phase 9A: Core Interfaces & Library** | 1 week | **Complete** |
 | **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
+| **Post-9B: Chaos Testing + Network Hardening** | 4 days | **Complete** |
 | Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
 | Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
 | Phase 9E: Swift SDK | 1-2 weeks | Planned |
@@ -105,4 +106,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-11. Current: Phase 9B complete (File Transfer). Next: Phase 9C-9E (Discovery, Python SDK, Swift SDK).*
+*Last updated: 2026-03-14. Current: Post-9B chaos testing complete (11 root causes, 8 flags). Next: file transfer physical testing, reputation wiring, Phase 9C-9E.*
