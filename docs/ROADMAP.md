@@ -224,6 +224,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
 | **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE. 9C-9E (discovery, Python SDK, Swift SDK) planned |
+| Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 
 **Deliverables**:
 
@@ -920,6 +921,43 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 - AI/neural compression: deferred to 2028-2029 when NNCP/neural codecs have stable Go implementations
 - Network file sync: rsync-like continuous background sync mode
 - TUI dashboard: ncurses-style transfer monitoring
+
+---
+
+#### Post-9B: Network Transition Chaos Testing and Hardening (FT-K through FT-X)
+
+**Timeline**: 2026-03-11 to 2026-03-14
+**Status**: All flags resolved. Pending: file transfer physical network testing, blog SVGs, merge to main.
+
+**Goal**: Physical chaos testing of all network transitions to verify the daemon handles real-world network switches without restarts. Regression found after Phase 9B bootstrap refactor, leading to 11 root cause fixes and 8 post-chaos investigation flags.
+
+**Chaos testing campaign (FT-K through FT-P)**:
+- [x] 16 test cases across 5 ISPs + 3 VPN providers
+- [x] Root cause #1: Black hole detector blocks valid transports after network switch (FT-K)
+- [x] Root cause #2: Probe targets relay server IP instead of peer IP (FT-K)
+- [x] Root cause #3: ForceDirectDial tries all peerstore addresses, cascade failure (FT-K)
+- [x] Root cause #4: mDNS relay cleanup fights remote PeerManager reconnect (FT-L)
+- [x] Root cause #5: CloseStaleConnections misses private IPs (FT-L)
+- [x] Root cause #6: Autorelay drops reservations on public networks (FT-L)
+- [x] Root cause #7: mDNS upgrade poisoned by UDP black hole state (FT-M)
+- [x] Root cause #8: CloseStaleConnections kills valid IPv6 during DAD window (FT-N)
+- [x] Root cause #9: Autorelay 1-hour backoff prevents re-reservation (FT-N)
+- [x] Root cause #10: ProbeUntil cooldown blocks reconnect after direct death (FT-O)
+- [x] Root cause #11: Swarm reports closed connection as live for 57s (FT-P)
+
+**Post-chaos investigation (FT-R through FT-X)**:
+- [x] Flag #1: TOCTOU race in mDNS + idle relay cleanup (FT-R, commit 2ee1dc2)
+- [x] Flag #7: Dial worker cache poisoning + mDNS TCP readiness probe (FT-T/FT-U, commit c497191)
+- [x] Flag #8: VPN tunnel interface detection + swarm backoff clear (FT-S, commit a0d606d)
+- [x] Flag #5: Default gateway tracking for private IPv4-only switches (FT-V, commit 45696ca)
+- [x] Flag #4: Investigated - cosmetic log, peer relay correctly disables without public IP
+- [x] Autorelay tuning for static relays - faster reconnection (FT-W, commit 459dc6a)
+- [x] ARCHITECTURE.md libp2p upstream overrides section (FT-X, commit c3e9140)
+- [x] Blog post + engineering journal ADR-S01 through ADR-S07 (FT-Y)
+- [x] sync-docs refactored to YAML config with validation
+
+**libp2p upstream overrides documented** (10 total):
+TCP source binding, black hole detector reset, autorelay backoff/minInterval/bootDelay/minCandidates, ForceReachabilityPrivate, global IPv6 address factory, custom mDNS, route socket expansion (macOS), VPN tunnel detection, default gateway tracking.
 
 ---
 
