@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -73,6 +74,38 @@ func (c *syncConfig) validate() error {
 	}
 	if c.RelaySetup.Source == "" {
 		return fmt.Errorf("relay_setup.source is required")
+	}
+
+	// Validate all entries have non-empty Source and no path traversal.
+	validateEntry := func(source, output, section string) error {
+		if source == "" {
+			return fmt.Errorf("%s: source is required", section)
+		}
+		if strings.Contains(source, "..") {
+			return fmt.Errorf("%s: source %q contains path traversal", section, source)
+		}
+		if output != "" && strings.Contains(output, "..") {
+			return fmt.Errorf("%s: output %q contains path traversal", section, output)
+		}
+		return nil
+	}
+	for _, e := range c.Docs {
+		if e.Output == "" {
+			return fmt.Errorf("docs: output is required for source %q", e.Source)
+		}
+		if err := validateEntry(e.Source, e.Output, "docs"); err != nil {
+			return err
+		}
+	}
+	for _, e := range c.Journal {
+		if err := validateEntry(e.Source, "", "journal"); err != nil {
+			return err
+		}
+	}
+	for _, e := range c.FAQ {
+		if err := validateEntry(e.Source, "", "faq"); err != nil {
+			return err
+		}
 	}
 
 	// Check for duplicate sources within each section.
