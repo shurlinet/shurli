@@ -961,6 +961,32 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 
 ---
 
+#### Post-9B: Transfer Speed Optimization (FT-Y)
+
+**Timeline**: Next iteration (high priority)
+**Status**: 📋 Planned
+
+**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync. Current baseline (2026-03-15, WiFi LAN, 500MB random data): Shurli 5 MB/s vs SCP 9 MB/s (55% of SCP). The 45% overhead comes from per-chunk processing (BLAKE3 hash + zstd compress + wire framing) across 2164 chunks.
+
+**Baseline measurements**:
+- laptop -> home-node, WiFi LAN
+- 500MB incompressible file (urandom)
+- SCP: 56s (~9 MB/s) | Shurli: 1m40s (~5 MB/s)
+
+**Optimization targets**:
+
+1. **Larger chunk sizes for LAN** - Current: 128K avg for <1GB files. LAN transfers benefit from fewer, larger chunks (less hash/frame overhead per byte). Adaptive: detect LAN path and use 1MB+ chunks.
+2. **Skip compression for incompressible data** - Detect in first chunk. If ratio < 1.05:1, disable for remaining chunks. Saves CPU on random/encrypted/pre-compressed data.
+3. **Streaming send** - Currently buffers all chunks in memory before sending. Stream chunks as they're produced (read -> hash -> compress -> send pipeline). Reduces memory and latency-to-first-byte.
+4. **Parallel chunk hashing** - BLAKE3 is already fast, but hashing can run on multiple cores while I/O waits.
+5. **Adaptive stream count** - Current: 1 stream for LAN. Test whether 2-4 streams improve WiFi throughput (WiFi benefits from parallel flows due to MAC-layer retransmits).
+
+**Target**: Match or exceed SCP speed on LAN transfers (>= 9 MB/s for 500MB). Accept ~10-15% overhead for integrity verification as the cost of doing business.
+
+**Exit criteria**: 500MB LAN transfer completes within 10% of SCP time. Benchmarks documented for LAN, WAN-direct, and relay paths.
+
+---
+
 #### Phase 9C: Service Discovery & Additional Plugins
 
 **Timeline**: 1-2 weeks
@@ -1507,7 +1533,51 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 15+: Ecosystem & Polish
+### Phase 15: Interactive Console & Network Monitor
+
+**Timeline**: 2-3 weeks
+**Status**: 📋 Planned
+
+**Goal**: A Python-style interactive REPL (`shurli console`) and built-in terminal network monitor. The console removes the `shurli` prefix, adds tab completion, inline help with examples, and command history. The network monitor provides live terminal visualizations of peer connections, transfer throughput, bandwidth usage, and queue depth without requiring external tools (Prometheus/Grafana).
+
+**Why This Exists**: CLI power users shouldn't need to prefix every command with `shurli`. And operators shouldn't need a full metrics stack to see what their network is doing. Self-contained observability, zero external dependencies.
+
+**Dependency**: `charmbracelet/bubbletea` v2 (~15 new modules, ~1-2 MB binary increase on 39 MB baseline). Justified because both the REPL and monitor need proper TUI capabilities (line editing, in-place multi-line updates, key handling).
+
+**Deliverables**:
+
+**15A: Interactive Console (REPL)**
+- [ ] `shurli console` command launches interactive session
+- [ ] No `shurli` prefix needed inside console (e.g., `ping home-node` instead of `shurli ping home-node`)
+- [ ] Tab completion for subcommands, peer names, share IDs
+- [ ] Inline `help <command>` with man-page info and example commands
+- [ ] Command history (up/down arrows, persistent across sessions)
+- [ ] Prompt shows connection status (e.g., `shurli [3 peers] > `)
+
+**15B: Network Monitor**
+- [ ] `shurli top` or `shurli monitor` - live dashboard in terminal
+- [ ] Live peer connections: who, path (direct/relay), latency, uptime
+- [ ] Transfer throughput graph (bytes/sec over time, like `iftop`)
+- [ ] Per-peer bandwidth usage (like `nethogs` for P2P streams)
+- [ ] Queue depth, active/pending/failed transfers
+- [ ] Compression ratios, chunk delivery rates
+- [ ] Relay vs direct connection status per peer
+
+**15C: Multi-line Progress Bars** (deferred from file transfer)
+- [ ] Per-stream chunk progress bars during multi-stream transfers (S1, S2, S3, S4)
+- [ ] Proper TUI rendering with bubbletea (no cursor-up ANSI hacks)
+- [ ] Terminal resize handled correctly
+- [ ] Integrate into `shurli send --follow` and `shurli transfers --watch`
+
+**Design Inspiration**:
+- Python REPL (console UX)
+- `htop`, `iftop`, `nmon`, `bmon` (network monitor UX)
+- `tqdm` / HuggingFace (progress bar UX)
+- [33 CLI monitoring tools](https://www.logicweb.com/knowledge-base/linux-tips/33-command-line-tools-to-monitor-linux-performance) (feature reference)
+
+---
+
+## Phase 16+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1654,7 +1724,8 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
 | Phase 13: Federation | 📋 2-3 weeks | Planned |
 | Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
+| Phase 15: Interactive Console & Network Monitor | 📋 2-3 weeks | Planned (bubbletea TUI) |
+| Phase 16+: Ecosystem | 📋 Ongoing | Conceptual |
 
 **Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (Go interfaces + Python SDK + Swift SDK) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
 
@@ -1803,10 +1874,17 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
+**Phase 15 Success** (Interactive Console & Network Monitor):
+- `shurli console` launches REPL with tab completion and command history
+- All existing CLI commands work without `shurli` prefix inside console
+- `shurli top` shows live peer connections, transfer throughput, and queue status
+- Multi-stream progress bars render cleanly with terminal resize support
+- Zero external monitoring tools required for basic network observability
+
 ---
 
 **Last Updated**: 2026-03-08
 **Current Phase**: Phase 8 Complete. Phase 9 (Plugins, SDK & First Plugins) next.
-**Phases**: 1-8 (complete), 9-14 (planned), 15+ (ecosystem)
+**Phases**: 1-8 (complete), 9-15 (planned), 16+ (ecosystem)
 **Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins (9A-9E: interfaces, file transfer, discovery, Python SDK, Swift SDK)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
