@@ -28,10 +28,10 @@ func main() {
 var cfg *syncConfig
 
 func run(args []string) error {
-	fs := flag.NewFlagSet("sync-docs", flag.ContinueOnError)
-	rootDir := fs.String("root-dir", "", "project root directory (default: auto-detect from go.mod)")
-	dryRun := fs.Bool("dry-run", false, "show what would be synced without writing")
-	if err := fs.Parse(args); err != nil {
+	flags := flag.NewFlagSet("sync-docs", flag.ContinueOnError)
+	rootDir := flags.String("root-dir", "", "project root directory (default: auto-detect from go.mod)")
+	dryRun := flags.Bool("dry-run", false, "show what would be synced without writing")
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
@@ -102,8 +102,63 @@ func run(args []string) error {
 		count++
 	}
 
+	// 8. Warn about orphan files in output dirs (synced files that are no longer in config)
+	if !*dryRun {
+		warnOrphans(outDir, cfg)
+	}
+
 	fmt.Printf("Done. %d files synced.\n", count)
 	return nil
+}
+
+// warnOrphans checks output directories for files not listed in config.
+func warnOrphans(outDir string, c *syncConfig) {
+	// Build set of expected output filenames per directory.
+	expectedDocs := make(map[string]bool)
+	for _, e := range c.Docs {
+		expectedDocs[e.Output] = true
+	}
+	expectedDocs[c.QuickStart.Output] = true
+	expectedDocs[c.RelaySetup.Output] = true
+
+	expectedJournal := make(map[string]bool)
+	for _, e := range c.Journal {
+		name := e.Source
+		if name == "README.md" {
+			name = "_index.md"
+		}
+		expectedJournal[name] = true
+	}
+
+	expectedFaq := make(map[string]bool)
+	for _, e := range c.FAQ {
+		name := e.Source
+		if name == "README.md" {
+			name = "_index.md"
+		}
+		expectedFaq[name] = true
+	}
+
+	// Only warn in subdirectories (journal, faq) where ALL content is synced.
+	// The top-level docs/ dir has manually-created pages (user journey guides,
+	// roadmap split pages, etc.) that are not synced from docs/.
+	checkDir := func(dir string, expected map[string]bool, section string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() || e.Name() == "_index.md" {
+				continue
+			}
+			if !expected[e.Name()] {
+				fmt.Printf("  WARN orphan %s/%s (not in sync-docs.yaml, may be stale)\n", section, e.Name())
+			}
+		}
+	}
+
+	checkDir(filepath.Join(outDir, "engineering-journal"), expectedJournal, "engineering-journal")
+	checkDir(filepath.Join(outDir, "faq"), expectedFaq, "faq")
 }
 
 // resolveRoot finds the project root by looking for go.mod.
@@ -157,12 +212,18 @@ func syncImages(docsDir, websiteDir string, dryRun bool) int {
 			return nil
 		}
 
-		os.MkdirAll(filepath.Dir(dstPath), 0755)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			fmt.Printf("  ERROR mkdir %s: %v\n", filepath.Dir(dstPath), err)
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
 		}
-		os.WriteFile(dstPath, data, 0644)
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			fmt.Printf("  ERROR write %s: %v\n", rel, err)
+			return nil
+		}
 		count++
 		return nil
 	})
