@@ -1173,10 +1173,12 @@ type QueuedTransfer struct {
 
 // TransferQueue manages ordered transfer execution.
 type TransferQueue struct {
-	mu       sync.Mutex
-	pending  []*QueuedTransfer
-	active   map[string]*QueuedTransfer
-	maxActive int
+	mu             sync.Mutex
+	pending        []*QueuedTransfer
+	active         map[string]*QueuedTransfer
+	maxActive      int
+	maxPending     int // max total pending items (0 = unlimited)
+	maxPerPeer     int // max pending items per peer (0 = unlimited)
 }
 
 // NewTransferQueue creates a queue with the given concurrency limit.
@@ -1185,15 +1187,42 @@ func NewTransferQueue(maxActive int) *TransferQueue {
 		maxActive = 3
 	}
 	return &TransferQueue{
-		active:    make(map[string]*QueuedTransfer),
-		maxActive: maxActive,
+		active:     make(map[string]*QueuedTransfer),
+		maxActive:  maxActive,
+		maxPending: 1000, // match persistence limit
+		maxPerPeer: 100,  // prevent one peer from monopolizing queue
 	}
 }
 
+// ErrQueueFull is returned when the outbound queue has reached its pending limit.
+var ErrQueueFull = fmt.Errorf("transfer queue is full")
+
+// ErrPeerQueueFull is returned when a single peer has too many pending transfers.
+var ErrPeerQueueFull = fmt.Errorf("per-peer queue limit reached")
+
 // Enqueue adds a transfer to the queue. Returns the queued transfer's ID.
-func (q *TransferQueue) Enqueue(filePath, peerID, direction string, priority TransferPriority) string {
+// Returns ErrQueueFull if the global queue limit is reached, or
+// ErrPeerQueueFull if the per-peer limit is reached.
+func (q *TransferQueue) Enqueue(filePath, peerID, direction string, priority TransferPriority) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+
+	if q.maxPending > 0 && len(q.pending) >= q.maxPending {
+		return "", ErrQueueFull
+	}
+
+	// Per-peer limit.
+	if q.maxPerPeer > 0 {
+		peerCount := 0
+		for _, qt := range q.pending {
+			if qt.PeerID == peerID {
+				peerCount++
+			}
+		}
+		if peerCount >= q.maxPerPeer {
+			return "", ErrPeerQueueFull
+		}
+	}
 
 	id := fmt.Sprintf("q-%d-%s", time.Now().UnixNano(), randomHex(4))
 	qt := &QueuedTransfer{
@@ -1219,7 +1248,7 @@ func (q *TransferQueue) Enqueue(filePath, peerID, direction string, priority Tra
 		q.pending = append(q.pending, qt)
 	}
 
-	return id
+	return id, nil
 }
 
 // Dequeue returns the next transfer to execute, or nil if queue is empty

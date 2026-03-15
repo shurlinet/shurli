@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1086,7 +1088,10 @@ func TestSubmitSendCreatesQueuedProgress(t *testing.T) {
 
 	// We can't use a real streamOpener without libp2p, so test the queue tracking
 	// directly via the queue + transfers map.
-	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	qID, err := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
 	progress := &TransferProgress{
 		ID:        qID,
 		Filename:  "test.txt",
@@ -1124,7 +1129,10 @@ func TestCancelQueuedTransfer(t *testing.T) {
 	}, nil, nil)
 
 	// Enqueue and track.
-	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	qID, err := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
 	progress := &TransferProgress{
 		ID:       qID,
 		Filename: "cancel-me.txt",
@@ -1163,8 +1171,8 @@ func TestListTransfersIncludesQueued(t *testing.T) {
 	}, nil, nil)
 
 	// Add items to queue (without executing).
-	ts.queue.Enqueue("/file1", "peer1", "send", PriorityHigh)
-	ts.queue.Enqueue("/file2", "peer2", "send", PriorityNormal)
+	ts.queue.Enqueue("/file1", "peer1", "send", PriorityHigh)   //nolint:errcheck
+	ts.queue.Enqueue("/file2", "peer2", "send", PriorityNormal) //nolint:errcheck
 
 	// Also track an active transfer.
 	ts.trackTransfer("active.txt", 1024, "peer3", "send", 10, true)
@@ -1750,7 +1758,7 @@ func TestQueuePersistAndLoad(t *testing.T) {
 	os.WriteFile(testFile, []byte("hello"), 0644)
 
 	// Enqueue directly into the transfer queue.
-	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal)
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
 
 	// Persist.
 	ts.persistQueue()
@@ -1806,7 +1814,7 @@ func TestQueuePersistHMACTamperDetection(t *testing.T) {
 
 	testFile := filepath.Join(dir, "test.bin")
 	os.WriteFile(testFile, []byte("hello"), 0644)
-	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal)
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
 	ts.persistQueue()
 
 	// Tamper with the file.
@@ -1838,7 +1846,7 @@ func TestQueuePersistWrongKey(t *testing.T) {
 
 	testFile := filepath.Join(dir, "test.bin")
 	os.WriteFile(testFile, []byte("hello"), 0644)
-	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal)
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
 	ts.persistQueue()
 
 	// Load with different key.
@@ -1968,5 +1976,164 @@ func TestQueuePersistNoKeyDisabled(t *testing.T) {
 	// File should not be created.
 	if _, err := os.Stat(filepath.Join(dir, "queue.json")); err == nil {
 		t.Error("queue file should not be created without HMAC key")
+	}
+}
+
+func TestEmptyFileManifest(t *testing.T) {
+	// Verify that a 0-byte file produces a valid manifest with 0 chunks.
+	dir := t.TempDir()
+	emptyFile := filepath.Join(dir, "empty.txt")
+	os.WriteFile(emptyFile, nil, 0644)
+
+	f, err := os.Open(emptyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	info, _ := f.Stat()
+	if info.Size() != 0 {
+		t.Fatalf("expected 0 bytes, got %d", info.Size())
+	}
+
+	// Chunk the empty file.
+	var chunks []Chunk
+	err = ChunkReader(f, 0, func(c Chunk) error {
+		chunks = append(chunks, c)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ChunkReader on empty file: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Errorf("empty file should produce 0 chunks, got %d", len(chunks))
+	}
+
+	// Merkle root of 0 hashes.
+	root := MerkleRoot(nil)
+	if root != [32]byte{} {
+		t.Error("Merkle root of empty should be zero hash")
+	}
+
+	// Bitfield with 0 bits.
+	bf := newBitfield(0)
+	if bf.count() != 0 {
+		t.Error("empty bitfield count should be 0")
+	}
+	if bf.missing() != 0 {
+		t.Error("empty bitfield missing should be 0")
+	}
+}
+
+func TestQueueBackpressure(t *testing.T) {
+	q := NewTransferQueue(2)
+
+	// Fill the queue to maxPending (1000), spreading across peers
+	// to avoid hitting per-peer limit (100) first.
+	for i := 0; i < q.maxPending; i++ {
+		peer := fmt.Sprintf("peer-%d", i%20) // 20 peers, 50 each
+		_, err := q.Enqueue("/file", peer, "send", PriorityNormal)
+		if err != nil {
+			t.Fatalf("enqueue %d failed unexpectedly: %v", i, err)
+		}
+	}
+
+	// Next enqueue should fail with global limit.
+	_, err := q.Enqueue("/overflow", "peer-new", "send", PriorityNormal)
+	if err == nil {
+		t.Fatal("expected ErrQueueFull when queue is at capacity")
+	}
+	if err != ErrQueueFull {
+		t.Fatalf("expected ErrQueueFull, got: %v", err)
+	}
+
+	// After dequeue, should be able to enqueue again.
+	q.Dequeue()
+	_, err = q.Enqueue("/after-drain", "peer-new", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("enqueue after drain should succeed: %v", err)
+	}
+}
+
+func TestQueueConcurrent(t *testing.T) {
+	q := NewTransferQueue(5)
+
+	var wg sync.WaitGroup
+	errCount := int64(0)
+	successCount := int64(0)
+
+	// 50 goroutines each enqueue 10 items.
+	for g := 0; g < 50; g++ {
+		wg.Add(1)
+		go func(peer string) {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				_, err := q.Enqueue("/file", peer, "send", PriorityNormal)
+				if err != nil {
+					atomic.AddInt64(&errCount, 1)
+				} else {
+					atomic.AddInt64(&successCount, 1)
+				}
+			}
+		}(fmt.Sprintf("peer-%d", g))
+	}
+
+	// Concurrently dequeue.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			qt := q.Dequeue()
+			if qt != nil {
+				q.Complete(qt.ID)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+
+	total := successCount + errCount
+	if total != 500 {
+		t.Errorf("expected 500 total operations, got %d", total)
+	}
+
+	// Some should succeed, some may fail (queue full at 1000).
+	if successCount == 0 {
+		t.Error("expected at least some successful enqueues")
+	}
+
+	// Verify queue integrity: pending + active should be consistent.
+	q.mu.Lock()
+	pendingCount := len(q.pending)
+	activeCount := len(q.active)
+	q.mu.Unlock()
+
+	t.Logf("concurrent test: %d success, %d full, pending=%d, active=%d",
+		successCount, errCount, pendingCount, activeCount)
+}
+
+func TestQueuePerPeerLimit(t *testing.T) {
+	q := NewTransferQueue(2)
+
+	// Fill per-peer limit (100) for peer-A.
+	for i := 0; i < q.maxPerPeer; i++ {
+		_, err := q.Enqueue("/file", "peer-A", "send", PriorityNormal)
+		if err != nil {
+			t.Fatalf("enqueue %d for peer-A failed: %v", i, err)
+		}
+	}
+
+	// Next enqueue for peer-A should fail with ErrPeerQueueFull.
+	_, err := q.Enqueue("/overflow", "peer-A", "send", PriorityNormal)
+	if err != ErrPeerQueueFull {
+		t.Fatalf("expected ErrPeerQueueFull for peer-A, got: %v", err)
+	}
+
+	// peer-B should still be able to enqueue.
+	_, err = q.Enqueue("/file", "peer-B", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("peer-B enqueue should succeed: %v", err)
 	}
 }

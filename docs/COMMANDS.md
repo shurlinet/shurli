@@ -74,7 +74,7 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 | `shurli share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]` | Share a file or directory. `--to` for a single peer, `--peers` for multiple. Without either, all authorized peers have access. `--persist` survives daemon restarts. |
 | `shurli share remove <path> [--json]` | Stop sharing a path. |
 | `shurli share list [--json]` | List all shared paths with type and peer restrictions. |
-| `shurli browse <peer> [--path /sub/dir] [--json]` | Browse files shared by a remote peer. `--path` navigates within a shared directory. |
+| `shurli browse <peer> [<path>] [--path /sub/dir] [--json]` | Browse files shared by a remote peer. Path can be positional or via `--path` flag. |
 | `shurli download <peer>:<path> [--dest dir] [--follow] [--multi-peer] [--peers list] [--quiet] [--silent] [--json]` | Download from a peer's shares. `--multi-peer` with `--peers` enables RaptorQ multi-source swarming. |
 
 ## Identity Security

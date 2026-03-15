@@ -185,9 +185,9 @@ func TestTransferQueue(t *testing.T) {
 	q := NewTransferQueue(2)
 
 	// Enqueue three items with different priorities.
-	id1 := q.Enqueue("/file1", "peer1", "send", PriorityNormal)
-	id2 := q.Enqueue("/file2", "peer2", "send", PriorityHigh)
-	id3 := q.Enqueue("/file3", "peer3", "send", PriorityLow)
+	id1, _ := q.Enqueue("/file1", "peer1", "send", PriorityNormal)
+	id2, _ := q.Enqueue("/file2", "peer2", "send", PriorityHigh)
+	id3, _ := q.Enqueue("/file3", "peer3", "send", PriorityLow)
 
 	// Dequeue should return highest priority first.
 	qt := q.Dequeue()
@@ -214,7 +214,7 @@ func TestTransferQueue(t *testing.T) {
 	}
 
 	// Cancel a pending item.
-	id4 := q.Enqueue("/file4", "peer4", "send", PriorityNormal)
+	id4, _ := q.Enqueue("/file4", "peer4", "send", PriorityNormal)
 	if !q.Cancel(id4) {
 		t.Fatal("cancel should succeed")
 	}
@@ -228,8 +228,8 @@ func TestTransferQueue(t *testing.T) {
 
 func TestTransferQueuePending(t *testing.T) {
 	q := NewTransferQueue(5)
-	q.Enqueue("/a", "p1", "send", PriorityNormal)
-	q.Enqueue("/b", "p2", "send", PriorityHigh)
+	q.Enqueue("/a", "p1", "send", PriorityNormal) //nolint:errcheck
+	q.Enqueue("/b", "p2", "send", PriorityHigh)  //nolint:errcheck
 
 	pending := q.Pending()
 	if len(pending) != 2 {

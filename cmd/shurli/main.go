@@ -161,7 +161,7 @@ func printUsage() {
 	fmt.Println("  share add <path> [--to peer] [--json]   Share a file or directory")
 	fmt.Println("  share remove <path>                     Stop sharing a path")
 	fmt.Println("  share list [--json]                      List shared paths")
-	fmt.Println("  browse <peer> [--json]                   Browse a peer's shared files")
+	fmt.Println("  browse <peer> [<path>] [--json]           Browse a peer's shared files")
 	fmt.Println("  download <peer>:<shareID/file> [--json]  Download from a share")
 	fmt.Println("  transfers [--watch] [--json]             List/watch file transfers")
 	fmt.Println("  accept <id|--all> [--json]               Accept a pending transfer")
