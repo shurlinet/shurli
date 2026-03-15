@@ -246,6 +246,16 @@ type BrowseRequest struct {
 	SubPath string `json:"sub_path,omitempty"` // browse within a shared directory
 }
 
+// RemoteServiceRequest is sent to POST /v1/services/remote.
+type RemoteServiceRequest struct {
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// RemoteServiceResponse is returned by POST /v1/services/remote.
+type RemoteServiceResponse struct {
+	Services []p2pnet.RemoteServiceInfo `json:"services"`
+}
+
 // BrowseResponse is returned by POST /v1/browse.
 type BrowseResponse struct {
 	Entries []p2pnet.BrowseEntry `json:"entries"`

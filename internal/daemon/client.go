@@ -156,6 +156,24 @@ func (c *Client) ServicesText() (string, error) {
 	return c.doText("GET", "/v1/services", nil)
 }
 
+// RemoteServices queries a remote peer's services via the daemon.
+func (c *Client) RemoteServices(peer string) (*RemoteServiceResponse, error) {
+	req := RemoteServiceRequest{Peer: peer}
+	body, _ := json.Marshal(req)
+	var resp RemoteServiceResponse
+	if err := c.doJSON("POST", "/v1/services/remote", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// RemoteServicesText queries a remote peer's services, returns plain text.
+func (c *Client) RemoteServicesText(peer string) (string, error) {
+	req := RemoteServiceRequest{Peer: peer}
+	body, _ := json.Marshal(req)
+	return c.doText("POST", "/v1/services/remote", strings.NewReader(string(body)))
+}
+
 // Peers returns the list of connected peers. If all is true, includes non-shurli DHT peers.
 func (c *Client) Peers(all bool) ([]PeerInfo, error) {
 	path := "/v1/peers"
