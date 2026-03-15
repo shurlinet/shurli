@@ -27,6 +27,7 @@ type RelayAdminAPI interface {
 	ListConnectedPeers() ([]ConnectedPeerInfo, error)
 	AuthorizePeer(peerID, comment string) error
 	DeauthorizePeer(peerID string) error
+	SetPeerAttr(peerID, key, value string) error
 	AuthReload() error
 	ZKPTreeRebuild() (map[string]any, error)
 	ZKPTreeInfo() (*ZKPTreeInfoResponse, error)

@@ -812,6 +812,13 @@ func (rt *serveRuntime) ExposeConfiguredServices() {
 			}
 		}
 	}
+
+	// Register service-query protocol so remote peers can discover our services.
+	// Allow relay transport since this is metadata-only (no data transfer).
+	if err := rt.network.RegisterServiceQuery(); err != nil {
+		log.Printf("Warning: failed to register service-query handler: %v", err)
+	}
+
 	fmt.Println()
 }
 
@@ -1394,16 +1401,15 @@ func (rt *serveRuntime) SetupTransfer() {
 	}
 
 	// Register the inbound handler as a custom service.
-	// Default policy: LAN + Direct only. Relay is explicitly excluded to protect
-	// relay bandwidth (relays are signaling-only, not data pipes).
-	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
+	// Relay transport allowed so NAT-to-NAT peers can transfer files via relay.
+	// Relay bandwidth limits (64MB/session, 10min) still apply at the relay level.
+	if err := rt.network.RegisterHandlerRelayAllowed("file-transfer", ts.HandleInbound(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
 		return
 	}
 
 	// Register multi-peer download handler (fountain-coded swarming).
-	// Same policy as file-transfer: LAN + Direct only.
-	if err := rt.network.RegisterHandler("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
+	if err := rt.network.RegisterHandlerRelayAllowed("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-multi-peer handler: %v\n", err)
 	}
 
@@ -1436,14 +1442,14 @@ func (rt *serveRuntime) SetupSharing() {
 		reg.SetBrowseRateLimit(browseLimit)
 	}
 
-	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
+	if err := rt.network.RegisterHandlerRelayAllowed("file-browse", reg.HandleBrowse(), nil); err != nil {
 		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)
 		return
 	}
 
 	// Register download protocol handler (requires transfer service).
 	if rt.transferService != nil {
-		if err := rt.network.RegisterHandler("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
+		if err := rt.network.RegisterHandlerRelayAllowed("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
 			fmt.Printf("Warning: failed to register file-download handler: %v\n", err)
 		}
 	}

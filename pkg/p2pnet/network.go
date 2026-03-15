@@ -565,6 +565,48 @@ func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPee
 	})
 }
 
+// RegisterHandlerRelayAllowed registers a custom stream handler that permits
+// relay transport in addition to LAN and Direct. Use this for plugins that
+// need to work for relay-only peers (e.g., file transfer for NAT-to-NAT).
+func (n *Network) RegisterHandlerRelayAllowed(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error {
+	if err := ValidateServiceName(name); err != nil {
+		return err
+	}
+
+	policy := &PluginPolicy{
+		AllowedTransports: TransportLAN | TransportDirect | TransportRelay,
+	}
+
+	if allowedPeers != nil {
+		policy.AllowPeers = allowedPeers
+	}
+
+	return n.serviceRegistry.RegisterService(&Service{
+		Name:     name,
+		Protocol: fmt.Sprintf("/shurli/%s/1.0.0", name),
+		Handler:  handler,
+		Enabled:  true,
+		Policy:   policy,
+	})
+}
+
+// RegisterServiceQuery registers the service-query protocol handler, which
+// allows remote peers to discover this node's enabled services. Relay transport
+// is allowed since this only returns metadata (service names and protocols).
+func (n *Network) RegisterServiceQuery() error {
+	policy := &PluginPolicy{
+		AllowedTransports: TransportLAN | TransportDirect | TransportRelay,
+	}
+
+	return n.serviceRegistry.RegisterService(&Service{
+		Name:     "service-query",
+		Protocol: ServiceQueryProtocol,
+		Handler:  HandleServiceQuery(n.serviceRegistry),
+		Enabled:  true,
+		Policy:   policy,
+	})
+}
+
 // OpenPluginStream opens a stream to a remote peer for a registered plugin,
 // enforcing the plugin's transport and peer policy.
 //

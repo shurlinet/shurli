@@ -864,6 +864,59 @@ func runRelayDeauthorize(args []string, configFile string) {
 	}
 }
 
+func doRelaySetAttr(args []string, configFile string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("relay set-attr", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 3 {
+		return fmt.Errorf("usage: shurli relay set-attr <peer-id> <key> <value> [--remote <addr>]")
+	}
+
+	peerID := fs.Arg(0)
+	key := fs.Arg(1)
+	value := fs.Arg(2)
+
+	if *remoteFlag != "" {
+		client, cleanup, err := relayAdminClientOrRemote(*remoteFlag, configFile)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+
+		if err := client.SetPeerAttr(peerID, key, value); err != nil {
+			return fmt.Errorf("failed to set attribute: %w", err)
+		}
+		fmt.Fprintf(stdout, "Set %s=%s on %s\n", key, value, peerID[:min(16, len(peerID))]+"...")
+		fmt.Fprintln(stdout, "Applied immediately (remote admin).")
+		return nil
+	}
+
+	authKeysPath, err := loadRelayAuthKeysPathErr(configFile)
+	if err != nil {
+		return err
+	}
+	if err := auth.SetPeerAttr(authKeysPath, peerID, key, value); err != nil {
+		return fmt.Errorf("failed to set attribute: %w", err)
+	}
+
+	fmt.Fprintf(stdout, "Set %s=%s on %s\n", key, value, peerID[:min(16, len(peerID))]+"...")
+	fmt.Fprintf(stdout, "File: %s\n", authKeysPath)
+	fmt.Fprintln(stdout)
+	tryRelayAuthReload(configFile, stdout)
+	return nil
+}
+
+func runRelaySetAttr(args []string, configFile string) {
+	if err := doRelaySetAttr(args, configFile, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
 // termWidth returns the terminal width, or 80 if detection fails.
 func termWidth() int {
 	w, _, err := term.GetSize(int(os.Stdout.Fd()))
@@ -1582,6 +1635,7 @@ func printRelayServeUsage() {
 	fmt.Println("Relay server management (local or --remote):")
 	fmt.Println("  authorize <peer-id> [comment]       Allow a peer to use this relay")
 	fmt.Println("  deauthorize <peer-id>               Remove a peer's access")
+	fmt.Println("  set-attr <peer> <key> <value>       Set peer attribute (relay_data, role, etc.)")
 	fmt.Println("  list-peers                          List authorized peers")
 	fmt.Println("  seal                                Seal vault (watch-only mode)")
 	fmt.Println("  unseal                              Unseal vault")

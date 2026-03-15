@@ -259,6 +259,7 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/peers/connected", s.handleListConnectedPeers)
 	mux.HandleFunc("POST /v1/peers/authorize", s.handleAuthorizePeer)
 	mux.HandleFunc("POST /v1/peers/deauthorize", s.handleDeauthorizePeer)
+	mux.HandleFunc("POST /v1/peers/set-attr", s.handleSetPeerAttr)
 
 	// Auth hot-reload endpoint
 	mux.HandleFunc("POST /v1/auth/reload", s.handleAuthReload)
@@ -1264,6 +1265,64 @@ func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "deauthorized",
 		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID string `json:"peer_id"`
+		Key    string `json:"key"`
+		Value  string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" || req.Key == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id and key are required")
+		return
+	}
+
+	// Whitelist of allowed attribute keys to prevent arbitrary writes.
+	allowed := map[string]bool{
+		"relay_data": true,
+		"role":       true,
+		"group":      true,
+		"verified":   true,
+	}
+	if !allowed[req.Key] {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: relay_data, role, group, verified)", req.Key))
+		return
+	}
+
+	if err := auth.SetPeerAttr(s.authKeysPath, req.PeerID, req.Key, req.Value); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to set attribute: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + circuit ACL).
+	s.reloadAuth()
+
+	short := req.PeerID
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peer attribute set via admin", "peer_id", short, "key", req.Key, "value", req.Value)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "updated",
+		"peer_id": req.PeerID,
+		"key":     req.Key,
+		"value":   req.Value,
 	})
 }
 
