@@ -1265,6 +1265,12 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 
 	result, err := p2pnet.BrowsePeer(stream, req.SubPath)
 	if err != nil {
+		// Humanize stream reset: remote peer has no shares visible to us.
+		errStr := err.Error()
+		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
+			respondError(w, http.StatusForbidden, "no shares visible to you on this peer")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
 		return
 	}
@@ -1406,6 +1412,16 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)
 	if err != nil {
+		errStr := err.Error()
+		// Humanize common download errors.
+		if strings.Contains(errStr, "access denied") {
+			respondError(w, http.StatusForbidden, fmt.Sprintf("download failed: share not found or access denied. Verify the share ID with: shurli browse %s", req.Peer))
+			return
+		}
+		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
+			respondError(w, http.StatusForbidden, "download failed: connection reset by remote peer. Check that both peers are online and the share still exists.")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
 		return
 	}
