@@ -356,10 +356,11 @@ Stop sharing a previously shared path.
 List all currently shared paths, their type (file or directory),
 and peer restrictions.
 .TP
-.B browse \fIpeer\fR [\fB--path\fR \fI/sub/dir\fR] [\fB--json\fR]
-Browse files and directories shared by a remote peer. Use \fB--path\fR
-to navigate within a specific shared directory. Only shows content the
-remote peer has explicitly shared with you.
+.B browse \fIpeer\fR [\fIpath\fR] [\fB--path\fR \fI/sub/dir\fR] [\fB--json\fR]
+Browse files and directories shared by a remote peer. Specify a path
+as a positional argument or use \fB--path\fR to navigate within a
+specific shared directory. Only shows content the remote peer has
+explicitly shared with you.
 .TP
 .B download \fIpeer\fR:\fIpath\fR [\fB--dest\fR \fIdir\fR] [\fB--follow\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--multi-peer\fR] [\fB--peers\fR \fIlist\fR] [\fB--json\fR]
 Download a file from a remote peer's shared files. The argument uses

@@ -350,6 +350,7 @@ _shurli_completions() {
             fi
             return ;;
         browse)
+            # Usage: browse <peer> [<path>] [--path /sub/dir] [--json]
             COMPREPLY=($(compgen -W "--json --path" -- "$cur"))
             return ;;
         download)
@@ -694,7 +695,7 @@ _shurli() {
             fi
             ;;
         browse)
-            _arguments '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
+            _arguments '1:peer:' '2:path:' '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
         download)
             _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' '--multi-peer[Download from multiple peers (RaptorQ)]' '--peers[Extra peer names for multi-peer]:peers' ;;
         send)
@@ -995,7 +996,7 @@ complete -c shurli -n '__shurli_using_subcommand share add'    -l json    -d 'Ou
 complete -c shurli -n '__shurli_using_subcommand share remove' -l json    -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_subcommand share list'   -l json    -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command browse'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command browse'     -l path         -d 'Browse within a shared directory'
+complete -c shurli -n '__shurli_using_command browse'     -l path         -d 'Browse path (or pass as 2nd positional arg)'
 complete -c shurli -n '__shurli_using_command download'   -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command download'   -l dest         -d 'Save to specific directory' -r
 complete -c shurli -n '__shurli_using_command download'   -l follow       -d 'Follow transfer progress'
