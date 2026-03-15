@@ -498,6 +498,11 @@ the relay. Supports --remote for administration from any admin device.
 Remove a peer's relay access. Active connections from that peer are dropped.
 Supports --remote for administration from any admin device.
 .TP
+.B relay set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR [\fB--remote\fR \fIaddr\fR]
+Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
+relay_data (true/false), role (admin/member), group, verified.
+Supports --remote for administration from any admin device.
+.TP
 .B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.
 Supports --remote for administration from any admin device.
