@@ -34,8 +34,8 @@ func runShare(args []string) {
 
 func runShareAdd(args []string) {
 	fs := flag.NewFlagSet("share add", flag.ExitOnError)
-	toFlag := fs.String("to", "", "peer ID to share with (alias for --peers with single peer)")
-	peersFlag := fs.String("peers", "", "comma-separated peer IDs (empty = all authorized)")
+	toFlag := fs.String("to", "", "peer name or ID to share with")
+	peersFlag := fs.String("peers", "", "comma-separated peer names or IDs (empty = all authorized)")
 	persistFlag := fs.Bool("persist", false, "survive daemon restart")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	fs.Parse(reorderFlags(fs, args))
@@ -176,8 +176,8 @@ func printShareUsage() {
 	fmt.Println("  list [--json]                               List shared paths")
 	fmt.Println()
 	fmt.Println("Flags:")
-	fmt.Println("  --to <peer>       Share with a single peer (alias for --peers)")
-	fmt.Println("  --peers id1,id2   Share with multiple peers")
+	fmt.Println("  --to <peer>       Share with a single peer (name or peer ID)")
+	fmt.Println("  --peers id1,id2   Share with multiple peers (comma-separated names or IDs)")
 	fmt.Println("  --persist         Survive daemon restart")
 	fmt.Println("  --json            Output as JSON")
 	fmt.Println()

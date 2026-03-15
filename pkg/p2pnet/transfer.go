@@ -2443,7 +2443,10 @@ func (ts *TransferService) SubmitSend(filePath, peerID string, priority Transfer
 		return nil, fmt.Errorf("cannot access path: %w", err)
 	}
 
-	queueID := ts.queue.Enqueue(filePath, peerID, "send", priority)
+	queueID, err := ts.queue.Enqueue(filePath, peerID, "send", priority)
+	if err != nil {
+		return nil, fmt.Errorf("queue full: %w", err)
+	}
 
 	progress := &TransferProgress{
 		ID:        queueID,
@@ -2490,11 +2493,25 @@ func (ts *TransferService) SubmitSend(filePath, peerID string, priority Transfer
 // them for execution. This replaces the old per-job goroutine spin-wait which
 // had a bug where goroutines could steal and complete each other's queue items.
 func (ts *TransferService) runQueueProcessor() {
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ts.queueCtx.Done():
 			return
 		case <-ts.queueReady:
+		case <-cleanupTicker.C:
+			// Evict stale pendingJobs entries (older than 24h).
+			ts.pendingJobsMu.Lock()
+			for id, job := range ts.pendingJobs {
+				if time.Since(job.progress.StartTime) > 24*time.Hour {
+					delete(ts.pendingJobs, id)
+					job.progress.finish(fmt.Errorf("expired: queued for over 24 hours"))
+				}
+			}
+			ts.pendingJobsMu.Unlock()
+			continue
 		case <-time.After(500 * time.Millisecond):
 		}
 
@@ -3162,6 +3179,14 @@ func (ts *TransferService) Close() error {
 	if ts.queueCancel != nil {
 		ts.queueCancel()
 	}
+
+	// Clean up stale pendingJobs (processor may not have drained them all).
+	ts.pendingJobsMu.Lock()
+	for id := range ts.pendingJobs {
+		delete(ts.pendingJobs, id)
+	}
+	ts.pendingJobsMu.Unlock()
+
 	if ts.rateLimiterStop != nil {
 		ts.rateLimiterStop()
 	}

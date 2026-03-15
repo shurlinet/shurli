@@ -17,19 +17,25 @@ func runBrowse(args []string) {
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli browse <peer> [--path /sub/dir] [--json]")
+		fmt.Println("Usage: shurli browse <peer> [<path>] [--path /sub/dir] [--json]")
 		fmt.Println()
 		fmt.Println("Browse files shared by a remote peer.")
 		fmt.Println()
 		fmt.Println("Options:")
+		fmt.Println("  <path>        Browse path (positional, alternative to --path)")
 		fmt.Println("  --path <dir>  Browse within a specific shared directory")
 		fmt.Println("  --json        Output as JSON")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  shurli browse home-server")
-		fmt.Println("  shurli browse home-server --path /home/user/Photos")
+		fmt.Println("  shurli browse home-server share-abc123/subdir")
+		fmt.Println("  shurli browse home-server --path share-abc123/subdir")
 		fmt.Println("  shurli browse 12D3KooW... --json")
 		osExit(1)
+	}
+
+	if len(remaining) > 2 {
+		fatal("Too many arguments. Usage: shurli browse <peer> [<path>]")
 	}
 
 	peer := remaining[0]
@@ -38,7 +44,7 @@ func runBrowse(args []string) {
 	browsePath := *pathFlag
 	if len(remaining) > 1 {
 		if browsePath != "" {
-			fatal("Specify path as argument or --path, not both")
+			fatal("Specify path as positional argument or --path flag, not both")
 		}
 		browsePath = remaining[1]
 	}
