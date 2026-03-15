@@ -29,6 +29,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Read-only
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/services", s.handleServiceList)
+	mux.HandleFunc("POST /v1/services/remote", s.handleRemoteServiceList)
 	mux.HandleFunc("GET /v1/peers", s.handlePeerList)
 	mux.HandleFunc("GET /v1/auth", s.handleAuthList)
 
@@ -307,6 +308,58 @@ func (s *Server) handleServiceList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, infos)
+}
+
+func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request) {
+	var req RemoteServiceRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Peer == "" {
+		respondError(w, http.StatusBadRequest, "peer is required")
+		return
+	}
+
+	pnet := s.runtime.Network()
+
+	targetPeerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		return
+	}
+
+	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		return
+	}
+
+	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "service-query")
+	if err != nil {
+		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open service-query stream: %v", err))
+		return
+	}
+	defer stream.Close()
+
+	services, err := p2pnet.QueryPeerServices(stream)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("service query failed: %v", err))
+		return
+	}
+
+	if wantsText(r) {
+		var sb strings.Builder
+		for _, svc := range services {
+			fmt.Fprintf(&sb, "%-16s %s\n", svc.Name, svc.Protocol)
+		}
+		if len(services) == 0 {
+			sb.WriteString("(no services)\n")
+		}
+		respondText(w, http.StatusOK, sb.String())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, RemoteServiceResponse{Services: services})
 }
 
 func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {

@@ -173,7 +173,7 @@ _shurli_completions() {
     local auth_cmds="add list remove validate"
     local share_cmds="add remove list"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
+    local relay_cmds="add list remove show setup serve authorize deauthorize set-attr list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
     local relay_vault_cmds="init seal unseal status change-password"
     local relay_motd_cmds="set clear status"

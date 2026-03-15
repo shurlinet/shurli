@@ -411,6 +411,23 @@ func (c *AdminClient) AuthorizePeer(peerID, comment string) error {
 	return nil
 }
 
+// SetPeerAttr sets a key=value attribute on a peer in the relay's authorized_keys.
+func (c *AdminClient) SetPeerAttr(peerID, key, value string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+		"key":     key,
+		"value":   value,
+	})
+	data, status, err := c.do("POST", "/v1/peers/set-attr", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
 // DeauthorizePeer removes a peer from the relay's authorized_keys and triggers reload.
 func (c *AdminClient) DeauthorizePeer(peerID string) error {
 	reqBody, _ := json.Marshal(map[string]string{

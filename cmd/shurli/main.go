@@ -196,6 +196,7 @@ func printUsage() {
 	fmt.Println("  relay info                             Show peer ID and multiaddrs")
 	fmt.Println("  relay authorize <peer-id> [comment]    Allow a peer")
 	fmt.Println("  relay deauthorize <peer-id>            Remove a peer's access")
+	fmt.Println("  relay set-attr <peer> <key> <value>    Set peer attribute (e.g. relay_data true)")
 	fmt.Println("  relay list-peers                       List authorized peers")
 	fmt.Println("  relay verify <peer-id>                 Verify peer identity (SAS)")
 	fmt.Println("  relay show                             Show resolved relay config")

@@ -42,6 +42,7 @@ func printServiceUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  add     <name> <address>  Expose a local service (enabled by default)")
 	fmt.Println("  list                      List configured services")
+	fmt.Println("  list    --peer <name>     Query a remote peer's services")
 	fmt.Println("  remove  <name>            Remove a service")
 	fmt.Println("  enable  <name>            Enable a service")
 	fmt.Println("  disable <name>            Disable a service")
@@ -51,6 +52,7 @@ func printServiceUsage() {
 	fmt.Println("  shurli service add ollama localhost:11434")
 	fmt.Println("  shurli service add web localhost:8080 --protocol my-web")
 	fmt.Println("  shurli service list")
+	fmt.Println("  shurli service list --peer home-node")
 	fmt.Println("  shurli service disable web")
 	fmt.Println("  shurli service enable web")
 	fmt.Println("  shurli service remove web")
@@ -206,8 +208,14 @@ func doServiceList(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("service list", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	configFlag := fs.String("config", "", "path to config file")
+	peerFlag := fs.String("peer", "", "query a remote peer's services")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
+	}
+
+	// Remote peer query mode.
+	if *peerFlag != "" {
+		return doRemoteServiceList(*peerFlag, stdout)
 	}
 
 	cfgFile, cfg, err := resolveConfigFileErr(*configFlag)
@@ -234,6 +242,22 @@ func doServiceList(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  %-12s -> %-20s (%s)%s\n", name, svc.LocalAddress, state, proto)
 	}
 	fmt.Fprintf(stdout, "\nConfig: %s\n", cfgFile)
+	return nil
+}
+
+func doRemoteServiceList(peer string, stdout io.Writer) error {
+	client := tryDaemonClient()
+	if client == nil {
+		return fmt.Errorf("daemon not running. Start with: shurli daemon")
+	}
+
+	text, err := client.RemoteServicesText(peer)
+	if err != nil {
+		return fmt.Errorf("query failed: %w", err)
+	}
+
+	fmt.Fprintf(stdout, "Services on %s:\n\n", peer)
+	fmt.Fprint(stdout, text)
 	return nil
 }
 
