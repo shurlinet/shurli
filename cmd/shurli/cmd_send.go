@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -127,6 +129,35 @@ func runSend(args []string) {
 	pollTransfer(client, resp.TransferID, *quietFlag)
 }
 
+// progressMode describes how progress output should be rendered based on the
+// terminal environment. Detected once and cached.
+type progressMode int
+
+const (
+	progressANSI     progressMode = iota // standard TTY: \r + \033[K (erase line)
+	progressPlain                        // pipe/file: milestone lines only (25%, 50%, 75%, 100%)
+)
+
+// detectProgressMode checks the terminal environment and returns the
+// appropriate progress rendering mode.
+//
+// - Standard TTY (including tmux, screen, SSH): ANSI mode with \r\033[K
+// - Piped output or non-TTY: plain milestone lines
+func detectProgressMode() progressMode {
+	fd := int(os.Stdout.Fd())
+	if !term.IsTerminal(fd) {
+		return progressPlain
+	}
+	return progressANSI
+}
+
+// progressClear returns the escape sequence to clear the current line for
+// in-place progress updates. For ANSI terminals (including tmux/screen/SSH),
+// this is \r\033[K (carriage return + erase to end of line).
+func progressClear() string {
+	return "\r\033[K"
+}
+
 // progressBarWidth returns the bar width scaled to terminal width.
 // Reserves space for percentage, speed, chunk info, and padding.
 // Minimum 10, maximum 60.
@@ -193,6 +224,8 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	pmode := detectProgressMode()
+	var lastMilestone int // for plain mode: track last printed milestone (25, 50, 75)
 	var lastSent int64
 	var headerPrinted bool
 	var speedHistory []float64
@@ -208,7 +241,7 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 		}
 
 		if progress.Done {
-			fmt.Printf("\r\033[2K")
+			fmt.Print(progressClear())
 			if progress.Error != "" {
 				tc.Wred(os.Stdout, "Transfer failed: %s\n", progress.Error)
 			} else {
@@ -319,8 +352,17 @@ func pollTransfer(client *daemon.Client, id string, quiet bool) {
 					progress.ErasureOverhead*100, progress.ErasureParity)
 			}
 
-			// Single-line progress: \r overwrites in place, \033[K clears to end of line.
-			fmt.Printf("\r  %s %3.0f%% %s%s%s%s%s\033[K", bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag, etaStr)
+			if pmode == progressPlain {
+				// Non-TTY (piped/redirected): print milestone lines only.
+				milestone := int(pct*100) / 25 * 25
+				if milestone > lastMilestone && milestone > 0 {
+					fmt.Printf("  %d%% %s%s%s\n", milestone, speedStr, chunkInfo, compressTag)
+					lastMilestone = milestone
+				}
+			} else {
+				// TTY (including tmux, screen, SSH): \r\033[K clears line first, then draws.
+				fmt.Printf("%s  %s %3.0f%% %s%s%s%s%s", progressClear(), bar, pct*100, speedStr, chunkInfo, compressTag, erasureTag, etaStr)
+			}
 		}
 	}
 }
