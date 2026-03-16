@@ -60,3 +60,5 @@ CLAUDE.md
 
 # socials images
 website/static/images/social/
+sync-docs
+.claude/hooks/postchange-reminder.sh
