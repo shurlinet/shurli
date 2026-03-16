@@ -1007,7 +1007,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 > **Status: Implemented**
 
-Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay is blocked for file transfer by default (drives own-relay adoption via `PluginPolicy`).
+Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay transport is allowed (relay-side bandwidth limits enforce conservation). Seven-layer DDoS defense protects all transfer endpoints.
 
 **Four P2P protocols**:
 
@@ -1056,7 +1056,15 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
 
-**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect` (relay excluded). Per-plugin peer allow/deny lists. Applied before any transfer operation.
+**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires `relay_data=true` on the relay's authorized keys for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
+
+**DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer. All rejections are silent. All thresholds configurable.
+
+**Queue Persistence**: Outbound queue persisted with HMAC-SHA256 integrity. 24h TTL, 1000 entry limit, 0600 permissions, atomic writes. Survives daemon restarts. Per-peer outbound limit: 100 queued per peer.
+
+**Path Privacy**: Opaque share IDs (`share-` + random hex). Browse responses use relative paths only (via `filepath.Rel()`). Download rejects absolute paths (`filepath.IsAbs()`). Directory jailing via `os.Root`. Error messages are generic (no path fragments). Unauthorized peers get silent stream reset.
+
+**Service Discovery**: `/shurli/service-query/1.0.0` protocol. `shurli service list --peer <name>` queries remote peer's services. Returns service name + protocol only (local addresses never exposed).
 
 **Security**:
 - Path traversal: `filepath.Base()` + sanitization on every received filename. Receive directory is a jail.

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFill2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="200" fill="url(#bg2)" rx="8"/>
+
+  <text x="400" y="24" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#c0caf5">The Full Stack: What Worked End to End</text>
+
+  <!-- Step boxes -->
+  <rect x="20" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="67" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#da1c5c">Invite</text>
+  <text x="67" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">Short code</text>
+  <text x="120" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="130" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#e8729a" stroke-width="1"/>
+  <text x="177" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e8729a">Join</text>
+  <text x="177" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">PAKE pairing</text>
+  <text x="230" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="240" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="287" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#bb9af7">Verify</text>
+  <text x="287" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">SAS emoji</text>
+  <text x="340" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="350" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="397" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#9ece6a">Ping</text>
+  <text x="397" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">72ms relay</text>
+  <text x="450" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="460" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#fbb040" stroke-width="1"/>
+  <text x="507" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#fbb040">Proxy</text>
+  <text x="507" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">Service tunnel</text>
+  <text x="560" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="570" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#e0af68" stroke-width="1"/>
+  <text x="617" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e0af68">Browse</text>
+  <text x="617" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">Share catalog</text>
+  <text x="670" y="73" font-family="system-ui, sans-serif" font-size="12" fill="#565f89">&#x2192;</text>
+
+  <rect x="680" y="45" width="95" height="55" rx="6" fill="url(#nodeFill2)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="727" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#da1c5c">Download</text>
+  <text x="727" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#a9b1d6">50 MB verified</text>
+
+  <!-- Stats bar -->
+  <rect x="50" y="120" width="700" height="60" rx="8" fill="url(#nodeFill2)" stroke="#565f89" stroke-width="0.5"/>
+
+  <text x="165" y="145" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#9ece6a">72ms</text>
+  <text x="165" y="163" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Avg ping (relayed)</text>
+
+  <text x="400" y="145" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#fbb040">0%</text>
+  <text x="400" y="163" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Packet loss</text>
+
+  <text x="635" y="145" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#bb9af7">&#x2713;</text>
+  <text x="635" y="163" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Files verified + intact</text>
+</svg>
