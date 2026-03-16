@@ -44,3 +44,4 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 9: SDK, Plugins & Protocol Consolidation](phase9-sdk-plugins/) | ADR-Q01 to ADR-Q05 | Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, file transfer plugin |
 | [Phase 9: File Transfer Architecture](phase9-file-transfer/) | ADR-R01 to ADR-R09 | FastCDC, BLAKE3, zstd, Reed-Solomon, RaptorQ, parallel streams, receive permissions, rate limiting |
 | [Post-Chaos Network Hardening](post-chaos-network-hardening/) | ADR-S01 to ADR-S07 | Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning |
+| [File Transfer Hardening](file-transfer-hardening/) | ADR-R10 to ADR-R16 | DDoS defense (7 layers), queue persistence (HMAC), path privacy, checkpoint resume, queue backpressure, name normalization, relay transport |

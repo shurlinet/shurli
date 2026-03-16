@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" width="800" height="380">
+  <defs>
+    <linearGradient id="bgA" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFillA" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+    <linearGradient id="relayFillA" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e1e2e"/>
+      <stop offset="100%" style="stop-color:#1a1a25"/>
+    </linearGradient>
+    <linearGradient id="allowedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e2e1e"/>
+      <stop offset="100%" style="stop-color:#1a251a"/>
+    </linearGradient>
+    <linearGradient id="deniedFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2e1e1e"/>
+      <stop offset="100%" style="stop-color:#251a1a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="380" fill="url(#bgA)" rx="8"/>
+
+  <text x="400" y="28" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#c0caf5">Relay ACL: Per-Peer Data Circuit Authorization</text>
+  <text x="400" y="46" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#565f89">The relay operator controls exactly which peers can establish data circuits</text>
+
+  <!-- Relay center -->
+  <rect x="300" y="70" width="200" height="90" rx="12" fill="url(#relayFillA)" stroke="#bb9af7" stroke-width="1.5"/>
+  <text x="400" y="98" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#bb9af7">Relay Server</text>
+  <text x="400" y="116" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Signaling-only by default</text>
+  <text x="400" y="132" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Data circuits require per-peer grant</text>
+  <text x="400" y="148" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7">authorized_keys ACL</text>
+
+  <!-- Allowed peer (hosting node) -->
+  <rect x="40" y="200" width="200" height="100" rx="10" fill="url(#allowedFill)" stroke="#9ece6a" stroke-width="1.5"/>
+  <text x="140" y="224" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#9ece6a">Hosting Node</text>
+  <text x="140" y="242" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a">relay_data=true</text>
+  <text x="140" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Ping, proxy, file transfer</text>
+  <text x="140" y="278" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">all allowed through relay</text>
+  <!-- Green check -->
+  <circle cx="220" cy="196" r="10" fill="#1e2e1e" stroke="#9ece6a" stroke-width="1"/>
+  <text x="220" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a">&#x2713;</text>
+
+  <!-- Connection: allowed - solid green line -->
+  <line x1="240" y1="230" x2="300" y2="150" stroke="#9ece6a" stroke-width="2"/>
+  <text x="255" y="180" font-family="system-ui, sans-serif" font-size="8" fill="#9ece6a" transform="rotate(-35, 255, 180)">DATA OK</text>
+
+  <!-- Denied peer 1 -->
+  <rect x="300" y="220" width="200" height="80" rx="10" fill="url(#deniedFill)" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="400" y="244" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#f7768e">Peer B</text>
+  <text x="400" y="262" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Signaling only</text>
+  <text x="400" y="278" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Discovery, intros, pairing</text>
+  <!-- Red X -->
+  <circle cx="480" cy="216" r="10" fill="#2e1e1e" stroke="#f7768e" stroke-width="1"/>
+  <text x="480" y="220" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#f7768e">&#x2717;</text>
+
+  <!-- Connection: denied - dashed red line -->
+  <line x1="400" y1="220" x2="400" y2="160" stroke="#f7768e" stroke-width="1" stroke-dasharray="3,4"/>
+  <text x="415" y="195" font-family="system-ui, sans-serif" font-size="8" fill="#f7768e">SIGNAL</text>
+
+  <!-- Denied peer 2 -->
+  <rect x="560" y="200" width="200" height="80" rx="10" fill="url(#deniedFill)" stroke="#f7768e" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="660" y="224" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#f7768e">Peer C</text>
+  <text x="660" y="242" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Signaling only</text>
+  <text x="660" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Discovery, intros, pairing</text>
+  <!-- Red X -->
+  <circle cx="740" cy="196" r="10" fill="#2e1e1e" stroke="#f7768e" stroke-width="1"/>
+  <text x="740" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#f7768e">&#x2717;</text>
+
+  <!-- Connection: denied - dashed red line -->
+  <line x1="560" y1="230" x2="500" y2="150" stroke="#f7768e" stroke-width="1" stroke-dasharray="3,4"/>
+  <text x="545" y="180" font-family="system-ui, sans-serif" font-size="8" fill="#f7768e" transform="rotate(35, 545, 180)">SIGNAL</text>
+
+  <!-- Legend -->
+  <rect x="100" y="325" width="600" height="40" rx="8" fill="url(#nodeFillA)" stroke="#565f89" stroke-width="0.5"/>
+
+  <line x1="140" y1="345" x2="170" y2="345" stroke="#9ece6a" stroke-width="2"/>
+  <text x="178" y="349" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Data circuit allowed (relay_data=true)</text>
+
+  <line x1="430" y1="345" x2="460" y2="345" stroke="#f7768e" stroke-width="1" stroke-dasharray="3,4"/>
+  <text x="468" y="349" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Signaling only (no data forwarded)</text>
+</svg>
