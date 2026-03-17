@@ -91,6 +91,8 @@ func main() {
 		runUnlock(os.Args[2:])
 	case "session":
 		runSession(os.Args[2:])
+	case "plugin":
+		runPlugin(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "completion":
@@ -250,6 +252,13 @@ func printUsage() {
 	fmt.Println("  unlock                                 Unlock daemon with password")
 	fmt.Println("  session refresh                        Rotate session token")
 	fmt.Println("  session destroy                        Delete session token")
+	fmt.Println()
+	fmt.Println("Plugins:")
+	fmt.Println("  plugin list [--json]                   List all plugins")
+	fmt.Println("  plugin enable <name>                   Enable a plugin")
+	fmt.Println("  plugin disable <name>                  Disable a plugin")
+	fmt.Println("  plugin info <name> [--json]            Show plugin details")
+	fmt.Println("  plugin disable-all                     Emergency: disable all plugins")
 	fmt.Println()
 	fmt.Println("Other:")
 	fmt.Println("  status [--config path]                 Show local config and services")

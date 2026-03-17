@@ -17,6 +17,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 // RuntimeInfo provides the daemon server with access to the P2P runtime.
@@ -102,6 +103,9 @@ type Server struct {
 	version    string
 	shutdownCh chan struct{} // closed to signal shutdown to the daemon main loop
 
+	// Optional plugin registry (nil if plugin system not initialized)
+	registry *plugin.Registry
+
 	// Optional observability (nil when telemetry disabled)
 	metrics *p2pnet.Metrics
 	audit   *p2pnet.AuditLogger
@@ -134,6 +138,12 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 func (s *Server) SetInstrumentation(metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) {
 	s.metrics = metrics
 	s.audit = audit
+}
+
+// SetRegistry configures the plugin registry for plugin management API endpoints.
+// Must be called before Start(). Nil-safe (plugin endpoints return 503 if nil).
+func (s *Server) SetRegistry(r *plugin.Registry) {
+	s.registry = r
 }
 
 // ShutdownCh returns a channel that is closed when a shutdown is requested
