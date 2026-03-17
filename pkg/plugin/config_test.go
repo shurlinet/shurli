@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -118,11 +120,31 @@ plugins:
 
 // --- Test 30: Plugin directory permissions ---
 func TestPluginDirectoryPermissions(t *testing.T) {
-	// This tests the permission check logic conceptually.
-	// The actual check is in cmd_daemon.go at startup.
-	// We test the constant expectations here.
-	expectedPerms := 0700
-	if expectedPerms != 0700 {
-		t.Error("expected plugin directory permissions to be 0700")
+	dir := t.TempDir()
+
+	// 0700 should be acceptable.
+	pluginDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(pluginDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(pluginDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("expected 0700, got %04o", info.Mode().Perm())
+	}
+
+	// 0755 should be detected as insecure.
+	badDir := filepath.Join(dir, "plugins-bad")
+	if err := os.MkdirAll(badDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(badDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() == 0700 {
+		t.Error("expected insecure permissions to differ from 0700")
 	}
 }
