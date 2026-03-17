@@ -54,12 +54,13 @@ func (r *Registry) Register(p Plugin) error {
 		return fmt.Errorf("plugin name cannot be empty")
 	}
 
+	// Reserve the name with a LOADING placeholder to prevent concurrent
+	// Register() calls from racing past the duplicate check.
 	r.mu.Lock()
 	if _, exists := r.plugins[name]; exists {
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q already registered", name)
 	}
-	r.mu.Unlock()
 
 	// Build declared protocols map for namespace validation.
 	declaredProtos := make(map[string]bool)
@@ -100,17 +101,25 @@ func (r *Registry) Register(p Plugin) error {
 		state:  StateLoading,
 	}
 
+	// Insert placeholder BEFORE releasing lock. Other Register() calls
+	// for the same name will see the entry and fail the duplicate check.
+	r.plugins[name] = entry
+	r.mu.Unlock()
+
 	// Call Init with panic recovery. Lock is NOT held here so that
 	// callWithRecovery's panic handler can call recordCrash safely.
 	if err := r.callWithRecovery(entry, "Init", func() error {
 		return p.Init(pctx)
 	}); err != nil {
+		// Remove the placeholder on failure.
+		r.mu.Lock()
+		delete(r.plugins, name)
+		r.mu.Unlock()
 		return fmt.Errorf("plugin %q Init failed: %w", name, err)
 	}
 
 	r.mu.Lock()
 	entry.state = StateReady
-	r.plugins[name] = entry
 	r.mu.Unlock()
 
 	slog.Info("plugin.registered", "name", name, "version", p.Version())
@@ -128,18 +137,13 @@ func (r *Registry) Enable(name string) error {
 		return fmt.Errorf("plugin %q not found", name)
 	}
 
-	switch entry.state {
-	case StateActive:
+	if entry.state == StateActive {
 		r.mu.Unlock()
 		return nil // idempotent
-	case StateReady, StateStopped:
-		// proceed
-	case StateDraining:
+	}
+	if err := ValidTransition(entry.state, StateActive); err != nil {
 		r.mu.Unlock()
-		return fmt.Errorf("plugin %q is shutting down, wait for drain to complete", name)
-	default:
-		r.mu.Unlock()
-		return fmt.Errorf("plugin %q cannot be enabled from state %s", name, entry.state)
+		return fmt.Errorf("plugin %q: %w", name, err)
 	}
 
 	// Register protocols with service registry.
@@ -183,22 +187,21 @@ func (r *Registry) Disable(name string) error {
 		return fmt.Errorf("plugin %q not found", name)
 	}
 
-	switch entry.state {
-	case StateStopped, StateReady:
+	if entry.state == StateStopped || entry.state == StateReady {
 		r.mu.Unlock()
 		return nil // idempotent
-	case StateActive:
-		entry.state = StateDraining
-	case StateDraining:
-		r.mu.Unlock()
-		return fmt.Errorf("plugin %q is already draining", name)
-	default:
-		r.mu.Unlock()
-		return fmt.Errorf("plugin %q cannot be disabled from state %s", name, entry.state)
 	}
+	if err := ValidTransition(entry.state, StateDraining); err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("plugin %q: %w", name, err)
+	}
+	entry.state = StateDraining
 	r.mu.Unlock()
 
-	// Call Stop with 30s timeout and panic recovery.
+	// Call Stop with drain timeout and panic recovery.
+	// If Stop() exceeds the timeout, the goroutine is abandoned with a warning.
+	// Layer 1 plugins are compiled-in trusted code - a blocking Stop() is a bug.
+	// Layer 2 WASM plugins will use fuel-based execution to prevent this.
 	var reason string
 	done := make(chan error, 1)
 	go func() {
@@ -510,7 +513,7 @@ func (r *Registry) recordCrash(name string) {
 	}
 
 	entry.crashCount++
-	if entry.crashCount >= 3 {
+	if entry.crashCount >= circuitBreakerThreshold {
 		slog.Warn("plugin.circuit-breaker", "name", name, "crash_count", entry.crashCount)
 		// Force to stopped. Protocol unregistration happens inline.
 		r.unregisterProtocols(entry)

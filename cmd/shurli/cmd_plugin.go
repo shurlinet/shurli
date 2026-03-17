@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+
+	"github.com/shurlinet/shurli/internal/config"
 )
 
 func runPlugin(args []string) {
@@ -39,8 +41,8 @@ func runPluginList(args []string) {
 
 	c := tryDaemonClient()
 	if c == nil {
-		fmt.Fprintln(os.Stderr, "Daemon not running - showing config only.")
-		fmt.Fprintln(os.Stderr, "Start the daemon to see live plugin state.")
+		// Fall back to config file when daemon is not running.
+		showPluginConfigFallback(*jsonFlag)
 		return
 	}
 
@@ -112,7 +114,12 @@ func runPluginInfo(args []string) {
 	}
 
 	name := remaining[0]
-	c := daemonClient()
+	c := tryDaemonClient()
+	if c == nil {
+		// Fall back to config when daemon not running.
+		showPluginConfigFallback(*jsonFlag)
+		return
+	}
 	info, err := c.PluginInfo(name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -153,6 +160,43 @@ func runPluginDisableAll(_ []string) {
 		osExit(1)
 	}
 	fmt.Printf("Disabled %d plugin(s).\n", count)
+}
+
+// showPluginConfigFallback reads the config file and shows plugin enabled/disabled
+// status when the daemon is not running.
+func showPluginConfigFallback(jsonOut bool) {
+	cfgFile, err := config.FindConfigFile("")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Daemon not running and no config file found.")
+		return
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Daemon not running. Config error: %v\n", err)
+		return
+	}
+
+	states := cfg.Plugins.PluginStates()
+	if len(states) == 0 {
+		fmt.Println("Daemon not running. No plugins configured.")
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, "Daemon not running - showing config only.")
+
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(states)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tENABLED")
+	for name, enabled := range states {
+		fmt.Fprintf(w, "%s\t%v\n", name, enabled)
+	}
+	w.Flush()
 }
 
 func printPluginUsage() {
