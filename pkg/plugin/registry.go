@@ -199,6 +199,7 @@ func (r *Registry) Disable(name string) error {
 	r.mu.Unlock()
 
 	// Call Stop with 30s timeout and panic recovery.
+	var reason string
 	done := make(chan error, 1)
 	go func() {
 		done <- r.callWithRecovery(entry, "Stop", func() error {
@@ -209,10 +210,14 @@ func (r *Registry) Disable(name string) error {
 	select {
 	case err := <-done:
 		if err != nil {
+			reason = "stop-error"
 			slog.Warn("plugin.stop-error", "name", name, "error", err)
+		} else {
+			reason = "requested"
 		}
-	case <-time.After(30 * time.Second):
-		slog.Warn("plugin.stop-timeout", "name", name, "timeout", "30s")
+	case <-time.After(drainTimeoutDuration):
+		reason = "timeout"
+		slog.Warn("plugin.stop-timeout", "name", name, "timeout", drainTimeoutDuration.String())
 	}
 
 	// Unregister protocols and set final state.
@@ -221,7 +226,7 @@ func (r *Registry) Disable(name string) error {
 	entry.state = StateStopped
 	r.mu.Unlock()
 
-	slog.Info("plugin.disabled", "name", name)
+	slog.Info("plugin.disabled", "name", name, "reason", reason)
 	return nil
 }
 
@@ -497,7 +502,7 @@ func (r *Registry) recordCrash(name string) {
 	}
 
 	now := time.Now()
-	if entry.firstCrash.IsZero() || now.Sub(entry.firstCrash) > 5*time.Minute {
+	if entry.firstCrash.IsZero() || now.Sub(entry.firstCrash) > circuitBreakerWindowDuration {
 		// Reset window.
 		entry.crashCount = 1
 		entry.firstCrash = now
