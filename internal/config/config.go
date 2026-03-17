@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // CurrentConfigVersion is the latest configuration schema version.
@@ -23,6 +26,89 @@ type HomeNodeConfig struct {
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
 	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
+	Plugins   PluginsConfig   `yaml:"plugins,omitempty"`
+}
+
+// PluginsConfig holds per-plugin configuration.
+// Each key is a plugin name, the value contains an enabled flag and raw YAML
+// for the plugin's own settings.
+type PluginsConfig struct {
+	Entries map[string]*PluginConfigEntry `yaml:"-"` // populated by custom UnmarshalYAML
+}
+
+// PluginConfigEntry holds the framework-level and plugin-specific config for one plugin.
+type PluginConfigEntry struct {
+	Enabled bool   // extracted from "enabled" key
+	RawYAML []byte // remaining YAML bytes, passed to plugin for its own parsing
+}
+
+// UnmarshalYAML implements custom YAML parsing for the plugins section.
+// It extracts the "enabled" field from each plugin's config and preserves
+// the remaining fields as raw YAML bytes for the plugin to parse itself.
+func (pc *PluginsConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	pc.Entries = make(map[string]*PluginConfigEntry)
+
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		nameNode := value.Content[i]
+		valueNode := value.Content[i+1]
+
+		pluginName := nameNode.Value
+		if valueNode.Kind != yaml.MappingNode {
+			continue
+		}
+
+		entry := &PluginConfigEntry{Enabled: true} // default enabled for built-in
+
+		// Build a new mapping node without the "enabled" key for RawYAML.
+		var remaining []*yaml.Node
+		for j := 0; j+1 < len(valueNode.Content); j += 2 {
+			key := valueNode.Content[j]
+			val := valueNode.Content[j+1]
+			if key.Value == "enabled" {
+				// Parse the enabled flag.
+				var enabled bool
+				if err := val.Decode(&enabled); err != nil {
+					return fmt.Errorf("plugin %q: invalid enabled value: %w", pluginName, err)
+				}
+				entry.Enabled = enabled
+			} else {
+				remaining = append(remaining, key, val)
+			}
+		}
+
+		// Marshal remaining fields back to YAML bytes for the plugin.
+		if len(remaining) > 0 {
+			remainingNode := &yaml.Node{
+				Kind:    yaml.MappingNode,
+				Content: remaining,
+			}
+			raw, err := yaml.Marshal(remainingNode)
+			if err != nil {
+				return fmt.Errorf("plugin %q: marshal remaining config: %w", pluginName, err)
+			}
+			entry.RawYAML = raw
+		}
+
+		pc.Entries[pluginName] = entry
+	}
+
+	return nil
+}
+
+// PluginStates returns a map of plugin name -> enabled for use by the plugin registry.
+func (pc PluginsConfig) PluginStates() map[string]bool {
+	if pc.Entries == nil {
+		return nil
+	}
+	states := make(map[string]bool, len(pc.Entries))
+	for name, entry := range pc.Entries {
+		states[name] = entry.Enabled
+	}
+	return states
 }
 
 // TransferConfig controls peer-to-peer file transfer.

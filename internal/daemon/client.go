@@ -561,3 +561,42 @@ func (c *Client) ConfigReloadStatus() (*ConfigReloadState, error) {
 func (c *Client) ConfigReloadStatusText() (string, error) {
 	return c.doText("GET", "/v1/config/reload", nil)
 }
+
+// --- Plugin management ---
+
+// PluginList returns all registered plugins.
+func (c *Client) PluginList() ([]PluginInfoResponse, error) {
+	var result []PluginInfoResponse
+	if err := c.doJSON("GET", "/v1/plugins", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// PluginInfo returns details for a single plugin.
+func (c *Client) PluginInfo(name string) (*PluginInfoResponse, error) {
+	var result PluginInfoResponse
+	if err := c.doJSON("GET", "/v1/plugins/"+name, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// PluginEnable enables a plugin.
+func (c *Client) PluginEnable(name string) error {
+	return c.doJSON("POST", "/v1/plugins/"+name+"/enable", nil, nil)
+}
+
+// PluginDisable disables a plugin.
+func (c *Client) PluginDisable(name string) error {
+	return c.doJSON("POST", "/v1/plugins/"+name+"/disable", nil, nil)
+}
+
+// PluginDisableAll disables all active plugins (kill switch).
+func (c *Client) PluginDisableAll() (int, error) {
+	var result PluginDisableAllResponse
+	if err := c.doJSON("POST", "/v1/plugins/disable-all", nil, &result); err != nil {
+		return 0, err
+	}
+	return result.Disabled, nil
+}

@@ -22,6 +22,8 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/plugin"
+	"github.com/shurlinet/shurli/plugins"
 )
 
 // --- RuntimeInfo adapter (implements daemon.RuntimeInfo on serveRuntime) ---
@@ -432,10 +434,28 @@ func runDaemonStart(args []string) {
 	rt.SetupTransfer()
 	rt.SetupSharing()
 
+	// Create plugin registry and register compiled-in plugins.
+	pluginProvider := &plugin.ContextProvider{
+		Network:         rt.network,
+		ServiceRegistry: rt.network.ServiceRegistry(),
+		PluginConfigs:   pluginConfigBytes(rt.config),
+		NameResolver:    rt.network.ResolveName,
+		PeerConnector:   rt.ConnectToPeer,
+	}
+	pluginRegistry := plugin.NewRegistry(pluginProvider)
+	plugins.RegisterAll(pluginRegistry)
+	if states := rt.config.Plugins.PluginStates(); states != nil {
+		pluginRegistry.ApplyConfig(states)
+	}
+	pluginRegistry.StartAll()
+
 	if err := rt.Bootstrap(); err != nil {
 		rt.Shutdown()
 		fatal("Bootstrap failed: %v", err)
 	}
+
+	// Notify plugins that network is ready (post-bootstrap).
+	pluginRegistry.NotifyNetworkReady()
 
 	// Re-enqueue persisted transfers now that the network is ready.
 	if rt.transferService != nil {
@@ -459,6 +479,7 @@ func runDaemonStart(args []string) {
 
 	srv := daemon.NewServer(rt, socketPath, cookiePath, version)
 	srv.SetInstrumentation(rt.metrics, rt.audit)
+	srv.SetRegistry(pluginRegistry)
 	if err := srv.Start(); err != nil {
 		rt.Shutdown()
 		fatal("Daemon API failed to start: %v", err)
@@ -497,8 +518,21 @@ func runDaemonStart(args []string) {
 	}
 
 	srv.Stop()
+	pluginRegistry.StopAll()
 	rt.Shutdown()
 	fmt.Println("Daemon stopped.")
+}
+
+// pluginConfigBytes extracts per-plugin raw YAML bytes from the parsed config.
+func pluginConfigBytes(cfg *config.HomeNodeConfig) map[string][]byte {
+	if cfg == nil || cfg.Plugins.Entries == nil {
+		return nil
+	}
+	result := make(map[string][]byte, len(cfg.Plugins.Entries))
+	for name, entry := range cfg.Plugins.Entries {
+		result[name] = entry.RawYAML
+	}
+	return result
 }
 
 // --- Client helper ---
