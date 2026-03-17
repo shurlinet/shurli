@@ -123,15 +123,15 @@ type PluginError struct {
 }
 
 const (
-	ErrCodePermissionDenied   = 1
-	ErrCodeTimeout            = 2
-	ErrCodePeerUnreachable    = 3
-	ErrCodePluginDisabled     = 4
-	ErrCodeInvalidArgument    = 5
-	ErrCodeNamespaceViolation = 6
-	ErrCodeResourceExhausted  = 7
-	ErrCodeNotFound           = 8
-	ErrCodeInternal           = 9
+	ErrCodePermissionDenied   = 1 // operation not allowed for this plugin
+	ErrCodeTimeout            = 2 // operation timed out
+	ErrCodePeerUnreachable    = 3 // could not connect to or reach the peer
+	ErrCodePluginDisabled     = 4 // plugin is not in ACTIVE state
+	ErrCodeInvalidArgument    = 5 // invalid argument provided by the plugin
+	ErrCodeNamespaceViolation = 6 // protocol not in plugin's declared namespace
+	ErrCodeResourceExhausted  = 7 // resource limit exceeded
+	ErrCodeNotFound           = 8 // requested resource not found
+	ErrCodeInternal           = 9 // internal framework error (not plugin's fault)
 )
 
 func (e *PluginError) Error() string {

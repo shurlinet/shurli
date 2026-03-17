@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -389,4 +388,3 @@ func TestOpenStreamNamespaceValidation(t *testing.T) {
 
 // Ensure types satisfy interface at compile time.
 var _ Plugin = (*mockPlugin)(nil)
-var _ http.Handler = nil // just to use http import for Route type
