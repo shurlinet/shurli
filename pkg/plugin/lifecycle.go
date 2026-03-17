@@ -1,6 +1,9 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // ValidTransition checks whether a state transition is allowed.
 //
@@ -40,9 +43,13 @@ func ValidTransition(from, to State) error {
 	}
 }
 
-// Circuit breaker constants.
+// Circuit breaker and drain constants.
 const (
-	circuitBreakerThreshold = 3                // panics before auto-disable
-	circuitBreakerWindow    = 5 * 60           // seconds (5 minutes)
-	drainTimeoutSeconds     = 30               // seconds before force-stop
+	circuitBreakerThreshold = 3 // panics before auto-disable
+)
+
+// Time-based constants used by the registry.
+var (
+	circuitBreakerWindowDuration = 5 * time.Minute  // reset crash counter after this
+	drainTimeoutDuration         = 30 * time.Second // force-stop after this
 )

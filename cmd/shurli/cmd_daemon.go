@@ -434,6 +434,18 @@ func runDaemonStart(args []string) {
 	rt.SetupTransfer()
 	rt.SetupSharing()
 
+	// Check plugin directory permissions (for future WASM plugins).
+	// Layer 2 will make this a hard error; for now it's a warning.
+	pluginDir := filepath.Join(filepath.Dir(rt.configFile), "plugins")
+	if info, err := os.Stat(pluginDir); err == nil {
+		if info.Mode().Perm() != 0700 {
+			slog.Warn("plugin.dir-perms",
+				"path", pluginDir,
+				"perms", fmt.Sprintf("%04o", info.Mode().Perm()),
+				"expected", "0700")
+		}
+	}
+
 	// Create plugin registry and register compiled-in plugins.
 	pluginProvider := &plugin.ContextProvider{
 		Network:         rt.network,
