@@ -228,6 +228,14 @@ func (c *PluginContext) OnConfigReload(callback func([]byte)) {
 	c.configReloadCb = callback
 }
 
+// IncrementMetric increments a named counter metric scoped to this plugin.
+// The metric name is automatically prefixed with the plugin name to prevent collisions.
+// No-op if metrics are not enabled on this node.
+func (c *PluginContext) IncrementMetric(name string, delta float64) {
+	// Stub - metrics wiring added when telemetry integration is built.
+	// When wired: creates/increments prometheus counter "shurli_plugin_<pluginName>_<name>".
+}
+
 // PeerScore returns the reputation score for a peer (0-100).
 // Returns 0 until reputation wiring is completed (Phase 1C).
 func (c *PluginContext) PeerScore(_ peer.ID) int {
