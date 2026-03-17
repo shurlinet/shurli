@@ -45,13 +45,33 @@ func NewRegistry(provider *ContextProvider) *Registry {
 	}
 }
 
+// validatePluginName checks that a plugin name is safe for use in config keys,
+// protocol namespaces, HTTP paths, and log output. Alphanumeric + hyphens only.
+func validatePluginName(name string) error {
+	if name == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+	if len(name) > 64 {
+		return fmt.Errorf("plugin name too long: %d chars (max 64)", len(name))
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf("plugin name %q contains invalid character %q (allowed: a-z, 0-9, -)", name, string(c))
+		}
+	}
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return fmt.Errorf("plugin name %q cannot start or end with a hyphen", name)
+	}
+	return nil
+}
+
 // Register adds a plugin to the registry and calls Init().
 // Transitions: LOADING -> READY on success.
 // Panics in Init() are recovered and returned as errors.
 func (r *Registry) Register(p Plugin) error {
 	name := p.Name()
-	if name == "" {
-		return fmt.Errorf("plugin name cannot be empty")
+	if err := validatePluginName(name); err != nil {
+		return err
 	}
 
 	// Reserve the name with a LOADING placeholder to prevent concurrent
@@ -146,8 +166,14 @@ func (r *Registry) Enable(name string) error {
 		return fmt.Errorf("plugin %q: %w", name, err)
 	}
 
+	// Set LOADING as a transitional state to prevent concurrent Enable() calls
+	// from both passing the state check while the lock is released for Start().
+	prevState := entry.state
+	entry.state = StateLoading
+
 	// Register protocols with service registry.
 	if err := r.registerProtocols(entry); err != nil {
+		entry.state = prevState // rollback transitional state
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q protocol registration failed: %w", name, err)
 	}
@@ -158,9 +184,10 @@ func (r *Registry) Enable(name string) error {
 	if err := r.callWithRecovery(entry, "Start", func() error {
 		return entry.plugin.Start()
 	}); err != nil {
-		// Rollback protocol registration on failure.
+		// Rollback protocol registration and transitional state on failure.
 		r.mu.Lock()
 		r.unregisterProtocols(entry)
+		entry.state = prevState
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q Start failed: %w", name, err)
 	}
@@ -187,9 +214,17 @@ func (r *Registry) Disable(name string) error {
 		return fmt.Errorf("plugin %q not found", name)
 	}
 
-	if entry.state == StateStopped || entry.state == StateReady {
+	if entry.state == StateStopped {
 		r.mu.Unlock()
-		return nil // idempotent
+		return nil // already stopped
+	}
+	if entry.state == StateReady {
+		// Transition READY -> STOPPED so StartAll() won't start this plugin.
+		// This is how enabled=false in config prevents a plugin from starting.
+		entry.state = StateStopped
+		r.mu.Unlock()
+		slog.Info("plugin.disabled", "name", name, "reason", "not-enabled")
+		return nil
 	}
 	if err := ValidTransition(entry.state, StateDraining); err != nil {
 		r.mu.Unlock()
