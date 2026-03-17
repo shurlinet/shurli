@@ -733,6 +733,25 @@ cryptographic material.
 .B session destroy
 Delete the session token. The daemon will require password entry on next start.
 
+.SH PLUGINS
+Manage the plugin system. Plugins extend Shurli with new capabilities
+(file transfer, Wake-on-LAN, etc.) and can be enabled/disabled at runtime.
+.TP
+.B plugin list \fR[\fB--json\fR]
+List all registered plugins with their name, version, type, and state.
+.TP
+.B plugin enable \fIname\fR
+Enable a plugin. Registers its protocols and starts background work.
+.TP
+.B plugin disable \fIname\fR
+Disable a plugin. Drains active connections (30s timeout) and unregisters protocols.
+.TP
+.B plugin info \fIname\fR \fR[\fB--json\fR]
+Show detailed information about a plugin: commands, routes, protocols, config key, crash count.
+.TP
+.B plugin disable-all
+Emergency kill switch. Disables all active plugins immediately.
+
 .SH OTHER COMMANDS
 .TP
 .B status \fR[\fB--config\fR \fIpath\fR]

@@ -296,3 +296,23 @@ type ErrorResponse struct {
 type DataResponse struct {
 	Data any `json:"data"`
 }
+
+// PluginInfoResponse is returned by GET /v1/plugins and GET /v1/plugins/{name}.
+type PluginInfoResponse struct {
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Type       string   `json:"type"`        // "built-in" or "installed"
+	State      string   `json:"state"`       // "loading", "ready", "active", "draining", "stopped"
+	Enabled    bool     `json:"enabled"`
+	Commands   []string `json:"commands"`
+	Routes     []string `json:"routes"`
+	Protocols  []string `json:"protocols"`
+	ConfigKey  string   `json:"config_key"`
+	CrashCount int      `json:"crash_count"`
+}
+
+// PluginDisableAllResponse is returned by POST /v1/plugins/disable-all.
+type PluginDisableAllResponse struct {
+	Disabled int    `json:"disabled"`
+	Error    string `json:"error,omitempty"`
+}

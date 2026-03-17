@@ -167,7 +167,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject cancel whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject cancel whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
@@ -180,6 +180,7 @@ _shurli_completions() {
     local relay_goodbye_cmds="set retract shutdown status"
     local relay_config_cmds="show validate rollback"
     local service_cmds="add list remove enable disable"
+    local plugin_cmds="list enable disable info disable-all"
     local completion_shells="bash zsh fish"
 
     case "${words[1]}" in
@@ -324,6 +325,16 @@ _shurli_completions() {
                     return ;;
             esac
             ;;
+        plugin)
+            case "${words[2]}" in
+                list|info)
+                    COMPREPLY=($(compgen -W "--json" -- "$cur"))
+                    return ;;
+                *)
+                    COMPREPLY=($(compgen -W "$plugin_cmds" -- "$cur"))
+                    return ;;
+            esac
+            ;;
         recover)
             COMPREPLY=($(compgen -W "--relay --dir" -- "$cur"))
             return ;;
@@ -442,6 +453,7 @@ _shurli() {
         'join:Join using an invite code'
         'verify:Verify a peer identity (SAS)'
         'service:Manage local services'
+        'plugin:Manage plugins'
         'status:Show local config and services'
         'recover:Recover identity from seed phrase'
         'change-password:Change identity password'
@@ -558,6 +570,15 @@ _shurli() {
         'remove:Remove a service'
         'enable:Enable a service'
         'disable:Disable a service'
+    )
+
+    local -a plugin_cmds
+    plugin_cmds=(
+        'list:List all plugins'
+        'enable:Enable a plugin'
+        'disable:Disable a plugin'
+        'info:Show plugin details'
+        'disable-all:Emergency disable all plugins'
     )
 
     local -a completion_shells
@@ -679,6 +700,16 @@ _shurli() {
                 _arguments '--config[Config file]:file:_files' '--protocol[Custom protocol ID]:protocol'
             fi
             ;;
+        plugin)
+            if (( CURRENT == 3 )); then
+                _describe -t plugin_cmds 'plugin subcommand' plugin_cmds
+            else
+                case "${words[3]}" in
+                    list|info)
+                        _arguments '--json[Output as JSON]' ;;
+                esac
+            fi
+            ;;
         ping)
             _arguments '--config[Config file]:file:_files' '-c[Number of pings]:count' '-n[Number of pings]:count' '--interval[Ping interval]:interval' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         traceroute)
@@ -798,6 +829,7 @@ complete -c shurli -n __shurli_no_subcommand -a invite      -d 'Create an invite
 complete -c shurli -n __shurli_no_subcommand -a join        -d 'Join using an invite code'
 complete -c shurli -n __shurli_no_subcommand -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n __shurli_no_subcommand -a service     -d 'Manage local services'
+complete -c shurli -n __shurli_no_subcommand -a plugin      -d 'Manage plugins'
 complete -c shurli -n __shurli_no_subcommand -a status      -d 'Show local config and services'
 complete -c shurli -n __shurli_no_subcommand -a recover         -d 'Recover identity from seed phrase'
 complete -c shurli -n __shurli_no_subcommand -a change-password -d 'Change identity password'
@@ -968,6 +1000,16 @@ complete -c shurli -n '__shurli_using_subcommand service list'    -l config   -d
 complete -c shurli -n '__shurli_using_subcommand service remove'  -l config   -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand service enable'  -l config   -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand service disable' -l config   -d 'Config file'
+
+# --- plugin subcommands ---
+complete -c shurli -n '__shurli_using_command plugin' -a list        -d 'List all plugins'
+complete -c shurli -n '__shurli_using_command plugin' -a enable      -d 'Enable a plugin'
+complete -c shurli -n '__shurli_using_command plugin' -a disable     -d 'Disable a plugin'
+complete -c shurli -n '__shurli_using_command plugin' -a info        -d 'Show plugin details'
+complete -c shurli -n '__shurli_using_command plugin' -a disable-all -d 'Emergency disable all plugins'
+
+complete -c shurli -n '__shurli_using_subcommand plugin list' -l json -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_subcommand plugin info' -l json -d 'Output as JSON'
 
 # --- standalone commands with flags ---
 complete -c shurli -n '__shurli_using_command ping'       -l config     -d 'Config file'

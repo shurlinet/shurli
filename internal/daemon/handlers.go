@@ -68,6 +68,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
 	mux.HandleFunc("GET /v1/config/reload", s.handleConfigReloadStatus)
 
+	// Plugins
+	mux.HandleFunc("GET /v1/plugins", s.handlePluginList)
+	mux.HandleFunc("POST /v1/plugins/disable-all", s.handlePluginDisableAll)
+	mux.HandleFunc("GET /v1/plugins/{name}", s.handlePluginInfo)
+	mux.HandleFunc("POST /v1/plugins/{name}/enable", s.handlePluginEnable)
+	mux.HandleFunc("POST /v1/plugins/{name}/disable", s.handlePluginDisable)
+
 	// File transfer
 	mux.HandleFunc("POST /v1/send", s.handleSend)
 	mux.HandleFunc("GET /v1/transfers", s.handleTransferList)
