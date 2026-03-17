@@ -386,5 +386,95 @@ func TestOpenStreamNamespaceValidation(t *testing.T) {
 	}
 }
 
+// --- Test: Plugin name validation ---
+func TestPluginNameValidation(t *testing.T) {
+	r := newTestRegistry()
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"filetransfer", false},
+		{"wake-on-lan", false},
+		{"a", false},
+		{"", true},                        // empty
+		{"UPPER", true},                   // uppercase
+		{"has space", true},               // space
+		{"has/slash", true},               // slash
+		{"../traversal", true},            // path traversal
+		{"-leading-hyphen", true},         // leading hyphen
+		{"trailing-hyphen-", true},        // trailing hyphen
+		{"null\x00byte", true},            // null byte
+		{strings.Repeat("x", 65), true},   // too long
+		{strings.Repeat("x", 64), false},  // max length
+	}
+	for _, tt := range tests {
+		p := newMockPlugin(tt.name)
+		err := r.Register(p)
+		if tt.wantErr && err == nil {
+			t.Errorf("name %q: expected error, got nil", tt.name)
+		}
+		if !tt.wantErr && err != nil {
+			t.Errorf("name %q: unexpected error: %v", tt.name, err)
+		}
+	}
+}
+
+// --- Test: ApplyConfig enabled=false prevents StartAll ---
+func TestApplyConfigDisabledPreventsStart(t *testing.T) {
+	r := newTestRegistry()
+	p := newMockPlugin("disabled-plugin")
+	r.Register(p)
+
+	// Apply config with enabled=false.
+	r.ApplyConfig(map[string]bool{"disabled-plugin": false})
+
+	// StartAll should NOT start it (Disable moved it from READY to STOPPED).
+	r.StartAll()
+
+	info, _ := r.GetInfo("disabled-plugin")
+	if info.State != StateStopped {
+		t.Errorf("expected STOPPED after ApplyConfig(false)+StartAll, got %s", info.State)
+	}
+	if p.startCalled != 0 {
+		t.Errorf("expected Start never called, got %d", p.startCalled)
+	}
+}
+
+// --- Test: Concurrent Enable is safe ---
+func TestConcurrentEnableSafe(t *testing.T) {
+	r := newTestRegistry()
+	p := newMockPlugin("concurrent")
+	r.Register(p)
+
+	// Launch 10 concurrent Enable calls.
+	errs := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		go func() {
+			errs <- r.Enable("concurrent")
+		}()
+	}
+
+	var successes, failures int
+	for i := 0; i < 10; i++ {
+		if err := <-errs; err != nil {
+			failures++
+		} else {
+			successes++
+		}
+	}
+
+	// Exactly one should succeed (first to set state), rest either succeed
+	// (idempotent after ACTIVE) or fail (LOADING transitional state).
+	if successes == 0 {
+		t.Error("expected at least one Enable to succeed")
+	}
+
+	info, _ := r.GetInfo("concurrent")
+	if info.State != StateActive {
+		t.Errorf("expected ACTIVE after concurrent enables, got %s", info.State)
+	}
+}
+
 // Ensure types satisfy interface at compile time.
 var _ Plugin = (*mockPlugin)(nil)
