@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mockPlugin is a minimal Plugin implementation for testing.
@@ -473,6 +474,84 @@ func TestConcurrentEnableSafe(t *testing.T) {
 	info, _ := r.GetInfo("concurrent")
 	if info.State != StateActive {
 		t.Errorf("expected ACTIVE after concurrent enables, got %s", info.State)
+	}
+}
+
+// --- Test: DisableAll catches mid-Enable plugin (kill switch atomicity) ---
+func TestDisableAllCatchesLoadingPlugin(t *testing.T) {
+	r := newTestRegistry()
+
+	// Use a plugin with a slow Start to create a window for DisableAll.
+	slow := &slowStartPlugin{name: "slow-start", blockDuration: 2 * time.Second}
+	r.Register(slow)
+
+	// Start Enable in background (will block on Start).
+	enableDone := make(chan error, 1)
+	go func() {
+		enableDone <- r.Enable("slow-start")
+	}()
+
+	// Give Enable a moment to enter LOADING state.
+	time.Sleep(100 * time.Millisecond)
+
+	// Kill switch should catch the LOADING plugin.
+	count, _ := r.DisableAll()
+	if count != 1 {
+		t.Errorf("expected DisableAll to catch 1 LOADING plugin, got %d", count)
+	}
+
+	// Enable should fail because kill switch forced STOPPED.
+	err := <-enableDone
+	if err == nil {
+		t.Error("expected Enable to fail after kill switch")
+	}
+
+	info, _ := r.GetInfo("slow-start")
+	if info.State != StateStopped {
+		t.Errorf("expected STOPPED after kill switch, got %s", info.State)
+	}
+}
+
+type slowStartPlugin struct {
+	name          string
+	blockDuration time.Duration
+}
+
+func (s *slowStartPlugin) Name() string                   { return s.name }
+func (s *slowStartPlugin) Version() string                { return "1.0.0" }
+func (s *slowStartPlugin) Init(_ *PluginContext) error     { return nil }
+func (s *slowStartPlugin) Start() error                   { time.Sleep(s.blockDuration); return nil }
+func (s *slowStartPlugin) Stop() error                    { return nil }
+func (s *slowStartPlugin) OnNetworkReady() error           { return nil }
+func (s *slowStartPlugin) Commands() []Command             { return nil }
+func (s *slowStartPlugin) Routes() []Route                 { return nil }
+func (s *slowStartPlugin) Protocols() []Protocol           { return nil }
+func (s *slowStartPlugin) ConfigSection() string           { return s.name }
+
+// --- Test: Start timeout ---
+func TestStartTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping start timeout test in short mode")
+	}
+
+	// Temporarily reduce timeout for testing.
+	orig := startTimeoutDuration
+	startTimeoutDuration = 1 * time.Second
+	defer func() { startTimeoutDuration = orig }()
+
+	r := newTestRegistry()
+	slow := &slowStartPlugin{name: "forever-start", blockDuration: 10 * time.Second}
+	r.Register(slow)
+
+	start := time.Now()
+	err := r.Enable("forever-start")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error from blocking Start")
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("Enable took too long: %v (expected ~1s timeout)", elapsed)
 	}
 }
 
