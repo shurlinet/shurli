@@ -115,11 +115,11 @@ func (s *slowStopPlugin) Routes() []Route                  { return nil }
 func (s *slowStopPlugin) Protocols() []Protocol            { return nil }
 func (s *slowStopPlugin) ConfigSection() string            { return s.name }
 
-// --- Test 21: Streams rejected when not active ---
-// Tested through registry state: wrapHandler checks entry.state != StateActive.
-// Direct stream tests require network.Stream mock which is complex.
-// Instead, we verify the state gating logic through Enable/Disable state checks.
-func TestStreamsRejectedWhenNotActive(t *testing.T) {
+// --- Test 21: Plugin outputs gated by active state ---
+// Verifies that only ACTIVE plugins contribute commands, routes, and protocols.
+// The underlying wrapHandler also checks state before forwarding streams,
+// but testing that requires a full network.Stream mock (covered in integration tests).
+func TestPluginOutputsGatedByActiveState(t *testing.T) {
 	r := newTestRegistry()
 	p := newMockPlugin("stream-gate")
 	r.Register(p)
