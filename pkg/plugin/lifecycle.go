@@ -52,4 +52,5 @@ const (
 var (
 	circuitBreakerWindowDuration = 5 * time.Minute  // reset crash counter after this
 	drainTimeoutDuration         = 30 * time.Second // force-stop after this
+	startTimeoutDuration         = 30 * time.Second // max time for Start() to return
 )

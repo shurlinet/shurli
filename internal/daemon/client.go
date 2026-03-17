@@ -564,6 +564,20 @@ func (c *Client) ConfigReloadStatusText() (string, error) {
 
 // --- Plugin management ---
 
+// validatePluginClientName checks the plugin name is safe for URL path construction.
+// Rejects empty, slashes, dots, and non-alphanumeric chars (except hyphens).
+func validatePluginClientName(name string) error {
+	if name == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf("invalid plugin name %q", name)
+		}
+	}
+	return nil
+}
+
 // PluginList returns all registered plugins.
 func (c *Client) PluginList() ([]PluginInfoResponse, error) {
 	var result []PluginInfoResponse
@@ -575,6 +589,9 @@ func (c *Client) PluginList() ([]PluginInfoResponse, error) {
 
 // PluginInfo returns details for a single plugin.
 func (c *Client) PluginInfo(name string) (*PluginInfoResponse, error) {
+	if err := validatePluginClientName(name); err != nil {
+		return nil, err
+	}
 	var result PluginInfoResponse
 	if err := c.doJSON("GET", "/v1/plugins/"+name, nil, &result); err != nil {
 		return nil, err
@@ -584,11 +601,17 @@ func (c *Client) PluginInfo(name string) (*PluginInfoResponse, error) {
 
 // PluginEnable enables a plugin.
 func (c *Client) PluginEnable(name string) error {
+	if err := validatePluginClientName(name); err != nil {
+		return err
+	}
 	return c.doJSON("POST", "/v1/plugins/"+name+"/enable", nil, nil)
 }
 
 // PluginDisable disables a plugin.
 func (c *Client) PluginDisable(name string) error {
+	if err := validatePluginClientName(name); err != nil {
+		return err
+	}
 	return c.doJSON("POST", "/v1/plugins/"+name+"/disable", nil, nil)
 }
 
