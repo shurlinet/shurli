@@ -179,21 +179,42 @@ func (r *Registry) Enable(name string) error {
 	}
 	r.mu.Unlock()
 
-	// Call Start with panic recovery. Lock is released so callWithRecovery's
-	// panic handler can call recordCrash (which acquires the lock).
-	if err := r.callWithRecovery(entry, "Start", func() error {
-		return entry.plugin.Start()
-	}); err != nil {
+	// Call Start with panic recovery and timeout. Lock is released so
+	// callWithRecovery's panic handler can call recordCrash (which acquires the lock).
+	// A blocking Start() must not permanently block the daemon.
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- r.callWithRecovery(entry, "Start", func() error {
+			return entry.plugin.Start()
+		})
+	}()
+
+	var startErr error
+	select {
+	case startErr = <-startDone:
+	case <-time.After(startTimeoutDuration):
+		startErr = fmt.Errorf("Start() timed out after %s", startTimeoutDuration)
+		slog.Warn("plugin.start-timeout", "name", name, "timeout", startTimeoutDuration.String())
+	}
+
+	if startErr != nil {
 		// Rollback protocol registration and transitional state on failure.
 		r.mu.Lock()
 		r.unregisterProtocols(entry)
 		entry.state = prevState
 		r.mu.Unlock()
-		return fmt.Errorf("plugin %q Start failed: %w", name, err)
+		return fmt.Errorf("plugin %q Start failed: %w", name, startErr)
 	}
 
 	// Reset circuit breaker on successful enable.
 	r.mu.Lock()
+	if entry.state != StateLoading {
+		// DisableAll (kill switch) forced this plugin to STOPPED while Start() was running.
+		// Respect the kill switch: don't transition to ACTIVE.
+		r.unregisterProtocols(entry)
+		r.mu.Unlock()
+		return fmt.Errorf("plugin %q was disabled during startup (kill switch)", name)
+	}
 	entry.crashCount = 0
 	entry.firstCrash = time.Time{}
 	entry.state = StateActive
@@ -224,6 +245,15 @@ func (r *Registry) Disable(name string) error {
 		entry.state = StateStopped
 		r.mu.Unlock()
 		slog.Info("plugin.disabled", "name", name, "reason", "not-enabled")
+		return nil
+	}
+	if entry.state == StateLoading {
+		// Force-stop a plugin that's mid-Enable (kill switch must not miss it).
+		// The Enable() goroutine will find state=STOPPED when it tries to set ACTIVE.
+		entry.state = StateStopped
+		r.unregisterProtocols(entry)
+		r.mu.Unlock()
+		slog.Info("plugin.disabled", "name", name, "reason", "kill-switch")
 		return nil
 	}
 	if err := ValidTransition(entry.state, StateDraining); err != nil {
@@ -269,12 +299,13 @@ func (r *Registry) Disable(name string) error {
 }
 
 // DisableAll stops every active plugin. Errors are collected but never stop iteration.
-// This is the kill switch for incident response.
+// This is the kill switch for incident response. It also catches plugins in LOADING
+// state (mid-Enable) by forcing them to STOPPED, ensuring the kill switch is truly atomic.
 func (r *Registry) DisableAll() (int, error) {
 	r.mu.RLock()
 	var activeNames []string
 	for name, entry := range r.plugins {
-		if entry.state == StateActive {
+		if entry.state == StateActive || entry.state == StateLoading {
 			activeNames = append(activeNames, name)
 		}
 	}
