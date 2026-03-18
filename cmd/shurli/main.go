@@ -279,9 +279,28 @@ func printUsage() {
 	fmt.Println("Get started:  shurli init")
 }
 
+// pluginEnabledCache caches the result of config reads for isPluginEnabledInConfig.
+// P22 fix: prevents re-reading the config file on every call (called per-request for route gating).
+var pluginEnabledCache struct {
+	loaded  bool
+	entries map[string]bool // plugin name -> enabled
+}
+
 // isPluginEnabledInConfig checks if a plugin is enabled by reading the config file.
 // Returns true if: no config found, config can't be read, plugin not in config (default enabled).
+// P22 fix: caches the result after first load to avoid per-request config reads.
 func isPluginEnabledInConfig(name string) bool {
+	if pluginEnabledCache.loaded {
+		enabled, ok := pluginEnabledCache.entries[name]
+		if !ok {
+			return true // not in config = default enabled for built-in
+		}
+		return enabled
+	}
+
+	pluginEnabledCache.entries = make(map[string]bool)
+	pluginEnabledCache.loaded = true
+
 	cfgFile, err := config.FindConfigFile("")
 	if err != nil {
 		return true // no config = default enabled
@@ -290,9 +309,12 @@ func isPluginEnabledInConfig(name string) bool {
 	if err != nil {
 		return true
 	}
-	entry, ok := cfg.Plugins.Entries[name]
+	for pname, entry := range cfg.Plugins.Entries {
+		pluginEnabledCache.entries[pname] = entry.Enabled
+	}
+	entry, ok := pluginEnabledCache.entries[name]
 	if !ok {
 		return true // not in config = default enabled for built-in
 	}
-	return entry.Enabled
+	return entry
 }

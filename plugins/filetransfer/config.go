@@ -3,12 +3,32 @@ package filetransfer
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
+
+// containsShellMeta returns true if the string contains shell metacharacters
+// that could allow command injection (P8 fix).
+func containsShellMeta(s string) bool {
+	const meta = ";|&$`\\!#()\n\r"
+	return strings.ContainsAny(s, meta)
+}
+
+// sanitizeNotifyCommand returns the command if safe, empty string if dangerous (P8 fix).
+func sanitizeNotifyCommand(cmd string) string {
+	if cmd == "" {
+		return ""
+	}
+	if containsShellMeta(cmd) {
+		slog.Warn("plugin.filetransfer: notify_command contains shell metacharacters, ignoring", "command", cmd)
+		return ""
+	}
+	return cmd
+}
 
 // TransferConfig holds the plugin's configuration, loaded from its own config.yaml.
 type TransferConfig struct {
@@ -51,11 +71,13 @@ type TransferConfig struct {
 }
 
 // loadConfig parses the plugin config from raw YAML bytes.
-// Returns defaults if bytes are empty or nil.
+// Returns defaults if bytes are empty or nil. Logs warning on parse errors (P21 fix).
 func loadConfig(data []byte) TransferConfig {
 	var cfg TransferConfig
 	if len(data) > 0 {
-		yaml.Unmarshal(data, &cfg)
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			slog.Warn("plugin.filetransfer: config parse error, using defaults", "error", err)
+		}
 	}
 	// Apply defaults.
 	if cfg.ReceiveMode == "" {
@@ -68,11 +90,15 @@ func loadConfig(data []byte) TransferConfig {
 // This replicates the configReloader.ReloadConfig() transfer section from cmd_daemon.go.
 func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 	newCfg := loadConfig(newBytes)
-	oldCfg := p.config
 
+	p.mu.Lock()
+	oldCfg := p.config
 	ts := p.transferService
+	p.mu.Unlock()
 	if ts == nil {
+		p.mu.Lock()
 		p.config = newCfg
+		p.mu.Unlock()
 		return
 	}
 
@@ -88,7 +114,9 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 			slog.Warn("plugin.config-rollback", "plugin", "filetransfer", "field", applied[i].field)
 		}
 		// Restore old config.
+		p.mu.Lock()
 		p.config = oldCfg
+		p.mu.Unlock()
 	}
 
 	// 1. Receive mode.
@@ -175,8 +203,13 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 		})
 	}
 
-	// 6. Notify command.
+	// 6. Notify command (P8 fix: reject shell metacharacters).
 	if oldCfg.NotifyCommand != newCfg.NotifyCommand {
+		if newCfg.NotifyCommand != "" && containsShellMeta(newCfg.NotifyCommand) {
+			slog.Warn("plugin.config-reload: notify_command contains shell metacharacters", "plugin", "filetransfer")
+			rollbackAll()
+			return
+		}
 		ts.SetNotifyCommand(newCfg.NotifyCommand)
 		oldCmd := oldCfg.NotifyCommand
 		applied = append(applied, rollbackEntry{
@@ -185,7 +218,9 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 		})
 	}
 
+	p.mu.Lock()
 	p.config = newCfg
+	p.mu.Unlock()
 
 	if len(applied) > 0 {
 		fields := make([]string, len(applied))

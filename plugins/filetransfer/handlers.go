@@ -1,8 +1,8 @@
 package filetransfer
 
 import (
-	"context"
 	"encoding/json"
+	"path/filepath"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,13 +17,10 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
-// parseJSON reads and decodes a JSON request body with size limits.
-func parseJSON(r *http.Request, dst any) error {
-	return json.NewDecoder(io.LimitReader(r.Body, daemon.MaxRequestBodySize)).Decode(dst)
-}
-
 func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
 	reg := p.shareRegistry
+	p.mu.RUnlock()
 	if reg == nil {
 		daemon.RespondJSON(w, http.StatusOK, []ShareInfo{})
 		return
@@ -68,7 +65,7 @@ func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Requ
 
 func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Request) {
 	var req ShareRequest
-	if err := parseJSON(r, &req); err != nil {
+	if err := daemon.ParseJSON(r, &req); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -77,13 +74,19 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	p.mu.RLock()
 	reg := p.shareRegistry
+	pnet := p.network
+	p.mu.RUnlock()
+
 	if reg == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
 		return
 	}
-
-	pnet := p.network
+	if pnet == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "network not available")
+		return
+	}
 	var peerIDs []peer.ID
 	for _, pidStr := range req.Peers {
 		if resolved, err := pnet.ResolveName(pidStr); err == nil {
@@ -109,7 +112,7 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 
 func (p *FileTransferPlugin) handleShareRemove(w http.ResponseWriter, r *http.Request) {
 	var req UnshareRequest
-	if err := parseJSON(r, &req); err != nil {
+	if err := daemon.ParseJSON(r, &req); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -118,7 +121,9 @@ func (p *FileTransferPlugin) handleShareRemove(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	p.mu.RLock()
 	reg := p.shareRegistry
+	p.mu.RUnlock()
 	if reg == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
 		return
@@ -135,7 +140,7 @@ func (p *FileTransferPlugin) handleShareRemove(w http.ResponseWriter, r *http.Re
 
 func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var req BrowseRequest
-	if err := parseJSON(r, &req); err != nil {
+	if err := daemon.ParseJSON(r, &req); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -144,7 +149,23 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// F5 fix: validate sub_path to prevent path traversal.
+	if req.SubPath != "" {
+		clean := filepath.Clean(req.SubPath)
+		if strings.Contains(clean, "..") || filepath.IsAbs(clean) {
+			daemon.RespondError(w, http.StatusBadRequest, "sub_path contains path traversal")
+			return
+		}
+	}
+
+	p.mu.RLock()
 	pnet := p.network
+	p.mu.RUnlock()
+
+	if pnet == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "network not available")
+		return
+	}
 
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
@@ -202,7 +223,7 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 
 func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Request) {
 	var req DownloadRequest
-	if err := parseJSON(r, &req); err != nil {
+	if err := daemon.ParseJSON(r, &req); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -211,13 +232,26 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// F6 fix: sanitize remote_path to prevent path traversal before sending to remote peer.
+	cleanRemote := filepath.Clean(req.RemotePath)
+	if strings.Contains(cleanRemote, "..") {
+		daemon.RespondError(w, http.StatusBadRequest, "remote_path contains path traversal")
+		return
+	}
+
+	p.mu.RLock()
 	ts := p.transferService
+	pnet := p.network
+	p.mu.RUnlock()
+
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
-
-	pnet := p.network
+	if pnet == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "network not available")
+		return
+	}
 
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
@@ -233,6 +267,15 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	destDir := req.LocalDest
 	if destDir == "" {
 		destDir = ts.ReceiveDir()
+	}
+
+	// P4 fix: path confinement - local_dest must be inside the receive directory.
+	receiveDir := ts.ReceiveDir()
+	if receiveDir != "" && destDir != receiveDir {
+		if !isInsideDir(receiveDir, destDir) {
+			daemon.RespondError(w, http.StatusBadRequest, "local_dest must be inside the receive directory")
+			return
+		}
 	}
 
 	// Multi-peer download path.
@@ -278,8 +321,8 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Single-peer download.
-	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
+	// Single-peer download. Use r.Context() so drain cancellation propagates (F2 fix).
+	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 	if err != nil {
 		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
 		return
@@ -301,6 +344,21 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 
 	snap := progress.Snapshot()
+
+	// X2 fix: write checkpoint for crash recovery.
+	p.mu.RLock()
+	cfgDir := p.configDir
+	p.mu.RUnlock()
+	if cfgDir != "" {
+		writeCheckpoint(cfgDir, partialManifest{
+			TransferID: snap.ID,
+			Filename:   snap.Filename,
+			TempPath:   filepath.Join(destDir, snap.Filename+".tmp"),
+			PeerID:     req.Peer,
+			Size:       snap.Size,
+		})
+	}
+
 	slog.Info("file download started via API",
 		"id", snap.ID, "file", snap.Filename, "peer", req.Peer)
 
@@ -313,7 +371,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 
 func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req SendRequest
-	if err := parseJSON(r, &req); err != nil {
+	if err := daemon.ParseJSON(r, &req); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -322,13 +380,26 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// P11 fix: path confinement - reject system paths to prevent file exfiltration.
+	cleanPath := filepath.Clean(req.Path)
+	if isForbiddenSystemPath(cleanPath) {
+		daemon.RespondError(w, http.StatusBadRequest, "path confinement: system paths are not allowed for send")
+		return
+	}
+
+	p.mu.RLock()
 	ts := p.transferService
+	pnet := p.network
+	p.mu.RUnlock()
+
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
-
-	pnet := p.network
+	if pnet == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "network not available")
+		return
+	}
 
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
@@ -341,9 +412,9 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	streamCtx := context.Background()
+	// Use r.Context() so drain cancellation propagates (F2 fix).
 	opener := func() (network.Stream, error) {
-		return pnet.OpenPluginStream(streamCtx, targetPeerID, "file-transfer")
+		return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
 	}
 	sendOpts := p2pnet.SendOptions{
 		NoCompress:   req.NoCompress,
@@ -378,7 +449,9 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 }
 
 func (p *FileTransferPlugin) handleTransferList(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
 		return
@@ -387,7 +460,9 @@ func (p *FileTransferPlugin) handleTransferList(w http.ResponseWriter, r *http.R
 }
 
 func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
 		return
@@ -425,7 +500,9 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 }
 
 func (p *FileTransferPlugin) handleTransferPending(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondJSON(w, http.StatusOK, []PendingTransferInfo{})
 		return
@@ -452,7 +529,9 @@ func (p *FileTransferPlugin) handleTransferStatus(w http.ResponseWriter, r *http
 		return
 	}
 
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondError(w, http.StatusNotFound, "file transfer is not enabled")
 		return
@@ -473,7 +552,9 @@ func (p *FileTransferPlugin) handleTransferAccept(w http.ResponseWriter, r *http
 		return
 	}
 
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
@@ -481,7 +562,10 @@ func (p *FileTransferPlugin) handleTransferAccept(w http.ResponseWriter, r *http
 
 	var req TransferAcceptRequest
 	if r.Body != nil && r.ContentLength > 0 {
-		json.NewDecoder(io.LimitReader(r.Body, daemon.MaxRequestBodySize)).Decode(&req)
+		if err := json.NewDecoder(io.LimitReader(r.Body, daemon.MaxRequestBodySize)).Decode(&req); err != nil {
+			daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
 	}
 
 	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
@@ -500,7 +584,9 @@ func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http
 		return
 	}
 
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
@@ -508,7 +594,10 @@ func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http
 
 	var req TransferRejectRequest
 	if r.Body != nil && r.ContentLength > 0 {
-		json.NewDecoder(io.LimitReader(r.Body, daemon.MaxRequestBodySize)).Decode(&req)
+		if err := json.NewDecoder(io.LimitReader(r.Body, daemon.MaxRequestBodySize)).Decode(&req); err != nil {
+			daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
 	}
 
 	reason := p2pnet.RejectReasonNone
@@ -537,7 +626,9 @@ func (p *FileTransferPlugin) handleTransferCancel(w http.ResponseWriter, r *http
 		return
 	}
 
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
@@ -553,7 +644,9 @@ func (p *FileTransferPlugin) handleTransferCancel(w http.ResponseWriter, r *http
 }
 
 func (p *FileTransferPlugin) handleClean(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
 	ts := p.transferService
+	p.mu.RUnlock()
 	if ts == nil {
 		daemon.RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return

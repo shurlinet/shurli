@@ -39,10 +39,28 @@ var (
 )
 
 // RegisterCLICommand adds a CLI command to the global registry.
+// L2 fix: validates command names to prevent shell injection in completion scripts.
 func RegisterCLICommand(entry CLICommandEntry) {
+	if !isValidCommandName(entry.Name) {
+		return // silently reject invalid command names
+	}
 	cliMu.Lock()
 	defer cliMu.Unlock()
 	cliCommands[entry.Name] = &entry
+}
+
+// isValidCommandName checks that a command name is safe for shell completion scripts.
+// Allows alphanumeric, hyphens only. No spaces, shell metacharacters, or path traversal.
+func isValidCommandName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // UnregisterCLICommands removes all CLI commands for a plugin.
@@ -65,13 +83,47 @@ func FindCLICommand(name string) (*CLICommandEntry, bool) {
 }
 
 // CLICommandDescriptions returns all registered CLI commands sorted by name.
+// L1 fix: deep-copies Flags and Subcommands slices so callers can't mutate originals.
 func CLICommandDescriptions() []CLICommandEntry {
 	cliMu.RLock()
 	defer cliMu.RUnlock()
 
 	cmds := make([]CLICommandEntry, 0, len(cliCommands))
 	for _, entry := range cliCommands {
-		cmds = append(cmds, *entry)
+		cp := *entry
+		// L1 fix: deep-copy slices so returned copies don't share memory with originals.
+		if len(cp.Flags) > 0 {
+			flags := make([]CLIFlagEntry, len(cp.Flags))
+			copy(flags, cp.Flags)
+			for i, f := range flags {
+				if len(f.Enum) > 0 {
+					enumCp := make([]string, len(f.Enum))
+					copy(enumCp, f.Enum)
+					flags[i].Enum = enumCp
+				}
+			}
+			cp.Flags = flags
+		}
+		if len(cp.Subcommands) > 0 {
+			subs := make([]CLISubcommand, len(cp.Subcommands))
+			copy(subs, cp.Subcommands)
+			for i, sub := range subs {
+				if len(sub.Flags) > 0 {
+					subFlags := make([]CLIFlagEntry, len(sub.Flags))
+					copy(subFlags, sub.Flags)
+					for j, sf := range subFlags {
+						if len(sf.Enum) > 0 {
+							enumCp := make([]string, len(sf.Enum))
+							copy(enumCp, sf.Enum)
+							subFlags[j].Enum = enumCp
+						}
+					}
+					subs[i].Flags = subFlags
+				}
+			}
+			cp.Subcommands = subs
+		}
+		cmds = append(cmds, cp)
 	}
 	sort.Slice(cmds, func(i, j int) bool {
 		return cmds[i].Name < cmds[j].Name

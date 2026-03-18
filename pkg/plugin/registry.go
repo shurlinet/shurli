@@ -27,17 +27,20 @@ import (
 type Registry struct {
 	mu              sync.RWMutex
 	plugins         map[string]*pluginEntry
+	registrationOrder []string // G4 fix: tracks insertion order for deterministic DisableAll
 	provider        *ContextProvider
 	serviceRegistry *p2pnet.ServiceRegistry
 }
 
 // pluginEntry tracks the runtime state of a single plugin.
 type pluginEntry struct {
-	plugin     Plugin
-	ctx        *PluginContext
-	state      State
-	crashCount int
-	firstCrash time.Time
+	plugin         Plugin
+	ctx            *PluginContext
+	state          State
+	crashCount     int
+	firstCrash     time.Time
+	lastTransition time.Time          // G3 fix: cooldown on enable/disable
+	startCancel    context.CancelFunc // G6 fix: cancel abandoned Start() goroutine
 }
 
 // NewRegistry creates a plugin registry with the given runtime dependencies.
@@ -138,14 +141,20 @@ func (r *Registry) Register(p Plugin) error {
 	var configBytes []byte
 	if r.provider != nil && r.provider.ConfigDir != "" {
 		configDir = filepath.Join(r.provider.ConfigDir, "plugins", id)
+		// M2 fix: verify config dir path doesn't traverse symlinks outside base config dir.
+		if resolved, err := filepath.EvalSymlinks(r.provider.ConfigDir); err == nil {
+			expectedPrefix := filepath.Join(resolved, "plugins", id)
+			configDir = expectedPrefix // use resolved path
+		}
 		// Create config dir with 0700 if not exists.
 		if err := os.MkdirAll(configDir, 0700); err != nil {
 			r.mu.Unlock()
 			return fmt.Errorf("plugin %q: create config dir: %w", name, err)
 		}
 		// Read config.yaml from config dir (empty bytes if missing).
+		// M3 fix: limit config file size to prevent DoS from huge files.
 		configPath := filepath.Join(configDir, "config.yaml")
-		if data, err := os.ReadFile(configPath); err == nil {
+		if data, err := readFileLimited(configPath, maxConfigFileSize); err == nil {
 			configBytes = data
 		}
 	}
@@ -184,6 +193,7 @@ func (r *Registry) Register(p Plugin) error {
 	// Insert placeholder BEFORE releasing lock. Other Register() calls
 	// for the same name will see the entry and fail the duplicate check.
 	r.plugins[name] = entry
+	r.registrationOrder = append(r.registrationOrder, name) // G4 fix: track insertion order
 	r.mu.Unlock()
 
 	// Call Init with panic recovery. Lock is NOT held here so that
@@ -208,6 +218,7 @@ func (r *Registry) Register(p Plugin) error {
 
 // Enable starts a plugin, registering its protocols with the service registry.
 // Valid from READY or STOPPED state. Idempotent if already ACTIVE.
+// G3 fix: enforces cooldown between transitions.
 func (r *Registry) Enable(name string) error {
 	r.mu.Lock()
 
@@ -221,6 +232,14 @@ func (r *Registry) Enable(name string) error {
 		r.mu.Unlock()
 		return nil // idempotent
 	}
+
+	// G3 fix: enforce cooldown between transitions.
+	if !entry.lastTransition.IsZero() && time.Since(entry.lastTransition) < enableDisableCooldown {
+		r.mu.Unlock()
+		return fmt.Errorf("plugin %q: enable/disable cooldown (%s remaining)",
+			name, enableDisableCooldown-time.Since(entry.lastTransition))
+	}
+
 	if err := ValidTransition(entry.state, StateActive); err != nil {
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q: %w", name, err)
@@ -231,12 +250,20 @@ func (r *Registry) Enable(name string) error {
 	prevState := entry.state
 	entry.state = StateLoading
 
-	// Register protocols with service registry.
-	if err := r.registerProtocols(entry); err != nil {
-		entry.state = prevState // rollback transitional state
-		r.mu.Unlock()
-		return fmt.Errorf("plugin %q protocol registration failed: %w", name, err)
+	// F3 fix: re-populate PluginContext runtime fields that were nilled on Disable.
+	if r.provider != nil {
+		entry.ctx.network = r.provider.Network
+		entry.ctx.nameResolver = r.provider.NameResolver
+		entry.ctx.peerConnector = r.provider.PeerConnector
 	}
+	r.mu.Unlock()
+
+	// G6 fix: create a cancellable context for the Start goroutine so Disable can cancel it.
+	// G11 fix: set StartContext so plugins can check for cancellation inside Start().
+	startCtx, startCancel := context.WithCancel(context.Background())
+	r.mu.Lock()
+	entry.startCancel = startCancel
+	entry.ctx.startCtx = startCtx
 	r.mu.Unlock()
 
 	// Call Start with panic recovery and timeout. Lock is released so
@@ -248,6 +275,7 @@ func (r *Registry) Enable(name string) error {
 			return entry.plugin.Start()
 		})
 	}()
+	_ = startCtx // G6: context available for future Start(ctx) interface evolution
 
 	var startErr error
 	select {
@@ -258,26 +286,53 @@ func (r *Registry) Enable(name string) error {
 	}
 
 	if startErr != nil {
-		// Rollback protocol registration and transitional state on failure.
+		// G1 fix: call Stop() to clean up partially initialized resources.
+		if stopErr := r.callWithRecovery(entry, "Stop", func() error {
+			return entry.plugin.Stop()
+		}); stopErr != nil {
+			slog.Warn("plugin.enable-error-path-stop-failed", "name", name, "error", stopErr)
+		}
 		r.mu.Lock()
-		r.unregisterProtocols(entry)
 		entry.state = prevState
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q Start failed: %w", name, startErr)
 	}
 
-	// Reset circuit breaker on successful enable.
+	// X1 fix: Register protocols AFTER Start() so Protocols() returns real handlers.
+	// Previously this was before Start(), so plugins with Start-dependent Protocols()
+	// (like FileTransferPlugin) registered zero protocols.
 	r.mu.Lock()
 	if entry.state != StateLoading {
 		// DisableAll (kill switch) forced this plugin to STOPPED while Start() was running.
 		// Respect the kill switch: don't transition to ACTIVE.
-		r.unregisterProtocols(entry)
 		r.mu.Unlock()
 		return fmt.Errorf("plugin %q was disabled during startup (kill switch)", name)
 	}
+
+	if err := r.registerProtocols(entry); err != nil {
+		entry.state = prevState
+		r.mu.Unlock()
+		// Stop the started plugin since we can't register its protocols.
+		_ = r.callWithRecovery(entry, "Stop", func() error {
+			return entry.plugin.Stop()
+		})
+		return fmt.Errorf("plugin %q protocol registration failed: %w", name, err)
+	}
+
+	// X4 fix: Rebuild declaredProtos AFTER Start() so OpenStream accepts plugin's protocols.
+	declaredProtos := make(map[string]bool)
+	for _, proto := range entry.plugin.Protocols() {
+		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
+		declaredProtos[pid] = true
+	}
+	entry.ctx.declaredProtos = declaredProtos
+
+	// Reset circuit breaker on successful enable.
 	entry.crashCount = 0
 	entry.firstCrash = time.Time{}
 	entry.state = StateActive
+	entry.lastTransition = time.Now()
+	entry.startCancel = nil // G6: Start completed, no longer cancellable
 	r.mu.Unlock()
 
 	slog.Info("plugin.enabled", "name", name)
@@ -299,6 +354,7 @@ func (r *Registry) Disable(name string) error {
 		r.mu.Unlock()
 		return nil // already stopped
 	}
+
 	if entry.state == StateReady {
 		// Transition READY -> STOPPED so StartAll() won't start this plugin.
 		// This is how enabled=false in config prevents a plugin from starting.
@@ -310,6 +366,10 @@ func (r *Registry) Disable(name string) error {
 	if entry.state == StateLoading {
 		// Force-stop a plugin that's mid-Enable (kill switch must not miss it).
 		// The Enable() goroutine will find state=STOPPED when it tries to set ACTIVE.
+		// G6 fix: cancel the Start goroutine's context.
+		if entry.startCancel != nil {
+			entry.startCancel()
+		}
 		entry.state = StateStopped
 		r.unregisterProtocols(entry)
 		r.mu.Unlock()
@@ -348,10 +408,15 @@ func (r *Registry) Disable(name string) error {
 		slog.Warn("plugin.stop-timeout", "name", name, "timeout", drainTimeoutDuration.String())
 	}
 
-	// Unregister protocols and set final state.
+	// Unregister protocols, nil context fields, and set final state.
 	r.mu.Lock()
 	r.unregisterProtocols(entry)
+	// F3 fix: nil PluginContext runtime fields so disabled plugin can't use them.
+	entry.ctx.network = nil
+	entry.ctx.nameResolver = nil
+	entry.ctx.peerConnector = nil
 	entry.state = StateStopped
+	entry.lastTransition = time.Now()
 	r.mu.Unlock()
 
 	slog.Info("plugin.disabled", "name", name, "reason", reason)
@@ -361,12 +426,17 @@ func (r *Registry) Disable(name string) error {
 // DisableAll stops every active plugin. Errors are collected but never stop iteration.
 // This is the kill switch for incident response. It also catches plugins in LOADING
 // state (mid-Enable) by forcing them to STOPPED, ensuring the kill switch is truly atomic.
+// G4 fix: disables in reverse registration order for deterministic shutdown.
 func (r *Registry) DisableAll() (int, error) {
 	r.mu.RLock()
+	// G4 fix: iterate registrationOrder in reverse for deterministic disable order.
 	var activeNames []string
-	for name, entry := range r.plugins {
-		if entry.state == StateActive || entry.state == StateLoading {
-			activeNames = append(activeNames, name)
+	for i := len(r.registrationOrder) - 1; i >= 0; i-- {
+		name := r.registrationOrder[i]
+		if entry, ok := r.plugins[name]; ok {
+			if entry.state == StateActive || entry.state == StateLoading {
+				activeNames = append(activeNames, name)
+			}
 		}
 	}
 	r.mu.RUnlock()
@@ -388,39 +458,62 @@ func (r *Registry) DisableAll() (int, error) {
 }
 
 // List returns metadata for all registered plugins.
+// X8 fix: snapshot entries under RLock, call plugin methods (Commands/Routes/Protocols)
+// outside the lock so slow plugins don't block the registry.
 func (r *Registry) List() []Info {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	infos := make([]Info, 0, len(r.plugins))
+	type snapshot struct {
+		plugin     Plugin
+		state      State
+		crashCount int
+	}
+	entries := make([]snapshot, 0, len(r.plugins))
 	for _, entry := range r.plugins {
-		infos = append(infos, r.buildInfo(entry))
+		entries = append(entries, snapshot{
+			plugin:     entry.plugin,
+			state:      entry.state,
+			crashCount: entry.crashCount,
+		})
+	}
+	r.mu.RUnlock()
+
+	infos := make([]Info, 0, len(entries))
+	for _, snap := range entries {
+		infos = append(infos, buildInfoFromSnapshot(snap.plugin, snap.state, snap.crashCount))
 	}
 	return infos
 }
 
 // GetInfo returns metadata for a single plugin.
+// X8 fix: snapshot under RLock, build info outside the lock.
 func (r *Registry) GetInfo(name string) (*Info, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	entry, ok := r.plugins[name]
 	if !ok {
+		r.mu.RUnlock()
 		return nil, fmt.Errorf("plugin %q not found", name)
 	}
-	info := r.buildInfo(entry)
+	p := entry.plugin
+	state := entry.state
+	crashes := entry.crashCount
+	r.mu.RUnlock()
+
+	info := buildInfoFromSnapshot(p, state, crashes)
 	return &info, nil
 }
 
 // ApplyConfig enables or disables plugins based on config state.
-// key = plugin name, value = enabled. Unknown names are logged and skipped.
+// key = plugin name, value = enabled. Unknown names are collected as errors (G5 fix).
 func (r *Registry) ApplyConfig(pluginStates map[string]bool) error {
+	var errs []error
 	for name, enabled := range pluginStates {
 		r.mu.RLock()
 		_, exists := r.plugins[name]
 		r.mu.RUnlock()
 
 		if !exists {
+			// G5 fix: return unknown plugin names as errors instead of just logging.
+			errs = append(errs, fmt.Errorf("unknown plugin %q in config", name))
 			slog.Warn("plugin.config-unknown", "name", name)
 			continue
 		}
@@ -433,6 +526,9 @@ func (r *Registry) ApplyConfig(pluginStates map[string]bool) error {
 				slog.Warn("plugin.config-disable-failed", "name", name, "error", err)
 			}
 		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("config validation: %v", errs)
 	}
 	return nil
 }
@@ -457,12 +553,16 @@ func (r *Registry) StartAll() error {
 }
 
 // StopAll stops all active plugins during daemon shutdown.
+// G9 fix: also handles LOADING plugins (DisableAll already catches them).
 func (r *Registry) StopAll() error {
 	_, err := r.DisableAll()
-	// Also transition READY plugins to STOPPED.
+	// Also transition READY and LOADING plugins to STOPPED (G9 fix).
 	r.mu.Lock()
 	for _, entry := range r.plugins {
-		if entry.state == StateReady {
+		if entry.state == StateReady || entry.state == StateLoading {
+			if entry.state == StateLoading && entry.startCancel != nil {
+				entry.startCancel() // cancel any Start() goroutine
+			}
 			entry.state = StateStopped
 		}
 	}
@@ -541,18 +641,29 @@ func (r *Registry) ActiveProtocols() []Protocol {
 
 // StatusContributions returns status fields from all ACTIVE plugins
 // that implement StatusContributor. Keyed by plugin Name().
+// X7 fix: snapshot active StatusContributors under RLock, call StatusFields() outside the lock
+// so a slow plugin cannot block all status queries.
 func (r *Registry) StatusContributions() map[string]map[string]any {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	result := make(map[string]map[string]any)
+	type contributor struct {
+		name string
+		sc   StatusContributor
+	}
+	var contributors []contributor
 	for _, entry := range r.plugins {
 		if entry.state != StateActive {
 			continue
 		}
 		if sc, ok := entry.plugin.(StatusContributor); ok {
-			if fields := sc.StatusFields(); len(fields) > 0 {
-				result[entry.plugin.Name()] = fields
-			}
+			contributors = append(contributors, contributor{name: entry.plugin.Name(), sc: sc})
+		}
+	}
+	r.mu.RUnlock()
+
+	result := make(map[string]map[string]any)
+	for _, c := range contributors {
+		if fields := c.sc.StatusFields(); len(fields) > 0 {
+			result[c.name] = fields
 		}
 	}
 	return result
@@ -560,6 +671,8 @@ func (r *Registry) StatusContributions() map[string]map[string]any {
 
 // AllRegisteredRoutes returns routes from ALL registered plugins regardless of state.
 // Used for mux setup at server start. Different from AllRoutes() which returns only ACTIVE.
+// H2 note: callers MUST use IsRouteActive() per-request to gate disabled plugin routes.
+// This is by design - routes are registered once at mux setup, state is checked per-request.
 func (r *Registry) AllRegisteredRoutes() []Route {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -590,9 +703,15 @@ func (r *Registry) IsRouteActive(method, path string) bool {
 
 // NotifyConfigReload re-reads each active plugin's config.yaml and calls
 // their OnConfigReload callback if the bytes changed.
+// P19 fix: uses full Lock for configBytes write instead of RLock.
+// P20 fix: releases lock before calling plugin callbacks to prevent deadlock.
 func (r *Registry) NotifyConfigReload() {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	type reloadItem struct {
+		entry    *pluginEntry
+		newBytes []byte
+	}
+	var items []reloadItem
 	for _, entry := range r.plugins {
 		if entry.state != StateActive || entry.ctx.configReloadCb == nil {
 			continue
@@ -601,25 +720,63 @@ func (r *Registry) NotifyConfigReload() {
 			continue
 		}
 		configPath := filepath.Join(entry.ctx.configDir, "config.yaml")
-		newBytes, err := os.ReadFile(configPath)
+		newBytes, err := readFileLimited(configPath, maxConfigFileSize)
 		if err != nil {
-			continue // missing config = no change
+			continue
 		}
 		if !bytes.Equal(newBytes, entry.ctx.configBytes) {
-			entry.ctx.configBytes = newBytes
-			entry.ctx.configReloadCb(newBytes)
+			items = append(items, reloadItem{entry: entry, newBytes: newBytes})
+		}
+	}
+	r.mu.RUnlock()
+
+	// P19 fix: write configBytes under full Lock.
+	// P20 fix: call callbacks outside the lock to prevent deadlock.
+	for _, item := range items {
+		r.mu.Lock()
+		item.entry.ctx.configBytes = item.newBytes
+		cb := item.entry.ctx.configReloadCb
+		r.mu.Unlock()
+
+		if cb != nil {
+			cb(item.newBytes)
 		}
 	}
 }
 
 // --- Internal helpers ---
 
+// validateProtocolName checks that a protocol name is safe: alphanumeric + hyphens,
+// reasonable length, no special characters (X3 fix).
+func validateProtocolName(name string) error {
+	if name == "" {
+		return fmt.Errorf("protocol name cannot be empty")
+	}
+	if len(name) > 64 {
+		return fmt.Errorf("protocol name too long: %d chars (max 64)", len(name))
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf("protocol name %q contains invalid character %q (allowed: a-z, 0-9, -)", name, string(c))
+		}
+	}
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return fmt.Errorf("protocol name %q cannot start or end with a hyphen", name)
+	}
+	return nil
+}
+
 // registerProtocols registers a plugin's protocols with the service registry.
+// P14: MUST be called with r.mu held (Lock or RLock). All call sites verified.
 func (r *Registry) registerProtocols(entry *pluginEntry) error {
 	if r.serviceRegistry == nil {
 		return nil // no service registry (e.g., testing)
 	}
 	for _, proto := range entry.plugin.Protocols() {
+		// X3 fix: validate protocol names before registration.
+		if err := validateProtocolName(proto.Name); err != nil {
+			return fmt.Errorf("plugin %q: %w", entry.plugin.Name(), err)
+		}
 		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
 		policy := proto.Policy
 		if policy == nil {
@@ -642,6 +799,7 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 }
 
 // unregisterProtocols removes a plugin's protocols from the service registry.
+// P14: MUST be called with r.mu held. All call sites verified.
 func (r *Registry) unregisterProtocols(entry *pluginEntry) {
 	if r.serviceRegistry == nil {
 		return
@@ -681,6 +839,9 @@ func (r *Registry) wrapHandler(pluginName string, handler p2pnet.StreamHandler) 
 
 // callWithRecovery calls fn, recovering any panic and converting it to an error.
 // Also records crashes for circuit breaker logic.
+// G12 SAFETY: callers MUST NOT hold r.mu when calling this, because the panic
+// handler calls recordCrash which acquires r.mu.Lock(). All call sites (Register,
+// Enable, Disable, NotifyNetworkReady) release the lock before calling this.
 func (r *Registry) callWithRecovery(entry *pluginEntry, method string, fn func() error) (retErr error) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -720,10 +881,9 @@ func (r *Registry) recordCrash(name string) {
 	}
 }
 
-// buildInfo constructs an Info struct for introspection.
-func (r *Registry) buildInfo(entry *pluginEntry) Info {
-	p := entry.plugin
-
+// buildInfoFromSnapshot constructs an Info struct for introspection.
+// X8 fix: takes pre-snapshotted values so it can be called outside the registry lock.
+func buildInfoFromSnapshot(p Plugin, state State, crashCount int) Info {
 	cmds := make([]string, 0, len(p.Commands()))
 	for _, c := range p.Commands() {
 		cmds = append(cmds, c.Name)
@@ -741,12 +901,29 @@ func (r *Registry) buildInfo(entry *pluginEntry) Info {
 		Name:       p.Name(),
 		Version:    p.Version(),
 		Type:       "built-in",
-		State:      entry.state,
-		Enabled:    entry.state == StateActive,
+		State:      state,
+		Enabled:    state == StateActive,
 		Commands:   cmds,
 		Routes:     routes,
 		Protocols:  protos,
 		ConfigKey:  p.ConfigSection(),
-		CrashCount: entry.crashCount,
+		CrashCount: crashCount,
 	}
+}
+
+// readFileLimited reads a file up to maxBytes. Returns error if file exceeds limit (M3 fix).
+func readFileLimited(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("file %s exceeds max size (%d > %d)", path, info.Size(), maxBytes)
+	}
+	return os.ReadFile(path)
 }

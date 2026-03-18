@@ -20,7 +20,6 @@ import (
 
 	libp2pnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"github.com/shurlinet/shurli/pkg/plugin"
@@ -29,11 +28,15 @@ import (
 // FileTransferPlugin implements the file transfer, sharing, and browse features.
 type FileTransferPlugin struct {
 	ctx             *plugin.PluginContext
+	configDir       string
+
+	// mu protects all mutable fields below (P1 fix: zero synchronization).
+	// Handlers take RLock, Stop() takes full Lock when nilling fields.
+	mu              sync.RWMutex
 	network         *p2pnet.Network
 	transferService *p2pnet.TransferService
 	shareRegistry   *p2pnet.ShareRegistry
 	config          TransferConfig
-	configDir       string
 
 	// Drain mechanism (Finding 52 - CRITICAL).
 	// Plugin owns context.Context + sync.WaitGroup for active transfers.
@@ -42,6 +45,10 @@ type FileTransferPlugin struct {
 	activeCtx    context.Context
 	activeCancel context.CancelFunc
 	wg           sync.WaitGroup
+
+	// drainGate is set to true when Stop() begins. wrapHandler checks this
+	// before wg.Add(1) to prevent new work after drain starts (P2 fix).
+	drainGate    bool
 }
 
 // New creates a new FileTransferPlugin.
@@ -60,6 +67,18 @@ func (p *FileTransferPlugin) Init(ctx *plugin.PluginContext) error {
 	p.configDir = ctx.ConfigDir()
 	p.config = loadConfig(ctx.Config())
 
+	// M4 fix: warn if legacy config files exist in parent config dir.
+	if p.configDir != "" {
+		parentDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(p.configDir)))) // up from plugins/shurli.io/official/filetransfer
+		for _, legacy := range []string{"queue.json", "shares.json"} {
+			legacyPath := filepath.Join(parentDir, legacy)
+			if _, err := os.Stat(legacyPath); err == nil {
+				slog.Warn("plugin.filetransfer: legacy file found in parent config dir",
+					"file", legacyPath, "note", "this file is no longer used; plugin config is now in "+p.configDir)
+			}
+		}
+	}
+
 	// Register hot-reload callback.
 	ctx.OnConfigReload(p.reloadConfig)
 
@@ -68,6 +87,11 @@ func (p *FileTransferPlugin) Init(ctx *plugin.PluginContext) error {
 
 // Start is called on enable. Creates TransferService, ShareRegistry, loads state.
 func (p *FileTransferPlugin) Start() error {
+	// Reset drain gate for fresh enable cycle.
+	p.mu.Lock()
+	p.drainGate = false
+	p.mu.Unlock()
+
 	// Create cancelable context for drain mechanism.
 	p.activeCtx, p.activeCancel = context.WithCancel(context.Background())
 
@@ -130,9 +154,9 @@ func (p *FileTransferPlugin) Start() error {
 	if key := p.ctx.DeriveKey("shurli/queue/v1"); key != nil {
 		queueHMACKey = key
 	} else {
-		// Fallback: derive from identity if DeriveKey not available.
-		// This maintains backwards compatibility when KeyDeriver is not configured.
-		h := sha256.Sum256([]byte("shurli/queue/v1/fallback"))
+		// Fallback: derive from node's peer ID so each node has a unique key.
+		// Not as strong as HKDF from the private key, but prevents trivial forgery.
+		h := sha256.Sum256([]byte("shurli/queue/v1/" + p.network.Host().ID().String()))
 		queueHMACKey = h[:]
 	}
 
@@ -149,7 +173,7 @@ func (p *FileTransferPlugin) Start() error {
 		ErasureOverhead:   erasureOverhead,
 		LogPath:           logPath,
 		Notify:            p.config.Notify,
-		NotifyCommand:     p.config.NotifyCommand,
+		NotifyCommand:     sanitizeNotifyCommand(p.config.NotifyCommand),
 		MaxConcurrent:     p.config.MaxConcurrent,
 		MultiPeerEnabled:  multiPeerEnabled,
 		MultiPeerMaxPeers: p.config.MultiPeerMaxPeers,
@@ -201,6 +225,12 @@ func (p *FileTransferPlugin) Start() error {
 			reg = p2pnet.NewShareRegistry()
 			reg.SetPersistPath(persistPath)
 		}
+
+		// P6 fix: set HMAC key for shares.json integrity.
+		if sharesKey := p.ctx.DeriveKey("shurli/shares/v1"); sharesKey != nil {
+			reg.SetHMACKey(sharesKey)
+		}
+
 		p.shareRegistry = reg
 
 		browseLimit := p.config.BrowseRateLimit
@@ -218,12 +248,19 @@ func (p *FileTransferPlugin) Start() error {
 
 // Stop persists state and releases resources. Called on disable.
 func (p *FileTransferPlugin) Stop() error {
+	// Set drain gate to reject new handler work (P2 fix).
+	p.mu.Lock()
+	p.drainGate = true
+	p.mu.Unlock()
+
 	// Cancel active context (signals all transfer goroutines to stop).
 	if p.activeCancel != nil {
 		p.activeCancel()
 	}
 
-	// Wait for active goroutines with 25s budget (within registry's 30s).
+	// G8 fix: plugin drain timeout is 5s less than registry's 30s drain timeout,
+	// ensuring plugin completes before registry force-transitions to STOPPED.
+	pluginDrainTimeout := 25 * time.Second
 	done := make(chan struct{})
 	go func() {
 		p.wg.Wait()
@@ -232,11 +269,24 @@ func (p *FileTransferPlugin) Stop() error {
 
 	select {
 	case <-done:
-	case <-time.After(25 * time.Second):
-		slog.Warn("plugin.filetransfer: drain timeout exceeded, forcing stop")
+	case <-time.After(pluginDrainTimeout):
+		slog.Warn("plugin.filetransfer: drain timeout exceeded, forcing stop",
+			"timeout", pluginDrainTimeout.String())
 	}
 
-	// Persist state.
+	// Persist state and nil fields under full lock.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// P3 fix: persist queue before Close() so queue state survives shutdown.
+	// G9 note: FlushQueue only persists pending (not-yet-started) queue items.
+	// In-progress transfers were already dequeued and are tracked separately.
+	// After activeCtx cancel, in-progress transfers are cancelled but pending
+	// items are still valid for re-queue on next startup.
+	if p.transferService != nil {
+		p.transferService.FlushQueue()
+	}
+
 	if p.shareRegistry != nil && p.configDir != "" {
 		persistPath := filepath.Join(p.configDir, "shares.json")
 		if err := p.shareRegistry.SavePersistent(persistPath); err != nil {
@@ -244,7 +294,6 @@ func (p *FileTransferPlugin) Stop() error {
 		}
 	}
 
-	// Close transfer service (flushes log, stops rate limiters).
 	if p.transferService != nil {
 		if err := p.transferService.Close(); err != nil {
 			slog.Warn("plugin.filetransfer: close failed", "error", err)
@@ -261,19 +310,25 @@ func (p *FileTransferPlugin) Stop() error {
 
 // OnNetworkReady is called after bootstrap. Requeues persisted transfers.
 func (p *FileTransferPlugin) OnNetworkReady() error {
-	if p.transferService == nil || p.network == nil {
+	p.mu.RLock()
+	ts := p.transferService
+	pnet := p.network
+	p.mu.RUnlock()
+
+	if ts == nil || pnet == nil {
 		return nil
 	}
 
 	// Re-enqueue persisted transfers now that the network is ready.
 	// Uses 1.0.0 protocol version (Decision 4), NOT the TransferProtocol constant (2.0.0).
-	p.transferService.RequeuePersisted(func(peerID string) func() (libp2pnet.Stream, error) {
+	// P18 fix: use OpenPluginStream instead of direct host stream creation.
+	ts.RequeuePersisted(func(peerID string) func() (libp2pnet.Stream, error) {
 		return func() (libp2pnet.Stream, error) {
 			pid, err := peer.Decode(peerID)
 			if err != nil {
 				return nil, fmt.Errorf("decode peer ID: %w", err)
 			}
-			return p.network.Host().NewStream(context.Background(), pid, protocol.ID("/shurli/file-transfer/1.0.0"))
+			return pnet.OpenPluginStream(p.activeCtx, pid, "file-transfer")
 		}
 	})
 
@@ -296,44 +351,50 @@ func (p *FileTransferPlugin) Commands() []plugin.Command {
 }
 
 // Routes returns the 14 HTTP endpoints this plugin provides.
+// All handlers are wrapped with wrapHandler for drain WaitGroup tracking (C1 fix).
 func (p *FileTransferPlugin) Routes() []plugin.Route {
 	return []plugin.Route{
-		{Method: "GET", Path: "/v1/shares", Handler: p.handleShareList},
-		{Method: "POST", Path: "/v1/shares", Handler: p.handleShareAdd},
-		{Method: "DELETE", Path: "/v1/shares", Handler: p.handleShareRemove},
-		{Method: "POST", Path: "/v1/browse", Handler: p.handleBrowse},
-		{Method: "POST", Path: "/v1/download", Handler: p.handleDownload},
-		{Method: "POST", Path: "/v1/send", Handler: p.handleSend},
-		{Method: "GET", Path: "/v1/transfers", Handler: p.handleTransferList},
-		{Method: "GET", Path: "/v1/transfers/history", Handler: p.handleTransferHistory},
-		{Method: "GET", Path: "/v1/transfers/pending", Handler: p.handleTransferPending},
-		{Method: "GET", Path: "/v1/transfers/{id}", Handler: p.handleTransferStatus},
-		{Method: "POST", Path: "/v1/transfers/{id}/accept", Handler: p.handleTransferAccept},
-		{Method: "POST", Path: "/v1/transfers/{id}/reject", Handler: p.handleTransferReject},
-		{Method: "POST", Path: "/v1/transfers/{id}/cancel", Handler: p.handleTransferCancel},
-		{Method: "POST", Path: "/v1/clean", Handler: p.handleClean},
+		{Method: "GET", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareList)},
+		{Method: "POST", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareAdd)},
+		{Method: "DELETE", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareRemove)},
+		{Method: "POST", Path: "/v1/browse", Handler: p.wrapHandler(p.handleBrowse)},
+		{Method: "POST", Path: "/v1/download", Handler: p.wrapHandler(p.handleDownload)},
+		{Method: "POST", Path: "/v1/send", Handler: p.wrapHandler(p.handleSend)},
+		{Method: "GET", Path: "/v1/transfers", Handler: p.wrapHandler(p.handleTransferList)},
+		{Method: "GET", Path: "/v1/transfers/history", Handler: p.wrapHandler(p.handleTransferHistory)},
+		{Method: "GET", Path: "/v1/transfers/pending", Handler: p.wrapHandler(p.handleTransferPending)},
+		{Method: "GET", Path: "/v1/transfers/{id}", Handler: p.wrapHandler(p.handleTransferStatus)},
+		{Method: "POST", Path: "/v1/transfers/{id}/accept", Handler: p.wrapHandler(p.handleTransferAccept)},
+		{Method: "POST", Path: "/v1/transfers/{id}/reject", Handler: p.wrapHandler(p.handleTransferReject)},
+		{Method: "POST", Path: "/v1/transfers/{id}/cancel", Handler: p.wrapHandler(p.handleTransferCancel)},
+		{Method: "POST", Path: "/v1/clean", Handler: p.wrapHandler(p.handleClean)},
 	}
 }
 
 // Protocols returns the 4 P2P stream handlers this plugin provides.
 // All use version 1.0.0 (Decision 4).
 func (p *FileTransferPlugin) Protocols() []plugin.Protocol {
+	p.mu.RLock()
+	ts := p.transferService
+	sr := p.shareRegistry
+	p.mu.RUnlock()
+
 	var protos []plugin.Protocol
 
-	if p.transferService != nil {
+	if ts != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: p.transferService.HandleInbound()},
-			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: p.transferService.HandleMultiPeerRequest()},
+			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: ts.HandleInbound()},
+			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: ts.HandleMultiPeerRequest()},
 		)
 	}
 
-	if p.shareRegistry != nil {
+	if sr != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: p.shareRegistry.HandleBrowse()},
+			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: sr.HandleBrowse()},
 		)
-		if p.transferService != nil {
+		if ts != nil {
 			protos = append(protos,
-				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: p.shareRegistry.HandleDownload(p.transferService)},
+				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: sr.HandleDownload(ts)},
 			)
 		}
 	}
@@ -344,22 +405,34 @@ func (p *FileTransferPlugin) Protocols() []plugin.Protocol {
 // StatusFields implements the StatusContributor interface.
 // Returns receive_mode + timed_mode_remaining_seconds for the daemon status response.
 func (p *FileTransferPlugin) StatusFields() map[string]any {
-	if p.transferService == nil {
+	p.mu.RLock()
+	ts := p.transferService
+	p.mu.RUnlock()
+
+	if ts == nil {
 		return nil
 	}
 	fields := map[string]any{
-		"receive_mode": string(p.transferService.GetReceiveMode()),
+		"receive_mode": string(ts.GetReceiveMode()),
 	}
-	if remaining := p.transferService.TimedModeRemaining(); remaining > 0 {
+	if remaining := ts.TimedModeRemaining(); remaining > 0 {
 		fields["timed_mode_remaining_seconds"] = int(remaining.Seconds())
 	}
 	return fields
 }
 
-// wrapHandler adds drain WaitGroup tracking around HTTP handler calls.
+// wrapHandler adds drain WaitGroup tracking and mutex protection around HTTP handler calls.
+// Checks drain gate before admitting new work (P2 fix).
 func (p *FileTransferPlugin) wrapHandler(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		p.mu.RLock()
+		if p.drainGate {
+			p.mu.RUnlock()
+			http.Error(w, "plugin is shutting down", http.StatusServiceUnavailable)
+			return
+		}
 		p.wg.Add(1)
+		p.mu.RUnlock()
 		defer p.wg.Done()
 		handler(w, r)
 	}

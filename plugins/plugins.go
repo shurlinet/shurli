@@ -2,14 +2,20 @@
 package plugins
 
 import (
+	"fmt"
+
 	"github.com/shurlinet/shurli/pkg/plugin"
 	"github.com/shurlinet/shurli/plugins/filetransfer"
 )
 
 // RegisterAll registers all compiled-in plugins with the given registry.
 // Called during daemon startup after the registry is created.
-func RegisterAll(r *plugin.Registry) {
-	r.Register(filetransfer.New())
+// P17 fix: returns error instead of silently discarding registration failures.
+func RegisterAll(r *plugin.Registry) error {
+	if err := r.Register(filetransfer.New()); err != nil {
+		return fmt.Errorf("register filetransfer: %w", err)
+	}
+	return nil
 }
 
 // RegisterCLI registers CLI commands for all compiled-in plugins.

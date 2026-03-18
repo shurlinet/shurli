@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
@@ -306,8 +309,32 @@ func runDaemonStart(args []string) {
 		NameResolver:    rt.network.ResolveName,
 		PeerConnector:   rt.ConnectToPeer,
 	}
+
+	// Wire HKDF-SHA256 key derivation from node identity (Finding 39, 56).
+	// Uses the Ed25519 seed bytes (first 32 bytes of raw private key) as HKDF IKM.
+	// Each (identity, domain) pair produces a unique, stable 32-byte key.
+	hostPrivKey := rt.network.Host().Peerstore().PrivKey(rt.network.Host().ID())
+	if hostPrivKey != nil {
+		raw, err := hostPrivKey.Raw()
+		if err == nil && len(raw) >= 32 {
+			seed := make([]byte, 32)
+			copy(seed, raw[:32])
+			pluginProvider.KeyDeriver = func(domain string) []byte {
+				r := hkdf.New(sha256.New, seed, nil, []byte(domain))
+				key := make([]byte, 32)
+				if _, err := io.ReadFull(r, key); err != nil {
+					return nil
+				}
+				return key
+			}
+		}
+	}
 	pluginRegistry := plugin.NewRegistry(pluginProvider)
-	plugins.RegisterAll(pluginRegistry)
+	if err := plugins.RegisterAll(pluginRegistry); err != nil {
+		slog.Error("plugin registration failed", "error", err)
+		fmt.Fprintf(os.Stderr, "Fatal: plugin registration failed: %v\n", err)
+		os.Exit(1)
+	}
 	if states := rt.config.Plugins.PluginStates(); states != nil {
 		pluginRegistry.ApplyConfig(states)
 	}
@@ -368,9 +395,23 @@ func runDaemonStart(args []string) {
 	case <-ctx.Done():
 	}
 
-	srv.Stop()
-	pluginRegistry.StopAll()
-	rt.Shutdown()
+	// P9 fix: stop plugins BEFORE HTTP server so in-flight handlers complete
+	// before plugin resources are torn down. P10 fix: global shutdown watchdog.
+	shutdownDone := make(chan struct{})
+	go func() {
+		pluginRegistry.StopAll() // drain active transfers first
+		srv.Stop()               // then stop accepting new HTTP requests
+		rt.Shutdown()            // finally close network + persistence
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(60 * time.Second):
+		slog.Error("shutdown watchdog: forced exit after 60s")
+		fmt.Fprintln(os.Stderr, "Shutdown timed out after 60s, forcing exit.")
+		os.Exit(1)
+	}
 	fmt.Println("Daemon stopped.")
 }
 
