@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -90,12 +89,6 @@ type serveRuntime struct {
 
 	// MOTD client for relay message queries (populated by SetupMOTDClient)
 	motdClient *relay.MOTDClient
-
-	// File transfer service (populated by SetupTransfer)
-	transferService *p2pnet.TransferService
-
-	// Share registry (populated by SetupSharing)
-	shareRegistry *p2pnet.ShareRegistry
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1286,186 +1279,10 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 	}()
 }
 
-// SetupTransfer initializes the file transfer service and registers the
-// inbound stream handler on the P2P host.
-func (rt *serveRuntime) SetupTransfer() {
-	compress := true
-	if rt.config.Transfer.Compress != nil {
-		compress = *rt.config.Transfer.Compress
-	}
-
-	logPath := rt.config.Transfer.LogPath
-	if logPath == "" {
-		logPath = filepath.Join(filepath.Dir(rt.configFile), "logs", "transfers.log")
-	}
-
-	erasureOverhead := 0.1 // default 10% RS parity
-	if rt.config.Transfer.ErasureOverhead != nil {
-		erasureOverhead = *rt.config.Transfer.ErasureOverhead
-	}
-
-	multiPeerEnabled := true
-	if rt.config.Transfer.MultiPeerEnabled != nil {
-		multiPeerEnabled = *rt.config.Transfer.MultiPeerEnabled
-	}
-
-	// Parse failure backoff config.
-	var fbThreshold int
-	var fbWindow, fbBlock time.Duration
-	fb := rt.config.Transfer.FailureBackoff
-	fbThreshold = fb.Threshold
-	if fb.Window != "" {
-		if d, err := time.ParseDuration(fb.Window); err == nil {
-			fbWindow = d
-		}
-	}
-	if fb.Block != "" {
-		if d, err := time.ParseDuration(fb.Block); err == nil {
-			fbBlock = d
-		}
-	}
-
-	// Parse temp file expiry (default: 1h).
-	var tempExpiry time.Duration
-	if rt.config.Transfer.TempFileExpiry != "" {
-		if d, err := time.ParseDuration(rt.config.Transfer.TempFileExpiry); err == nil {
-			tempExpiry = d
-		}
-	}
-
-	// Derive HMAC key for queue persistence from identity key file.
-	// Uses SHA256(file_contents + domain_separator) for a stable per-node key.
-	var queueHMACKey []byte
-	configDir := filepath.Dir(rt.configFile)
-	queueFile := rt.config.Transfer.QueueFile
-	if queueFile == "" {
-		queueFile = filepath.Join(configDir, "queue.json")
-	}
-	if keyData, err := os.ReadFile(rt.config.Identity.KeyFile); err == nil {
-		h := sha256.New()
-		h.Write(keyData)
-		h.Write([]byte("shurli/queue/v1"))
-		queueHMACKey = h.Sum(nil)
-	}
-
-	cfg := p2pnet.TransferConfig{
-		ReceiveDir:        rt.config.Transfer.ReceiveDir,
-		MaxSize:           rt.config.Transfer.MaxFileSize,
-		ReceiveMode:       p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
-		Compress:          compress,
-		ErasureOverhead:   erasureOverhead,
-		LogPath:           logPath,
-		Notify:            rt.config.Transfer.Notify,
-		NotifyCommand:     rt.config.Transfer.NotifyCommand,
-		MaxConcurrent:     rt.config.Transfer.MaxConcurrent,
-		MultiPeerEnabled:  multiPeerEnabled,
-		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
-		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
-		RateLimit:         rt.config.Transfer.RateLimit,
-
-		// DDoS defenses.
-		GlobalRateLimit:         rt.config.Transfer.GlobalRateLimit,
-		MaxQueuedPerPeer:        rt.config.Transfer.MaxQueuedPerPeer,
-		MinSpeedBytes:           rt.config.Transfer.MinSpeedBytes,
-		MinSpeedSeconds:         rt.config.Transfer.MinSpeedSeconds,
-		MaxTempSize:             rt.config.Transfer.MaxTempSize,
-		TempFileExpiry:          tempExpiry,
-		BandwidthBudget:         rt.config.Transfer.BandwidthBudget,
-		FailureBackoffThreshold: fbThreshold,
-		FailureBackoffWindow:    fbWindow,
-		FailureBackoffBlock:     fbBlock,
-
-		// Queue persistence.
-		QueueFile:    queueFile,
-		QueueHMACKey: queueHMACKey,
-	}
-
-	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
-	if err != nil {
-		fmt.Printf("Warning: file transfer disabled: %v\n", err)
-		return
-	}
-	rt.transferService = ts
-
-	// If config specifies timed mode at startup, activate the timer.
-	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
-		durStr := rt.config.Transfer.TimedDuration
-		if durStr == "" {
-			durStr = "10m"
-		}
-		if dur, parseErr := time.ParseDuration(durStr); parseErr == nil {
-			if timedErr := ts.SetTimedMode(dur); timedErr != nil {
-				fmt.Printf("Warning: timed mode failed: %v\n", timedErr)
-			}
-		}
-	}
-
-	// Register the inbound handler as a custom service.
-	// Relay transport allowed so NAT-to-NAT peers can transfer files via relay.
-	// Relay bandwidth limits (64MB/session, 10min) still apply at the relay level.
-	if err := rt.network.RegisterHandlerRelayAllowed("file-transfer", ts.HandleInbound(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
-		return
-	}
-
-	// Register multi-peer download handler (fountain-coded swarming).
-	if err := rt.network.RegisterHandlerRelayAllowed("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-multi-peer handler: %v\n", err)
-	}
-
-	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
-	if cfg.ReceiveDir == "" {
-		fmt.Println("  (default: ~/Downloads/shurli/)")
-	}
-}
-
-// SetupSharing initializes the share registry and registers the browse
-// protocol handler on the P2P host. Persistent shares are loaded from disk.
-func (rt *serveRuntime) SetupSharing() {
-	configDir := filepath.Dir(rt.configFile)
-	persistPath := filepath.Join(configDir, "shares.json")
-
-	reg, err := p2pnet.LoadShareRegistry(persistPath)
-	if err != nil {
-		fmt.Printf("Warning: failed to load persistent shares: %v\n", err)
-		reg = p2pnet.NewShareRegistry()
-		reg.SetPersistPath(persistPath)
-	}
-	rt.shareRegistry = reg
-
-	// Set browse rate limit (default: 10/min per peer).
-	browseLimit := rt.config.Transfer.BrowseRateLimit
-	if browseLimit == 0 {
-		browseLimit = 10
-	}
-	if browseLimit > 0 {
-		reg.SetBrowseRateLimit(browseLimit)
-	}
-
-	if err := rt.network.RegisterHandlerRelayAllowed("file-browse", reg.HandleBrowse(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)
-		return
-	}
-
-	// Register download protocol handler (requires transfer service).
-	if rt.transferService != nil {
-		if err := rt.network.RegisterHandlerRelayAllowed("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
-			fmt.Printf("Warning: failed to register file-download handler: %v\n", err)
-		}
-	}
-
-	fmt.Println("File sharing enabled")
-}
-
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
+// Transfer service shutdown is handled by plugin Stop() via registry.StopAll().
 func (rt *serveRuntime) Shutdown() {
-	// Close transfer service (flushes log file, stops rate limiter cleanup).
-	if rt.transferService != nil {
-		if err := rt.transferService.Close(); err != nil {
-			slog.Warn("transfer-service: close failed", "err", err)
-		}
-	}
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {
