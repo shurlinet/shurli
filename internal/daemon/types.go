@@ -20,8 +20,7 @@ type StatusResponse struct {
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
-	ReceiveMode                string `json:"receive_mode,omitempty"`
-	TimedModeRemainingSeconds  int    `json:"timed_mode_remaining_seconds,omitempty"`
+	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 }
 
 // RelayStatus describes a configured relay's connection state.

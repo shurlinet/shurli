@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	libp2pnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 
@@ -51,10 +50,8 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string                { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string                 { return rt.config.Discovery.Network }
-func (rt *serveRuntime) TransferService() *p2pnet.TransferService { return rt.transferService }
-func (rt *serveRuntime) ShareRegistry() *p2pnet.ShareRegistry     { return rt.shareRegistry }
+func (rt *serveRuntime) RelayAddresses() []string  { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string   { return rt.config.Discovery.Network }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -175,157 +172,14 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	oldCfg := cr.rt.config
-
-	// Phase 1: Pre-validate changes that can fail.
-	// Check receive_dir exists before applying (prevents partial apply + rollback).
-	if ts := cr.rt.transferService; ts != nil {
-		newDir := newCfg.Transfer.ReceiveDir
-		if newDir != "" && newDir != oldCfg.Transfer.ReceiveDir {
-			if err := os.MkdirAll(newDir, 0700); err != nil {
-				return nil, fmt.Errorf("transfer.receive_dir %q: %w", newDir, err)
-			}
-		}
-	}
-
-	// Validate receive_mode value.
-	if newCfg.Transfer.ReceiveMode != "" {
-		switch newCfg.Transfer.ReceiveMode {
-		case "off", "contacts", "ask", "open", "timed":
-			// valid
-		default:
-			return nil, fmt.Errorf("transfer.receive_mode: invalid value %q (must be off/contacts/ask/open/timed)",
-				newCfg.Transfer.ReceiveMode)
-		}
-	}
-
-	// Validate timed_duration if provided.
-	if newCfg.Transfer.TimedDuration != "" {
-		if _, err := time.ParseDuration(newCfg.Transfer.TimedDuration); err != nil {
-			return nil, fmt.Errorf("transfer.timed_duration: invalid duration %q: %w",
-				newCfg.Transfer.TimedDuration, err)
-		}
-	}
-
-	// Phase 2: Apply changes. All pre-validation passed.
-	// Save rollback state in case a subsystem fails mid-apply.
-	type rollbackEntry struct {
-		field   string
-		restore func()
-	}
-	var applied []rollbackEntry
-
-	rollbackAll := func() {
-		for i := len(applied) - 1; i >= 0; i-- {
-			applied[i].restore()
-			result.Reverted = append(result.Reverted, applied[i].field)
-		}
-		// Restore old config pointer.
-		cr.rt.config = oldCfg
-	}
-
-	// Transfer receive mode.
-	if ts := cr.rt.transferService; ts != nil {
-		oldMode := string(oldCfg.Transfer.ReceiveMode)
-		newMode := string(newCfg.Transfer.ReceiveMode)
-		if oldMode == "" {
-			oldMode = "contacts"
-		}
-		if newMode == "" {
-			newMode = "contacts"
-		}
-		if oldMode != newMode {
-			if newMode == "timed" {
-				// Timed mode: parse duration and activate timer.
-				durStr := newCfg.Transfer.TimedDuration
-				if durStr == "" {
-					durStr = "10m"
-				}
-				dur, _ := time.ParseDuration(durStr) // already validated above
-				if err := ts.SetTimedMode(dur); err != nil {
-					rollbackAll()
-					return nil, fmt.Errorf("transfer.receive_mode timed: %w", err)
-				}
-			} else {
-				ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
-			}
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.receive_mode",
-				restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
-			})
-			result.Changed = append(result.Changed, "transfer.receive_mode")
-		}
-	}
-
-	// Transfer receive directory.
-	if ts := cr.rt.transferService; ts != nil {
-		oldDir := oldCfg.Transfer.ReceiveDir
-		newDir := newCfg.Transfer.ReceiveDir
-		if oldDir != newDir && newDir != "" {
-			ts.SetReceiveDir(newDir)
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.receive_dir",
-				restore: func() { ts.SetReceiveDir(oldDir) },
-			})
-			result.Changed = append(result.Changed, "transfer.receive_dir")
-		}
-	}
-
-	// Transfer max file size.
-	if ts := cr.rt.transferService; ts != nil {
-		oldMax := oldCfg.Transfer.MaxFileSize
-		if oldMax != newCfg.Transfer.MaxFileSize {
-			ts.SetMaxSize(newCfg.Transfer.MaxFileSize)
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.max_file_size",
-				restore: func() { ts.SetMaxSize(oldMax) },
-			})
-			result.Changed = append(result.Changed, "transfer.max_file_size")
-		}
-	}
-
-	// Transfer compression.
-	if ts := cr.rt.transferService; ts != nil {
-		oldCompress := oldCfg.Transfer.Compress == nil || *oldCfg.Transfer.Compress
-		newCompress := newCfg.Transfer.Compress == nil || *newCfg.Transfer.Compress
-		if oldCompress != newCompress {
-			ts.SetCompress(newCompress)
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.compress",
-				restore: func() { ts.SetCompress(oldCompress) },
-			})
-			result.Changed = append(result.Changed, "transfer.compress")
-		}
-
-		oldNotify := oldCfg.Transfer.Notify
-		newNotify := newCfg.Transfer.Notify
-		if oldNotify != newNotify {
-			ts.SetNotifyMode(newNotify)
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.notify",
-				restore: func() { ts.SetNotifyMode(oldNotify) },
-			})
-			result.Changed = append(result.Changed, "transfer.notify")
-		}
-
-		oldNotifyCmd := oldCfg.Transfer.NotifyCommand
-		newNotifyCmd := newCfg.Transfer.NotifyCommand
-		if oldNotifyCmd != newNotifyCmd {
-			ts.SetNotifyCommand(newNotifyCmd)
-			applied = append(applied, rollbackEntry{
-				field:   "transfer.notify_command",
-				restore: func() { ts.SetNotifyCommand(oldNotifyCmd) },
-			})
-			result.Changed = append(result.Changed, "transfer.notify_command")
-		}
-	}
+	// Transfer config reload is now handled by the filetransfer plugin's
+	// OnConfigReload callback, triggered via registry.NotifyConfigReload()
+	// in handleConfigReload after this function returns.
 
 	// Authorized keys (connection gating) - always refresh on reload.
 	if reloader := cr.rt.GaterForHotReload(); reloader != nil {
 		if err := reloader.ReloadFromFile(); err != nil {
-			slog.Warn("config reload: failed to reload authorized_keys, rolling back all changes", "err", err)
-			rollbackAll()
-			return nil, fmt.Errorf("authorized_keys reload failed (all changes rolled back): %w", err)
+			return nil, fmt.Errorf("authorized_keys reload failed: %w", err)
 		}
 		result.Changed = append(result.Changed, "security.authorized_keys")
 	}
@@ -431,8 +285,6 @@ func runDaemonStart(args []string) {
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
 	rt.SetupMOTDClient()
-	rt.SetupTransfer()
-	rt.SetupSharing()
 
 	// Check plugin directory permissions (for future WASM plugins).
 	// Layer 2 will make this a hard error; for now it's a warning.
@@ -468,19 +320,6 @@ func runDaemonStart(args []string) {
 
 	// Notify plugins that network is ready (post-bootstrap).
 	pluginRegistry.NotifyNetworkReady()
-
-	// Re-enqueue persisted transfers now that the network is ready.
-	if rt.transferService != nil {
-		rt.transferService.RequeuePersisted(func(peerID string) func() (libp2pnet.Stream, error) {
-			return func() (libp2pnet.Stream, error) {
-				pid, err := peer.Decode(peerID)
-				if err != nil {
-					return nil, fmt.Errorf("decode peer ID: %w", err)
-				}
-				return rt.network.Host().NewStream(context.Background(), pid, p2pnet.TransferProtocol)
-			}
-		})
-	}
 
 	rt.ExposeConfiguredServices()
 	rt.StartPeerHistorySaver()
@@ -533,18 +372,6 @@ func runDaemonStart(args []string) {
 	pluginRegistry.StopAll()
 	rt.Shutdown()
 	fmt.Println("Daemon stopped.")
-}
-
-// pluginConfigBytes extracts per-plugin raw YAML bytes from the parsed config.
-func pluginConfigBytes(cfg *config.HomeNodeConfig) map[string][]byte {
-	if cfg == nil || cfg.Plugins.Entries == nil {
-		return nil
-	}
-	result := make(map[string][]byte, len(cfg.Plugins.Entries))
-	for name, entry := range cfg.Plugins.Entries {
-		result[name] = entry.RawYAML
-	}
-	return result
 }
 
 // --- Client helper ---
