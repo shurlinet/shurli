@@ -1711,6 +1711,9 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
+		// NEW-1 fix: destDir defaults to receiveDir, overridden by accept dest.
+		destDir := ts.receiveDir
+
 		// Check for existing checkpoint (resume support).
 		var ckpt *transferCheckpoint
 		ckpt, _ = loadCheckpoint(ts.receiveDir, manifest.RootHash)
@@ -1812,7 +1815,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				return
 			}
 
-			// Override receive dir if specified.
+			// NEW-1 fix: override receive dir if specified in accept decision.
 			if decision.dest != "" {
 				// Validate the override directory exists.
 				if info, err := os.Stat(decision.dest); err != nil || !info.IsDir() {
@@ -1820,6 +1823,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 					writeMsg(s, msgReject)
 					return
 				}
+				destDir = decision.dest
 			}
 
 			slog.Info("file-transfer: approved",
@@ -1881,7 +1885,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		if ckpt == nil {
 			have = newBitfield(manifest.ChunkCount)
 			var createErr error
-			tmpPath, tmpFile, createErr = ts.createTempFile(manifest.Filename)
+			// NEW-1 fix: use destDir (may be overridden by accept dest).
+			tmpPath, tmpFile, createErr = createTempFileIn(destDir, manifest.Filename)
 			if createErr != nil {
 				slog.Error("file-transfer: create temp file failed", "error", createErr)
 				return
@@ -1920,7 +1925,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		// Post-receive: finalize file or save checkpoint.
 		if err != nil && have.count() > 0 {
 			cp := &transferCheckpoint{manifest: manifest, have: have, tmpPath: tmpPath}
-			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
+			if saveErr := cp.save(destDir); saveErr != nil {
 				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
 			}
 			tmpFile.Close()
@@ -1934,14 +1939,22 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				tmpFile.Close()
 			} else {
 				tmpFile.Close()
-				finalPath, fpErr := ts.finalPath(manifest.Filename)
+				// NEW-1 fix: use destDir for final path (may be overridden by accept dest).
+				fp := filepath.Join(destDir, manifest.Filename)
+				fp, fpErr := nonCollidingPath(fp)
 				if fpErr != nil {
 					err = fmt.Errorf("determine final path: %w", fpErr)
-				} else if renameErr := os.Rename(tmpPath, finalPath); renameErr != nil {
-					err = fmt.Errorf("rename temp to final: %w", renameErr)
 				} else {
-					os.Chmod(finalPath, 0644)
-					removeCheckpoint(ts.receiveDir, manifest.RootHash)
+					// Create parent directories for relative paths.
+					if dir := filepath.Dir(fp); dir != destDir {
+						os.MkdirAll(dir, 0755)
+					}
+					if renameErr := os.Rename(tmpPath, fp); renameErr != nil {
+						err = fmt.Errorf("rename temp to final: %w", renameErr)
+					} else {
+						os.Chmod(fp, 0644)
+						removeCheckpoint(destDir, manifest.RootHash)
+					}
 				}
 			}
 		}
@@ -1958,16 +1971,16 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Info("file-transfer: received",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize,
-				"path", filepath.Join(ts.receiveDir, manifest.Filename))
+				"path", filepath.Join(destDir, manifest.Filename))
 			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
 			// Record bandwidth usage for budget tracking.
 			if ts.bandwidthTracker != nil {
 				ts.bandwidthTracker.record(peerKey, manifest.FileSize)
 			}
 			// Register hash so this node can serve multi-peer requests for this file.
-			finalPath, _ := ts.finalPath(manifest.Filename)
-			if finalPath != "" {
-				ts.RegisterHash(manifest.RootHash, finalPath)
+			regPath := filepath.Join(destDir, manifest.Filename)
+			if regPath != "" {
+				ts.RegisterHash(manifest.RootHash, regPath)
 			}
 		}
 

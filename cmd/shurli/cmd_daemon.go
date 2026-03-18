@@ -301,6 +301,10 @@ func runDaemonStart(args []string) {
 		}
 	}
 
+	// Start reputation score computation (PeerHistory -> ComputeScore pipeline).
+	// Returns a resolver function that plugins use via PluginContext.peerScore().
+	scoreResolver := rt.StartReputationScoreUpdater()
+
 	// Create plugin registry and register compiled-in plugins.
 	pluginProvider := &plugin.ContextProvider{
 		Network:         rt.network,
@@ -308,6 +312,7 @@ func runDaemonStart(args []string) {
 		ConfigDir:       filepath.Dir(rt.configFile),
 		NameResolver:    rt.network.ResolveName,
 		PeerConnector:   rt.ConnectToPeer,
+		ScoreResolver:   scoreResolver,
 	}
 
 	// Wire HKDF-SHA256 key derivation from node identity (Finding 39, 56).

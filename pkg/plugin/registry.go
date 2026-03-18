@@ -17,6 +17,18 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
+// TRUST BOUNDARY (G5 - foundational security comment):
+//
+// The compiled Go binary IS the trust boundary for Layer 1 plugins.
+// All Layer 1 plugin code runs in the same process with full memory access.
+// Security relies on the build pipeline (code review, go vet, govulncheck),
+// NOT on runtime sandboxing. Runtime checks (namespace validation, state gating,
+// credential isolation) are defense-in-depth, not primary security barriers.
+//
+// Layer 2 (WASM) will introduce a true runtime trust boundary via wazero
+// sandboxing, fuel metering, and per-plugin resource caps. All PluginContext
+// methods are designed so they can become host function calls without API changes.
+//
 // SECURITY: Plugins cannot install, register, or discover other plugins.
 // This is a hard-coded architectural constraint, not a permission that can be granted.
 // See plugin-security-threat-analysis-2026-03-17.md, threat vector #43.
@@ -151,6 +163,15 @@ func (r *Registry) Register(p Plugin) error {
 			r.mu.Unlock()
 			return fmt.Errorf("plugin %q: create config dir: %w", name, err)
 		}
+		// #10 fix: verify permissions are 0700 (hard error, not warning).
+		// If the dir already existed with wrong permissions, reject it.
+		if info, err := os.Stat(configDir); err == nil {
+			perm := info.Mode().Perm()
+			if perm&0077 != 0 {
+				r.mu.Unlock()
+				return fmt.Errorf("plugin %q: config dir %s has unsafe permissions %04o (must be 0700)", name, configDir, perm)
+			}
+		}
 		// Read config.yaml from config dir (empty bytes if missing).
 		// M3 fix: limit config file size to prevent DoS from huge files.
 		configPath := filepath.Join(configDir, "config.yaml")
@@ -162,10 +183,12 @@ func (r *Registry) Register(p Plugin) error {
 	var nameResolver func(string) (peer.ID, error)
 	var peerConnector func(context.Context, peer.ID) error
 	var keyDeriver func(string) []byte
+	var scoreResolver func(peer.ID) int
 	if r.provider != nil {
 		nameResolver = r.provider.NameResolver
 		peerConnector = r.provider.PeerConnector
 		keyDeriver = r.provider.KeyDeriver
+		scoreResolver = r.provider.ScoreResolver
 	}
 	var net *p2pnet.Network
 	if r.provider != nil {
@@ -182,6 +205,7 @@ func (r *Registry) Register(p Plugin) error {
 		configDir:      configDir,
 		declaredProtos: declaredProtos,
 		keyDeriver:     keyDeriver,
+		scoreResolver:  scoreResolver,
 	}
 
 	entry := &pluginEntry{
@@ -259,23 +283,22 @@ func (r *Registry) Enable(name string) error {
 	r.mu.Unlock()
 
 	// G6 fix: create a cancellable context for the Start goroutine so Disable can cancel it.
-	// G11 fix: set StartContext so plugins can check for cancellation inside Start().
+	// G11 fix: context is passed directly to Start(ctx) - plugins detect cancellation natively.
 	startCtx, startCancel := context.WithCancel(context.Background())
 	r.mu.Lock()
 	entry.startCancel = startCancel
-	entry.ctx.startCtx = startCtx
 	r.mu.Unlock()
 
 	// Call Start with panic recovery and timeout. Lock is released so
 	// callWithRecovery's panic handler can call recordCrash (which acquires the lock).
 	// A blocking Start() must not permanently block the daemon.
+	// G11 fix: pass context to Start() so plugins can detect cancellation.
 	startDone := make(chan error, 1)
 	go func() {
 		startDone <- r.callWithRecovery(entry, "Start", func() error {
-			return entry.plugin.Start()
+			return entry.plugin.Start(startCtx)
 		})
 	}()
-	_ = startCtx // G6: context available for future Start(ctx) interface evolution
 
 	var startErr error
 	select {
@@ -500,6 +523,19 @@ func (r *Registry) GetInfo(name string) (*Info, error) {
 
 	info := buildInfoFromSnapshot(p, state, crashes)
 	return &info, nil
+}
+
+// GetPlugin returns the Plugin instance by name. Used for direct plugin
+// interaction (e.g., fetching StatusContributor). Returns nil if not found.
+// X3 fix: spec compliance - registry exposes individual plugin lookup.
+func (r *Registry) GetPlugin(name string) Plugin {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.plugins[name]
+	if !ok {
+		return nil
+	}
+	return entry.plugin
 }
 
 // ApplyConfig enables or disables plugins based on config state.
@@ -746,6 +782,22 @@ func (r *Registry) NotifyConfigReload() {
 
 // --- Internal helpers ---
 
+// isReservedProtocolName returns true if the name collides with a core Shurli protocol.
+// G2 fix: defense-in-depth namespace check even for Layer 1 compiled-in plugins.
+func isReservedProtocolName(name string) bool {
+	reserved := map[string]bool{
+		"relay-pair":    true,
+		"relay-unseal":  true,
+		"relay-admin":   true,
+		"relay-motd":    true,
+		"peer-notify":   true,
+		"zkp-auth":      true,
+		"ping":          true,
+		"kad":           true,
+	}
+	return reserved[name]
+}
+
 // validateProtocolName checks that a protocol name is safe: alphanumeric + hyphens,
 // reasonable length, no special characters (X3 fix).
 func validateProtocolName(name string) error {
@@ -776,6 +828,14 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 		// X3 fix: validate protocol names before registration.
 		if err := validateProtocolName(proto.Name); err != nil {
 			return fmt.Errorf("plugin %q: %w", entry.plugin.Name(), err)
+		}
+		// G2 fix: protocol namespace validation (defense-in-depth for Layer 1).
+		// Layer 1 plugins are trusted compiled-in code, but we validate protocol
+		// names don't collide with core Shurli protocols. Core protocols use
+		// specific names that plugins must not shadow.
+		if isReservedProtocolName(proto.Name) {
+			return fmt.Errorf("plugin %q: protocol name %q is reserved for core Shurli protocols",
+				entry.plugin.Name(), proto.Name)
 		}
 		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
 		policy := proto.Policy
