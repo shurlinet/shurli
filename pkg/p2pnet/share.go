@@ -1,7 +1,10 @@
 package p2pnet
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,6 +79,7 @@ type ShareRegistry struct {
 	shares          map[string]*ShareEntry // path -> entry
 	persistPath     string                 // file path for persistent share storage
 	browseRateLimit *transferRateLimiter    // per-peer browse rate limiter (nil = disabled)
+	hmacKey         []byte                 // P6 fix: HMAC key for shares.json integrity
 }
 
 // NewShareRegistry creates an empty share registry.
@@ -92,6 +96,13 @@ func (r *ShareRegistry) SetPersistPath(path string) {
 	r.persistPath = path
 }
 
+// SetHMACKey sets the HMAC key for shares.json integrity verification (P6 fix).
+func (r *ShareRegistry) SetHMACKey(key []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hmacKey = key
+}
+
 // SetBrowseRateLimit sets the per-peer browse request rate limit (max per minute).
 // Call with 0 to disable. Must be called before HandleBrowse is registered.
 func (r *ShareRegistry) SetBrowseRateLimit(maxPerMin int) {
@@ -103,6 +114,7 @@ func (r *ShareRegistry) SetBrowseRateLimit(maxPerMin int) {
 // persistentShareFile is the JSON structure written to disk.
 type persistentShareFile struct {
 	Shares []persistentShareEntry `json:"shares"`
+	HMAC   string                 `json:"hmac,omitempty"` // P6 fix: HMAC-SHA256 integrity
 }
 
 // persistentShareEntry is the serializable form of a ShareEntry.
@@ -140,7 +152,17 @@ func (r *ShareRegistry) SavePersistent(path string) error {
 	}
 	r.mu.RUnlock()
 
-	data, err := json.MarshalIndent(persistentShareFile{Shares: entries}, "", "  ")
+	pf := persistentShareFile{Shares: entries}
+
+	// P6 fix: compute HMAC over shares JSON if key is set.
+	if len(r.hmacKey) > 0 {
+		sharesJSON, _ := json.Marshal(entries)
+		mac := hmac.New(sha256.New, r.hmacKey)
+		mac.Write(sharesJSON)
+		pf.HMAC = hex.EncodeToString(mac.Sum(nil))
+	}
+
+	data, err := json.MarshalIndent(pf, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal shares: %w", err)
 	}
@@ -151,10 +173,23 @@ func (r *ShareRegistry) SavePersistent(path string) error {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
+	// P5 fix: write + fsync + rename for crash-safe persistence.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("create tmp: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
 		return fmt.Errorf("write tmp: %w", err)
 	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("fsync tmp: %w", err)
+	}
+	f.Close()
 	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("rename: %w", err)
@@ -183,6 +218,18 @@ func LoadShareRegistry(path string) (*ShareRegistry, error) {
 	}
 
 	for _, pe := range file.Shares {
+		// P12 fix: validate persisted paths. Skip entries with traversal or non-existent paths.
+		cleanPath := filepath.Clean(pe.Path)
+		if strings.Contains(cleanPath, "..") || cleanPath == "" {
+			slog.Warn("share-persistence: skipping path with traversal", "path", pe.Path)
+			continue
+		}
+		if _, err := os.Stat(cleanPath); err != nil {
+			slog.Warn("share-persistence: skipping non-existent path", "path", cleanPath, "err", err)
+			continue
+		}
+		pe.Path = cleanPath // use cleaned path
+
 		var peerMap map[peer.ID]bool
 		if len(pe.PeerIDs) > 0 {
 			peerMap = make(map[peer.ID]bool, len(pe.PeerIDs))

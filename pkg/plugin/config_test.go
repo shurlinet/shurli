@@ -3,6 +3,7 @@ package plugin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -84,15 +85,17 @@ identity:
 
 // --- Test 28: Config unknown plugin warning ---
 func TestConfigUnknownPluginWarning(t *testing.T) {
-	// The registry should skip unknown plugins from config without crashing.
+	// G5 fix: the registry should return an error for unknown plugin names in config.
 	r := newTestRegistry()
 	states := map[string]bool{
 		"nonexistent": true,
 	}
-	// Should not panic or return error.
 	err := r.ApplyConfig(states)
-	if err != nil {
-		t.Fatalf("ApplyConfig should not error on unknown plugins: %v", err)
+	if err == nil {
+		t.Fatal("ApplyConfig should return error for unknown plugin names")
+	}
+	if !strings.Contains(err.Error(), "unknown plugin") {
+		t.Fatalf("error should mention unknown plugin, got: %v", err)
 	}
 }
 

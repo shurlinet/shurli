@@ -82,9 +82,13 @@ type Route struct {
 }
 
 // Protocol describes a P2P stream handler provided by a plugin.
+//
+// Version matching is EXACT: the full protocol ID is /shurli/<name>/<version>.
+// There is no semver negotiation. To support multiple versions, register separate
+// Protocol entries with different Version strings and route internally (X6 documentation).
 type Protocol struct {
-	Name    string               // e.g. "file-transfer"
-	Version string               // e.g. "2.0.0"
+	Name    string               // e.g. "file-transfer" (a-z, 0-9, hyphens only, max 64 chars)
+	Version string               // e.g. "2.0.0" - exact match, no semver negotiation
 	Handler p2pnet.StreamHandler // func(serviceName string, s network.Stream)
 	Policy  *p2pnet.PluginPolicy // transport + peer restrictions (nil = default)
 }
@@ -173,6 +177,11 @@ type PluginContext struct {
 	configReloadCb func([]byte)
 	declaredProtos map[string]bool // protocol IDs this plugin declared
 	keyDeriver     func(domain string) []byte // HKDF-SHA256 key derivation
+
+	// G11 fix: StartContext is set before Start() is called. Plugins can use this
+	// to detect cancellation (e.g., if Enable is abandoned or daemon shuts down).
+	// Not part of the Plugin interface to avoid breaking it.
+	startCtx context.Context
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -263,6 +272,16 @@ func (c *PluginContext) DeriveKey(domain string) []byte {
 		return nil
 	}
 	return c.keyDeriver(domain)
+}
+
+// StartContext returns a context that is cancelled when the plugin's Start()
+// should be abandoned (e.g., daemon shutdown, kill switch). Set by the registry
+// before calling Start(). Returns context.Background() if not set (G11 fix).
+func (c *PluginContext) StartContext() context.Context {
+	if c.startCtx != nil {
+		return c.startCtx
+	}
+	return context.Background()
 }
 
 // IncrementMetric increments a named counter metric scoped to this plugin.
