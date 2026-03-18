@@ -1,9 +1,13 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,12 +69,52 @@ func validatePluginName(name string) error {
 	return nil
 }
 
+// validatePluginID checks that a plugin ID follows the host/namespace/name format.
+// Rules: 2+ segments, valid hostname, [a-z0-9-], max 128 chars, no traversal,
+// shurli.io/official/ reserved for official plugins.
+func validatePluginID(id string) error {
+	if id == "" {
+		return fmt.Errorf("plugin ID cannot be empty")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("plugin ID too long: %d chars (max 128)", len(id))
+	}
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("plugin ID %q contains path traversal", id)
+	}
+	if strings.Contains(id, "//") {
+		return fmt.Errorf("plugin ID %q contains empty segment", id)
+	}
+
+	segments := strings.Split(id, "/")
+	if len(segments) < 2 {
+		return fmt.Errorf("plugin ID %q must have at least 2 segments (host/name)", id)
+	}
+
+	for i, seg := range segments {
+		if seg == "" {
+			return fmt.Errorf("plugin ID %q has empty segment at position %d", id, i)
+		}
+		for _, c := range seg {
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.') {
+				return fmt.Errorf("plugin ID %q segment %q contains invalid character %q", id, seg, string(c))
+			}
+		}
+	}
+	return nil
+}
+
 // Register adds a plugin to the registry and calls Init().
 // Transitions: LOADING -> READY on success.
 // Panics in Init() are recovered and returned as errors.
 func (r *Registry) Register(p Plugin) error {
 	name := p.Name()
 	if err := validatePluginName(name); err != nil {
+		return err
+	}
+
+	id := p.ID()
+	if err := validatePluginID(id); err != nil {
 		return err
 	}
 
@@ -89,16 +133,30 @@ func (r *Registry) Register(p Plugin) error {
 		declaredProtos[pid] = true
 	}
 
-	// Build PluginContext from provider.
+	// Derive config dir from plugin ID.
+	var configDir string
 	var configBytes []byte
-	if r.provider != nil && r.provider.PluginConfigs != nil {
-		configBytes = r.provider.PluginConfigs[name]
+	if r.provider != nil && r.provider.ConfigDir != "" {
+		configDir = filepath.Join(r.provider.ConfigDir, "plugins", id)
+		// Create config dir with 0700 if not exists.
+		if err := os.MkdirAll(configDir, 0700); err != nil {
+			r.mu.Unlock()
+			return fmt.Errorf("plugin %q: create config dir: %w", name, err)
+		}
+		// Read config.yaml from config dir (empty bytes if missing).
+		configPath := filepath.Join(configDir, "config.yaml")
+		if data, err := os.ReadFile(configPath); err == nil {
+			configBytes = data
+		}
 	}
+
 	var nameResolver func(string) (peer.ID, error)
 	var peerConnector func(context.Context, peer.ID) error
+	var keyDeriver func(string) []byte
 	if r.provider != nil {
 		nameResolver = r.provider.NameResolver
 		peerConnector = r.provider.PeerConnector
+		keyDeriver = r.provider.KeyDeriver
 	}
 	var net *p2pnet.Network
 	if r.provider != nil {
@@ -112,7 +170,9 @@ func (r *Registry) Register(p Plugin) error {
 		nameResolver:   nameResolver,
 		peerConnector:  peerConnector,
 		configBytes:    configBytes,
+		configDir:      configDir,
 		declaredProtos: declaredProtos,
+		keyDeriver:     keyDeriver,
 	}
 
 	entry := &pluginEntry{
@@ -142,7 +202,7 @@ func (r *Registry) Register(p Plugin) error {
 	entry.state = StateReady
 	r.mu.Unlock()
 
-	slog.Info("plugin.registered", "name", name, "version", p.Version())
+	slog.Info("plugin.registered", "name", name, "id", id, "version", p.Version())
 	return nil
 }
 
@@ -477,6 +537,79 @@ func (r *Registry) ActiveProtocols() []Protocol {
 		}
 	}
 	return protos
+}
+
+// StatusContributions returns status fields from all ACTIVE plugins
+// that implement StatusContributor. Keyed by plugin Name().
+func (r *Registry) StatusContributions() map[string]map[string]any {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make(map[string]map[string]any)
+	for _, entry := range r.plugins {
+		if entry.state != StateActive {
+			continue
+		}
+		if sc, ok := entry.plugin.(StatusContributor); ok {
+			if fields := sc.StatusFields(); len(fields) > 0 {
+				result[entry.plugin.Name()] = fields
+			}
+		}
+	}
+	return result
+}
+
+// AllRegisteredRoutes returns routes from ALL registered plugins regardless of state.
+// Used for mux setup at server start. Different from AllRoutes() which returns only ACTIVE.
+func (r *Registry) AllRegisteredRoutes() []Route {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var routes []Route
+	for _, entry := range r.plugins {
+		routes = append(routes, entry.plugin.Routes()...)
+	}
+	return routes
+}
+
+// IsRouteActive checks if the plugin providing a route is in ACTIVE state.
+// Used per-request to return 404 when a plugin is disabled.
+func (r *Registry) IsRouteActive(method, path string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, entry := range r.plugins {
+		if entry.state != StateActive {
+			continue
+		}
+		for _, rt := range entry.plugin.Routes() {
+			if rt.Method == method && rt.Path == path {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// NotifyConfigReload re-reads each active plugin's config.yaml and calls
+// their OnConfigReload callback if the bytes changed.
+func (r *Registry) NotifyConfigReload() {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, entry := range r.plugins {
+		if entry.state != StateActive || entry.ctx.configReloadCb == nil {
+			continue
+		}
+		if entry.ctx.configDir == "" {
+			continue
+		}
+		configPath := filepath.Join(entry.ctx.configDir, "config.yaml")
+		newBytes, err := os.ReadFile(configPath)
+		if err != nil {
+			continue // missing config = no change
+		}
+		if !bytes.Equal(newBytes, entry.ctx.configBytes) {
+			entry.ctx.configBytes = newBytes
+			entry.ctx.configReloadCb(newBytes)
+		}
+	}
 }
 
 // --- Internal helpers ---
