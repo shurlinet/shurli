@@ -65,8 +65,20 @@ func runCompletion(args []string) {
 }
 
 // buildCompletionBash returns the bash completion script with plugin commands injected.
+// enabledPluginCommands returns only commands from enabled plugins.
+func enabledPluginCommands() []plugin.CLICommandEntry {
+	all := plugin.CLICommandDescriptions()
+	var enabled []plugin.CLICommandEntry
+	for _, cmd := range all {
+		if isPluginEnabledInConfig(cmd.PluginName) {
+			enabled = append(enabled, cmd)
+		}
+	}
+	return enabled
+}
+
 func buildCompletionBash() string {
-	cmds := plugin.CLICommandDescriptions()
+	cmds := enabledPluginCommands()
 	if len(cmds) == 0 {
 		return completionBash
 	}
@@ -84,7 +96,7 @@ func buildCompletionBash() string {
 
 // buildCompletionZsh returns the zsh completion script with plugin commands injected.
 func buildCompletionZsh() string {
-	cmds := plugin.CLICommandDescriptions()
+	cmds := enabledPluginCommands()
 	if len(cmds) == 0 {
 		return completionZsh
 	}
@@ -102,7 +114,7 @@ func buildCompletionZsh() string {
 
 // buildCompletionFish returns the fish completion script with plugin commands injected.
 func buildCompletionFish() string {
-	cmds := plugin.CLICommandDescriptions()
+	cmds := enabledPluginCommands()
 	if len(cmds) == 0 {
 		return completionFish
 	}

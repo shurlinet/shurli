@@ -53,4 +53,6 @@ var (
 	circuitBreakerWindowDuration = 5 * time.Minute  // reset crash counter after this
 	drainTimeoutDuration         = 30 * time.Second // force-stop after this
 	startTimeoutDuration         = 30 * time.Second // max time for Start() to return
+	enableDisableCooldown        = 5 * time.Second  // G3 fix: min time between enable/disable
+	maxConfigFileSize      int64 = 1 << 20         // M3 fix: 1MB max plugin config.yaml
 )

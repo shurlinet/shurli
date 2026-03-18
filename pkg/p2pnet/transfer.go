@@ -570,8 +570,9 @@ type TransferService struct {
 	defenseCleanupStop context.CancelFunc  // stops the defense cleanup goroutine
 
 	// Queue persistence.
-	queueFile    string // path for persisted queue file
-	queueHMACKey []byte // HMAC key for queue integrity
+	queueFile    string     // path for persisted queue file
+	queueHMACKey []byte     // HMAC key for queue integrity
+	persistMu    sync.Mutex // P7 fix: serializes persistQueue writes
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -2900,8 +2901,18 @@ type persistedQueueEntry struct {
 	Nonce    string           `json:"nonce"` // random per-entry, prevents replay
 }
 
+// FlushQueue persists the current outbound queue to disk. Called by plugin Stop()
+// to ensure queue state survives daemon shutdown (P3 fix).
+func (ts *TransferService) FlushQueue() {
+	ts.persistQueue()
+}
+
 // persistQueue writes the current outbound queue to disk with HMAC integrity.
+// P7 fix: serialized by persistMu to prevent concurrent writes.
 func (ts *TransferService) persistQueue() {
+	ts.persistMu.Lock()
+	defer ts.persistMu.Unlock()
+
 	if ts.queueFile == "" || len(ts.queueHMACKey) == 0 {
 		return
 	}
@@ -2957,10 +2968,25 @@ func (ts *TransferService) persistQueue() {
 	}
 
 	tmp := ts.queueFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	// P5 fix: write + fsync + rename for crash-safe persistence.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		slog.Warn("queue-persist: create failed", "error", err)
+		return
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
 		slog.Warn("queue-persist: write failed", "error", err)
 		return
 	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		slog.Warn("queue-persist: fsync failed", "error", err)
+		return
+	}
+	f.Close()
 	if err := os.Rename(tmp, ts.queueFile); err != nil {
 		os.Remove(tmp)
 		slog.Warn("queue-persist: rename failed", "error", err)

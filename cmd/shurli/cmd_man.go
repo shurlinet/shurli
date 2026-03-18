@@ -844,10 +844,16 @@ Shurli began as a personal tool to securely connect devices across multiple
 ISPs and network types without trusting any third party. Inspired by operators
 who chose to shut down rather than compromise their users.
 `
-	// Inject plugin man page sections.
-	cmds := plugin.CLICommandDescriptions()
-	if len(cmds) > 0 {
-		pluginSection := plugin.GenerateManSection(cmds)
+	// Inject plugin man page sections (only enabled plugins).
+	allCmds := plugin.CLICommandDescriptions()
+	var enabledCmds []plugin.CLICommandEntry
+	for _, cmd := range allCmds {
+		if isPluginEnabledInConfig(cmd.PluginName) {
+			enabledCmds = append(enabledCmds, cmd)
+		}
+	}
+	if len(enabledCmds) > 0 {
+		pluginSection := plugin.GenerateManSection(enabledCmds)
 		page = strings.Replace(page, "PLUGIN_MAN_PLACEHOLDER", pluginSection, 1)
 	} else {
 		page = strings.Replace(page, "PLUGIN_MAN_PLACEHOLDER\n", "", 1)
