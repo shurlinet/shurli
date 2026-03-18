@@ -27,6 +27,13 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
+// StatusContributor is optionally implemented by plugins that contribute fields
+// to the daemon status response. Any plugin can implement this - no special treatment.
+// The returned map is included under plugin_status.<name> in the JSON response.
+type StatusContributor interface {
+	StatusFields() map[string]any
+}
+
 // Plugin is the interface that all Shurli plugins must implement.
 //
 // Lifecycle:
@@ -39,7 +46,8 @@ import (
 //   - Commands(), Routes(), Protocols() declare what the plugin provides.
 //   - The registry handles registration/unregistration during Start()/Stop().
 type Plugin interface {
-	Name() string
+	ID() string      // "shurli.io/official/filetransfer" - globally unique
+	Name() string    // "filetransfer" - short display name for CLI/help
 	Version() string
 
 	// Lifecycle
@@ -161,8 +169,10 @@ type PluginContext struct {
 	nameResolver   func(string) (peer.ID, error)
 	peerConnector  func(context.Context, peer.ID) error // DHT + relay fallback
 	configBytes    []byte
+	configDir      string          // plugin's config directory path
 	configReloadCb func([]byte)
 	declaredProtos map[string]bool // protocol IDs this plugin declared
+	keyDeriver     func(domain string) []byte // HKDF-SHA256 key derivation
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -228,6 +238,33 @@ func (c *PluginContext) OnConfigReload(callback func([]byte)) {
 	c.configReloadCb = callback
 }
 
+// EngineHost returns the p2pnet.Network for protocol engine initialization.
+// LAYER 1 ONLY: compiled-in plugins use this to create their protocol engines
+// AND for request-time stream operations (OpenPluginStream, ResolveName, etc.).
+// Layer 2 WASM plugins will NOT have this - they use host functions instead.
+func (c *PluginContext) EngineHost() *p2pnet.Network {
+	return c.network
+}
+
+// ConfigDir returns the plugin's config directory path.
+// e.g. ~/.config/shurli/plugins/shurli.io/official/filetransfer/
+func (c *PluginContext) ConfigDir() string {
+	return c.configDir
+}
+
+// DeriveKey returns a 32-byte cryptographic key derived from the node's
+// identity and the given domain string using HKDF-SHA256 (RFC 5869).
+// Each (identity, domain) pair produces a unique, stable key.
+// The raw identity key is never exposed to plugins.
+// Used for HMAC integrity (e.g. queue.json persistence).
+// Returns nil if no key deriver is configured.
+func (c *PluginContext) DeriveKey(domain string) []byte {
+	if c.keyDeriver == nil {
+		return nil
+	}
+	return c.keyDeriver(domain)
+}
+
 // IncrementMetric increments a named counter metric scoped to this plugin.
 // The metric name is automatically prefixed with the plugin name to prevent collisions.
 // No-op if metrics are not enabled on this node.
@@ -281,9 +318,10 @@ type InteractionReport struct {
 type ContextProvider struct {
 	Network         *p2pnet.Network
 	ServiceRegistry *p2pnet.ServiceRegistry
-	PluginConfigs   map[string][]byte                       // plugin name -> raw YAML bytes (pre-parsed from config file)
+	ConfigDir       string                                      // base config dir (~/.config/shurli/)
 	NameResolver    func(name string) (peer.ID, error)
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
+	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 }
 
 // --- Info ---

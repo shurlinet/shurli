@@ -20,9 +20,9 @@ import (
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
-// maxRequestBodySize limits the size of JSON request bodies to prevent
+// MaxRequestBodySize limits the size of JSON request bodies to prevent
 // unbounded memory consumption from oversized or malicious payloads.
-const maxRequestBodySize = 1 << 20 // 1 MB
+const MaxRequestBodySize = 1 << 20 // 1 MB
 
 // registerRoutes sets up all HTTP routes on the mux.
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -89,8 +89,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 // --- Format helpers ---
 
-// wantsText returns true if the client prefers plain text output.
-func wantsText(r *http.Request) bool {
+// WantsText returns true if the client prefers plain text output.
+func WantsText(r *http.Request) bool {
 	if r.URL.Query().Get("format") == "text" {
 		return true
 	}
@@ -98,25 +98,30 @@ func wantsText(r *http.Request) bool {
 	return strings.Contains(accept, "text/plain")
 }
 
-// respondJSON writes a JSON response with the given status code.
-func respondJSON(w http.ResponseWriter, status int, data any) {
+// RespondJSON writes a JSON response with the given status code.
+func RespondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(DataResponse{Data: data})
 }
 
-// respondError writes a JSON error response.
-func respondError(w http.ResponseWriter, status int, msg string) {
+// RespondError writes a JSON error response.
+func RespondError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
 }
 
-// respondText writes a plain text response.
-func respondText(w http.ResponseWriter, status int, text string) {
+// RespondText writes a plain text response.
+func RespondText(w http.ResponseWriter, status int, text string) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(status)
 	fmt.Fprint(w, text)
+}
+
+// ParseJSON reads and decodes a JSON request body with size limits.
+func ParseJSON(r *http.Request, dst any) error {
+	return json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(dst)
 }
 
 // isShurliAgent returns true if the agent version string identifies a shurli or relay-server peer.
@@ -226,7 +231,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
 		fmt.Fprintf(&sb, "version: %s\n", resp.Version)
@@ -281,11 +286,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(&sb, "  timed_mode_remaining: %ds\n", resp.TimedModeRemainingSeconds)
 			}
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	RespondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleServiceList(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +306,7 @@ func (s *Server) handleServiceList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, svc := range infos {
 			status := "enabled"
@@ -310,21 +315,21 @@ func (s *Server) handleServiceList(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\n", svc.Name, svc.LocalAddress, svc.Protocol, status)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, infos)
+	RespondJSON(w, http.StatusOK, infos)
 }
 
 func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request) {
 	var req RemoteServiceRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" {
-		respondError(w, http.StatusBadRequest, "peer is required")
+		RespondError(w, http.StatusBadRequest, "peer is required")
 		return
 	}
 
@@ -332,29 +337,29 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "service-query")
 	if err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open service-query stream: %v", err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open service-query stream: %v", err))
 		return
 	}
 	defer stream.Close()
 
 	services, err := p2pnet.QueryPeerServices(stream)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("service query failed: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("service query failed: %v", err))
 		return
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, svc := range services {
 			fmt.Fprintf(&sb, "%-16s %s\n", svc.Name, svc.Protocol)
@@ -362,11 +367,11 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 		if len(services) == 0 {
 			sb.WriteString("(no services)\n")
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, RemoteServiceResponse{Services: services})
+	RespondJSON(w, http.StatusOK, RemoteServiceResponse{Services: services})
 }
 
 func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +404,7 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 		peers = append(peers, info)
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, p := range peers {
 			agent := p.AgentVersion
@@ -408,23 +413,23 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprintf(&sb, "%s\t%s\t%d addrs\n", p.ID[:16]+"...", agent, len(p.Addresses))
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, peers)
+	RespondJSON(w, http.StatusOK, peers)
 }
 
 func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 	tracker := s.runtime.PathTracker()
 	if tracker == nil {
-		respondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
+		RespondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
 		return
 	}
 
 	paths := tracker.ListPeerPaths()
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, p := range paths {
 			peerShort := p.PeerID
@@ -438,23 +443,23 @@ func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\trtt=%s\n",
 				peerShort, p.PathType, p.Transport, p.IPVersion, rttStr)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, paths)
+	RespondJSON(w, http.StatusOK, paths)
 }
 
 func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 	authPath := s.runtime.AuthKeysPath()
 	if authPath == "" {
-		respondJSON(w, http.StatusOK, []AuthEntry{})
+		RespondJSON(w, http.StatusOK, []AuthEntry{})
 		return
 	}
 
 	peers, err := auth.ListPeers(authPath)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -477,7 +482,7 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, e)
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, e := range entries {
 			if e.Comment != "" {
@@ -486,33 +491,33 @@ func (s *Server) handleAuthList(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(&sb, "%s\n", e.PeerID)
 			}
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, entries)
+	RespondJSON(w, http.StatusOK, entries)
 }
 
 func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 	var req AuthAddRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.PeerID == "" {
-		respondError(w, http.StatusBadRequest, "peer_id is required")
+		RespondError(w, http.StatusBadRequest, "peer_id is required")
 		return
 	}
 
 	authPath := s.runtime.AuthKeysPath()
 	if authPath == "" {
-		respondError(w, http.StatusBadRequest, "connection gating is not enabled")
+		RespondError(w, http.StatusBadRequest, "connection gating is not enabled")
 		return
 	}
 
 	// Add peer to authorized_keys file
 	if err := auth.AddPeer(authPath, req.PeerID, req.Comment); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -522,7 +527,7 @@ func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 		role = auth.RoleMember
 	}
 	if role != auth.RoleAdmin && role != auth.RoleMember {
-		respondError(w, http.StatusBadRequest, "role must be \"admin\" or \"member\"")
+		RespondError(w, http.StatusBadRequest, "role must be \"admin\" or \"member\"")
 		return
 	}
 	if err := auth.SetPeerRole(authPath, req.PeerID, role); err != nil {
@@ -532,29 +537,29 @@ func (s *Server) handleAuthAdd(w http.ResponseWriter, r *http.Request) {
 	// Hot-reload gater
 	if err := s.reloadGater(); err != nil {
 		slog.Error("failed to reload gater after adding peer", "error", err)
-		respondError(w, http.StatusInternalServerError, "peer added but gater reload failed: "+err.Error())
+		RespondError(w, http.StatusInternalServerError, "peer added but gater reload failed: "+err.Error())
 		return
 	}
 
 	slog.Info("authorized peer added via API", "peer", req.PeerID[:16]+"...", "role", role)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "added"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "added"})
 }
 
 func (s *Server) handleAuthRemove(w http.ResponseWriter, r *http.Request) {
 	peerID := r.PathValue("peer_id")
 	if peerID == "" {
-		respondError(w, http.StatusBadRequest, "peer_id is required")
+		RespondError(w, http.StatusBadRequest, "peer_id is required")
 		return
 	}
 
 	authPath := s.runtime.AuthKeysPath()
 	if authPath == "" {
-		respondError(w, http.StatusBadRequest, "connection gating is not enabled")
+		RespondError(w, http.StatusBadRequest, "connection gating is not enabled")
 		return
 	}
 
 	if err := auth.RemovePeer(authPath, peerID); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -564,7 +569,7 @@ func (s *Server) handleAuthRemove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("authorized peer removed via API", "peer", peerID[:16]+"...")
-	respondJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
 // reloadGater reloads the authorized_keys file and updates the connection gater.
@@ -578,12 +583,12 @@ func (s *Server) reloadGater() error {
 
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	var req PingRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" {
-		respondError(w, http.StatusBadRequest, "peer is required")
+		RespondError(w, http.StatusBadRequest, "peer is required")
 		return
 	}
 
@@ -596,13 +601,13 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	net := s.runtime.Network()
 	targetPeerID, err := net.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
@@ -626,7 +631,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 
 	stats := p2pnet.ComputePingStats(results)
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "PING %s (%s):\n", req.Peer, targetPeerID.String()[:16]+"...")
 		for _, pr := range results {
@@ -639,45 +644,45 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "--- %s ping statistics ---\n", req.Peer)
 		fmt.Fprintf(&sb, "%d sent, %d received, %.0f%% loss, rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
 			stats.Sent, stats.Received, stats.LossPct, stats.MinMs, stats.AvgMs, stats.MaxMs)
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, PingResponse{Results: results, Stats: stats})
+	RespondJSON(w, http.StatusOK, PingResponse{Results: results, Stats: stats})
 }
 
 func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 	var req TraceRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" {
-		respondError(w, http.StatusBadRequest, "peer is required")
+		RespondError(w, http.StatusBadRequest, "peer is required")
 		return
 	}
 
 	net := s.runtime.Network()
 	targetPeerID, err := net.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
 	result, err := p2pnet.TracePeer(r.Context(), net.Host(), targetPeerID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	result.Target = req.Peer
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "traceroute to %s (%s):\n", req.Peer, targetPeerID.String()[:16]+"...")
 		for _, hop := range result.Hops {
@@ -696,21 +701,21 @@ func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		fmt.Fprintf(&sb, "--- path: [%s] ---\n", result.Path)
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, result)
+	RespondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	var req ResolveRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Name == "" {
-		respondError(w, http.StatusBadRequest, "name is required")
+		RespondError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
@@ -721,7 +726,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	source := "local_config"
 	if err != nil {
 		// ResolveName also tries parsing as a peer ID directly
-		respondError(w, http.StatusNotFound, fmt.Sprintf("cannot resolve %q: %v", req.Name, err))
+		RespondError(w, http.StatusNotFound, fmt.Sprintf("cannot resolve %q: %v", req.Name, err))
 		return
 	}
 
@@ -736,22 +741,22 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		Source: source,
 	}
 
-	if wantsText(r) {
-		respondText(w, http.StatusOK, fmt.Sprintf("%s → %s (source: %s)\n", resp.Name, resp.PeerID, resp.Source))
+	if WantsText(r) {
+		RespondText(w, http.StatusOK, fmt.Sprintf("%s → %s (source: %s)\n", resp.Name, resp.PeerID, resp.Source))
 		return
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	RespondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var req ConnectRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" || req.Service == "" || req.Listen == "" {
-		respondError(w, http.StatusBadRequest, "peer, service, and listen are required")
+		RespondError(w, http.StatusBadRequest, "peer, service, and listen are required")
 		return
 	}
 
@@ -760,13 +765,13 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Resolve peer name
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
@@ -778,7 +783,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Create TCP listener
 	listener, err := p2pnet.NewTCPListener(req.Listen, dialFunc)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create listener: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create listener: %v", err))
 		return
 	}
 
@@ -824,7 +829,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	pathType, addr := p2pnet.PeerConnInfo(h, targetPeerID)
 
 	slog.Info("proxy created via API", "id", id, "peer", req.Peer, "service", req.Service, "listen", proxy.Listen, "path", pathType)
-	respondJSON(w, http.StatusOK, ConnectResponse{
+	RespondJSON(w, http.StatusOK, ConnectResponse{
 		ID:            id,
 		ListenAddress: proxy.Listen,
 		PathType:      pathType,
@@ -835,7 +840,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "proxy id is required")
+		RespondError(w, http.StatusBadRequest, "proxy id is required")
 		return
 	}
 
@@ -847,7 +852,7 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if !exists {
-		respondError(w, http.StatusNotFound, fmt.Sprintf("%v: %s", ErrProxyNotFound, id))
+		RespondError(w, http.StatusNotFound, fmt.Sprintf("%v: %s", ErrProxyNotFound, id))
 		return
 	}
 
@@ -858,47 +863,47 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	<-proxy.done
 
 	slog.Info("proxy disconnected via API", "id", id)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
 }
 
 func (s *Server) handleExpose(w http.ResponseWriter, r *http.Request) {
 	var req ExposeRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Name == "" || req.LocalAddress == "" {
-		respondError(w, http.StatusBadRequest, "name and local_address are required")
+		RespondError(w, http.StatusBadRequest, "name and local_address are required")
 		return
 	}
 
 	if err := s.runtime.Network().ExposeService(req.Name, req.LocalAddress, nil); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
+		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	slog.Info("service exposed via API", "service", req.Name, "local", req.LocalAddress)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "exposed"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "exposed"})
 }
 
 func (s *Server) handleUnexpose(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		respondError(w, http.StatusBadRequest, "service name is required")
+		RespondError(w, http.StatusBadRequest, "service name is required")
 		return
 	}
 
 	if err := s.runtime.Network().UnexposeService(name); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("service unexposed via API", "service", name)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "unexposed"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "unexposed"})
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
 
 	// Signal shutdown after response is sent
 	go func() {
@@ -912,7 +917,7 @@ func (s *Server) handleLock(w http.ResponseWriter, r *http.Request) {
 	s.locked = true
 	s.mu.Unlock()
 	slog.Info("daemon locked via API")
-	respondJSON(w, http.StatusOK, map[string]string{"status": "locked"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "locked"})
 }
 
 func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
@@ -920,20 +925,20 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	s.locked = false
 	s.mu.Unlock()
 	slog.Info("daemon unlocked via API")
-	respondJSON(w, http.StatusOK, map[string]string{"status": "unlocked"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "unlocked"})
 }
 
 func (s *Server) handleLockStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	locked := s.locked
 	s.mu.Unlock()
-	respondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
+	RespondJSON(w, http.StatusOK, map[string]bool{"locked": locked})
 }
 
 func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
 	reloader := s.runtime.ConfigReloader()
 	if reloader == nil {
-		respondError(w, http.StatusNotImplemented, "config reload not supported")
+		RespondError(w, http.StatusNotImplemented, "config reload not supported")
 		return
 	}
 
@@ -960,7 +965,7 @@ func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
 				"consecutive", failures, "error", err)
 		}
 
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("config reload failed: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("config reload failed: %v", err))
 		return
 	}
 
@@ -975,7 +980,7 @@ func (s *Server) handleConfigReload(w http.ResponseWriter, r *http.Request) {
 	if len(result.Reverted) > 0 {
 		slog.Warn("config reload: some changes reverted", "reverted", result.Reverted)
 	}
-	respondJSON(w, http.StatusOK, result)
+	RespondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleConfigReloadStatus(w http.ResponseWriter, r *http.Request) {
@@ -983,7 +988,7 @@ func (s *Server) handleConfigReloadStatus(w http.ResponseWriter, r *http.Request
 	state := s.reloadState
 	s.mu.Unlock()
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		if state.TotalReloads == 0 {
 			fmt.Fprintln(&sb, "No config reloads performed.")
@@ -1003,17 +1008,17 @@ func (s *Server) handleConfigReloadStatus(w http.ResponseWriter, r *http.Request
 			fmt.Fprintf(&sb, "total_reloads: %d\n", state.TotalReloads)
 			fmt.Fprintf(&sb, "total_failures: %d\n", state.TotalFailures)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, state)
+	RespondJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
 	bt := s.runtime.BandwidthTracker()
 	if bt == nil {
-		respondJSON(w, http.StatusOK, BandwidthStats{})
+		RespondJSON(w, http.StatusOK, BandwidthStats{})
 		return
 	}
 
@@ -1039,7 +1044,7 @@ func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "total_in: %d\n", resp.TotalIn)
 		fmt.Fprintf(&sb, "total_out: %d\n", resp.TotalOut)
@@ -1052,17 +1057,17 @@ func (s *Server) handleBandwidth(w http.ResponseWriter, r *http.Request) {
 					peer, stats.TotalIn, stats.TotalOut, stats.RateIn, stats.RateOut)
 			}
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	RespondJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleRelayHealth(w http.ResponseWriter, r *http.Request) {
 	rh := s.runtime.RelayHealth()
 	if rh == nil {
-		respondJSON(w, http.StatusOK, RelayHealthResponse{})
+		RespondJSON(w, http.StatusOK, RelayHealthResponse{})
 		return
 	}
 
@@ -1085,7 +1090,7 @@ func (s *Server) handleRelayHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "relays: %d\n", len(resp.Relays))
 		for _, e := range resp.Relays {
@@ -1096,11 +1101,11 @@ func (s *Server) handleRelayHealth(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&sb, "  %s\tscore=%.2f\trtt=%.0fms\tsuccess=%.1f%%\tprobes=%d%s\n",
 				e.PeerID, e.Score, e.RTTMs, e.SuccessRate*100, e.ProbeCount, static)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, resp)
+	RespondJSON(w, http.StatusOK, resp)
 }
 
 // IsLocked returns whether sensitive operations are currently locked.
@@ -1125,7 +1130,7 @@ func (s *Server) Listener() net.Listener {
 func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 	reg := s.runtime.ShareRegistry()
 	if reg == nil {
-		respondJSON(w, http.StatusOK, []ShareInfo{})
+		RespondJSON(w, http.StatusOK, []ShareInfo{})
 		return
 	}
 
@@ -1146,7 +1151,7 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 		infos = append(infos, info)
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, info := range infos {
 			kind := "file"
@@ -1159,27 +1164,27 @@ func (s *Server) handleShareList(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprintf(&sb, "%s\t%s\t%s\n", kind, info.Path, peerStr)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, infos)
+	RespondJSON(w, http.StatusOK, infos)
 }
 
 func (s *Server) handleShareAdd(w http.ResponseWriter, r *http.Request) {
 	var req ShareRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Path == "" {
-		respondError(w, http.StatusBadRequest, "path is required")
+		RespondError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	reg := s.runtime.ShareRegistry()
 	if reg == nil {
-		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
 		return
 	}
 
@@ -1195,55 +1200,55 @@ func (s *Server) handleShareAdd(w http.ResponseWriter, r *http.Request) {
 		// Fall back to direct peer ID decode.
 		pid, err := peer.Decode(pidStr)
 		if err != nil {
-			respondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID or name %q: %v", pidStr, err))
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID or name %q: %v", pidStr, err))
 			return
 		}
 		peerIDs = append(peerIDs, pid)
 	}
 
 	if err := reg.Share(req.Path, peerIDs, req.Persistent); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
-	respondJSON(w, http.StatusOK, map[string]string{"status": "shared"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "shared"})
 }
 
 func (s *Server) handleShareRemove(w http.ResponseWriter, r *http.Request) {
 	var req UnshareRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Path == "" {
-		respondError(w, http.StatusBadRequest, "path is required")
+		RespondError(w, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	reg := s.runtime.ShareRegistry()
 	if reg == nil {
-		respondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
 		return
 	}
 
 	if err := reg.Unshare(req.Path); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("path unshared via API", "path", req.Path)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
 }
 
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var req BrowseRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" {
-		respondError(w, http.StatusBadRequest, "peer is required")
+		RespondError(w, http.StatusBadRequest, "peer is required")
 		return
 	}
 
@@ -1252,20 +1257,20 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	// Resolve peer name.
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the peer is reachable.
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Open browse stream.
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
 	if err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %v", err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %v", err))
 		return
 	}
 	defer stream.Close()
@@ -1275,19 +1280,19 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		// Humanize stream reset: remote peer has no shares visible to us.
 		errStr := err.Error()
 		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
-			respondError(w, http.StatusForbidden, "no shares visible to you on this peer")
+			RespondError(w, http.StatusForbidden, "no shares visible to you on this peer")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
 		return
 	}
 
 	if result.Error != "" {
-		respondError(w, http.StatusForbidden, result.Error)
+		RespondError(w, http.StatusForbidden, result.Error)
 		return
 	}
 
-	if wantsText(r) {
+	if WantsText(r) {
 		var sb strings.Builder
 		for _, e := range result.Entries {
 			kind := "     "
@@ -1301,11 +1306,11 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, e.Name, humanSizeAPI(e.Size), downloadPath)
 		}
-		respondText(w, http.StatusOK, sb.String())
+		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, BrowseResponse{Entries: result.Entries})
+	RespondJSON(w, http.StatusOK, BrowseResponse{Entries: result.Entries})
 }
 
 // humanSizeAPI formats bytes for text output.
@@ -1326,18 +1331,18 @@ func humanSizeAPI(b int64) string {
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	var req DownloadRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Peer == "" || req.RemotePath == "" {
-		respondError(w, http.StatusBadRequest, "peer and remote_path are required")
+		RespondError(w, http.StatusBadRequest, "peer and remote_path are required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
@@ -1346,13 +1351,13 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	// Resolve primary peer name.
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the primary peer is reachable.
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
@@ -1395,7 +1400,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 					snap := progress.Snapshot()
 					slog.Info("multi-peer download started via API",
 						"id", snap.ID, "file", snap.Filename, "peers", len(allPeers))
-					respondJSON(w, http.StatusOK, DownloadResponse{
+					RespondJSON(w, http.StatusOK, DownloadResponse{
 						TransferID: snap.ID,
 						FileName:   snap.Filename,
 						FileSize:   snap.Size,
@@ -1413,7 +1418,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	// Single-peer download (default path).
 	stream, err := pnet.OpenPluginStream(context.Background(), targetPeerID, "file-download")
 	if err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
 		return
 	}
 
@@ -1422,14 +1427,14 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		errStr := err.Error()
 		// Humanize common download errors.
 		if strings.Contains(errStr, "access denied") {
-			respondError(w, http.StatusForbidden, fmt.Sprintf("download failed: share not found or access denied. Verify the share ID with: shurli browse %s", req.Peer))
+			RespondError(w, http.StatusForbidden, fmt.Sprintf("download failed: share not found or access denied. Verify the share ID with: shurli browse %s", req.Peer))
 			return
 		}
 		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
-			respondError(w, http.StatusForbidden, "download failed: connection reset by remote peer. Check that both peers are online and the share still exists.")
+			RespondError(w, http.StatusForbidden, "download failed: connection reset by remote peer. Check that both peers are online and the share still exists.")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
 		return
 	}
 
@@ -1437,7 +1442,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	slog.Info("file download started via API",
 		"id", snap.ID, "file", snap.Filename, "peer", req.Peer)
 
-	respondJSON(w, http.StatusOK, DownloadResponse{
+	RespondJSON(w, http.StatusOK, DownloadResponse{
 		TransferID: snap.ID,
 		FileName:   snap.Filename,
 		FileSize:   snap.Size,
@@ -1448,18 +1453,18 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req SendRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Path == "" || req.Peer == "" {
-		respondError(w, http.StatusBadRequest, "path and peer are required")
+		RespondError(w, http.StatusBadRequest, "path and peer are required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
@@ -1468,13 +1473,13 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// Resolve peer name.
 	targetPeerID, err := pnet.ResolveName(req.Peer)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer %q: %v", req.Peer, err))
 		return
 	}
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback).
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		respondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
 		return
 	}
 
@@ -1505,7 +1510,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// Submit to transfer queue (handles both files and directories).
 	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
 		return
 	}
 
@@ -1513,7 +1518,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	slog.Info("file transfer queued via API",
 		"id", snap.ID, "file", snap.Filename, "peer", req.Peer, "status", snap.Status)
 
-	respondJSON(w, http.StatusOK, SendResponse{
+	RespondJSON(w, http.StatusOK, SendResponse{
 		TransferID: snap.ID,
 		Filename:   snap.Filename,
 		Size:       snap.Size,
@@ -1524,24 +1529,24 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTransferList(w http.ResponseWriter, r *http.Request) {
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
+		RespondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
 		return
 	}
 
 	transfers := ts.ListTransfers()
-	respondJSON(w, http.StatusOK, transfers)
+	RespondJSON(w, http.StatusOK, transfers)
 }
 
 func (s *Server) handleTransferHistory(w http.ResponseWriter, r *http.Request) {
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
 		return
 	}
 
 	logPath := ts.LogPath()
 	if logPath == "" {
-		respondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
 		return
 	}
 
@@ -1561,44 +1566,44 @@ func (s *Server) handleTransferHistory(w http.ResponseWriter, r *http.Request) {
 
 	events, err := p2pnet.ReadTransferEvents(logPath, max)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("read transfer log: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("read transfer log: %v", err))
 		return
 	}
 	if events == nil {
 		events = []p2pnet.TransferEvent{}
 	}
 
-	respondJSON(w, http.StatusOK, events)
+	RespondJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleTransferStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "transfer id is required")
+		RespondError(w, http.StatusBadRequest, "transfer id is required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusNotFound, "file transfer is not enabled")
+		RespondError(w, http.StatusNotFound, "file transfer is not enabled")
 		return
 	}
 
 	progress, ok := ts.GetTransfer(id)
 	if !ok {
-		respondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
+		RespondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
 		return
 	}
 
-	respondJSON(w, http.StatusOK, progress.Snapshot())
+	RespondJSON(w, http.StatusOK, progress.Snapshot())
 }
 
 // --- Invite handlers (async, relay-delegated) ---
 
 func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	var req InviteCreateRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -1615,7 +1620,7 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	if s.pendingInvite != nil {
 		s.mu.Unlock()
-		respondError(w, http.StatusConflict, "an invite is already active; cancel it first")
+		RespondError(w, http.StatusConflict, "an invite is already active; cancel it first")
 		return
 	}
 	s.mu.Unlock()
@@ -1623,7 +1628,7 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	rt := s.runtime
 	relayAddrs := rt.RelayAddresses()
 	if len(relayAddrs) == 0 {
-		respondError(w, http.StatusBadRequest, "no relay addresses configured; cannot create invite")
+		RespondError(w, http.StatusBadRequest, "no relay addresses configured; cannot create invite")
 		return
 	}
 
@@ -1631,14 +1636,14 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	h := rt.Network().Host()
 	relayInfos, err := p2pnet.ParseRelayAddrs(relayAddrs)
 	if err != nil || len(relayInfos) == 0 {
-		respondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
+		RespondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
 		return
 	}
 
 	relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
 	pairResp, err := relayClient.CreateGroup(count, ttl, 0, rt.DiscoveryNetwork())
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create invite on relay: %v", err))
+		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create invite on relay: %v", err))
 		return
 	}
 
@@ -1665,7 +1670,7 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	slog.Info("invite created via API", "id", inv.id, "group", pairResp.GroupID, "codes", len(pairResp.Codes), "ttl", ttl)
-	respondJSON(w, http.StatusOK, InviteCreateResponse{
+	RespondJSON(w, http.StatusOK, InviteCreateResponse{
 		InviteID:  inv.id,
 		Codes:     pairResp.Codes,
 		GroupID:   pairResp.GroupID,
@@ -1682,7 +1687,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if inv == nil || inv.id != id {
-		respondError(w, http.StatusNotFound, "no active invite with that ID")
+		RespondError(w, http.StatusNotFound, "no active invite with that ID")
 		return
 	}
 
@@ -1695,7 +1700,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	relayAddrs := rt.RelayAddresses()
 	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
 	if len(relayInfos) == 0 {
-		respondError(w, http.StatusInternalServerError, "no relay addresses available")
+		RespondError(w, http.StatusInternalServerError, "no relay addresses available")
 		return
 	}
 
@@ -1727,7 +1732,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 						s.mu.Unlock()
 						inv.cancel()
 
-						respondJSON(w, http.StatusOK, InviteWaitResponse{
+						RespondJSON(w, http.StatusOK, InviteWaitResponse{
 							Status: "complete",
 							Used:   g.Used,
 							Total:  g.Total,
@@ -1748,14 +1753,14 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 				s.mu.Unlock()
 				inv.cancel()
 
-				respondJSON(w, http.StatusOK, InviteWaitResponse{
+				RespondJSON(w, http.StatusOK, InviteWaitResponse{
 					Status: "expired",
 				})
 				return
 			}
 
 		case <-r.Context().Done():
-			respondError(w, http.StatusGatewayTimeout, "client disconnected")
+			RespondError(w, http.StatusGatewayTimeout, "client disconnected")
 			return
 		}
 	}
@@ -1764,7 +1769,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTransferPending(w http.ResponseWriter, r *http.Request) {
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondJSON(w, http.StatusOK, []PendingTransferInfo{})
+		RespondJSON(w, http.StatusOK, []PendingTransferInfo{})
 		return
 	}
 
@@ -1780,52 +1785,52 @@ func (s *Server) handleTransferPending(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respondJSON(w, http.StatusOK, infos)
+	RespondJSON(w, http.StatusOK, infos)
 }
 
 func (s *Server) handleTransferAccept(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "transfer id is required")
+		RespondError(w, http.StatusBadRequest, "transfer id is required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
 	var req TransferAcceptRequest
 	if r.Body != nil && r.ContentLength > 0 {
-		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+		json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req)
 	}
 
 	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("transfer accepted via API", "id", id)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleTransferReject(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "transfer id is required")
+		RespondError(w, http.StatusBadRequest, "transfer id is required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
 	var req TransferRejectRequest
 	if r.Body != nil && r.ContentLength > 0 {
-		json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(&req)
+		json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req)
 	}
 
 	reason := p2pnet.RejectReasonNone
@@ -1839,46 +1844,46 @@ func (s *Server) handleTransferReject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := ts.RejectTransfer(id, reason); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("transfer rejected via API", "id", id, "reason", req.Reason)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
 }
 
 func (s *Server) handleTransferCancel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "transfer id is required")
+		RespondError(w, http.StatusBadRequest, "transfer id is required")
 		return
 	}
 
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
 	if err := ts.CancelTransfer(id); err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	slog.Info("transfer cancelled via API", "id", id)
-	respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 	ts := s.runtime.TransferService()
 	if ts == nil {
-		respondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
+		RespondError(w, http.StatusServiceUnavailable, "file transfer is not enabled")
 		return
 	}
 
 	count, bytes := ts.CleanTempFiles()
 	slog.Info("temp files cleaned via API", "files", count, "bytes", bytes)
-	respondJSON(w, http.StatusOK, map[string]any{
+	RespondJSON(w, http.StatusOK, map[string]any{
 		"files_removed": count,
 		"bytes_freed":   bytes,
 	})
@@ -1907,10 +1912,10 @@ func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
 
 		inv.cancel()
 		slog.Info("invite cancelled via API", "id", id, "group", inv.groupID)
-		respondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+		RespondJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 		return
 	}
 	s.mu.Unlock()
 
-	respondError(w, http.StatusNotFound, "no active invite with that ID")
+	RespondError(w, http.StatusNotFound, "no active invite with that ID")
 }
