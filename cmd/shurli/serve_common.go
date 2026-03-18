@@ -1279,6 +1279,70 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 	}()
 }
 
+// ComputeReputationScores computes reputation scores from peer history and returns
+// a map of peer ID string -> score (0-100). This is the bridge between PeerHistory
+// data collection and score consumption (PluginContext, ZKP tree).
+func (rt *serveRuntime) ComputeReputationScores() map[string]int {
+	if rt.peerHistory == nil {
+		return nil
+	}
+	records := rt.peerHistory.AllRecords()
+	if len(records) == 0 {
+		return nil
+	}
+	maxConn := rt.peerHistory.MaxConnections()
+	now := time.Now()
+	scores := make(map[string]int, len(records))
+	for peerID, record := range records {
+		scores[peerID] = reputation.ComputeScore(record, maxConn, now)
+	}
+	return scores
+}
+
+// StartReputationScoreUpdater runs a background goroutine that periodically
+// computes reputation scores from peer history. Scores are stored in a thread-safe
+// map accessible via the scoreResolver function returned by this method.
+//
+// Pipeline: PeerHistory -> ComputeScore -> scoreMap (read by PluginContext.peerScore)
+func (rt *serveRuntime) StartReputationScoreUpdater() func(peer.ID) int {
+	if rt.peerHistory == nil {
+		return func(_ peer.ID) int { return 0 }
+	}
+
+	var mu sync.RWMutex
+	scores := make(map[string]int)
+
+	// Compute once at startup so scores are available immediately.
+	if initial := rt.ComputeReputationScores(); initial != nil {
+		scores = initial
+	}
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case <-ticker.C:
+				computed := rt.ComputeReputationScores()
+				if computed != nil {
+					mu.Lock()
+					scores = computed
+					mu.Unlock()
+					slog.Info("reputation: scores updated", "peers", len(computed))
+				}
+			}
+		}
+	}()
+
+	return func(id peer.ID) int {
+		mu.RLock()
+		defer mu.RUnlock()
+		return scores[id.String()]
+	}
+}
+
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 // Transfer service shutdown is handled by plugin Stop() via registry.StopAll().

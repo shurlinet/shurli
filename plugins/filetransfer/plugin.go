@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +68,7 @@ func (p *FileTransferPlugin) Init(ctx *plugin.PluginContext) error {
 	p.configDir = ctx.ConfigDir()
 	p.config = loadConfig(ctx.Config())
 
-	// M4 fix: warn if legacy config files exist in parent config dir.
+	// M4 fix: warn if legacy config files or root transfer: section exist.
 	if p.configDir != "" {
 		parentDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(p.configDir)))) // up from plugins/shurli.io/official/filetransfer
 		for _, legacy := range []string{"queue.json", "shares.json"} {
@@ -75,6 +76,19 @@ func (p *FileTransferPlugin) Init(ctx *plugin.PluginContext) error {
 			if _, err := os.Stat(legacyPath); err == nil {
 				slog.Warn("plugin.filetransfer: legacy file found in parent config dir",
 					"file", legacyPath, "note", "this file is no longer used; plugin config is now in "+p.configDir)
+			}
+		}
+		// M4 fix: warn if root config.yaml has a transfer: section (now managed by plugin).
+		rootConfig := filepath.Join(parentDir, "config.yaml")
+		if data, err := os.ReadFile(rootConfig); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "transfer:" || strings.HasPrefix(trimmed, "transfer:") {
+					slog.Warn("plugin.filetransfer: root config.yaml contains 'transfer:' section",
+						"config", rootConfig,
+						"note", "transfer config is now managed by the filetransfer plugin in "+p.configDir+"/config.yaml; root section is ignored")
+					break
+				}
 			}
 		}
 	}
@@ -86,14 +100,16 @@ func (p *FileTransferPlugin) Init(ctx *plugin.PluginContext) error {
 }
 
 // Start is called on enable. Creates TransferService, ShareRegistry, loads state.
-func (p *FileTransferPlugin) Start() error {
+// G11 fix: ctx is cancelled on daemon shutdown or kill switch - propagated to drain.
+func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// Reset drain gate for fresh enable cycle.
 	p.mu.Lock()
 	p.drainGate = false
 	p.mu.Unlock()
 
 	// Create cancelable context for drain mechanism.
-	p.activeCtx, p.activeCancel = context.WithCancel(context.Background())
+	// Derive from Start's ctx so daemon shutdown cancels active transfers.
+	p.activeCtx, p.activeCancel = context.WithCancel(ctx)
 
 	p.network = p.ctx.EngineHost()
 	if p.network == nil {
@@ -279,12 +295,21 @@ func (p *FileTransferPlugin) Stop() error {
 	defer p.mu.Unlock()
 
 	// P3 fix: persist queue before Close() so queue state survives shutdown.
-	// G9 note: FlushQueue only persists pending (not-yet-started) queue items.
-	// In-progress transfers were already dequeued and are tracked separately.
-	// After activeCtx cancel, in-progress transfers are cancelled but pending
-	// items are still valid for re-queue on next startup.
+	// G9 fix: explicitly log cancelled vs persisted transfer counts.
+	// In-progress transfers were already dequeued from the queue. After
+	// activeCtx cancel, they terminate with "context canceled" errors.
+	// Only PENDING (not-yet-started) items are valid for re-queue on startup.
 	if p.transferService != nil {
+		var activeCount int
+		for _, snap := range p.transferService.ListTransfers() {
+			if !snap.Done {
+				activeCount++
+			}
+		}
 		p.transferService.FlushQueue()
+		if activeCount > 0 {
+			slog.Info("plugin.filetransfer: cancelled in-progress transfers", "count", activeCount)
+		}
 	}
 
 	if p.shareRegistry != nil && p.configDir != "" {
