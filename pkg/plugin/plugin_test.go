@@ -751,6 +751,14 @@ func TestG6_RapidEnableDisableGoroutineLeak(t *testing.T) {
 		"No context passed. Disable() does NOT cancel it. " +
 		"The goroutine runs for the full Start() duration, leaked. " +
 		"Rapid enable/disable = goroutine accumulation.")
+
+	// Wait for the abandoned Enable goroutine to finish so it doesn't race
+	// with other tests that modify package-level vars (e.g., startTimeoutDuration).
+	select {
+	case <-enableDone:
+	case <-time.After(10 * time.Second):
+		t.Log("G6: abandoned Enable goroutine did not finish within timeout")
+	}
 }
 
 // TestG3_NoRateLimitOnEnableDisable proves G3: there's no cooldown on
