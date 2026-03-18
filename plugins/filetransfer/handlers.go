@@ -345,7 +345,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 
 	snap := progress.Snapshot()
 
-	// X2 fix: write checkpoint for crash recovery.
+	// X2 fix: write checkpoint for crash recovery, remove on completion.
 	p.mu.RLock()
 	cfgDir := p.configDir
 	p.mu.RUnlock()
@@ -357,6 +357,17 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 			PeerID:     req.Peer,
 			Size:       snap.Size,
 		})
+		// X2 fix: remove checkpoint when transfer completes.
+		go func(id, dir string, prog *p2pnet.TransferProgress) {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if prog.Snapshot().Done {
+					removeCheckpoint(dir, id)
+					return
+				}
+			}
+		}(snap.ID, cfgDir, progress)
 	}
 
 	slog.Info("file download started via API",

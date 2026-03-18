@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -108,7 +109,7 @@ func (s *slowStopPlugin) ID() string                      { return "test.io/mock
 func (s *slowStopPlugin) Name() string                    { return s.name }
 func (s *slowStopPlugin) Version() string                 { return "1.0.0" }
 func (s *slowStopPlugin) Init(_ *PluginContext) error      { return nil }
-func (s *slowStopPlugin) Start() error                    { return nil }
+func (s *slowStopPlugin) Start(_ context.Context) error    { return nil }
 func (s *slowStopPlugin) Stop() error                     { time.Sleep(s.blockDuration); return nil }
 func (s *slowStopPlugin) OnNetworkReady() error            { return nil }
 func (s *slowStopPlugin) Commands() []Command              { return nil }

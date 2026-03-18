@@ -12,6 +12,18 @@
 //   - Explicit capability grants via PluginContext (not raw internal access)
 //   - No global state assumptions
 //   - Inside the plugin: full Go capabilities, zero restrictions
+//
+// SECURITY INVARIANTS (G4 - must hold for ALL plugins, ALL layers):
+//  1. Credential isolation: PluginContext never holds daemon auth tokens,
+//     cookie paths, vault keys, or Ed25519 private keys. Enforced by
+//     TestCredentialIsolation. DeriveKey() provides HKDF-derived keys only.
+//  2. Auth delegation: plugin HTTP routes are wrapped with daemon auth
+//     middleware. Plugins MUST NOT implement their own authentication.
+//  3. State gating: plugin P2P stream handlers only execute in ACTIVE state.
+//     The registry's wrapHandler rejects streams in any other state.
+//  4. Namespace isolation: OpenStream enforces that plugins can only open
+//     streams on protocols they declared via Protocols(). Violations return
+//     ErrCodeNamespaceViolation.
 package plugin
 
 import (
@@ -51,10 +63,10 @@ type Plugin interface {
 	Version() string
 
 	// Lifecycle
-	Init(ctx *PluginContext) error // called ONCE at load time, gives context
-	Start() error                 // called on enable, can be called multiple times
-	Stop() error                  // called on disable, clean shutdown
-	OnNetworkReady() error        // called after bootstrap + relay connected
+	Init(ctx *PluginContext) error            // called ONCE at load time, gives context
+	Start(ctx context.Context) error          // called on enable, ctx cancelled on shutdown/kill
+	Stop() error                              // called on disable, clean shutdown
+	OnNetworkReady() error                    // called after bootstrap + relay connected
 
 	// Registration (static declarations, read by registry)
 	Commands() []Command      // CLI commands this plugin provides
@@ -177,11 +189,7 @@ type PluginContext struct {
 	configReloadCb func([]byte)
 	declaredProtos map[string]bool // protocol IDs this plugin declared
 	keyDeriver     func(domain string) []byte // HKDF-SHA256 key derivation
-
-	// G11 fix: StartContext is set before Start() is called. Plugins can use this
-	// to detect cancellation (e.g., if Enable is abandoned or daemon shuts down).
-	// Not part of the Plugin interface to avoid breaking it.
-	startCtx context.Context
+	scoreResolver  func(peer.ID) int          // reputation score lookup (0-100)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -274,59 +282,51 @@ func (c *PluginContext) DeriveKey(domain string) []byte {
 	return c.keyDeriver(domain)
 }
 
-// StartContext returns a context that is cancelled when the plugin's Start()
-// should be abandoned (e.g., daemon shutdown, kill switch). Set by the registry
-// before calling Start(). Returns context.Background() if not set (G11 fix).
-func (c *PluginContext) StartContext() context.Context {
-	if c.startCtx != nil {
-		return c.startCtx
+// X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
+// Re-export when the reputation pipeline or metrics integration is built.
+// These were exported but had zero callers across the entire codebase.
+
+// incrementMetric increments a named counter metric scoped to this plugin.
+// No-op until telemetry integration is built.
+func (c *PluginContext) incrementMetric(name string, delta float64) {}
+
+// peerScore returns the reputation score for a peer (0-100).
+// Returns 0 if no score resolver is configured or the peer has no history.
+func (c *PluginContext) peerScore(id peer.ID) int {
+	if c.scoreResolver == nil {
+		return 0
 	}
-	return context.Background()
+	return c.scoreResolver(id)
 }
 
-// IncrementMetric increments a named counter metric scoped to this plugin.
-// The metric name is automatically prefixed with the plugin name to prevent collisions.
-// No-op if metrics are not enabled on this node.
-func (c *PluginContext) IncrementMetric(name string, delta float64) {
-	// Stub - metrics wiring added when telemetry integration is built.
-	// When wired: creates/increments prometheus counter "shurli_plugin_<pluginName>_<name>".
+// peerAboveThreshold returns whether a peer's reputation score meets the threshold.
+// Returns true if no score resolver is configured (permissive default).
+func (c *PluginContext) peerAboveThreshold(id peer.ID, threshold int) bool {
+	if c.scoreResolver == nil {
+		return true
+	}
+	return c.scoreResolver(id) >= threshold
 }
 
-// PeerScore returns the reputation score for a peer (0-100).
-// Returns 0 until reputation wiring is completed (Phase 1C).
-func (c *PluginContext) PeerScore(_ peer.ID) int {
-	return 0 // stub until reputation pipeline is wired
-}
-
-// PeerAboveThreshold returns whether a peer's reputation score meets the threshold.
-// Returns true until reputation wiring is completed (Phase 1C).
-func (c *PluginContext) PeerAboveThreshold(_ peer.ID, _ int) bool {
-	return true // stub until reputation pipeline is wired
-}
-
-// ReportInteraction reports a peer interaction outcome to the reputation system.
+// reportInteraction reports a peer interaction outcome to the reputation system.
 // No-op until reputation wiring is completed (Phase 1C).
-func (c *PluginContext) ReportInteraction(_ InteractionReport) {
-	// no-op until reputation pipeline is wired
-}
+func (c *PluginContext) reportInteraction(_ interactionReport) {}
 
-// --- Interaction reporting ---
-
-// InteractionOutcome describes the result of a plugin's interaction with a peer.
-type InteractionOutcome int
+// interactionOutcome describes the result of a plugin's interaction with a peer.
+type interactionOutcome int
 
 const (
-	OutcomeSuccess InteractionOutcome = iota
-	OutcomeFailure
-	OutcomeTimeout
+	outcomeSuccess interactionOutcome = iota
+	outcomeFailure
+	outcomeTimeout
 )
 
-// InteractionReport is submitted by plugins to the reputation system.
-type InteractionReport struct {
-	Plugin  string
-	PeerID  peer.ID
-	Outcome InteractionOutcome
-	Weight  float64 // 0.0-1.0
+// interactionReport is submitted by plugins to the reputation system.
+type interactionReport struct {
+	plugin  string
+	peerID  peer.ID
+	outcome interactionOutcome
+	weight  float64 // 0.0-1.0
 }
 
 // --- ContextProvider ---
@@ -341,6 +341,7 @@ type ContextProvider struct {
 	NameResolver    func(name string) (peer.ID, error)
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
+	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
 }
 
 // --- Info ---
