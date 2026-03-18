@@ -9,7 +9,7 @@ import (
 // GET /v1/plugins
 func (s *Server) handlePluginList(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
-		respondError(w, http.StatusServiceUnavailable, "plugin system not available")
+		RespondError(w, http.StatusServiceUnavailable, "plugin system not available")
 		return
 	}
 
@@ -30,25 +30,25 @@ func (s *Server) handlePluginList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	respondJSON(w, http.StatusOK, result)
+	RespondJSON(w, http.StatusOK, result)
 }
 
 // handlePluginInfo returns details for a single plugin.
 // GET /v1/plugins/{name}
 func (s *Server) handlePluginInfo(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
-		respondError(w, http.StatusServiceUnavailable, "plugin system not available")
+		RespondError(w, http.StatusServiceUnavailable, "plugin system not available")
 		return
 	}
 
 	name := r.PathValue("name")
 	info, err := s.registry.GetInfo(name)
 	if err != nil {
-		respondError(w, http.StatusNotFound, err.Error())
+		RespondError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, PluginInfoResponse{
+	RespondJSON(w, http.StatusOK, PluginInfoResponse{
 		Name:       info.Name,
 		Version:    info.Version,
 		Type:       info.Type,
@@ -66,41 +66,41 @@ func (s *Server) handlePluginInfo(w http.ResponseWriter, r *http.Request) {
 // POST /v1/plugins/{name}/enable
 func (s *Server) handlePluginEnable(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
-		respondError(w, http.StatusServiceUnavailable, "plugin system not available")
+		RespondError(w, http.StatusServiceUnavailable, "plugin system not available")
 		return
 	}
 
 	name := r.PathValue("name")
 	if err := s.registry.Enable(name); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{"status": "enabled", "name": name})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "enabled", "name": name})
 }
 
 // handlePluginDisable disables a plugin.
 // POST /v1/plugins/{name}/disable
 func (s *Server) handlePluginDisable(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
-		respondError(w, http.StatusServiceUnavailable, "plugin system not available")
+		RespondError(w, http.StatusServiceUnavailable, "plugin system not available")
 		return
 	}
 
 	name := r.PathValue("name")
 	if err := s.registry.Disable(name); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{"status": "disabled", "name": name})
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "disabled", "name": name})
 }
 
 // handlePluginDisableAll disables all active plugins (kill switch).
 // POST /v1/plugins/disable-all
 func (s *Server) handlePluginDisableAll(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
-		respondError(w, http.StatusServiceUnavailable, "plugin system not available")
+		RespondError(w, http.StatusServiceUnavailable, "plugin system not available")
 		return
 	}
 
@@ -116,5 +116,5 @@ func (s *Server) handlePluginDisableAll(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	respondJSON(w, http.StatusOK, PluginDisableAllResponse{Disabled: count})
+	RespondJSON(w, http.StatusOK, PluginDisableAllResponse{Disabled: count})
 }

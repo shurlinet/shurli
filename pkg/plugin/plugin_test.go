@@ -29,6 +29,7 @@ type mockPlugin struct {
 	handlerPanic     bool
 }
 
+func (m *mockPlugin) ID() string      { return "test.io/mock/" + m.name }
 func (m *mockPlugin) Name() string    { return m.name }
 func (m *mockPlugin) Version() string { return m.version }
 
@@ -517,6 +518,7 @@ type slowStartPlugin struct {
 	blockDuration time.Duration
 }
 
+func (s *slowStartPlugin) ID() string                     { return "test.io/mock/" + s.name }
 func (s *slowStartPlugin) Name() string                   { return s.name }
 func (s *slowStartPlugin) Version() string                { return "1.0.0" }
 func (s *slowStartPlugin) Init(_ *PluginContext) error     { return nil }

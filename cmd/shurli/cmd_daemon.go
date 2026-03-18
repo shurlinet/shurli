@@ -450,7 +450,7 @@ func runDaemonStart(args []string) {
 	pluginProvider := &plugin.ContextProvider{
 		Network:         rt.network,
 		ServiceRegistry: rt.network.ServiceRegistry(),
-		PluginConfigs:   pluginConfigBytes(rt.config),
+		ConfigDir:       filepath.Dir(rt.configFile),
 		NameResolver:    rt.network.ResolveName,
 		PeerConnector:   rt.ConnectToPeer,
 	}

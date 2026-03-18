@@ -282,7 +282,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		expected := "Bearer " + s.authToken
 
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
-			respondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
+			RespondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
 			return
 		}
 

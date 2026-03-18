@@ -161,7 +161,7 @@ func TestAuthMiddleware_WrongToken(t *testing.T) {
 
 func TestRespondJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondJSON(rec, http.StatusOK, map[string]string{"hello": "world"})
+	RespondJSON(rec, http.StatusOK, map[string]string{"hello": "world"})
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
@@ -184,7 +184,7 @@ func TestRespondJSON(t *testing.T) {
 
 func TestRespondText(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondText(rec, http.StatusOK, "hello world\n")
+	RespondText(rec, http.StatusOK, "hello world\n")
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
@@ -199,7 +199,7 @@ func TestRespondText(t *testing.T) {
 
 func TestRespondError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondError(rec, http.StatusBadRequest, "something went wrong")
+	RespondError(rec, http.StatusBadRequest, "something went wrong")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rec.Code)
@@ -214,7 +214,7 @@ func TestRespondError(t *testing.T) {
 
 func TestWantsText_QueryParam(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status?format=text", nil)
-	if !wantsText(req) {
+	if !WantsText(req) {
 		t.Error("expected wantsText=true for ?format=text")
 	}
 }
@@ -222,14 +222,14 @@ func TestWantsText_QueryParam(t *testing.T) {
 func TestWantsText_AcceptHeader(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status", nil)
 	req.Header.Set("Accept", "text/plain")
-	if !wantsText(req) {
+	if !WantsText(req) {
 		t.Error("expected wantsText=true for Accept: text/plain")
 	}
 }
 
 func TestWantsText_Default(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status", nil)
-	if wantsText(req) {
+	if WantsText(req) {
 		t.Error("expected wantsText=false for default request")
 	}
 }

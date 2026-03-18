@@ -104,6 +104,7 @@ type slowStopPlugin struct {
 	blockDuration time.Duration
 }
 
+func (s *slowStopPlugin) ID() string                      { return "test.io/mock/" + s.name }
 func (s *slowStopPlugin) Name() string                    { return s.name }
 func (s *slowStopPlugin) Version() string                 { return "1.0.0" }
 func (s *slowStopPlugin) Init(_ *PluginContext) error      { return nil }

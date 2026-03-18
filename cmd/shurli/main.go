@@ -5,9 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/shurlinet/shurli/internal/config"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/plugin"
+	"github.com/shurlinet/shurli/plugins"
 )
 
 // Set via -ldflags at build time:
@@ -26,6 +29,9 @@ func main() {
 
 	// Apply cli.color config setting (best-effort, no error on missing config).
 	applyColorConfig()
+
+	// Register plugin CLI commands (always compiled in).
+	plugins.RegisterCLI()
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -59,24 +65,6 @@ func main() {
 		runJoin(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
-	case "share":
-		runShare(os.Args[2:])
-	case "browse":
-		runBrowse(os.Args[2:])
-	case "download":
-		runDownload(os.Args[2:])
-	case "send":
-		runSend(os.Args[2:])
-	case "transfers":
-		runTransfers(os.Args[2:])
-	case "accept":
-		runAccept(os.Args[2:])
-	case "reject":
-		runReject(os.Args[2:])
-	case "cancel":
-		runCancel(os.Args[2:])
-	case "clean":
-		runClean(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -104,6 +92,16 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 	default:
+		// Check plugin commands.
+		if cmd, ok := plugin.FindCLICommand(os.Args[1]); ok {
+			if !isPluginEnabledInConfig(cmd.PluginName) {
+				fmt.Fprintf(os.Stderr, "Command %q is provided by plugin %q which is disabled.\n", os.Args[1], cmd.PluginName)
+				fmt.Fprintf(os.Stderr, "Enable it with: shurli plugin enable %s\n", cmd.PluginName)
+				osExit(1)
+			}
+			cmd.Run(os.Args[2:])
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		printUsage()
 		osExit(1)
@@ -157,19 +155,6 @@ func printUsage() {
 	fmt.Println("  traceroute <target> [--json]           P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>  Forward TCP port")
-	fmt.Println()
-	fmt.Println("File transfer:")
-	fmt.Println("  send <file> <peer> [--follow] [--json]   Send a file to a peer")
-	fmt.Println("  share add <path> [--to peer] [--json]    Share a file or directory")
-	fmt.Println("  share remove <path>                      Stop sharing a path")
-	fmt.Println("  share list [--json]                      List shared paths")
-	fmt.Println("  browse <peer> [<path>] [--json]          Browse a peer's shared files")
-	fmt.Println("  download <peer>:<path> [--dest] [--json] Download from a share")
-	fmt.Println("  transfers [--watch] [--json]             List/watch file transfers")
-	fmt.Println("  accept <id|--all> [--json]               Accept a pending transfer")
-	fmt.Println("  reject <id|--all> [--json]               Reject a pending transfer")
-	fmt.Println("  cancel <id> [--json]                     Cancel a queued/active transfer")
-	fmt.Println("  clean [--json]                           Remove temp files, free disk space")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                 Show your peer ID")
@@ -267,10 +252,47 @@ func printUsage() {
 	fmt.Println("  man                                    Show manual page")
 	fmt.Println("  version                                Show version information")
 	fmt.Println()
+	// Plugin commands: only show if enabled in config.
+	cmds := plugin.CLICommandDescriptions()
+	if len(cmds) > 0 {
+		groups := make(map[string][]plugin.CLICommandEntry)
+		for _, cmd := range cmds {
+			if isPluginEnabledInConfig(cmd.PluginName) {
+				groups[cmd.PluginName] = append(groups[cmd.PluginName], cmd)
+			}
+		}
+		for pluginName, pluginCmds := range groups {
+			title := strings.ToUpper(pluginName[:1]) + pluginName[1:]
+			fmt.Printf("%s (plugin):\n", title)
+			for _, cmd := range pluginCmds {
+				fmt.Printf("  %-48s %s\n", cmd.Usage, cmd.Description)
+			}
+			fmt.Println()
+		}
+	}
+
 	fmt.Println("The <target> can be a peer ID or a name from the names section of your config.")
 	fmt.Println()
 	fmt.Println("All commands support --config <path> to specify a config file.")
 	fmt.Println("Without --config, shurli searches: ./shurli.yaml, ~/.config/shurli/config.yaml")
 	fmt.Println()
 	fmt.Println("Get started:  shurli init")
+}
+
+// isPluginEnabledInConfig checks if a plugin is enabled by reading the config file.
+// Returns true if: no config found, config can't be read, plugin not in config (default enabled).
+func isPluginEnabledInConfig(name string) bool {
+	cfgFile, err := config.FindConfigFile("")
+	if err != nil {
+		return true // no config = default enabled
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		return true
+	}
+	entry, ok := cfg.Plugins.Entries[name]
+	if !ok {
+		return true // not in config = default enabled for built-in
+	}
+	return entry.Enabled
 }
