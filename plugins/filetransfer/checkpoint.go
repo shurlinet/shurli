@@ -77,18 +77,34 @@ func loadCheckpoints(configDir string) ([]partialManifest, error) {
 
 // isInsideDir checks whether path is inside dir after resolving symlinks and cleaning.
 // Returns false if path escapes dir via traversal, symlinks, or absolute paths.
+// L4-1 fix: resolves symlinks on both dir and path so a symlinked configDir
+// pointing outside the expected tree is caught.
 func isInsideDir(dir, path string) bool {
-	cleanDir := filepath.Clean(dir)
-	cleanPath := filepath.Clean(path)
+	// Resolve symlinks when possible (falls back to Clean if path doesn't exist yet).
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		resolvedDir = filepath.Clean(dir)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// Path may not exist yet (e.g., checkpoint about to be written).
+		// Clean the path and resolve the parent directory instead.
+		resolvedPath = filepath.Clean(path)
+		parentDir := filepath.Dir(resolvedPath)
+		if resolvedParent, pErr := filepath.EvalSymlinks(parentDir); pErr == nil {
+			resolvedPath = filepath.Join(resolvedParent, filepath.Base(resolvedPath))
+		}
+	}
 	// Check prefix match with path separator to avoid "dir2" matching "dir".
-	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
+	return resolvedPath == resolvedDir || strings.HasPrefix(resolvedPath, resolvedDir+string(os.PathSeparator))
 }
 
 // isForbiddenSystemPath returns true for paths under system directories that should
 // never be sent via file transfer. Prevents accidental/malicious file exfiltration (P11 fix).
+// L4-3 fix: case-insensitive comparison so /ETC/passwd is blocked on macOS (case-insensitive FS).
 func isForbiddenSystemPath(path string) bool {
 	forbidden := []string{"/etc/", "/var/", "/proc/", "/sys/", "/dev/", "/boot/", "/sbin/", "/usr/sbin/"}
-	clean := filepath.Clean(path)
+	clean := strings.ToLower(filepath.Clean(path))
 	for _, prefix := range forbidden {
 		if strings.HasPrefix(clean, prefix) || clean == strings.TrimSuffix(prefix, "/") {
 			return true
