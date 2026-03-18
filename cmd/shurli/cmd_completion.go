@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 func runCompletion(args []string) {
@@ -53,12 +56,58 @@ func runCompletion(args []string) {
 	// Default: print script to stdout.
 	switch shell {
 	case "bash":
-		fmt.Print(completionBash)
+		fmt.Print(buildCompletionBash())
 	case "zsh":
-		fmt.Print(completionZsh)
+		fmt.Print(buildCompletionZsh())
 	case "fish":
-		fmt.Print(completionFish)
+		fmt.Print(buildCompletionFish())
 	}
+}
+
+// buildCompletionBash returns the bash completion script with plugin commands injected.
+func buildCompletionBash() string {
+	cmds := plugin.CLICommandDescriptions()
+	if len(cmds) == 0 {
+		return completionBash
+	}
+	// Inject plugin command names into the top-level commands= string.
+	var names []string
+	for _, cmd := range cmds {
+		names = append(names, cmd.Name)
+	}
+	extra := strings.Join(names, " ")
+	s := strings.Replace(completionBash, "PLUGIN_COMMANDS_PLACEHOLDER", extra, 1)
+	// Inject plugin case branches.
+	s = strings.Replace(s, "# PLUGIN_CASES_PLACEHOLDER", plugin.GenerateBashCompletion(cmds), 1)
+	return s
+}
+
+// buildCompletionZsh returns the zsh completion script with plugin commands injected.
+func buildCompletionZsh() string {
+	cmds := plugin.CLICommandDescriptions()
+	if len(cmds) == 0 {
+		return completionZsh
+	}
+	// Inject plugin command descriptions.
+	var entries []string
+	for _, cmd := range cmds {
+		desc := strings.ReplaceAll(cmd.Description, "'", "'\\''")
+		entries = append(entries, fmt.Sprintf("        '%s:%s'", cmd.Name, desc))
+	}
+	s := strings.Replace(completionZsh, "        # PLUGIN_COMMANDS_PLACEHOLDER", strings.Join(entries, "\n"), 1)
+	// Inject plugin case branches.
+	s = strings.Replace(s, "        # PLUGIN_CASES_PLACEHOLDER", plugin.GenerateZshCompletion(cmds), 1)
+	return s
+}
+
+// buildCompletionFish returns the fish completion script with plugin commands injected.
+func buildCompletionFish() string {
+	cmds := plugin.CLICommandDescriptions()
+	if len(cmds) == 0 {
+		return completionFish
+	}
+	s := strings.Replace(completionFish, "# PLUGIN_COMMANDS_PLACEHOLDER\n", plugin.GenerateFishCompletion(cmds), 1)
+	return s
 }
 
 // completionInstallPath returns the install path for a given shell.
@@ -98,11 +147,11 @@ func installCompletion(shell string) {
 	var content string
 	switch shell {
 	case "bash":
-		content = completionBash
+		content = buildCompletionBash()
 	case "zsh":
-		content = completionZsh
+		content = buildCompletionZsh()
 	case "fish":
-		content = completionFish
+		content = buildCompletionFish()
 	}
 
 	// Create parent directory.
@@ -167,11 +216,10 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject cancel whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate"
-    local share_cmds="add remove list"
     local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove show setup serve authorize deauthorize set-attr list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
@@ -353,35 +401,7 @@ _shurli_completions() {
         resolve)
             COMPREPLY=($(compgen -W "--config --json" -- "$cur"))
             return ;;
-        share)
-            if [[ $COMP_CWORD -eq 2 ]]; then
-                COMPREPLY=($(compgen -W "$share_cmds" -- "$cur"))
-            else
-                COMPREPLY=($(compgen -W "--to --peers --persist --json" -- "$cur"))
-            fi
-            return ;;
-        browse)
-            # Usage: browse <peer> [<path>] [--path /sub/dir] [--json]
-            COMPREPLY=($(compgen -W "--json --path" -- "$cur"))
-            return ;;
-        download)
-            COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent --multi-peer --peers" -- "$cur"))
-            return ;;
-        send)
-            COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --priority --quiet --silent" -- "$cur"))
-            return ;;
-        transfers)
-            COMPREPLY=($(compgen -W "--json --watch --history --max" -- "$cur"))
-            return ;;
-        accept)
-            COMPREPLY=($(compgen -W "--json --dest --all" -- "$cur"))
-            return ;;
-        reject)
-            COMPREPLY=($(compgen -W "--json --reason --all" -- "$cur"))
-            return ;;
-        cancel)
-            COMPREPLY=($(compgen -W "--json" -- "$cur"))
-            return ;;
+        # PLUGIN_CASES_PLACEHOLDER
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
             return ;;
@@ -437,14 +457,7 @@ _shurli() {
         'ping:P2P ping'
         'traceroute:P2P traceroute'
         'resolve:Resolve name to peer ID'
-        'send:Send file to peer'
-        'download:Download from a peer'"'"'s shares'
-        'share:Share files and directories'
-        'browse:Browse a peer'"'"'s shared files'
-        'transfers:List/watch file transfers'
-        'accept:Accept a pending transfer'
-        'reject:Reject a pending transfer'
-        'cancel:Cancel a queued or active transfer'
+        # PLUGIN_COMMANDS_PLACEHOLDER
         'whoami:Show your peer ID'
         'auth:Identity and access management'
         'relay:Relay client and server commands'
@@ -716,29 +729,7 @@ _shurli() {
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         resolve)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
-        share)
-            if (( CURRENT == 3 )); then
-                local -a share_cmds
-                share_cmds=('add:Share a file or directory' 'remove:Stop sharing a path' 'list:List shared paths')
-                _describe -t share_cmds 'share subcommand' share_cmds
-            else
-                _arguments '--to[Share with a single peer]:peer' '--peers[Comma-separated peer IDs]:peers' '--persist[Survive daemon restart]' '--json[Output as JSON]' '*:path:_files'
-            fi
-            ;;
-        browse)
-            _arguments '1:peer:' '2:path:' '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
-        download)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' '--multi-peer[Download from multiple peers (RaptorQ)]' '--peers[Extra peer names for multi-peer]:peers' ;;
-        send)
-            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--priority[Queue priority (low|normal|high)]:priority:(low normal high)' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
-        transfers)
-            _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' '--history[Show transfer event history]' '--max[Max history events]:count' ;;
-        accept)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--all[Accept all pending transfers]' ;;
-        reject)
-            _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' '--all[Reject all pending transfers]' ;;
-        cancel)
-            _arguments '--json[Output as JSON]' ;;
+        # PLUGIN_CASES_PLACEHOLDER
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
@@ -813,14 +804,7 @@ complete -c shurli -n __shurli_no_subcommand -a proxy       -d 'Forward TCP port
 complete -c shurli -n __shurli_no_subcommand -a ping        -d 'P2P ping'
 complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
-complete -c shurli -n __shurli_no_subcommand -a send        -d 'Send file to peer'
-complete -c shurli -n __shurli_no_subcommand -a download    -d 'Download from a peer'"'"'s shares'
-complete -c shurli -n __shurli_no_subcommand -a share       -d 'Share files and directories'
-complete -c shurli -n __shurli_no_subcommand -a browse      -d 'Browse a peer'"'"'s shared files'
-complete -c shurli -n __shurli_no_subcommand -a transfers   -d 'List/watch file transfers'
-complete -c shurli -n __shurli_no_subcommand -a accept      -d 'Accept a pending transfer'
-complete -c shurli -n __shurli_no_subcommand -a reject      -d 'Reject a pending transfer'
-complete -c shurli -n __shurli_no_subcommand -a cancel      -d 'Cancel a queued or active transfer'
+# PLUGIN_COMMANDS_PLACEHOLDER
 complete -c shurli -n __shurli_no_subcommand -a whoami      -d 'Show your peer ID'
 complete -c shurli -n __shurli_no_subcommand -a auth        -d 'Identity and access management'
 complete -c shurli -n __shurli_no_subcommand -a relay       -d 'Relay client and server'
@@ -1023,40 +1007,6 @@ complete -c shurli -n '__shurli_using_command traceroute' -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command traceroute' -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command resolve'    -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l follow       -d 'Follow transfer progress'
-complete -c shurli -n '__shurli_using_command send'       -l no-compress  -d 'Disable zstd compression'
-complete -c shurli -n '__shurli_using_command send'       -l streams      -d 'Parallel stream count' -r
-complete -c shurli -n '__shurli_using_command send'       -l quiet        -d 'Single progress bar'
-complete -c shurli -n '__shurli_using_command send'       -l priority     -d 'Queue priority (low|normal|high)' -r
-complete -c shurli -n '__shurli_using_command send'       -l silent       -d 'No progress output'
-complete -c shurli -n '__shurli_using_command share'      -a 'add remove list' -d 'Share subcommand'
-complete -c shurli -n '__shurli_using_subcommand share add'    -l to      -d 'Share with a single peer' -r
-complete -c shurli -n '__shurli_using_subcommand share add'    -l peers   -d 'Comma-separated peer IDs' -r
-complete -c shurli -n '__shurli_using_subcommand share add'    -l persist -d 'Survive daemon restart'
-complete -c shurli -n '__shurli_using_subcommand share add'    -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_subcommand share remove' -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_subcommand share list'   -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command browse'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command browse'     -l path         -d 'Browse path (or pass as 2nd positional arg)'
-complete -c shurli -n '__shurli_using_command download'   -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command download'   -l dest         -d 'Save to specific directory' -r
-complete -c shurli -n '__shurli_using_command download'   -l follow       -d 'Follow transfer progress'
-complete -c shurli -n '__shurli_using_command download'   -l quiet        -d 'Single progress bar'
-complete -c shurli -n '__shurli_using_command download'   -l silent       -d 'No progress output'
-complete -c shurli -n '__shurli_using_command download'   -l multi-peer   -d 'Download from multiple peers (RaptorQ)'
-complete -c shurli -n '__shurli_using_command download'   -l peers        -d 'Extra peer names for multi-peer' -r
-complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
-complete -c shurli -n '__shurli_using_command transfers'  -l history      -d 'Show transfer event history'
-complete -c shurli -n '__shurli_using_command transfers'  -l max          -d 'Max history events' -r
-complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command accept'     -l dest         -d 'Save to specific directory'
-complete -c shurli -n '__shurli_using_command accept'     -l all          -d 'Accept all pending transfers'
-complete -c shurli -n '__shurli_using_command reject'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command reject'     -l reason       -d 'Reject reason (space, busy, size)'
-complete -c shurli -n '__shurli_using_command reject'     -l all          -d 'Reject all pending transfers'
-complete -c shurli -n '__shurli_using_command cancel'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'
