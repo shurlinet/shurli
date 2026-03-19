@@ -2,9 +2,13 @@ package plugin
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 
@@ -101,7 +105,7 @@ func TestSecurity_DeriveKeyDomainIsolation(t *testing.T) {
 	r := NewRegistry(&ContextProvider{
 		KeyDeriver: fakeDeriver,
 	})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	var ctxA, ctxB *PluginContext
 	a := newMinimalPlugin("key-a")
@@ -272,7 +276,7 @@ func TestSecurity_ProtocolPolicyEnforcement(t *testing.T) {
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,
 	})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	// Plugin with nil policy -> should get default transport policy at registration.
 	p := newMinimalPlugin("policy-default")
@@ -384,5 +388,100 @@ func TestSecurity_StatusFieldsNoLeaks(t *testing.T) {
 			strings.Contains(lower, "key") || strings.Contains(lower, "deriver") {
 			t.Errorf("status field %q may leak internal details", key)
 		}
+	}
+}
+
+// S12: Checkpoint HMAC - end-to-end: crash -> checkpoint with HMAC -> restore with valid HMAC.
+// Also verifies key domain isolation between plugins.
+func TestSecurity_CheckpointHMAC(t *testing.T) {
+	fakeDeriver := func(domain string) []byte {
+		h := sha256.Sum256([]byte(domain))
+		return h[:]
+	}
+
+	r := NewRegistry(&ContextProvider{
+		KeyDeriver: fakeDeriver,
+	})
+	r.enableDisableCooldown = 0
+
+	// Plugin that implements Checkpointer with known data.
+	// Must use testCheckpointerPlugin - testPlugin does NOT implement Checkpointer.
+	var restoreCalled atomic.Bool
+	var restoredData atomic.Value
+	base := newMinimalPlugin("hmac-test")
+	base.checkpointFn = func() ([]byte, error) {
+		return []byte("checkpoint-state-data"), nil
+	}
+	base.restoreFn = func(data []byte) error {
+		restoreCalled.Store(true)
+		restoredData.Store(string(data))
+		return nil
+	}
+	p := &testCheckpointerPlugin{testPlugin: base}
+	r.Register(p)
+	r.Enable("hmac-test")
+
+	// Trigger crash -> supervisor restarts with checkpoint + HMAC.
+	r.recordCrashAndMaybeRestart("hmac-test")
+
+	// Wait for restart to complete.
+	if !waitForState(r, "hmac-test", StateActive, 5*time.Second) {
+		t.Fatal("plugin should restart after crash")
+	}
+
+	// Restore should have been called with the original checkpoint data,
+	// proving the HMAC verification passed.
+	if !restoreCalled.Load() {
+		t.Fatal("Restore should have been called after successful HMAC verification")
+	}
+	if got, ok := restoredData.Load().(string); !ok || got != "checkpoint-state-data" {
+		t.Fatalf("Restore received wrong data: %q", got)
+	}
+
+	// Verify key domain isolation: different plugin names derive different keys.
+	keyA := fakeDeriver("checkpoint\x00plugin-a")
+	keyB := fakeDeriver("checkpoint\x00plugin-b")
+	if hmac.Equal(keyA, keyB) {
+		t.Fatal("different plugin names should derive different checkpoint keys")
+	}
+}
+
+// S13: Checkpoint timeout - hanging Checkpoint() doesn't block restart.
+func TestSecurity_CheckpointTimeout(t *testing.T) {
+	// Override start timeout to make test fast.
+	origTimeout := startTimeoutDuration
+	startTimeoutDuration = 200 * time.Millisecond
+	defer func() { startTimeoutDuration = origTimeout }()
+
+	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 0
+
+	var restoreCalled atomic.Bool
+	base := newMinimalPlugin("hang-cp")
+	// Checkpoint hangs forever.
+	base.checkpointFn = func() ([]byte, error) {
+		select {} // block forever
+	}
+	base.restoreFn = func(data []byte) error {
+		restoreCalled.Store(true)
+		return nil
+	}
+	// Must use testCheckpointerPlugin - testPlugin does NOT implement Checkpointer.
+	p := &testCheckpointerPlugin{testPlugin: base}
+	r.Register(p)
+	r.Enable("hang-cp")
+
+	// Trigger a crash to start the supervisor restart flow.
+	r.recordCrashAndMaybeRestart("hang-cp")
+
+	// Wait for the restart to complete (checkpoint should timeout, proceed stateless).
+	ok := waitForState(r, "hang-cp", StateActive, 3*time.Second)
+	if !ok {
+		t.Fatal("plugin should restart even when Checkpoint() hangs (timeout should fire)")
+	}
+
+	// Restore should NOT have been called (no checkpoint data due to timeout).
+	if restoreCalled.Load() {
+		t.Error("Restore should not be called when Checkpoint timed out")
 	}
 }

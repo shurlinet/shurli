@@ -44,6 +44,20 @@ import (
 // across auto-restart cycles. When a plugin crashes and the supervisor triggers
 // a restart, Checkpoint() is called before Stop() and Restore() after Start().
 // Plugins that don't implement this interface restart with fresh state.
+//
+// IMPORTANT: Checkpoint() is called after a panic recovery in a handler, not
+// during normal operation. The plugin's internal state may be inconsistent
+// (half-written buffers, partial operations). Implementations MUST:
+//   - Use internal synchronization to ensure only committed state is serialized
+//   - Return ErrSkipCheckpoint if internal state may be inconsistent
+//
+// The framework cannot validate plugin-specific state semantics - this is
+// the plugin author's responsibility. The framework provides HMAC integrity
+// (detects external tampering) and timeout (detects hangs), but only the
+// plugin knows whether its own internal state is consistent.
+//
+// The framework enforces a timeout on Checkpoint() (same as Start timeout).
+// A hanging Checkpoint() results in a stateless restart.
 type Checkpointer interface {
 	Checkpoint() ([]byte, error)
 	Restore([]byte) error
@@ -265,6 +279,9 @@ func (c *PluginContext) Config() []byte {
 // OnConfigReload registers a callback that is invoked when the daemon's config
 // is hot-reloaded and this plugin's section has changed. The callback receives
 // the new raw YAML bytes for the plugin's section.
+//
+// MUST be called from Init() only. The callback field is not synchronized -
+// calling this from a goroutine after Init() races with NotifyConfigReload.
 func (c *PluginContext) OnConfigReload(callback func([]byte)) {
 	c.configReloadCb = callback
 }
@@ -362,14 +379,15 @@ type ContextProvider struct {
 
 // Info holds plugin metadata for introspection.
 type Info struct {
-	Name       string
-	Version    string
-	Type       string // "built-in" or "installed"
-	State      State
-	Enabled    bool
-	Commands   []string
-	Routes     []string
-	Protocols  []string
-	ConfigKey  string
-	CrashCount int
+	Name            string
+	Version         string
+	Type            string // "built-in" or "installed"
+	State           State
+	Enabled         bool
+	Commands        []string
+	Routes          []string
+	Protocols       []string
+	ConfigKey       string
+	CrashCount      int // crashes in current window (resets after 5 min)
+	LifetimeCrashes int // total crashes ever (resets only on daemon restart, limit: 10)
 }

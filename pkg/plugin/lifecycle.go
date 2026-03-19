@@ -45,15 +45,17 @@ func ValidTransition(from, to State) error {
 
 // Circuit breaker and drain constants.
 const (
-	circuitBreakerThreshold = 3 // panics before auto-disable
+	circuitBreakerThreshold      = 3              // panics within window before auto-disable
+	lifetimeCrashLimit           = 10             // total crashes ever before permanent disable (resets on daemon restart)
+	defaultEnableDisableCooldown = 5 * time.Second // G3 fix: min time between enable/disable (per-Registry field)
 )
 
-// Time-based constants used by the registry.
+// Time-based variables used by the registry. These are var (not const) so tests
+// can override them with shorter durations for fast CI.
 var (
 	circuitBreakerWindowDuration = 5 * time.Minute  // reset crash counter after this
 	drainTimeoutDuration         = 30 * time.Second // force-stop after this
 	startTimeoutDuration         = 30 * time.Second // max time for Start() to return
-	enableDisableCooldown        = 5 * time.Second  // G3 fix: min time between enable/disable
 	maxConfigFileSize      int64 = 1 << 20         // M3 fix: 1MB max plugin config.yaml
 	maxCheckpointSize            = 10 * 1024 * 1024 // 10MB max checkpoint data per plugin
 )
