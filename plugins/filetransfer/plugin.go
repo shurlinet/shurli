@@ -10,6 +10,7 @@ package filetransfer
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -463,9 +464,64 @@ func (p *FileTransferPlugin) wrapHandler(handler http.HandlerFunc) http.HandlerF
 	}
 }
 
+// Checkpoint serializes the plugin's current state for supervisor auto-restart.
+// Returns the active transfer snapshots as JSON so they can be restored after restart.
+func (p *FileTransferPlugin) Checkpoint() ([]byte, error) {
+	p.mu.RLock()
+	ts := p.transferService
+	sr := p.shareRegistry
+	p.mu.RUnlock()
+
+	state := checkpointState{}
+
+	if ts != nil {
+		for _, snap := range ts.ListTransfers() {
+			state.Transfers = append(state.Transfers, snap)
+		}
+	}
+
+	if sr != nil {
+		state.HasShares = true
+		// Shares are persisted to disk by Stop(), so we just note their existence.
+		// Restore will re-load from disk via Start().
+	}
+
+	if len(state.Transfers) == 0 && !state.HasShares {
+		return nil, plugin.ErrSkipCheckpoint
+	}
+
+	return json.Marshal(state)
+}
+
+// Restore deserializes state saved by Checkpoint after a supervisor restart.
+// Transfer state is informational - active transfers cannot truly resume after
+// a crash because streams are broken. But the queue can be re-populated.
+func (p *FileTransferPlugin) Restore(data []byte) error {
+	var state checkpointState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("restore checkpoint: %w", err)
+	}
+
+	slog.Info("plugin.filetransfer: restored from checkpoint",
+		"transfers", len(state.Transfers),
+		"has_shares", state.HasShares)
+
+	// Shares are loaded from disk by Start(), nothing to restore.
+	// Transfer queue is loaded from queue.json by Start(), nothing to restore.
+	// This method exists for future state that needs explicit restoration.
+	return nil
+}
+
+// checkpointState is the JSON structure saved by Checkpoint/Restore.
+type checkpointState struct {
+	Transfers []p2pnet.TransferSnapshot `json:"transfers,omitempty"`
+	HasShares bool                      `json:"has_shares,omitempty"`
+}
+
 // Ensure types satisfy interface at compile time.
 var _ plugin.Plugin = (*FileTransferPlugin)(nil)
 var _ plugin.StatusContributor = (*FileTransferPlugin)(nil)
+var _ plugin.Checkpointer = (*FileTransferPlugin)(nil)
 
 // osExit is a testable exit function.
 var osExit = os.Exit

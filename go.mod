@@ -137,4 +137,5 @@ require (
 	gonum.org/v1/gonum v0.17.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
+	pgregory.net/rapid v1.2.0 // indirect
 )

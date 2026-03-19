@@ -28,6 +28,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -38,6 +39,19 @@ import (
 
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
+
+// Checkpointer is optionally implemented by plugins that want state preserved
+// across auto-restart cycles. When a plugin crashes and the supervisor triggers
+// a restart, Checkpoint() is called before Stop() and Restore() after Start().
+// Plugins that don't implement this interface restart with fresh state.
+type Checkpointer interface {
+	Checkpoint() ([]byte, error)
+	Restore([]byte) error
+}
+
+// ErrSkipCheckpoint is returned by Checkpoint() when a plugin has no state
+// worth saving. The supervisor proceeds with a stateless restart.
+var ErrSkipCheckpoint = errors.New("skip checkpoint: no state to save")
 
 // StatusContributor is optionally implemented by plugins that contribute fields
 // to the daemon status response. Any plugin can implement this - no special treatment.
@@ -274,9 +288,9 @@ func (c *PluginContext) ConfigDir() string {
 // Each (identity, domain) pair produces a unique, stable key.
 // The raw identity key is never exposed to plugins.
 // Used for HMAC integrity (e.g. queue.json persistence).
-// Returns nil if no key deriver is configured.
+// Returns nil if no key deriver is configured or domain is empty.
 func (c *PluginContext) DeriveKey(domain string) []byte {
-	if c.keyDeriver == nil {
+	if c.keyDeriver == nil || domain == "" {
 		return nil
 	}
 	return c.keyDeriver(domain)

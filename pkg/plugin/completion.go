@@ -225,10 +225,8 @@ func escapeTroff(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	// Replace newlines with spaces to prevent multi-line troff injection.
 	s = strings.ReplaceAll(s, "\n", " ")
-	// Escape leading dot (troff interprets . at start of line as directive).
-	if strings.HasPrefix(s, ".") {
-		s = s[1:] // strip leading dot entirely to prevent directive interpretation
-	}
+	// Strip ALL leading dots (troff interprets . at start of line as directive).
+	s = strings.TrimLeft(s, ".")
 	return s
 }
 
