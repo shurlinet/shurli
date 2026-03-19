@@ -94,7 +94,7 @@ func TestAcceptance_ProtocolRegistrationWithServiceRegistry(t *testing.T) {
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,
 	})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	p := newMinimalPlugin("proto-test")
 	p.protocols = []Protocol{
@@ -154,7 +154,7 @@ func TestAcceptance_ConfigReloadChain(t *testing.T) {
 	r := NewRegistry(&ContextProvider{
 		ConfigDir: tmpDir,
 	})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	var reloadedBytes atomic.Value
 	p := newMinimalPlugin("reload")

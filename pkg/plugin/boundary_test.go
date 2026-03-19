@@ -135,10 +135,8 @@ func TestBoundary_CircuitBreakerThreshold(t *testing.T) {
 
 // B7: Enable/Disable cooldown boundary.
 func TestBoundary_EnableDisableCooldown(t *testing.T) {
-	enableDisableCooldown = 100 * time.Millisecond
-	defer func() { enableDisableCooldown = 0 }()
-
 	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 100 * time.Millisecond
 	p := newMinimalPlugin("cooldown")
 	r.Register(p)
 	r.Enable("cooldown")
@@ -235,6 +233,58 @@ func TestBoundary_PluginNameEdgeCases(t *testing.T) {
 		if err := validatePluginName(name); err == nil {
 			t.Errorf("name %q should be rejected", name)
 		}
+	}
+}
+
+// B11: Lifetime crash limit boundary.
+// 10 crashes spread across separate windows -> permanently disabled.
+func TestBoundary_LifetimeCrashLimit(t *testing.T) {
+	r := newTestRegistryB1()
+	p := newMinimalPlugin("lifetime")
+	r.Register(p)
+	r.Enable("lifetime")
+
+	sv := func() *supervisor {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		return r.plugins["lifetime"].supervisor
+	}()
+
+	// Crash 9 times across separate windows (reset window each time).
+	for i := 0; i < 9; i++ {
+		r.mu.Lock()
+		sv.crashCount = 0
+		sv.firstCrash = time.Time{} // reset window
+		sv.RecordCrash()
+		r.mu.Unlock()
+	}
+
+	// After 9 lifetime crashes, should still allow restart.
+	r.mu.RLock()
+	if sv.lifetimeCrashes != 9 {
+		t.Fatalf("expected 9 lifetime crashes, got %d", sv.lifetimeCrashes)
+	}
+	should := sv.ShouldAutoRestart()
+	r.mu.RUnlock()
+	if !should {
+		t.Error("should still auto-restart after 9 lifetime crashes")
+	}
+
+	// 10th crash -> lifetime limit hit.
+	r.mu.Lock()
+	sv.crashCount = 0
+	sv.firstCrash = time.Time{}
+	sv.RecordCrash()
+	r.mu.Unlock()
+
+	r.mu.RLock()
+	if sv.lifetimeCrashes != 10 {
+		t.Fatalf("expected 10 lifetime crashes, got %d", sv.lifetimeCrashes)
+	}
+	should = sv.ShouldAutoRestart()
+	r.mu.RUnlock()
+	if should {
+		t.Error("should NOT auto-restart after 10 lifetime crashes (lifetime limit)")
 	}
 }
 
