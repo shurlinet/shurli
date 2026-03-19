@@ -55,4 +55,5 @@ var (
 	startTimeoutDuration         = 30 * time.Second // max time for Start() to return
 	enableDisableCooldown        = 5 * time.Second  // G3 fix: min time between enable/disable
 	maxConfigFileSize      int64 = 1 << 20         // M3 fix: 1MB max plugin config.yaml
+	maxCheckpointSize            = 10 * 1024 * 1024 // 10MB max checkpoint data per plugin
 )

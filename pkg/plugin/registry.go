@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -49,8 +50,7 @@ type pluginEntry struct {
 	plugin         Plugin
 	ctx            *PluginContext
 	state          State
-	crashCount     int
-	firstCrash     time.Time
+	supervisor     *supervisor        // auto-restart, crash counting, backoff
 	lastTransition time.Time          // G3 fix: cooldown on enable/disable
 	startCancel    context.CancelFunc // G6 fix: cancel abandoned Start() goroutine
 }
@@ -213,6 +213,7 @@ func (r *Registry) Register(p Plugin) error {
 		ctx:    pctx,
 		state:  StateLoading,
 	}
+	entry.supervisor = newSupervisor(name, r)
 
 	// Insert placeholder BEFORE releasing lock. Other Register() calls
 	// for the same name will see the entry and fail the duplicate check.
@@ -221,7 +222,7 @@ func (r *Registry) Register(p Plugin) error {
 	r.mu.Unlock()
 
 	// Call Init with panic recovery. Lock is NOT held here so that
-	// callWithRecovery's panic handler can call recordCrash safely.
+	// callWithRecovery's panic handler can call recordCrashAndMaybeRestart safely.
 	if err := r.callWithRecovery(entry, "Init", func() error {
 		return p.Init(pctx)
 	}); err != nil {
@@ -290,7 +291,7 @@ func (r *Registry) Enable(name string) error {
 	r.mu.Unlock()
 
 	// Call Start with panic recovery and timeout. Lock is released so
-	// callWithRecovery's panic handler can call recordCrash (which acquires the lock).
+	// callWithRecovery's panic handler can call recordCrashAndMaybeRestart (which acquires the lock).
 	// A blocking Start() must not permanently block the daemon.
 	// G11 fix: pass context to Start() so plugins can detect cancellation.
 	startDone := make(chan error, 1)
@@ -351,8 +352,7 @@ func (r *Registry) Enable(name string) error {
 	entry.ctx.declaredProtos = declaredProtos
 
 	// Reset circuit breaker on successful enable.
-	entry.crashCount = 0
-	entry.firstCrash = time.Time{}
+	entry.supervisor.Reset()
 	entry.state = StateActive
 	entry.lastTransition = time.Now()
 	entry.startCancel = nil // G6: Start completed, no longer cancellable
@@ -440,6 +440,9 @@ func (r *Registry) Disable(name string) error {
 	entry.ctx.peerConnector = nil
 	entry.state = StateStopped
 	entry.lastTransition = time.Now()
+	// Mark supervisor as disabled to prevent auto-restart after user-initiated disable.
+	// The supervisor's TriggerRestart clears this flag before its own re-enable.
+	entry.supervisor.SetDisabled()
 	r.mu.Unlock()
 
 	slog.Info("plugin.disabled", "name", name, "reason", reason)
@@ -495,7 +498,7 @@ func (r *Registry) List() []Info {
 		entries = append(entries, snapshot{
 			plugin:     entry.plugin,
 			state:      entry.state,
-			crashCount: entry.crashCount,
+			crashCount: entry.supervisor.crashCount,
 		})
 	}
 	r.mu.RUnlock()
@@ -518,7 +521,7 @@ func (r *Registry) GetInfo(name string) (*Info, error) {
 	}
 	p := entry.plugin
 	state := entry.state
-	crashes := entry.crashCount
+	crashes := entry.supervisor.crashCount
 	r.mu.RUnlock()
 
 	info := buildInfoFromSnapshot(p, state, crashes)
@@ -622,12 +625,24 @@ func (r *Registry) NotifyNetworkReady() error {
 
 	for i, entry := range activeEntries {
 		name := activeNames[i]
-		if err := r.callWithRecovery(entry, "OnNetworkReady", func() error {
-			return entry.plugin.OnNetworkReady()
-		}); err != nil {
-			slog.Warn("plugin.network-ready-failed", "name", name, "error", err)
-		} else {
-			slog.Info("plugin.network-ready", "name", name)
+		// A6 fix: per-plugin timeout prevents a hanging OnNetworkReady from
+		// blocking all subsequent plugins. Uses same timeout as Start().
+		done := make(chan error, 1)
+		go func() {
+			done <- r.callWithRecovery(entry, "OnNetworkReady", func() error {
+				return entry.plugin.OnNetworkReady()
+			})
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				slog.Warn("plugin.network-ready-failed", "name", name, "error", err)
+			} else {
+				slog.Info("plugin.network-ready", "name", name)
+			}
+		case <-time.After(startTimeoutDuration):
+			slog.Warn("plugin.network-ready-timeout", "name", name, "timeout", startTimeoutDuration.String())
 		}
 	}
 	return nil
@@ -768,14 +783,24 @@ func (r *Registry) NotifyConfigReload() {
 
 	// P19 fix: write configBytes under full Lock.
 	// P20 fix: call callbacks outside the lock to prevent deadlock.
+	// A7 fix: panic recovery so one panicking callback doesn't prevent subsequent reloads.
 	for _, item := range items {
 		r.mu.Lock()
 		item.entry.ctx.configBytes = item.newBytes
 		cb := item.entry.ctx.configReloadCb
+		name := item.entry.plugin.Name()
 		r.mu.Unlock()
 
 		if cb != nil {
-			cb(item.newBytes)
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						slog.Error("plugin.config-reload-panic", "name", name,
+							"panic", rec, "stack", string(debug.Stack()))
+					}
+				}()
+				cb(item.newBytes)
+			}()
 		}
 	}
 }
@@ -824,9 +849,13 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 	if r.serviceRegistry == nil {
 		return nil // no service registry (e.g., testing)
 	}
+	// Track successfully registered names so rollback only removes what THIS call added.
+	// Prevents unregistering another plugin's protocol on partial failure.
+	var registered []string
 	for _, proto := range entry.plugin.Protocols() {
 		// X3 fix: validate protocol names before registration.
 		if err := validateProtocolName(proto.Name); err != nil {
+			r.rollbackProtocols(registered)
 			return fmt.Errorf("plugin %q: %w", entry.plugin.Name(), err)
 		}
 		// G2 fix: protocol namespace validation (defense-in-depth for Layer 1).
@@ -834,6 +863,7 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 		// names don't collide with core Shurli protocols. Core protocols use
 		// specific names that plugins must not shadow.
 		if isReservedProtocolName(proto.Name) {
+			r.rollbackProtocols(registered)
 			return fmt.Errorf("plugin %q: protocol name %q is reserved for core Shurli protocols",
 				entry.plugin.Name(), proto.Name)
 		}
@@ -850,12 +880,25 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 			Policy:   policy,
 		}
 		if err := r.serviceRegistry.RegisterService(svc); err != nil {
-			// Rollback already-registered protocols.
-			r.unregisterProtocols(entry)
+			r.rollbackProtocols(registered)
 			return fmt.Errorf("register %s: %w", proto.Name, err)
 		}
+		registered = append(registered, proto.Name)
 	}
 	return nil
+}
+
+// rollbackProtocols unregisters only the named protocols from the service registry.
+// Used by registerProtocols to undo partial registration without touching other plugins.
+func (r *Registry) rollbackProtocols(names []string) {
+	if r.serviceRegistry == nil {
+		return
+	}
+	for _, name := range names {
+		if err := r.serviceRegistry.UnregisterService(name); err != nil {
+			slog.Warn("plugin.rollback-protocol", "protocol", name, "error", err)
+		}
+	}
 }
 
 // unregisterProtocols removes a plugin's protocols from the service registry.
@@ -887,9 +930,10 @@ func (r *Registry) wrapHandler(pluginName string, handler p2pnet.StreamHandler) 
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				slog.Error("plugin.panic", "name", pluginName, "method", "handler", "panic", rec)
+				slog.Error("plugin.panic", "name", pluginName, "method", "handler",
+					"panic", rec, "stack", string(debug.Stack()))
 				s.Reset()
-				r.recordCrash(pluginName)
+				r.recordCrashAndMaybeRestart(pluginName)
 			}
 		}()
 
@@ -900,44 +944,101 @@ func (r *Registry) wrapHandler(pluginName string, handler p2pnet.StreamHandler) 
 // callWithRecovery calls fn, recovering any panic and converting it to an error.
 // Also records crashes for circuit breaker logic.
 // G12 SAFETY: callers MUST NOT hold r.mu when calling this, because the panic
-// handler calls recordCrash which acquires r.mu.Lock(). All call sites (Register,
+// handler calls recordCrashAndMaybeRestart which acquires r.mu.Lock(). All call sites (Register,
 // Enable, Disable, NotifyNetworkReady) release the lock before calling this.
 func (r *Registry) callWithRecovery(entry *pluginEntry, method string, fn func() error) (retErr error) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			slog.Error("plugin.panic", "name", entry.plugin.Name(), "method", method, "panic", rec)
+			slog.Error("plugin.panic", "name", entry.plugin.Name(), "method", method,
+				"panic", rec, "stack", string(debug.Stack()))
 			retErr = fmt.Errorf("panic in %s: %v", method, rec)
+			// Record crash for circuit breaker counting, but do NOT trigger
+			// auto-restart. Lifecycle method panics (Init/Start/Stop) indicate
+			// a broken plugin, not a transient handler failure. Auto-restart
+			// is only triggered by wrapHandler (stream handler panics during ACTIVE).
 			r.recordCrash(entry.plugin.Name())
 		}
 	}()
 	return fn()
 }
 
-// recordCrash increments the crash counter and triggers the circuit breaker if needed.
-// Circuit breaker: 3 panics within 5 minutes -> auto-disable.
+// recordCrash increments the crash counter and applies the circuit breaker.
+// Does NOT trigger auto-restart. Used by callWithRecovery for lifecycle panics
+// (Init/Start/Stop) where auto-restart would be counterproductive.
 func (r *Registry) recordCrash(name string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	entry, ok := r.plugins[name]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
 
-	now := time.Now()
-	if entry.firstCrash.IsZero() || now.Sub(entry.firstCrash) > circuitBreakerWindowDuration {
-		// Reset window.
-		entry.crashCount = 1
-		entry.firstCrash = now
-		return
-	}
+	sv := entry.supervisor
+	count := sv.RecordCrash()
 
-	entry.crashCount++
-	if entry.crashCount >= circuitBreakerThreshold {
-		slog.Warn("plugin.circuit-breaker", "name", name, "crash_count", entry.crashCount)
-		// Force to stopped. Protocol unregistration happens inline.
+	if count >= circuitBreakerThreshold {
+		slog.Warn("plugin.circuit-breaker", "name", name, "crash_count", count)
 		r.unregisterProtocols(entry)
 		entry.state = StateStopped
+		// F3 fix: nil PluginContext runtime fields so disabled plugin can't use network.
+		entry.ctx.network = nil
+		entry.ctx.nameResolver = nil
+		entry.ctx.peerConnector = nil
+		sv.SetDisabled()
+	}
+	r.mu.Unlock()
+}
+
+// recordCrashAndMaybeRestart uses the supervisor to record a crash, apply the
+// circuit breaker, and trigger auto-restart if allowed. Used by wrapHandler
+// for stream handler panics where the plugin was ACTIVE and a transient
+// failure warrants automatic recovery.
+// Circuit breaker: 3 panics within 5 minutes -> auto-disable, no restart.
+func (r *Registry) recordCrashAndMaybeRestart(name string) {
+	r.mu.Lock()
+
+	entry, ok := r.plugins[name]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+
+	sv := entry.supervisor
+	count := sv.RecordCrash()
+
+	if count >= circuitBreakerThreshold {
+		slog.Warn("plugin.circuit-breaker", "name", name, "crash_count", count)
+		r.unregisterProtocols(entry)
+		entry.state = StateStopped
+		// F3 fix: nil PluginContext runtime fields so disabled plugin can't use network.
+		entry.ctx.network = nil
+		entry.ctx.nameResolver = nil
+		entry.ctx.peerConnector = nil
+		sv.SetDisabled() // prevent any in-flight restart goroutines from re-enabling
+		r.mu.Unlock()
+
+		// Call Stop() outside the lock to clean up plugin resources (goroutines, listeners).
+		// Wrapped in recovery: if Stop() panics here, we've already set STOPPED.
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					slog.Error("plugin.circuit-breaker-stop-panic", "name", name,
+						"panic", rec, "stack", string(debug.Stack()))
+				}
+			}()
+			if err := entry.plugin.Stop(); err != nil {
+				slog.Warn("plugin.circuit-breaker-stop-error", "name", name, "error", err)
+			}
+		}()
+		return
+	}
+
+	shouldRestart := sv.ShouldAutoRestart()
+	r.mu.Unlock()
+
+	if shouldRestart {
+		sv.TriggerRestart()
 	}
 }
 
