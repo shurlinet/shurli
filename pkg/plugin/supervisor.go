@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -14,19 +17,22 @@ import (
 // One supervisor per pluginEntry. Created in Register(), wired in Enable/Disable.
 //
 // Restart flow (triggered by wrapHandler or callWithRecovery panic recovery):
-//   1. RecordCrash() increments counter
-//   2. ShouldAutoRestart() checks circuit breaker (3 panics in 5 min = dead)
+//   1. RecordCrash() increments window counter + lifetime counter
+//   2. ShouldAutoRestart() checks: disabled flag, lifetime limit (10 total),
+//      window threshold (3 in 5 min)
 //   3. TriggerRestart() acquires restart guard (atomic, one restart in flight)
-//   4. Checkpoint (if Checkpointer) -> Disable -> backoff sleep -> Enable -> Restore
+//   4. Checkpoint (if Checkpointer, with timeout + HMAC) -> Disable ->
+//      backoff sleep (with jitter) -> Enable -> Restore (with HMAC verify)
 //
-// The circuit breaker threshold and window use the existing constants from
-// lifecycle.go (circuitBreakerThreshold, circuitBreakerWindowDuration).
+// Constants from lifecycle.go: circuitBreakerThreshold, circuitBreakerWindowDuration,
+// lifetimeCrashLimit.
 type supervisor struct {
 	pluginName string
 
 	// Crash tracking. Protected by Registry.mu (same as pluginEntry fields).
-	crashCount int
-	firstCrash time.Time
+	crashCount     int
+	firstCrash     time.Time
+	lifetimeCrashes int // total crashes ever, never reset (resets only on daemon restart)
 
 	// Backoff state. Protected by Registry.mu.
 	consecutiveRestarts int
@@ -65,37 +71,46 @@ func (s *supervisor) RecordCrash() int {
 	} else {
 		s.crashCount++
 	}
+	s.lifetimeCrashes++
 	return s.crashCount
 }
 
 // ShouldAutoRestart returns true if the plugin should be automatically restarted.
-// False if circuit breaker tripped (>= threshold crashes) or explicitly disabled.
-// Reads crashCount which is protected by Registry.mu - caller must hold at least RLock.
+// False if: explicitly disabled, lifetime crashes >= 10, or window crashes >= 3.
+// Reads crashCount/lifetimeCrashes which are protected by Registry.mu - caller must hold at least RLock.
 func (s *supervisor) ShouldAutoRestart() bool {
 	if s.disabled.Load() {
+		return false
+	}
+	if s.lifetimeCrashes >= lifetimeCrashLimit {
 		return false
 	}
 	return s.crashCount < circuitBreakerThreshold
 }
 
 // BackoffDuration returns the backoff wait before the next restart attempt.
-// 0s for first restart, 1s for second. Third crash hits circuit breaker (no restart).
+// Includes 0-500ms random jitter to prevent timing-based crash oracles (P4/T5).
+// Note: jitter is a weak mitigation - it obscures restart timing, not restart existence.
+// The real defense against crash oracles is "never panic on untrusted input."
 // Reads consecutiveRestarts which is protected by Registry.mu.
 func (s *supervisor) BackoffDuration() time.Duration {
+	jitter := time.Duration(rand.IntN(500)) * time.Millisecond
 	switch s.consecutiveRestarts {
 	case 0:
-		return 0
+		return jitter
 	case 1:
-		return 1 * time.Second
+		return 1*time.Second + jitter
 	default:
 		// Circuit breaker should have fired before we get here,
 		// but defend against it anyway.
-		return 2 * time.Second
+		return 2*time.Second + jitter
 	}
 }
 
-// Reset clears crash counters and backoff state. Called on successful Enable().
+// Reset clears window crash counters and backoff state. Called on successful Enable().
 // Increments generation to invalidate any in-flight restart goroutines.
+// Does NOT clear lifetimeCrashes - that counter persists until daemon restart
+// to prevent window gaming attacks (P1/T7).
 // MUST be called with Registry.mu held (Lock).
 func (s *supervisor) Reset() {
 	s.crashCount = 0
@@ -142,6 +157,10 @@ func (s *supervisor) TriggerRestart() {
 			return
 		}
 		entry, ok := s.registry.plugins[s.pluginName]
+		var keyDeriver func(string) []byte
+		if ok && entry.ctx != nil {
+			keyDeriver = entry.ctx.keyDeriver
+		}
 		s.registry.mu.RUnlock()
 		if !ok {
 			log.Warn("plugin.supervisor.restart-aborted", "reason", "plugin not found")
@@ -149,30 +168,74 @@ func (s *supervisor) TriggerRestart() {
 		}
 
 		// 1. Checkpoint (if Checkpointer).
+		// P3: timeout prevents a plugin in bad state from blocking the restart goroutine.
+		// NOTE: if Checkpoint() hangs past the timeout, the goroutine running it is leaked
+		// (no cancellation mechanism). Same tradeoff as Start() timeout. Acceptable for
+		// Layer 1 trusted code. Layer 2 WASM will use fuel metering to bound execution.
 		var checkpointData []byte
+		var checkpointMAC []byte
 		if cp, ok := entry.plugin.(Checkpointer); ok {
-			data, err := func() (d []byte, retErr error) {
+			type cpResult struct {
+				data []byte
+				err  error
+			}
+			cpDone := make(chan cpResult, 1) // buffered: sender must not block if timeout fires first
+			go func() {
 				defer func() {
 					if rec := recover(); rec != nil {
 						log.Error("plugin.supervisor.checkpoint-panic",
-						"panic", rec, "stack", string(debug.Stack()))
-						retErr = errors.New("checkpoint panicked")
+							"panic", rec, "stack", string(debug.Stack()))
+						cpDone <- cpResult{err: errors.New("checkpoint panicked")}
 					}
 				}()
-				return cp.Checkpoint()
+				d, e := cp.Checkpoint()
+				cpDone <- cpResult{data: d, err: e}
 			}()
-			if err != nil {
-				if errors.Is(err, ErrSkipCheckpoint) {
+
+			var result cpResult
+			select {
+			case result = <-cpDone:
+			case <-time.After(startTimeoutDuration):
+				log.Warn("plugin.supervisor.checkpoint-timeout",
+					"timeout", startTimeoutDuration.String())
+				result = cpResult{err: errors.New("checkpoint timed out")}
+			}
+
+			if result.err != nil {
+				if errors.Is(result.err, ErrSkipCheckpoint) {
 					log.Info("plugin.supervisor.checkpoint-skipped")
 				} else {
-					log.Warn("plugin.supervisor.checkpoint-failed", "error", err)
+					log.Warn("plugin.supervisor.checkpoint-failed", "error", result.err)
 				}
-			} else if len(data) > maxCheckpointSize {
+			} else if len(result.data) > maxCheckpointSize {
 				log.Warn("plugin.supervisor.checkpoint-too-large",
-					"bytes", len(data), "max", maxCheckpointSize)
+					"bytes", len(result.data), "max", maxCheckpointSize)
 			} else {
-				checkpointData = data
-				log.Info("plugin.supervisor.checkpoint-saved", "bytes", len(data))
+				checkpointData = result.data
+				log.Info("plugin.supervisor.checkpoint-saved", "bytes", len(result.data))
+				// P2: HMAC integrity for checkpoint data.
+				// Null byte separator prevents HKDF domain collision: without it,
+				// DeriveKey("checkpoint-foo") from plugin "bar" could derive the
+				// same key as checkpoint HMAC for plugin "foo". Plugin names can't
+				// contain null bytes (validated), so "checkpoint\x00name" is
+				// unambiguous. Critical for Layer 2 untrusted plugin security.
+				if keyDeriver == nil {
+					log.Info("plugin.supervisor.checkpoint-hmac-skipped",
+						"reason", "no key deriver configured")
+				} else {
+					key := keyDeriver("checkpoint\x00" + s.pluginName)
+					// HMAC-SHA256 requires a 32-byte key for full security.
+					// Shorter keys work but weaken the MAC. Skip HMAC rather
+					// than silently operate with degraded security.
+					if len(key) >= 32 {
+						mac := hmac.New(sha256.New, key)
+						mac.Write(result.data)
+						checkpointMAC = mac.Sum(nil)
+					} else if len(key) > 0 {
+						log.Warn("plugin.supervisor.checkpoint-hmac-skipped",
+							"reason", "key too short", "got", len(key), "need", 32)
+					}
+				}
 			}
 		}
 
@@ -200,22 +263,28 @@ func (s *supervisor) TriggerRestart() {
 			time.Sleep(backoff)
 		}
 
-		// 4. Check generation before re-enabling.
-		// Clear the disabled flag that Disable() set, so Enable can proceed.
-		// But only if generation hasn't changed (no user intervention) and
-		// crash count is still below circuit breaker threshold.
+		// 4. Check generation and state before re-enabling.
+		// Abort if: generation changed (user intervention), crash limits hit,
+		// or an external Disable/StopAll fired during backoff (disabled flag set
+		// AND plugin state changed to STOPPED by someone else).
 		s.registry.mu.Lock()
 		if s.generation != startGen {
 			s.registry.mu.Unlock()
 			log.Warn("plugin.supervisor.restart-aborted", "reason", "generation changed")
 			return
 		}
-		if s.crashCount >= circuitBreakerThreshold {
+		if s.crashCount >= circuitBreakerThreshold || s.lifetimeCrashes >= lifetimeCrashLimit {
 			s.registry.mu.Unlock()
-			log.Warn("plugin.supervisor.restart-aborted", "reason", "circuit breaker")
+			log.Warn("plugin.supervisor.restart-aborted", "reason", "circuit breaker",
+				"crash_count", s.crashCount, "lifetime_crashes", s.lifetimeCrashes)
 			return
 		}
-		s.disabled.Store(false) // clear so Enable's Reset works and ShouldAutoRestart succeeds
+		// Clear disabled flag that our own Disable (step 2) set, so Enable can proceed.
+		// KNOWN LIMITATION: StopAll during backoff is indistinguishable from our own
+		// Disable (both set disabled=true, neither changes generation). The restart
+		// may proceed briefly after StopAll. Bounded by backoff duration (max 2.5s)
+		// before process exit. Fix requires daemon context on Registry (post-Batch 4).
+		s.disabled.Store(false)
 		s.registry.mu.Unlock()
 
 		// 5. Re-enable.
@@ -226,25 +295,43 @@ func (s *supervisor) TriggerRestart() {
 
 		// 6. Restore (if Checkpointer and we have data).
 		if len(checkpointData) > 0 {
-			s.registry.mu.RLock()
-			entry, ok = s.registry.plugins[s.pluginName]
-			s.registry.mu.RUnlock()
-			if ok {
-				if cp, ok := entry.plugin.(Checkpointer); ok {
-					func() {
-						defer func() {
-							if rec := recover(); rec != nil {
-								log.Error("plugin.supervisor.restore-panic",
-								"panic", rec, "stack", string(debug.Stack()))
+			// P2: verify HMAC before restoring. Mismatch -> stateless restart.
+			hmacOK := true
+			if len(checkpointMAC) > 0 && keyDeriver != nil {
+				key := keyDeriver("checkpoint\x00" + s.pluginName)
+				if len(key) >= 32 {
+					mac := hmac.New(sha256.New, key)
+					mac.Write(checkpointData)
+					if !hmac.Equal(mac.Sum(nil), checkpointMAC) {
+						log.Warn("plugin.supervisor.checkpoint-hmac-mismatch")
+						hmacOK = false
+					}
+				}
+			}
+
+			if hmacOK {
+				s.registry.mu.RLock()
+				entry, ok = s.registry.plugins[s.pluginName]
+				s.registry.mu.RUnlock()
+				if ok {
+					if cp, ok := entry.plugin.(Checkpointer); ok {
+						func() {
+							defer func() {
+								if rec := recover(); rec != nil {
+									log.Error("plugin.supervisor.restore-panic",
+									"panic", rec, "stack", string(debug.Stack()))
+								}
+							}()
+							if err := cp.Restore(checkpointData); err != nil {
+								log.Warn("plugin.supervisor.restore-failed", "error", err)
+							} else {
+								log.Info("plugin.supervisor.restore-complete")
 							}
 						}()
-						if err := cp.Restore(checkpointData); err != nil {
-							log.Warn("plugin.supervisor.restore-failed", "error", err)
-						} else {
-							log.Info("plugin.supervisor.restore-complete")
-						}
-					}()
+					}
 				}
+			} else {
+				log.Info("plugin.supervisor.stateless-restart", "reason", "hmac-mismatch")
 			}
 		}
 

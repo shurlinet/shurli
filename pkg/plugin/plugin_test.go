@@ -86,8 +86,9 @@ func newMockPlugin(name string) *mockPlugin {
 
 func newTestRegistry() *Registry {
 	// Disable cooldown for unit tests (G3 test re-enables it).
-	enableDisableCooldown = 0
-	return NewRegistry(&ContextProvider{})
+	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 0
+	return r
 }
 
 // --- Test 1: Register ---
@@ -766,11 +767,8 @@ func TestG6_RapidEnableDisableGoroutineLeak(t *testing.T) {
 // G3 fix verification: rapid enable/disable/re-enable cycles are rate-limited.
 func TestG3_NoRateLimitOnEnableDisable(t *testing.T) {
 	// Enable cooldown for this specific test.
-	orig := enableDisableCooldown
-	enableDisableCooldown = 5 * time.Second
-	defer func() { enableDisableCooldown = orig }()
-
 	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 5 * time.Second
 	p := newMockPlugin("rate-test")
 	r.Register(p)
 

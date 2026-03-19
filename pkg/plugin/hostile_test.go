@@ -289,7 +289,7 @@ func TestHostile_ConfigReloadPanics(t *testing.T) {
 	}
 
 	r := NewRegistry(&ContextProvider{ConfigDir: tmpDir})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	// Plugin that panics on config reload.
 	panicker := newMinimalPlugin("reload-panicker")
@@ -388,7 +388,7 @@ func TestHostile_ProtocolCollidesWithOtherPlugin(t *testing.T) {
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,
 	})
-	enableDisableCooldown = 0
+	r.enableDisableCooldown = 0
 
 	// Plugin A owns "shared-proto".
 	a := newMinimalPlugin("proto-owner")
@@ -540,8 +540,8 @@ func TestHostile_SliceModificationAfterReturn(t *testing.T) {
 
 // H22: Concurrent enable/disable 100x with -race -> no panics, races, deadlocks.
 func TestHostile_ConcurrentEnableDisable100x(t *testing.T) {
-	enableDisableCooldown = 0
 	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 0
 	p := newMinimalPlugin("concurrent")
 	r.Register(p)
 
@@ -805,30 +805,30 @@ func TestHostile_ExponentialBackoff(t *testing.T) {
 		return r.plugins["backoff"].supervisor
 	}()
 
-	// First restart: 0s backoff.
+	// First restart: 0 + jitter (0-500ms).
 	r.mu.Lock()
 	d0 := sv.BackoffDuration()
 	r.mu.Unlock()
-	if d0 != 0 {
-		t.Errorf("first backoff should be 0, got %s", d0)
+	if d0 < 0 || d0 > 500*time.Millisecond {
+		t.Errorf("first backoff should be 0-500ms (jitter), got %s", d0)
 	}
 
-	// Simulate one restart.
+	// Simulate one restart: 1s + jitter (0-500ms).
 	r.mu.Lock()
 	sv.consecutiveRestarts = 1
 	d1 := sv.BackoffDuration()
 	r.mu.Unlock()
-	if d1 != 1*time.Second {
-		t.Errorf("second backoff should be 1s, got %s", d1)
+	if d1 < 1*time.Second || d1 > 1500*time.Millisecond {
+		t.Errorf("second backoff should be 1s-1.5s (1s + jitter), got %s", d1)
 	}
 
-	// Third crash -> circuit breaker.
+	// Third crash -> circuit breaker: 2s + jitter (0-500ms).
 	r.mu.Lock()
 	sv.consecutiveRestarts = 2
 	d2 := sv.BackoffDuration()
 	r.mu.Unlock()
-	if d2 != 2*time.Second {
-		t.Errorf("third backoff should be 2s, got %s", d2)
+	if d2 < 2*time.Second || d2 > 2500*time.Millisecond {
+		t.Errorf("third backoff should be 2s-2.5s (2s + jitter), got %s", d2)
 	}
 
 	// End-to-end circuit breaker: 3 crashes via recordCrashAndMaybeRestart -> STOPPED.
@@ -860,4 +860,76 @@ func createTestConfigDir(dir string) error {
 
 func writeTestConfig(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// H31: Window gaming attack hits lifetime limit.
+// Attacker crashes plugin 2x, waits for window reset, repeats. Should hit lifetime limit at 10.
+func TestHostile_WindowGaming(t *testing.T) {
+	r := newTestRegistryB1()
+	p := newMinimalPlugin("gaming")
+	r.Register(p)
+	r.Enable("gaming")
+
+	sv := func() *supervisor {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		return r.plugins["gaming"].supervisor
+	}()
+
+	// Simulate window gaming: 2 crashes per window, reset window, repeat.
+	for round := 0; round < 5; round++ {
+		r.mu.Lock()
+		// Reset window to simulate time passing.
+		sv.crashCount = 0
+		sv.firstCrash = time.Time{}
+		// Two crashes in this window (stays under threshold of 3).
+		sv.RecordCrash()
+		sv.RecordCrash()
+		r.mu.Unlock()
+	}
+
+	// After 5 rounds x 2 crashes = 10 lifetime crashes -> permanently disabled.
+	r.mu.RLock()
+	if sv.lifetimeCrashes != 10 {
+		t.Fatalf("expected 10 lifetime crashes, got %d", sv.lifetimeCrashes)
+	}
+	// Window count is only 2 (under threshold), but lifetime kills it.
+	if sv.crashCount != 2 {
+		t.Fatalf("expected window crash count 2, got %d", sv.crashCount)
+	}
+	should := sv.ShouldAutoRestart()
+	r.mu.RUnlock()
+	if should {
+		t.Error("window gaming attack should be blocked by lifetime limit")
+	}
+}
+
+// H32: Restart jitter produces non-identical durations.
+func TestHostile_RestartJitter(t *testing.T) {
+	r := newTestRegistryB1()
+	p := newMinimalPlugin("jitter")
+	r.Register(p)
+	r.Enable("jitter")
+
+	sv := func() *supervisor {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		return r.plugins["jitter"].supervisor
+	}()
+
+	// Collect multiple backoff durations at the same restart level.
+	// With jitter, they should NOT all be identical (probabilistic, but with
+	// 500ms range and 20 samples, getting all identical is astronomically unlikely).
+	durations := make(map[time.Duration]bool)
+	r.mu.Lock()
+	for i := 0; i < 20; i++ {
+		sv.consecutiveRestarts = 0
+		d := sv.BackoffDuration()
+		durations[d] = true
+	}
+	r.mu.Unlock()
+
+	if len(durations) < 2 {
+		t.Error("jitter should produce at least 2 distinct durations in 20 samples")
+	}
 }

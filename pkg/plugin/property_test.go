@@ -14,8 +14,8 @@ import (
 // at every step.
 func TestProperty_RegistryStateMachine(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		enableDisableCooldown = 0
 		r := NewRegistry(&ContextProvider{})
+		r.enableDisableCooldown = 0
 
 		// Model: simple map tracking expected state per plugin.
 		type modelEntry struct {

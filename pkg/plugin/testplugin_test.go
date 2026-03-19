@@ -266,8 +266,9 @@ func noopStreamHandler() func(string, network.Stream) {
 // Disables cooldown for fast tests. Named differently from the existing
 // newTestRegistry to avoid collision during migration.
 func newTestRegistryB1() *Registry {
-	enableDisableCooldown = 0
-	return NewRegistry(&ContextProvider{})
+	r := NewRegistry(&ContextProvider{})
+	r.enableDisableCooldown = 0
+	return r
 }
 
 // waitForState polls GetInfo until the plugin reaches the expected state AND
