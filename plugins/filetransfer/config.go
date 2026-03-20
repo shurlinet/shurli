@@ -62,6 +62,9 @@ type TransferConfig struct {
 	TempFileExpiry  string `yaml:"temp_file_expiry"`
 	BandwidthBudget int64  `yaml:"bandwidth_budget"`
 
+	// Share defaults.
+	DefaultPersistent *bool `yaml:"default_persistent"` // default for --persist flag (default: true)
+
 	// Failure backoff.
 	FailureBackoff struct {
 		Threshold int    `yaml:"threshold"`
@@ -84,6 +87,12 @@ func loadConfig(data []byte) TransferConfig {
 		cfg.ReceiveMode = "contacts"
 	}
 	return cfg
+}
+
+// defaultPersistent returns the configured default for share persistence.
+// True unless explicitly set to false in config.
+func (c *TransferConfig) defaultPersistent() bool {
+	return c.DefaultPersistent == nil || *c.DefaultPersistent
 }
 
 // reloadConfig implements the 6-field hot-reload with rollback logic.

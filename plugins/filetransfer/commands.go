@@ -465,12 +465,17 @@ func runShareAdd(args []string) {
 	fs := flag.NewFlagSet("share add", flag.ExitOnError)
 	toFlag := fs.String("to", "", "peer name or ID")
 	peersFlag := fs.String("peers", "", "comma-separated peer names or IDs")
-	persistFlag := fs.Bool("persist", false, "survive daemon restart")
+	persistFlag := fs.Bool("persist", false, "persist share across restarts (default: true, configurable)")
+	noPersistFlag := fs.Bool("no-persist", false, "do not persist share across restarts")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	fs.Parse(reorderFlags(fs, args))
 
 	if *toFlag != "" && *peersFlag != "" {
 		fmt.Fprintln(os.Stderr, "Error: use --to or --peers, not both")
+		osExit(1)
+	}
+	if *persistFlag && *noPersistFlag {
+		fmt.Fprintln(os.Stderr, "Error: use --persist or --no-persist, not both")
 		osExit(1)
 	}
 
@@ -495,8 +500,18 @@ func runShareAdd(args []string) {
 		peers = strings.Split(*peersFlag, ",")
 	}
 
+	// nil = let daemon use config default. Explicit flag overrides.
+	var persistent *bool
+	if *persistFlag {
+		v := true
+		persistent = &v
+	} else if *noPersistFlag {
+		v := false
+		persistent = &v
+	}
+
 	client := requireClient()
-	if err := client.ShareAdd(absPath, peers, *persistFlag); err != nil {
+	if err := client.ShareAdd(absPath, peers, persistent); err != nil {
 		fatal("Share failed: %v", err)
 	}
 
