@@ -423,9 +423,18 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Use r.Context() so drain cancellation propagates (F2 fix).
+	// Use plugin's activeCtx for stream opener, not r.Context().
+	// r.Context() dies after HTTP response (fire-and-forget send).
+	// activeCtx lives until plugin Stop() - cancelled during drain.
+	p.mu.RLock()
+	ctx := p.activeCtx
+	p.mu.RUnlock()
+	if ctx == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "plugin is shutting down")
+		return
+	}
 	opener := func() (network.Stream, error) {
-		return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-transfer")
+		return pnet.OpenPluginStream(ctx, targetPeerID, "file-transfer")
 	}
 	sendOpts := p2pnet.SendOptions{
 		NoCompress:   req.NoCompress,
