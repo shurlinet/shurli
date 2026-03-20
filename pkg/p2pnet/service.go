@@ -62,14 +62,33 @@ type ServiceConn interface {
 // This is the node-level security boundary (C2 mitigation).
 type GrantChecker func(peerID peer.ID, service string) bool
 
-// ServiceRegistry manages service registration and connections
+// TokenVerifier verifies a presented grant token (base64-encoded macaroon).
+// Returns true if the token is valid for the given peer and service.
+// Injected by the daemon. Must do constant-time work on all code paths
+// (valid, invalid, malformed) for D1 timing oracle mitigation.
+type TokenVerifier func(tokenBase64 string, peerID peer.ID, service string) bool
+
+// TokenLookup retrieves a grant token from the GrantPouch for outbound
+// presentation. Returns the base64-encoded token, or empty string if no
+// token is available for the given peer and service.
+type TokenLookup func(peerID peer.ID, service string) string
+
+// ServiceRegistry manages service registration and connections.
+//
+// The callback fields (grantChecker, tokenVerifier, tokenLookup) follow a
+// set-once-at-startup contract: they are configured via their Set* methods
+// during daemon initialization, before any streams are handled. The stream
+// handler hot path reads them without acquiring mu to avoid per-stream lock
+// overhead. This is safe because the fields are never modified after startup.
 type ServiceRegistry struct {
-	host         host.Host
-	services     map[string]*Service
-	metrics      *Metrics // nil when metrics disabled
-	middleware   []StreamMiddleware
-	grantChecker GrantChecker // nil = no grant checking, use policy only
-	mu           sync.RWMutex
+	host          host.Host
+	services      map[string]*Service
+	metrics       *Metrics // nil when metrics disabled
+	middleware    []StreamMiddleware
+	grantChecker  GrantChecker  // set once at startup; nil = no grant checking (Phase A)
+	tokenVerifier TokenVerifier // set once at startup; nil = no token verification (Phase B)
+	tokenLookup   TokenLookup   // set once at startup; nil = no token presentation (Phase B)
+	mu            sync.RWMutex  // protects services and middleware; NOT callbacks (set-once)
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -159,23 +178,53 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	short := remotePeer.String()[:16] + "..."
 	slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
 
+	// Phase B: read grant header on plugin services.
+	// The remote side (OpenPluginStream) always writes a header for plugin streams.
+	var presentedToken string
+	if svc.Policy != nil {
+		var err error
+		presentedToken, err = ReadGrantHeader(s)
+		if err != nil {
+			slog.Warn("grant header read failed", "service", svc.Name, "peer", short, "error", err)
+			s.Reset()
+			return
+		}
+	}
+
 	// Plugin policy enforcement (transport + peer restrictions).
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
+		if presentedToken != "" && transport != TransportRelay {
+			slog.Debug("grant token presented on non-relay transport, not needed",
+				"service", svc.Name, "peer", short, "transport", transport)
+		}
 		if !svc.Policy.TransportAllowed(transport) {
-			// Grant override: if transport is relay and peer has a valid grant, allow it.
-			// This is the C2 mitigation: node-level enforcement independent of relay ACL.
+			// Grant override: if transport is relay, verify authorization.
+			// D1 timing: when a token is presented, ONLY use the token path
+			// (tokenVerifier does constant-time HMAC on all outcomes).
+			// When no token, fall back to grantChecker (Phase A, has its own
+			// D1 dummy). Never run both - that creates a timing distinguisher.
 			granted := false
-			if transport == TransportRelay && r.grantChecker != nil {
-				granted = r.grantChecker(remotePeer, svc.Name)
-				if granted {
-					slog.Info("relay allowed via grant", "service", svc.Name, "peer", short)
+			if transport == TransportRelay {
+				if presentedToken != "" && r.tokenVerifier != nil {
+					// Phase B: verify presented token cryptographically.
+					granted = r.tokenVerifier(presentedToken, remotePeer, svc.Name)
+					if granted {
+						slog.Info("relay allowed via presented token", "service", svc.Name, "peer", short)
+					}
+				} else if r.grantChecker != nil {
+					// Phase A fallback: no token presented, check local grant store.
+					granted = r.grantChecker(remotePeer, svc.Name)
+					if granted {
+						slog.Info("relay allowed via grant store", "service", svc.Name, "peer", short)
+					}
 				}
 			}
 			if !granted {
 				slog.Warn("plugin transport not allowed",
 					"service", svc.Name, "peer", short,
-					"transport", transport, "allowed", svc.Policy.AllowedTransports)
+					"transport", transport, "allowed", svc.Policy.AllowedTransports,
+					"token_presented", presentedToken != "")
 				s.Reset()
 				return
 			}
@@ -322,6 +371,23 @@ func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.grantChecker = checker
+}
+
+// SetTokenVerifier sets the function used to verify presented grant tokens
+// on inbound plugin streams (Phase B). The verifier decodes the base64 token
+// and checks the macaroon HMAC chain + caveats.
+func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tokenVerifier = v
+}
+
+// SetTokenLookup sets the function used to retrieve grant tokens from the
+// GrantPouch for outbound plugin streams (Phase B).
+func (r *ServiceRegistry) SetTokenLookup(l TokenLookup) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tokenLookup = l
 }
 
 // Use adds stream middleware that wraps every inbound stream handler.
