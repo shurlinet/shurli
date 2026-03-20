@@ -16,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -45,6 +46,7 @@ func (m *mockRuntime) RelayAddresses() []string                    { return nil 
 func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil }
+func (m *mockRuntime) GrantStore() *grants.Store                    { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

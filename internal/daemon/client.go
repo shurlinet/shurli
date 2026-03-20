@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -473,4 +474,35 @@ func (c *Client) PluginDisableAll() (int, error) {
 		return 0, err
 	}
 	return result.Disabled, nil
+}
+
+// GrantList returns all active data access grants.
+func (c *Client) GrantList() (*GrantListResponse, error) {
+	var result GrantListResponse
+	if err := c.doJSON("GET", "/v1/grants", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GrantCreate creates a new data access grant for a peer.
+func (c *Client) GrantCreate(req GrantRequest) (*GrantInfo, error) {
+	body, _ := json.Marshal(req)
+	var result GrantInfo
+	if err := c.doJSON("POST", "/v1/grants", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GrantRevoke revokes a peer's data access grant.
+func (c *Client) GrantRevoke(peer string) error {
+	body, _ := json.Marshal(GrantRevokeRequest{Peer: peer})
+	return c.doJSON("POST", "/v1/grants/revoke", bytes.NewReader(body), nil)
+}
+
+// GrantExtend extends a peer's data access grant.
+func (c *Client) GrantExtend(peer, duration string) error {
+	body, _ := json.Marshal(GrantExtendRequest{Peer: peer, Duration: duration})
+	return c.doJSON("POST", "/v1/grants/extend", bytes.NewReader(body), nil)
 }

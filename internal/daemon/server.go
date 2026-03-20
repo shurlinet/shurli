@@ -17,6 +17,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -41,6 +42,7 @@ type RuntimeInfo interface {
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	ConfigReloader() ConfigReloader                          // nil if reload not supported
+	GrantStore() *grants.Store                                // nil before initialization
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

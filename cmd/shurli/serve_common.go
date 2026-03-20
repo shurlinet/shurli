@@ -27,6 +27,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
@@ -89,6 +90,9 @@ type serveRuntime struct {
 
 	// MOTD client for relay message queries (populated by SetupMOTDClient)
 	motdClient *relay.MOTDClient
+
+	// Per-peer data access grants (macaroon capability tokens)
+	grantStore *grants.Store
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1369,6 +1373,9 @@ func (rt *serveRuntime) Shutdown() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)
 		shutdownCancel()
+	}
+	if rt.grantStore != nil {
+		rt.grantStore.Stop()
 	}
 	rt.cancel()
 	rt.network.Close()

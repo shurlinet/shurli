@@ -12,6 +12,7 @@ func TestParseCaveat(t *testing.T) {
 		wantVal string
 		wantErr bool
 	}{
+		{"peer_id=12D3KooWExample1", "peer_id", "12D3KooWExample1", false},
 		{"service=proxy", "service", "proxy", false},
 		{"action=invite,connect", "action", "invite,connect", false},
 		{"peers_max=5", "peers_max", "5", false},
@@ -38,6 +39,23 @@ func TestParseCaveat(t *testing.T) {
 		if k != tt.wantKey || v != tt.wantVal {
 			t.Errorf("ParseCaveat(%q) = (%q, %q), want (%q, %q)", tt.input, k, v, tt.wantKey, tt.wantVal)
 		}
+	}
+}
+
+func TestDefaultVerifierPeerID(t *testing.T) {
+	v := DefaultVerifier(VerifyContext{PeerID: "12D3KooWExample1"})
+	if err := v("peer_id=12D3KooWExample1"); err != nil {
+		t.Errorf("matching peer ID should pass: %v", err)
+	}
+	if err := v("peer_id=12D3KooWExample2"); err == nil {
+		t.Error("mismatched peer ID should fail")
+	}
+}
+
+func TestDefaultVerifierPeerIDEmptyContext(t *testing.T) {
+	v := DefaultVerifier(VerifyContext{})
+	if err := v("peer_id=12D3KooWExample1"); err != nil {
+		t.Errorf("empty peer ID context should skip: %v", err)
 	}
 }
 
