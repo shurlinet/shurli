@@ -23,6 +23,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"github.com/shurlinet/shurli/pkg/plugin"
@@ -438,6 +439,48 @@ func runDaemonStart(args []string) {
 					slog.Warn("grants: failed to queue revocation", "peer", peerID.String()[:16], "error", qErr)
 				}
 			}
+		})
+
+		// Phase B2: wire token presentation on stream open.
+		// TokenVerifier: inbound - verify presented tokens cryptographically.
+		// D1 mitigation: constant-time HMAC on all paths (valid, invalid, malformed).
+		dummyToken := macaroon.New("shurli-node", grantRootKey, "dummy")
+		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string) bool {
+			short := pid.String()[:16]
+			verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
+				PeerID:  pid.String(),
+				Service: svc,
+				Now:     time.Now(),
+			})
+			token, err := macaroon.DecodeBase64(tokenB64)
+			if err != nil {
+				// D1: run dummy HMAC so timing is the same as a valid token.
+				dummyToken.Verify(grantRootKey, verifier)
+				slog.Warn("grants: presented token is malformed",
+					"peer", short, "service", svc, "error", err)
+				return false
+			}
+			if err := token.Verify(grantRootKey, verifier); err != nil {
+				slog.Warn("grants: presented token verification failed",
+					"peer", short, "service", svc, "error", err)
+				return false
+			}
+			return true
+		})
+
+		// TokenLookup: outbound - retrieve tokens from pouch for presentation.
+		rt.network.ServiceRegistry().SetTokenLookup(func(pid peer.ID, svc string) string {
+			token := pouch.Get(pid, svc)
+			if token == nil {
+				return ""
+			}
+			b64, err := token.EncodeBase64()
+			if err != nil {
+				slog.Warn("grants: failed to encode pouch token for presentation",
+					"peer", pid.String()[:16], "service", svc, "error", err)
+				return ""
+			}
+			return b64
 		})
 	} else {
 		slog.Warn("grants: no identity key available, grant store disabled")
