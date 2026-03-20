@@ -327,7 +327,7 @@ func doRelayList(args []string, stdout io.Writer) error {
 	}
 
 	if len(cfg.Relay.Addresses) == 0 {
-		fmt.Fprintln(stdout, "No relay addresses configured.")
+		fmt.Fprintln(stdout, "No relay addresses configured.\n  Add one with: shurli relay add <address>")
 		return nil
 	}
 

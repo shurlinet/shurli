@@ -105,7 +105,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	out("Using config: %s\n", cfgFile)
 
 	if len(cfg.Relay.Addresses) == 0 {
-		fatal("No relay addresses in config. Run 'shurli init' or add a relay first.")
+		fatal("No relay addresses in config.\n  Add one with: shurli relay add <address>\n  Or run: shurli init")
 	}
 
 	// Resolve password for SHRL-encrypted identity key.
