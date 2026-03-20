@@ -137,7 +137,7 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 		}()
 	} else {
 		go func() {
-			resultCh <- raceResult{err: fmt.Errorf("relay: no relay addresses configured")}
+			resultCh <- raceResult{err: fmt.Errorf("relay: no relay addresses configured; add one with 'shurli relay add <address>'")}
 		}()
 	}
 

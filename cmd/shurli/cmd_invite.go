@@ -48,7 +48,7 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 	cfgFile, cfg := resolveConfigFile(configFlag)
 	if remoteAddr == "" {
 		if len(cfg.Relay.Addresses) == 0 {
-			fatal("No relay addresses in config. Use --remote or add relay addresses to config.")
+			fatal("No relay addresses in config.\n  Add one with: shurli relay add <address>\n  Or specify directly: shurli invite --remote <relay-address>")
 		}
 		remoteAddr = cfg.Relay.Addresses[0]
 	}

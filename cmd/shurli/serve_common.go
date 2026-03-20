@@ -1073,7 +1073,7 @@ func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
 						return nil
 					}
 				}
-				return fmt.Errorf("no relay addresses")
+				return fmt.Errorf("no relay addresses; add one with 'shurli relay add <address>' or run 'shurli init' to configure")
 			},
 		},
 	}

@@ -1177,7 +1177,7 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	rt := s.runtime
 	relayAddrs := rt.RelayAddresses()
 	if len(relayAddrs) == 0 {
-		RespondError(w, http.StatusBadRequest, "no relay addresses configured; cannot create invite")
+		RespondError(w, http.StatusBadRequest, "no relay addresses configured; add one with 'shurli relay add <address>' or run 'shurli init'")
 		return
 	}
 
@@ -1249,7 +1249,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	relayAddrs := rt.RelayAddresses()
 	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
 	if len(relayInfos) == 0 {
-		RespondError(w, http.StatusInternalServerError, "no relay addresses available")
+		RespondError(w, http.StatusInternalServerError, "no relay addresses available; add one with 'shurli relay add <address>'")
 		return
 	}
 
