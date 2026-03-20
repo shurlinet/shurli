@@ -52,12 +52,13 @@ type Registry struct {
 
 // pluginEntry tracks the runtime state of a single plugin.
 type pluginEntry struct {
-	plugin         Plugin
-	ctx            *PluginContext
-	state          State
-	supervisor     *supervisor        // auto-restart, crash counting, backoff
-	lastTransition time.Time          // G3 fix: cooldown on enable/disable
-	startCancel    context.CancelFunc // G6 fix: cancel abandoned Start() goroutine
+	plugin             Plugin
+	ctx                *PluginContext
+	state              State
+	registeredProtos   []string           // protocol names registered in ServiceRegistry
+	supervisor         *supervisor        // auto-restart, crash counting, backoff
+	lastTransition     time.Time          // G3 fix: cooldown on enable/disable
+	startCancel        context.CancelFunc // G6 fix: cancel abandoned Start() goroutine
 }
 
 // NewRegistry creates a plugin registry with the given runtime dependencies.
