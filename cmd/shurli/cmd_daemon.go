@@ -22,6 +22,7 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"github.com/shurlinet/shurli/pkg/plugin"
@@ -53,8 +54,9 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string  { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string   { return rt.config.Discovery.Network }
+func (rt *serveRuntime) RelayAddresses() []string    { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) DiscoveryNetwork() string     { return rt.config.Discovery.Network }
+func (rt *serveRuntime) GrantStore() *grants.Store    { return rt.grantStore }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -334,6 +336,42 @@ func runDaemonStart(args []string) {
 			}
 		}
 	}
+	// Initialize per-peer data access grant store (macaroon capability tokens).
+	// Uses two separate HKDF-derived keys: one for macaroon root key (token creation/verification),
+	// one for grants.json file integrity HMAC. Both derived from the same node identity.
+	if pluginProvider.KeyDeriver != nil {
+		grantRootKey := pluginProvider.KeyDeriver("shurli/grants/root/v1")
+		grantHMACKey := pluginProvider.KeyDeriver("shurli/grants/hmac/v1")
+		grantsPath := filepath.Join(filepath.Dir(rt.configFile), "grants.json")
+
+		gs, err := grants.Load(grantsPath, grantRootKey, grantHMACKey)
+		if err != nil {
+			slog.Error("grants: failed to load, starting empty", "error", err)
+			gs = grants.NewStore(grantRootKey, grantHMACKey)
+			gs.SetPersistPath(grantsPath)
+		}
+
+		// C3 mitigation: close all connections to revoked peers.
+		gs.SetOnRevoke(func(pid peer.ID) {
+			if err := rt.network.Host().Network().ClosePeer(pid); err != nil {
+				slog.Warn("grants: failed to close peer connections on revoke",
+					"peer", pid.String()[:16], "error", err)
+			}
+		})
+
+		gs.StartCleanup(30 * time.Second) // B1 mitigation: 30s re-verify interval
+		rt.grantStore = gs
+
+		// Wire grant checker into service registry for stream-level enforcement.
+		// This is the C2 mitigation: node-level enforcement independent of relay ACL.
+		rt.network.ServiceRegistry().SetGrantChecker(gs.Check)
+
+		// Wire grant checker into plugin context for share warnings (E1-design mitigation).
+		pluginProvider.GrantChecker = gs.Check
+	} else {
+		slog.Warn("grants: no identity key available, grant store disabled")
+	}
+
 	pluginRegistry := plugin.NewRegistry(pluginProvider)
 	if err := plugins.RegisterAll(pluginRegistry); err != nil {
 		slog.Error("plugin registration failed", "error", err)

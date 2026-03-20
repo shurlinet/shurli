@@ -140,8 +140,23 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// E1-design mitigation: warn about peers without data access grants.
+	var warnings []string
+	for i, pid := range peerIDs {
+		if !p.ctx.HasGrant(pid, "file-browse") && !p.ctx.HasGrant(pid, "file-download") {
+			name := req.Peers[i]
+			warnings = append(warnings, fmt.Sprintf(
+				"%s does not have data access. They won't be able to reach this share until granted. "+
+					"Run: shurli auth grant %s --duration 1h", name, name))
+		}
+	}
+
 	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
-	daemon.RespondJSON(w, http.StatusOK, map[string]string{"status": "shared"})
+	resp := map[string]any{"status": "shared"}
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
+	daemon.RespondJSON(w, http.StatusOK, resp)
 }
 
 func (p *FileTransferPlugin) handleShareRemove(w http.ResponseWriter, r *http.Request) {

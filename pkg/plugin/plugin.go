@@ -216,8 +216,9 @@ type PluginContext struct {
 	configDir      string          // plugin's config directory path
 	configReloadCb func([]byte)
 	declaredProtos map[string]bool // protocol IDs this plugin declared
-	keyDeriver     func(domain string) []byte // HKDF-SHA256 key derivation
-	scoreResolver  func(peer.ID) int          // reputation score lookup (0-100)
+	keyDeriver     func(domain string) []byte          // HKDF-SHA256 key derivation
+	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
+	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -313,6 +314,15 @@ func (c *PluginContext) DeriveKey(domain string) []byte {
 	return c.keyDeriver(domain)
 }
 
+// HasGrant checks if a peer has a valid data access grant for the given service.
+// Returns false if no grant checker is configured.
+func (c *PluginContext) HasGrant(peerID peer.ID, service string) bool {
+	if c.grantChecker == nil {
+		return false
+	}
+	return c.grantChecker(peerID, service)
+}
+
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
 // Re-export when the reputation pipeline or metrics integration is built.
 // These were exported but had zero callers across the entire codebase.
@@ -373,6 +383,7 @@ type ContextProvider struct {
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
+	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
 }
 
 // --- Info ---

@@ -61,6 +61,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/config/reload", s.handleConfigReload)
 	mux.HandleFunc("GET /v1/config/reload", s.handleConfigReloadStatus)
 
+	// Grants (per-peer data access)
+	mux.HandleFunc("GET /v1/grants", s.handleGrantList)
+	mux.HandleFunc("POST /v1/grants", s.handleGrantCreate)
+	mux.HandleFunc("POST /v1/grants/revoke", s.handleGrantRevoke)
+	mux.HandleFunc("POST /v1/grants/extend", s.handleGrantExtend)
+
 	// Plugins
 	mux.HandleFunc("GET /v1/plugins", s.handlePluginList)
 	mux.HandleFunc("POST /v1/plugins/disable-all", s.handlePluginDisableAll)
@@ -82,6 +88,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			"POST /v1/shutdown": true, "POST /v1/lock": true, "POST /v1/unlock": true, "GET /v1/lock": true,
 			"POST /v1/invite": true, "GET /v1/invite/{id}/wait": true, "DELETE /v1/invite/{id}": true,
 			"POST /v1/config/reload": true, "GET /v1/config/reload": true,
+			"GET /v1/grants": true, "POST /v1/grants": true, "POST /v1/grants/revoke": true, "POST /v1/grants/extend": true,
 			"GET /v1/plugins": true, "POST /v1/plugins/disable-all": true,
 			"GET /v1/plugins/{name}": true, "POST /v1/plugins/{name}/enable": true, "POST /v1/plugins/{name}/disable": true,
 		}
@@ -232,6 +239,25 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	// MOTD/goodbye messages from relays
 	resp.MOTDs = rt.RelayMOTDs()
+
+	// Expiring grants (E3 mitigation: MOTD-style notification on CLI commands)
+	if gs := rt.GrantStore(); gs != nil {
+		expiring := gs.ExpiringWithin(10 * time.Minute)
+		reverseNames := s.buildReverseNames()
+		for _, g := range expiring {
+			info := GrantInfo{
+				PeerID:    g.PeerIDStr,
+				ExpiresAt: g.ExpiresAt.Format(time.RFC3339),
+				Remaining: formatDuration(g.Remaining()),
+			}
+			if name, ok := reverseNames[g.PeerIDStr]; ok {
+				info.Peer = name
+			} else {
+				info.Peer = g.PeerIDStr[:16] + "..."
+			}
+			resp.ExpiringGrants = append(resp.ExpiringGrants, info)
+		}
+	}
 
 	// Config reload state (only include if reloads have happened)
 	s.mu.Lock()

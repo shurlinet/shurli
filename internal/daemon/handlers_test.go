@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -51,6 +52,7 @@ func (m *networkMockRuntime) RelayAddresses() []string                    { retu
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *networkMockRuntime) ConfigReloader() ConfigReloader               { return nil }
+func (m *networkMockRuntime) GrantStore() *grants.Store                    { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

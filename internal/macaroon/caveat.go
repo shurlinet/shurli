@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-// Known caveat keys for the Shurli ACL system.
+// Known caveat keys for the Shurli capability token system.
 const (
+	CaveatPeerID   = "peer_id"   // libp2p peer ID this token is bound to
 	CaveatService  = "service"   // comma-separated service names
 	CaveatGroup    = "group"     // group scope
 	CaveatAction   = "action"    // comma-separated: invite, connect, admin
@@ -42,6 +43,15 @@ func DefaultVerifier(ctx VerifyContext) CaveatVerifier {
 		}
 
 		switch key {
+		case CaveatPeerID:
+			if ctx.PeerID == "" {
+				return nil // no peer context, skip check
+			}
+			if value != ctx.PeerID {
+				return fmt.Errorf("peer %q does not match required %q", ctx.PeerID, value)
+			}
+			return nil
+
 		case CaveatService:
 			if ctx.Service == "" {
 				return nil // no service context, skip check
@@ -118,6 +128,7 @@ func DefaultVerifier(ctx VerifyContext) CaveatVerifier {
 
 // VerifyContext provides the runtime context for caveat verification.
 type VerifyContext struct {
+	PeerID       string    // libp2p peer ID of the requesting peer
 	Service      string    // current service being accessed
 	Group        string    // current group scope
 	Action       string    // current action being performed

@@ -19,6 +19,7 @@ type StatusResponse struct {
 	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
+	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 }
@@ -230,4 +231,39 @@ type PluginInfoResponse struct {
 type PluginDisableAllResponse struct {
 	Disabled int    `json:"disabled"`
 	Error    string `json:"error,omitempty"`
+}
+
+// GrantRequest is the request body for creating a data access grant.
+type GrantRequest struct {
+	Peer      string   `json:"peer"`               // peer name or ID
+	Duration  string   `json:"duration"`            // e.g. "1h", "7d", "30m"
+	Services  []string `json:"services,omitempty"`  // empty = all services
+	Permanent bool     `json:"permanent,omitempty"`
+}
+
+// GrantExtendRequest is the request body for extending a grant.
+type GrantExtendRequest struct {
+	Peer     string `json:"peer"`     // peer name or ID
+	Duration string `json:"duration"` // additional time
+}
+
+// GrantRevokeRequest is the request body for revoking a grant.
+type GrantRevokeRequest struct {
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// GrantInfo represents a grant in API responses.
+type GrantInfo struct {
+	Peer      string   `json:"peer"`
+	PeerID    string   `json:"peer_id"`
+	Services  []string `json:"services,omitempty"`
+	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	CreatedAt string   `json:"created_at"`
+	Permanent bool     `json:"permanent,omitempty"`
+	Remaining string   `json:"remaining,omitempty"` // human-readable, empty for permanent
+}
+
+// GrantListResponse is the response for listing grants.
+type GrantListResponse struct {
+	Grants []GrantInfo `json:"grants"`
 }

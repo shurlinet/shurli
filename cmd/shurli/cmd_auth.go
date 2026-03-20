@@ -30,6 +30,14 @@ func runAuth(args []string) {
 		runAuthRemove(args[1:])
 	case "validate":
 		runAuthValidate(args[1:])
+	case "grant":
+		runAuthGrant(args[1:])
+	case "revoke":
+		runAuthRevoke(args[1:])
+	case "extend":
+		runAuthExtend(args[1:])
+	case "grants":
+		runAuthGrants(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown auth command: %s\n\n", args[0])
 		printAuthUsage()
@@ -40,13 +48,20 @@ func runAuth(args []string) {
 func printAuthUsage() {
 	fmt.Println("Usage: shurli auth <command> [options]")
 	fmt.Println()
-	fmt.Println("Commands:")
+	fmt.Println("Peer authorization (authorized_keys):")
 	fmt.Println("  add      <peer-id> [--comment \"label\"] [--role admin|member]   Authorize a peer")
 	fmt.Println("  list                                                          List authorized peers")
 	fmt.Println("  remove   <peer-id>                                            Revoke a peer's access")
 	fmt.Println("  validate [file]                                               Validate authorized_keys format")
 	fmt.Println()
-	fmt.Println("All commands support --config <path> and --file <path>.")
+	fmt.Println("Data access grants (macaroon capability tokens):")
+	fmt.Println("  grant    <peer> --duration 1h [--services file-transfer,...]   Grant data access")
+	fmt.Println("  grants                                                        List active grants")
+	fmt.Println("  revoke   <peer>                                               Revoke data access grant")
+	fmt.Println("  extend   <peer> --duration 2h                                 Extend a grant")
+	fmt.Println()
+	fmt.Println("Authorization commands support --config <path> and --file <path>.")
+	fmt.Println("Grant commands require a running daemon.")
 }
 
 // resolveAuthKeysPathErr finds the authorized_keys file path.

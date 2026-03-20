@@ -365,6 +365,21 @@ are terminated.
 .B auth validate \fR[\fIfile\fR]
 Check the authorized_keys file for syntax errors, duplicate entries, and
 invalid peer IDs.
+.TP
+.B auth grant \fIpeer\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIfile-transfer,...\fR] [\fB--permanent\fR]
+Grant relay data access to a peer using macaroon capability tokens.
+Default duration: 1 hour. When a peer has a grant, relay transport is
+allowed for their plugin streams. Requires a running daemon.
+.TP
+.B auth grants
+List all active data access grants with remaining time.
+.TP
+.B auth revoke \fIpeer\fR
+Revoke a data access grant. All connections to the peer are closed immediately.
+.TP
+.B auth extend \fIpeer\fR \fB--duration\fR \fI2h\fR
+Extend an existing grant. The new expiry is calculated from now, not from the
+original expiry.
 
 .SH CONFIGURATION
 .TP
