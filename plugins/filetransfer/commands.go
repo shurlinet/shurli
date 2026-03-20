@@ -548,14 +548,19 @@ func runShareAdd(args []string) {
 	}
 
 	client := requireClient()
-	if err := client.ShareAdd(absPath, peers, persistent); err != nil {
+	warnings, err := client.ShareAdd(absPath, peers, persistent)
+	if err != nil {
 		fatal("Share failed: %v", err)
 	}
 
 	if *jsonFlag {
+		resp := map[string]any{"status": "shared", "path": absPath}
+		if len(warnings) > 0 {
+			resp["warnings"] = warnings
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(map[string]string{"status": "shared", "path": absPath})
+		enc.Encode(resp)
 		return
 	}
 
@@ -566,6 +571,9 @@ func runShareAdd(args []string) {
 		tc.Wfaint(os.Stdout, "  Visible to all authorized peers\n")
 	}
 	tc.Wfaint(os.Stdout, "  Use 'shurli share list' to see full peer list\n")
+	for _, w := range warnings {
+		tc.Wyellow(os.Stdout, "\n  Note: %s\n", w)
+	}
 }
 
 func runShareRemove(args []string) {
