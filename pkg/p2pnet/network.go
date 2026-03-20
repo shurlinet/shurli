@@ -654,10 +654,19 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 		return nil, fmt.Errorf("peer denied by plugin %q policy", serviceName)
 	}
 
-	// Check if relay is allowed: either by policy or by grant.
+	// Phase B: look up pouch token once, reuse for relay decision + header write.
+	var pouchToken string
+	if svc.Policy != nil && n.serviceRegistry.tokenLookup != nil {
+		pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
+	}
+
+	// Check if relay is allowed: by policy, local grant store, or pouch token.
 	relayAllowed := svc.Policy == nil || svc.Policy.RelayAllowed()
 	if !relayAllowed && n.serviceRegistry.grantChecker != nil {
 		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName)
+	}
+	if !relayAllowed && pouchToken != "" {
+		relayAllowed = true
 	}
 
 	// Respect transport policy: only use WithAllowLimitedConn if relay is permitted.
@@ -681,14 +690,27 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
 		if !svc.Policy.TransportAllowed(transport) {
-			// Grant override for relay transport.
-			if transport == TransportRelay && n.serviceRegistry.grantChecker != nil &&
-				n.serviceRegistry.grantChecker(peerID, serviceName) {
-				// Relay allowed via grant - proceed.
-			} else {
+			relayGranted := false
+			if transport == TransportRelay {
+				if n.serviceRegistry.grantChecker != nil {
+					relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName)
+				}
+				if !relayGranted && pouchToken != "" {
+					relayGranted = true
+				}
+			}
+			if !relayGranted {
 				s.Reset()
 				return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
 			}
+		}
+	}
+
+	// Phase B: write grant header before returning stream to plugin.
+	if svc.Policy != nil {
+		if err := WriteGrantHeader(s, pouchToken); err != nil {
+			s.Reset()
+			return nil, fmt.Errorf("write grant header: %w", err)
 		}
 	}
 
