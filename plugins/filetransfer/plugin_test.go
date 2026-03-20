@@ -62,8 +62,8 @@ func TestCommands(t *testing.T) {
 func TestRoutes(t *testing.T) {
 	p := New()
 	routes := p.Routes()
-	if len(routes) != 14 {
-		t.Errorf("expected 14 routes, got %d", len(routes))
+	if len(routes) != 15 {
+		t.Errorf("expected 15 routes, got %d", len(routes))
 	}
 }
 
@@ -1068,8 +1068,8 @@ func TestSourceCodeNoHostNewStream(t *testing.T) {
 func TestRouteCountMatchesSpec(t *testing.T) {
 	p := New()
 	routes := p.Routes()
-	if len(routes) != 14 {
-		t.Errorf("expected exactly 14 routes (spec), got %d. Routes added or removed without updating spec.", len(routes))
+	if len(routes) != 15 {
+		t.Errorf("expected exactly 15 routes (spec), got %d. Routes added or removed without updating spec.", len(routes))
 	}
 
 	commands := p.Commands()

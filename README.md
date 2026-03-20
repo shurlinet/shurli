@@ -60,7 +60,7 @@ Interactive wizard: creates your identity (seed phrase backup), sets a password,
 **I have an invite code:**
 
 ```bash
-shurli join <invite-code> --name laptop
+shurli join <invite-code> --as laptop
 ```
 
 Done. You're connected and mutually authorized.
@@ -69,13 +69,13 @@ Done. You're connected and mutually authorized.
 
 On machine 1 (your server):
 ```bash
-shurli invite --name home
+shurli invite --as home
 # Shows invite code + QR code, waits for the other side...
 ```
 
 On machine 2 (your client):
 ```bash
-shurli join <invite-code> --name laptop
+shurli join <invite-code> --as laptop
 ```
 
 ### 3. Use it

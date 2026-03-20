@@ -32,7 +32,7 @@ shurli relay pair --count 3 --ttl 1h
 
 **Each person joining:**
 ```bash
-shurli join <pairing-code> --name laptop
+shurli join <pairing-code> --as laptop
 # Connects to relay, discovers other peers, mutually authorizes everyone
 ```
 

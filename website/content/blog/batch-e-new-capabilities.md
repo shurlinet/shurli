@@ -26,7 +26,7 @@ A P2P tool that can't tell you its own status is a black box. Operators need hea
 - **`shurli status`**: Shows local config, services, relay addresses, and peer ID in a clean summary. No daemon required - reads the config file directly
 - **`/healthz` endpoint**: HTTP health check on the relay server (default `127.0.0.1:9090`). Returns status, uptime, and connected peer count. Restricted to loopback for security
 - **Headless invite/join**: `shurli invite --non-interactive` prints the bare invite code to stdout (progress to stderr). `shurli join <code> --non-interactive` accepts programmatically. Environment variable `SHURLI_INVITE_CODE` also supported
-- **Docker-friendly pairing**: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` - one line to join a network from a container
+- **Docker-friendly pairing**: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --as node-1` - one line to join a network from a container
 
 ## What's next
 

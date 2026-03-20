@@ -49,7 +49,7 @@ The command outputs a pairing code and a group ID. Share the code with your frie
 On your friend's machine:
 
 ```bash
-shurli join <pairing-code> --name laptop
+shurli join <pairing-code> --as laptop
 ```
 
 What happens behind the scenes:

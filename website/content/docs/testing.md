@@ -155,13 +155,13 @@ Loaded configuration from ~/.config/shurli/config.yaml
 
 On the home server:
 ```bash
-./shurli invite --name home
+./shurli invite --as home
 # Displays an invite code + QR code. Share the code with the client.
 ```
 
 On the client:
 ```bash
-./shurli join <invite-code> --name laptop
+./shurli join <invite-code> --as laptop
 # Automatically: connects to inviter, exchanges peer IDs,
 # adds each other to authorized_keys, adds name mapping.
 ```

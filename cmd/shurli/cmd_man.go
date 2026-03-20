@@ -140,11 +140,11 @@ shurli \- sovereign peer-to-peer networking tool
 .B shurli daemon
 .br
 .B shurli invite
-[\fB--name\fR \fIlabel\fR]
+[\fB--as\fR \fIname\fR]
 .br
 .B shurli join
 .I code
-[\fB--name\fR \fIlabel\fR]
+[\fB--as\fR \fIname\fR]
 .br
 .B shurli proxy
 .I target service local-port
@@ -197,12 +197,12 @@ A minimal setup takes about two minutes:
 .PP
 .B "Pair them (from either device):"
 .nf
-  shurli invite --name home
+  shurli invite --as home
 .fi
 .PP
 This prints a one-time code. On the other device:
 .nf
-  shurli join <code> --name laptop
+  shurli join <code> --as laptop
 .fi
 .PP
 Both devices are now authorized and can reach each other.
@@ -634,12 +634,12 @@ secret is the invite code itself, so no pre-existing secure channel is needed.
 After pairing, both peers are added to each other's authorized_keys
 automatically.
 .TP
-.B invite \fR[\fB--name\fR \fI"home"\fR] [\fB--ttl\fR \fIduration\fR] [\fB--non-interactive\fR]
+.B invite \fR[\fB--as\fR \fI"home"\fR] [\fB--ttl\fR \fIduration\fR] [\fB--non-interactive\fR]
 Generate a one-time invite code and wait for a peer to join. The
-\fB--name\fR label is stored in the joiner's config for friendly addressing.
+\fB--as\fR flag sets your node's name on the network.
 Default TTL: 10 minutes.
 .TP
-.B join \fIcode\fR [\fB--name\fR \fI"laptop"\fR] [\fB--non-interactive\fR]
+.B join \fIcode\fR [\fB--as\fR \fI"laptop"\fR] [\fB--non-interactive\fR]
 Connect to the inviting peer using the code. Mutually authenticates, then
 exchanges peer IDs and authorized_keys entries.
 .TP

@@ -65,6 +65,33 @@ func truncateError(s string) string {
 	return s
 }
 
+// HumanizeError translates cryptic libp2p errors into actionable user-facing messages.
+// Returns a human-friendly string. Falls back to truncateError for unrecognized patterns.
+func HumanizeError(err string) string {
+	lower := strings.ToLower(err)
+
+	switch {
+	case strings.Contains(lower, "all dials failed") || strings.Contains(lower, "no good addresses"):
+		return "could not reach peer. Possible causes:\n" +
+			"  - The peer is offline or unreachable\n" +
+			"  - Relay data access may not be enabled for your peer\n" +
+			"  Hint: ask the relay admin to enable data relay,\n" +
+			"    or set up your own relay with relaxed permissions"
+	case strings.Contains(lower, "no reservation"):
+		return "relay denied reservation. The relay may not authorize this peer.\n" +
+			"  Hint: ensure the peer is in the relay's authorized_keys"
+	case strings.Contains(lower, "resource limit"):
+		return "relay resource limit reached. The relay is at capacity.\n" +
+			"  Hint: try again later, or set up your own relay"
+	case strings.Contains(lower, "connection refused"):
+		return "connection refused. The peer or relay is not accepting connections"
+	case strings.Contains(lower, "context deadline exceeded") || strings.Contains(lower, "i/o timeout"):
+		return "connection timed out. The peer may be offline or behind a restrictive firewall"
+	}
+
+	return truncateError(err)
+}
+
 func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 	short := evt.Remote.String()
 	if len(short) > 16 {
@@ -703,6 +730,11 @@ func (n *Network) RegisterName(name string, peerID peer.ID) error {
 // LoadNames loads name-to-peer-ID mappings from a string map (e.g., from YAML config)
 func (n *Network) LoadNames(names map[string]string) error {
 	return n.nameResolver.LoadFromMap(names)
+}
+
+// ListNames returns all registered name-to-peer-ID mappings.
+func (n *Network) ListNames() map[string]peer.ID {
+	return n.nameResolver.List()
 }
 
 // AddRelayAddressesForPeer adds relay circuit addresses for a target peer to the peerstore.
