@@ -150,6 +150,13 @@ func (c *daemonClient) ShareRemove(path string) error {
 	return c.doJSON("DELETE", "/v1/shares", strings.NewReader(string(body)), nil)
 }
 
+// ShareDeny removes a peer from a share's peer list.
+func (c *daemonClient) ShareDeny(path, peerName string) error {
+	req := ShareDenyRequest{Path: path, Peer: peerName}
+	body, _ := json.Marshal(req)
+	return c.doJSON("POST", "/v1/shares/deny", strings.NewReader(string(body)), nil)
+}
+
 // ShareList returns all shared paths.
 func (c *daemonClient) ShareList() ([]ShareInfo, error) {
 	var resp []ShareInfo

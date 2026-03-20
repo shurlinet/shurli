@@ -50,6 +50,12 @@ type UnshareRequest struct {
 	Path string `json:"path"`
 }
 
+// ShareDenyRequest is the body for POST /v1/shares/deny.
+type ShareDenyRequest struct {
+	Path string `json:"path"` // shared path
+	Peer string `json:"peer"` // peer name or ID to remove
+}
+
 // BrowseRequest is the body for POST /v1/browse.
 type BrowseRequest struct {
 	Peer    string `json:"peer"`               // peer name or ID

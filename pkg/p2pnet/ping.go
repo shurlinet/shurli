@@ -91,7 +91,7 @@ func doPing(ctx context.Context, h host.Host, peerID peer.ID, protocolID string,
 
 	s, err := h.NewStream(relayCtx, peerID, protocol.ID(protocolID))
 	if err != nil {
-		result.Error = fmt.Sprintf("stream: %s", truncateError(err.Error()))
+		result.Error = HumanizeError(err.Error())
 		return result
 	}
 	defer s.Close()

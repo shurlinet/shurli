@@ -2,11 +2,12 @@ package filetransfer
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
 	reg := p.shareRegistry
+	pnet := p.network
 	p.mu.RUnlock()
 	if reg == nil {
 		daemon.RespondJSON(w, http.StatusOK, []ShareInfo{})
@@ -44,6 +46,18 @@ func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Requ
 	}
 
 	if daemon.WantsText(r) {
+		// Build reverse lookup: peer ID -> name.
+		// When multiple names exist for the same peer, prefer the shorter one.
+		reverseNames := make(map[string]string)
+		if pnet != nil {
+			for name, pid := range pnet.ListNames() {
+				key := pid.String()
+				if existing, ok := reverseNames[key]; !ok || len(name) < len(existing) {
+					reverseNames[key] = name
+				}
+			}
+		}
+
 		var sb strings.Builder
 		for _, info := range infos {
 			kind := "file"
@@ -52,7 +66,20 @@ func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Requ
 			}
 			peerStr := "all"
 			if len(info.Peers) > 0 {
-				peerStr = fmt.Sprintf("%d peers", len(info.Peers))
+				names := make([]string, 0, len(info.Peers))
+				for _, pidStr := range info.Peers {
+					if name, ok := reverseNames[pidStr]; ok {
+						names = append(names, name)
+					} else {
+						// Truncate peer ID for readability.
+						if len(pidStr) > 16 {
+							pidStr = pidStr[:16] + "..."
+						}
+						names = append(names, pidStr)
+					}
+				}
+				sort.Strings(names)
+				peerStr = strings.Join(names, ", ")
 			}
 			fmt.Fprintf(&sb, "%s\t%s\t%s\n", kind, info.Path, peerStr)
 		}
@@ -145,6 +172,50 @@ func (p *FileTransferPlugin) handleShareRemove(w http.ResponseWriter, r *http.Re
 	daemon.RespondJSON(w, http.StatusOK, map[string]string{"status": "unshared"})
 }
 
+func (p *FileTransferPlugin) handleShareDeny(w http.ResponseWriter, r *http.Request) {
+	var req ShareDenyRequest
+	if err := daemon.ParseJSON(r, &req); err != nil {
+		daemon.RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" || req.Peer == "" {
+		daemon.RespondError(w, http.StatusBadRequest, "path and peer are required")
+		return
+	}
+
+	p.mu.RLock()
+	reg := p.shareRegistry
+	pnet := p.network
+	p.mu.RUnlock()
+
+	if reg == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "file sharing is not enabled")
+		return
+	}
+	if pnet == nil {
+		daemon.RespondError(w, http.StatusServiceUnavailable, "network not available")
+		return
+	}
+
+	// Resolve peer name to ID.
+	peerID, err := pnet.ResolveName(req.Peer)
+	if err != nil {
+		peerID, err = peer.Decode(req.Peer)
+		if err != nil {
+			daemon.RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer name or ID %q", req.Peer))
+			return
+		}
+	}
+
+	if err := reg.DenyPeer(req.Path, peerID); err != nil {
+		daemon.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	slog.Info("peer denied from share via API", "path", req.Path, "peer", req.Peer)
+	daemon.RespondJSON(w, http.StatusOK, map[string]string{"status": "denied"})
+}
+
 func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	var req BrowseRequest
 	if err := daemon.ParseJSON(r, &req); err != nil {
@@ -181,13 +252,13 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %v", err))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", p2pnet.HumanizeError(err.Error())))
 		return
 	}
 	defer stream.Close()
@@ -267,7 +338,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
@@ -331,7 +402,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	// Single-peer download. Use r.Context() so drain cancellation propagates (F2 fix).
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %v", err))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
@@ -426,7 +497,7 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 

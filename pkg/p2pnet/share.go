@@ -288,7 +288,8 @@ func generateShareID() string {
 	return "share-" + randomHex(8)
 }
 
-// Share adds or updates a shared path.
+// Share adds or updates a shared path. If the path is already shared and new
+// peers are provided, the new peers are merged into the existing peer list.
 func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -301,34 +302,80 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 		return fmt.Errorf("path not accessible: %w", err)
 	}
 
-	// Build peer map.
-	var peerMap map[peer.ID]bool
+	// Build peer map from new peers.
+	var newPeers map[peer.ID]bool
 	if len(peers) > 0 {
-		peerMap = make(map[peer.ID]bool, len(peers))
+		newPeers = make(map[peer.ID]bool, len(peers))
 		for _, p := range peers {
-			peerMap[p] = true
+			newPeers[p] = true
 		}
 	}
 
 	r.mu.Lock()
-	// Reuse existing ID if re-sharing same path.
-	existingID := ""
 	if existing, ok := r.shares[absPath]; ok {
-		existingID = existing.ID
-	}
-	if existingID == "" {
-		existingID = generateShareID()
-	}
-	r.shares[absPath] = &ShareEntry{
-		ID:         existingID,
-		Path:       absPath,
-		Name:       filepath.Base(absPath),
-		Peers:      peerMap,
-		Persistent: persistent,
-		SharedAt:   time.Now(),
-		IsDir:      info.IsDir(),
+		// Path already shared - merge new peers into existing entry.
+		if newPeers != nil {
+			if existing.Peers == nil {
+				// Share was open to all; now restricting to specific peers.
+				slog.Info("share restricted from all-authorized to specific peers",
+					"path", absPath, "peers", len(newPeers))
+				existing.Peers = newPeers
+			} else {
+				for p := range newPeers {
+					existing.Peers[p] = true
+				}
+			}
+		}
+		// Preserve existing persistence setting on merge.
+		// Persistence is a property of the share, not the add operation.
+	} else {
+		// New share.
+		r.shares[absPath] = &ShareEntry{
+			ID:         generateShareID(),
+			Path:       absPath,
+			Name:       filepath.Base(absPath),
+			Peers:      newPeers,
+			Persistent: persistent,
+			SharedAt:   time.Now(),
+			IsDir:      info.IsDir(),
+		}
 	}
 	r.mu.Unlock()
+
+	r.savePersistentIfNeeded()
+	return nil
+}
+
+// DenyPeer removes a peer from a share's peer list.
+func (r *ShareRegistry) DenyPeer(path string, peerID peer.ID) error {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
+
+	err = func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		entry, ok := r.shares[absPath]
+		if !ok {
+			return fmt.Errorf("path %q not shared", absPath)
+		}
+		if entry.Peers == nil {
+			return fmt.Errorf("share is open to all authorized peers; use --to to restrict first")
+		}
+		if !entry.Peers[peerID] {
+			return fmt.Errorf("peer not in this share's peer list")
+		}
+		if len(entry.Peers) == 1 {
+			return fmt.Errorf("cannot remove the last peer; use 'shurli share remove' to unshare entirely")
+		}
+		delete(entry.Peers, peerID)
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
 
 	r.savePersistentIfNeeded()
 	return nil

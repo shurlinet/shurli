@@ -149,14 +149,14 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 **User Experience**:
 ```bash
 # Machine A (home server)
-$ shurli invite --name home
+$ shurli invite --as home
 === Invite Code (expires in 10m0s) ===
 AEQB-XJKZ-M4NP-...
 [QR code displayed]
 Waiting for peer to join...
 
 # Machine B (laptop)
-$ shurli join AEQB-XJKZ-M4NP-... --name laptop
+$ shurli join AEQB-XJKZ-M4NP-... --as laptop
 === Joined successfully! ===
 Peer "home" authorized and added to names.
 Try: shurli ping home
@@ -181,7 +181,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - All user-facing inputs sanitized before writing to files
 
 **Bug fixes (discovered during real-world testing)**:
-- [x] Fixed invite code corruption when `--name` flag follows positional arg (`shurli join CODE --name laptop` - Go's `flag.Parse` stops at first non-flag, concatenating `--name` and `laptop` into the base32 code)
+- [x] Fixed invite code corruption when flags follow positional arg (`shurli join CODE --as laptop` - Go's `flag.Parse` stops at first non-flag, concatenating flag and value into the base32 code)
 - [x] Added strict multihash length validation in invite decoder - Go's `base32.NoPadding` silently accepts trailing junk, so `Decode()` now re-encodes and compares multihash byte lengths
 - [x] Fixed stream reset during invite join - inviter now flushes the OK response through the relay circuit before closing the stream
 - [x] Added `reorderFlagsFirst()` to `runJoin()` so flags can appear after positional args (natural CLI usage)
@@ -1110,7 +1110,7 @@ shurli binary
 **Headless Onboarding Enhancements** (already complete):
 - [x] `shurli invite --non-interactive` - bare code to stdout, no QR, progress to stderr *(Phase 4C Batch E)*
 - [x] `shurli join --non-interactive` - reads code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin *(Phase 4C Batch E)*
-- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` *(Phase 4C Batch E)*
+- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --as node-1` *(Phase 4C Batch E)*
 
 **Exit Criteria**: SDK installable via pip, all examples runnable, docs reviewed for accuracy against current code.
 

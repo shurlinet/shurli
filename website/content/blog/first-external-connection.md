@@ -22,14 +22,14 @@ This was unplanned. A spontaneous test of Shurli's capabilities while still unde
 The invite flow worked end to end:
 
 ```
-shurli invite --name "peer-name"
+shurli invite --as "peer-name"
 ```
 
 Generated a short code. Sent it over a secure channel. The external user ran:
 
 ```
 shurli init
-shurli join <code> --name <device-name>
+shurli join <code> --as <device-name>
 ```
 
 The `join` command itself completed in seconds. Both nodes appeared in each other's authorized peer list. The relay delivered introductions automatically. Identity verification (emoji + numeric SAS code) was confirmed over a voice call.

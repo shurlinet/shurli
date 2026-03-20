@@ -421,10 +421,10 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--config" -- "$cur"))
             return ;;
         invite)
-            COMPREPLY=($(compgen -W "--config --name --ttl --non-interactive" -- "$cur"))
+            COMPREPLY=($(compgen -W "--config --as --ttl --non-interactive" -- "$cur"))
             return ;;
         join)
-            COMPREPLY=($(compgen -W "--config --name --non-interactive" -- "$cur"))
+            COMPREPLY=($(compgen -W "--config --as --non-interactive" -- "$cur"))
             return ;;
         init)
             COMPREPLY=($(compgen -W "--dir --network" -- "$cur"))
@@ -747,9 +747,9 @@ _shurli() {
         whoami|verify|status)
             _arguments '--config[Config file]:file:_files' ;;
         invite)
-            _arguments '--config[Config file]:file:_files' '--name[Peer name]:name' '--ttl[Invite TTL]:duration' '--non-interactive[Machine-friendly output]' ;;
+            _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--ttl[Invite TTL]:duration' '--non-interactive[Machine-friendly output]' ;;
         join)
-            _arguments '--config[Config file]:file:_files' '--name[Peer name]:name' '--non-interactive[Machine-friendly output]' ;;
+            _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--non-interactive[Machine-friendly output]' ;;
         recover)
             _arguments '--relay[Also recover relay vault]' '--dir[Config directory]:dir:_directories' ;;
         change-password)

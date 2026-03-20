@@ -51,8 +51,8 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 
 | Command | Description |
 |---------|-------------|
-| `shurli invite [--name "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
-| `shurli join <code> [--name "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
+| `shurli invite [--as "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
+| `shurli join <code> [--as "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
 | `shurli verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
 | `shurli status` | Show local config, identity, authorized peers, services, names |
 | `shurli version` | Show version, commit, build date, Go version |
@@ -71,9 +71,10 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 
 | Command | Description |
 |---------|-------------|
-| `shurli share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]` | Share a file or directory. `--to` for a single peer, `--peers` for multiple. Without either, all authorized peers have access. `--persist` survives daemon restarts. |
-| `shurli share remove <path> [--json]` | Stop sharing a path. |
-| `shurli share list [--json]` | List all shared paths with type and peer restrictions. |
+| `shurli share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]` | Share a file or directory. `--to` for a single peer, `--peers` for multiple. Adding to an existing share appends peers. Without `--to`/`--peers`, all authorized peers have access. `--persist` survives daemon restarts. |
+| `shurli share deny <path> <peer> [--json]` | Remove a peer from a share's peer list. |
+| `shurli share remove <path> [--json]` | Stop sharing a path entirely. |
+| `shurli share list [--json]` | List all shared paths with type and peer names. |
 | `shurli browse <peer> [<path>] [--path /sub/dir] [--json]` | Browse files shared by a remote peer. Path can be positional or via `--path` flag. |
 | `shurli download <peer>:<path> [--dest dir] [--follow] [--multi-peer] [--peers list] [--quiet] [--silent] [--json]` | Download from a peer's shares. `--multi-peer` with `--peers` enables RaptorQ multi-source swarming. |
 

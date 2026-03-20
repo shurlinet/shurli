@@ -226,8 +226,8 @@ func printUsage() {
 	fmt.Println("  service list                           List configured services")
 	fmt.Println()
 	fmt.Println("Pairing:")
-	fmt.Println("  invite [--name \"home\"]                 Generate pairing invite")
-	fmt.Println("  join <code> [--name \"laptop\"]          Join with invite code")
+	fmt.Println("  invite [--as \"home\"]                   Generate pairing invite")
+	fmt.Println("  join <code> [--as \"laptop\"]            Join with invite code")
 	fmt.Println("  verify <peer>                          Verify a peer's identity (SAS)")
 	fmt.Println()
 	fmt.Println("Identity security:")
@@ -279,21 +279,21 @@ func printUsage() {
 	fmt.Println("Get started:  shurli init")
 }
 
-// pluginEnabledCache caches the result of config reads for isPluginEnabledInConfig.
-// P22 fix: prevents re-reading the config file on every call (called per-request for route gating).
+// pluginEnabledCache caches plugin enabled state. Populated once per process
+// from daemon (preferred) or config file (fallback).
 var pluginEnabledCache struct {
 	loaded  bool
 	entries map[string]bool // plugin name -> enabled
 }
 
-// isPluginEnabledInConfig checks if a plugin is enabled by reading the config file.
-// Returns true if: no config found, config can't be read, plugin not in config (default enabled).
-// P22 fix: caches the result after first load to avoid per-request config reads.
+// isPluginEnabledInConfig checks if a plugin is enabled.
+// Queries the running daemon first (runtime state reflects enable/disable commands).
+// Falls back to config file when daemon is not running.
 func isPluginEnabledInConfig(name string) bool {
 	if pluginEnabledCache.loaded {
 		enabled, ok := pluginEnabledCache.entries[name]
 		if !ok {
-			return true // not in config = default enabled for built-in
+			return true // not known = default enabled for built-in
 		}
 		return enabled
 	}
@@ -301,6 +301,21 @@ func isPluginEnabledInConfig(name string) bool {
 	pluginEnabledCache.entries = make(map[string]bool)
 	pluginEnabledCache.loaded = true
 
+	// Try daemon first for runtime state.
+	if c := tryDaemonClient(); c != nil {
+		if plugins, err := c.PluginList(); err == nil {
+			for _, p := range plugins {
+				pluginEnabledCache.entries[p.Name] = (p.State == "active")
+			}
+			entry, ok := pluginEnabledCache.entries[name]
+			if !ok {
+				return true
+			}
+			return entry
+		}
+	}
+
+	// Fallback: read config file.
 	cfgFile, err := config.FindConfigFile("")
 	if err != nil {
 		return true // no config = default enabled

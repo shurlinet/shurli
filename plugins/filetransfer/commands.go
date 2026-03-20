@@ -94,7 +94,7 @@ func cliCommandList() []plugin.CLICommandEntry {
 		{
 			Name: "share", PluginName: "filetransfer",
 			Description: "Manage shared files",
-			Usage:       "shurli share <add|remove|list> ...",
+			Usage:       "shurli share <add|remove|list|deny> ...",
 			Run:         runShare,
 			Subcommands: []plugin.CLISubcommand{
 				{Name: "add", Description: "Share a file or directory", Flags: []plugin.CLIFlagEntry{
@@ -107,6 +107,9 @@ func cliCommandList() []plugin.CLICommandEntry {
 					{Long: "json", Type: "bool", Description: "Output as JSON"},
 				}},
 				{Name: "list", Description: "List shared paths", Flags: []plugin.CLIFlagEntry{
+					{Long: "json", Type: "bool", Description: "Output as JSON"},
+				}},
+				{Name: "deny", Description: "Remove a peer from a share", Flags: []plugin.CLIFlagEntry{
 					{Long: "json", Type: "bool", Description: "Output as JSON"},
 				}},
 			},
@@ -445,7 +448,7 @@ func runBrowse(args []string) {
 
 func runShare(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: shurli share <add|remove|list> ...")
+		fmt.Println("Usage: shurli share <add|remove|list|deny> ...")
 		osExit(1)
 	}
 
@@ -456,9 +459,43 @@ func runShare(args []string) {
 		runShareRemove(args[1:])
 	case "list", "ls":
 		runShareList(args[1:])
+	case "deny":
+		runShareDeny(args[1:])
 	default:
 		runShareAdd(args)
 	}
+}
+
+func runShareDeny(args []string) {
+	fs := flag.NewFlagSet("share deny", flag.ExitOnError)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	fs.Parse(reorderFlags(fs, args))
+
+	remaining := fs.Args()
+	if len(remaining) < 2 {
+		fmt.Println("Usage: shurli share deny <path> <peer>")
+		osExit(1)
+	}
+
+	absPath, err := filepath.Abs(remaining[0])
+	if err != nil {
+		fatal("Invalid path: %v", err)
+	}
+
+	peerName := remaining[1]
+
+	client := requireClient()
+	if err := client.ShareDeny(absPath, peerName); err != nil {
+		fatal("Deny failed: %v", err)
+	}
+
+	if *jsonFlag {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(map[string]string{"status": "denied", "path": absPath, "peer": peerName})
+		return
+	}
+	tc.Wgreen(os.Stdout, "Denied: %s removed from %s\n", peerName, absPath)
 }
 
 func runShareAdd(args []string) {
@@ -524,10 +561,11 @@ func runShareAdd(args []string) {
 
 	tc.Wgreen(os.Stdout, "Shared: %s\n", absPath)
 	if len(peers) > 0 {
-		tc.Wfaint(os.Stdout, "  Restricted to %d peer(s)\n", len(peers))
+		tc.Wfaint(os.Stdout, "  Added peer(s): %s\n", strings.Join(peers, ", "))
 	} else {
 		tc.Wfaint(os.Stdout, "  Visible to all authorized peers\n")
 	}
+	tc.Wfaint(os.Stdout, "  Use 'shurli share list' to see full peer list\n")
 }
 
 func runShareRemove(args []string) {

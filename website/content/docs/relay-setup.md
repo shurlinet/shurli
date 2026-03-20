@@ -84,7 +84,7 @@ Generate pairing codes and share them with your peers:
 shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
-shurli join <pairing-code> --name laptop
+shurli join <pairing-code> --as laptop
 ```
 
 Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `shurli verify <name>`.

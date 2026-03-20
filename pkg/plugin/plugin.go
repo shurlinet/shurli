@@ -233,7 +233,7 @@ func (c *PluginContext) ConnectToPeer(ctx context.Context, peerID peer.ID) *Plug
 	}
 	err := c.peerConnector(ctx, peerID)
 	if err != nil {
-		return newPluginError(ErrCodePeerUnreachable, "failed to connect to peer")
+		return newPluginError(ErrCodePeerUnreachable, err.Error())
 	}
 	return nil
 }
