@@ -376,13 +376,14 @@ func (p *FileTransferPlugin) Commands() []plugin.Command {
 	}
 }
 
-// Routes returns the 14 HTTP endpoints this plugin provides.
+// Routes returns the 15 HTTP endpoints this plugin provides.
 // All handlers are wrapped with wrapHandler for drain WaitGroup tracking (C1 fix).
 func (p *FileTransferPlugin) Routes() []plugin.Route {
 	return []plugin.Route{
 		{Method: "GET", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareList)},
 		{Method: "POST", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareAdd)},
 		{Method: "DELETE", Path: "/v1/shares", Handler: p.wrapHandler(p.handleShareRemove)},
+		{Method: "POST", Path: "/v1/shares/deny", Handler: p.wrapHandler(p.handleShareDeny)},
 		{Method: "POST", Path: "/v1/browse", Handler: p.wrapHandler(p.handleBrowse)},
 		{Method: "POST", Path: "/v1/download", Handler: p.wrapHandler(p.handleDownload)},
 		{Method: "POST", Path: "/v1/send", Handler: p.wrapHandler(p.handleSend)},

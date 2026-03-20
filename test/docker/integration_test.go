@@ -147,7 +147,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// Run invite in background, capturing stdout (the invite code) to a file.
 	// No nohup needed - container runs "sleep infinity" so no SIGHUP risk.
 	_, _, err = dockerExec("node-a", "sh", "-c",
-		"shurli invite --non-interactive --name home --config /root/.config/shurli/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
+		"shurli invite --non-interactive --as home --config /root/.config/shurli/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
 	if err != nil {
 		t.Fatalf("failed to start invite on node-a: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 5: Run join on node-b ──
 	t.Log("Running join on node-b...")
 	// Use SHURLI_INVITE_CODE env var - clean approach for scripted usage.
-	joinCmd := fmt.Sprintf("SHURLI_INVITE_CODE='%s' shurli join --non-interactive --name laptop", inviteCode)
+	joinCmd := fmt.Sprintf("SHURLI_INVITE_CODE='%s' shurli join --non-interactive --as laptop", inviteCode)
 	out, stderr, err := dockerExecWithTimeout("node-b", 60*time.Second, "sh", "-c", joinCmd)
 	if err != nil {
 		t.Fatalf("node-b join failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)

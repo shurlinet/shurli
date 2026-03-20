@@ -98,14 +98,14 @@ All keytool functionality now lives in `shurli` subcommands: `shurli whoami` (pe
 **User Experience**:
 ```bash
 # Machine A (home server)
-$ shurli invite --name home
+$ shurli invite --as home
 === Invite Code (expires in 10m0s) ===
 AEQB-XJKZ-M4NP-...
 [QR code displayed]
 Waiting for peer to join...
 
 # Machine B (laptop)
-$ shurli join AEQB-XJKZ-M4NP-... --name laptop
+$ shurli join AEQB-XJKZ-M4NP-... --as laptop
 === Joined successfully! ===
 Peer "home" authorized and added to names.
 Try: shurli ping home

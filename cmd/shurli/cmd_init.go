@@ -265,7 +265,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	tc.Wblue(stdout, "Next steps:\n")
 	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
-	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --name home")
+	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --as home")
 	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
 	fmt.Fprintln(stdout)
 	tc.Wfaint(stdout, "If anything looks wrong later, run: shurli doctor\n")

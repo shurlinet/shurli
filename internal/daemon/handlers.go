@@ -356,7 +356,7 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
@@ -621,7 +621,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
@@ -685,7 +685,7 @@ func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 
@@ -785,7 +785,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %v", req.Peer, err))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
 		return
 	}
 

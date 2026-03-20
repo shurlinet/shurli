@@ -296,8 +296,8 @@ shurli auth remove <peer-id>
 
 **2. Invite/Join flow - zero-touch mutual authorization**
 ```
-Machine A: shurli invite --name home     # Generates invite code + QR
-Machine B: shurli join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
+Machine A: shurli invite --as home     # Generates invite code + QR
+Machine B: shurli join <code> --as laptop  # Decodes, connects, auto-authorizes both sides
 ```
 The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Version byte: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Legacy cleartext protocol was deleted (zero downgrade surface).
 

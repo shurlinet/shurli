@@ -187,7 +187,7 @@ func measurePeerRTT(ctx context.Context, h host.Host, peerID peer.ID) (float64, 
 			strings.Contains(errStr, "protocols not supported") {
 			return float64(rtt.Microseconds()) / 1000.0, nil
 		}
-		return 0, fmt.Errorf("cannot reach peer: %s", truncateError(errStr))
+		return 0, fmt.Errorf("cannot reach peer: %s", HumanizeError(errStr))
 	}
 
 	// Stream opened somehow  - close it and use the RTT
