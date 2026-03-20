@@ -4,7 +4,8 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 9B Complete)](#current-architecture-phase-9b-complete) - what's built and working
+- [Current Architecture (Phase 9B + Plugin Architecture Complete)](#current-architecture-phase-9b--plugin-architecture-complete) - what's built and working
+- [Plugin Architecture](#plugin-architecture) - extensibility framework, three-layer evolution
 - [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
 - [Adaptive Path Selection (Batch I)](#adaptive-path-selection-batch-i) - interface discovery, dial racing, STUN, peer relay
@@ -24,14 +25,15 @@ This document describes the technical architecture of Shurli, from current imple
   - [Remote Admin Protocol (Phase 8)](#remote-admin-protocol-phase-8) - full relay management over P2P
   - [MOTD and Goodbye (Phase 8)](#motd-and-goodbye-phase-8) - signed operator announcements
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
-  - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source
+  - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source (plugin)
+  - [Plugin System](#plugin-system) - Plugin interface, registry, lifecycle, supervisor
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
 - [Federation Model](#federation-model) - planned (Phase 13)
 - [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
 
 ---
 
-## Current Architecture (Phase 9B Complete)
+## Current Architecture (Phase 9B + Plugin Architecture Complete)
 
 ### Component Overview
 
@@ -41,10 +43,11 @@ Shurli/
 │   ├── shurli/              # Single binary with subcommands
 │   │   ├── main.go          # Command dispatch (daemon, ping, traceroute, resolve,
 │   │   │                    #   proxy, whoami, auth, relay, config, service, invite,
-│   │   │                    #   join, verify, send, download, share, browse, transfers,
-│   │   │                    #   accept, reject, cancel, status, init, recover,
+│   │   │                    #   join, verify, plugin, status, init, recover,
 │   │   │                    #   change-password, lock, unlock, session, doctor,
 │   │   │                    #   completion, man, version)
+│   │   │                    #   + plugin-injected: send, download, share, browse,
+│   │   │                    #   transfers, accept, reject, cancel, clean
 │   │   ├── cmd_daemon.go    # Daemon mode + client subcommands (status, stop, ping, etc.)
 │   │   ├── serve_common.go  # Shared P2P runtime (serveRuntime) - used by daemon
 │   │   ├── cmd_init.go      # Interactive setup wizard
@@ -67,14 +70,7 @@ Shurli/
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
 │   │   ├── cmd_relay_motd.go # MOTD/goodbye CLI: set/clear/status, goodbye set/retract/shutdown
 │   │   ├── cmd_relay_remote.go # Remote admin --remote flag dispatcher
-│   │   ├── cmd_send.go        # Send file to peer (fire-and-forget, --follow for inline progress)
-│   │   ├── cmd_download.go   # Download from shared peer catalog (--multi-peer for RaptorQ)
-│   │   ├── cmd_share.go      # Share add/remove/list (selective file sharing)
-│   │   ├── cmd_browse.go     # Browse a peer's shared files
-│   │   ├── cmd_transfers.go  # Transfer inbox (--watch, --history, --json)
-│   │   ├── cmd_accept.go     # Accept pending transfer (--all for batch)
-│   │   ├── cmd_reject.go     # Reject pending transfer (--all for batch)
-│   │   ├── cmd_cancel.go     # Cancel outbound transfer
+│   │   ├── cmd_plugin.go      # Plugin CLI: list/enable/disable/info/disable-all
 │   │   ├── cmd_relay_recover.go # Relay identity recovery from seed phrase
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
 │   │   ├── cmd_recover.go    # Top-level identity recovery from seed phrase
@@ -134,6 +130,30 @@ Shurli/
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
 │   └── errors.go            # Sentinel errors
+│
+├── pkg/plugin/              # Plugin framework
+│   ├── plugin.go            # Plugin interface contract (Name, Version, Init, Start, Stop, Commands, Routes, Protocols)
+│   ├── registry.go          # Plugin discovery, load, enable/disable
+│   ├── registry_lifecycle.go # Lifecycle state machine (LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED)
+│   ├── registry_helpers.go  # Route conflict detection, handler wrapping
+│   ├── registry_query.go    # Plugin query helpers
+│   ├── lifecycle.go         # State transitions, validation
+│   ├── commands.go          # CLI command registration from plugins
+│   ├── completion.go        # Shell completion generation for plugin commands
+│   ├── supervisor.go        # Auto-restart with circuit breaker (3 crashes = disable)
+│   └── atomicfile.go        # Atomic file writes with fsync
+│
+├── plugins/                 # Plugin implementations
+│   ├── plugins.go           # Plugin registration (all compiled-in plugins)
+│   └── filetransfer/        # File transfer plugin (first extraction)
+│       ├── plugin.go        # Implements Plugin interface
+│       ├── commands.go      # 9 CLI command handlers (send, download, browse, share, etc.)
+│       ├── handlers.go      # 14 daemon HTTP handlers
+│       ├── client.go        # Daemon client methods for file transfer
+│       ├── types.go         # 12 request/response types
+│       ├── config.go        # Plugin config section (~30 fields)
+│       ├── checkpoint.go    # Transfer checkpoint persistence
+│       └── progress.go      # Transfer progress tracking
 │
 ├── internal/
 │   ├── config/              # YAML configuration loading + self-healing
@@ -297,13 +317,21 @@ Building on the current structure, future phases will add:
 ```
 Shurli/
 ├── cmd/
-│   ├── shurli/              # ✅ Single binary (33 subcommands including file transfer)
+│   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
 │   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
-├── pkg/p2pnet/              # ✅ Core library (importable) - includes file transfer, chunking,
+├── pkg/p2pnet/              # ✅ Core library (importable) - transfer engine, chunking,
 │   │                        #   Merkle, compression, erasure, share registry, plugin policy
 │   ├── ...existing...
 │   └── federation.go        # 🆕 Phase 13: Network peering
+│
+├── pkg/plugin/              # ✅ Plugin framework (interface, registry, supervisor)
+│
+├── plugins/                 # ✅ Plugin implementations
+│   ├── filetransfer/        # ✅ File transfer plugin (first extraction)
+│   ├── discovery/           # 🆕 Phase 9C: Service discovery
+│   ├── servicetemplates/    # 🆕 Phase 9C: Ollama, vLLM templates
+│   └── wakeonlan/           # 🆕 Phase 9C: Wake-on-LAN
 │
 ├── internal/
 │   ├── config/              # ✅ Configuration + self-healing (archive, commit-confirmed)
@@ -1005,7 +1033,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### File Transfer (Phase 9B)
 
-> **Status: Implemented**
+> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/p2pnet/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
 
 Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay transport is allowed (relay-side bandwidth limits enforce conservation). Seven-layer DDoS defense protects all transfer endpoints.
 
@@ -1094,7 +1122,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 | `POST /v1/config/reload` | Hot-reload configuration |
 | `GET /v1/config/reload` | Get reload status |
 
-**CLI Commands** (8 new):
+**CLI Commands** (9, provided by file transfer plugin):
 
 | Command | Description |
 |---------|-------------|
@@ -1117,6 +1145,59 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 | xssnick/raptorq | MIT | Fountain codes (multi-source) |
 
 **Reference**: `pkg/p2pnet/transfer.go`, `pkg/p2pnet/chunker.go`, `pkg/p2pnet/merkle.go`, `pkg/p2pnet/compress.go`, `pkg/p2pnet/share.go`, `pkg/p2pnet/transfer_erasure.go`, `pkg/p2pnet/transfer_multipeer.go`, `pkg/p2pnet/transfer_raptorq.go`, `pkg/p2pnet/transfer_parallel.go`, `pkg/p2pnet/transfer_resume.go`, `pkg/p2pnet/transfer_log.go`, `pkg/p2pnet/transfer_notify.go`, `pkg/p2pnet/plugin_policy.go`
+
+### Plugin System
+
+Shurli uses a compiled-in plugin architecture (Layer 1) that cleanly separates core infrastructure from extensible features. Every future feature follows the plugin pattern.
+
+**Plugin Interface**:
+```go
+type Plugin interface {
+    Name() string
+    Version() string
+    Init(ctx PluginContext) error    // receives capability-granted context
+    Start() error                    // register protocols, start background work
+    Stop() error                     // clean shutdown
+    Commands() []Command             // CLI commands this plugin provides
+    Routes() []Route                 // daemon HTTP endpoints
+    Protocols() []Protocol           // P2P stream handlers
+    ConfigSection() string           // YAML key this plugin owns
+}
+```
+
+**Lifecycle State Machine**: LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED. Stream handling only in ACTIVE state. Invalid transitions rejected.
+
+**PluginContext**: Capability-granted access to network operations. No raw Network/Host access. No credential access (daemon keys, auth cookies, vault are isolated). Structured error codes only (never raw strings).
+
+**Supervisor**: Auto-restart crashed plugins with circuit breaker. 3 crashes within window = auto-disable. Prevents cascading failures.
+
+**Hot Reload**: `shurli plugin enable/disable <name>` toggles plugins without daemon restart. Commands, routes, and protocols register/unregister atomically.
+
+**Kill Switch**: `shurli plugin disable-all` immediately stops all plugins. Essential for incident response.
+
+**CLI Commands**:
+
+| Command | Description |
+|---------|-------------|
+| `shurli plugin list` | Show all plugins (built-in + installed) with status |
+| `shurli plugin enable <name>` | Enable a disabled plugin |
+| `shurli plugin disable <name>` | Disable a plugin (unregisters commands, routes, protocols) |
+| `shurli plugin info <name>` | Show plugin details (version, status, commands, routes) |
+| `shurli plugin disable-all` | Emergency kill switch |
+
+**Three-Layer Evolution**:
+- **Layer 1 (NOW)**: Compiled-in Go plugins. Native performance, full Go capabilities. Official plugins ship this way.
+- **Layer 2 (NEXT)**: WASM via wazero. Any language (Rust, Python, JS, C). Sandboxed, cross-platform. Same `.wasm` runs on Go CLI, Swift app, Kotlin app.
+- **Layer 3 (FUTURE)**: AI-driven plugin generation. Skills.md describes behavior, AI writes code, compiles to WASM. Aligns with Zero-Human Network vision.
+
+**Security** (43-vector threat analysis):
+- Credential isolation: daemon keys, auth cookies, vault NEVER accessible via PluginContext
+- Plugins cannot install other plugins (propagation chain break, hard-coded)
+- Plugin directory 0700 permission check at startup
+- Structured error codes prevent identity/topology leakage
+- Future (Layer 2): WASM namespace enforcement, fuel metering, memory caps, per-plugin resource accounting
+
+**Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
 
 ### Federation Trust Model
 
@@ -1407,5 +1488,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-11
-**Architecture Version**: 5.0 (Phase 9B Complete: File Transfer, FastCDC Chunking, BLAKE3 Merkle, zstd Compression, Reed-Solomon Erasure, RaptorQ Multi-Source, Parallel Streams, Share Registry, Plugin Policy)
+**Last Updated**: 2026-03-20
+**Architecture Version**: 6.0 (Phase 9B + Plugin Architecture Complete: Plugin Framework, File Transfer Plugin Extraction, Supervisor Auto-Restart, Security Hardening. Previous: File Transfer, FastCDC Chunking, BLAKE3 Merkle, zstd Compression, Reed-Solomon Erasure, RaptorQ Multi-Source, Parallel Streams, Share Registry, Plugin Policy)

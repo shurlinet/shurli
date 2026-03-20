@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, Phase 9B File Transfer, and Post-9B Chaos Testing."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, Phase 9B File Transfer, Post-9B Chaos Testing, and Plugin Architecture Shift."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -661,3 +661,69 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 - [x] Engineering journal ADR-S01 through ADR-S07
 
 **libp2p upstream overrides** (10): TCP source binding, black hole reset, autorelay tuning (backoff/minInterval/bootDelay/minCandidates), ForceReachabilityPrivate, global IPv6 address factory, custom mDNS, route socket expansion (macOS), VPN tunnel detection, default gateway tracking.
+
+---
+
+## Post-9B: Plugin Architecture Shift
+
+**Timeline**: 5 days (2026-03-16 to 2026-03-20)
+**Goal**: Extract file transfer from inline code into a proper plugin. Build the Plugin interface that all future features follow.
+
+This was a foundational restructuring. Every future feature (service discovery, Wake-on-LAN, gateway, console) drops in as a plugin implementing the same interface. No more wiring into core.
+
+### Batch 1 - Plugin Framework (`pkg/plugin/`)
+
+- [x] `Plugin` interface: Name, Version, Init, Start, Stop, Commands, Routes, Protocols, ConfigSection
+- [x] `PluginContext` with capability grants (no raw Network/Host/credential access)
+- [x] Registry: discovery, load, enable/disable
+- [x] Lifecycle state machine: LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED
+- [x] `shurli plugin list/enable/disable/info/disable-all` CLI commands
+- [x] Hot reload: enable/disable without daemon restart
+- [x] Kill switch: `shurli plugin disable-all`
+- [x] Plugin directory 0700 permission check
+
+### Batch 2 - File Transfer Extraction (`plugins/filetransfer/`)
+
+- [x] 9 CLI commands moved to plugin (send, download, browse, share, transfers, accept, reject, cancel, clean)
+- [x] 14 daemon API endpoints moved to plugin
+- [x] 12 types moved to plugin
+- [x] 4 P2P protocols registered through plugin Start()
+- [x] Plugin owns config section, state files (queue.json, shares.json with HMAC)
+- [x] Core untouched: network, auth, identity, relay, ZKP all unchanged
+
+### Batch 2.5 - Fix Tracked Findings
+
+- [x] All 67 findings from 5 audit rounds resolved (none deferred)
+
+### Batch 3 - Tests + Supervisor + Checkpointer
+
+- [x] 81 test artifacts (unit + integration + fuzz)
+- [x] Supervisor auto-restart with circuit breaker (3 crashes = auto-disable)
+- [x] Transfer checkpoint/resume persistence
+- [x] 7 fuzz targets, 209M total executions, zero crashes
+
+### Batch 4a - Security Hardening
+
+- [x] 43-vector threat analysis (traditional, build-time, AI-era)
+- [x] 4-round audit with 12 additional fixes
+- [x] Credential isolation verified (daemon keys, vault never in PluginContext)
+- [x] Plugins cannot install other plugins (propagation chain break)
+
+### Batch 4b - Physical Retest
+
+- [x] 11/11 physical tests PASS (LAN send, relay send, browse, download, transfers, share, plugin list/enable/disable/disable-all, protocol unregister)
+- [x] Smoke tests PASS (auth, resolve, traceroute, ping, services, plugins, status)
+- [x] Performance baselines: LAN 3.3 MB/s, relay 682 KB/s, ping 21ms LAN / 186ms relay
+
+**Architecture after shift**:
+```
+shurli binary
+  core (network, auth, identity, daemon, CLI framework)
+  pkg/plugin/          - Plugin interface + registry + supervisor
+  pkg/p2pnet/          - Protocol library code (unchanged)
+  plugins/filetransfer/ - First plugin (CLI, handlers, protocols)
+```
+
+**Three-layer evolution**: Layer 1 (compiled-in Go, current), Layer 2 (WASM via wazero, next), Layer 3 (AI-driven plugin generation, future).
+
+**Test status**: 24/24 packages PASS, zero races. 7 fuzz targets clean.
