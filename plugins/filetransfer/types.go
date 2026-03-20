@@ -42,7 +42,7 @@ type PendingTransferInfo struct {
 type ShareRequest struct {
 	Path       string   `json:"path"`                // path to share
 	Peers      []string `json:"peers,omitempty"`      // peer IDs (empty = all authorized)
-	Persistent bool     `json:"persistent,omitempty"` // survive daemon restart
+	Persistent *bool    `json:"persistent,omitempty"` // nil = use config default, true/false = explicit
 }
 
 // UnshareRequest is the body for DELETE /v1/shares.

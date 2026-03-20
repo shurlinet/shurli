@@ -77,6 +77,7 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 	p.mu.RLock()
 	reg := p.shareRegistry
 	pnet := p.network
+	cfg := p.config
 	p.mu.RUnlock()
 
 	if reg == nil {
@@ -101,7 +102,13 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		peerIDs = append(peerIDs, pid)
 	}
 
-	if err := reg.Share(req.Path, peerIDs, req.Persistent); err != nil {
+	// Resolve persistence: explicit flag wins, otherwise use config default.
+	persistent := cfg.defaultPersistent()
+	if req.Persistent != nil {
+		persistent = *req.Persistent
+	}
+
+	if err := reg.Share(req.Path, peerIDs, persistent); err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
