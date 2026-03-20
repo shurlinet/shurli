@@ -1529,6 +1529,29 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 	}
 }
 
+// sendChunksOnly sends all data chunks + parity + done on an already-accepted stream.
+// Used by sendParallel when worker stream creation fails and we fall back to single-stream.
+// The manifest has already been sent and accepted, so we skip the handshake.
+func (ts *TransferService) sendChunksOnly(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, parity []parityChunk, progress *TransferProgress) error {
+	progress.setStatus("active")
+
+	var totalSent int64
+	for i, c := range chunks {
+		if err := writeChunkFrame(w, i, c.data); err != nil {
+			return fmt.Errorf("send chunk %d: %w", i, err)
+		}
+		totalSent += int64(len(c.data))
+		progress.updateChunks(totalSent, i+1)
+		progress.addWireBytes(int64(len(c.data)))
+	}
+
+	if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
+		return err
+	}
+
+	return writeMsg(w, msgTransferDone)
+}
+
 // sendParityChunks sends parity chunks with indices starting at dataCount.
 func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
 	for i, p := range parity {

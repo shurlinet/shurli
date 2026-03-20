@@ -93,6 +93,8 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 		}
 		registered = append(registered, proto.Name)
 	}
+	// Save registered names so unregisterProtocols works after Stop() nils plugin fields.
+	entry.registeredProtos = registered
 	return nil
 }
 
@@ -110,17 +112,20 @@ func (r *Registry) rollbackProtocols(names []string) {
 }
 
 // unregisterProtocols removes a plugin's protocols from the service registry.
+// Uses saved registeredProtos list instead of calling Protocols(), because
+// Stop() may nil plugin fields before this runs (making Protocols() return empty).
 // P14: MUST be called with r.mu held. All call sites verified.
 func (r *Registry) unregisterProtocols(entry *pluginEntry) {
 	if r.serviceRegistry == nil {
 		return
 	}
-	for _, proto := range entry.plugin.Protocols() {
-		if err := r.serviceRegistry.UnregisterService(proto.Name); err != nil {
+	for _, name := range entry.registeredProtos {
+		if err := r.serviceRegistry.UnregisterService(name); err != nil {
 			slog.Warn("plugin.unregister-protocol", "name", entry.plugin.Name(),
-				"protocol", proto.Name, "error", err)
+				"protocol", name, "error", err)
 		}
 	}
+	entry.registeredProtos = nil
 }
 
 // wrapHandler wraps a plugin's stream handler with state checking, panic recovery,

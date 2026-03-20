@@ -178,8 +178,8 @@ func (ts *TransferService) sendParallel(
 			}
 			slog.Warn("file-transfer: parallel stream open failed, falling back to sequential",
 				"error", err, "attempted", i+1, "total", numStreams)
-			// Fallback to sequential on control stream.
-			return ts.sendChunked(controlRW, m, chunks, parity, progress)
+			// Fallback: send all chunks on control stream (manifest already sent + accepted).
+			return ts.sendChunksOnly(controlRW, m, chunks, parity, progress)
 		}
 		workers[i] = ws
 		ws.SetDeadline(time.Now().Add(transferStreamDeadline))
