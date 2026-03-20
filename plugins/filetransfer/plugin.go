@@ -60,7 +60,7 @@ func New() *FileTransferPlugin {
 
 func (p *FileTransferPlugin) ID() string            { return "shurli.io/official/filetransfer" }
 func (p *FileTransferPlugin) Name() string          { return "filetransfer" }
-func (p *FileTransferPlugin) Version() string       { return "2.0.0" }
+func (p *FileTransferPlugin) Version() string       { return "1.0.0" }
 func (p *FileTransferPlugin) ConfigSection() string { return "filetransfer" }
 
 // Init is called ONCE at load time. Receives PluginContext, parses config.
