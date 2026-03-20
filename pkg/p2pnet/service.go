@@ -55,13 +55,21 @@ type ServiceConn interface {
 	CloseWrite() error
 }
 
+// GrantChecker is a function that checks whether a peer has a valid
+// data access grant for a given service. Injected by the daemon from
+// the grant store. When set and returns true, relay transport is allowed
+// for that peer+service even if the plugin policy doesn't allow relay.
+// This is the node-level security boundary (C2 mitigation).
+type GrantChecker func(peerID peer.ID, service string) bool
+
 // ServiceRegistry manages service registration and connections
 type ServiceRegistry struct {
-	host       host.Host
-	services   map[string]*Service
-	metrics    *Metrics // nil when metrics disabled
-	middleware []StreamMiddleware
-	mu         sync.RWMutex
+	host         host.Host
+	services     map[string]*Service
+	metrics      *Metrics // nil when metrics disabled
+	middleware   []StreamMiddleware
+	grantChecker GrantChecker // nil = no grant checking, use policy only
+	mu           sync.RWMutex
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -155,11 +163,22 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
 		if !svc.Policy.TransportAllowed(transport) {
-			slog.Warn("plugin transport not allowed",
-				"service", svc.Name, "peer", short,
-				"transport", transport, "allowed", svc.Policy.AllowedTransports)
-			s.Reset()
-			return
+			// Grant override: if transport is relay and peer has a valid grant, allow it.
+			// This is the C2 mitigation: node-level enforcement independent of relay ACL.
+			granted := false
+			if transport == TransportRelay && r.grantChecker != nil {
+				granted = r.grantChecker(remotePeer, svc.Name)
+				if granted {
+					slog.Info("relay allowed via grant", "service", svc.Name, "peer", short)
+				}
+			}
+			if !granted {
+				slog.Warn("plugin transport not allowed",
+					"service", svc.Name, "peer", short,
+					"transport", transport, "allowed", svc.Policy.AllowedTransports)
+				s.Reset()
+				return
+			}
 		}
 		if !svc.Policy.PeerAllowed(remotePeer) {
 			slog.Warn("peer denied by plugin policy", "service", svc.Name, "peer", short)
@@ -294,6 +313,15 @@ func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 
 	svc, exists := r.services[name]
 	return svc, exists
+}
+
+// SetGrantChecker sets the grant checker function used for relay authorization.
+// When a peer has a valid grant, relay transport is allowed for that peer+service
+// even if the plugin's default policy is LAN+Direct only.
+func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.grantChecker = checker
 }
 
 // Use adds stream middleware that wraps every inbound stream handler.

@@ -654,17 +654,24 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 		return nil, fmt.Errorf("peer denied by plugin %q policy", serviceName)
 	}
 
+	// Check if relay is allowed: either by policy or by grant.
+	relayAllowed := svc.Policy == nil || svc.Policy.RelayAllowed()
+	if !relayAllowed && n.serviceRegistry.grantChecker != nil {
+		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName)
+	}
+
 	// Respect transport policy: only use WithAllowLimitedConn if relay is permitted.
 	dialCtx := ctx
-	if svc.Policy == nil || svc.Policy.RelayAllowed() {
+	if relayAllowed {
 		dialCtx = network.WithAllowLimitedConn(ctx, svc.Protocol)
 	}
 
 	s, err := n.host.NewStream(dialCtx, peerID, protocol.ID(svc.Protocol))
 	if err != nil {
 		// Helpful error when relay-only peer + relay not allowed.
-		if svc.Policy != nil && !svc.Policy.RelayAllowed() && isRelayOnlyPeer(n.host, peerID) {
-			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay: %w", serviceName, err)
+		if !relayAllowed && isRelayOnlyPeer(n.host, peerID) {
+			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay. "+
+				"Grant data access: shurli auth grant <peer> --duration 1h: %w", serviceName, err)
 		}
 		return nil, fmt.Errorf("open stream: %w", err)
 	}
@@ -674,8 +681,14 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
 		if !svc.Policy.TransportAllowed(transport) {
-			s.Reset()
-			return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
+			// Grant override for relay transport.
+			if transport == TransportRelay && n.serviceRegistry.grantChecker != nil &&
+				n.serviceRegistry.grantChecker(peerID, serviceName) {
+				// Relay allowed via grant - proceed.
+			} else {
+				s.Reset()
+				return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
+			}
 		}
 	}
 

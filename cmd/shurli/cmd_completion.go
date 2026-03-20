@@ -231,7 +231,7 @@ _shurli_completions() {
     local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
-    local auth_cmds="add list remove validate"
+    local auth_cmds="add list remove validate grant grants revoke extend"
     local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove show setup serve authorize deauthorize set-attr list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
@@ -270,6 +270,14 @@ _shurli_completions() {
                     return ;;
                 list|remove|validate)
                     COMPREPLY=($(compgen -W "--config --file" -- "$cur"))
+                    return ;;
+                grant)
+                    COMPREPLY=($(compgen -W "--duration --services --permanent" -- "$cur"))
+                    return ;;
+                extend)
+                    COMPREPLY=($(compgen -W "--duration" -- "$cur"))
+                    return ;;
+                grants|revoke)
                     return ;;
                 *)
                     COMPREPLY=($(compgen -W "$auth_cmds" -- "$cur"))
@@ -511,6 +519,10 @@ _shurli() {
         'list:List authorized peers'
         'remove:Revoke a peer'
         'validate:Validate authorized_keys format'
+        'grant:Grant data access'
+        'grants:List active grants'
+        'revoke:Revoke data access grant'
+        'extend:Extend a grant'
     )
 
     local -a config_cmds
@@ -636,7 +648,16 @@ _shurli() {
             if (( CURRENT == 3 )); then
                 _describe -t auth_cmds 'auth subcommand' auth_cmds
             else
-                _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' '--comment[Peer comment]:comment' '--role[Peer role (admin/member)]:role:(admin member)'
+                case "${words[3]}" in
+                    grant)
+                        _arguments '--duration[Grant duration]:duration' '--services[Comma-separated services]:services' '--permanent[Permanent grant]' ;;
+                    extend)
+                        _arguments '--duration[Extension duration]:duration' ;;
+                    add)
+                        _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' '--comment[Peer comment]:comment' '--role[Peer role (admin/member)]:role:(admin member)' ;;
+                    *)
+                        _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' ;;
+                esac
             fi
             ;;
         config)
@@ -882,6 +903,14 @@ complete -c shurli -n '__shurli_using_subcommand auth remove'   -l config  -d 'C
 complete -c shurli -n '__shurli_using_subcommand auth remove'   -l file    -d 'authorized_keys path'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l file    -d 'authorized_keys path'
+complete -c shurli -n '__shurli_using_command auth' -a grant    -d 'Grant data access'
+complete -c shurli -n '__shurli_using_command auth' -a grants   -d 'List active grants'
+complete -c shurli -n '__shurli_using_command auth' -a revoke   -d 'Revoke data access grant'
+complete -c shurli -n '__shurli_using_command auth' -a extend   -d 'Extend a grant'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l duration  -d 'Grant duration (e.g. 1h, 7d)'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l services  -d 'Comma-separated services'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l permanent -d 'Permanent grant'
+complete -c shurli -n '__shurli_using_subcommand auth extend'   -l duration  -d 'Extension duration'
 
 # --- config subcommands ---
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'
