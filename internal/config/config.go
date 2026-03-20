@@ -27,6 +27,12 @@ type HomeNodeConfig struct {
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
 	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
 	Plugins   PluginsConfig   `yaml:"plugins,omitempty"`
+	Grants    GrantsConfig    `yaml:"grants,omitempty"`
+}
+
+// GrantsConfig holds per-peer data access grant settings.
+type GrantsConfig struct {
+	DeliveryQueueTTL string `yaml:"delivery_queue_ttl,omitempty"` // e.g. "7d", "24h", "3d" (default: 7d)
 }
 
 // PluginsConfig holds per-plugin configuration.

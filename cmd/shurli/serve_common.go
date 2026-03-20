@@ -92,7 +92,10 @@ type serveRuntime struct {
 	motdClient *relay.MOTDClient
 
 	// Per-peer data access grants (macaroon capability tokens)
-	grantStore *grants.Store
+	grantStore    *grants.Store
+	grantPouch    *grants.Pouch
+	grantProtocol *grants.GrantProtocol
+	deliveryQueue *grants.DeliveryQueue
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1373,6 +1376,13 @@ func (rt *serveRuntime) Shutdown() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)
 		shutdownCancel()
+	}
+	if rt.grantProtocol != nil {
+		rt.grantProtocol.Stop()
+		rt.grantProtocol.Unregister()
+	}
+	if rt.grantPouch != nil {
+		rt.grantPouch.Stop()
 	}
 	if rt.grantStore != nil {
 		rt.grantStore.Stop()

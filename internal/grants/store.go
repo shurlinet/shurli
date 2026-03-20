@@ -9,9 +9,6 @@
 package grants
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -79,11 +76,15 @@ type Store struct {
 	hmacKey     []byte              // HMAC key for grants.json file integrity
 	persistPath string              // file path for persistent storage
 	version     uint64              // monotonic counter for replay protection
-	cleanupDone chan struct{}        // closed when cleanup goroutine exits
-	stopCleanup chan struct{}        // signal cleanup goroutine to stop
-	onRevoke    func(peer.ID)       // callback when a grant is revoked (close streams)
-	dummyToken  *macaroon.Macaroon  // pre-computed token for D1 constant-time check
-	logger      *slog.Logger
+	cleanupDone    chan struct{} // closed when cleanup goroutine exits
+	stopCleanup    chan struct{} // signal cleanup goroutine to stop
+	cleanupStarted bool         // true after StartCleanup is called
+	onRevoke       func(peer.ID)         // callback when a grant is revoked (close streams)
+	onGrant        func(peer.ID, *Grant) // callback when a grant is created (P2P delivery)
+	onRevokeNotify func(peer.ID)         // callback to notify peer of revocation (P2P delivery)
+	deliveryWg     sync.WaitGroup       // tracks in-flight delivery goroutines for clean shutdown
+	dummyToken     *macaroon.Macaroon   // pre-computed token for D1 constant-time check
+	logger         *slog.Logger
 }
 
 // NewStore creates a new grant store.
@@ -117,6 +118,23 @@ func (s *Store) SetOnRevoke(fn func(peer.ID)) {
 	s.onRevoke = fn
 }
 
+// SetOnGrant sets a callback invoked after a grant is created.
+// Used to deliver the token to the peer over P2P (Phase B).
+func (s *Store) SetOnGrant(fn func(peer.ID, *Grant)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onGrant = fn
+}
+
+// SetOnRevokeNotify sets a callback invoked after a grant is revoked.
+// Used to send a revocation notice to the peer over P2P (Phase B).
+// This is separate from OnRevoke (which closes connections).
+func (s *Store) SetOnRevokeNotify(fn func(peer.ID)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onRevokeNotify = fn
+}
+
 // Grant creates a new data access grant for the given peer.
 // Returns the created grant. If a grant already exists for this peer,
 // it is replaced (new grant, new token).
@@ -141,7 +159,13 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 		Permanent: permanent,
 	}
 
+	// Clone for delivery BEFORE storing in map, so no concurrent Extend() can race.
+	var grantCopy *Grant
 	s.mu.Lock()
+	onGrant := s.onGrant
+	if onGrant != nil {
+		grantCopy = grant.clone()
+	}
 	s.grants[peerID] = grant
 	s.mu.Unlock()
 
@@ -159,6 +183,15 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	}
 	s.logger.Info("grants: created", logAttrs...)
 
+	// Phase B: deliver token to peer over P2P.
+	if onGrant != nil {
+		s.deliveryWg.Add(1)
+		go func() {
+			defer s.deliveryWg.Done()
+			onGrant(peerID, grantCopy)
+		}()
+	}
+
 	return grant, nil
 }
 
@@ -172,6 +205,7 @@ func (s *Store) Revoke(peerID peer.ID) error {
 	}
 	delete(s.grants, peerID)
 	onRevoke := s.onRevoke
+	onRevokeNotify := s.onRevokeNotify
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -179,6 +213,15 @@ func (s *Store) Revoke(peerID peer.ID) error {
 	}
 
 	s.logger.Info("grants: revoked", "peer", shortPeerID(peerID))
+
+	// Phase B: notify peer of revocation over P2P.
+	if onRevokeNotify != nil {
+		s.deliveryWg.Add(1)
+		go func() {
+			defer s.deliveryWg.Done()
+			onRevokeNotify(peerID)
+		}()
+	}
 
 	// C3 mitigation: close all connections to the revoked peer.
 	if onRevoke != nil {
@@ -202,6 +245,12 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	g.ExpiresAt = newExpiry
 	g.Permanent = false // extending makes it time-limited again
 	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false)
+	// Clone while holding the lock so concurrent operations can't race.
+	var grantCopy *Grant
+	onGrant := s.onGrant
+	if onGrant != nil {
+		grantCopy = g.clone()
+	}
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -209,6 +258,16 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	}
 
 	s.logger.Info("grants: extended", "peer", shortPeerID(peerID), "new_expiry", newExpiry.Format(time.RFC3339))
+
+	// Phase B: deliver updated token to peer (new expiry, new macaroon).
+	if onGrant != nil {
+		s.deliveryWg.Add(1)
+		go func() {
+			defer s.deliveryWg.Done()
+			onGrant(peerID, grantCopy)
+		}()
+	}
+
 	return nil
 }
 
@@ -286,6 +345,7 @@ func (s *Store) ExpiringWithin(d time.Duration) []*Grant {
 // StartCleanup starts a background goroutine that removes expired grants
 // every interval. Logs each removal for audit trail (Q2 answer: auto-clean with logs).
 func (s *Store) StartCleanup(interval time.Duration) {
+	s.cleanupStarted = true
 	go func() {
 		defer close(s.cleanupDone)
 		ticker := time.NewTicker(interval)
@@ -302,10 +362,14 @@ func (s *Store) StartCleanup(interval time.Duration) {
 	}()
 }
 
-// Stop stops the cleanup goroutine and waits for it to exit.
+// Stop stops the cleanup goroutine, waits for in-flight delivery goroutines,
+// and waits for cleanup to exit. Safe to call even if StartCleanup was never called.
 func (s *Store) Stop() {
-	close(s.stopCleanup)
-	<-s.cleanupDone
+	if s.cleanupStarted {
+		close(s.stopCleanup)
+		<-s.cleanupDone
+	}
+	s.deliveryWg.Wait()
 }
 
 func (s *Store) cleanExpired() {
@@ -382,15 +446,10 @@ func (s *Store) save() error {
 		Grants:  entries,
 	}
 
-	// Compute HMAC over grants JSON if key is set.
+	// Compute HMAC over grants JSON if key is set (A4: replay protection via version).
 	if len(hmacKey) > 0 {
 		grantsJSON, _ := json.Marshal(entries)
-		// Include version in HMAC to prevent replay of old files (A4).
-		versionBytes := []byte(fmt.Sprintf("v%d", version))
-		mac := hmac.New(sha256.New, hmacKey)
-		mac.Write(versionBytes)
-		mac.Write(grantsJSON)
-		pf.HMAC = hex.EncodeToString(mac.Sum(nil))
+		pf.HMAC = computeFileHMAC(hmacKey, version, grantsJSON)
 	}
 
 	data, err := json.MarshalIndent(pf, "", "  ")
@@ -411,7 +470,7 @@ func (s *Store) save() error {
 // Load reads the grant store from disk and verifies HMAC integrity.
 func Load(path string, rootKey, hmacKey []byte) (*Store, error) {
 	s := NewStore(rootKey, hmacKey)
-	s.persistPath = path
+	s.SetPersistPath(path)
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -428,21 +487,9 @@ func Load(path string, rootKey, hmacKey []byte) (*Store, error) {
 
 	// Verify HMAC integrity. When hmacKey is set, a valid HMAC is required
 	// for any file that contains grants (rejects unsigned tampered files).
-	if len(hmacKey) > 0 {
-		if file.HMAC == "" && len(file.Grants) > 0 {
-			return nil, fmt.Errorf("grants file has no HMAC signature (possible tampering)")
-		}
-		if file.HMAC != "" {
-			grantsJSON, _ := json.Marshal(file.Grants)
-			versionBytes := []byte(fmt.Sprintf("v%d", file.Version))
-			mac := hmac.New(sha256.New, hmacKey)
-			mac.Write(versionBytes)
-			mac.Write(grantsJSON)
-			expected := hex.EncodeToString(mac.Sum(nil))
-			if !hmac.Equal([]byte(file.HMAC), []byte(expected)) {
-				return nil, fmt.Errorf("grants file HMAC verification failed (possible tampering)")
-			}
-		}
+	grantsJSON, _ := json.Marshal(file.Grants)
+	if err := verifyFileHMAC(hmacKey, file.HMAC, file.Version, grantsJSON, len(file.Grants) > 0); err != nil {
+		return nil, fmt.Errorf("grants file: %w", err)
 	}
 
 	s.version = file.Version

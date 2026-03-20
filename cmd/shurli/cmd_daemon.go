@@ -368,6 +368,77 @@ func runDaemonStart(args []string) {
 
 		// Wire grant checker into plugin context for share warnings (E1-design mitigation).
 		pluginProvider.GrantChecker = gs.Check
+
+		// Phase B: GrantPouch (received tokens) + delivery protocol + offline queue.
+		configDir := filepath.Dir(rt.configFile)
+		pouchHMACKey := pluginProvider.KeyDeriver("shurli/grants/pouch/v1")
+		pouchPath := filepath.Join(configDir, "grant_pouch.json")
+
+		pouch, err := grants.LoadPouch(pouchPath, pouchHMACKey)
+		if err != nil {
+			slog.Error("grants: failed to load pouch, starting empty", "error", err)
+			pouch = grants.NewPouch(pouchHMACKey)
+			pouch.SetPersistPath(pouchPath)
+		}
+		pouch.StartCleanup(30 * time.Second)
+		rt.grantPouch = pouch
+
+		queueHMACKey := pluginProvider.KeyDeriver("shurli/grants/queue/v1")
+		queuePath := filepath.Join(configDir, "grant_delivery_queue.json")
+		queueTTL := grants.DefaultDeliveryQueueTTL
+		if rt.config.Grants.DeliveryQueueTTL != "" {
+			if parsed, err := grants.ParseDurationExtended(rt.config.Grants.DeliveryQueueTTL); err == nil && parsed > 0 {
+				queueTTL = parsed
+				slog.Info("grants: delivery queue TTL from config", "ttl", queueTTL)
+			} else if err != nil {
+				slog.Warn("grants: invalid delivery_queue_ttl in config, using default", "value", rt.config.Grants.DeliveryQueueTTL, "error", err)
+			}
+		}
+
+		dq, err := grants.LoadDeliveryQueue(queuePath, queueHMACKey, queueTTL)
+		if err != nil {
+			slog.Error("grants: failed to load delivery queue, starting empty", "error", err)
+			dq = grants.NewDeliveryQueue(queueHMACKey, queueTTL)
+			dq.SetPersistPath(queuePath)
+		}
+		rt.deliveryQueue = dq
+
+		// Trust check: only accept grant deliveries from authorized peers.
+		trustCheck := func(pid peer.ID) bool {
+			if rt.gater == nil {
+				return false
+			}
+			return rt.gater.IsAuthorized(pid)
+		}
+
+		grantProto := grants.NewGrantProtocol(rt.network.Host(), pouch, dq, trustCheck)
+		grantProto.Register()
+		grantProto.StartQueueFlush()
+		rt.grantProtocol = grantProto
+
+		// Wire delivery into Store: deliver grant tokens to peers on create/revoke.
+		gs.SetOnGrant(func(peerID peer.ID, g *grants.Grant) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err := grantProto.DeliverGrant(ctx, peerID, g.Token, g.Services, g.ExpiresAt, g.Permanent)
+			if err != nil {
+				slog.Info("grants: peer offline, queuing delivery", "peer", peerID.String()[:16], "error", err)
+				if qErr := grantProto.EnqueueGrant(peerID, g.Token, g.Services, g.ExpiresAt, g.Permanent); qErr != nil {
+					slog.Warn("grants: failed to queue delivery", "peer", peerID.String()[:16], "error", qErr)
+				}
+			}
+		})
+		gs.SetOnRevokeNotify(func(peerID peer.ID) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err := grantProto.DeliverRevocation(ctx, peerID, "admin revoked")
+			if err != nil {
+				slog.Info("grants: peer offline, queuing revocation", "peer", peerID.String()[:16], "error", err)
+				if qErr := grantProto.EnqueueRevocation(peerID, "admin revoked"); qErr != nil {
+					slog.Warn("grants: failed to queue revocation", "peer", peerID.String()[:16], "error", qErr)
+				}
+			}
+		})
 	} else {
 		slog.Warn("grants: no identity key available, grant store disabled")
 	}
