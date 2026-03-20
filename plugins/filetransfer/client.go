@@ -137,10 +137,17 @@ func (c *daemonClient) doText(method, path string, body io.Reader) (string, erro
 // --- File sharing methods ---
 
 // ShareAdd shares a path with specified peers (empty = all authorized).
-func (c *daemonClient) ShareAdd(path string, peers []string, persistent *bool) error {
+// Returns any warnings from the API (e.g. peers without data access grants).
+func (c *daemonClient) ShareAdd(path string, peers []string, persistent *bool) ([]string, error) {
 	req := ShareRequest{Path: path, Peers: peers, Persistent: persistent}
 	body, _ := json.Marshal(req)
-	return c.doJSON("POST", "/v1/shares", strings.NewReader(string(body)), nil)
+	var resp struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := c.doJSON("POST", "/v1/shares", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return resp.Warnings, nil
 }
 
 // ShareRemove stops sharing a path.
