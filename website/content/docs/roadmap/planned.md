@@ -23,7 +23,7 @@ After Phase 5 PeerManager provides the data:
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
-Phase 9A (Core Interfaces) and Phase 9B (File Transfer) are complete. See [Completed Work](../completed/) for details.
+Phase 9A (Core Interfaces), Phase 9B (File Transfer), and the Plugin Architecture Shift (plugin framework, file transfer extraction, security hardening, physical retest) are complete. See [Completed Work](../completed/) for details.
 
 ### Phase 9C: Service Discovery & Additional Plugins
 

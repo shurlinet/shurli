@@ -223,8 +223,9 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE. 9C-9E (discovery, Python SDK, Swift SDK) planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE (framework + extraction + security hardening + physical retest). 9C-9E planned | ✅ 9A-9B2 |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
+| Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
 **Deliverables**:
 
@@ -927,7 +928,7 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 #### Post-9B: Network Transition Chaos Testing and Hardening (FT-K through FT-X)
 
 **Timeline**: 2026-03-11 to 2026-03-14
-**Status**: All flags resolved. Pending: file transfer physical network testing, blog SVGs, merge to main.
+**Status**: ✅ Complete. All flags resolved, physical retest PASS, merged to main.
 
 **Goal**: Physical chaos testing of all network transitions to verify the daemon handles real-world network switches without restarts. Regression found after Phase 9B bootstrap refactor, leading to 11 root cause fixes and 8 post-chaos investigation flags.
 
@@ -984,6 +985,75 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 **Target**: Match or exceed SCP speed on LAN transfers (>= 9 MB/s for 500MB). Accept ~10-15% overhead for integrity verification as the cost of doing business.
 
 **Exit criteria**: 500MB LAN transfer completes within 10% of SCP time. Benchmarks documented for LAN, WAN-direct, and relay paths.
+
+---
+
+#### Post-9B: Plugin Architecture Shift ✅ DONE
+
+**Timeline**: 2026-03-16 to 2026-03-20
+**Status**: ✅ Complete (5 batches, 4 audits, physical retest 11/11 PASS)
+
+**Goal**: Extract file transfer from inline code into a proper plugin, building a clean Plugin interface that all future features follow. The vision from day one - every feature should be a plugin.
+
+**What was built**:
+
+**Batch 1 - Plugin Framework** (`pkg/plugin/`):
+- [x] `Plugin` interface: Name, Version, Init, Start, Stop, Commands, Routes, Protocols, ConfigSection
+- [x] `PluginContext` with capability grants (no raw Network/Host/credential access)
+- [x] Registry: discovery, load, enable/disable, lifecycle state machine (LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED)
+- [x] `shurli plugin list/enable/disable/info/disable-all` CLI commands
+- [x] Hot reload: enable/disable plugins without restarting daemon
+- [x] Kill switch: `shurli plugin disable-all` immediately stops all plugins
+- [x] Structured error codes (never raw strings to plugins)
+- [x] Plugin directory 0700 permission check at startup
+
+**Batch 2 - File Transfer Extraction** (`plugins/filetransfer/`):
+- [x] 9 CLI commands moved to plugin (send, download, browse, share, transfers, accept, reject, cancel, clean)
+- [x] 14 daemon API endpoints moved to plugin
+- [x] 12 types moved to plugin
+- [x] 4 P2P protocols registered through plugin Start()
+- [x] Plugin owns its config section, state files (queue.json, shares.json with HMAC)
+- [x] Plugin provides its own daemon client methods
+- [x] Core untouched: network, auth, identity, relay, ZKP all unchanged
+
+**Batch 2.5 - Fix Tracked Findings**:
+- [x] All 67 findings from 5 audit rounds resolved (none deferred)
+
+**Batch 3 - Tests + Supervisor + Checkpointer**:
+- [x] 81 test artifacts (unit + integration + fuzz)
+- [x] Supervisor auto-restart with circuit breaker (3 crashes = auto-disable)
+- [x] Transfer checkpoint/resume persistence
+- [x] 7 fuzz targets x 1 hour each, 209M total executions, zero crashes
+
+**Batch 4a - Security Hardening**:
+- [x] 43-vector threat analysis (3 rounds: traditional, build-time, AI-era)
+- [x] 4-round audit with 12 additional fixes
+- [x] Credential isolation verified (daemon keys, auth cookies, vault never in PluginContext)
+- [x] Plugins cannot install other plugins (propagation chain break, hard-coded)
+
+**Batch 4b - Physical Retest**:
+- [x] 11/11 physical tests PASS (LAN send, relay send, browse, download, transfers, share, plugin list/enable/disable/disable-all, protocol unregister)
+- [x] Smoke tests PASS (auth, resolve, traceroute, ping, services, plugins, status)
+- [x] Performance baselines: LAN 3.3 MB/s, relay 682 KB/s, ping 21ms LAN / 186ms relay
+
+**Architecture after shift**:
+```
+shurli binary
+├── core (network, auth, identity, daemon, CLI framework)
+├── pkg/plugin/          <- Plugin interface + registry + supervisor
+├── pkg/p2pnet/          <- Protocol library code (unchanged)
+└── plugins/
+    └── filetransfer/    <- First plugin (CLI commands, daemon handlers, P2P protocols)
+```
+
+**Three-layer evolution**: Layer 1 (compiled-in Go, NOW), Layer 2 (WASM via wazero, NEXT), Layer 3 (AI-driven plugin generation, FUTURE).
+
+**Key Files**:
+- `pkg/plugin/plugin.go` - Plugin interface contract
+- `pkg/plugin/registry.go` - Discovery, load, enable/disable
+- `pkg/plugin/supervisor.go` - Auto-restart with circuit breaker
+- `plugins/filetransfer/plugin.go` - File transfer plugin implementation
+- `cmd/shurli/cmd_plugin.go` - Plugin CLI commands
 
 ---
 
@@ -1718,7 +1788,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
 | **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
-| Phase 9: Plugins, SDK & First Plugins | 📋 5-8 weeks | Planned (9A-9E sub-phases) |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned |
 | Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
@@ -1727,7 +1797,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | Phase 15: Interactive Console & Network Monitor | 📋 2-3 weeks | Planned (bubbletea TUI) |
 | Phase 16+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (Go interfaces + Python SDK + Swift SDK) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (plugin framework + file transfer extraction done, SDKs planned) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. See "SDK & App Repository Strategy" section under Phase 9 for the full table.
 
@@ -1883,8 +1953,8 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-03-08
-**Current Phase**: Phase 8 Complete. Phase 9 (Plugins, SDK & First Plugins) next.
-**Phases**: 1-8 (complete), 9-15 (planned), 16+ (ecosystem)
-**Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins (9A-9E: interfaces, file transfer, discovery, Python SDK, Swift SDK)
+**Last Updated**: 2026-03-20
+**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). 9C-9E planned.
+**Phases**: 1-8 (complete), 9 (in progress: 9A-9B2 done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
+**Next Milestone**: Phase 9C - Service Discovery & Additional Plugins (discovery protocol, service templates, Wake-on-LAN)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

@@ -53,6 +53,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
 | 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | **Done** |
 | 9B | **File&nbsp;Transfer** | Chunked P2P transfer, erasure coding, multi-source download | **Done** |
+| Post-9B | **Plugin&nbsp;Architecture** | Plugin framework, file transfer extraction, supervisor, security hardening, physical retest | **Done** |
 | 9C | **Discovery&nbsp;&&nbsp;Plugins** | Service discovery, service templates, Wake-on-LAN | Planned |
 | 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK (separate repo), SDK documentation | Planned |
 | 9E | **Swift&nbsp;SDK** | Swift SDK for Apple platforms (separate repo, SPM) | Planned |
@@ -78,6 +79,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 9A: Core Interfaces & Library** | 1 week | **Complete** |
 | **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
 | **Post-9B: Chaos Testing + Network Hardening** | 4 days | **Complete** |
+| **Post-9B: Plugin Architecture Shift** | 5 days | **Complete** |
 | Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
 | Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
 | Phase 9E: Swift SDK | 1-2 weeks | Planned |
@@ -88,7 +90,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces and file transfer (9A-9B done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces, file transfer, and plugin architecture (9A-9B + plugin shift done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/p2pnet`) stays in this repo.
 
@@ -106,4 +108,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-14. Current: Post-9B chaos testing complete (11 root causes, 8 flags). Next: file transfer physical testing, reputation wiring, Phase 9C-9E.*
+*Last updated: 2026-03-20. Current: Plugin architecture complete (framework, extraction, security hardening, physical retest 11/11 PASS). Next: Phase 9C-9E (service discovery, SDKs).*
