@@ -1126,6 +1126,31 @@ func allConnsRelayed(conns []network.Conn) bool {
 	return true
 }
 
+// anyConnIsLAN returns true if at least one non-relay connection uses a
+// private IPv4 remote address (RFC 1918 / RFC 6598). This distinguishes
+// "direct via LAN" from "direct via internet IPv6". On networks with
+// client isolation (e.g. satellite routers), an IPv6 direct connection may be
+// silently dead while a private IPv4 LAN path works fine. mDNS should
+// establish a LAN connection even when a direct (but non-LAN) connection
+// already exists.
+func anyConnIsLAN(conns []network.Conn) bool {
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue
+		}
+		remoteMA := c.RemoteMultiaddr()
+		first, _ := ma.SplitFirst(remoteMA)
+		if first == nil || first.Protocol().Code != ma.P_IP4 {
+			continue
+		}
+		ip := net.ParseIP(first.Value())
+		if ip != nil && isPrivateIPv4(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // hasLiveDirectConnection returns true if the peer has at least one
 // non-relay connection whose local IP is still present on an active
 // interface. Connections whose local IP has been removed (e.g. USB LAN

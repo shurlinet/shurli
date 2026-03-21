@@ -299,12 +299,18 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		short = short[:16] + "..."
 	}
 
-	// Check if peer needs upgrading (relay-only) BEFORE dedup.
-	// Upgrade attempts bypass dedup because mDNS multicast reception
-	// is proof the peer is on LAN right now - if we're relay-only,
-	// every browse cycle should try upgrading, not wait 30s.
+	// Check if peer needs upgrading BEFORE dedup. Upgrade is needed when:
+	// 1. All connections are relayed (relay->direct upgrade), OR
+	// 2. Direct connections exist but none use LAN IPv4 (internet->LAN upgrade).
+	//    Case 2 happens on satellite networks: DHT bootstrap connects via IPv6 QUIC, but
+	//    satellite router client isolation blocks inter-client IPv6 data. The connection
+	//    appears "direct" but is silently dead. mDNS proving LAN reachability
+	//    means we should establish a real LAN connection.
+	// Upgrade attempts bypass dedup because mDNS multicast reception is proof
+	// the peer is on LAN right now.
 	connsForDedup := md.host.Network().ConnsToPeer(pi.ID)
-	peerNeedsUpgrade := allConnsRelayed(connsForDedup)
+	peerNeedsUpgrade := allConnsRelayed(connsForDedup) ||
+		(len(connsForDedup) > 0 && !anyConnIsLAN(connsForDedup))
 
 	// Dedup: skip if we attempted this peer recently.
 	// Exception: relay-only peers always get an upgrade attempt.
@@ -336,7 +342,9 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 
 	// Use the upgrade check from above (computed before dedup).
 	// Re-check in case state changed between dedup and here.
-	needsUpgrade := allConnsRelayed(md.host.Network().ConnsToPeer(pi.ID))
+	currentConns := md.host.Network().ConnsToPeer(pi.ID)
+	needsUpgrade := allConnsRelayed(currentConns) ||
+		(len(currentConns) > 0 && !anyConnIsLAN(currentConns))
 
 	if len(lanAddrs) > 0 {
 		pi.Addrs = lanAddrs
@@ -347,7 +355,11 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 	}
 	if needsUpgrade {
-		slog.Info("mdns: peer on LAN but connected via relay, upgrading to direct", "peer", short)
+		reason := "relay-only"
+		if !allConnsRelayed(currentConns) {
+			reason = "direct-but-no-LAN"
+		}
+		slog.Info("mdns: peer on LAN but needs upgrade", "peer", short, "reason", reason)
 		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("upgraded").Inc()
 		}
@@ -405,6 +417,58 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 				return
 			}
 			slog.Info("mdns: upgraded to DIRECT via LAN", "peer", short)
+
+			// Close non-LAN direct connections AND strip their addresses
+			// from the peerstore. When upgrading from internet-direct (IPv6)
+			// to LAN-direct (private IPv4), the old connection is likely dead
+			// (e.g. satellite router client isolation blocks inter-client IPv6).
+			//
+			// Two-part cleanup is essential:
+			// 1. Close the connection (stop streams from using it)
+			// 2. Strip non-LAN addrs from peerstore (prevent PeerManager
+			//    from immediately re-dialing the dead IPv6 path)
+			//
+			// LAN addresses are preserved via mDNS re-discovery (every 30s).
+			// Non-LAN addresses will be restored naturally by DHT refresh
+			// or identify protocol, at which point the connection may work
+			// again (e.g., after switching away from satellite router).
+			for _, c := range md.host.Network().ConnsToPeer(pi.ID) {
+				if c.Stat().Limited {
+					continue // leave relay connections alone
+				}
+				remoteMA := c.RemoteMultiaddr()
+				first, _ := ma.SplitFirst(remoteMA)
+				if first == nil {
+					continue
+				}
+				if first.Protocol().Code == ma.P_IP4 {
+					ip := net.ParseIP(first.Value())
+					if ip != nil && isPrivateIPv4(ip) {
+						continue // keep LAN connections
+					}
+				}
+				slog.Info("mdns: closing non-LAN direct conn (LAN established)",
+					"peer", short, "remote", remoteMA)
+				c.Close()
+			}
+
+			// Strip non-LAN addresses from peerstore to prevent re-dial.
+			// Keep only private IPv4 (LAN) + relay circuit addresses.
+			allPeerstoreAddrs := md.host.Peerstore().Addrs(pi.ID)
+			md.host.Peerstore().ClearAddrs(pi.ID)
+			for _, addr := range allPeerstoreAddrs {
+				if isCircuitAddr(addr) {
+					md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
+					continue
+				}
+				first, _ := ma.SplitFirst(addr)
+				if first != nil && first.Protocol().Code == ma.P_IP4 {
+					ip := net.ParseIP(first.Value())
+					if ip != nil && isPrivateIPv4(ip) {
+						md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
+					}
+				}
+			}
 		} else {
 			ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
 			defer cancel()
@@ -750,7 +814,7 @@ func filterTCPAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 // isStaleOnNetworkChange returns true if the address becomes stale after a
 // network switch and should be stripped from the peerstore. Covers:
 //   - RFC 1918 private IPv4 (10/8, 172.16/12, 192.168/16)
-//   - RFC 6598 CGNAT (100.64/10) - used by Starlink, missed by manet.IsPrivateAddr
+//   - RFC 6598 CGNAT (100.64/10) - common with satellite ISP CGNAT, missed by manet.IsPrivateAddr
 //   - ULA IPv6 (fc00::/7), link-local IPv6 (fe80::/10), loopback
 //
 // Public IPs and relay circuit multiaddrs (which start with the relay's
