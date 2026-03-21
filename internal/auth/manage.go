@@ -22,7 +22,6 @@ type PeerEntry struct {
 	Verified  string    // empty = unverified, otherwise fingerprint prefix
 	Group     string    // pairing group ID (empty = manually added or invited)
 	Role      string    // "admin" or "member" (empty = member, backward compatible)
-	RelayData bool      // relay_data=true allows data circuits through public/seed relays
 }
 
 // sanitizeComment strips characters that could corrupt the authorized_keys
@@ -94,9 +93,8 @@ func formatLine(peerIDStr string, attrs map[string]string, comment string) strin
 	writeAttr("expires")
 	writeAttr("verified")
 	writeAttr("role")
-	writeAttr("relay_data")
 	for k, v := range attrs {
-		if k == "expires" || k == "verified" || k == "role" || k == "relay_data" {
+		if k == "expires" || k == "verified" || k == "role" {
 			continue
 		}
 		b.WriteString("  ")
@@ -344,10 +342,6 @@ func ListPeers(authKeysPath string) ([]PeerEntry, error) {
 		if v, ok := attrs["role"]; ok {
 			entry.Role = v
 		}
-		if v, ok := attrs["relay_data"]; ok {
-			entry.RelayData = v == "true"
-		}
-
 		entries = append(entries, entry)
 	}
 
@@ -373,20 +367,6 @@ func PeerComment(authKeysPath string, peerID peer.ID) string {
 	return ""
 }
 
-// HasRelayData checks whether a peer has the relay_data=true attribute,
-// which grants permission to establish data circuits through public/seed relays.
-func HasRelayData(authKeysPath string, peerID peer.ID) bool {
-	entries, err := ListPeers(authKeysPath)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.PeerID == peerID {
-			return e.RelayData
-		}
-	}
-	return false
-}
 
 // --- Integrity monitoring ---
 

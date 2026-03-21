@@ -457,8 +457,22 @@ Supports --remote for administration from any admin device.
 .TP
 .B relay set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR [\fB--remote\fR \fIaddr\fR]
 Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
-relay_data (true/false), role (admin/member), group, verified.
+role (admin/member), group, verified.
 Supports --remote for administration from any admin device.
+.TP
+.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--remote\fR \fIaddr\fR]
+Grant time-limited data relay access to a peer. Default duration is 1 hour.
+Without a grant, peers can only use signaling protocols (pairing, discovery).
+Admin peers always have data access regardless of grants.
+.TP
+.B relay grants [\fB--remote\fR \fIaddr\fR]
+List all active data relay grants with remaining time.
+.TP
+.B relay revoke \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
+Revoke a peer's data relay grant and terminate all active circuits.
+.TP
+.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--remote\fR \fIaddr\fR]
+Extend an existing data relay grant. The new expiry is calculated from now.
 .TP
 .B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.

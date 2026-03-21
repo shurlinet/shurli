@@ -27,6 +27,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/vault"
@@ -164,6 +165,7 @@ type AdminServer struct {
 	zkpAuth      *ZKPAuthHandler
 	motdHandler  *MOTDHandler
 	circuitACL   *CircuitACL     // refreshed on auth reload
+	grantStore   *grants.Store   // time-limited relay data grants
 	shutdownFunc func() // called by goodbye/shutdown endpoint
 	relayAddr    string
 	namespace    string
@@ -232,6 +234,11 @@ func (s *AdminServer) SetCircuitACL(acl *CircuitACL) {
 	s.circuitACL = acl
 }
 
+// SetGrantStore sets the relay grant store for time-limited data access control.
+func (s *AdminServer) SetGrantStore(gs *grants.Store) {
+	s.grantStore = gs
+}
+
 // buildMux creates the HTTP route table. Called once by Start() and reused
 // by HandleRemoteRequest so that the remote admin protocol dispatches to
 // the same handler functions as the local Unix socket.
@@ -272,6 +279,12 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	// Clients fetch these to generate proofs locally.
 	mux.HandleFunc("GET /v1/zkp/proving-key", s.handleZKPProvingKey)
 	mux.HandleFunc("GET /v1/zkp/verifying-key", s.handleZKPVerifyingKey)
+
+	// Relay data grant endpoints (time-limited per-peer data access)
+	mux.HandleFunc("POST /v1/relay-grant", s.handleRelayGrant)
+	mux.HandleFunc("GET /v1/relay-grants", s.handleRelayGrants)
+	mux.HandleFunc("POST /v1/relay-revoke", s.handleRelayRevoke)
+	mux.HandleFunc("POST /v1/relay-extend", s.handleRelayExtend)
 
 	// MOTD and goodbye endpoints
 	mux.HandleFunc("GET /v1/motd", s.handleGetMOTD)
@@ -1045,12 +1058,11 @@ func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
 			role = "member"
 		}
 		result[i] = AuthorizedPeerInfo{
-			PeerID:    p.PeerID.String(),
-			Role:      role,
-			Comment:   p.Comment,
-			Verified:  p.Verified,
-			Group:     p.Group,
-			RelayData: p.RelayData,
+			PeerID:   p.PeerID.String(),
+			Role:     role,
+			Comment:  p.Comment,
+			Verified: p.Verified,
+			Group:    p.Group,
 		}
 		if !p.ExpiresAt.IsZero() {
 			result[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
@@ -1294,13 +1306,12 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 
 	// Whitelist of allowed attribute keys to prevent arbitrary writes.
 	allowed := map[string]bool{
-		"relay_data": true,
-		"role":       true,
-		"group":      true,
-		"verified":   true,
+		"role":     true,
+		"group":    true,
+		"verified": true,
 	}
 	if !allowed[req.Key] {
-		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: relay_data, role, group, verified)", req.Key))
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: role, group, verified)", req.Key))
 		return
 	}
 
@@ -1647,6 +1658,233 @@ func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Reque
 			s.shutdownFunc()
 		}()
 	}
+}
+
+// --- Relay grant handlers (time-limited per-peer data access) ---
+
+// RelayGrantRequest is the JSON body for POST /v1/relay-grant.
+type RelayGrantRequest struct {
+	PeerID      string   `json:"peer_id"`
+	DurationSec int      `json:"duration_secs"`
+	Services    []string `json:"services,omitempty"`
+	Permanent   bool     `json:"permanent,omitempty"`
+}
+
+// RelayGrantInfo is the JSON representation of a relay data grant.
+type RelayGrantInfo struct {
+	PeerID       string   `json:"peer_id"`
+	Services     []string `json:"services,omitempty"`
+	ExpiresAt    string   `json:"expires_at,omitempty"`
+	CreatedAt    string   `json:"created_at"`
+	Permanent    bool     `json:"permanent,omitempty"`
+	RemainingSec int      `json:"remaining_seconds"`
+}
+
+// RelayExtendRequest is the JSON body for POST /v1/relay-extend.
+type RelayExtendRequest struct {
+	PeerID      string `json:"peer_id"`
+	DurationSec int    `json:"duration_secs"`
+}
+
+// maxGrantDurationSec is the maximum grant duration (365 days) to prevent
+// time.Duration overflow. time.Duration is int64 nanoseconds; values above
+// ~292 years silently wrap negative, creating grants that expire immediately.
+const maxGrantDurationSec = 365 * 24 * 3600 // 31,536,000 seconds
+
+func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req RelayGrantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+	if !req.Permanent && req.DurationSec <= 0 {
+		respondAdminError(w, http.StatusBadRequest, "duration_secs must be positive (or set permanent=true)")
+		return
+	}
+	if req.DurationSec > maxGrantDurationSec {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("duration_secs exceeds maximum (%d seconds = 365 days), use --permanent for indefinite access", maxGrantDurationSec))
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	duration := time.Duration(req.DurationSec) * time.Second
+	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent)
+	if err != nil {
+		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
+		return
+	}
+
+	// Audit trail: log who created the grant (local admin socket or remote peer).
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: created via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String(),
+		"permanent", req.Permanent,
+		"duration_sec", req.DurationSec)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(grantToInfo(g))
+}
+
+func (s *AdminServer) handleRelayGrants(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]RelayGrantInfo{})
+		return
+	}
+
+	all := s.grantStore.List()
+	result := make([]RelayGrantInfo, 0, len(all))
+	for _, g := range all {
+		result = append(result, grantToInfo(g))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *AdminServer) handleRelayRevoke(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID string `json:"peer_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	if err := s.grantStore.Revoke(pid); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("revoke failed: %v", err))
+		return
+	}
+
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: revoked via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "revoked",
+		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req RelayExtendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+	if req.DurationSec <= 0 {
+		respondAdminError(w, http.StatusBadRequest, "duration_secs must be positive")
+		return
+	}
+	if req.DurationSec > maxGrantDurationSec {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("duration_secs exceeds maximum (%d seconds = 365 days), use revoke + grant --permanent for indefinite access", maxGrantDurationSec))
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	duration := time.Duration(req.DurationSec) * time.Second
+	if err := s.grantStore.Extend(pid, duration); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("extend failed: %v", err))
+		return
+	}
+
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: extended via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String(),
+		"duration_sec", req.DurationSec)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "extended",
+		"peer_id": req.PeerID,
+	})
+}
+
+// grantToInfo converts a grants.Grant to the API response type.
+func grantToInfo(g *grants.Grant) RelayGrantInfo {
+	info := RelayGrantInfo{
+		PeerID:    g.PeerIDStr,
+		Services:  g.Services,
+		CreatedAt: g.CreatedAt.Format(time.RFC3339),
+		Permanent: g.Permanent,
+	}
+	if !g.Permanent {
+		info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
+		remaining := int(time.Until(g.ExpiresAt).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+		info.RemainingSec = remaining
+	}
+	return info
 }
 
 func respondAdminError(w http.ResponseWriter, status int, msg string) {

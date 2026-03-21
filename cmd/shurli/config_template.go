@@ -142,13 +142,12 @@ security:
   enable_connection_gating: true
 
   # Data relay controls whether peers can forward data through this relay.
-  # When false (default): only admin peers and peers with relay_data=true
-  # attribute can establish data circuits. All peers can still use signaling
+  # When false (default): only admin peers and peers with active time-limited
+  # grants can establish data circuits. All peers can still use signaling
   # protocols (pairing, peer-notify, admin, etc.) since those are direct
   # streams, not relay circuits.
   # When true: all authorized peers can relay data (SSH, XRDP, etc.).
-  # Per-peer exceptions: shurli relay authorize <peer-id> then
-  #   set relay_data=true in authorized_keys for that peer.
+  # Per-peer grants: shurli relay grant <peer-id> --duration 1h
   enable_data_relay: false
 
   # Vault protects root key material. Created automatically on first run.

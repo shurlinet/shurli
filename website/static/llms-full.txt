@@ -60,7 +60,7 @@ Interactive wizard: creates your identity (seed phrase backup), sets a password,
 **I have an invite code:**
 
 ```bash
-shurli join <invite-code> --name laptop
+shurli join <invite-code> --as laptop
 ```
 
 Done. You're connected and mutually authorized.
@@ -69,13 +69,13 @@ Done. You're connected and mutually authorized.
 
 On machine 1 (your server):
 ```bash
-shurli invite --name home
+shurli invite --as home
 # Shows invite code + QR code, waits for the other side...
 ```
 
 On machine 2 (your client):
 ```bash
-shurli join <invite-code> --name laptop
+shurli join <invite-code> --as laptop
 ```
 
 ### 3. Use it
@@ -719,7 +719,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
-│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/time-limited grant gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -805,8 +805,8 @@ shurli auth remove <peer-id>
 
 **2. Invite/Join flow - zero-touch mutual authorization**
 ```
-Machine A: shurli invite --name home     # Generates invite code + QR
-Machine B: shurli join <code> --name laptop  # Decodes, connects, auto-authorizes both sides
+Machine A: shurli invite --as home     # Generates invite code + QR
+Machine B: shurli join <code> --as laptop  # Decodes, connects, auto-authorizes both sides
 ```
 The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-bound HKDF-SHA256 key derivation + XChaCha20-Poly1305 AEAD encryption. The relay sees only opaque encrypted bytes during pairing. Both peers add each other to `authorized_keys` and `names` config automatically. Version byte: 0x01 = PAKE-encrypted invite, 0x02 = relay pairing code. Legacy cleartext protocol was deleted (zero downgrade surface).
 
@@ -1593,7 +1593,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
 
-**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires `relay_data=true` on the relay's authorized keys for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
+**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires an active time-limited grant (issued via `shurli relay grant <peer-id> --duration 1h`) for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
 
 **DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer. All rejections are silent. All thresholds configurable.
 
@@ -3354,13 +3354,13 @@ Loaded configuration from ~/.config/shurli/config.yaml
 
 On the home server:
 ```bash
-./shurli invite --name home
+./shurli invite --as home
 # Displays an invite code + QR code. Share the code with the client.
 ```
 
 On the client:
 ```bash
-./shurli join <invite-code> --name laptop
+./shurli join <invite-code> --as laptop
 # Automatically: connects to inviter, exchanges peer IDs,
 # adds each other to authorized_keys, adds name mapping.
 ```
@@ -4436,7 +4436,7 @@ shurli relay pair --count 3 --ttl 1h
 
 **Each person joining:**
 ```bash
-shurli join <pairing-code> --name laptop
+shurli join <pairing-code> --as laptop
 # Connects to relay, discovers other peers, mutually authorizes everyone
 ```
 
@@ -7590,7 +7590,7 @@ Data forwarding (circuit relay, where the relay blindly forwards bytes between t
 **Decision**: Implement `CircuitACL` struct satisfying `relayv2.ACLFilter`. Behavior:
 
 - `AllowReserve`: Always returns true. Connection gating (`authorized_keys`) already controls who can connect at all. Double-gating reservations would break legitimate signaling peers.
-- `AllowConnect`: If `enable_data_relay` is true globally, allow all circuits. Otherwise, allow only if either the source or destination peer has data relay privileges (admin role OR `relay_data=true` attribute in authorized_keys).
+- `AllowConnect`: If `enable_data_relay` is true globally, allow all circuits. Otherwise, allow only if either the source or destination peer has data relay privileges (admin role OR an active time-limited grant issued via `shurli relay grant <peer-id> --duration 1h`).
 
 Wired in at relay startup:
 ```go
@@ -7598,7 +7598,7 @@ circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.
 relayv2.New(h, relayv2.WithACL(circuitACL), ...)
 ```
 
-**Per-peer override**: `relay_data=true` attribute on any authorized_keys entry grants that specific peer circuit relay access without enabling it globally. Added via `shurli relay authorize <peer-id>` and then setting the attribute. Uses the same `parseLine()`/`formatLine()` machinery from `internal/auth/manage.go`.
+**Per-peer override**: A time-limited grant issued via `shurli relay grant <peer-id> --duration 1h` grants that specific peer circuit relay access without enabling it globally. Grants expire automatically; the relay operator does not need to manually revoke them. Grant state is checked on every `AllowConnect` call, so newly issued or expired grants take effect immediately without relay restart.
 
 **Consequences**: Zero protocol changes. Zero wire format changes. The relay simply refuses to forward data circuits for unauthorized peers. Authorized peers and admin peers are unaffected. The ACL reads authorized_keys on every `AllowConnect` call (no caching), so attribute changes take effect immediately without relay restart.
 
@@ -8413,7 +8413,7 @@ Generate pairing codes and share them with your peers:
 shurli relay pair --count 3
 
 # Each person joins with one command on their machine:
-shurli join <pairing-code> --name laptop
+shurli join <pairing-code> --as laptop
 ```
 
 Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `shurli verify <name>`.

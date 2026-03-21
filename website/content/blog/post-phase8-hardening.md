@@ -39,11 +39,11 @@ This is a deliberate separation:
 
 | Relay type | Discovery | Data relay | Who runs it |
 |-----------|-----------|------------|-------------|
-| **Seed relay** | Yes | No (unless admin/relay_data) | Shurli project |
+| **Seed relay** | Yes | No (unless admin or time-limited grant) | Shurli project |
 | **Private relay** | Yes | Yes | You or someone you trust |
 | **Peer relay** | Via DHT | Yes (among authorized peers) | Any peer with a public IP |
 
-Why this matters: seed relays scale to thousands of nodes without bandwidth concerns. Your SSH sessions, file transfers, and XRDP streams go direct (IPv6/IPv4) or through relays you explicitly trust. The seed relay never sees your data unless you are an admin or have `relay_data=true` in its authorized_keys.
+Why this matters: seed relays scale to thousands of nodes without bandwidth concerns. Your SSH sessions, file transfers, and XRDP streams go direct (IPv6/IPv4) or through relays you explicitly trust. The seed relay never sees your data unless you are an admin or hold an active time-limited grant issued by the relay operator.
 
 The circuit ACL enforces this server-side. It cannot be bypassed by a client. And as of this release, the ACL caches its authorization data in memory instead of reading the authorized_keys file on every circuit decision.
 

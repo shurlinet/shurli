@@ -4,12 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 
-	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/grants"
 )
 
 func generateTestPeerID(t *testing.T) peer.ID {
@@ -39,10 +40,19 @@ func setupAuthKeys(t *testing.T, entries ...string) string {
 	return path
 }
 
+func newTestGrantStore(t *testing.T) *grants.Store {
+	t.Helper()
+	rootKey := []byte("test-root-key-32bytes-padding!!")
+	hmacKey := []byte("test-hmac-key-32bytes-padding!!")
+	gs := grants.NewStore(rootKey, hmacKey)
+	gs.SetPersistPath(filepath.Join(t.TempDir(), "grants.json"))
+	return gs
+}
+
 func TestCircuitACL_AllowReserve_AuthorizedPeer(t *testing.T) {
 	p := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, p.String())
-	acl := NewCircuitACL(authPath, false, true)
+	acl := NewCircuitACL(authPath, false, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
@@ -54,7 +64,7 @@ func TestCircuitACL_AllowReserve_UnauthorizedPeerDenied(t *testing.T) {
 	authorized := generateTestPeerID(t)
 	unauthorized := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, authorized.String())
-	acl := NewCircuitACL(authPath, false, true)
+	acl := NewCircuitACL(authPath, false, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowReserve(unauthorized, addr) {
@@ -64,7 +74,7 @@ func TestCircuitACL_AllowReserve_UnauthorizedPeerDenied(t *testing.T) {
 
 func TestCircuitACL_AllowReserve_NoAuthPathAllowsAll(t *testing.T) {
 	p := generateTestPeerID(t)
-	acl := NewCircuitACL("", false, true)
+	acl := NewCircuitACL("", false, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
@@ -76,7 +86,7 @@ func TestCircuitACL_EnableDataRelay_AllowsAll(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, src.String(), dest.String())
-	acl := NewCircuitACL(authPath, true, true)
+	acl := NewCircuitACL(authPath, true, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowConnect(src, addr, dest) {
@@ -91,7 +101,7 @@ func TestCircuitACL_Disabled_AdminAllowed(t *testing.T) {
 		admin.String()+"  role=admin",
 		member.String(),
 	)
-	acl := NewCircuitACL(authPath, false, true)
+	acl := NewCircuitACL(authPath, false, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 
@@ -106,25 +116,50 @@ func TestCircuitACL_Disabled_AdminAllowed(t *testing.T) {
 	}
 }
 
-func TestCircuitACL_Disabled_RelayDataAllowed(t *testing.T) {
-	dataUser := generateTestPeerID(t)
+func TestCircuitACL_Disabled_GrantedPeerAllowed(t *testing.T) {
+	grantedPeer := generateTestPeerID(t)
 	member := generateTestPeerID(t)
 	authPath := setupAuthKeys(t,
-		dataUser.String()+"  relay_data=true",
+		grantedPeer.String(),
 		member.String(),
 	)
-	acl := NewCircuitACL(authPath, false, true)
+
+	gs := newTestGrantStore(t)
+	gs.Grant(grantedPeer, 1*time.Hour, nil, false)
+
+	acl := NewCircuitACL(authPath, false, true, gs)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 
-	// relay_data peer as source
-	if !acl.AllowConnect(dataUser, addr, member) {
-		t.Error("relay_data src should be allowed")
+	// Granted peer as source
+	if !acl.AllowConnect(grantedPeer, addr, member) {
+		t.Error("granted peer src should be allowed")
 	}
 
-	// relay_data peer as destination
-	if !acl.AllowConnect(member, addr, dataUser) {
-		t.Error("relay_data dest should be allowed")
+	// Granted peer as destination
+	if !acl.AllowConnect(member, addr, grantedPeer) {
+		t.Error("granted peer dest should be allowed")
+	}
+}
+
+func TestCircuitACL_Disabled_ExpiredGrantDenied(t *testing.T) {
+	peerWithExpired := generateTestPeerID(t)
+	member := generateTestPeerID(t)
+	authPath := setupAuthKeys(t,
+		peerWithExpired.String(),
+		member.String(),
+	)
+
+	gs := newTestGrantStore(t)
+	// Grant with 1ms duration - will be expired by the time we check.
+	gs.Grant(peerWithExpired, 1*time.Millisecond, nil, false)
+	time.Sleep(5 * time.Millisecond)
+
+	acl := NewCircuitACL(authPath, false, true, gs)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if acl.AllowConnect(peerWithExpired, addr, member) {
+		t.Error("expired grant should be denied")
 	}
 }
 
@@ -132,7 +167,8 @@ func TestCircuitACL_Disabled_RegularMembersDenied(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t, src.String(), dest.String())
-	acl := NewCircuitACL(authPath, false, true)
+	gs := newTestGrantStore(t)
+	acl := NewCircuitACL(authPath, false, true, gs)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowConnect(src, addr, dest) {
@@ -140,11 +176,23 @@ func TestCircuitACL_Disabled_RegularMembersDenied(t *testing.T) {
 	}
 }
 
+func TestCircuitACL_Disabled_NoGrantStoreRegularMembersDenied(t *testing.T) {
+	src := generateTestPeerID(t)
+	dest := generateTestPeerID(t)
+	authPath := setupAuthKeys(t, src.String(), dest.String())
+	acl := NewCircuitACL(authPath, false, true, nil)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if acl.AllowConnect(src, addr, dest) {
+		t.Error("regular members should be denied when no grant store and data relay disabled")
+	}
+}
+
 func TestCircuitACL_EmptyAuthKeys(t *testing.T) {
 	src := generateTestPeerID(t)
 	dest := generateTestPeerID(t)
 	authPath := setupAuthKeys(t) // empty file
-	acl := NewCircuitACL(authPath, false, true)
+	acl := NewCircuitACL(authPath, false, true, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if acl.AllowConnect(src, addr, dest) {
@@ -155,7 +203,7 @@ func TestCircuitACL_EmptyAuthKeys(t *testing.T) {
 func TestCircuitACL_GatingDisabled_AllowsAllReservations(t *testing.T) {
 	p := generateTestPeerID(t)
 	authPath := setupAuthKeys(t) // empty file
-	acl := NewCircuitACL(authPath, false, false)
+	acl := NewCircuitACL(authPath, false, false, nil)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
 	if !acl.AllowReserve(p, addr) {
@@ -163,19 +211,70 @@ func TestCircuitACL_GatingDisabled_AllowsAllReservations(t *testing.T) {
 	}
 }
 
-func TestHasRelayData(t *testing.T) {
-	p := generateTestPeerID(t)
-	pNoAttr := generateTestPeerID(t)
-
+func TestCircuitACL_GrantRevokeDeniesAccess(t *testing.T) {
+	grantedPeer := generateTestPeerID(t)
+	member := generateTestPeerID(t)
 	authPath := setupAuthKeys(t,
-		p.String()+"  relay_data=true  # data user",
-		pNoAttr.String()+"  # regular member",
+		grantedPeer.String(),
+		member.String(),
 	)
 
-	if !auth.HasRelayData(authPath, p) {
-		t.Error("should detect relay_data=true")
+	gs := newTestGrantStore(t)
+	gs.Grant(grantedPeer, 1*time.Hour, nil, false)
+	acl := NewCircuitACL(authPath, false, true, gs)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+
+	// Should be allowed with active grant.
+	if !acl.AllowConnect(grantedPeer, addr, member) {
+		t.Error("should be allowed with active grant")
 	}
-	if auth.HasRelayData(authPath, pNoAttr) {
-		t.Error("should not detect relay_data on regular member")
+
+	// Revoke and check denied.
+	gs.Revoke(grantedPeer)
+	if acl.AllowConnect(grantedPeer, addr, member) {
+		t.Error("should be denied after grant revocation")
+	}
+}
+
+func TestCircuitACL_ServiceScopedGrantPassesRelayACL(t *testing.T) {
+	// Regression test: service-scoped grants (e.g., --services file-transfer)
+	// must still pass relay ACL. The relay checks with empty service ("") which
+	// means "any grant qualifies", not a specific service match.
+	grantedPeer := generateTestPeerID(t)
+	member := generateTestPeerID(t)
+	authPath := setupAuthKeys(t,
+		grantedPeer.String(),
+		member.String(),
+	)
+
+	gs := newTestGrantStore(t)
+	// Grant scoped to file-transfer only.
+	gs.Grant(grantedPeer, 1*time.Hour, []string{"file-transfer"}, false)
+
+	acl := NewCircuitACL(authPath, false, true, gs)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if !acl.AllowConnect(grantedPeer, addr, member) {
+		t.Error("service-scoped grant should still pass relay ACL (relay checks any grant, not specific service)")
+	}
+}
+
+func TestCircuitACL_PermanentGrantAllowed(t *testing.T) {
+	grantedPeer := generateTestPeerID(t)
+	member := generateTestPeerID(t)
+	authPath := setupAuthKeys(t,
+		grantedPeer.String(),
+		member.String(),
+	)
+
+	gs := newTestGrantStore(t)
+	gs.Grant(grantedPeer, 0, nil, true) // permanent
+
+	acl := NewCircuitACL(authPath, false, true, gs)
+
+	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	if !acl.AllowConnect(grantedPeer, addr, member) {
+		t.Error("permanent grant should be allowed")
 	}
 }
