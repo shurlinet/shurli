@@ -10,13 +10,14 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/grants"
 )
 
 // CircuitACL implements the relayv2.ACLFilter interface to control which peers
 // can establish data circuits through this relay.
 //
-// By default (EnableDataRelay=false), only admin peers and peers with the
-// relay_data=true attribute can create circuits. All other authorized peers
+// By default (EnableDataRelay=false), only admin peers and peers with an
+// active time-limited grant can create circuits. All other authorized peers
 // can still connect directly for signaling protocols (invite, peer-notify,
 // relay-admin, relay-unseal, relay-motd, zkp-auth, pingpong) since those are
 // direct streams to the relay, not relay circuits.
@@ -27,10 +28,11 @@ type CircuitACL struct {
 	authKeysPath         string
 	enableDataRelay      bool
 	enableConnectionGating bool
+	grantStore           *grants.Store // time-limited data access grants
 
 	mu      sync.RWMutex
 	peers   map[peer.ID]bool         // cached authorized peer set
-	entries map[peer.ID]auth.PeerEntry // cached entries for role/attribute checks
+	entries map[peer.ID]auth.PeerEntry // cached entries for role checks (admin detection)
 
 	// Rate-limited denial logging: under attack, deny logs could flood.
 	// Only log every Nth denial after the threshold.
@@ -44,18 +46,29 @@ type CircuitACL struct {
 // enableDataRelay is the global toggle from relay-server.yaml security config.
 // enableConnectionGating controls whether reservations require authorization.
 // When gating is disabled, all peers can reserve (open relay mode).
+// grantStore provides time-limited per-peer data access grants (may be nil
+// during startup; set via SetGrantStore before the relay accepts connections).
 // The authorized_keys data is cached in memory and refreshed via Reload().
-func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating bool) *CircuitACL {
+func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating bool, grantStore *grants.Store) *CircuitACL {
 	acl := &CircuitACL{
 		authKeysPath:         authKeysPath,
 		enableDataRelay:      enableDataRelay,
 		enableConnectionGating: enableConnectionGating,
+		grantStore:           grantStore,
 		peers:                make(map[peer.ID]bool),
 		entries:              make(map[peer.ID]auth.PeerEntry),
 	}
 	// Initial load.
 	acl.loadFromDisk()
 	return acl
+}
+
+// SetGrantStore sets or replaces the grant store used for data access checks.
+// Must be called before the relay starts accepting connections (startup-only).
+func (a *CircuitACL) SetGrantStore(gs *grants.Store) {
+	a.mu.Lock()
+	a.grantStore = gs
+	a.mu.Unlock()
 }
 
 // Reload refreshes the cached authorized_keys data from disk.
@@ -104,20 +117,18 @@ func (a *CircuitACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
 }
 
 // AllowConnect controls whether src can establish a data circuit to dest
-// through this relay. This is the enforcement point for seed relay data policy.
+// through this relay. This is the enforcement point for relay data policy.
 //
 // When enableDataRelay is true, all circuits are allowed.
 // When false (default), a circuit is allowed only if either peer is admin
-// or has relay_data=true in authorized_keys.
+// or has an active time-limited grant in the relay's grant store.
 func (a *CircuitACL) AllowConnect(src peer.ID, srcAddr ma.Multiaddr, dest peer.ID) bool {
 	if a.enableDataRelay {
 		return true
 	}
 
-	a.mu.RLock()
-	srcAllowed := a.cachedHasDataAccess(src)
-	destAllowed := a.cachedHasDataAccess(dest)
-	a.mu.RUnlock()
+	srcAllowed := a.hasDataAccess(src)
+	destAllowed := a.hasDataAccess(dest)
 
 	if srcAllowed || destAllowed {
 		short := src.String()
@@ -165,12 +176,29 @@ func (a *CircuitACL) logDenial(src peer.ID) {
 	a.denyLogMu.Unlock()
 }
 
-// cachedHasDataAccess checks if a peer has admin role or relay_data=true
-// using the cached entry map. Must be called with a.mu held (read or write).
-func (a *CircuitACL) cachedHasDataAccess(p peer.ID) bool {
+// hasDataAccess checks if a peer has admin role or an active grant.
+// Admin check uses the cached entry map (requires a.mu). Grant check
+// uses the grant store (its own locking).
+//
+// The grant check uses empty service ("") because the relay ACL gates on
+// "does this peer have ANY valid grant", not on which specific service.
+// Service-scoped grants (e.g. --services file-transfer) restrict which
+// plugin streams a node allows, not whether the relay forwards data.
+func (a *CircuitACL) hasDataAccess(p peer.ID) bool {
+	// Check admin role and get grant store reference under a single lock.
+	a.mu.RLock()
 	e, ok := a.entries[p]
-	if !ok {
-		return false
+	isAdmin := ok && e.Role == auth.RoleAdmin
+	gs := a.grantStore
+	a.mu.RUnlock()
+
+	if isAdmin {
+		return true
 	}
-	return e.Role == auth.RoleAdmin || e.RelayData
+
+	// Check time-limited grant (empty service = any grant qualifies).
+	if gs != nil {
+		return gs.Check(p, "")
+	}
+	return false
 }

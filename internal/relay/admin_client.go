@@ -535,6 +535,75 @@ func (c *AdminClient) GoodbyeShutdown(message string) error {
 	return nil
 }
 
+// --- Relay grant client methods ---
+
+// RelayGrant creates a time-limited data access grant for a peer.
+func (c *AdminClient) RelayGrant(peerID string, durationSecs int, services []string, permanent bool) (*RelayGrantInfo, error) {
+	reqBody, _ := json.Marshal(RelayGrantRequest{
+		PeerID:      peerID,
+		DurationSec: durationSecs,
+		Services:    services,
+		Permanent:   permanent,
+	})
+	data, status, err := c.do("POST", "/v1/relay-grant", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var info RelayGrantInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &info, nil
+}
+
+// RelayGrants lists all active relay data grants.
+func (c *AdminClient) RelayGrants() ([]RelayGrantInfo, error) {
+	data, status, err := c.do("GET", "/v1/relay-grants", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var result []RelayGrantInfo
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return result, nil
+}
+
+// RelayRevoke revokes a relay data grant and terminates active circuits.
+func (c *AdminClient) RelayRevoke(peerID string) error {
+	reqBody, _ := json.Marshal(map[string]string{"peer_id": peerID})
+	data, status, err := c.do("POST", "/v1/relay-revoke", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// RelayExtend extends an existing relay data grant.
+func (c *AdminClient) RelayExtend(peerID string, durationSecs int) error {
+	reqBody, _ := json.Marshal(RelayExtendRequest{
+		PeerID:      peerID,
+		DurationSec: durationSecs,
+	})
+	data, status, err := c.do("POST", "/v1/relay-extend", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
 // parseAdminError extracts an error message from an admin API error response.
 func parseAdminError(data []byte, status int) error {
 	var errResp map[string]string

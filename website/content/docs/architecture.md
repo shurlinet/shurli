@@ -216,7 +216,7 @@ Shurli/
 │   │   ├── unseal.go        # Remote unseal P2P protocol (/shurli/relay-unseal/1.0.0)
 │   │   ├── motd.go          # MOTD/goodbye server: signed announcements (/shurli/relay-motd/1.0.0)
 │   │   ├── motd_client.go   # MOTD/goodbye client: receive, verify, store goodbyes
-│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/relay_data attribute gating)
+│   │   ├── circuit_acl.go   # Circuit relay ACL filter (admin/time-limited grant gating)
 │   │   ├── zkp_auth.go      # ZKP auth protocol handler (/shurli/zkp-auth/1.0.0)
 │   │   └── zkp_client.go    # ZKP auth client (prove membership to relay)
 │   ├── zkp/                   # Zero-knowledge proof privacy layer
@@ -1090,7 +1090,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
 
-**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires `relay_data=true` on the relay's authorized keys for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
+**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires an active time-limited grant (issued via `shurli relay grant <peer-id> --duration 1h`) for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
 
 **DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer. All rejections are silent. All thresholds configurable.
 

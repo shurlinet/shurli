@@ -211,11 +211,11 @@ First external user testing (NZ-AU relay circuit) confirmed: browse and download
 
 File transfer plugins (`file-transfer`, `file-browse`, `file-download`, `file-multi-peer`) now allow relay transport. The relay's own bandwidth limits (64 MB per session, 10-minute session duration) provide the resource conservation that the plugin policy originally enforced.
 
-Additionally, the relay ACL requires `relay_data=true` on at least one peer in the circuit. This is a deliberate admin decision, not automatic - the relay operator controls which peers can use data circuits.
+Additionally, the relay ACL requires an active time-limited grant for at least one peer in the circuit. Grants are issued via `shurli relay grant <peer-id> --duration 1h` and expire automatically. This is a deliberate admin decision, not automatic - the relay operator controls which peers can use data circuits and for how long.
 
-### Why Not Auto-Grant relay_data
+### Why Not Auto-Grant Relay Access
 
-Auto-granting `relay_data=true` to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer. This will be revisited when the per-peer data access control system (time-limited grants) is implemented.
+Auto-granting relay data access to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer, and for what duration. Time-limited grants enforce this without requiring manual revocation.
 
 **Reference**: `pkg/p2pnet/share.go` (plugin registration), `internal/relay/circuit_acl.go` (AllowConnect)
 

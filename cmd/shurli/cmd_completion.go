@@ -233,7 +233,7 @@ _shurli_completions() {
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate grant grants revoke extend"
     local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize set-attr list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
+    local relay_cmds="add list remove show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
     local relay_vault_cmds="init seal unseal status change-password"
     local relay_motd_cmds="set clear status"
@@ -308,8 +308,17 @@ _shurli_completions() {
                 list|info|seal|seal-status|version)
                     COMPREPLY=($(compgen -W "--config" -- "$cur"))
                     return ;;
-                authorize|deauthorize|list-peers)
+                authorize|deauthorize|list-peers|grants)
                     COMPREPLY=($(compgen -W "--config --remote" -- "$cur"))
+                    return ;;
+                grant)
+                    COMPREPLY=($(compgen -W "--duration --services --permanent --remote" -- "$cur"))
+                    return ;;
+                revoke)
+                    COMPREPLY=($(compgen -W "--remote" -- "$cur"))
+                    return ;;
+                extend)
+                    COMPREPLY=($(compgen -W "--duration --remote" -- "$cur"))
                     return ;;
                 remove)
                     COMPREPLY=($(compgen -W "--config --force -f" -- "$cur"))
@@ -560,6 +569,10 @@ _shurli() {
         'motd:Manage relay MOTD'
         'goodbye:Manage goodbye announcements'
         'recover:Recover relay identity from seed'
+        'grant:Grant time-limited data relay access'
+        'grants:List active data relay grants'
+        'revoke:Revoke data relay access'
+        'extend:Extend data relay grant'
     )
 
     local -a relay_invite_cmds
@@ -687,8 +700,14 @@ _shurli() {
                         _arguments '--config[Config file]:file:_files' ;;
                     setup)
                         _arguments '--dir[Relay directory]:dir:_directories' '--fresh[Non-interactive fresh setup]' '--non-interactive[Fail if prompts needed]' ;;
-                    authorize|deauthorize|list-peers)
+                    authorize|deauthorize|list-peers|grants)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' ;;
+                    grant)
+                        _arguments '--duration[Grant duration]:duration' '--services[Service names]:services' '--permanent[No expiry]' '--remote[Relay multiaddr]:addr' ;;
+                    revoke)
+                        _arguments '--remote[Relay multiaddr]:addr' ;;
+                    extend)
+                        _arguments '--duration[New duration]:duration' '--remote[Relay multiaddr]:addr' ;;
                     unseal)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' '--totp[Prompt for TOTP code]' ;;
                     invite)
@@ -953,6 +972,10 @@ complete -c shurli -n '__shurli_using_command relay' -a zkp-test    -d 'End-to-e
 complete -c shurli -n '__shurli_using_command relay' -a motd        -d 'Manage relay MOTD'
 complete -c shurli -n '__shurli_using_command relay' -a goodbye     -d 'Manage goodbye announcements'
 complete -c shurli -n '__shurli_using_command relay' -a recover     -d 'Recover relay identity from seed'
+complete -c shurli -n '__shurli_using_command relay' -a grant       -d 'Grant time-limited data relay access'
+complete -c shurli -n '__shurli_using_command relay' -a grants      -d 'List active data relay grants'
+complete -c shurli -n '__shurli_using_command relay' -a revoke      -d 'Revoke data relay access'
+complete -c shurli -n '__shurli_using_command relay' -a extend      -d 'Extend data relay grant'
 
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l peer-id -d 'Relay peer ID'
@@ -965,6 +988,14 @@ complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l config -d
 complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l remote -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l remote -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l duration  -d 'Grant duration'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l services  -d 'Comma-separated services'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l permanent -d 'Permanent grant'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay grants'      -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay revoke'      -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay extend'      -l duration  -d 'New duration'
+complete -c shurli -n '__shurli_using_subcommand relay extend'      -l remote    -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay serve'  -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l dir     -d 'Relay directory'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l fresh   -d 'Non-interactive fresh setup'
