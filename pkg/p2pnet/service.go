@@ -333,7 +333,7 @@ No SSH, XRDP, or other data is forwarded through it.
 To transfer data between your devices:
   1. Both peers must connect directly (check firewall/NAT settings)
   2. Or deploy your own relay for full data relay: https://shurli.io/docs/relay-setup/
-  3. Or ask the relay admin to grant relay_data access for your peer`
+  3. Or ask the relay admin: shurli relay grant <your-peer-id> --duration 1h`
 
 // UnregisterService removes a service and its stream handler.
 func (r *ServiceRegistry) UnregisterService(name string) error {

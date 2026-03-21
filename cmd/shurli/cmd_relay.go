@@ -75,6 +75,14 @@ func runRelay(args []string) {
 		runRelayDeauthorize(args[1:], serverConfigFile)
 	case "set-attr":
 		runRelaySetAttr(args[1:], serverConfigFile)
+	case "grant":
+		runRelayGrant(args[1:], serverConfigFile)
+	case "grants":
+		runRelayGrants(args[1:], serverConfigFile)
+	case "revoke":
+		runRelayRevoke(args[1:], serverConfigFile)
+	case "extend":
+		runRelayExtend(args[1:], serverConfigFile)
 	case "list-peers":
 		runRelayListPeers(args[1:], serverConfigFile)
 	case "info":

@@ -48,9 +48,9 @@ This is deliberate. A public relay shouldn't forward arbitrary data between peer
 
 ![Relay ACL: per-peer data circuit authorization](/images/blog/first-user-acl.svg)
 
-The diagram above shows the key design: `relay_data=true` is granted to **one specific peer**, while all other authorized peers remain in signaling-only mode. The relay operator controls exactly which peers can establish data circuits. This is not a global toggle. It is per-peer access control.
+The diagram above shows the key design: data relay access is granted to **one specific peer**, while all other authorized peers remain in signaling-only mode. The relay operator controls exactly which peers can establish data circuits. This is not a global toggle. It is per-peer access control.
 
-**The fix**: Added `relay_data=true` to the hosting node's (which is behind Carrier Grade NAT (CGNAT)) entry in the relay's authorized keys. Restarted the relay. The external node reconnected. Ping worked immediately.
+**The fix**: At the time, we added `relay_data=true` to the hosting node's (which is behind Carrier Grade NAT (CGNAT)) entry in the relay's authorized keys and restarted the relay. This mechanism has since been replaced by time-limited grants issued via `shurli relay grant <peer-id> --duration <duration>`, which take effect immediately without a relay restart. The external node reconnected. Ping worked immediately.
 
 ### The numbers
 
@@ -75,7 +75,7 @@ Next test: file transfer. Controlled devices could already transfer files at dec
 
 **First attempt was unsuccessful.** The file transfer plugins were configured to reject relay transport by default. Error: "plugin does not allow relay, and peer is only reachable via relay."
 
-**The fix**: Updated all file transfer plugins to allow relay transport. But allowing relay transport in the plugin is only half the story. The relay itself still enforces per-peer ACL. Even with the plugin fix, only the specific peer granted `relay_data=true` on the relay can actually use data circuits. Every other peer, even if authorized and connected, remains in signaling-only mode. The only exception is the relay administrator.
+**The fix**: Updated all file transfer plugins to allow relay transport. But allowing relay transport in the plugin is only half the story. The relay itself still enforces per-peer ACL. Even with the plugin fix, only a peer holding an active time-limited grant (or the relay administrator) can actually use data circuits. Every other peer, even if authorized and connected, remains in signaling-only mode.
 
 This is why running your own relay matters. A cheap VPS ($5-10/month) gives you full control over which peers get data access, for how long, and with what limits. Relying on public or third-party relays means you're subject to their policies, their bandwidth limits, and their access decisions. Your own relay, your own rules.
 

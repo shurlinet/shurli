@@ -49,7 +49,8 @@ security:
   # through this relay. When false (default), this relay is discovery-only:
   # peers use it for signaling and finding each other, but data transfers
   # must happen via direct connections or a separate full relay.
-  # Exceptions: admin peers and peers with relay_data=true attribute.
+  # Exceptions: admin peers and peers with active time-limited grants.
+  # Grant access: shurli relay grant <peer-id> --duration 1h
   enable_data_relay: false
 
 # Relay resource limits (defaults shown  - uncomment to customize)
