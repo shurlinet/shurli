@@ -522,3 +522,21 @@ func (c *Client) GrantDelegate(req GrantDelegateRequest) (map[string]string, err
 	}
 	return result, nil
 }
+
+// NotifySinks returns all configured notification sinks.
+func (c *Client) NotifySinks() ([]NotifySinkInfo, error) {
+	var result []NotifySinkInfo
+	if err := c.doJSON("GET", "/v1/notify/sinks", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// NotifyTest sends a test notification to all configured sinks.
+func (c *Client) NotifyTest() (map[string]string, error) {
+	var result map[string]string
+	if err := c.doJSON("POST", "/v1/notify/test", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

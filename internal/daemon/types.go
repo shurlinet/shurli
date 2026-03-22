@@ -284,3 +284,8 @@ type GrantInfo struct {
 type GrantListResponse struct {
 	Grants []GrantInfo `json:"grants"`
 }
+
+// NotifySinkInfo represents a configured notification sink.
+type NotifySinkInfo struct {
+	Name string `json:"name"`
+}
