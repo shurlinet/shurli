@@ -1,44 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
   <defs>
     <linearGradient id="bgH" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0a0a1a"/>
       <stop offset="100%" stop-color="#0d1b2a"/>
     </linearGradient>
   </defs>
-  <rect width="700" height="280" fill="url(#bgH)"/>
-
-  <!-- Metaphor: dashboard gauges showing network health -->
-  <!-- Gauge 1: Connections -->
-  <g opacity="0.8">
-    <path d="M120,160 A55,55 0 0,1 230,160" stroke="#333" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <path d="M120,160 A55,55 0 0,1 210,120" stroke="#00d4aa" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <circle cx="175" cy="165" r="4" fill="#00d4aa" opacity="0.6"/>
-    <text x="175" y="140" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#00d4aa">12</text>
-    <text x="175" y="195" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Active Peers</text>
-  </g>
-
-  <!-- Gauge 2: Data transferred -->
-  <g opacity="0.8">
-    <path d="M285,160 A55,55 0 0,1 395,160" stroke="#333" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <path d="M285,160 A55,55 0 0,1 375,122" stroke="#ffb347" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <circle cx="340" cy="165" r="4" fill="#ffb347" opacity="0.6"/>
-    <text x="340" y="140" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#ffb347">2.4G</text>
-    <text x="340" y="195" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Data Moved</text>
-  </g>
-
-  <!-- Gauge 3: Uptime -->
-  <g opacity="0.8">
-    <path d="M450,160 A55,55 0 0,1 560,160" stroke="#333" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <path d="M450,160 A55,55 0 0,1 555,155" stroke="#4488ff" stroke-width="6" fill="none" stroke-linecap="round"/>
-    <circle cx="505" cy="165" r="4" fill="#4488ff" opacity="0.6"/>
-    <text x="505" y="140" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#4488ff">99.8%</text>
-    <text x="505" y="195" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Uptime</text>
-  </g>
-
-  <!-- Bottom text -->
-  <text x="350" y="240" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#e0e0e0">See What's Happening in Your Network</text>
-  <text x="350" y="265" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Real-time monitoring. 30 metrics. Pre-built dashboards. Zero configuration.</text>
+  <rect width="1200" height="400" fill="url(#bgH)"/>
 
   <!-- Top label -->
-  <text x="350" y="70" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#555" letter-spacing="1">AUTOMATIC MONITORING</text>
+  <text x="600" y="55" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#555" letter-spacing="2">AUTOMATIC MONITORING</text>
+
+  <!-- Gauge 1: Active Peers -->
+  <g transform="translate(280,195)">
+    <!-- Background arc (full semicircle) -->
+    <path d="M-65,0 A65,65 0 0,1 65,0" stroke="#222" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Filled arc (~75%) -->
+    <path d="M-65,0 A65,65 0 0,1 46,-46" stroke="#00d4aa" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Center dot -->
+    <circle cx="0" cy="5" r="4" fill="#00d4aa" opacity="0.5"/>
+    <!-- Value -->
+    <text x="0" y="-12" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" font-weight="700" fill="#00d4aa">12</text>
+  </g>
+  <text x="280" y="235" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#888">Active Peers</text>
+
+  <!-- Gauge 2: Data Moved -->
+  <g transform="translate(600,195)">
+    <path d="M-65,0 A65,65 0 0,1 65,0" stroke="#222" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <path d="M-65,0 A65,65 0 0,1 55,-34" stroke="#ffb347" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <circle cx="0" cy="5" r="4" fill="#ffb347" opacity="0.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" font-weight="700" fill="#ffb347">2.4G</text>
+  </g>
+  <text x="600" y="235" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#888">Data Moved</text>
+
+  <!-- Gauge 3: Uptime -->
+  <g transform="translate(920,195)">
+    <path d="M-65,0 A65,65 0 0,1 65,0" stroke="#222" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <path d="M-65,0 A65,65 0 0,1 0,-65 A65,65 0 0,1 63,-5" stroke="#4488ff" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <circle cx="0" cy="5" r="4" fill="#4488ff" opacity="0.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" font-weight="700" fill="#4488ff">99.8%</text>
+  </g>
+  <text x="920" y="235" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#888">Uptime</text>
+
+  <!-- Bottom text -->
+  <text x="600" y="310" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#e0e0e0">See What's Happening in Your Network</text>
+  <text x="600" y="345" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#888">Real-time monitoring. 30 metrics. Pre-built dashboards. Zero configuration.</text>
 </svg>

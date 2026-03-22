@@ -1,4 +1,4 @@
-# Per-Peer Data Access Grants: Macaroon Capability Tokens for P2P Authorization
+# Phase 8B: Per-Peer Data Grants
 
 **Date**: 2026-03-22
 **Status**: Complete (Phases A, R, B, C, D)

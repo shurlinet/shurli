@@ -1,88 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="bgCH" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#141316"/>
       <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
-    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2c2a2e"/>
-      <stop offset="100%" style="stop-color:#1e1d20"/>
-    </linearGradient>
-    <linearGradient id="goodFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#1e2e1e"/>
-      <stop offset="100%" style="stop-color:#1a251a"/>
-    </linearGradient>
-    <linearGradient id="badFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2e1e1e"/>
-      <stop offset="100%" style="stop-color:#251a1a"/>
-    </linearGradient>
   </defs>
+  <rect width="1200" height="400" fill="url(#bgCH)"/>
 
-  <!-- Background -->
-  <rect width="800" height="300" fill="url(#bg)" rx="8"/>
+  <!-- Left: Calm connection (before chaos) -->
+  <circle cx="200" cy="160" r="35" fill="#1e1d20" stroke="#9ece6a" stroke-width="2"/>
+  <circle cx="200" cy="160" r="12" fill="#9ece6a" opacity="0.3"/>
+  <text x="200" y="215" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle">Connected</text>
 
-  <!-- Title -->
-  <text x="400" y="32" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#c0caf5">Network Transitions: Before and After</text>
+  <!-- Smooth line to center -->
+  <line x1="240" y1="160" x2="400" y2="160" stroke="#9ece6a" stroke-width="2" opacity="0.5"/>
 
-  <!-- BEFORE section -->
-  <rect x="30" y="50" width="360" height="220" rx="10" fill="url(#badFill)" stroke="#f7768e" stroke-width="0.6" stroke-opacity="0.4"/>
-  <text x="210" y="72" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#f7768e">Before Chaos Testing</text>
+  <!-- Center: Storm zone -->
+  <rect x="400" y="60" width="400" height="260" rx="20" fill="#1e1d20" stroke="#f7768e" stroke-width="1.5" stroke-dasharray="8,4" opacity="0.5"/>
 
-  <!-- Before: scenarios that failed -->
-  <rect x="50" y="85" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="60" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e">WiFi switch</text>
-  <text x="280" y="103" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="end">stuck RELAYED</text>
-  <text x="360" y="103" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">restart needed</text>
+  <!-- Lightning bolts -->
+  <path d="M 500 90 L 490 140 L 510 140 L 495 190" fill="none" stroke="#f7768e" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 600 80 L 585 130 L 605 130 L 590 180" fill="none" stroke="#e0af68" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 700 95 L 690 145 L 710 145 L 695 195" fill="none" stroke="#f7768e" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
 
-  <rect x="50" y="118" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="60" y="136" font-family="SF Mono, monospace" font-size="9" fill="#f7768e">VPN connect</text>
-  <text x="280" y="136" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="end">total isolation</text>
-  <text x="360" y="136" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">restart needed</text>
+  <!-- Disruption labels -->
+  <rect x="440" y="210" width="130" height="26" rx="6" fill="#f7768e" fill-opacity="0.1" stroke="#f7768e" stroke-width="1" opacity="0.4"/>
+  <text x="505" y="228" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" opacity="0.7">WiFi drops</text>
 
-  <rect x="50" y="151" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="60" y="169" font-family="SF Mono, monospace" font-size="9" fill="#f7768e">CGNAT to CGNAT</text>
-  <text x="280" y="169" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="end">invisible to daemon</text>
-  <text x="360" y="169" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">restart needed</text>
+  <rect x="440" y="248" width="130" height="26" rx="6" fill="#e0af68" fill-opacity="0.1" stroke="#e0af68" stroke-width="1" opacity="0.4"/>
+  <text x="505" y="266" font-family="system-ui, sans-serif" font-size="11" fill="#e0af68" text-anchor="middle" opacity="0.7">VPN connects</text>
 
-  <rect x="50" y="184" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="60" y="202" font-family="SF Mono, monospace" font-size="9" fill="#f7768e">LAN removal</text>
-  <text x="280" y="202" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" text-anchor="end">stranded 90s</text>
-  <text x="360" y="202" font-family="SF Mono, monospace" font-size="8" fill="#565f89" text-anchor="end">restart needed</text>
+  <rect x="440" y="286" width="130" height="26" rx="6" fill="#f7768e" fill-opacity="0.1" stroke="#f7768e" stroke-width="1" opacity="0.4"/>
+  <text x="505" y="304" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" opacity="0.7">Cable unplugged</text>
 
-  <!-- Before summary -->
-  <text x="210" y="240" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#f7768e">Broken</text>
-  <text x="210" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">manual restarts after every network switch</text>
+  <rect x="625" y="210" width="145" height="26" rx="6" fill="#e0af68" fill-opacity="0.1" stroke="#e0af68" stroke-width="1" opacity="0.4"/>
+  <text x="698" y="228" font-family="system-ui, sans-serif" font-size="11" fill="#e0af68" text-anchor="middle" opacity="0.7">Network changes</text>
 
-  <!-- AFTER section -->
-  <rect x="410" y="50" width="360" height="220" rx="10" fill="url(#goodFill)" stroke="#9ece6a" stroke-width="0.6" stroke-opacity="0.4"/>
-  <text x="590" y="72" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#9ece6a">After: 11 Root Causes Fixed</text>
+  <rect x="625" y="248" width="145" height="26" rx="6" fill="#f7768e" fill-opacity="0.1" stroke="#f7768e" stroke-width="1" opacity="0.4"/>
+  <text x="698" y="266" font-family="system-ui, sans-serif" font-size="11" fill="#f7768e" text-anchor="middle" opacity="0.7">Carrier switches</text>
 
-  <!-- After: same scenarios, now working -->
-  <rect x="430" y="85" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="440" y="103" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">WiFi switch</text>
-  <text x="660" y="103" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="end">DIRECT in &lt;5s</text>
-  <text x="740" y="103" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="end">automatic</text>
+  <!-- Storm label -->
+  <text x="600" y="340" font-family="system-ui, sans-serif" font-size="14" fill="#f7768e" text-anchor="middle" font-weight="600" opacity="0.6">We tried 16 ways to break it</text>
 
-  <rect x="430" y="118" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="440" y="136" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">VPN connect</text>
-  <text x="660" y="136" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="end">RELAYED in &lt;15s</text>
-  <text x="740" y="136" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="end">automatic</text>
+  <!-- Emerging line from storm -->
+  <line x1="800" y1="160" x2="960" y2="160" stroke="#9ece6a" stroke-width="2" opacity="0.5"/>
 
-  <rect x="430" y="151" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="440" y="169" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">CGNAT to CGNAT</text>
-  <text x="660" y="169" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="end">detected + recovered</text>
-  <text x="740" y="169" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="end">automatic</text>
+  <!-- Right: Still connected (after chaos) -->
+  <circle cx="1000" cy="160" r="35" fill="#1e1d20" stroke="#9ece6a" stroke-width="2"/>
+  <!-- Checkmark inside -->
+  <polyline points="988,160 996,172 1014,148" fill="none" stroke="#9ece6a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1000" y="215" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" text-anchor="middle">Still connected</text>
 
-  <rect x="430" y="184" width="320" height="28" rx="5" fill="#1e1d20" stroke="#565f89" stroke-width="0.5"/>
-  <text x="440" y="202" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a">LAN removal</text>
-  <text x="660" y="202" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" text-anchor="end">RELAYED instant</text>
-  <text x="740" y="202" font-family="SF Mono, monospace" font-size="8" fill="#9ece6a" text-anchor="end">automatic</text>
-
-  <!-- After summary -->
-  <text x="590" y="240" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="700" fill="#9ece6a">Bulletproof</text>
-  <text x="590" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">zero restarts across 16 test cases</text>
-
-  <!-- Arrow between sections -->
-  <line x1="393" y1="160" x2="407" y2="160" stroke="#e0af68" stroke-width="2.5"/>
-  <polygon points="407,155 417,160 407,165" fill="#e0af68"/>
+  <!-- Bottom tagline -->
+  <text x="600" y="380" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">We broke everything on purpose. It kept working.</text>
 </svg>

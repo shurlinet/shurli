@@ -10,7 +10,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 9B + Plugin Architecture + Per-Peer Grant System Complete)](#current-architecture-phase-9b--plugin-architecture--per-peer-grant-system-complete) - what's built and working
+- [Current Architecture (Phase 9B + Plugin Architecture + Phase 8B Per-Peer Data Grants Complete)](#current-architecture-phase-9b--plugin-architecture--per-peer-grant-system-complete) - what's built and working
 - [Plugin Architecture](#plugin-architecture) - extensibility framework, three-layer evolution
 - [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
@@ -47,7 +47,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ---
 
-## Current Architecture (Phase 9B + Plugin Architecture + Per-Peer Grant System Complete)
+## Current Architecture (Phase 9B + Plugin Architecture + Phase 8B Per-Peer Data Grants Complete)
 
 ### Component Overview
 
@@ -1521,7 +1521,7 @@ Developers choose: compile into the binary (Go, Layer 1) OR ship as `.wasm` (any
 - Component Model in Go: wazero doesn't support it, Go tooling not ready
 - Hot standby at plugin level: supervisor + restart is sufficient
 
-#### Module Slot Pattern
+#### Phase 8D: Module Slot Pattern
 
 Certain system functions need swappable implementations without requiring a full plugin. Module slots provide this:
 
@@ -1553,15 +1553,15 @@ Key mitigations:
 
 **Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
 
-### ACL-to-Macaroon Migration
+### Phase 8C: ACL-to-Macaroon Migration
 
-> **Status: Phase M1 complete. M2-M5 planned.**
+> **Status: M1 complete (Phase 8B). M2-M5 planned.**
 
-The per-peer data access grant system (Phases A-D) proved that macaroon capability tokens work at the plugin/service layer. The broader vision: replace ALL five layers of ACL-based access control with macaroon tokens.
+The per-peer data grant system (Phase 8B) proved that macaroon capability tokens work at the plugin/service layer. The broader vision: replace ALL five layers of ACL-based access control with macaroon tokens.
 
 | Phase | Layer | Current Mechanism | Macaroon Replacement | Risk | Status |
 |-------|-------|-------------------|---------------------|------|--------|
-| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon with `peer_id`, `service`, `expires` caveats | - | **DONE** (Phases A-D) |
+| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon with `peer_id`, `service`, `expires` caveats | - | **DONE** (Phase 8B) |
 | **M2** | Share | `shares.json` peer lists | Macaroon with `share_id` caveat | Low | Planned - natural extension of M1 |
 | **M3** | Relay | `relay_authorized_keys` + `relay_data` attribute | Macaroon presented to relay for circuit auth | Medium | Planned - relay needs token verification |
 | **M4** | Connection | `authorized_keys` + ConnectionGater | Macaroon presented during handshake | **High** | Planned - deepest change, touches libp2p setup |
