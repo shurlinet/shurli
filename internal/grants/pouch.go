@@ -5,6 +5,7 @@
 package grants
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -58,6 +59,12 @@ type pouchFile struct {
 	HMAC    string       `json:"hmac,omitempty"`
 }
 
+// refreshRequester is the interface the Pouch uses to request token refreshes.
+// Implemented by GrantProtocol.RequestRefresh. Decoupled to avoid import cycle.
+type refreshRequester interface {
+	RequestRefresh(ctx context.Context, issuerID peer.ID, tokenID string) (*GrantRefreshResponse, error)
+}
+
 // Pouch stores received grant tokens keyed by issuing node's peer ID.
 // Thread-safe. Persists to disk with HMAC integrity.
 type Pouch struct {
@@ -69,6 +76,7 @@ type Pouch struct {
 	stopCleanup    chan struct{}
 	cleanupDone    chan struct{}
 	cleanupStarted bool // true after StartCleanup is called
+	refresher      refreshRequester // set via SetRefresher; nil = no refresh support
 	logger         *slog.Logger
 }
 
@@ -85,7 +93,7 @@ func NewPouch(hmacKey []byte) *Pouch {
 }
 
 // StartCleanup starts a background goroutine that removes expired entries
-// every interval and persists the result.
+// every interval, persists the result, and checks for tokens needing refresh.
 func (p *Pouch) StartCleanup(interval time.Duration) {
 	p.cleanupStarted = true
 	go func() {
@@ -97,6 +105,7 @@ func (p *Pouch) StartCleanup(interval time.Duration) {
 			select {
 			case <-ticker.C:
 				p.CleanExpired()
+				p.checkRefreshNeeded()
 			case <-p.stopCleanup:
 				return
 			}
@@ -119,6 +128,14 @@ func (p *Pouch) SetPersistPath(path string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.persistPath = path
+}
+
+// SetRefresher sets the protocol handler used to request token refreshes.
+// Must be called before StartCleanup to enable background refresh.
+func (p *Pouch) SetRefresher(r refreshRequester) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.refresher = r
 }
 
 // Add stores a received grant token from an issuing node.
@@ -344,6 +361,100 @@ func (p *Pouch) CleanExpired() int {
 		}
 	}
 	return removed
+}
+
+// hasAutoRefreshCaveat checks if a token's caveats include auto_refresh=true.
+func hasAutoRefreshCaveat(caveats []string) bool {
+	for _, c := range caveats {
+		key, value, err := macaroon.ParseCaveat(c)
+		if err != nil {
+			continue
+		}
+		if key == macaroon.CaveatAutoRefresh && value == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+// checkRefreshNeeded finds tokens approaching expiry (last 10% of duration)
+// and sends refresh requests to the issuing node.
+func (p *Pouch) checkRefreshNeeded() {
+	p.mu.RLock()
+	refresher := p.refresher
+	if refresher == nil {
+		p.mu.RUnlock()
+		return
+	}
+
+	now := time.Now()
+	type refreshTarget struct {
+		issuerID peer.ID
+		tokenID  string
+	}
+	var targets []refreshTarget
+
+	for _, e := range p.entries {
+		if e.Permanent || e.Expired() {
+			continue
+		}
+		// Only attempt refresh on tokens that have auto_refresh=true caveat.
+		if !hasAutoRefreshCaveat(e.Token.Caveats) {
+			continue
+		}
+		// Check if in the last 10% of duration.
+		total := e.ExpiresAt.Sub(e.ReceivedAt)
+		if total <= 0 {
+			continue
+		}
+		remaining := e.ExpiresAt.Sub(now)
+		threshold := total / 10
+		if remaining <= threshold {
+			targets = append(targets, refreshTarget{
+				issuerID: e.IssuerID,
+				tokenID:  e.Token.ID,
+			})
+		}
+	}
+	p.mu.RUnlock()
+
+	for _, t := range targets {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		resp, err := refresher.RequestRefresh(ctx, t.issuerID, t.tokenID)
+		cancel()
+		if err != nil {
+			p.logger.Warn("pouch: refresh request failed", "issuer", shortPeerID(t.issuerID), "error", err)
+			continue
+		}
+		if resp.Status != "refreshed" || resp.Token == "" {
+			p.logger.Info("pouch: refresh rejected", "issuer", shortPeerID(t.issuerID), "reason", resp.Reason)
+			continue
+		}
+
+		// Decode and store the refreshed token.
+		token, err := macaroon.DecodeBase64(resp.Token)
+		if err != nil {
+			p.logger.Warn("pouch: invalid refreshed token", "issuer", shortPeerID(t.issuerID), "error", err)
+			continue
+		}
+
+		// Extract new expiry from token caveats.
+		newExpiry := macaroon.ExtractEarliestExpires(token.Caveats)
+
+		p.mu.Lock()
+		if entry, exists := p.entries[t.issuerID]; exists {
+			entry.Token = token
+			entry.ExpiresAt = newExpiry
+			entry.ReceivedAt = time.Now() // fresh timestamp per refresh, not stale loop-start time
+		}
+		p.mu.Unlock()
+
+		if err := p.save(); err != nil {
+			p.logger.Error("pouch: failed to persist after refresh", "issuer", shortPeerID(t.issuerID), "error", err)
+		}
+
+		p.logger.Info("pouch: token refreshed", "issuer", shortPeerID(t.issuerID), "new_expiry", newExpiry.Format(time.RFC3339))
+	}
 }
 
 // save persists the pouch to disk with HMAC integrity.

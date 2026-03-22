@@ -8,6 +8,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/macaroon"
 )
 
@@ -32,6 +33,9 @@ func (s *Server) handleGrantList(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:      g.CreatedAt.Format(time.RFC3339),
 			Permanent:      g.Permanent,
 			MaxDelegations: g.MaxDelegations,
+			AutoRefresh:    g.AutoRefresh,
+			MaxRefreshes:   g.MaxRefreshes,
+			RefreshesUsed:  g.RefreshesUsed,
 		}
 
 		if name, ok := reverseNames[g.PeerIDStr]; ok {
@@ -97,7 +101,38 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations)
+	// Apply config defaults for auto-refresh (B4).
+	autoRefresh := req.AutoRefresh
+	if !autoRefresh && !req.Permanent && s.runtime.GrantsAutoRefresh() {
+		autoRefresh = true
+	}
+
+	if autoRefresh && req.Permanent {
+		RespondError(w, http.StatusBadRequest, "auto-refresh and permanent are mutually exclusive")
+		return
+	}
+
+	var grantOpts []grants.GrantOptions
+	if autoRefresh {
+		maxRefreshes := req.MaxRefreshes
+		if maxRefreshes <= 0 {
+			maxRefreshes = 3 // default: 3 refreshes when not explicitly set
+		}
+		maxRefreshDur := duration * time.Duration(maxRefreshes+1)
+		// Cap at config max_refresh_duration if set.
+		if cfgMax := s.runtime.GrantsMaxRefreshDuration(); cfgMax != "" {
+			if cap, err := grants.ParseDurationExtended(cfgMax); err == nil && cap > 0 && maxRefreshDur > cap {
+				maxRefreshDur = cap
+			}
+		}
+		grantOpts = append(grantOpts, grants.GrantOptions{
+			AutoRefresh:        true,
+			MaxRefreshes:       maxRefreshes,
+			MaxRefreshDuration: maxRefreshDur,
+		})
+	}
+
+	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations, grantOpts...)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
@@ -109,6 +144,9 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:      grant.CreatedAt.Format(time.RFC3339),
 		Permanent:      grant.Permanent,
 		MaxDelegations: grant.MaxDelegations,
+		AutoRefresh:    grant.AutoRefresh,
+		MaxRefreshes:   grant.MaxRefreshes,
+		RefreshesUsed:  grant.RefreshesUsed,
 	}
 
 	reverseNames := s.buildReverseNames()
@@ -177,6 +215,10 @@ func (s *Server) handleGrantExtend(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, http.StatusBadRequest, "peer is required")
 		return
 	}
+	if req.Duration == "" && req.MaxRefreshes == nil {
+		RespondError(w, http.StatusBadRequest, "duration or max_refreshes is required")
+		return
+	}
 
 	peerID, err := s.resolvePeerID(req.Peer)
 	if err != nil {
@@ -184,19 +226,29 @@ func (s *Server) handleGrantExtend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration, err := time.ParseDuration(req.Duration)
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid duration: %v", err))
-		return
-	}
-	if duration <= 0 {
-		RespondError(w, http.StatusBadRequest, "duration must be positive")
-		return
+	// Update max refreshes if requested (B4).
+	if req.MaxRefreshes != nil {
+		if err := gs.UpdateMaxRefreshes(peerID, *req.MaxRefreshes); err != nil {
+			RespondError(w, http.StatusNotFound, err.Error())
+			return
+		}
 	}
 
-	if err := gs.Extend(peerID, duration); err != nil {
-		RespondError(w, http.StatusNotFound, err.Error())
-		return
+	// Extend duration if provided.
+	if req.Duration != "" {
+		duration, err := time.ParseDuration(req.Duration)
+		if err != nil {
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid duration: %v", err))
+			return
+		}
+		if duration <= 0 {
+			RespondError(w, http.StatusBadRequest, "duration must be positive")
+			return
+		}
+		if err := gs.Extend(peerID, duration); err != nil {
+			RespondError(w, http.StatusNotFound, err.Error())
+			return
+		}
 	}
 
 	RespondJSON(w, http.StatusOK, map[string]string{"status": "extended"})

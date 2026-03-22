@@ -32,7 +32,9 @@ type HomeNodeConfig struct {
 
 // GrantsConfig holds per-peer data access grant settings.
 type GrantsConfig struct {
-	DeliveryQueueTTL string `yaml:"delivery_queue_ttl,omitempty"` // e.g. "7d", "24h", "3d" (default: 7d)
+	DeliveryQueueTTL    string `yaml:"delivery_queue_ttl,omitempty"`    // e.g. "7d", "24h", "3d" (default: 7d)
+	AutoRefresh         bool   `yaml:"auto_refresh,omitempty"`          // global default for --auto-refresh (default: false)
+	MaxRefreshDuration  string `yaml:"max_refresh_duration,omitempty"`  // max total refresh duration, e.g. "3d" (default: 3d)
 }
 
 // PluginsConfig holds per-plugin configuration.

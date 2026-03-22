@@ -49,6 +49,8 @@ func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil
 func (m *mockRuntime) GrantStore() *grants.Store                    { return nil }
 func (m *mockRuntime) GrantPouch() *grants.Pouch                    { return nil }
 func (m *mockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
+func (m *mockRuntime) GrantsAutoRefresh() bool                      { return false }
+func (m *mockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
