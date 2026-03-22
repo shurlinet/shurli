@@ -20,6 +20,7 @@ type StatusResponse struct {
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
 	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
+	Notifications     *NotificationsStatus `json:"notifications,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 }
@@ -285,7 +286,28 @@ type GrantListResponse struct {
 	Grants []GrantInfo `json:"grants"`
 }
 
+// PouchEntryInfo represents a received grant token in API responses.
+type PouchEntryInfo struct {
+	Issuer    string   `json:"issuer"`              // issuer name or truncated ID
+	IssuerID  string   `json:"issuer_id"`           // full peer ID
+	Services  []string `json:"services,omitempty"`   // empty = all
+	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	Remaining string   `json:"remaining,omitempty"`  // human-readable
+	Permanent bool     `json:"permanent,omitempty"`
+}
+
+// PouchListResponse is the response for listing pouch entries.
+type PouchListResponse struct {
+	Entries []PouchEntryInfo `json:"entries"`
+}
+
+// NotificationsStatus is the notifications section in the status response.
+type NotificationsStatus struct {
+	Sinks []string `json:"sinks"` // names of configured sinks
+}
+
 // NotifySinkInfo represents a configured notification sink.
 type NotifySinkInfo struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
+	Status string `json:"status"` // "active"
 }

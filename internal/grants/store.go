@@ -260,22 +260,20 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	}
 	s.logger.Info("grants: created", logAttrs...)
 
-	// Phase D1: audit log.
-	auditMeta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
+	// Shared metadata for audit + notification.
+	meta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
 	if !permanent {
-		auditMeta["expires_at"] = expiresAt.Format(time.RFC3339)
+		meta["expires_at"] = expiresAt.Format(time.RFC3339)
 	}
 	if len(services) > 0 {
-		auditMeta["services"] = strings.Join(services, ",")
+		meta["services"] = strings.Join(services, ",")
 	}
-	s.auditAppend(AuditGrantCreated, peerID, auditMeta)
+
+	// Phase D1: audit log.
+	s.auditAppend(AuditGrantCreated, peerID, meta)
 
 	// Phase C: notification.
 	if onNotify != nil {
-		meta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
-		if !permanent {
-			meta["expires_at"] = expiresAt.Format(time.RFC3339)
-		}
 		onNotify("grant_created", peerID, meta)
 	}
 
@@ -383,6 +381,12 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	if onGrant != nil {
 		grantCopy = g.clone()
 	}
+	// Capture services for notification (safe under lock).
+	var grantServices []string
+	if len(g.Services) > 0 {
+		grantServices = make([]string, len(g.Services))
+		copy(grantServices, g.Services)
+	}
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -398,9 +402,13 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 
 	// Phase C: notification.
 	if onNotify != nil {
-		onNotify("grant_extended", peerID, map[string]string{
+		extMeta := map[string]string{
 			"expires_at": newExpiry.Format(time.RFC3339),
-		})
+		}
+		if len(grantServices) > 0 {
+			extMeta["services"] = strings.Join(grantServices, ",")
+		}
+		onNotify("grant_extended", peerID, extMeta)
 	}
 
 	// Phase B: deliver updated token to peer (new expiry, new macaroon).
@@ -487,6 +495,11 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 	result := g.clone()
 	refreshesUsed := g.RefreshesUsed
 	maxRefreshes := g.MaxRefreshes
+	var refreshServices []string
+	if len(g.Services) > 0 {
+		refreshServices = make([]string, len(g.Services))
+		copy(refreshServices, g.Services)
+	}
 	onNotify := s.onNotify
 	s.mu.Unlock()
 
@@ -508,11 +521,15 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 
 	// Phase C: notification.
 	if onNotify != nil {
-		onNotify("grant_refreshed", peerID, map[string]string{
+		refreshMeta := map[string]string{
 			"expires_at":     newExpiry.Format(time.RFC3339),
 			"refreshes_used": fmt.Sprintf("%d", refreshesUsed),
 			"max_refreshes":  fmt.Sprintf("%d", maxRefreshes),
-		})
+		}
+		if len(refreshServices) > 0 {
+			refreshMeta["services"] = strings.Join(refreshServices, ",")
+		}
+		onNotify("grant_refreshed", peerID, refreshMeta)
 	}
 
 	// NOTE: No onGrant callback here. The refreshed token is returned directly
@@ -552,8 +569,14 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 
 	var grantCopy *Grant
 	onGrant := s.onGrant
+	onNotify := s.onNotify
 	if onGrant != nil {
 		grantCopy = g.clone()
+	}
+	var grantServices []string
+	if len(g.Services) > 0 {
+		grantServices = make([]string, len(g.Services))
+		copy(grantServices, g.Services)
 	}
 	s.mu.Unlock()
 
@@ -567,6 +590,17 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 	s.auditAppend(AuditGrantExtended, peerID, map[string]string{
 		"max_refreshes": fmt.Sprintf("%d", maxRefreshes),
 	})
+
+	// Phase C: notification.
+	if onNotify != nil {
+		meta := map[string]string{
+			"max_refreshes": fmt.Sprintf("%d", maxRefreshes),
+		}
+		if len(grantServices) > 0 {
+			meta["services"] = strings.Join(grantServices, ",")
+		}
+		onNotify("grant_extended", peerID, meta)
+	}
 
 	// Deliver updated token to peer.
 	if onGrant != nil {

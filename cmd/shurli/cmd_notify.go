@@ -1,9 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"os"
 
+	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 )
 
@@ -15,9 +18,9 @@ func runNotify(args []string) {
 
 	switch args[0] {
 	case "test":
-		runNotifyTest(args[1:])
+		runWithJSON(doNotifyTest(args[1:], os.Stdout))
 	case "list":
-		runNotifyList(args[1:])
+		runWithJSON(doNotifyList(args[1:], os.Stdout))
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown notify command: %s\n\n", args[0])
 		printNotifyUsage()
@@ -25,38 +28,82 @@ func runNotify(args []string) {
 	}
 }
 
-func runNotifyTest(_ []string) {
-	c := daemonClient()
-	result, err := c.NotifyTest()
+func doNotifyTest(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("notify test", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
+	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
+		return errOut(err)
+	}
+
+	result, err := client.NotifyTest()
+	if err != nil {
+		return errOut(err)
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, result)
 	}
 
 	tc.Green("Test notification sent to: %s", result["sinks"])
+	return nil
 }
 
-func runNotifyList(_ []string) {
-	c := daemonClient()
-	sinks, err := c.NotifySinks()
+func doNotifyList(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("notify list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
+	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
+		return errOut(err)
+	}
+
+	sinks, err := client.NotifySinks()
+	if err != nil {
+		return errOut(err)
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, sinks)
 	}
 
 	if len(sinks) == 0 {
 		tc.Faint("No notification sinks configured.\n")
-		return
+		return nil
 	}
 
-	fmt.Printf("Notification sinks (%d):\n", len(sinks))
+	fmt.Fprintf(stdout, "Notification sinks (%d):\n", len(sinks))
 	for _, s := range sinks {
-		fmt.Printf("  %s\n", s.Name)
+		fmt.Fprintf(stdout, "  %s  [%s]\n", s.Name, s.Status)
 	}
+	return nil
 }
 
 func printNotifyUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: shurli notify <command>")
+	fmt.Fprintln(os.Stderr, "Usage: shurli notify <command> [--json]")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  test    Send a test notification to all configured sinks")

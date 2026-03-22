@@ -40,6 +40,8 @@ func runAuth(args []string) {
 		runAuthGrants(args[1:])
 	case "delegate":
 		runAuthDelegate(args[1:])
+	case "pouch":
+		runAuthPouch(args[1:])
 	case "audit":
 		runAuthAudit(args[1:])
 	default:
@@ -58,12 +60,13 @@ func printAuthUsage() {
 	fmt.Println("  remove   <peer-id>                                            Revoke a peer's access")
 	fmt.Println("  validate [file]                                               Validate authorized_keys format")
 	fmt.Println()
-	fmt.Println("Data access grants (macaroon capability tokens):")
-	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant data access")
+	fmt.Println("Relay data access grants (macaroon capability tokens):")
+	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant relay data access")
 	fmt.Println("  grants                                                         List active grants")
-	fmt.Println("  revoke   <peer>                                                Revoke data access grant")
+	fmt.Println("  revoke   <peer>                                                Revoke relay data access")
 	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
 	fmt.Println("  delegate <peer> --to <target> [--duration 30m] [--delegate N]  Delegate to another peer")
+	fmt.Println("  pouch                                                          List received grant tokens")
 	fmt.Println("  audit    [--verify] [--tail N]                                 View or verify audit log")
 	fmt.Println()
 	fmt.Println("Authorization commands support --config <path> and --file <path>.")

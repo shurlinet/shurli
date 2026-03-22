@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shurlinet/shurli/internal/auth"
@@ -154,13 +155,19 @@ func doStatus(args []string, stdout io.Writer) error {
 	} else {
 		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
-	// Expiring grants notification (E3 mitigation)
-	if len(daemonStatus.ExpiringGrants) > 0 {
+	// Notifications section: configured sinks + expiring grants.
+	if daemonStatus.Notifications != nil || len(daemonStatus.ExpiringGrants) > 0 {
 		fmt.Fprintln(stdout)
-		tc.Wyellow(stdout, "Expiring grants:\n")
-		for _, g := range daemonStatus.ExpiringGrants {
-			fmt.Fprintf(stdout, "  %s expires in %s. Extend: shurli auth extend %s --duration 1h\n",
-				g.Peer, g.Remaining, g.Peer)
+		fmt.Fprintln(stdout, "Notifications:")
+		if daemonStatus.Notifications != nil {
+			fmt.Fprintf(stdout, "  Sinks: %s\n", strings.Join(daemonStatus.Notifications.Sinks, ", "))
+		}
+		if len(daemonStatus.ExpiringGrants) > 0 {
+			tc.Wyellow(stdout, "  Expiring grants:\n")
+			for _, g := range daemonStatus.ExpiringGrants {
+				fmt.Fprintf(stdout, "    %s expires in %s. Extend: shurli auth extend %s --duration 1h\n",
+					g.Peer, g.Remaining, g.Peer)
+			}
 		}
 	}
 
