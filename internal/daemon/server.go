@@ -45,6 +45,8 @@ type RuntimeInfo interface {
 	GrantStore() *grants.Store                                // nil before initialization
 	GrantPouch() *grants.Pouch                                // nil before initialization
 	GrantProtocol() *grants.GrantProtocol                     // nil before initialization
+	GrantsAutoRefresh() bool                                  // config default for auto-refresh
+	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

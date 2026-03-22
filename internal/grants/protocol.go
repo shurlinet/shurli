@@ -37,6 +37,7 @@ const (
 	msgGrantDeliver = 0x01 // issuer -> peer: here's your token
 	msgGrantRevoke  = 0x02 // issuer -> peer: your token is revoked
 	msgGrantAck     = 0x03 // peer -> issuer: acknowledged
+	msgGrantRefresh = 0x04 // peer -> issuer: please refresh my token
 
 	// Limits.
 	grantMaxPayload = 8192
@@ -65,6 +66,18 @@ type GrantAck struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// GrantRefreshRequest is sent by a peer to request a token refresh.
+type GrantRefreshRequest struct {
+	TokenID string `json:"token_id"` // grant ID prefix for audit trail
+}
+
+// GrantRefreshResponse is the issuer's response to a refresh request.
+type GrantRefreshResponse struct {
+	Status string `json:"status"`           // "refreshed" or "rejected"
+	Reason string `json:"reason,omitempty"` // rejection reason
+	Token  string `json:"token,omitempty"`  // new base64-encoded token if refreshed
+}
+
 // rateLimitEntry tracks deliveries from a single peer.
 type rateLimitEntry struct {
 	count    int
@@ -75,6 +88,7 @@ type rateLimitEntry struct {
 type GrantProtocol struct {
 	host       host.Host
 	pouch      *Pouch
+	store      *Store             // issuer-side grant store (for handling refresh requests)
 	queue      *DeliveryQueue
 	trustCheck func(peer.ID) bool // returns true if peer is in authorized_keys
 	logger     *slog.Logger
@@ -91,10 +105,12 @@ type GrantProtocol struct {
 
 // NewGrantProtocol creates a new grant delivery protocol handler.
 // trustCheck should return true if the remote peer is authorized (in authorized_keys).
-func NewGrantProtocol(h host.Host, pouch *Pouch, queue *DeliveryQueue, trustCheck func(peer.ID) bool) *GrantProtocol {
+// store is optional - required only on issuing nodes to handle refresh requests.
+func NewGrantProtocol(h host.Host, pouch *Pouch, store *Store, queue *DeliveryQueue, trustCheck func(peer.ID) bool) *GrantProtocol {
 	return &GrantProtocol{
 		host:       h,
 		pouch:      pouch,
+		store:      store,
 		queue:      queue,
 		trustCheck: trustCheck,
 		logger:     slog.Default(),
@@ -246,7 +262,7 @@ func (gp *GrantProtocol) writeAck(s libp2pnet.Stream, status, reason string) {
 	}
 }
 
-// handleInbound handles incoming grant delivery/revocation streams.
+// handleInbound handles incoming grant delivery/revocation/refresh streams.
 func (gp *GrantProtocol) handleInbound(s libp2pnet.Stream) {
 	defer s.Close()
 
@@ -255,14 +271,7 @@ func (gp *GrantProtocol) handleInbound(s libp2pnet.Stream) {
 
 	s.SetDeadline(time.Now().Add(grantTimeout))
 
-	// Trust check: only accept from authorized nodes.
-	if gp.trustCheck != nil && !gp.trustCheck(remotePeer) {
-		gp.logger.Warn("grant-protocol: rejected delivery from unauthorized peer", "peer", short)
-		gp.writeAck(s, "rejected", "not authorized")
-		return
-	}
-
-	// Rate limit check.
+	// Rate limit check (applies to all message types).
 	if !gp.checkRateLimit(remotePeer) {
 		gp.logger.Warn("grant-protocol: rate limited", "peer", short)
 		gp.writeAck(s, "rejected", "rate limited")
@@ -275,17 +284,28 @@ func (gp *GrantProtocol) handleInbound(s libp2pnet.Stream) {
 		return
 	}
 
-	if gp.pouch == nil {
-		gp.logger.Warn("grant-protocol: no pouch configured, rejecting", "peer", short)
-		gp.writeAck(s, "rejected", "not configured to receive grants")
-		return
-	}
-
 	switch msg.msgType {
-	case msgGrantDeliver:
-		gp.handleDelivery(s, remotePeer, msg.data)
-	case msgGrantRevoke:
-		gp.handleRevocation(s, remotePeer, msg.data)
+	case msgGrantDeliver, msgGrantRevoke:
+		// Trust check: only accept deliveries/revocations from authorized nodes.
+		if gp.trustCheck != nil && !gp.trustCheck(remotePeer) {
+			gp.logger.Warn("grant-protocol: rejected from unauthorized peer", "peer", short, "type", msg.msgType)
+			gp.writeAck(s, "rejected", "not authorized")
+			return
+		}
+		if gp.pouch == nil {
+			gp.logger.Warn("grant-protocol: no pouch configured, rejecting", "peer", short)
+			gp.writeAck(s, "rejected", "not configured to receive grants")
+			return
+		}
+		if msg.msgType == msgGrantDeliver {
+			gp.handleDelivery(s, remotePeer, msg.data)
+		} else {
+			gp.handleRevocation(s, remotePeer, msg.data)
+		}
+	case msgGrantRefresh:
+		// Refresh requests come from grantees, not authorized nodes.
+		// Authentication is via Store.Refresh() which checks the peer has an active auto-refresh grant.
+		gp.handleRefresh(s, remotePeer, msg.data)
 	default:
 		gp.logger.Warn("grant-protocol: unknown message type", "peer", short, "type", msg.msgType)
 		gp.writeAck(s, "rejected", "unknown message type")
@@ -354,6 +374,110 @@ func (gp *GrantProtocol) handleRevocation(s libp2pnet.Stream, remotePeer peer.ID
 		"reason", rev.Reason)
 
 	gp.writeAck(s, "accepted", "")
+}
+
+// handleRefresh processes a refresh request from a peer (issuer-side).
+func (gp *GrantProtocol) handleRefresh(s libp2pnet.Stream, remotePeer peer.ID, data []byte) {
+	short := shortPeerID(remotePeer)
+
+	if gp.store == nil {
+		gp.logger.Warn("grant-protocol: refresh request but no store configured", "peer", short)
+		gp.writeRefreshResponse(s, "rejected", "not an issuing node", "")
+		return
+	}
+
+	var req GrantRefreshRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		gp.logger.Warn("grant-protocol: invalid refresh request", "peer", short, "error", err)
+		gp.writeRefreshResponse(s, "rejected", "invalid payload", "")
+		return
+	}
+
+	grant, err := gp.store.Refresh(remotePeer)
+	if err != nil {
+		gp.logger.Info("grant-protocol: refresh rejected", "peer", short, "reason", err.Error())
+		gp.writeRefreshResponse(s, "rejected", err.Error(), "")
+		return
+	}
+
+	tokenB64, err := grant.Token.EncodeBase64()
+	if err != nil {
+		gp.logger.Error("grant-protocol: failed to encode refreshed token", "peer", short, "error", err)
+		gp.writeRefreshResponse(s, "rejected", "internal error", "")
+		return
+	}
+
+	gp.logger.Info("grant-protocol: refresh granted", "peer", short,
+		"refreshes_used", grant.RefreshesUsed, "max_refreshes", grant.MaxRefreshes)
+	gp.writeRefreshResponse(s, "refreshed", "", tokenB64)
+}
+
+// writeRefreshResponse sends a GrantRefreshResponse back to the requesting peer.
+func (gp *GrantProtocol) writeRefreshResponse(s libp2pnet.Stream, status, reason, token string) {
+	resp := GrantRefreshResponse{Status: status, Reason: reason, Token: token}
+	data, _ := json.Marshal(resp)
+
+	var header [5]byte
+	header[0] = msgGrantAck
+	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
+	if _, err := s.Write(header[:]); err != nil {
+		gp.logger.Warn("grant-protocol: failed to write refresh response header", "error", err)
+		return
+	}
+	if _, err := s.Write(data); err != nil {
+		gp.logger.Warn("grant-protocol: failed to write refresh response payload", "error", err)
+	}
+}
+
+// RequestRefresh sends a refresh request to the issuing node and returns the response.
+// Called by the pouch's background refresh loop.
+func (gp *GrantProtocol) RequestRefresh(ctx context.Context, issuerID peer.ID, tokenID string) (*GrantRefreshResponse, error) {
+	req := GrantRefreshRequest{TokenID: tokenID}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal refresh request: %w", err)
+	}
+
+	if len(data) > grantMaxPayload {
+		return nil, fmt.Errorf("payload too large: %d > %d", len(data), grantMaxPayload)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, grantTimeout)
+	defer cancel()
+
+	ctx = libp2pnet.WithAllowLimitedConn(ctx, GrantProtocolID)
+
+	s, err := gp.host.NewStream(ctx, issuerID, protocol.ID(GrantProtocolID))
+	if err != nil {
+		return nil, fmt.Errorf("open stream: %w", err)
+	}
+	defer s.Close()
+
+	s.SetDeadline(time.Now().Add(grantTimeout))
+
+	// Write: type(1) + length(4) + data.
+	var header [5]byte
+	header[0] = msgGrantRefresh
+	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
+	if _, err := s.Write(header[:]); err != nil {
+		return nil, fmt.Errorf("write header: %w", err)
+	}
+	if _, err := s.Write(data); err != nil {
+		return nil, fmt.Errorf("write payload: %w", err)
+	}
+
+	// Read response (comes back as msgGrantAck with GrantRefreshResponse JSON).
+	ack, err := gp.readMessage(s)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	var resp GrantRefreshResponse
+	if err := json.Unmarshal(ack.data, &resp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	return &resp, nil
 }
 
 // StartQueueFlush starts a background loop that flushes pending deliveries

@@ -16,9 +16,12 @@ const (
 	CaveatPeersMax       = "peers_max"       // max peers this token can onboard
 	CaveatDelegate       = "delegate"        // "true" or "false" (legacy, still verified)
 	CaveatDelegateTo     = "delegate_to"     // peer ID of the delegated bearer
-	CaveatMaxDelegations = "max_delegations" // remaining delegation hops: 0=none, N=limited, -1=unlimited
-	CaveatExpires        = "expires"         // RFC3339 timestamp
-	CaveatNetwork        = "network"         // DHT namespace scope
+	CaveatMaxDelegations    = "max_delegations"     // remaining delegation hops: 0=none, N=limited, -1=unlimited
+	CaveatExpires           = "expires"             // RFC3339 timestamp
+	CaveatNetwork           = "network"             // DHT namespace scope
+	CaveatAutoRefresh       = "auto_refresh"        // "true" or "false"
+	CaveatMaxRefreshes      = "max_refreshes"       // remaining refresh count
+	CaveatMaxRefreshDuration = "max_refresh_duration" // RFC3339 absolute deadline for all refreshes
 )
 
 // ParseCaveat splits a "key=value" caveat string into its components.
@@ -151,6 +154,21 @@ func DefaultVerifier(ctx VerifyContext) CaveatVerifier {
 			if value != ctx.Network {
 				return fmt.Errorf("network %q does not match required %q", ctx.Network, value)
 			}
+			return nil
+
+		case CaveatAutoRefresh:
+			// Informational caveat - always passes verification.
+			return nil
+
+		case CaveatMaxRefreshes:
+			// Informational caveat stored on the grant. Enforcement is in Store.Refresh().
+			return nil
+
+		case CaveatMaxRefreshDuration:
+			// Informational caveat: records the absolute refresh deadline.
+			// Enforcement is in Store.Refresh(), NOT here. If this verifier
+			// rejected after the deadline, it would kill valid tokens whose
+			// last refresh extended expiry past the refresh deadline.
 			return nil
 
 		default:

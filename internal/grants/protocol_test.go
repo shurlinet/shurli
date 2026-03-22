@@ -42,8 +42,8 @@ func newTestPair(t *testing.T, issuerTrusted bool) (issuerProto *GrantProtocol, 
 		return pid == h1.ID()
 	}
 
-	issuerProto = NewGrantProtocol(h1, nil, nil, nil) // issuer doesn't need pouch/queue
-	receiverProto = NewGrantProtocol(h2, pouch, nil, trustCheck)
+	issuerProto = NewGrantProtocol(h1, nil, nil, nil, nil) // issuer doesn't need pouch/store/queue
+	receiverProto = NewGrantProtocol(h2, pouch, nil, nil, trustCheck)
 	receiverProto.Register()
 
 	return issuerProto, receiverProto, h1.ID(), h2.ID()
