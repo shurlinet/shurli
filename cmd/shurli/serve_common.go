@@ -1006,9 +1006,14 @@ func (rt *serveRuntime) SetupPeerNotify() {
 		}
 	})
 
-	// Grant-changed handler: when the relay creates/restores a grant for us,
-	// clear all dial backoffs and retry disconnected peers immediately.
-	// This eliminates the ~30s delay after a revoke-then-re-grant cycle.
+}
+
+// setupGrantChangedHandler registers the grant-changed stream handler.
+// When the relay creates/restores a grant for us, clear all dial backoffs
+// and retry disconnected peers immediately. This eliminates the ~30s delay
+// after a revoke-then-re-grant cycle.
+func (rt *serveRuntime) setupGrantChangedHandler() {
+	h := rt.network.Host()
 	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
 		defer s.Close()
 		remotePeer := s.Conn().RemotePeer()
@@ -1033,10 +1038,16 @@ func (rt *serveRuntime) SetupPeerNotify() {
 		slog.Info("grant-changed: relay notified access changed, clearing backoffs",
 			"relay", remotePeer.String()[:16]+"...")
 
-		// Clear swarm-level backoffs for all watched peers.
+		// Clear swarm-level dial backoffs so libp2p retries immediately.
+		if rt.gater != nil {
+			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+		}
+
+		// Clear PeerManager-level backoffs and trigger immediate reconnect cycle.
 		if rt.peerManager != nil {
 			rt.peerManager.OnNetworkChange()
 		}
+
 		rt.network.ResetBlackHoles()
 	})
 }
