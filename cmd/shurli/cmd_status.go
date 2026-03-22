@@ -156,7 +156,7 @@ func doStatus(args []string, stdout io.Writer) error {
 		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
 	// Notifications section: configured sinks + expiring grants.
-	if daemonStatus.Notifications != nil || len(daemonStatus.ExpiringGrants) > 0 {
+	if daemonStatus != nil && (daemonStatus.Notifications != nil || len(daemonStatus.ExpiringGrants) > 0) {
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "Notifications:")
 		if daemonStatus.Notifications != nil {
