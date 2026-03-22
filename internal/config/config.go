@@ -36,6 +36,7 @@ type GrantsConfig struct {
 	DeliveryQueueTTL    string `yaml:"delivery_queue_ttl,omitempty"`    // e.g. "7d", "24h", "3d" (default: 7d)
 	AutoRefresh         bool   `yaml:"auto_refresh,omitempty"`          // global default for --auto-refresh (default: false)
 	MaxRefreshDuration  string `yaml:"max_refresh_duration,omitempty"`  // max total refresh duration, e.g. "3d" (default: 3d)
+	CleanupInterval     string `yaml:"cleanup_interval,omitempty"`      // expired grant cleanup interval, e.g. "30s" (default: 30s)
 }
 
 // NotificationsConfig holds notification subsystem settings (Phase C).

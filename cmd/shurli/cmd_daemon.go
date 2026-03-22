@@ -366,8 +366,37 @@ func runDaemonStart(args []string) {
 			}
 		})
 
-		gs.StartCleanup(30 * time.Second) // B1 mitigation: 30s re-verify interval
+		// D2: configurable cleanup interval (B1 mitigation: periodic re-verify).
+		cleanupInterval := 30 * time.Second
+		if rt.config.Grants.CleanupInterval != "" {
+			if parsed, err := time.ParseDuration(rt.config.Grants.CleanupInterval); err != nil {
+				slog.Warn("grants: invalid cleanup_interval in config, using default 30s", "value", rt.config.Grants.CleanupInterval, "error", err)
+			} else if parsed < 5*time.Second {
+				slog.Warn("grants: cleanup_interval below minimum 5s, using default 30s", "value", rt.config.Grants.CleanupInterval)
+			} else {
+				cleanupInterval = parsed
+				slog.Info("grants: cleanup interval from config", "interval", cleanupInterval)
+			}
+		}
+		gs.StartCleanup(cleanupInterval)
 		rt.grantStore = gs
+
+		// Phase D1: integrity-chained audit log.
+		auditKey := pluginProvider.KeyDeriver("shurli/grants/audit/v1")
+		auditPath := filepath.Join(filepath.Dir(rt.configFile), "grant_audit.log")
+		auditLog, err := grants.NewAuditLog(auditPath, auditKey)
+		if err != nil {
+			slog.Warn("grants: failed to init audit log, continuing without", "error", err)
+		} else {
+			gs.SetAuditLog(auditLog)
+			slog.Info("grants: audit log enabled", "path", auditPath)
+		}
+		// Phase D3: per-peer ops rate limiter (10 ops/min per peer).
+		// Note: onNotify callback is wired AFTER the notification router is set up (below).
+		// For now, pass nil and we set the callback later.
+		rl := grants.NewOpsRateLimiter(grants.DefaultOpsPerMinute, nil)
+		gs.SetRateLimiter(rl)
+		rt.opsRateLimiter = rl
 
 		// Wire grant checker into service registry for stream-level enforcement.
 		// This is the C2 mitigation: node-level enforcement independent of relay ACL.
@@ -387,7 +416,7 @@ func runDaemonStart(args []string) {
 			pouch = grants.NewPouch(pouchHMACKey)
 			pouch.SetPersistPath(pouchPath)
 		}
-		pouch.StartCleanup(30 * time.Second)
+		pouch.StartCleanup(cleanupInterval) // D2: same configurable interval as store
 		rt.grantPouch = pouch
 
 		queueHMACKey := pluginProvider.KeyDeriver("shurli/grants/queue/v1")
@@ -585,6 +614,18 @@ func runDaemonStart(args []string) {
 
 	notifyRouter.Start()
 	rt.notifyRouter = notifyRouter
+
+	// Phase D3: wire rate limiter notification callback now that router exists.
+	if rt.opsRateLimiter != nil {
+		router := notifyRouter
+		rt.opsRateLimiter.SetOnNotify(func(eventType string, peerID peer.ID, meta map[string]string) {
+			event := notify.NewEvent(notify.EventGrantRateLimited, notify.SeverityWarn, peerID.String(), "", "grant ops rate limit exceeded")
+			for k, v := range meta {
+				event = event.WithMetadata(k, v)
+			}
+			router.Emit(event)
+		})
+	}
 
 	pluginRegistry := plugin.NewRegistry(pluginProvider)
 	if err := plugins.RegisterAll(pluginRegistry); err != nil {
@@ -920,6 +961,11 @@ func notifyEventMessage(eventType string, meta map[string]string) string {
 			}
 		}
 		return "grant refreshed"
+	case string(notify.EventGrantRateLimited):
+		if limit, ok := meta["limit"]; ok {
+			return "grant ops rate limit exceeded (" + limit + "/min)"
+		}
+		return "grant ops rate limit exceeded"
 	default:
 		return eventType
 	}

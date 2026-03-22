@@ -45,19 +45,26 @@ const (
 
 	// Rate limiting: max deliveries accepted per minute per peer.
 	grantMaxPerMinute = 5
+
+	// D4: protocol version for downgrade protection.
+	// Reject messages from older protocol versions.
+	GrantProtocolVersion    = 1
+	GrantMinProtocolVersion = 1
 )
 
 // GrantDelivery is the wire message for delivering a token.
 type GrantDelivery struct {
-	Token     string   `json:"token"`               // base64-encoded macaroon
-	Services  []string `json:"services,omitempty"`   // service restrictions
-	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339
+	Version   int      `json:"version,omitempty"`     // D4: protocol version (0 = pre-D4, treated as 1)
+	Token     string   `json:"token"`                 // base64-encoded macaroon
+	Services  []string `json:"services,omitempty"`     // service restrictions
+	ExpiresAt string   `json:"expires_at,omitempty"`   // RFC3339
 	Permanent bool     `json:"permanent,omitempty"`
 }
 
 // GrantRevocation is the wire message for revoking a token.
 type GrantRevocation struct {
-	Reason string `json:"reason,omitempty"`
+	Version int    `json:"version,omitempty"` // D4: protocol version
+	Reason  string `json:"reason,omitempty"`
 }
 
 // GrantAck is the acknowledgement message.
@@ -68,7 +75,8 @@ type GrantAck struct {
 
 // GrantRefreshRequest is sent by a peer to request a token refresh.
 type GrantRefreshRequest struct {
-	TokenID string `json:"token_id"` // grant ID prefix for audit trail
+	Version int    `json:"version,omitempty"` // D4: protocol version
+	TokenID string `json:"token_id"`          // grant ID prefix for audit trail
 }
 
 // GrantRefreshResponse is the issuer's response to a refresh request.
@@ -140,6 +148,7 @@ func (gp *GrantProtocol) DeliverGrant(ctx context.Context, peerID peer.ID, token
 	}
 
 	delivery := GrantDelivery{
+		Version:   GrantProtocolVersion,
 		Token:     tokenB64,
 		Services:  services,
 		Permanent: permanent,
@@ -158,7 +167,7 @@ func (gp *GrantProtocol) DeliverGrant(ctx context.Context, peerID peer.ID, token
 
 // DeliverRevocation notifies a peer that their grant is revoked.
 func (gp *GrantProtocol) DeliverRevocation(ctx context.Context, peerID peer.ID, reason string) error {
-	rev := GrantRevocation{Reason: reason}
+	rev := GrantRevocation{Version: GrantProtocolVersion, Reason: reason}
 	data, err := json.Marshal(rev)
 	if err != nil {
 		return fmt.Errorf("marshal revocation: %w", err)
@@ -312,6 +321,18 @@ func (gp *GrantProtocol) handleInbound(s libp2pnet.Stream) {
 	}
 }
 
+// checkProtocolVersion validates the version field in a wire message.
+// Version 0 is treated as version 1 (pre-D4 nodes that don't set it).
+func checkProtocolVersion(version int) error {
+	if version == 0 {
+		version = 1 // pre-D4 compatibility
+	}
+	if version < GrantMinProtocolVersion {
+		return fmt.Errorf("protocol version %d below minimum %d", version, GrantMinProtocolVersion)
+	}
+	return nil
+}
+
 func (gp *GrantProtocol) handleDelivery(s libp2pnet.Stream, remotePeer peer.ID, data []byte) {
 	short := shortPeerID(remotePeer)
 
@@ -319,6 +340,13 @@ func (gp *GrantProtocol) handleDelivery(s libp2pnet.Stream, remotePeer peer.ID, 
 	if err := json.Unmarshal(data, &delivery); err != nil {
 		gp.logger.Warn("grant-protocol: invalid delivery", "peer", short, "error", err)
 		gp.writeAck(s, "rejected", "invalid payload")
+		return
+	}
+
+	// D4: protocol downgrade protection.
+	if err := checkProtocolVersion(delivery.Version); err != nil {
+		gp.logger.Warn("grant-protocol: version rejected", "peer", short, "error", err)
+		gp.writeAck(s, "rejected", err.Error())
 		return
 	}
 
@@ -366,6 +394,13 @@ func (gp *GrantProtocol) handleRevocation(s libp2pnet.Stream, remotePeer peer.ID
 		return
 	}
 
+	// D4: protocol downgrade protection.
+	if err := checkProtocolVersion(rev.Version); err != nil {
+		gp.logger.Warn("grant-protocol: version rejected", "peer", short, "error", err)
+		gp.writeAck(s, "rejected", err.Error())
+		return
+	}
+
 	removed := gp.pouch.Remove(remotePeer)
 
 	gp.logger.Info("grant-protocol: revocation received",
@@ -390,6 +425,13 @@ func (gp *GrantProtocol) handleRefresh(s libp2pnet.Stream, remotePeer peer.ID, d
 	if err := json.Unmarshal(data, &req); err != nil {
 		gp.logger.Warn("grant-protocol: invalid refresh request", "peer", short, "error", err)
 		gp.writeRefreshResponse(s, "rejected", "invalid payload", "")
+		return
+	}
+
+	// D4: protocol downgrade protection.
+	if err := checkProtocolVersion(req.Version); err != nil {
+		gp.logger.Warn("grant-protocol: version rejected", "peer", short, "error", err)
+		gp.writeRefreshResponse(s, "rejected", err.Error(), "")
 		return
 	}
 
@@ -432,7 +474,7 @@ func (gp *GrantProtocol) writeRefreshResponse(s libp2pnet.Stream, status, reason
 // RequestRefresh sends a refresh request to the issuing node and returns the response.
 // Called by the pouch's background refresh loop.
 func (gp *GrantProtocol) RequestRefresh(ctx context.Context, issuerID peer.ID, tokenID string) (*GrantRefreshResponse, error) {
-	req := GrantRefreshRequest{TokenID: tokenID}
+	req := GrantRefreshRequest{Version: GrantProtocolVersion, TokenID: tokenID}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal refresh request: %w", err)
@@ -568,6 +610,7 @@ func (gp *GrantProtocol) EnqueueGrant(peerID peer.ID, token *macaroon.Macaroon, 
 	}
 
 	delivery := GrantDelivery{
+		Version:   GrantProtocolVersion,
 		Token:     tokenB64,
 		Services:  services,
 		Permanent: permanent,
@@ -590,7 +633,7 @@ func (gp *GrantProtocol) EnqueueRevocation(peerID peer.ID, reason string) error 
 		return fmt.Errorf("no delivery queue configured")
 	}
 
-	rev := GrantRevocation{Reason: reason}
+	rev := GrantRevocation{Version: GrantProtocolVersion, Reason: reason}
 	payload, err := json.Marshal(rev)
 	if err != nil {
 		return fmt.Errorf("marshal revocation: %w", err)
