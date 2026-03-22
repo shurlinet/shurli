@@ -297,6 +297,7 @@ func runDaemonStart(args []string) {
 	// the relay tries to deliver peer introductions before the handler exists.
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
+	rt.setupGrantChangedHandler() // not gated by authKeys - any node can use relays
 	rt.SetupMOTDClient()
 
 	// Check plugin directory permissions (for future WASM plugins).
