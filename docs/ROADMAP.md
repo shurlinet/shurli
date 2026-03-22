@@ -994,7 +994,7 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 **Timeline**: 2026-03-16 to 2026-03-20
 **Status**: ✅ Complete (5 batches, 4 audits, physical retest 11/11 PASS)
 
-**Goal**: Extract file transfer from inline code into a proper plugin, building a clean Plugin interface that all future features follow. The vision from day one - every feature should be a plugin.
+**Goal**: Extract file transfer from inline code into a proper plugin, building a clean Plugin interface that all future features follow. The vision from day one: every feature should be a plugin.
 
 **What was built**:
 
