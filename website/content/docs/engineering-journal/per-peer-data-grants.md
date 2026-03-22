@@ -1,5 +1,5 @@
 ---
-title: "Per-Peer Data Grants"
+title: "Phase 8B: Per-Peer Data Grants"
 weight: 26
 description: "Macaroon capability tokens for per-peer, time-limited access control. Node-level enforcement, delegation, notifications, tamper-evident audit log."
 ---
