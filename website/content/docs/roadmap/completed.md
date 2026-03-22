@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, Phase 9B File Transfer, Post-9B Chaos Testing, and Plugin Architecture Shift."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 9A Core Interfaces, Phase 9B File Transfer, Post-9B Chaos Testing, Plugin Architecture Shift, and Per-Peer Data Access Grants."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -727,3 +727,53 @@ shurli binary
 **Three-layer evolution**: Layer 1 (compiled-in Go, current), Layer 2 (WASM via wazero, next), Layer 3 (AI-driven plugin generation, future).
 
 **Test status**: 24/24 packages PASS, zero races. 7 fuzz targets clean.
+
+---
+
+## Post-9B: Per-Peer Data Access Grants
+
+**Timeline**: 2026-03-20 to 2026-03-22
+
+Replaced binary `relay_data=true` with time-limited, per-peer capability grants using macaroon tokens. Node-level enforcement as the true security boundary.
+
+### Phase A - Node-Level Grant Store
+
+- [x] `GrantStore` with HMAC-integrity persistence, monotonic version counter
+- [x] Stream-level enforcement in `OpenPluginStream` and `handleServiceStreamInner`
+- [x] CLI: `shurli auth grant/revoke/extend/grants` with man pages and completions
+- [x] 30s re-verify during active transfers
+- [x] Share-grant separation with CLI warnings
+- [x] L4 audit (4 rounds, 12 fixes). Physical retest 10/10 PASS
+
+### Phase R - Relay Time-Limited Grants
+
+- [x] Replaces binary `relay_data=true` with time-limited grant store on relay
+- [x] Physical retest 9/9 PASS
+
+### Phase B - Token Delivery + Presentation
+
+- [x] B1: GrantPouch (holder-side), P2P delivery protocol (`/shurli/grant/1.0.0`), offline queue
+- [x] B2: Binary grant header on plugin streams (4-byte overhead). Physical retest 12/12 PASS
+- [x] B3: Multi-hop delegation with attenuation-only model. Physical retest 8/8 PASS
+- [x] B4: Auto-refresh protocol (background refresh at 10% remaining). 5 rounds L4 audit
+
+### Phase C - Notification Subsystem
+
+- [x] `NotificationSink` interface with non-blocking router and event dedup
+- [x] 8 event types, 3 built-in sinks (LogSink, DesktopSink, WebhookSink)
+- [x] Pre-expiry warnings, `shurli notify test/list`
+
+### Phase D - Hardening
+
+- [x] Integrity-chained audit log (HMAC-SHA256 chain). `shurli auth audit [--verify]`
+- [x] Configurable cleanup interval, per-peer ops rate limiter (10/min)
+- [x] Protocol version on wire messages (downgrade protection)
+- [x] 3 rounds self-review, 8 bugs fixed. 25/25 PASS -race
+
+### Post-D UX + AI Agent CLI
+
+- [x] `shurli auth pouch [--json]` (receiver-side grant visibility)
+- [x] `--json` on ALL grant + notify commands
+- [x] `shurli reconnect <peer> [--json]` (AI agent control)
+- [x] Grant-aware backoff reset (relay notifies client on grant create)
+- [x] Security: AppleScript injection defense, Router thread safety

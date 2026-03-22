@@ -182,6 +182,16 @@ journal:
     title: Post-Chaos Network Hardening
     description: "Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning."
 
+  - source: file-transfer-hardening.md
+    weight: 25
+    title: File Transfer Hardening
+    description: "DDoS defense (7 layers), queue persistence (HMAC), path privacy, checkpoint resume, queue backpressure, name normalization, relay transport."
+
+  - source: per-peer-data-grants.md
+    weight: 26
+    title: Per-Peer Data Grants
+    description: "Macaroon capability tokens for per-peer, time-limited access control. Node-level enforcement, delegation, notifications, tamper-evident audit log."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md

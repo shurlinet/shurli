@@ -45,6 +45,8 @@ All rejections are silent (stream reset, no error message). Silent rejection pre
 
 No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Queue depth doesn't prevent bandwidth exhaustion. Temp budget doesn't prevent in-memory queue flooding. Each layer catches what the others miss. The configuration defaults are tuned for a personal network (3-20 peers) but scale to larger deployments.
 
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` (defense subsystem initialization, lines 660-780)
+
 ---
 
 ## ADR-R11: Queue Persistence with HMAC Integrity
@@ -67,7 +69,7 @@ Persisted queue file with HMAC-SHA256 integrity verification:
 - **Permissions**: 0600 (owner-only read/write)
 - **Atomic writes**: Write to temp file, then rename
 
-On daemon startup, valid entries are re-submitted to the live queue. The queue file is deleted after successful requeue.
+On daemon startup, `RequeuePersisted()` loads valid entries and re-submits them through `SubmitSend()`. The queue file is deleted after successful requeue.
 
 ### Why HMAC
 
@@ -76,6 +78,8 @@ The queue file contains file paths. Without integrity verification, a tampered q
 ### Why Not Encrypt
 
 Encryption would hide the file paths, but the daemon needs to read them to re-submit. The paths are local-only (never sent to peers). HMAC integrity is the right tool: verify authenticity without hiding content from the legitimate reader.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
 
 ---
 
@@ -93,17 +97,24 @@ When a peer browses or downloads files, the wire protocol must never reveal abso
 Opaque share IDs replace absolute paths in all wire-visible contexts:
 
 1. **Share ID generation**: `"share-" + randomHex(8)` - 8 random bytes, no path information encoded
-2. **Browse responses**: Paths are always relative, never absolute
-3. **Download requests**: Client sends `shareID/relativePath`. Server rejects absolute paths
+2. **Browse responses**: `BrowseEntry.Path` is always relative (via `filepath.Rel()`), never absolute
+3. **Download requests**: Client sends `shareID/relativePath`. Server rejects absolute paths with `filepath.IsAbs()` check
 4. **Directory jailing**: `os.Root` atomic jailing prevents `../` traversal and symlink escapes
 5. **Error messages**: Generic strings only ("access denied", "not found"). No path fragments
 6. **Unauthorized peers**: Silent stream reset. No shares-exist confirmation
 
 ### Defense in Depth
 
-Any single control could have a bypass. The combination of five controls means an attacker would need to defeat all five simultaneously.
+Any single control could have a bypass. The combination of five controls means an attacker would need to defeat all five simultaneously:
+
+- Even if share IDs were predictable, `os.Root` jailing prevents traversal
+- Even if traversal worked, ACL checks reject unauthorized peers
+- Even if ACL was bypassed, `filepath.IsAbs()` blocks absolute path injection
+- Even if all path controls failed, error messages reveal nothing
 
 Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
 
 ---
 
@@ -120,14 +131,17 @@ Large file transfers over unstable networks (WiFi switching, relay timeouts, VPN
 
 Bitfield-based checkpoint tracking:
 
-- **Checkpoint file**: Stores which chunks have been received (1 bit per chunk)
+- **Checkpoint file**: `.shurli-ckpt-<root-hash>` stores which chunks have been received
+- **Bitfield**: Compact bit array (1 bit per chunk). 1 million chunks = 125 KB checkpoint
 - **Resume protocol**: On reconnect, receiver sends bitfield to sender. Sender skips already-received chunks
 - **Integrity**: SHA-256 verification of resumed file against original manifest hash
-- **Cleanup**: Checkpoint files deleted on successful completion. Stale checkpoints expire via configurable TTL
+- **Cleanup**: Checkpoint files deleted on successful completion. Stale checkpoints expire via `temp_file_expiry`
 
 ### Why Bitfield Over Byte Offset
 
-Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allows out-of-order chunk delivery, which is essential for: parallel streams, multi-peer downloads, and network-interrupted transfers where chunks arrive from different paths at different times.
+Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allows out-of-order chunk delivery, which is essential for: parallel streams (ADR-R06), multi-peer download (ADR-R05), and network-interrupted transfers where chunks arrive from different paths at different times.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer_resume.go` (bitfield), `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` (checkpoint save/load)
 
 ---
 
@@ -138,23 +152,25 @@ Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allo
 
 ### Context
 
-Level 4 audit found: the outbound transfer queue had no upper bound. A user or script could enqueue unlimited transfers, growing the in-memory slice unbounded. Additionally, a single peer could monopolize all queue slots.
+Level 4 audit found: the outbound transfer queue (`TransferQueue`) had no upper bound. A user or script could enqueue unlimited transfers, growing the in-memory slice unbounded. Additionally, a single peer could monopolize all queue slots.
 
 ### Decision
 
 Two-tier backpressure:
 
-- **Global limit**: 1000 items. Returns error when reached
-- **Per-peer limit**: 100 items per target peer. Returns error when reached
-- Errors propagate to CLI with actionable messages
+- **Global limit**: `maxPending = 1000` items. `Enqueue()` returns `ErrQueueFull` when reached
+- **Per-peer limit**: `maxPerPeer = 100` items per target peer. Returns `ErrPeerQueueFull` when reached
+- **SubmitSend()** propagates both errors to the CLI caller with actionable messages
 
 The global limit matches the persistence limit (ADR-R11), ensuring the in-memory queue never exceeds what can be persisted.
 
-Additionally, a periodic cleanup ticker evicts stale jobs older than 24 hours.
+Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pendingJobs` entries older than 24 hours, preventing accumulation from abandoned jobs.
 
 ### Why 100 Per-Peer
 
 100 queued transfers to a single peer is generous for real use (batch file operations) but prevents one peer from consuming all 1000 slots. Other peers can always enqueue their transfers.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/share.go` (TransferQueue.Enqueue), `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` (runQueueProcessor cleanup ticker)
 
 ---
 
@@ -165,15 +181,24 @@ Additionally, a periodic cleanup ticker evicts stale jobs older than 24 hours.
 
 ### Context
 
-Peer names are used in share commands, browse, download, and all peer-targeting operations. Users naturally type names in different cases. The original implementation stored and matched names case-sensitively, causing silent failures.
+Peer names (like `home-node`, `relay`) are used in share commands, browse, download, and all peer-targeting operations. Users naturally type names in different cases (`Home-Node`, `HOME-NODE`). The original implementation stored and matched names case-sensitively, causing silent failures.
 
 ### Decision
 
-All name operations normalize to lowercase before storing or looking up. This prevents duplicate map entries and ensures any casing variant resolves correctly.
+All name operations normalize to lowercase:
+
+- **Register()**: `strings.ToLower(strings.TrimSpace(name))` before storing
+- **Resolve()**: Same normalization, then direct O(1) map lookup
+- **Unregister()**: Same normalization, direct `delete()`
+- **LoadFromMap()**: Same normalization on config-loaded names
+
+This prevents duplicate map entries (`"Home"` and `"home"` as separate keys) and ensures any casing variant resolves correctly.
 
 ### Why Normalize on Store, Not Just on Lookup
 
-The first attempt normalized only on lookup (case-insensitive iteration). This allowed registering the same name with different cases to create two separate map entries. The audit caught this: normalize on store makes the map key canonical, and all operations become O(1) direct lookups instead of O(n) iterations.
+The first attempt normalized only on lookup (case-insensitive iteration). This allowed `Register("Home")` followed by `Register("home")` to create two map entries. The audit caught this: normalize on store makes the map key canonical, and all operations become O(1) direct lookups instead of O(n) iterations.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/naming.go`
 
 ---
 
@@ -184,19 +209,21 @@ The first attempt normalized only on lookup (case-insensitive iteration). This a
 
 ### Context
 
-The default plugin policy blocks relay transport for file transfer. This is correct for resource conservation but prevents NAT-to-NAT peers (who can only communicate via relay circuit) from transferring files at all.
+The default `PluginPolicy` (ADR-R09 summary) blocks relay transport for file transfer. This is correct for resource conservation but prevents NAT-to-NAT peers (who can only communicate via relay circuit) from transferring files at all.
 
-First external user testing confirmed: browse and download fail when both peers are behind NAT.
+First external user testing (NZ-AU relay circuit) confirmed: browse and download fail with "plugin does not allow relay" when both peers are behind NAT.
 
 ### Decision
 
-File transfer plugins now allow relay transport. The relay's own bandwidth limits (64 MB per session, 10-minute session duration) provide the resource conservation that the plugin policy originally enforced.
+File transfer plugins (`file-transfer`, `file-browse`, `file-download`, `file-multi-peer`) now allow relay transport. The relay's own bandwidth limits (64 MB per session, 10-minute session duration) provide the resource conservation that the plugin policy originally enforced.
 
-Additionally, the relay ACL requires explicit admin authorization for data circuits. This is a deliberate admin decision, not automatic.
+Additionally, the relay ACL requires an active time-limited grant for at least one peer in the circuit. Grants are issued via `shurli relay grant <peer-id> --duration 1h` and expire automatically. This is a deliberate admin decision, not automatic - the relay operator controls which peers can use data circuits and for how long.
 
-### Why Not Auto-Grant
+### Why Not Auto-Grant Relay Access
 
-Auto-granting data relay access to every peer that joins would remove the relay operator's control. The operator should explicitly decide which peers consume relay bandwidth for data transfer. This will be revisited when per-peer data access control (time-limited grants) is implemented.
+Auto-granting relay data access to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer, and for what duration. Time-limited grants enforce this without requiring manual revocation.
+
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/share.go` (plugin registration), `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl.go` (AllowConnect)
 
 ---
 
@@ -204,8 +231,8 @@ Auto-granting data relay access to every peer that joins would remove the relay 
 
 The hardening was verified through a 3-round Level 4 audit:
 
-- **Round 1**: 5 items audited. 2 medium + 14 low findings. All fixed.
+- **Round 1**: 5 items audited (I-6, I-7, I-8/I-9, I-10, I-12). 2 medium + 14 low findings. All fixed.
 - **Round 2**: Re-audit found 3 regressions (naming normalization asymmetry). Fixed.
 - **Round 3**: Re-audit found 1 critical regression (case-duplicate map keys). Fixed with lowercase normalization.
-- **Physical retest**: 5/5 pass on real hardware
-- **Test suite**: 21/21 packages pass with race detector, 3 consecutive runs, zero failures
+- **Physical retest**: 5/5 pass on real hardware (client-node to home-node over LAN)
+- **Test suite**: 21/21 packages pass with `-race` detector, 3 consecutive runs, zero failures

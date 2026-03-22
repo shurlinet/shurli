@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- LEFT SIDE: Three permission bars getting shorter (permissions shrinking) -->
+
+  <!-- Bar 1: Full access - wide, faded -->
+  <g opacity="0.35">
+    <rect x="100" y="125" width="360" height="22" rx="11" fill="#00d4aa"/>
+    <circle cx="88" cy="136" r="22" fill="#00d4aa" fill-opacity="0.3" stroke="#00d4aa" stroke-width="2"/>
+  </g>
+  <text x="480" y="142" font-family="system-ui, sans-serif" font-size="18" fill="#00d4aa" opacity="0.45">full access</text>
+
+  <!-- Bar 2: Scoped - medium -->
+  <g opacity="0.6">
+    <rect x="160" y="250" width="250" height="20" rx="10" fill="#ffb347"/>
+    <circle cx="148" cy="260" r="20" fill="#ffb347" fill-opacity="0.3" stroke="#ffb347" stroke-width="2"/>
+  </g>
+  <text x="430" y="266" font-family="system-ui, sans-serif" font-size="18" fill="#ffb347" opacity="0.65">browse only, 1 hour</text>
+
+  <!-- Bar 3: Most restricted - short, bright -->
+  <g opacity="0.9">
+    <rect x="220" y="375" width="150" height="18" rx="9" fill="#4488ff"/>
+    <circle cx="208" cy="384" r="18" fill="#4488ff" fill-opacity="0.35" stroke="#4488ff" stroke-width="2"/>
+  </g>
+  <text x="390" y="390" font-family="system-ui, sans-serif" font-size="18" fill="#4488ff" opacity="0.8">read only, 10 min</text>
+
+  <!-- Smooth curved arrows showing progression -->
+  <path d="M180,155 Q200,200 210,240" stroke="#888" stroke-width="2" fill="none" opacity="0.2"/>
+  <polygon points="206,236 214,244 212,234" fill="#888" opacity="0.2"/>
+
+  <path d="M240,278 Q260,320 270,365" stroke="#888" stroke-width="2" fill="none" opacity="0.2"/>
+  <polygon points="266,361 274,369 272,359" fill="#888" opacity="0.2"/>
+
+  <!-- RIGHT SIDE: People passing permissions (delegation) -->
+
+  <!-- Person A (Admin) -->
+  <circle cx="780" cy="160" r="36" stroke="#00d4aa" stroke-width="2.5" fill="#00d4aa" fill-opacity="0.08"/>
+  <circle cx="780" cy="150" r="10" fill="#00d4aa" opacity="0.5"/>
+  <path d="M765,172 Q780,185 795,172" stroke="#00d4aa" stroke-width="2" fill="none" opacity="0.4"/>
+  <text x="780" y="215" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" fill="#00d4aa" font-weight="500">Admin</text>
+
+  <!-- Arrow A -> B -->
+  <line x1="810" y1="175" x2="895" y2="240" stroke="#00d4aa" stroke-width="2.5" opacity="0.5"/>
+  <polygon points="890,234 902,245 893,238" fill="#00d4aa" opacity="0.5"/>
+  <text x="870" y="200" font-family="system-ui, sans-serif" font-size="15" fill="#00d4aa" opacity="0.5">grants</text>
+
+  <!-- Person B (Peer) -->
+  <circle cx="940" cy="275" r="32" stroke="#ffb347" stroke-width="2" fill="#ffb347" fill-opacity="0.06"/>
+  <circle cx="940" cy="266" r="9" fill="#ffb347" opacity="0.45"/>
+  <path d="M927,286 Q940,297 953,286" stroke="#ffb347" stroke-width="2" fill="none" opacity="0.35"/>
+  <text x="940" y="325" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" fill="#ffb347" font-weight="500">Peer</text>
+
+  <!-- Arrow B -> C -->
+  <line x1="965" y1="295" x2="1020" y2="365" stroke="#ffb347" stroke-width="2" opacity="0.4"/>
+  <polygon points="1015,359 1025,370 1018,358" fill="#ffb347" opacity="0.4"/>
+  <text x="1010" y="335" font-family="system-ui, sans-serif" font-size="14" fill="#ffb347" opacity="0.4">delegates</text>
+
+  <!-- Person C (Friend) -->
+  <circle cx="1060" cy="400" r="26" stroke="#4488ff" stroke-width="1.5" fill="#4488ff" fill-opacity="0.05"/>
+  <circle cx="1060" cy="393" r="7" fill="#4488ff" opacity="0.35"/>
+  <path d="M1050,409 Q1060,418 1070,409" stroke="#4488ff" stroke-width="1.5" fill="none" opacity="0.25"/>
+  <text x="1060" y="443" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#4488ff" opacity="0.5">Friend</text>
+
+  <!-- Central message -->
+  <text x="600" y="510" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="600" fill="#e0e0e0">
+    Permissions Can Only Shrink
+  </text>
+  <text x="600" y="550" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#888">
+    You decide who gets in, for how long, and what they can do
+  </text>
+
+  <!-- Bottom badges - VISIBLE -->
+  <g opacity="0.6">
+    <!-- Clock -->
+    <circle cx="340" cy="590" r="16" stroke="#00d4aa" stroke-width="1.5" fill="none"/>
+    <line x1="340" y1="590" x2="340" y2="579" stroke="#00d4aa" stroke-width="1.5"/>
+    <line x1="340" y1="590" x2="349" y2="590" stroke="#00d4aa" stroke-width="1"/>
+    <text x="340" y="620" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#00d4aa">time-limited</text>
+
+    <!-- Lock -->
+    <rect x="588" y="580" width="20" height="16" rx="3" stroke="#ffb347" stroke-width="1.5" fill="none"/>
+    <path d="M591,580 L591,574 C591,568 605,568 605,574 L605,580" stroke="#ffb347" stroke-width="1.5" fill="none"/>
+    <text x="598" y="620" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#ffb347">revocable</text>
+
+    <!-- Chain links -->
+    <circle cx="852" cy="588" r="9" stroke="#4488ff" stroke-width="1.5" fill="none"/>
+    <circle cx="868" cy="588" r="9" stroke="#4488ff" stroke-width="1.5" fill="none"/>
+    <text x="860" y="620" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#4488ff">delegatable</text>
+  </g>
+</svg>

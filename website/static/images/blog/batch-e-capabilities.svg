@@ -1,55 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
   <defs>
     <linearGradient id="bgE" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#141316"/>
-      <stop offset="100%" style="stop-color:#1a191c"/>
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgE)"/>
-  <!-- shurli status - terminal card -->
-  <rect x="60" y="40" width="380" height="320" rx="10" fill="#141315" stroke="#222124" stroke-width="1"/>
-  <rect x="60" y="40" width="380" height="32" rx="10" fill="#1a191c"/>
-  <rect x="60" y="62" width="380" height="10" fill="#1a191c"/>
-  <circle cx="82" cy="56" r="5" fill="#ff5f57"/>
-  <circle cx="100" cy="56" r="5" fill="#febc2e"/>
-  <circle cx="118" cy="56" r="5" fill="#28c840"/>
-  <text x="250" y="60" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">shurli status</text>
-  <text x="80" y="100" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Version:</text>
-  <text x="200" y="100" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">1.0.0-4c7g</text>
-  <text x="80" y="124" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Peer ID:</text>
-  <text x="200" y="124" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">12D3KooW...7xRm</text>
-  <text x="80" y="148" font-family="SF Mono, monospace" font-size="11" fill="#e8729a">Config:</text>
-  <text x="200" y="148" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">~/.config/shurli/</text>
-  <text x="80" y="180" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Relays:</text>
-  <text x="200" y="180" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">1 configured</text>
-  <text x="80" y="204" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Peers:</text>
-  <text x="200" y="204" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">3 authorized</text>
-  <text x="80" y="228" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Services:</text>
-  <text x="200" y="228" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">ssh, xrdp</text>
-  <text x="80" y="260" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7">Names:</text>
-  <text x="200" y="260" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6">home, laptop, phone</text>
-  <!-- /healthz endpoint - JSON response -->
-  <rect x="500" y="60" width="300" height="200" rx="10" fill="#141315" stroke="#222124" stroke-width="1"/>
-  <text x="510" y="88" font-family="SF Mono, monospace" font-size="11" fill="#565f89">GET /healthz</text>
-  <text x="510" y="114" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">{</text>
-  <text x="530" y="132" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"status"</text><text x="616" y="132" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "healthy",</text>
-  <text x="530" y="150" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"uptime"</text><text x="616" y="150" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "72h14m",</text>
-  <text x="530" y="168" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"peers"</text><text x="612" y="168" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: 5,</text>
-  <text x="530" y="186" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">"version"</text><text x="624" y="186" font-family="SF Mono, monospace" font-size="10" fill="#a9b1d6">: "1.0.0"</text>
-  <text x="510" y="204" font-family="SF Mono, monospace" font-size="10" fill="#e8729a">}</text>
-  <!-- Headless pairing - pipe visualization -->
-  <rect x="500" y="290" width="300" height="60" rx="8" fill="none" stroke="#e0af68" stroke-width="1.5" opacity="0.5"/>
-  <text x="650" y="316" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">shurli invite --non-interactive |</text>
-  <text x="650" y="334" font-family="SF Mono, monospace" font-size="10" fill="#e0af68" text-anchor="middle">SHURLI_INVITE_CODE=$(cat) shurli join</text>
-  <!-- Connection arrows -->
-  <path d="M 860 160 L 900 160" stroke="#565f89" stroke-width="1.5" opacity="0.4"/>
-  <!-- Automation icon - gear -->
-  <circle cx="960" cy="160" r="40" fill="none" stroke="#e8729a" stroke-width="1.5" opacity="0.3"/>
-  <circle cx="960" cy="160" r="15" fill="none" stroke="#e8729a" stroke-width="2" opacity="0.5"/>
-  <!-- Gear teeth -->
-  <rect x="955" y="112" width="10" height="16" rx="2" fill="#e8729a" opacity="0.3"/>
-  <rect x="955" y="192" width="10" height="16" rx="2" fill="#e8729a" opacity="0.3"/>
-  <rect x="912" y="155" width="16" height="10" rx="2" fill="#e8729a" opacity="0.3"/>
-  <rect x="992" y="155" width="16" height="10" rx="2" fill="#e8729a" opacity="0.3"/>
-  <text x="960" y="224" font-family="system-ui, sans-serif" font-size="12" fill="#e8729a" text-anchor="middle" opacity="0.6">automation-ready</text>
+
+  <!-- Metaphor: three doors that opened - health check, automation, status -->
+  <!-- Door 1: Health Check -->
+  <g opacity="0.8">
+    <rect x="180" y="80" width="200" height="200" rx="10" fill="#00d4aa" fill-opacity="0.04" stroke="#00d4aa" stroke-width="1.5"/>
+    <!-- Heart/pulse icon -->
+    <path d="M280,140 L250,140 L240,120 L230,155 L220,130 L210,140 L190,140" stroke="#00d4aa" stroke-width="2" fill="none" opacity="0.5"/>
+    <text x="280" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#00d4aa">Health Check</text>
+    <text x="280" y="225" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Is everything running?</text>
+    <text x="280" y="245" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">One command tells you.</text>
+  </g>
+
+  <!-- Door 2: Automation -->
+  <g opacity="0.8">
+    <rect x="500" y="80" width="200" height="200" rx="10" fill="#ffb347" fill-opacity="0.04" stroke="#ffb347" stroke-width="1.5"/>
+    <!-- Gear icon -->
+    <circle cx="600" cy="135" r="20" stroke="#ffb347" stroke-width="1.5" fill="none" opacity="0.4"/>
+    <circle cx="600" cy="135" r="8" stroke="#ffb347" stroke-width="1" fill="none" opacity="0.3"/>
+    <line x1="600" y1="113" x2="600" y2="109" stroke="#ffb347" stroke-width="2" opacity="0.3"/>
+    <line x1="600" y1="157" x2="600" y2="161" stroke="#ffb347" stroke-width="2" opacity="0.3"/>
+    <line x1="578" y1="135" x2="574" y2="135" stroke="#ffb347" stroke-width="2" opacity="0.3"/>
+    <line x1="622" y1="135" x2="626" y2="135" stroke="#ffb347" stroke-width="2" opacity="0.3"/>
+    <text x="600" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#ffb347">Automation</text>
+    <text x="600" y="225" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">No screen needed.</text>
+    <text x="600" y="245" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Scripts and containers just work.</text>
+  </g>
+
+  <!-- Door 3: Status at a Glance -->
+  <g opacity="0.8">
+    <rect x="820" y="80" width="200" height="200" rx="10" fill="#4488ff" fill-opacity="0.04" stroke="#4488ff" stroke-width="1.5"/>
+    <!-- Eye icon -->
+    <ellipse cx="920" cy="135" rx="25" ry="15" stroke="#4488ff" stroke-width="1.5" fill="none" opacity="0.4"/>
+    <circle cx="920" cy="135" r="8" fill="#4488ff" fill-opacity="0.2" stroke="#4488ff" stroke-width="1"/>
+    <circle cx="920" cy="135" r="3" fill="#4488ff" opacity="0.4"/>
+    <text x="920" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#4488ff">Status at a Glance</text>
+    <text x="920" y="225" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">Version, peers, services,</text>
+    <text x="920" y="245" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">config - instant answers.</text>
+  </g>
+
+  <!-- Bottom message -->
+  <text x="600" y="330" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" fill="#e0e0e0">New Capabilities, Zero Complexity</text>
+  <text x="600" y="360" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#888">Know what's happening. Automate without a GUI. Check status instantly.</text>
 </svg>
