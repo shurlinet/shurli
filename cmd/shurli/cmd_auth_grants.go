@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,61 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 )
+
+// writeJSON encodes v as indented JSON to w, wrapped in the standard
+// {"status":"ok","data":...} envelope for machine consumption.
+func writeJSON(w io.Writer, v any) error {
+	envelope := struct {
+		Status string `json:"status"`
+		Data   any    `json:"data"`
+	}{Status: "ok", Data: v}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(envelope)
+}
+
+// jsonError wraps an error so that run* wrappers emit JSON on stdout
+// instead of plain text on stderr. The original error is still returned
+// for non-zero exit code.
+type jsonError struct {
+	err    error
+	stdout io.Writer
+}
+
+func (e *jsonError) Error() string { return e.err.Error() }
+
+// jsonErr creates a jsonError that writes a JSON error envelope to stdout
+// and still propagates the error for exit code 1.
+func jsonErr(stdout io.Writer, err error) error {
+	envelope := struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}{Status: "error", Error: err.Error()}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(envelope)
+	return &jsonError{err: err, stdout: stdout}
+}
+
+// isJSONError returns true if the error was already emitted as JSON.
+// Used by run* wrappers to avoid double-printing.
+func isJSONError(err error) bool {
+	_, ok := err.(*jsonError)
+	return ok
+}
+
+// runWithJSON is the standard wrapper for commands that support --json.
+// If the error was already emitted as JSON (via jsonErr), it exits without
+// printing again. Otherwise it prints the error to stderr as usual.
+func runWithJSON(err error) {
+	if err == nil {
+		return
+	}
+	if !isJSONError(err) {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+	osExit(1)
+}
 
 // formatDelegation returns a human-readable delegation mode string.
 func formatDelegation(maxDelegations int) string {
@@ -66,10 +122,7 @@ func parseDelegateFlag(s string) (int, error) {
 }
 
 func runAuthGrant(args []string) {
-	if err := doAuthGrant(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
+	runWithJSON(doAuthGrant(args, os.Stdout))
 }
 
 func doAuthGrant(args []string, stdout io.Writer) error {
@@ -81,27 +134,37 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	delegateStr := fs.String("delegate", "0", "delegation hops: 0=none (default), N=limited, unlimited")
 	autoRefresh := fs.Bool("auto-refresh", false, "enable automatic token refresh before expiry")
 	maxRefreshes := fs.Int("max-refreshes", 3, "max number of refreshes (requires --auto-refresh)")
+	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
+	// errOut wraps errors as JSON when --json is set.
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited] [--auto-refresh] [--max-refreshes N]")
+		return errOut(fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited] [--auto-refresh] [--max-refreshes N]"))
 	}
 
 	delegateVal, err := parseDelegateFlag(*delegateStr)
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	if *autoRefresh && *permanent {
-		return fmt.Errorf("--auto-refresh and --permanent are mutually exclusive (permanent grants never expire)")
+		return errOut(fmt.Errorf("--auto-refresh and --permanent are mutually exclusive (permanent grants never expire)"))
 	}
 
 	peerName := fs.Arg(0)
 
 	// Permanent grants require confirmation (E4 mitigation).
-	if *permanent {
+	// Skip prompt in JSON mode - agents must not use --permanent without --json understanding the risk.
+	if *permanent && !*jsonFlag {
 		fmt.Fprint(stdout, "Permanent grants cannot be auto-expired. Are you sure? [y/N] ")
 		var confirm string
 		fmt.Scanln(&confirm)
@@ -123,7 +186,7 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 
 	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	req := daemon.GrantRequest{
@@ -138,15 +201,19 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 
 	info, err := client.GrantCreate(req)
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
-	termcolor.Green("Granted data access to %s", info.Peer)
-	if len(info.Services) > 0 {
-		fmt.Fprintf(stdout, "  Services:   %s\n", strings.Join(info.Services, ", "))
-	} else {
-		fmt.Fprintln(stdout, "  Services:   all")
+	if *jsonFlag {
+		return writeJSON(stdout, info)
 	}
+
+	svcDesc := "all services"
+	if len(info.Services) > 0 {
+		svcDesc = strings.Join(info.Services, ", ")
+	}
+	termcolor.Green("Granted relay data access to %s", info.Peer)
+	fmt.Fprintf(stdout, "  Services:   %s\n", svcDesc)
 	if info.Permanent {
 		fmt.Fprintln(stdout, "  Duration:   permanent")
 	} else {
@@ -162,30 +229,45 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 }
 
 func runAuthGrants(args []string) {
-	if err := doAuthGrants(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
+	runWithJSON(doAuthGrants(args, os.Stdout))
 }
 
 func doAuthGrants(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("auth grants", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
 	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	resp, err := client.GrantList()
 	if err != nil {
-		return err
+		return errOut(err)
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, resp)
 	}
 
 	if len(resp.Grants) == 0 {
-		fmt.Fprintln(stdout, "No active data access grants.")
+		fmt.Fprintln(stdout, "No active relay data access grants.")
 		fmt.Fprintln(stdout, "\nTip: use 'shurli auth grant <peer> --duration 1h' to grant relay data access.")
 		return nil
 	}
 
-	fmt.Fprintf(stdout, "Active data access grants (%d):\n\n", len(resp.Grants))
+	fmt.Fprintf(stdout, "Active relay data access grants (%d):\n\n", len(resp.Grants))
 	for i, g := range resp.Grants {
 		svc := "all"
 		if len(g.Services) > 0 {
@@ -210,44 +292,50 @@ func doAuthGrants(args []string, stdout io.Writer) error {
 }
 
 func runAuthRevoke(args []string) {
-	if err := doAuthRevoke(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
+	runWithJSON(doAuthRevoke(args, os.Stdout))
 }
 
 func doAuthRevoke(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("auth revoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth revoke <peer>")
+		return errOut(fmt.Errorf("usage: shurli auth revoke <peer>"))
 	}
 
 	peerName := fs.Arg(0)
 
 	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	if err := client.GrantRevoke(peerName); err != nil {
-		return err
+		return errOut(err)
 	}
 
-	termcolor.Green("Revoked data access grant for %s", peerName)
+	if *jsonFlag {
+		return writeJSON(stdout, map[string]string{"peer": peerName, "action": "revoked"})
+	}
+
+	termcolor.Green("Revoked relay data access for %s", peerName)
 	fmt.Fprintln(stdout, "  All connections to this peer have been closed.")
 	return nil
 }
 
 func runAuthDelegate(args []string) {
-	if err := doAuthDelegate(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
+	runWithJSON(doAuthDelegate(args, os.Stdout))
 }
 
 func doAuthDelegate(args []string, stdout io.Writer) error {
@@ -257,20 +345,28 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 	duration := fs.String("duration", "", "optional shorter duration (e.g. 30m)")
 	services := fs.String("services", "", "optional comma-separated service names")
 	delegateStr := fs.String("delegate", "0", "further delegation hops for target (0=none, N, unlimited)")
+	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth delegate <peer> --to <target> [--duration 30m] [--services file-browse] [--delegate N|unlimited]")
+		return errOut(fmt.Errorf("usage: shurli auth delegate <peer> --to <target> [--duration 30m] [--services file-browse] [--delegate N|unlimited]"))
 	}
 	if *to == "" {
-		return fmt.Errorf("--to is required (target peer for delegation)")
+		return errOut(fmt.Errorf("--to is required (target peer for delegation)"))
 	}
 
 	delegateVal, err := parseDelegateFlag(*delegateStr)
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	peerName := fs.Arg(0)
@@ -287,7 +383,7 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 
 	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	req := daemon.GrantDelegateRequest{
@@ -300,7 +396,11 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 
 	result, err := client.GrantDelegate(req)
 	if err != nil {
-		return err
+		return errOut(err)
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, result)
 	}
 
 	status := result["status"]
@@ -321,11 +421,63 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func runAuthExtend(args []string) {
-	if err := doAuthExtend(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
+func runAuthPouch(args []string) {
+	runWithJSON(doAuthPouch(args, os.Stdout))
+}
+
+func doAuthPouch(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("auth pouch", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonFlag := fs.Bool("json", false, "output as JSON")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
 	}
+
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
+	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
+	if err != nil {
+		return errOut(err)
+	}
+
+	resp, err := client.PouchList()
+	if err != nil {
+		return errOut(err)
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, resp)
+	}
+
+	if len(resp.Entries) == 0 {
+		fmt.Fprintln(stdout, "No grant tokens received from other nodes.")
+		fmt.Fprintln(stdout, "\nGrant tokens are delivered automatically when a node grants you relay data access.")
+		return nil
+	}
+
+	fmt.Fprintf(stdout, "Received grant tokens (%d):\n\n", len(resp.Entries))
+	for i, e := range resp.Entries {
+		svc := "all services"
+		if len(e.Services) > 0 {
+			svc = strings.Join(e.Services, ", ")
+		}
+		dur := e.Remaining
+		if e.Permanent {
+			dur = "permanent"
+		}
+		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s\n", i+1, e.Issuer, svc, dur)
+		termcolor.Faint("     %s\n", e.IssuerID)
+	}
+	return nil
+}
+
+func runAuthExtend(args []string) {
+	runWithJSON(doAuthExtend(args, os.Stdout))
 }
 
 func doAuthExtend(args []string, stdout io.Writer) error {
@@ -333,22 +485,30 @@ func doAuthExtend(args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 	duration := fs.String("duration", "", "new duration from now (e.g. 2h, 1d)")
 	maxRefreshes := fs.Int("max-refreshes", -1, "update max refresh count (-1 = no change)")
+	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
+		return err
+	}
+
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth extend <peer> --duration 2h [--max-refreshes N]")
+		return errOut(fmt.Errorf("usage: shurli auth extend <peer> --duration 2h [--max-refreshes N]"))
 	}
 	if *duration == "" && *maxRefreshes < 0 {
-		return fmt.Errorf("--duration or --max-refreshes is required")
+		return errOut(fmt.Errorf("--duration or --max-refreshes is required"))
 	}
 
 	peerName := fs.Arg(0)
 
 	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
-		return err
+		return errOut(err)
 	}
 
 	req := daemon.GrantExtendRequest{
@@ -361,10 +521,18 @@ func doAuthExtend(args []string, stdout io.Writer) error {
 	}
 
 	if err := client.GrantExtendFull(req); err != nil {
-		return err
+		return errOut(err)
 	}
 
-	termcolor.Green("Extended data access grant for %s", peerName)
+	if *jsonFlag {
+		result := map[string]string{"peer": peerName, "action": "extended"}
+		if *duration != "" {
+			result["duration"] = *duration
+		}
+		return writeJSON(stdout, result)
+	}
+
+	termcolor.Green("Extended relay data access for %s", peerName)
 	if *duration != "" {
 		fmt.Fprintf(stdout, "  Duration: %s from now\n", *duration)
 	}

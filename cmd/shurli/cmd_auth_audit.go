@@ -17,10 +17,7 @@ import (
 )
 
 func runAuthAudit(args []string) {
-	if err := doAuthAudit(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
+	runWithJSON(doAuthAudit(args, os.Stdout))
 }
 
 func doAuthAudit(args []string, stdout io.Writer) error {
@@ -29,18 +26,26 @@ func doAuthAudit(args []string, stdout io.Writer) error {
 	verify := fs.Bool("verify", false, "verify chain integrity (no output on success)")
 	tail := fs.Int("tail", 20, "number of recent entries to show")
 	configFlag := fs.String("config", "", "path to config file")
+	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	errOut := func(err error) error {
+		if *jsonFlag {
+			return jsonErr(stdout, err)
+		}
 		return err
 	}
 
 	// Resolve config to find the audit log path and derive the HMAC key.
 	cfgFile, err := config.FindConfigFile(*configFlag)
 	if err != nil {
-		return fmt.Errorf("config error: %w", err)
+		return errOut(fmt.Errorf("config error: %w", err))
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
-		return fmt.Errorf("config error: %w", err)
+		return errOut(fmt.Errorf("config error: %w", err))
 	}
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
@@ -50,36 +55,42 @@ func doAuthAudit(args []string, stdout io.Writer) error {
 	// a read-only audit command.
 	configDir := filepath.Dir(cfgFile)
 	if _, err := os.Stat(cfg.Identity.KeyFile); os.IsNotExist(err) {
-		return fmt.Errorf("identity key file does not exist: %s\n  Run 'shurli init' first", cfg.Identity.KeyFile)
+		return errOut(fmt.Errorf("identity key file does not exist: %s\n  Run 'shurli init' first", cfg.Identity.KeyFile))
 	}
 
 	pw, err := resolvePasswordInteractive(configDir, stdout)
 	if err != nil {
-		return fmt.Errorf("cannot resolve identity password: %w", err)
+		return errOut(fmt.Errorf("cannot resolve identity password: %w", err))
 	}
 
 	privKey, err := p2pnet.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
 	if err != nil {
-		return fmt.Errorf("cannot load identity key: %w", err)
+		return errOut(fmt.Errorf("cannot load identity key: %w", err))
 	}
 
 	raw, err := privKey.Raw()
 	if err != nil || len(raw) < 32 {
-		return fmt.Errorf("cannot extract identity seed")
+		return errOut(fmt.Errorf("cannot extract identity seed"))
 	}
 	auditKey := hkdfDerive(raw[:32], "shurli/grants/audit/v1")
 	if auditKey == nil {
-		return fmt.Errorf("failed to derive audit key")
+		return errOut(fmt.Errorf("failed to derive audit key"))
 	}
 
 	auditPath := filepath.Join(configDir, "grant_audit.log")
 	al, err := grants.NewAuditLog(auditPath, auditKey)
 	if err != nil {
-		return fmt.Errorf("cannot open audit log: %w", err)
+		return errOut(fmt.Errorf("cannot open audit log: %w", err))
 	}
 
 	if *verify {
 		count, err := al.Verify()
+		if *jsonFlag {
+			if err != nil {
+				return jsonErr(stdout, fmt.Errorf("integrity failure after %d entries: %w", count, err))
+			}
+			return writeJSON(stdout, map[string]any{"verified": true, "entries": count})
+		}
 		if err != nil {
 			termcolor.Red("Audit log INTEGRITY FAILURE")
 			fmt.Fprintf(stdout, "  Verified: %d entries before failure\n", count)
@@ -94,19 +105,26 @@ func doAuthAudit(args []string, stdout io.Writer) error {
 	// Show recent entries.
 	entries, err := al.Entries()
 	if err != nil {
-		return fmt.Errorf("read audit log: %w", err)
-	}
-
-	if len(entries) == 0 {
-		fmt.Fprintln(stdout, "No audit log entries.")
-		fmt.Fprintf(stdout, "\nFile: %s\n", auditPath)
-		return nil
+		return errOut(fmt.Errorf("read audit log: %w", err))
 	}
 
 	// Tail the entries.
 	start := 0
 	if *tail > 0 && *tail < len(entries) {
 		start = len(entries) - *tail
+	}
+
+	if *jsonFlag {
+		return writeJSON(stdout, map[string]any{
+			"total":   len(entries),
+			"entries": entries[start:],
+		})
+	}
+
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No audit log entries.")
+		fmt.Fprintf(stdout, "\nFile: %s\n", auditPath)
+		return nil
 	}
 
 	fmt.Fprintf(stdout, "Grant audit log (%d entries, showing last %d):\n\n", len(entries), len(entries)-start)

@@ -374,10 +374,10 @@ peer can re-share this grant: 0=no delegation (default), N=limited hops,
 -1=unlimited. Requires a running daemon.
 .TP
 .B auth grants
-List all active data access grants with remaining time.
+List all active relay data access grants with remaining time.
 .TP
 .B auth revoke \fIpeer\fR
-Revoke a data access grant. All connections to the peer are closed immediately.
+Revoke relay data access. All connections to the peer are closed immediately.
 .TP
 .B auth extend \fIpeer\fR \fB--duration\fR \fI2h\fR
 Extend an existing grant. The new expiry is calculated from now, not from the
@@ -388,6 +388,11 @@ Delegate a received grant to another peer. Creates an attenuated sub-token
 with the same or tighter restrictions (shorter duration, fewer services,
 fewer delegation hops). The sub-token is delivered to the target peer via
 P2P or queued if the target is offline.
+.TP
+.B auth pouch \fR[\fB--json\fR]
+List all grant tokens received from other nodes (the "pouch"). Shows issuer
+name, allowed services, remaining time, and permanent status. Requires a
+running daemon.
 
 .SH CONFIGURATION
 .TP

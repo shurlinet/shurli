@@ -231,7 +231,7 @@ _shurli_completions() {
     local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
-    local auth_cmds="add list remove validate grant grants revoke extend delegate"
+    local auth_cmds="add list remove validate grant grants revoke extend delegate pouch audit"
     local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
@@ -536,11 +536,13 @@ _shurli() {
         'list:List authorized peers'
         'remove:Revoke a peer'
         'validate:Validate authorized_keys format'
-        'grant:Grant data access'
+        'grant:Grant relay data access'
         'grants:List active grants'
-        'revoke:Revoke data access grant'
+        'revoke:Revoke relay data access'
         'extend:Extend a grant'
         'delegate:Delegate a grant to another peer'
+        'pouch:List received grant tokens'
+        'audit:View or verify audit log'
     )
 
     local -a config_cmds
@@ -945,11 +947,13 @@ complete -c shurli -n '__shurli_using_subcommand auth remove'   -l config  -d 'C
 complete -c shurli -n '__shurli_using_subcommand auth remove'   -l file    -d 'authorized_keys path'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l file    -d 'authorized_keys path'
-complete -c shurli -n '__shurli_using_command auth' -a grant    -d 'Grant data access'
+complete -c shurli -n '__shurli_using_command auth' -a grant    -d 'Grant relay data access'
 complete -c shurli -n '__shurli_using_command auth' -a grants   -d 'List active grants'
-complete -c shurli -n '__shurli_using_command auth' -a revoke   -d 'Revoke data access grant'
+complete -c shurli -n '__shurli_using_command auth' -a revoke   -d 'Revoke relay data access'
 complete -c shurli -n '__shurli_using_command auth' -a extend   -d 'Extend a grant'
 complete -c shurli -n '__shurli_using_command auth' -a delegate -d 'Delegate a grant to another peer'
+complete -c shurli -n '__shurli_using_command auth' -a pouch    -d 'List received grant tokens'
+complete -c shurli -n '__shurli_using_command auth' -a audit    -d 'View or verify audit log'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l duration  -d 'Grant duration (e.g. 1h, 7d)'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l services  -d 'Comma-separated services'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l permanent -d 'Permanent grant'
@@ -959,6 +963,9 @@ complete -c shurli -n '__shurli_using_subcommand auth delegate' -l to        -d 
 complete -c shurli -n '__shurli_using_subcommand auth delegate' -l duration  -d 'Shorter duration'
 complete -c shurli -n '__shurli_using_subcommand auth delegate' -l services  -d 'Fewer services'
 complete -c shurli -n '__shurli_using_subcommand auth delegate' -l delegate  -d 'Further delegation hops'
+complete -c shurli -n '__shurli_using_subcommand auth pouch'    -l json      -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_subcommand auth audit'    -l verify    -d 'Verify chain integrity'
+complete -c shurli -n '__shurli_using_subcommand auth audit'    -l tail      -d 'Recent entries to show'
 
 # --- config subcommands ---
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'

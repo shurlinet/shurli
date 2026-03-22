@@ -39,7 +39,7 @@ func (m *mockSink) last() Event {
 }
 
 func TestRouter_EmitToAllSinks(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	s1 := &mockSink{name: "test1"}
 	s2 := &mockSink{name: "test2"}
 	r.AddSink(s1)
@@ -64,7 +64,7 @@ func TestRouter_EmitToAllSinks(t *testing.T) {
 }
 
 func TestRouter_Dedup(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	s := &mockSink{name: "dedup"}
 	r.AddSink(s)
 
@@ -80,7 +80,7 @@ func TestRouter_Dedup(t *testing.T) {
 }
 
 func TestRouter_DedupAllowsDifferentIDs(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	s := &mockSink{name: "dedup2"}
 	r.AddSink(s)
 
@@ -98,7 +98,7 @@ func TestRouter_DedupAllowsDifferentIDs(t *testing.T) {
 }
 
 func TestRouter_SinkErrorDoesNotBlock(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	failing := &mockSink{name: "failing", err: errTestSink}
 	good := &mockSink{name: "good"}
 	r.AddSink(failing)
@@ -118,7 +118,7 @@ func TestRouter_SinkErrorDoesNotBlock(t *testing.T) {
 var errTestSink = errors.New("test sink error")
 
 func TestRouter_NameResolver(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	r.SetNameResolver(func(peerID string) string {
 		if peerID == "QmTestPeer123456" {
 			return "alice"
@@ -140,7 +140,7 @@ func TestRouter_NameResolver(t *testing.T) {
 }
 
 func TestRouter_PreExpiryWarnings(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	s := &mockSink{name: "expiry"}
 	r.AddSink(s)
 
@@ -194,7 +194,7 @@ func TestRouter_PreExpiryWarnings(t *testing.T) {
 }
 
 func TestRouter_StartStop(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	r.Start()
 
 	// Stop should not hang.
@@ -212,7 +212,7 @@ func TestRouter_StartStop(t *testing.T) {
 }
 
 func TestRouter_SinksListIncludesLog(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	names := r.Sinks()
 	if len(names) == 0 || names[0] != "log" {
 		t.Errorf("first sink should be 'log', got %v", names)
@@ -220,7 +220,7 @@ func TestRouter_SinksListIncludesLog(t *testing.T) {
 }
 
 func TestRouter_ConcurrentEmit(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	var received atomic.Int64
 	s := &countSink{received: &received}
 	r.AddSink(s)
@@ -252,7 +252,7 @@ func (c *countSink) Notify(Event) error { c.received.Add(1); return nil }
 
 func TestLogSink_SeverityRouting(t *testing.T) {
 	// LogSink should not error regardless of severity.
-	ls := NewLogSink(slog.Default())
+	ls := NewLogSink(slog.Default(), "")
 
 	if err := ls.Notify(NewEvent(EventGrantCreated, SeverityInfo, "QmPeer", "", "info")); err != nil {
 		t.Errorf("info event returned error: %v", err)
@@ -287,7 +287,7 @@ func TestEvent_WithMetadata(t *testing.T) {
 }
 
 func TestRouter_SinkPanicRecovery(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	panicking := &panicSink{}
 	good := &mockSink{name: "good"}
 	r.AddSink(panicking)
@@ -310,7 +310,7 @@ func (p *panicSink) Name() string        { return "panic" }
 func (p *panicSink) Notify(Event) error { panic("intentional test panic") }
 
 func TestRouter_StopWithoutStart(t *testing.T) {
-	r := NewRouter(slog.Default())
+	r := NewRouter(slog.Default(), "")
 	// Stop without Start should not panic or hang.
 	r.Stop()
 }

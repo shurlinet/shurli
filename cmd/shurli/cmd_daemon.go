@@ -542,7 +542,7 @@ func runDaemonStart(args []string) {
 	}
 
 	// Phase C: notification router. LogSink is always active (audit trail).
-	notifyRouter := notify.NewRouter(slog.Default())
+	notifyRouter := notify.NewRouter(slog.Default(), notify.Severity(rt.config.Notifications.LogLevel))
 	if rt.grantStore != nil {
 		// Wire GrantStore lifecycle events into the notification router.
 		rt.grantStore.SetOnNotify(func(eventType string, peerID peer.ID, meta map[string]string) {
@@ -938,29 +938,43 @@ func runDaemonDisconnect(args []string) {
 }
 
 // notifyEventMessage returns a human-readable message for a grant event type.
+// Messages include services and duration context so notifications are actionable.
 func notifyEventMessage(eventType string, meta map[string]string) string {
+	svcLabel := "relay data access"
+	if svcs, ok := meta["services"]; ok && svcs != "" {
+		svcLabel = svcs
+	}
+
 	switch eventType {
 	case string(notify.EventGrantCreated):
-		if exp, ok := meta["expires_at"]; ok {
-			return "grant created, expires " + exp
+		if meta["permanent"] == "true" {
+			return "granted permanent " + svcLabel
 		}
-		return "grant created"
+		if exp, ok := meta["expires_at"]; ok {
+			return "granted " + svcLabel + ", expires " + exp
+		}
+		return "granted " + svcLabel
 	case string(notify.EventGrantRevoked):
-		return "grant revoked"
+		msg := "revoked " + svcLabel
+		if rem, ok := meta["was_remaining"]; ok {
+			msg += " (" + rem + " remaining)"
+		}
+		return msg
 	case string(notify.EventGrantExpired):
-		return "grant expired"
+		return svcLabel + " expired"
 	case string(notify.EventGrantExtended):
 		if exp, ok := meta["expires_at"]; ok {
-			return "grant extended, new expiry " + exp
+			return "extended " + svcLabel + ", new expiry " + exp
 		}
-		return "grant extended"
+		return "extended " + svcLabel
 	case string(notify.EventGrantRefreshed):
+		msg := "refreshed " + svcLabel
 		if used, ok := meta["refreshes_used"]; ok {
 			if max, ok2 := meta["max_refreshes"]; ok2 {
-				return "grant refreshed (" + used + "/" + max + ")"
+				msg += " (" + used + "/" + max + " refreshes)"
 			}
 		}
-		return "grant refreshed"
+		return msg
 	case string(notify.EventGrantRateLimited):
 		if limit, ok := meta["limit"]; ok {
 			return "grant ops rate limit exceeded (" + limit + "/min)"

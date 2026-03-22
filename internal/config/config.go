@@ -43,6 +43,7 @@ type GrantsConfig struct {
 type NotificationsConfig struct {
 	Desktop       *bool                   `yaml:"desktop,omitempty"`        // nil = auto-detect (default), true = force on, false = force off
 	ExpiryWarning string                  `yaml:"expiry_warning,omitempty"` // threshold for grant_expiring events, e.g. "10m" (default: 10m)
+	LogLevel      string                  `yaml:"log_level,omitempty"`      // min severity for log sink: "info" (default) or "warn"
 	Webhook       NotificationWebhookConfig `yaml:"webhook,omitempty"`
 }
 

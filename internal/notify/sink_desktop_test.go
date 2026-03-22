@@ -59,11 +59,9 @@ func TestDesktopSink_Notify(t *testing.T) {
 		if gotName != "notify-send" {
 			t.Errorf("command = %q, want notify-send", gotName)
 		}
-		if len(gotArgs) != 2 || gotArgs[0] != "Shurli" {
-			t.Errorf("args = %v, want [Shurli <body>]", gotArgs)
-		}
-		if len(gotArgs) == 2 && !strings.Contains(gotArgs[1], "alice") {
-			t.Errorf("body should contain peer name 'alice', got: %s", gotArgs[1])
+		// Peer name is in the title, message is in the body.
+		if len(gotArgs) != 2 || !strings.Contains(gotArgs[0], "alice") {
+			t.Errorf("title should contain peer name 'alice', got args: %v", gotArgs)
 		}
 	}
 }
@@ -93,9 +91,10 @@ func TestDesktopSink_NotifyWithPeerIDOnly(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Should contain truncated peer ID in message (darwin: in script, linux: in body arg).
-	if len(gotArgs) >= 2 && !strings.Contains(gotArgs[1], "QmVeryLongPeerID") {
-		t.Errorf("notification should contain truncated peer ID, got: %s", gotArgs[1])
+	// Truncated peer ID should appear in the title (darwin: in script string, linux: in title arg).
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "QmVeryLongPeerID") {
+		t.Errorf("notification should contain truncated peer ID, got args: %v", gotArgs)
 	}
 }
 
