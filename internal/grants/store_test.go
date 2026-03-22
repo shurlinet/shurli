@@ -508,3 +508,180 @@ func TestExtendPreservesMaxDelegations(t *testing.T) {
 		t.Error("extended token should still have max_delegations=5")
 	}
 }
+
+func TestStoreAuditLogIntegration(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	pid := genPeerID(t)
+
+	dir := t.TempDir()
+	auditPath := filepath.Join(dir, "audit.log")
+	auditKey := make([]byte, 32)
+	rand.Read(auditKey)
+
+	al, err := NewAuditLog(auditPath, auditKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuditLog(al)
+
+	// Grant, extend, refresh, revoke - all should produce audit entries.
+	s.Grant(pid, 1*time.Hour, nil, false, 0, GrantOptions{AutoRefresh: true, MaxRefreshes: 5})
+	s.Extend(pid, 2*time.Hour)
+	s.Refresh(pid)
+	s.Revoke(pid)
+
+	entries, err := al.Entries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 audit entries, got %d", len(entries))
+	}
+
+	// Verify event types in order.
+	expected := []AuditEvent{AuditGrantCreated, AuditGrantExtended, AuditGrantRefreshed, AuditGrantRevoked}
+	for i, exp := range expected {
+		if entries[i].Event != exp {
+			t.Errorf("entry %d: expected %s, got %s", i, exp, entries[i].Event)
+		}
+	}
+
+	// Verify chain integrity.
+	count, err := al.Verify()
+	if err != nil {
+		t.Fatalf("audit chain verification failed: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("expected 4 verified entries, got %d", count)
+	}
+}
+
+// TestStoreAuditMetadataWithoutNotify verifies that audit entries contain
+// metadata even when the notification router is NOT wired. This was a bug
+// where Revoke/cleanExpired only captured metadata inside an `if onNotify != nil`
+// guard, causing audit entries to lose context when notifications were off.
+func TestStoreAuditMetadataWithoutNotify(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	// Deliberately NOT calling SetOnNotify - simulates no notification router.
+	pid := genPeerID(t)
+
+	dir := t.TempDir()
+	auditPath := filepath.Join(dir, "audit.log")
+	auditKey := make([]byte, 32)
+	rand.Read(auditKey)
+
+	al, err := NewAuditLog(auditPath, auditKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuditLog(al)
+
+	// Grant then revoke. Revoke audit entry must have metadata.
+	s.Grant(pid, 1*time.Hour, []string{"file-transfer"}, false, 0)
+	s.Revoke(pid)
+
+	entries, err := al.Entries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+
+	revokeEntry := entries[1]
+	if revokeEntry.Event != AuditGrantRevoked {
+		t.Fatalf("expected grant_revoked, got %s", revokeEntry.Event)
+	}
+	if revokeEntry.Metadata["expires_at"] == "" {
+		t.Fatal("revoke audit entry missing expires_at metadata (was gated on onNotify)")
+	}
+	if revokeEntry.Metadata["services"] != "file-transfer" {
+		t.Fatalf("revoke audit entry missing services metadata, got %q", revokeEntry.Metadata["services"])
+	}
+}
+
+// TestStoreCleanExpiredAuditMetadata verifies that expired grant cleanup
+// produces audit entries with metadata regardless of notification router state.
+func TestStoreCleanExpiredAuditMetadata(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	// No SetOnNotify.
+	pid := genPeerID(t)
+
+	dir := t.TempDir()
+	auditPath := filepath.Join(dir, "audit.log")
+	auditKey := make([]byte, 32)
+	rand.Read(auditKey)
+
+	al, err := NewAuditLog(auditPath, auditKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetAuditLog(al)
+
+	// Create a grant that expires immediately.
+	s.Grant(pid, 1*time.Millisecond, []string{"file-browse"}, false, 0)
+	time.Sleep(5 * time.Millisecond)
+	s.cleanExpired()
+
+	entries, err := al.Entries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (create + expire), got %d", len(entries))
+	}
+
+	expireEntry := entries[1]
+	if expireEntry.Event != AuditGrantExpired {
+		t.Fatalf("expected grant_expired, got %s", expireEntry.Event)
+	}
+	if expireEntry.Metadata["expires_at"] == "" {
+		t.Fatal("expire audit entry missing expires_at metadata")
+	}
+	if expireEntry.Metadata["services"] != "file-browse" {
+		t.Fatalf("expire audit entry missing services metadata, got %q", expireEntry.Metadata["services"])
+	}
+}
+
+func TestStoreRateLimiter(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	pid := genPeerID(t)
+
+	rl := NewOpsRateLimiter(3, nil)
+	s.SetRateLimiter(rl)
+
+	// First 3 ops should succeed.
+	for i := 0; i < 3; i++ {
+		_, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+		if err != nil {
+			t.Fatalf("grant %d should succeed: %v", i+1, err)
+		}
+	}
+
+	// 4th should be rate limited.
+	_, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+	if err == nil {
+		t.Fatal("4th grant should be rate limited")
+	}
+}
+
+func TestProtocolVersionCheck(t *testing.T) {
+	// Version 0 treated as 1 (pre-D4 compat).
+	if err := checkProtocolVersion(0); err != nil {
+		t.Fatalf("version 0 should be accepted (pre-D4 compat): %v", err)
+	}
+
+	// Current version.
+	if err := checkProtocolVersion(GrantProtocolVersion); err != nil {
+		t.Fatalf("current version should be accepted: %v", err)
+	}
+
+	// Future version (higher than min).
+	if err := checkProtocolVersion(GrantProtocolVersion + 1); err != nil {
+		t.Fatalf("future version should be accepted: %v", err)
+	}
+}

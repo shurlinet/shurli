@@ -91,6 +91,8 @@ type Store struct {
 	onNotify       func(string, peer.ID, map[string]string) // Phase C: notification router callback (string = event type)
 	deliveryWg     sync.WaitGroup       // tracks in-flight delivery goroutines for clean shutdown
 	dummyToken     *macaroon.Macaroon   // pre-computed token for D1 constant-time check
+	auditLog       *AuditLog            // Phase D1: integrity-chained audit log (nil = disabled)
+	rateLimiter    *OpsRateLimiter      // Phase D3: per-peer grant ops rate limiter (nil = disabled)
 	logger         *slog.Logger
 }
 
@@ -152,6 +154,35 @@ func (s *Store) SetOnNotify(fn func(string, peer.ID, map[string]string)) {
 	s.onNotify = fn
 }
 
+// SetAuditLog sets the integrity-chained audit log for grant operations (Phase D1).
+// When set, all grant lifecycle events are appended to the audit log.
+func (s *Store) SetAuditLog(al *AuditLog) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLog = al
+}
+
+// SetRateLimiter sets the per-peer grant ops rate limiter (Phase D3).
+func (s *Store) SetRateLimiter(rl *OpsRateLimiter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rateLimiter = rl
+}
+
+// auditAppend is a helper to append to the audit log if configured.
+// Never blocks or fails the caller - audit failures are logged as warnings.
+func (s *Store) auditAppend(event AuditEvent, peerID peer.ID, meta map[string]string) {
+	s.mu.RLock()
+	al := s.auditLog
+	s.mu.RUnlock()
+	if al == nil {
+		return
+	}
+	if err := al.Append(event, peerID, meta); err != nil {
+		s.logger.Warn("grants: audit log append failed", "event", string(event), "error", err)
+	}
+}
+
 // GrantOptions holds optional parameters for creating a grant.
 type GrantOptions struct {
 	AutoRefresh        bool
@@ -166,6 +197,10 @@ type GrantOptions struct {
 // it is replaced (new grant, new token).
 // maxDelegations: 0=none (default), N=limited hops, -1=unlimited.
 func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int, opts ...GrantOptions) (*Grant, error) {
+	// Phase D3: rate limit check.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
+		return nil, fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
+	}
 	now := time.Now()
 	var expiresAt time.Time
 	if permanent {
@@ -225,6 +260,16 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	}
 	s.logger.Info("grants: created", logAttrs...)
 
+	// Phase D1: audit log.
+	auditMeta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
+	if !permanent {
+		auditMeta["expires_at"] = expiresAt.Format(time.RFC3339)
+	}
+	if len(services) > 0 {
+		auditMeta["services"] = strings.Join(services, ",")
+	}
+	s.auditAppend(AuditGrantCreated, peerID, auditMeta)
+
 	// Phase C: notification.
 	if onNotify != nil {
 		meta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
@@ -248,23 +293,24 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 
 // Revoke removes a grant for the given peer and closes their connections.
 func (s *Store) Revoke(peerID peer.ID) error {
+	// Phase D3: rate limit check.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
+		return fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
+	}
 	s.mu.Lock()
 	g, exists := s.grants[peerID]
 	if !exists {
 		s.mu.Unlock()
 		return fmt.Errorf("no grant found for peer %s", shortPeerID(peerID))
 	}
-	// Capture metadata before deletion for the notification.
-	var notifyMeta map[string]string
-	if s.onNotify != nil {
-		notifyMeta = map[string]string{}
-		if !g.Permanent {
-			notifyMeta["was_remaining"] = g.Remaining().Round(time.Second).String()
-			notifyMeta["expires_at"] = g.ExpiresAt.Format(time.RFC3339)
-		}
-		if len(g.Services) > 0 {
-			notifyMeta["services"] = strings.Join(g.Services, ",")
-		}
+	// Capture metadata before deletion for audit and notification.
+	meta := map[string]string{}
+	if !g.Permanent {
+		meta["was_remaining"] = g.Remaining().Round(time.Second).String()
+		meta["expires_at"] = g.ExpiresAt.Format(time.RFC3339)
+	}
+	if len(g.Services) > 0 {
+		meta["services"] = strings.Join(g.Services, ",")
 	}
 	delete(s.grants, peerID)
 	onRevoke := s.onRevoke
@@ -278,9 +324,12 @@ func (s *Store) Revoke(peerID peer.ID) error {
 
 	s.logger.Info("grants: revoked", "peer", shortPeerID(peerID))
 
+	// Phase D1: audit log.
+	s.auditAppend(AuditGrantRevoked, peerID, meta)
+
 	// Phase C: notification.
 	if onNotify != nil {
-		onNotify("grant_revoked", peerID, notifyMeta)
+		onNotify("grant_revoked", peerID, meta)
 	}
 
 	// Phase B: notify peer of revocation over P2P.
@@ -303,6 +352,10 @@ func (s *Store) Revoke(peerID peer.ID) error {
 // Extend extends an existing grant by the given duration.
 // The new expiry is calculated from NOW + duration, not from the old expiry.
 func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
+	// Phase D3: rate limit check.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
+		return fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
+	}
 	s.mu.Lock()
 	g, exists := s.grants[peerID]
 	if !exists {
@@ -338,6 +391,11 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 
 	s.logger.Info("grants: extended", "peer", shortPeerID(peerID), "new_expiry", newExpiry.Format(time.RFC3339))
 
+	// Phase D1: audit log.
+	s.auditAppend(AuditGrantExtended, peerID, map[string]string{
+		"expires_at": newExpiry.Format(time.RFC3339),
+	})
+
 	// Phase C: notification.
 	if onNotify != nil {
 		onNotify("grant_extended", peerID, map[string]string{
@@ -361,6 +419,10 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 // The new token has the same caveats but a fresh expiry. RefreshesUsed is incremented.
 // Returns the refreshed grant (with new token) or an error if refresh is not allowed.
 func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
+	// Phase D3: rate limit check.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
+		return nil, fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
+	}
 	now := time.Now()
 
 	s.mu.Lock()
@@ -437,6 +499,13 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 		"refreshes_used", refreshesUsed,
 		"max_refreshes", maxRefreshes)
 
+	// Phase D1: audit log.
+	s.auditAppend(AuditGrantRefreshed, peerID, map[string]string{
+		"expires_at":     newExpiry.Format(time.RFC3339),
+		"refreshes_used": fmt.Sprintf("%d", refreshesUsed),
+		"max_refreshes":  fmt.Sprintf("%d", maxRefreshes),
+	})
+
 	// Phase C: notification.
 	if onNotify != nil {
 		onNotify("grant_refreshed", peerID, map[string]string{
@@ -457,6 +526,10 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 // Rebuilds the token so caveat values are accurate, and delivers the update.
 // Admin can increase or decrease at any time.
 func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
+	// Phase D3: rate limit check.
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
+		return fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
+	}
 	s.mu.Lock()
 	g, exists := s.grants[peerID]
 	if !exists {
@@ -489,6 +562,11 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 	}
 
 	s.logger.Info("grants: updated max_refreshes", "peer", shortPeerID(peerID), "max_refreshes", maxRefreshes)
+
+	// Phase D1: audit log.
+	s.auditAppend(AuditGrantExtended, peerID, map[string]string{
+		"max_refreshes": fmt.Sprintf("%d", maxRefreshes),
+	})
 
 	// Deliver updated token to peer.
 	if onGrant != nil {
@@ -610,17 +688,13 @@ func (s *Store) cleanExpired() {
 	}
 	s.mu.Lock()
 	var removed []expiredEntry
-	captureNotify := s.onNotify != nil
 	for pid, g := range s.grants {
 		if g.Expired() {
-			var meta map[string]string
-			if captureNotify {
-				meta = map[string]string{
-					"expires_at": g.ExpiresAt.Format(time.RFC3339),
-				}
-				if len(g.Services) > 0 {
-					meta["services"] = strings.Join(g.Services, ",")
-				}
+			meta := map[string]string{
+				"expires_at": g.ExpiresAt.Format(time.RFC3339),
+			}
+			if len(g.Services) > 0 {
+				meta["services"] = strings.Join(g.Services, ",")
 			}
 			removed = append(removed, expiredEntry{pid: pid, meta: meta})
 			delete(s.grants, pid)
@@ -636,6 +710,8 @@ func (s *Store) cleanExpired() {
 		}
 		for _, entry := range removed {
 			s.logger.Info("grants: expired grant removed, closing connections", "peer", shortPeerID(entry.pid))
+			// Phase D1: audit log.
+			s.auditAppend(AuditGrantExpired, entry.pid, entry.meta)
 			// Phase C: notification.
 			if onNotify != nil {
 				onNotify("grant_expired", entry.pid, entry.meta)

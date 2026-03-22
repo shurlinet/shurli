@@ -98,6 +98,9 @@ type serveRuntime struct {
 	grantProtocol *grants.GrantProtocol
 	deliveryQueue *grants.DeliveryQueue
 
+	// Phase D: hardening
+	opsRateLimiter *grants.OpsRateLimiter
+
 	// Notification router (Phase C)
 	notifyRouter *notify.Router
 }
