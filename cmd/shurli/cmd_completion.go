@@ -228,7 +228,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
+    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify reconnect status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate grant grants revoke extend delegate pouch audit"
@@ -419,6 +419,9 @@ _shurli_completions() {
         notify)
             COMPREPLY=($(compgen -W "$notify_cmds" -- "$cur"))
             return ;;
+        reconnect)
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
+            return ;;
         recover)
             COMPREPLY=($(compgen -W "--relay --dir" -- "$cur"))
             return ;;
@@ -504,6 +507,7 @@ _shurli() {
         'service:Manage local services'
         'plugin:Manage plugins'
         'notify:Notification management'
+        'reconnect:Clear backoffs and force redial'
         'status:Show local config and services'
         'recover:Recover identity from seed phrase'
         'change-password:Change identity password'
@@ -814,6 +818,8 @@ _shurli() {
             _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--ttl[Invite TTL]:duration' '--non-interactive[Machine-friendly output]' ;;
         join)
             _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--non-interactive[Machine-friendly output]' ;;
+        reconnect)
+            _arguments '--json[Output as JSON]' ;;
         recover)
             _arguments '--relay[Also recover relay vault]' '--dir[Config directory]:dir:_directories' ;;
         change-password)
@@ -891,6 +897,7 @@ complete -c shurli -n __shurli_no_subcommand -a verify      -d 'Verify a peer id
 complete -c shurli -n __shurli_no_subcommand -a service     -d 'Manage local services'
 complete -c shurli -n __shurli_no_subcommand -a plugin      -d 'Manage plugins'
 complete -c shurli -n __shurli_no_subcommand -a notify      -d 'Notification management'
+complete -c shurli -n __shurli_no_subcommand -a reconnect   -d 'Clear backoffs and force redial'
 complete -c shurli -n __shurli_no_subcommand -a status      -d 'Show local config and services'
 complete -c shurli -n __shurli_no_subcommand -a recover         -d 'Recover identity from seed phrase'
 complete -c shurli -n __shurli_no_subcommand -a change-password -d 'Change identity password'
@@ -1106,6 +1113,9 @@ complete -c shurli -n '__shurli_using_subcommand plugin info' -l json -d 'Output
 # --- notify subcommands ---
 complete -c shurli -n '__shurli_using_command notify' -a test -d 'Send test notification'
 complete -c shurli -n '__shurli_using_command notify' -a list -d 'Show configured sinks'
+
+# --- reconnect ---
+complete -c shurli -n '__shurli_using_command reconnect'   -l json       -d 'Output as JSON'
 
 # --- standalone commands with flags ---
 complete -c shurli -n '__shurli_using_command ping'       -l config     -d 'Config file'
