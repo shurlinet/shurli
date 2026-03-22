@@ -316,7 +316,8 @@ type TransferProgress struct {
 	Done        bool      `json:"done"`
 	Error       string    `json:"error,omitempty"`
 
-	mu sync.Mutex
+	mu         sync.Mutex
+	cancelFunc func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
 }
 
 func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
@@ -355,6 +356,14 @@ func (p *TransferProgress) addWireBytes(n int64) {
 	p.mu.Unlock()
 }
 
+// setCancelFunc registers a function that CancelTransfer will call to stop the
+// underlying I/O for this transfer (e.g. stream.Reset for receive transfers).
+func (p *TransferProgress) setCancelFunc(f func()) {
+	p.mu.Lock()
+	p.cancelFunc = f
+	p.mu.Unlock()
+}
+
 func (p *TransferProgress) setStatus(status string) {
 	p.mu.Lock()
 	p.Status = status
@@ -363,14 +372,20 @@ func (p *TransferProgress) setStatus(status string) {
 
 func (p *TransferProgress) finish(err error) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	// D1 fix: idempotent - first completion wins. Prevents a late success from
+	// overwriting an earlier cancel (CancelTransfer + executeQueuedJob race).
+	if p.Done {
+		return
+	}
 	p.Done = true
+	p.cancelFunc = nil // release stream reference
 	if err != nil {
 		p.Error = err.Error()
 		p.Status = "failed"
 	} else {
 		p.Status = "complete"
 	}
-	p.mu.Unlock()
 }
 
 // TransferSnapshot is a mutex-free copy of TransferProgress, safe for JSON
@@ -569,6 +584,12 @@ type TransferService struct {
 	tempFileExpiry    time.Duration        // auto-expire stale .tmp files (0 = never)
 	defenseCleanupStop context.CancelFunc  // stops the defense cleanup goroutine
 
+	// Per-job cancel functions (D1 fix: CancelTransfer context propagation).
+	// Keyed by transfer/queue ID. executeQueuedJob stores its cancel func here;
+	// CancelTransfer calls it to propagate cancellation to the running goroutine.
+	jobCancelMu sync.Mutex
+	jobCancels  map[string]context.CancelFunc
+
 	// Queue persistence.
 	queueFile    string     // path for persisted queue file
 	queueHMACKey []byte     // HMAC key for queue integrity
@@ -652,6 +673,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		multiPeerMaxPeers: multiPeerMaxPeers,
 		multiPeerMinSize:  multiPeerMinSize,
 		hashRegistry:      make(map[[32]byte]string),
+		jobCancels:        make(map[string]context.CancelFunc),
 	}
 
 	// Start the single queue processor goroutine.
@@ -1274,6 +1296,8 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
+	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
+	progress.setCancelFunc(func() { s.Reset() })
 
 	// Set erasure info on progress for CLI display.
 	if useErasure && len(parityEntries) > 0 {
@@ -1874,6 +1898,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
+		// D1 fix: register stream reset so CancelTransfer can stop this receive.
+		progress.setCancelFunc(func() { s.Reset() })
 		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 		// Set up parallel receive session so worker streams can deliver chunks.
@@ -2579,12 +2605,38 @@ func (ts *TransferService) runQueueProcessor() {
 }
 
 // executeQueuedJob runs a single queued transfer to completion.
+// D1 fix: creates a per-job context derived from queueCtx so CancelTransfer
+// can propagate cancellation to the running goroutine and underlying I/O.
 func (ts *TransferService) executeQueuedJob(job *queuedJob) {
+	// D1 fix: if already cancelled between dequeue and goroutine start, skip work.
+	if job.progress.Snapshot().Done {
+		ts.queue.Complete(job.queueID)
+		select {
+		case ts.queueReady <- struct{}{}:
+		default:
+		}
+		return
+	}
+
+	// Create per-job context so CancelTransfer can cancel this specific job.
+	jobCtx, jobCancel := context.WithCancel(ts.queueCtx)
+	defer jobCancel()
+
+	// Register the cancel func so CancelTransfer can call it.
+	ts.jobCancelMu.Lock()
+	ts.jobCancels[job.queueID] = jobCancel
+	ts.jobCancelMu.Unlock()
+	defer func() {
+		ts.jobCancelMu.Lock()
+		delete(ts.jobCancels, job.queueID)
+		ts.jobCancelMu.Unlock()
+	}()
+
 	job.progress.setStatus("active")
 
 	var finalErr error
 	if job.isDir {
-		_, finalErr = ts.SendDirectory(context.Background(), job.filePath, job.openStream, job.opts)
+		_, finalErr = ts.SendDirectory(jobCtx, job.filePath, job.openStream, job.opts)
 	} else {
 		stream, err := job.openStream()
 		if err != nil {
@@ -2597,31 +2649,9 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 				finalErr = sendErr
 			} else {
 				// Copy the real transfer's progress into our queued progress tracker.
-				// Poll until send completes.
-				for {
-					snap := sendProgress.Snapshot()
-					job.progress.mu.Lock()
-					job.progress.Size = snap.Size
-					job.progress.Transferred = snap.Transferred
-					job.progress.ChunksTotal = snap.ChunksTotal
-					job.progress.ChunksDone = snap.ChunksDone
-					job.progress.Compressed = snap.Compressed
-					job.progress.CompressedSize = snap.CompressedSize
-					job.progress.ErasureParity = snap.ErasureParity
-					job.progress.ErasureOverhead = snap.ErasureOverhead
-					if len(snap.StreamProgress) > 0 {
-						job.progress.StreamProgress = make([]StreamInfo, len(snap.StreamProgress))
-						copy(job.progress.StreamProgress, snap.StreamProgress)
-					}
-					job.progress.mu.Unlock()
-					if snap.Done {
-						if snap.Error != "" {
-							finalErr = fmt.Errorf("%s", snap.Error)
-						}
-						break
-					}
-					time.Sleep(200 * time.Millisecond)
-				}
+				// D1 fix: check jobCtx.Done() so cancel propagates to the polling loop.
+				// When cancelled, reset the stream to stop the underlying SendFile goroutine.
+				finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress)
 			}
 		}
 	}
@@ -2643,6 +2673,46 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 	default:
 	}
 	ts.persistQueue()
+}
+
+// pollSendProgress copies progress from a SendFile operation into the queued job's
+// progress tracker. Exits when the send completes or the context is cancelled.
+// On cancel, resets the stream to stop the underlying SendFile goroutine.
+func pollSendProgress(ctx context.Context, stream network.Stream, sendProgress, jobProgress *TransferProgress) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		snap := sendProgress.Snapshot()
+		jobProgress.mu.Lock()
+		jobProgress.Size = snap.Size
+		jobProgress.Transferred = snap.Transferred
+		jobProgress.ChunksTotal = snap.ChunksTotal
+		jobProgress.ChunksDone = snap.ChunksDone
+		jobProgress.Compressed = snap.Compressed
+		jobProgress.CompressedSize = snap.CompressedSize
+		jobProgress.ErasureParity = snap.ErasureParity
+		jobProgress.ErasureOverhead = snap.ErasureOverhead
+		if len(snap.StreamProgress) > 0 {
+			jobProgress.StreamProgress = make([]StreamInfo, len(snap.StreamProgress))
+			copy(jobProgress.StreamProgress, snap.StreamProgress)
+		}
+		jobProgress.mu.Unlock()
+
+		if snap.Done {
+			if snap.Error != "" {
+				return fmt.Errorf("%s", snap.Error)
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			stream.Reset()
+			return fmt.Errorf("cancelled")
+		case <-ticker.C:
+		}
+	}
 }
 
 // CancelTransfer cancels a queued or active transfer by ID or unique prefix.
@@ -2687,15 +2757,45 @@ func (ts *TransferService) CancelTransfer(id string) error {
 		return nil
 	}
 
-	// For active transfers, mark as cancelled (best effort - the goroutine
-	// will see the status change on next progress check).
+	// D1 fix: for active transfers, cancel the per-job context and progress-level
+	// cancel func to propagate cancellation to the running goroutine.
+	// Collect cancel actions under lock, execute outside - stream.Reset() (called
+	// by progressCancel) could block on network I/O and must not hold locks.
+	ts.jobCancelMu.Lock()
+	jobCancel, hasJobCancel := ts.jobCancels[resolved]
+	ts.jobCancelMu.Unlock()
+
+	var progressCancel func()
+	found := false
+
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if p, ok := ts.transfers[resolved]; ok && !p.Done {
-		p.finish(fmt.Errorf("cancelled"))
-		return nil
+	if p, ok := ts.transfers[resolved]; ok {
+		// Read p.Done and p.cancelFunc under p.mu (they are protected by p.mu, not ts.mu).
+		p.mu.Lock()
+		done := p.Done
+		if !done {
+			found = true
+			progressCancel = p.cancelFunc
+		}
+		p.mu.Unlock()
+		if !done {
+			p.finish(fmt.Errorf("cancelled"))
+		}
 	}
-	return fmt.Errorf("transfer %q not found or already completed", id)
+	ts.mu.Unlock()
+
+	if !found {
+		return fmt.Errorf("transfer %q not found or already completed", id)
+	}
+
+	// Execute cancel actions outside all locks.
+	if hasJobCancel {
+		jobCancel()
+	}
+	if progressCancel != nil {
+		progressCancel()
+	}
+	return nil
 }
 
 // resolveTransferID resolves an exact ID or unique prefix to the full transfer ID.
@@ -3454,6 +3554,8 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		peerKey, "download", manifest.ChunkCount, compressed)
 	progress.setStatus("active")
+	// D1 fix: register stream reset so CancelTransfer can stop the receive goroutine.
+	progress.setCancelFunc(func() { s.Reset() })
 	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 	// Receive chunks (reuses the parallel receive path).

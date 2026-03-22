@@ -23,7 +23,7 @@ RELAY_SERVICE_DEST := /etc/systemd/system/shurli-relay.service
 
 .PHONY: build test clean install install-service uninstall-service uninstall restart-service \
         install-relay install-relay-service uninstall-relay-service uninstall-relay \
-        sync-docs website check push help
+        sync-docs website check push help importcheck
 
 ## Build the shurli binary with version embedding.
 build:
@@ -32,6 +32,10 @@ build:
 ## Run all tests with race detection.
 test:
 	go test -race -count=1 ./...
+
+## Check plugin import boundaries (plugins/ must not import internal/ except allowed helpers).
+importcheck:
+	go run ./tools/importcheck/cmd/importcheck ./plugins/...
 
 ## Remove build artifacts.
 clean:

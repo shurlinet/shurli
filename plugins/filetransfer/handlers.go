@@ -1,6 +1,7 @@
 package filetransfer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -301,11 +302,13 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 			if e.IsDir {
 				kind = "[dir]"
 			}
-			downloadPath := e.Path
+			// D3 fix: sanitize remote-controlled strings for display (terminal injection).
+			displayName := p2pnet.SanitizeDisplayName(e.Name)
+			downloadPath := p2pnet.SanitizeDisplayName(e.Path)
 			if e.ShareID != "" {
-				downloadPath = e.ShareID + "/" + e.Path
+				downloadPath = p2pnet.SanitizeDisplayName(e.ShareID) + "/" + downloadPath
 			}
-			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, e.Name, humanSize(e.Size), downloadPath)
+			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, displayName, humanSize(e.Size), downloadPath)
 		}
 		daemon.RespondText(w, http.StatusOK, sb.String())
 		return
@@ -451,16 +454,27 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 			Size:       snap.Size,
 		})
 		// X2 fix: remove checkpoint when transfer completes.
-		go func(id, dir string, prog *p2pnet.TransferProgress) {
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				if prog.Snapshot().Done {
-					removeCheckpoint(dir, id)
-					return
+		// D1 fix: use activeCtx so goroutine exits on plugin shutdown.
+		p.mu.RLock()
+		activeCtx := p.activeCtx
+		p.mu.RUnlock()
+		if activeCtx != nil {
+			go func(ctx context.Context, id, dir string, prog *p2pnet.TransferProgress) {
+				ticker := time.NewTicker(2 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if prog.Snapshot().Done {
+							removeCheckpoint(dir, id)
+							return
+						}
+					}
 				}
-			}
-		}(snap.ID, cfgDir, progress)
+			}(activeCtx, snap.ID, cfgDir, progress)
+		}
 	}
 
 	slog.Info("file download started via API",
