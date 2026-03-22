@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes cardGlow1 { 0%, 100% { stroke-opacity: 0.6; fill-opacity: 0.06; } 50% { stroke-opacity: 1; fill-opacity: 0.15; } }
+    @keyframes cardGlow2 { 0%, 100% { stroke-opacity: 0.6; fill-opacity: 0.06; } 50% { stroke-opacity: 1; fill-opacity: 0.15; } }
+    @keyframes cardGlow3 { 0%, 100% { stroke-opacity: 0.6; fill-opacity: 0.06; } 50% { stroke-opacity: 1; fill-opacity: 0.15; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    @keyframes dotPulse { 0%, 100% { r: 6; opacity: 0.2; } 50% { r: 9; opacity: 0.5; } }
+    @keyframes gatePulse { 0%, 100% { stroke-opacity: 0.8; } 50% { stroke-opacity: 1; fill-opacity: 0.15; } }
+    .f1 { animation: fadeIn 0.6s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.6s both; }
+    .f3 { animation: fadeIn 0.6s ease-out 1.0s both; }
+    .f4 { animation: fadeIn 0.6s ease-out 1.4s both; }
+    .cg1 { animation: cardGlow1 3s ease-in-out infinite; }
+    .cg2 { animation: cardGlow2 3s ease-in-out infinite 1s; }
+    .cg3 { animation: cardGlow3 3s ease-in-out infinite 2s; }
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+    .dot1 { animation: dotPulse 2s ease-in-out infinite; }
+    .dot2 { animation: dotPulse 2s ease-in-out infinite 0.7s; }
+    .dot3 { animation: dotPulse 2s ease-in-out infinite 1.4s; }
+    .gate { animation: gatePulse 2.5s ease-in-out infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="400" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="400" y="35" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">AUTHORIZED vs ALLOWED</text>
+
+  <!-- LEFT SIDE: Binary model -->
+  <g class="f1">
+    <text x="200" y="72" text-anchor="middle" font-size="16" font-weight="600" fill="#ff6b6b">Binary Model</text>
+    <rect x="60" y="85" width="280" height="280" rx="12" stroke="#ff6b6b" stroke-width="1" fill="#ff6b6b" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Single gate - pulsing -->
+  <g class="f2">
+    <rect x="140" y="150" width="120" height="60" rx="8" stroke="#ff6b6b" stroke-width="2" fill="#ff6b6b" fill-opacity="0.1" class="gate"/>
+    <text x="200" y="185" text-anchor="middle" font-size="14" font-weight="500" fill="#ff6b6b">AUTHORIZED?</text>
+  </g>
+
+  <!-- Arrow down -->
+  <g class="f3">
+    <line x1="200" y1="215" x2="200" y2="250" stroke="#ff6b6b" stroke-width="1.5" opacity="0.6"/>
+    <polygon points="195,248 205,248 200,258" fill="#ff6b6b" opacity="0.6"/>
+    <text x="200" y="278" text-anchor="middle" font-size="13" fill="#ff6b6b" opacity="0.8">Access EVERYTHING</text>
+    <text x="200" y="296" text-anchor="middle" font-size="12" fill="#888">All services. Forever.</text>
+  </g>
+
+  <!-- Red X marks -->
+  <g class="f4" opacity="0.6">
+    <text x="120" y="330" font-size="12" fill="#ff6b6b">x No time limits</text>
+    <text x="120" y="350" font-size="12" fill="#ff6b6b">x No service scoping</text>
+  </g>
+
+  <!-- Divider -->
+  <line x1="400" y1="80" x2="400" y2="370" stroke="#333" stroke-width="1" stroke-dasharray="4 4" class="f1"/>
+
+  <!-- RIGHT SIDE: Capability model -->
+  <g class="f2">
+    <text x="600" y="72" text-anchor="middle" font-size="16" font-weight="600" fill="#00d4aa">Capability Model</text>
+    <rect x="460" y="85" width="280" height="280" rx="12" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Card 1: file-browse - continuously glowing -->
+  <rect x="480" y="115" width="250" height="38" rx="6" stroke="#00d4aa" stroke-width="1.5" fill="#00d4aa" class="cg1"/>
+  <circle cx="505" cy="134" r="8" fill="#00d4aa" class="dot1"/>
+  <text x="520" y="138" font-size="12" fill="#00d4aa" font-weight="500">file-browse</text>
+  <text x="720" y="138" text-anchor="end" font-size="11" fill="#888">1 hour</text>
+
+  <!-- Card 2: file-transfer -->
+  <rect x="480" y="165" width="250" height="38" rx="6" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" class="cg2"/>
+  <circle cx="505" cy="184" r="8" fill="#ffb347" class="dot2"/>
+  <text x="520" y="188" font-size="12" fill="#ffb347" font-weight="500">file-transfer</text>
+  <text x="720" y="188" text-anchor="end" font-size="11" fill="#888">7 days</text>
+
+  <!-- Card 3: ssh-proxy -->
+  <rect x="480" y="215" width="250" height="38" rx="6" stroke="#4488ff" stroke-width="1.5" fill="#4488ff" class="cg3"/>
+  <circle cx="505" cy="234" r="8" fill="#4488ff" class="dot3"/>
+  <text x="520" y="238" font-size="12" fill="#4488ff" font-weight="500">ssh-proxy</text>
+  <text x="720" y="238" text-anchor="end" font-size="11" fill="#888">permanent</text>
+
+  <!-- Green checks -->
+  <g class="f4" opacity="0.6">
+    <text x="510" y="285" font-size="12" fill="#00d4aa">+ Time-limited</text>
+    <text x="510" y="305" font-size="12" fill="#00d4aa">+ Service-scoped</text>
+  </g>
+
+  <!-- Pulsing DELEGATABLE badge -->
+  <rect x="555" y="320" width="100" height="24" rx="12" fill="#00d4aa" fill-opacity="0.15" stroke="#00d4aa" stroke-width="0.5" class="pulse"/>
+  <text x="605" y="336" text-anchor="middle" font-size="10" fill="#00d4aa" font-weight="500" class="pulse">DELEGATABLE</text>
+</svg>

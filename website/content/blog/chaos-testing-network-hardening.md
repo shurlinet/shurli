@@ -43,7 +43,7 @@ Every one of these required a daemon restart before. Now: zero restarts across 1
 
 ### The testing method
 
-No simulations. A laptop switching between real networks, a home server on a local network, two relay servers in different countries. Real satellite WiFi, real 5G hotspots, real VPN tunnels. Switch a network, watch the daemon logs, check if it recovered, fix what broke, rebuild, switch again.
+No simulations. A laptop switching between real networks, a server node on a local network, two relay servers in different countries. Real satellite WiFi, real 5G hotspots, real VPN tunnels. Switch a network, watch the daemon logs, check if it recovered, fix what broke, rebuild, switch again.
 
 ![Each fix exposed the next layer - the layered discovery pattern](/images/blog/chaos-testing-layers.svg)
 

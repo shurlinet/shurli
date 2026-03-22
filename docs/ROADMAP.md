@@ -223,7 +223,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE (framework + extraction + security hardening + physical retest). 9C-9E planned | ✅ 9A-9B2 |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE, per-peer data grants DONE (Phases A/R/B/C/D). 9C-9E planned | ✅ 9A-9B2+Grants |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 | Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
@@ -969,10 +969,11 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 
 **Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync. Current baseline (2026-03-15, WiFi LAN, 500MB random data): Shurli 5 MB/s vs SCP 9 MB/s (55% of SCP). The 45% overhead comes from per-chunk processing (BLAKE3 hash + zstd compress + wire framing) across 2164 chunks.
 
-**Baseline measurements**:
-- laptop -> home-node, WiFi LAN
+**Baseline measurements** (WiFi at distance - NOT protocol ceiling):
+- Client node -> server node, WiFi LAN
 - 500MB incompressible file (urandom)
 - SCP: 56s (~9 MB/s) | Shurli: 1m40s (~5 MB/s)
+- **Important**: Both numbers are constrained by the test environment (WiFi at distance), not protocol capability. Proper benchmarking requires wired gigabit LAN. Do not cite these as final performance numbers.
 
 **Optimization targets**:
 
@@ -1054,6 +1055,144 @@ shurli binary
 - `pkg/plugin/supervisor.go` - Auto-restart with circuit breaker
 - `plugins/filetransfer/plugin.go` - File transfer plugin implementation
 - `cmd/shurli/cmd_plugin.go` - Plugin CLI commands
+
+---
+
+#### Post-9B: Per-Peer Data Access Grants ✅ DONE
+
+**Timeline**: 2026-03-20 to 2026-03-22
+**Status**: ✅ Complete (5 phases: A, R, B, C, D - all physically tested and deployed)
+
+**Goal**: Replace binary `relay_data=true` with time-limited, per-peer capability grants using macaroon tokens. Node-level enforcement as the true security boundary (relay ACLs are defense-in-depth only).
+
+**Why this was needed**: First external user session revealed that relay-level ACLs alone are insufficient. In a multi-relay topology, a peer connecting through a permissive relay bypasses a strict relay's ACL entirely. 20-vector security thought experiment (5 categories, 1 CRITICAL, 4 HIGH) drove the design.
+
+**Phase A - Node-Level Grant Store**:
+- [x] `GrantStore` (`internal/grants/store.go`) with HMAC-integrity persistence
+- [x] Stream-level enforcement in `OpenPluginStream` (outbound) and `handleServiceStreamInner` (inbound)
+- [x] CLI: `shurli auth grant/revoke/extend/grants` with man pages and completions
+- [x] 30s re-verify during active transfers (B1 mitigation)
+- [x] Share-grant separation: `share add` warns when peer has no grant (confused deputy defense)
+- [x] MOTD: expiring grants shown in `shurli status`
+- [x] L4 audit (4 rounds, 12 fixes). Physical retest 10/10 PASS.
+
+**Phase R - Relay Time-Limited Grants**:
+- [x] Replaces binary `relay_data=true` with time-limited grant store on relay
+- [x] Physical retest 9/9 PASS
+
+**Phase B - Token Delivery + Presentation** (4 batches):
+- [x] B1: GrantPouch (holder-side token storage), P2P delivery protocol (`/shurli/grant/1.0.0`), offline delivery queue
+- [x] B2: Binary grant header on every plugin stream (4-byte overhead). Token presentation + cryptographic verification. Physical retest 12/12 PASS
+- [x] B3: Multi-hop delegation with attenuation-only model. `delegate_to` caveat chain for audit trail. Physical retest 8/8 PASS
+- [x] B4: Auto-refresh protocol (background refresh at 10% remaining). 5 rounds L4 audit, 14 findings fixed. Physical retest PASS
+
+**Phase C - Notification Subsystem**:
+- [x] `NotificationSink` interface with non-blocking router
+- [x] 8 event types (grant_created, grant_expiring, grant_expired, grant_revoked, grant_extended, grant_refreshed, grant_rate_limited, test)
+- [x] LogSink (always-on audit trail), DesktopSink (macOS/Linux), WebhookSink (HTTP POST with retry)
+- [x] Pre-expiry warnings with configurable threshold and dedup
+- [x] `shurli notify test/list` CLI commands
+
+**Phase D - Hardening + Operational Excellence**:
+- [x] Integrity-chained audit log (HMAC-SHA256 chain, tamper detection). `shurli auth audit [--verify] [--tail N]`
+- [x] Configurable cleanup interval (default 30s, min 5s)
+- [x] Per-peer ops rate limiter (10/min default, fires notification on violation)
+- [x] Protocol version on wire messages (downgrade protection)
+- [x] 3 rounds self-review, 8 bugs fixed. 25/25 PASS -race
+
+**Post-D UX + AI Agent CLI**:
+- [x] Rich notification messages (services/direction/peer name)
+- [x] `shurli auth pouch` (receiver-side grant visibility)
+- [x] `--json` on ALL grant + notify commands (AI agent integration)
+- [x] `shurli status` notifications section
+- [x] `shurli reconnect <peer> [--json]` (AI agent control - clears backoff, forces redial)
+- [x] Grant-aware backoff reset (relay notifies client on grant create, client clears all backoffs)
+- [x] Security fixes: AppleScript injection defense, Router thread safety, PeerIDStr bounds check
+
+**Key Files**:
+- `internal/grants/` - Store, Pouch, Protocol, DeliveryQueue, AuditLog, RateLimiter
+- `internal/notify/` - Router, Event, LogSink, DesktopSink, WebhookSink
+- `internal/macaroon/caveat.go` - 6 new caveat types (peer_id, delegate_to, max_delegations, auto_refresh, max_refreshes, max_refresh_duration)
+- `pkg/p2pnet/grant_header.go` - Binary token presentation header
+
+---
+
+#### Planned: ACL-to-Macaroon Migration (M2-M5)
+
+**Status**: 📋 Planned (M1 complete, M2-M5 phased rollout)
+
+**Goal**: Replace all five layers of ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) proved the pattern with Phases A-D. Each subsequent phase migrates one authorization layer.
+
+**Why**: ACL entries sit in a single file (authorized_keys) - one point of compromise. Macaroon capability tokens are cryptographic, delegatable, attenuation-only, and verifiable offline with just a root key. The per-peer data grant system (M1) proved this works in production.
+
+| Phase | Layer | Current Mechanism | Macaroon Replacement | Risk | Effort |
+|-------|-------|-------------------|---------------------|------|--------|
+| **M1** | Plugin/Service | GrantStore + GrantPouch | `peer_id`, `service`, `expires` caveats | - | **DONE** |
+| **M2** | Share | `shares.json` peer lists | `share_id` caveat on grants | Low | Small |
+| **M3** | Relay | `relay_authorized_keys` | Token presented for circuit auth | Medium | Medium |
+| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** | Large |
+| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low | Small |
+
+**Migration strategy per phase**:
+1. Design caveats specific to the layer
+2. Build verification at the enforcement point
+3. Run both ACL and macaroon in parallel (macaroon takes priority)
+4. Once proven, deprecate ACL path
+5. Eventually remove ACL code
+
+**Order rationale**: M2 is a natural extension of M1 (share peer lists are adjacent to grants). M3 is medium risk but high value (relay token auth replaces flat-file attributes). M4 is saved for last (touches libp2p handshake, deepest change). M5 is trivial once M4 lands.
+
+---
+
+#### Planned: Plugin Layer 2 - WASM Runtime
+
+**Status**: 📋 Planned (research complete, design ready)
+
+**Goal**: Third-party developers and AI agents can write plugins in any language (Rust, Python, JS, C) and ship them as `.wasm` files. Drop into `/plugins/`, Shurli discovers and loads with hardware-level sandbox isolation.
+
+**Runtime**: wazero (pure Go, zero CGo, cross-platform). 3-5% overhead for I/O-bound work. Cold start 5-20ms, warm calls in microseconds. Industry convergence confirmed: Envoy, Traefik, Zed, Grafana all use compiled-in + WASM hybrid.
+
+**What gets built**:
+- [ ] WASM plugin loader: discover `.wasm` files, compile, instantiate with sandbox
+- [ ] Host function bridge: Plugin interface (Layer 1) becomes the host-side contract
+- [ ] Capability grants: plugins declare needed capabilities (network, filesystem, config)
+- [ ] Pre-opened directories: plugin config scoped to its own dir (Capsicum pattern)
+- [ ] Memory caps: `WithMemoryLimitPages` per plugin (e.g., 16 pages = 1MB)
+- [ ] Context timeout: every WASM call gets a deadline (infinite loop protection)
+- [ ] MessagePack or protobuf serialization across the boundary (not JSON)
+- [ ] Same CLI experience: `shurli plugin list` shows both compiled-in and WASM plugins
+
+**Critical dependency**: WASI 0.3 (async I/O) expected mid-2026. Required for file transfer plugins in WASM. Without it, WASM plugins block on every I/O operation. Layer 2 can ship for non-I/O plugins first, then expand when WASI 0.3 lands.
+
+**Framework**: knqyf263/go-plugin or Extism (both built on wazero). Final choice at implementation time.
+
+**What this enables**: Any developer can extend Shurli without writing Go. Same `.wasm` binary runs on Go CLI, Swift app (via wazero equivalent), and future Kotlin app. Plugin ecosystem opens to the broader developer community.
+
+---
+
+#### Planned: Plugin Layer 3 - AI-Driven Plugin Generation
+
+**Status**: 📋 Future (requires Layers 1-2 solid)
+
+**Goal**: Skills.md describes plugin behavior in natural language. AI agent reads the spec, writes code in any language, compiles to WASM, drops into `/plugins/`. Zero-Human Network: the network generates its own extensions.
+
+**Prerequisites**: Layer 2 must be production-stable. Plugin interface must be well-documented. Security sandbox must be proven against adversarial WASM.
+
+---
+
+#### Planned: Module Slots
+
+**Status**: 📋 Planned (reputation slot designed, auth slot future)
+
+**Goal**: Certain system functions need swappable implementations without a full plugin. Module slots provide clean interfaces for operators to plug in custom algorithms.
+
+| Slot | Current | Next | Enterprise |
+|------|---------|------|------------|
+| **Reputation** | Heuristic scoring | Community Notes matrix factorization | Custom algorithms |
+| **Auth** | Macaroons + PAKE | (current is sufficient) | LDAP, SAML, OAuth2, client certs |
+| **Storage** | Local filesystem | (current is sufficient) | S3-compatible, distributed |
+
+The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic scores. Data collection and score consumption stay in core. The scoring algorithm is swappable. Community Notes matrix factorization is designed but not yet implemented.
 
 ---
 
