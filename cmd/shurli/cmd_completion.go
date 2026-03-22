@@ -228,7 +228,7 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
+    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate grant grants revoke extend delegate"
@@ -241,6 +241,7 @@ _shurli_completions() {
     local relay_config_cmds="show validate rollback"
     local service_cmds="add list remove enable disable"
     local plugin_cmds="list enable disable info disable-all"
+    local notify_cmds="test list"
     local completion_shells="bash zsh fish"
 
     case "${words[1]}" in
@@ -415,6 +416,9 @@ _shurli_completions() {
                     return ;;
             esac
             ;;
+        notify)
+            COMPREPLY=($(compgen -W "$notify_cmds" -- "$cur"))
+            return ;;
         recover)
             COMPREPLY=($(compgen -W "--relay --dir" -- "$cur"))
             return ;;
@@ -499,6 +503,7 @@ _shurli() {
         'verify:Verify a peer identity (SAS)'
         'service:Manage local services'
         'plugin:Manage plugins'
+        'notify:Notification management'
         'status:Show local config and services'
         'recover:Recover identity from seed phrase'
         'change-password:Change identity password'
@@ -633,6 +638,12 @@ _shurli() {
         'disable:Disable a plugin'
         'info:Show plugin details'
         'disable-all:Emergency disable all plugins'
+    )
+
+    local -a notify_cmds
+    notify_cmds=(
+        'test:Send test notification to all sinks'
+        'list:Show configured notification sinks'
     )
 
     local -a completion_shells
@@ -781,6 +792,11 @@ _shurli() {
                 esac
             fi
             ;;
+        notify)
+            if (( CURRENT == 3 )); then
+                _describe -t notify_cmds 'notify subcommand' notify_cmds
+            fi
+            ;;
         ping)
             _arguments '--config[Config file]:file:_files' '-c[Number of pings]:count' '-n[Number of pings]:count' '--interval[Ping interval]:interval' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         traceroute)
@@ -872,6 +888,7 @@ complete -c shurli -n __shurli_no_subcommand -a join        -d 'Join using an in
 complete -c shurli -n __shurli_no_subcommand -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n __shurli_no_subcommand -a service     -d 'Manage local services'
 complete -c shurli -n __shurli_no_subcommand -a plugin      -d 'Manage plugins'
+complete -c shurli -n __shurli_no_subcommand -a notify      -d 'Notification management'
 complete -c shurli -n __shurli_no_subcommand -a status      -d 'Show local config and services'
 complete -c shurli -n __shurli_no_subcommand -a recover         -d 'Recover identity from seed phrase'
 complete -c shurli -n __shurli_no_subcommand -a change-password -d 'Change identity password'
@@ -1078,6 +1095,10 @@ complete -c shurli -n '__shurli_using_command plugin' -a disable-all -d 'Emergen
 
 complete -c shurli -n '__shurli_using_subcommand plugin list' -l json -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_subcommand plugin info' -l json -d 'Output as JSON'
+
+# --- notify subcommands ---
+complete -c shurli -n '__shurli_using_command notify' -a test -d 'Send test notification'
+complete -c shurli -n '__shurli_using_command notify' -a list -d 'Show configured sinks'
 
 # --- standalone commands with flags ---
 complete -c shurli -n '__shurli_using_command ping'       -l config     -d 'Config file'

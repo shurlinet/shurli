@@ -81,6 +81,8 @@ func main() {
 		runSession(os.Args[2:])
 	case "plugin":
 		runPlugin(os.Args[2:])
+	case "notify":
+		runNotify(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "completion":
@@ -241,6 +243,10 @@ func printUsage() {
 	fmt.Println("  unlock                                 Unlock daemon with password")
 	fmt.Println("  session refresh                        Rotate session token")
 	fmt.Println("  session destroy                        Delete session token")
+	fmt.Println()
+	fmt.Println("Notifications:")
+	fmt.Println("  notify list                            Show configured notification sinks")
+	fmt.Println("  notify test                            Send test notification to all sinks")
 	fmt.Println()
 	fmt.Println("Plugins:")
 	fmt.Println("  plugin list [--json]                   List all plugins")

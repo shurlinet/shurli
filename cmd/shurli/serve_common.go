@@ -29,6 +29,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/identity"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
 	"github.com/shurlinet/shurli/internal/watchdog"
@@ -96,6 +97,9 @@ type serveRuntime struct {
 	grantPouch    *grants.Pouch
 	grantProtocol *grants.GrantProtocol
 	deliveryQueue *grants.DeliveryQueue
+
+	// Notification router (Phase C)
+	notifyRouter *notify.Router
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -1376,6 +1380,9 @@ func (rt *serveRuntime) Shutdown() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)
 		shutdownCancel()
+	}
+	if rt.notifyRouter != nil {
+		rt.notifyRouter.Stop()
 	}
 	if rt.grantProtocol != nil {
 		rt.grantProtocol.Stop()

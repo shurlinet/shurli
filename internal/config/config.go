@@ -25,9 +25,10 @@ type HomeNodeConfig struct {
 	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
-	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
-	Plugins   PluginsConfig   `yaml:"plugins,omitempty"`
-	Grants    GrantsConfig    `yaml:"grants,omitempty"`
+	Transfer      TransferConfig      `yaml:"transfer,omitempty"`
+	Plugins       PluginsConfig       `yaml:"plugins,omitempty"`
+	Grants        GrantsConfig        `yaml:"grants,omitempty"`
+	Notifications NotificationsConfig `yaml:"notifications,omitempty"`
 }
 
 // GrantsConfig holds per-peer data access grant settings.
@@ -35,6 +36,29 @@ type GrantsConfig struct {
 	DeliveryQueueTTL    string `yaml:"delivery_queue_ttl,omitempty"`    // e.g. "7d", "24h", "3d" (default: 7d)
 	AutoRefresh         bool   `yaml:"auto_refresh,omitempty"`          // global default for --auto-refresh (default: false)
 	MaxRefreshDuration  string `yaml:"max_refresh_duration,omitempty"`  // max total refresh duration, e.g. "3d" (default: 3d)
+}
+
+// NotificationsConfig holds notification subsystem settings (Phase C).
+type NotificationsConfig struct {
+	Desktop       *bool                   `yaml:"desktop,omitempty"`        // nil = auto-detect (default), true = force on, false = force off
+	ExpiryWarning string                  `yaml:"expiry_warning,omitempty"` // threshold for grant_expiring events, e.g. "10m" (default: 10m)
+	Webhook       NotificationWebhookConfig `yaml:"webhook,omitempty"`
+}
+
+// IsDesktopEnabled returns whether desktop notifications are enabled.
+// nil (unset) defaults to true (auto-detect platform availability).
+func (c *NotificationsConfig) IsDesktopEnabled() bool {
+	if c.Desktop == nil {
+		return true
+	}
+	return *c.Desktop
+}
+
+// NotificationWebhookConfig holds webhook sink settings.
+type NotificationWebhookConfig struct {
+	URL     string            `yaml:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
+	Events  []string          `yaml:"events,omitempty"` // filter: only fire for these event types
 }
 
 // PluginsConfig holds per-plugin configuration.

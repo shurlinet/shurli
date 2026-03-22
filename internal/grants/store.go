@@ -88,6 +88,7 @@ type Store struct {
 	onRevoke       func(peer.ID)         // callback when a grant is revoked (close streams)
 	onGrant        func(peer.ID, *Grant) // callback when a grant is created (P2P delivery)
 	onRevokeNotify func(peer.ID)         // callback to notify peer of revocation (P2P delivery)
+	onNotify       func(string, peer.ID, map[string]string) // Phase C: notification router callback (string = event type)
 	deliveryWg     sync.WaitGroup       // tracks in-flight delivery goroutines for clean shutdown
 	dummyToken     *macaroon.Macaroon   // pre-computed token for D1 constant-time check
 	logger         *slog.Logger
@@ -139,6 +140,16 @@ func (s *Store) SetOnRevokeNotify(fn func(peer.ID)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onRevokeNotify = fn
+}
+
+// SetOnNotify sets a callback invoked on grant lifecycle events (Phase C).
+// The callback receives the event type string, peer ID, and metadata.
+// Event types: "grant_created", "grant_revoked", "grant_extended",
+// "grant_refreshed", "grant_expired".
+func (s *Store) SetOnNotify(fn func(string, peer.ID, map[string]string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onNotify = fn
 }
 
 // GrantOptions holds optional parameters for creating a grant.
@@ -193,6 +204,7 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	var grantCopy *Grant
 	s.mu.Lock()
 	onGrant := s.onGrant
+	onNotify := s.onNotify
 	if onGrant != nil {
 		grantCopy = grant.clone()
 	}
@@ -213,6 +225,15 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	}
 	s.logger.Info("grants: created", logAttrs...)
 
+	// Phase C: notification.
+	if onNotify != nil {
+		meta := map[string]string{"permanent": fmt.Sprintf("%v", permanent)}
+		if !permanent {
+			meta["expires_at"] = expiresAt.Format(time.RFC3339)
+		}
+		onNotify("grant_created", peerID, meta)
+	}
+
 	// Phase B: deliver token to peer over P2P.
 	if onGrant != nil {
 		s.deliveryWg.Add(1)
@@ -228,14 +249,27 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 // Revoke removes a grant for the given peer and closes their connections.
 func (s *Store) Revoke(peerID peer.ID) error {
 	s.mu.Lock()
-	_, exists := s.grants[peerID]
+	g, exists := s.grants[peerID]
 	if !exists {
 		s.mu.Unlock()
 		return fmt.Errorf("no grant found for peer %s", shortPeerID(peerID))
 	}
+	// Capture metadata before deletion for the notification.
+	var notifyMeta map[string]string
+	if s.onNotify != nil {
+		notifyMeta = map[string]string{}
+		if !g.Permanent {
+			notifyMeta["was_remaining"] = g.Remaining().Round(time.Second).String()
+			notifyMeta["expires_at"] = g.ExpiresAt.Format(time.RFC3339)
+		}
+		if len(g.Services) > 0 {
+			notifyMeta["services"] = strings.Join(g.Services, ",")
+		}
+	}
 	delete(s.grants, peerID)
 	onRevoke := s.onRevoke
 	onRevokeNotify := s.onRevokeNotify
+	onNotify := s.onNotify
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -243,6 +277,11 @@ func (s *Store) Revoke(peerID peer.ID) error {
 	}
 
 	s.logger.Info("grants: revoked", "peer", shortPeerID(peerID))
+
+	// Phase C: notification.
+	if onNotify != nil {
+		onNotify("grant_revoked", peerID, notifyMeta)
+	}
 
 	// Phase B: notify peer of revocation over P2P.
 	if onRevokeNotify != nil {
@@ -287,6 +326,7 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	// Clone while holding the lock so concurrent operations can't race.
 	var grantCopy *Grant
 	onGrant := s.onGrant
+	onNotify := s.onNotify
 	if onGrant != nil {
 		grantCopy = g.clone()
 	}
@@ -297,6 +337,13 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	}
 
 	s.logger.Info("grants: extended", "peer", shortPeerID(peerID), "new_expiry", newExpiry.Format(time.RFC3339))
+
+	// Phase C: notification.
+	if onNotify != nil {
+		onNotify("grant_extended", peerID, map[string]string{
+			"expires_at": newExpiry.Format(time.RFC3339),
+		})
+	}
 
 	// Phase B: deliver updated token to peer (new expiry, new macaroon).
 	if onGrant != nil {
@@ -378,6 +425,7 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 	result := g.clone()
 	refreshesUsed := g.RefreshesUsed
 	maxRefreshes := g.MaxRefreshes
+	onNotify := s.onNotify
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -388,6 +436,15 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 		"new_expiry", newExpiry.Format(time.RFC3339),
 		"refreshes_used", refreshesUsed,
 		"max_refreshes", maxRefreshes)
+
+	// Phase C: notification.
+	if onNotify != nil {
+		onNotify("grant_refreshed", peerID, map[string]string{
+			"expires_at":     newExpiry.Format(time.RFC3339),
+			"refreshes_used": fmt.Sprintf("%d", refreshesUsed),
+			"max_refreshes":  fmt.Sprintf("%d", maxRefreshes),
+		})
+	}
 
 	// NOTE: No onGrant callback here. The refreshed token is returned directly
 	// to the requesting peer via the refresh response on the same stream.
@@ -547,27 +604,46 @@ func (s *Store) Stop() {
 }
 
 func (s *Store) cleanExpired() {
+	type expiredEntry struct {
+		pid  peer.ID
+		meta map[string]string
+	}
 	s.mu.Lock()
-	var removed []peer.ID
+	var removed []expiredEntry
+	captureNotify := s.onNotify != nil
 	for pid, g := range s.grants {
 		if g.Expired() {
-			removed = append(removed, pid)
+			var meta map[string]string
+			if captureNotify {
+				meta = map[string]string{
+					"expires_at": g.ExpiresAt.Format(time.RFC3339),
+				}
+				if len(g.Services) > 0 {
+					meta["services"] = strings.Join(g.Services, ",")
+				}
+			}
+			removed = append(removed, expiredEntry{pid: pid, meta: meta})
 			delete(s.grants, pid)
 		}
 	}
 	onRevoke := s.onRevoke
+	onNotify := s.onNotify
 	s.mu.Unlock()
 
 	if len(removed) > 0 {
 		if err := s.save(); err != nil {
 			s.logger.Error("grants: failed to persist after cleanup", "error", err)
 		}
-		for _, pid := range removed {
-			s.logger.Info("grants: expired grant removed, closing connections", "peer", shortPeerID(pid))
+		for _, entry := range removed {
+			s.logger.Info("grants: expired grant removed, closing connections", "peer", shortPeerID(entry.pid))
+			// Phase C: notification.
+			if onNotify != nil {
+				onNotify("grant_expired", entry.pid, entry.meta)
+			}
 			// B1 mitigation: close connections to peers whose grants expired.
 			// This terminates any active transfers that outlived the grant.
 			if onRevoke != nil {
-				onRevoke(pid)
+				onRevoke(entry.pid)
 			}
 		}
 	}

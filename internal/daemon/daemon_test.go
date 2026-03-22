@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -51,6 +52,7 @@ func (m *mockRuntime) GrantPouch() *grants.Pouch                    { return nil
 func (m *mockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
 func (m *mockRuntime) GrantsAutoRefresh() bool                      { return false }
 func (m *mockRuntime) GrantsMaxRefreshDuration() string             { return "" }
+func (m *mockRuntime) NotifyRouter() *notify.Router                 { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
