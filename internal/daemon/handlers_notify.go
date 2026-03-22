@@ -19,7 +19,7 @@ func (s *Server) handleNotifySinks(w http.ResponseWriter, r *http.Request) {
 	names := router.Sinks()
 	result := make([]NotifySinkInfo, len(names))
 	for i, name := range names {
-		result[i] = NotifySinkInfo{Name: name}
+		result[i] = NotifySinkInfo{Name: name, Status: "active"}
 	}
 
 	RespondJSON(w, http.StatusOK, result)

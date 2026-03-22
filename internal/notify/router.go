@@ -54,7 +54,8 @@ type Router struct {
 }
 
 // NewRouter creates a notification router. The LogSink is always added first.
-func NewRouter(logger *slog.Logger) *Router {
+// logLevel filters the log sink: "" or "info" logs everything, "warn" logs only warnings.
+func NewRouter(logger *slog.Logger, logLevel Severity) *Router {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -67,7 +68,7 @@ func NewRouter(logger *slog.Logger) *Router {
 		logger:          logger,
 	}
 	// LogSink is always first and always present.
-	r.sinks = append(r.sinks, NewLogSink(logger))
+	r.sinks = append(r.sinks, NewLogSink(logger, logLevel))
 	return r
 }
 
@@ -90,7 +91,10 @@ func (r *Router) Sinks() []string {
 }
 
 // SetExpiryChecker configures the source for pre-expiry warning checks.
+// Must be called before Start().
 func (r *Router) SetExpiryChecker(checker ExpiryChecker, threshold, interval time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.expiryChecker = checker
 	if threshold > 0 {
 		r.expiryThreshold = threshold
@@ -102,6 +106,8 @@ func (r *Router) SetExpiryChecker(checker ExpiryChecker, threshold, interval tim
 
 // SetNameResolver sets the function used to resolve peer IDs to names.
 func (r *Router) SetNameResolver(fn func(peerID string) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.nameResolver = fn
 }
 
@@ -112,15 +118,16 @@ func (r *Router) Emit(event Event) {
 		return
 	}
 
-	// Resolve peer name if not already set.
-	if event.PeerName == "" && event.PeerID != "" && r.nameResolver != nil {
-		event.PeerName = r.nameResolver(event.PeerID)
-	}
-
 	r.mu.RLock()
+	resolver := r.nameResolver
 	sinks := make([]Sink, len(r.sinks))
 	copy(sinks, r.sinks)
 	r.mu.RUnlock()
+
+	// Resolve peer name if not already set.
+	if event.PeerName == "" && event.PeerID != "" && resolver != nil {
+		event.PeerName = resolver(event.PeerID)
+	}
 
 	for _, s := range sinks {
 		go func(sink Sink) {
@@ -145,7 +152,9 @@ func (r *Router) Emit(event Event) {
 // Start begins the pre-expiry warning ticker and dedup cleanup.
 // Must be called after SetExpiryChecker. Safe to call only once.
 func (r *Router) Start() {
+	r.mu.Lock()
 	r.started = true
+	r.mu.Unlock()
 	go func() {
 		defer close(r.done)
 
@@ -171,7 +180,10 @@ func (r *Router) Start() {
 // Stop shuts down the pre-expiry ticker and waits for it to exit.
 // Safe to call even if Start was never called. Must not be called twice after Start.
 func (r *Router) Stop() {
-	if !r.started {
+	r.mu.RLock()
+	started := r.started
+	r.mu.RUnlock()
+	if !started {
 		return
 	}
 	close(r.stopCh)
@@ -214,11 +226,16 @@ func (f ExpiryCheckerFunc) ExpiringWithin(d time.Duration) []ExpiryInfo { return
 // checkExpiring queries the ExpiryChecker and emits grant_expiring events.
 // Dedup ensures each grant only fires one warning per expiry cycle.
 func (r *Router) checkExpiring() {
-	if r.expiryChecker == nil {
+	r.mu.RLock()
+	checker := r.expiryChecker
+	threshold := r.expiryThreshold
+	r.mu.RUnlock()
+
+	if checker == nil {
 		return
 	}
 
-	expiring := r.expiryChecker.ExpiringWithin(r.expiryThreshold)
+	expiring := checker.ExpiringWithin(threshold)
 	for _, info := range expiring {
 		// Use a deterministic ID so the same grant doesn't fire repeatedly.
 		// Includes the expiry time so extending a grant generates a new warning.
@@ -231,7 +248,7 @@ func (r *Router) checkExpiring() {
 			Severity:  SeverityWarn,
 			PeerID:    info.PeerID,
 			PeerName:  info.PeerName,
-			Message:   "grant expiring in " + remaining,
+			Message:   "relay data access expiring in " + remaining,
 			Timestamp: time.Now(),
 			Metadata: map[string]string{
 				"remaining":  remaining,

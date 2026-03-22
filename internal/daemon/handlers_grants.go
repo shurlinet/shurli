@@ -27,29 +27,7 @@ func (s *Server) handleGrantList(w http.ResponseWriter, r *http.Request) {
 
 	var infos []GrantInfo
 	for _, g := range active {
-		info := GrantInfo{
-			PeerID:         g.PeerIDStr,
-			Services:       g.Services,
-			CreatedAt:      g.CreatedAt.Format(time.RFC3339),
-			Permanent:      g.Permanent,
-			MaxDelegations: g.MaxDelegations,
-			AutoRefresh:    g.AutoRefresh,
-			MaxRefreshes:   g.MaxRefreshes,
-			RefreshesUsed:  g.RefreshesUsed,
-		}
-
-		if name, ok := reverseNames[g.PeerIDStr]; ok {
-			info.Peer = name
-		} else {
-			info.Peer = g.PeerIDStr[:16] + "..."
-		}
-
-		if !g.Permanent {
-			info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
-			info.Remaining = formatDuration(g.Remaining())
-		}
-
-		infos = append(infos, info)
+		infos = append(infos, grantToInfo(g, reverseNames))
 	}
 
 	if infos == nil {
@@ -138,28 +116,8 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info := GrantInfo{
-		PeerID:         grant.PeerIDStr,
-		Services:       grant.Services,
-		CreatedAt:      grant.CreatedAt.Format(time.RFC3339),
-		Permanent:      grant.Permanent,
-		MaxDelegations: grant.MaxDelegations,
-		AutoRefresh:    grant.AutoRefresh,
-		MaxRefreshes:   grant.MaxRefreshes,
-		RefreshesUsed:  grant.RefreshesUsed,
-	}
-
 	reverseNames := s.buildReverseNames()
-	if name, ok := reverseNames[grant.PeerIDStr]; ok {
-		info.Peer = name
-	} else {
-		info.Peer = grant.PeerIDStr[:16] + "..."
-	}
-
-	if !grant.Permanent {
-		info.ExpiresAt = grant.ExpiresAt.Format(time.RFC3339)
-		info.Remaining = formatDuration(grant.Remaining())
-	}
+	info := grantToInfo(grant, reverseNames)
 
 	RespondJSON(w, http.StatusCreated, info)
 }
@@ -383,6 +341,85 @@ func (s *Server) buildReverseNames() map[string]string {
 		}
 	}
 	return reverse
+}
+
+// handlePouchList returns all non-expired tokens in the grant pouch (receiver's view).
+func (s *Server) handlePouchList(w http.ResponseWriter, r *http.Request) {
+	pouch := s.runtime.GrantPouch()
+	if pouch == nil {
+		RespondError(w, http.StatusServiceUnavailable, "grant pouch not initialized")
+		return
+	}
+
+	entries := pouch.List()
+	reverseNames := s.buildReverseNames()
+
+	var infos []PouchEntryInfo
+	for _, e := range entries {
+		info := PouchEntryInfo{
+			IssuerID:  e.IssuerIDStr,
+			Services:  e.Services,
+			Permanent: e.Permanent,
+		}
+
+		if name, ok := reverseNames[e.IssuerIDStr]; ok {
+			info.Issuer = name
+		} else {
+			info.Issuer = truncatePeerID(e.IssuerIDStr)
+		}
+
+		if !e.Permanent {
+			info.ExpiresAt = e.ExpiresAt.Format(time.RFC3339)
+			remaining := time.Until(e.ExpiresAt)
+			if remaining < 0 {
+				remaining = 0
+			}
+			info.Remaining = formatDuration(remaining)
+		}
+
+		infos = append(infos, info)
+	}
+
+	if infos == nil {
+		infos = []PouchEntryInfo{}
+	}
+
+	RespondJSON(w, http.StatusOK, PouchListResponse{Entries: infos})
+}
+
+// truncatePeerID returns a short display form of a peer ID string.
+func truncatePeerID(id string) string {
+	if len(id) > 16 {
+		return id[:16] + "..."
+	}
+	return id
+}
+
+// grantToInfo converts a grants.Grant to a GrantInfo, resolving the peer name.
+func grantToInfo(g *grants.Grant, reverseNames map[string]string) GrantInfo {
+	info := GrantInfo{
+		PeerID:         g.PeerIDStr,
+		Services:       g.Services,
+		CreatedAt:      g.CreatedAt.Format(time.RFC3339),
+		Permanent:      g.Permanent,
+		MaxDelegations: g.MaxDelegations,
+		AutoRefresh:    g.AutoRefresh,
+		MaxRefreshes:   g.MaxRefreshes,
+		RefreshesUsed:  g.RefreshesUsed,
+	}
+
+	if name, ok := reverseNames[g.PeerIDStr]; ok {
+		info.Peer = name
+	} else {
+		info.Peer = truncatePeerID(g.PeerIDStr)
+	}
+
+	if !g.Permanent {
+		info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
+		info.Remaining = formatDuration(g.Remaining())
+	}
+
+	return info
 }
 
 // formatDuration returns a human-readable duration string.

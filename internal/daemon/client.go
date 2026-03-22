@@ -501,12 +501,6 @@ func (c *Client) GrantRevoke(peer string) error {
 	return c.doJSON("POST", "/v1/grants/revoke", bytes.NewReader(body), nil)
 }
 
-// GrantExtend extends a peer's data access grant.
-func (c *Client) GrantExtend(peer, duration string) error {
-	body, _ := json.Marshal(GrantExtendRequest{Peer: peer, Duration: duration})
-	return c.doJSON("POST", "/v1/grants/extend", bytes.NewReader(body), nil)
-}
-
 // GrantExtendFull extends a grant with full request options (duration and/or max-refreshes).
 func (c *Client) GrantExtendFull(req GrantExtendRequest) error {
 	body, _ := json.Marshal(req)
@@ -521,6 +515,15 @@ func (c *Client) GrantDelegate(req GrantDelegateRequest) (map[string]string, err
 		return nil, err
 	}
 	return result, nil
+}
+
+// PouchList returns all non-expired tokens in the grant pouch (receiver's view).
+func (c *Client) PouchList() (*PouchListResponse, error) {
+	var result PouchListResponse
+	if err := c.doJSON("GET", "/v1/grants/pouch", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // NotifySinks returns all configured notification sinks.

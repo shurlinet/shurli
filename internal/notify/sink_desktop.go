@@ -31,16 +31,17 @@ func (s *DesktopSink) Name() string { return "desktop" }
 
 func (s *DesktopSink) Notify(event Event) error {
 	title := "Shurli"
-	body := event.Message
+	// Use peer name in the title for immediate context.
 	if event.PeerName != "" {
-		body = event.PeerName + ": " + body
+		title = "Shurli - " + event.PeerName
 	} else if event.PeerID != "" {
 		short := event.PeerID
 		if len(short) > 16 {
 			short = short[:16] + "..."
 		}
-		body = short + ": " + body
+		title = "Shurli - " + short
 	}
+	body := event.Message
 
 	switch runtime.GOOS {
 	case "darwin":
@@ -53,8 +54,9 @@ func (s *DesktopSink) Notify(event Event) error {
 }
 
 func (s *DesktopSink) notifyDarwin(title, body string) error {
-	escaped := sanitizeAppleScript(body)
-	script := fmt.Sprintf(`display notification "%s" with title "%s"`, escaped, title)
+	escapedBody := sanitizeAppleScript(body)
+	escapedTitle := sanitizeAppleScript(title)
+	script := fmt.Sprintf(`display notification "%s" with title "%s"`, escapedBody, escapedTitle)
 	cmd := s.execCommand("osascript", "-e", script)
 	return cmd.Run()
 }
