@@ -1742,6 +1742,17 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		"permanent", req.Permanent,
 		"duration_sec", req.DurationSec)
 
+	// Notify the grantee to clear dial backoffs and retry immediately.
+	// Fire-and-forget: if the peer isn't connected, this is a no-op.
+	if s.host != nil {
+		go func() {
+			if err := NotifyGrantChanged(context.Background(), s.host, pid); err != nil {
+				slog.Debug("relay grant: grant-changed notify failed",
+					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+			}
+		}()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(grantToInfo(g))
 }
