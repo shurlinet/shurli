@@ -25,13 +25,14 @@ import (
 
 // Grant represents a macaroon-based data access grant for a specific peer.
 type Grant struct {
-	PeerID    peer.ID            `json:"-"`
-	PeerIDStr string             `json:"peer_id"`
-	Token     *macaroon.Macaroon `json:"token"`
-	Services  []string           `json:"services,omitempty"` // empty = all services
-	ExpiresAt time.Time          `json:"expires_at"`
-	CreatedAt time.Time          `json:"created_at"`
-	Permanent bool               `json:"permanent,omitempty"`
+	PeerID         peer.ID            `json:"-"`
+	PeerIDStr      string             `json:"peer_id"`
+	Token          *macaroon.Macaroon `json:"token"`
+	Services       []string           `json:"services,omitempty"` // empty = all services
+	ExpiresAt      time.Time          `json:"expires_at"`
+	CreatedAt      time.Time          `json:"created_at"`
+	Permanent      bool               `json:"permanent,omitempty"`
+	MaxDelegations int                `json:"max_delegations,omitempty"` // 0=none (default), N=limited, -1=unlimited
 }
 
 // Expired returns true if this grant has expired.
@@ -138,7 +139,8 @@ func (s *Store) SetOnRevokeNotify(fn func(peer.ID)) {
 // Grant creates a new data access grant for the given peer.
 // Returns the created grant. If a grant already exists for this peer,
 // it is replaced (new grant, new token).
-func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool) (*Grant, error) {
+// maxDelegations: 0=none (default), N=limited hops, -1=unlimited.
+func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int) (*Grant, error) {
 	now := time.Now()
 	var expiresAt time.Time
 	if permanent {
@@ -147,16 +149,17 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 		expiresAt = now.Add(duration)
 	}
 
-	m := s.buildMacaroon(peerID, expiresAt, services, permanent)
+	m := s.buildMacaroon(peerID, expiresAt, services, permanent, maxDelegations)
 
 	grant := &Grant{
-		PeerID:    peerID,
-		PeerIDStr: peerID.String(),
-		Token:     m,
-		Services:  services,
-		ExpiresAt: expiresAt,
-		CreatedAt: now,
-		Permanent: permanent,
+		PeerID:         peerID,
+		PeerIDStr:      peerID.String(),
+		Token:          m,
+		Services:       services,
+		ExpiresAt:      expiresAt,
+		CreatedAt:      now,
+		Permanent:      permanent,
+		MaxDelegations: maxDelegations,
 	}
 
 	// Clone for delivery BEFORE storing in map, so no concurrent Extend() can race.
@@ -244,7 +247,7 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	newExpiry := time.Now().Add(duration)
 	g.ExpiresAt = newExpiry
 	g.Permanent = false // extending makes it time-limited again
-	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false)
+	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false, g.MaxDelegations)
 	// Clone while holding the lock so concurrent operations can't race.
 	var grantCopy *Grant
 	onGrant := s.onGrant
@@ -401,7 +404,7 @@ func (s *Store) cleanExpired() {
 
 // buildMacaroon creates a macaroon token with the standard caveat set.
 // Used by both Grant() and Extend() to avoid duplication.
-func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []string, permanent bool) *macaroon.Macaroon {
+func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []string, permanent bool, maxDelegations int) *macaroon.Macaroon {
 	id := fmt.Sprintf("grant-%s-%d", shortPeerID(peerID), time.Now().UnixNano())
 	m := macaroon.New("shurli-node", s.rootKey, id)
 	m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatPeerID, peerID.String()))
@@ -413,6 +416,12 @@ func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []st
 	if len(services) > 0 {
 		m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatService, strings.Join(services, ",")))
 	}
+
+	// Always emit max_delegations, even when 0. This ensures the verifier can
+	// reject tokens with manually injected delegate_to caveats. Without this
+	// caveat, a holder could bypass delegation restrictions by adding delegate_to
+	// and handing the token to an unauthorized peer.
+	m.AddFirstPartyCaveat(fmt.Sprintf("%s=%d", macaroon.CaveatMaxDelegations, maxDelegations))
 
 	return m
 }

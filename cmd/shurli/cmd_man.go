@@ -366,10 +366,12 @@ are terminated.
 Check the authorized_keys file for syntax errors, duplicate entries, and
 invalid peer IDs.
 .TP
-.B auth grant \fIpeer\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIfile-transfer,...\fR] [\fB--permanent\fR]
+.B auth grant \fIpeer\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIfile-transfer,...\fR] [\fB--permanent\fR] [\fB--delegate\fR \fIN\fR]
 Grant relay data access to a peer using macaroon capability tokens.
 Default duration: 1 hour. When a peer has a grant, relay transport is
-allowed for their plugin streams. Requires a running daemon.
+allowed for their plugin streams. The --delegate flag controls whether the
+peer can re-share this grant: 0=no delegation (default), N=limited hops,
+-1=unlimited. Requires a running daemon.
 .TP
 .B auth grants
 List all active data access grants with remaining time.
@@ -380,6 +382,12 @@ Revoke a data access grant. All connections to the peer are closed immediately.
 .B auth extend \fIpeer\fR \fB--duration\fR \fI2h\fR
 Extend an existing grant. The new expiry is calculated from now, not from the
 original expiry.
+.TP
+.B auth delegate \fIpeer\fR \fB--to\fR \fItarget\fR [\fB--duration\fR \fI30m\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--delegate\fR \fIN\fR]
+Delegate a received grant to another peer. Creates an attenuated sub-token
+with the same or tighter restrictions (shorter duration, fewer services,
+fewer delegation hops). The sub-token is delivered to the target peer via
+P2P or queued if the target is offline.
 
 .SH CONFIGURATION
 .TP

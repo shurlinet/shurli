@@ -66,6 +66,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/grants", s.handleGrantCreate)
 	mux.HandleFunc("POST /v1/grants/revoke", s.handleGrantRevoke)
 	mux.HandleFunc("POST /v1/grants/extend", s.handleGrantExtend)
+	mux.HandleFunc("POST /v1/grants/delegate", s.handleGrantDelegate)
 
 	// Plugins
 	mux.HandleFunc("GET /v1/plugins", s.handlePluginList)
@@ -88,7 +89,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			"POST /v1/shutdown": true, "POST /v1/lock": true, "POST /v1/unlock": true, "GET /v1/lock": true,
 			"POST /v1/invite": true, "GET /v1/invite/{id}/wait": true, "DELETE /v1/invite/{id}": true,
 			"POST /v1/config/reload": true, "GET /v1/config/reload": true,
-			"GET /v1/grants": true, "POST /v1/grants": true, "POST /v1/grants/revoke": true, "POST /v1/grants/extend": true,
+			"GET /v1/grants": true, "POST /v1/grants": true, "POST /v1/grants/revoke": true, "POST /v1/grants/extend": true, "POST /v1/grants/delegate": true,
 			"GET /v1/plugins": true, "POST /v1/plugins/disable-all": true,
 			"GET /v1/plugins/{name}": true, "POST /v1/plugins/{name}/enable": true, "POST /v1/plugins/{name}/disable": true,
 		}

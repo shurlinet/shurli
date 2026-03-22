@@ -259,6 +259,344 @@ func TestPouchSymlinkRejection(t *testing.T) {
 	}
 }
 
+func TestPouchDelegateBasic(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	// Create a token with max_delegations=3 and add to pouch.
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String()) // original grantee doesn't matter for this test
+	token.AddFirstPartyCaveat("max_delegations=3")
+
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	// Delegate to target.
+	subToken, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+
+	// Verify sub-token has delegate_to and max_delegations caveats.
+	hasDelegateTo := false
+	hasMaxDel := false
+	for _, c := range subToken.Caveats {
+		if c == "delegate_to="+target.String() {
+			hasDelegateTo = true
+		}
+		if c == "max_delegations=0" {
+			// Requested 0, original was 3, decremented would be 2, but 0 < 2 so 0 wins.
+			hasMaxDel = true
+		}
+	}
+	if !hasDelegateTo {
+		t.Error("sub-token should have delegate_to caveat")
+	}
+	if !hasMaxDel {
+		t.Error("sub-token should have max_delegations=0 caveat")
+	}
+
+	// Verify the sub-token verifies against the root key.
+	ctx := macaroon.VerifyContext{
+		PeerID:     target.String(),
+		DelegateTo: target.String(),
+		Now:        time.Now(),
+	}
+	v := macaroon.DefaultVerifier(ctx)
+	if err := subToken.Verify(rootKey, v); err != nil {
+		t.Fatalf("sub-token should verify: %v", err)
+	}
+}
+
+func TestPouchDelegateNoDelegationAllowed(t *testing.T) {
+	_, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	// Token without max_delegations caveat: default is 0 (no delegation).
+	token := testMacaroon(t)
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	_, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0)
+	if err == nil {
+		t.Fatal("should fail: token does not allow delegation")
+	}
+}
+
+func TestPouchDelegateUnlimited(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String())
+	token.AddFirstPartyCaveat("max_delegations=-1") // unlimited
+
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	subToken, err := p.Delegate(issuer, target, 0, nil, 5)
+	if err != nil {
+		t.Fatalf("delegate with unlimited: %v", err)
+	}
+
+	// Should have max_delegations=5 (caller requested).
+	found := false
+	for _, c := range subToken.Caveats {
+		if c == "max_delegations=5" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("sub-token should have max_delegations=5 from caller request")
+	}
+}
+
+func TestPouchDelegateLimitedDecrement(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String())
+	token.AddFirstPartyCaveat("max_delegations=3")
+
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	// Request unlimited (-1) but original is 3, so decremented to 2.
+	subToken, err := p.Delegate(issuer, target, 0, nil, -1)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+
+	found := false
+	for _, c := range subToken.Caveats {
+		if c == "max_delegations=2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("sub-token should have max_delegations=2 (decremented from 3), got caveats: %v", subToken.Caveats)
+	}
+}
+
+func TestPouchDelegateExpired(t *testing.T) {
+	_, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	token := testMacaroon(t)
+	token.AddFirstPartyCaveat("max_delegations=3")
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Millisecond), false)
+	time.Sleep(5 * time.Millisecond)
+
+	_, err := p.Delegate(issuer, target, 0, nil, 0)
+	if err == nil {
+		t.Fatal("should fail: token expired")
+	}
+}
+
+func TestPouchDelegateChainedMaxDelegations(t *testing.T) {
+	// Regression test for S1: extractMaxDelegations must return the MINIMUM
+	// value when multiple max_delegations caveats exist (delegation chain).
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	// Simulate a token from a delegation chain:
+	// original had max_delegations=5, first delegatee added max_delegations=2
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String())
+	token.AddFirstPartyCaveat("max_delegations=5")  // original
+	token.AddFirstPartyCaveat("max_delegations=2")  // added by first delegatee
+
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	subToken, err := p.Delegate(issuer, target, 0, nil, 0)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+
+	// The new max_delegations should be based on min(5,2)-1 = 1, capped by request(0) = 0.
+	found := false
+	for _, c := range subToken.Caveats {
+		if c == "max_delegations=0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("chained token should have max_delegations=0 (min(5,2)=2, decremented=1, request=0 wins), got caveats: %v", subToken.Caveats)
+	}
+}
+
+func TestExtractMaxDelegationsMostRestrictive(t *testing.T) {
+	// Unit test for extractMaxDelegations finding the minimum.
+	tests := []struct {
+		caveats []string
+		want    int
+	}{
+		{[]string{"max_delegations=5", "max_delegations=2"}, 2},
+		{[]string{"max_delegations=-1", "max_delegations=3"}, 3},
+		{[]string{"max_delegations=-1", "max_delegations=-1"}, -1},
+		{[]string{"max_delegations=5", "max_delegations=0"}, 0},
+		{[]string{"max_delegations=0"}, 0},
+		{[]string{}, 0},                                          // no caveat = no delegation
+		{[]string{"max_delegations=bad"}, 0},                     // malformed = deny
+	}
+	for _, tt := range tests {
+		got := extractMaxDelegations(tt.caveats)
+		if got != tt.want {
+			t.Errorf("extractMaxDelegations(%v) = %d, want %d", tt.caveats, got, tt.want)
+		}
+	}
+}
+
+func TestPouchDelegateWithServiceRestriction(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String())
+	token.AddFirstPartyCaveat("max_delegations=1")
+
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	subToken, err := p.Delegate(issuer, target, 0, []string{"file-browse"}, 0)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+
+	// Should have service caveat.
+	found := false
+	for _, c := range subToken.Caveats {
+		if c == "service=file-browse" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("sub-token should have service=file-browse caveat")
+	}
+}
+
+func TestPouchDelegateMultiHopEndToEnd(t *testing.T) {
+	// End-to-end test: Node A -> B -> C -> D delegation chain.
+	// D must be able to present the token and have it verified by Node A.
+	rootKey, hmacKey := genKeys(t)
+
+	peerB := genPeerID(t)
+	peerC := genPeerID(t)
+	peerD := genPeerID(t)
+
+	// Step 1: Node A creates a grant for Peer B with max_delegations=3.
+	store := NewStore(rootKey, hmacKey)
+	grantB, err := store.Grant(peerB, 1*time.Hour, nil, false, 3)
+	if err != nil {
+		t.Fatalf("grant to B: %v", err)
+	}
+
+	// Step 2: Peer B receives the token in their pouch.
+	pouchB := NewPouch(hmacKey)
+	pouchB.Add(peerB, grantB.Token, nil, grantB.ExpiresAt, false)
+
+	// Step 3: Peer B delegates to Peer C with max_delegations=2.
+	// (issuerID is peerB because the pouch is keyed by "who gave me this token",
+	//  but for this test we simulate B holding A's token keyed by B's own ID)
+	subTokenC, err := pouchB.Delegate(peerB, peerC, 30*time.Minute, nil, 1)
+	if err != nil {
+		t.Fatalf("B delegate to C: %v", err)
+	}
+
+	// Step 4: Peer C receives the sub-token in their pouch.
+	pouchC := NewPouch(hmacKey)
+	pouchC.Add(peerB, subTokenC, nil, time.Now().Add(30*time.Minute), false)
+
+	// Step 5: Peer C delegates to Peer D with max_delegations=0.
+	subTokenD, err := pouchC.Delegate(peerB, peerD, 15*time.Minute, nil, 0)
+	if err != nil {
+		t.Fatalf("C delegate to D: %v", err)
+	}
+
+	// Step 6: Peer D presents the token to Node A. Verify it works.
+	// This simulates what TokenVerifier does on the inbound side.
+	delegateTo := macaroon.ExtractDelegateTo(subTokenD.Caveats)
+	if delegateTo != peerD.String() {
+		t.Fatalf("ExtractDelegateTo should return D, got %q", delegateTo)
+	}
+
+	verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
+		PeerID:     peerD.String(),
+		Service:    "file-browse",
+		DelegateTo: delegateTo,
+		Now:        time.Now(),
+	})
+
+	if err := subTokenD.Verify(rootKey, verifier); err != nil {
+		t.Fatalf("D's token should verify against Node A's root key: %v", err)
+	}
+
+	// Step 7: Verify D cannot further delegate (max_delegations exhausted).
+	pouchD := NewPouch(hmacKey)
+	pouchD.Add(peerB, subTokenD, nil, time.Now().Add(15*time.Minute), false)
+	_, err = pouchD.Delegate(peerB, genPeerID(t), 5*time.Minute, nil, 0)
+	if err == nil {
+		t.Fatal("D should not be able to delegate further (max_delegations=0)")
+	}
+
+	// Step 8: Verify an unauthorized peer E cannot use D's token.
+	peerE := genPeerID(t)
+	delegateToE := macaroon.ExtractDelegateTo(subTokenD.Caveats)
+	verifierE := macaroon.DefaultVerifier(macaroon.VerifyContext{
+		PeerID:     peerE.String(),
+		Service:    "file-browse",
+		DelegateTo: delegateToE, // still "D", not "E"
+		Now:        time.Now(),
+	})
+	if err := subTokenD.Verify(rootKey, verifierE); err == nil {
+		t.Fatal("E should not be able to use D's token")
+	}
+}
+
+func TestPouchDelegateInheritsParentExpiry(t *testing.T) {
+	// Regression test: when delegating without explicit duration, the sub-token
+	// inherits the parent's expires caveat. ExtractEarliestExpires must return
+	// a valid (non-zero, future) time from the sub-token's caveats so the
+	// delivery protocol can set correct pouch metadata.
+	rootKey, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	parentExpiry := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	token := macaroon.New("test-node", rootKey, "test-grant")
+	token.AddFirstPartyCaveat("peer_id=" + issuer.String())
+	token.AddFirstPartyCaveat("max_delegations=3")
+	token.AddFirstPartyCaveat("expires=" + parentExpiry.Format(time.RFC3339))
+
+	p.Add(issuer, token, nil, parentExpiry, false)
+
+	// Delegate with duration=0 (inherit parent's expiry).
+	subToken, err := p.Delegate(issuer, target, 0, nil, 0)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+
+	// The sub-token must have an extractable expires caveat from the parent.
+	extracted := macaroon.ExtractEarliestExpires(subToken.Caveats)
+	if extracted.IsZero() {
+		t.Fatal("sub-token should inherit parent's expires caveat, got zero time")
+	}
+	if !extracted.Equal(parentExpiry) {
+		t.Errorf("extracted expiry %v != parent expiry %v", extracted, parentExpiry)
+	}
+}
+
 func TestPouchGetReturnsCopy(t *testing.T) {
 	_, hmacKey := genKeys(t)
 	p := NewPouch(hmacKey)

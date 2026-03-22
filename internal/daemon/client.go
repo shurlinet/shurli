@@ -506,3 +506,13 @@ func (c *Client) GrantExtend(peer, duration string) error {
 	body, _ := json.Marshal(GrantExtendRequest{Peer: peer, Duration: duration})
 	return c.doJSON("POST", "/v1/grants/extend", bytes.NewReader(body), nil)
 }
+
+// GrantDelegate delegates a grant to another peer with optional restrictions.
+func (c *Client) GrantDelegate(req GrantDelegateRequest) (map[string]string, error) {
+	body, _ := json.Marshal(req)
+	var result map[string]string
+	if err := c.doJSON("POST", "/v1/grants/delegate", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

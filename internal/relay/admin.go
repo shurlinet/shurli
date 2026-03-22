@@ -1726,7 +1726,7 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	duration := time.Duration(req.DurationSec) * time.Second
-	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent)
+	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
