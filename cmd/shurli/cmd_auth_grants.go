@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
@@ -22,6 +23,30 @@ func formatDelegation(maxDelegations int) string {
 	default:
 		return fmt.Sprintf("%d hops", maxDelegations)
 	}
+}
+
+// formatEffectiveDur returns a human-readable duration (e.g. "4h" not "4h0m0s").
+func formatEffectiveDur(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if d >= 24*time.Hour {
+		days := h / 24
+		h = h % 24
+		if h > 0 {
+			return fmt.Sprintf("%dd%dh", days, h)
+		}
+		return fmt.Sprintf("%dd", days)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	return fmt.Sprintf("%dh", h)
 }
 
 // parseDelegateFlag converts the --delegate flag value to an int.
@@ -54,17 +79,23 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	services := fs.String("services", "", "comma-separated service names (empty = all)")
 	permanent := fs.Bool("permanent", false, "grant permanent access (no expiry)")
 	delegateStr := fs.String("delegate", "0", "delegation hops: 0=none (default), N=limited, unlimited")
+	autoRefresh := fs.Bool("auto-refresh", false, "enable automatic token refresh before expiry")
+	maxRefreshes := fs.Int("max-refreshes", 3, "max number of refreshes (requires --auto-refresh)")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited]")
+		return fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited] [--auto-refresh] [--max-refreshes N]")
 	}
 
 	delegateVal, err := parseDelegateFlag(*delegateStr)
 	if err != nil {
 		return err
+	}
+
+	if *autoRefresh && *permanent {
+		return fmt.Errorf("--auto-refresh and --permanent are mutually exclusive (permanent grants never expire)")
 	}
 
 	peerName := fs.Arg(0)
@@ -101,6 +132,8 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		Services:       svcList,
 		Permanent:      *permanent,
 		MaxDelegations: delegateVal,
+		AutoRefresh:    *autoRefresh,
+		MaxRefreshes:   *maxRefreshes,
 	}
 
 	info, err := client.GrantCreate(req)
@@ -120,6 +153,11 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  Expires:    %s (%s remaining)\n", info.ExpiresAt, info.Remaining)
 	}
 	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(info.MaxDelegations))
+	if *autoRefresh {
+		effectiveDur, _ := time.ParseDuration(*duration)
+		effectiveMax := effectiveDur * time.Duration(*maxRefreshes+1)
+		fmt.Fprintf(stdout, "  Refresh:    auto-refresh: %d refreshes, %s effective max duration\n", *maxRefreshes, formatEffectiveDur(effectiveMax))
+	}
 	return nil
 }
 
@@ -161,7 +199,11 @@ func doAuthGrants(args []string, stdout io.Writer) error {
 		if g.MaxDelegations != 0 {
 			delStr = "  delegate:" + formatDelegation(g.MaxDelegations)
 		}
-		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s\n", i+1, g.Peer, svc, dur, delStr)
+		refreshStr := ""
+		if g.AutoRefresh {
+			refreshStr = fmt.Sprintf("  refresh:%d/%d", g.RefreshesUsed, g.MaxRefreshes)
+		}
+		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s%s\n", i+1, g.Peer, svc, dur, delStr, refreshStr)
 		termcolor.Faint("     %s\n", g.PeerID)
 	}
 	return nil
@@ -290,15 +332,16 @@ func doAuthExtend(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("auth extend", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	duration := fs.String("duration", "", "new duration from now (e.g. 2h, 1d)")
+	maxRefreshes := fs.Int("max-refreshes", -1, "update max refresh count (-1 = no change)")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth extend <peer> --duration 2h")
+		return fmt.Errorf("usage: shurli auth extend <peer> --duration 2h [--max-refreshes N]")
 	}
-	if *duration == "" {
-		return fmt.Errorf("--duration is required")
+	if *duration == "" && *maxRefreshes < 0 {
+		return fmt.Errorf("--duration or --max-refreshes is required")
 	}
 
 	peerName := fs.Arg(0)
@@ -308,10 +351,25 @@ func doAuthExtend(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	if err := client.GrantExtend(peerName, *duration); err != nil {
+	req := daemon.GrantExtendRequest{
+		Peer:     peerName,
+		Duration: *duration,
+	}
+	if *maxRefreshes >= 0 {
+		v := *maxRefreshes
+		req.MaxRefreshes = &v
+	}
+
+	if err := client.GrantExtendFull(req); err != nil {
 		return err
 	}
 
-	termcolor.Green("Extended data access grant for %s by %s", peerName, *duration)
+	termcolor.Green("Extended data access grant for %s", peerName)
+	if *duration != "" {
+		fmt.Fprintf(stdout, "  Duration: %s from now\n", *duration)
+	}
+	if *maxRefreshes >= 0 {
+		fmt.Fprintf(stdout, "  Max refreshes: %d\n", *maxRefreshes)
+	}
 	return nil
 }

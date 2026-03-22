@@ -55,6 +55,8 @@ func (m *networkMockRuntime) ConfigReloader() ConfigReloader               { ret
 func (m *networkMockRuntime) GrantStore() *grants.Store                    { return nil }
 func (m *networkMockRuntime) GrantPouch() *grants.Pouch                    { return nil }
 func (m *networkMockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
+func (m *networkMockRuntime) GrantsAutoRefresh() bool                      { return false }
+func (m *networkMockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

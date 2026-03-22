@@ -60,6 +60,8 @@ func (rt *serveRuntime) DiscoveryNetwork() string     { return rt.config.Discove
 func (rt *serveRuntime) GrantStore() *grants.Store              { return rt.grantStore }
 func (rt *serveRuntime) GrantPouch() *grants.Pouch              { return rt.grantPouch }
 func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.grantProtocol }
+func (rt *serveRuntime) GrantsAutoRefresh() bool                { return rt.config.Grants.AutoRefresh }
+func (rt *serveRuntime) GrantsMaxRefreshDuration() string       { return rt.config.Grants.MaxRefreshDuration }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -414,9 +416,10 @@ func runDaemonStart(args []string) {
 			return rt.gater.IsAuthorized(pid)
 		}
 
-		grantProto := grants.NewGrantProtocol(rt.network.Host(), pouch, dq, trustCheck)
+		grantProto := grants.NewGrantProtocol(rt.network.Host(), pouch, gs, dq, trustCheck)
 		grantProto.Register()
 		grantProto.StartQueueFlush()
+		pouch.SetRefresher(grantProto) // B4: enable background token refresh
 		rt.grantProtocol = grantProto
 
 		// Wire delivery into Store: deliver grant tokens to peers on create/revoke.

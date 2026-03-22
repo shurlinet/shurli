@@ -25,14 +25,19 @@ import (
 
 // Grant represents a macaroon-based data access grant for a specific peer.
 type Grant struct {
-	PeerID         peer.ID            `json:"-"`
-	PeerIDStr      string             `json:"peer_id"`
-	Token          *macaroon.Macaroon `json:"token"`
-	Services       []string           `json:"services,omitempty"` // empty = all services
-	ExpiresAt      time.Time          `json:"expires_at"`
-	CreatedAt      time.Time          `json:"created_at"`
-	Permanent      bool               `json:"permanent,omitempty"`
-	MaxDelegations int                `json:"max_delegations,omitempty"` // 0=none (default), N=limited, -1=unlimited
+	PeerID             peer.ID            `json:"-"`
+	PeerIDStr          string             `json:"peer_id"`
+	Token              *macaroon.Macaroon `json:"token"`
+	Services           []string           `json:"services,omitempty"` // empty = all services
+	ExpiresAt          time.Time          `json:"expires_at"`
+	CreatedAt          time.Time          `json:"created_at"`
+	Permanent          bool               `json:"permanent,omitempty"`
+	MaxDelegations     int                `json:"max_delegations,omitempty"`      // 0=none (default), N=limited, -1=unlimited
+	AutoRefresh        bool               `json:"auto_refresh,omitempty"`         // opt-in token refresh
+	MaxRefreshes       int                `json:"max_refreshes,omitempty"`        // total allowed refreshes
+	RefreshesUsed      int                `json:"refreshes_used,omitempty"`       // how many refreshes consumed
+	MaxRefreshDuration time.Duration      `json:"max_refresh_duration,omitempty"` // absolute deadline from grant creation
+	OriginalDuration   time.Duration      `json:"original_duration,omitempty"`    // stored for consistent refresh intervals
 }
 
 // Expired returns true if this grant has expired.
@@ -136,11 +141,20 @@ func (s *Store) SetOnRevokeNotify(fn func(peer.ID)) {
 	s.onRevokeNotify = fn
 }
 
+// GrantOptions holds optional parameters for creating a grant.
+type GrantOptions struct {
+	AutoRefresh        bool
+	MaxRefreshes       int           // total allowed refreshes
+	RefreshesUsed      int           // consumed so far (for accurate caveat: remaining = max - used)
+	MaxRefreshDuration time.Duration // relative duration from creation (stored on Grant, used to compute deadline)
+	RefreshDeadline    time.Time     // absolute deadline (computed once at creation, baked into macaroon)
+}
+
 // Grant creates a new data access grant for the given peer.
 // Returns the created grant. If a grant already exists for this peer,
 // it is replaced (new grant, new token).
 // maxDelegations: 0=none (default), N=limited hops, -1=unlimited.
-func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int) (*Grant, error) {
+func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int, opts ...GrantOptions) (*Grant, error) {
 	now := time.Now()
 	var expiresAt time.Time
 	if permanent {
@@ -149,17 +163,30 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 		expiresAt = now.Add(duration)
 	}
 
-	m := s.buildMacaroon(peerID, expiresAt, services, permanent, maxDelegations)
+	var opt GrantOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	// Compute absolute refresh deadline once at creation.
+	if opt.AutoRefresh && opt.MaxRefreshDuration > 0 && opt.RefreshDeadline.IsZero() {
+		opt.RefreshDeadline = now.Add(opt.MaxRefreshDuration)
+	}
+
+	m := s.buildMacaroon(peerID, expiresAt, services, permanent, maxDelegations, opt)
 
 	grant := &Grant{
-		PeerID:         peerID,
-		PeerIDStr:      peerID.String(),
-		Token:          m,
-		Services:       services,
-		ExpiresAt:      expiresAt,
-		CreatedAt:      now,
-		Permanent:      permanent,
-		MaxDelegations: maxDelegations,
+		PeerID:             peerID,
+		PeerIDStr:          peerID.String(),
+		Token:              m,
+		Services:           services,
+		ExpiresAt:          expiresAt,
+		CreatedAt:          now,
+		Permanent:          permanent,
+		MaxDelegations:     maxDelegations,
+		AutoRefresh:        opt.AutoRefresh,
+		MaxRefreshes:       opt.MaxRefreshes,
+		MaxRefreshDuration: opt.MaxRefreshDuration,
+		OriginalDuration:   duration,
 	}
 
 	// Clone for delivery BEFORE storing in map, so no concurrent Extend() can race.
@@ -247,7 +274,16 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	newExpiry := time.Now().Add(duration)
 	g.ExpiresAt = newExpiry
 	g.Permanent = false // extending makes it time-limited again
-	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false, g.MaxDelegations)
+	var refreshDeadline time.Time
+	if g.AutoRefresh && g.MaxRefreshDuration > 0 {
+		refreshDeadline = g.CreatedAt.Add(g.MaxRefreshDuration)
+	}
+	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false, g.MaxDelegations, GrantOptions{
+		AutoRefresh:     g.AutoRefresh,
+		MaxRefreshes:    g.MaxRefreshes,
+		RefreshesUsed:   g.RefreshesUsed,
+		RefreshDeadline: refreshDeadline,
+	})
 	// Clone while holding the lock so concurrent operations can't race.
 	var grantCopy *Grant
 	onGrant := s.onGrant
@@ -263,6 +299,141 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	s.logger.Info("grants: extended", "peer", shortPeerID(peerID), "new_expiry", newExpiry.Format(time.RFC3339))
 
 	// Phase B: deliver updated token to peer (new expiry, new macaroon).
+	if onGrant != nil {
+		s.deliveryWg.Add(1)
+		go func() {
+			defer s.deliveryWg.Done()
+			onGrant(peerID, grantCopy)
+		}()
+	}
+
+	return nil
+}
+
+// Refresh creates a new token for a peer whose grant has auto-refresh enabled.
+// The new token has the same caveats but a fresh expiry. RefreshesUsed is incremented.
+// Returns the refreshed grant (with new token) or an error if refresh is not allowed.
+func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
+	now := time.Now()
+
+	s.mu.Lock()
+	g, exists := s.grants[peerID]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("no grant found for peer %s", shortPeerID(peerID))
+	}
+
+	if g.Permanent || now.After(g.ExpiresAt) {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("grant for peer %s has expired", shortPeerID(peerID))
+	}
+
+	if !g.AutoRefresh {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("grant for peer %s does not have auto-refresh enabled", shortPeerID(peerID))
+	}
+
+	if g.MaxRefreshes > 0 && g.RefreshesUsed >= g.MaxRefreshes {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("max refreshes exhausted for peer %s (%d/%d)", shortPeerID(peerID), g.RefreshesUsed, g.MaxRefreshes)
+	}
+
+	// Check absolute refresh deadline.
+	if g.MaxRefreshDuration > 0 {
+		deadline := g.CreatedAt.Add(g.MaxRefreshDuration)
+		if now.After(deadline) {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("refresh deadline exceeded for peer %s", shortPeerID(peerID))
+		}
+	}
+
+	// Compute new expiry using the stored original duration.
+	if g.OriginalDuration <= 0 {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("grant for peer %s has no original duration stored", shortPeerID(peerID))
+	}
+	newExpiry := now.Add(g.OriginalDuration)
+
+	// Cap at refresh deadline if set.
+	if g.MaxRefreshDuration > 0 {
+		deadline := g.CreatedAt.Add(g.MaxRefreshDuration)
+		if newExpiry.After(deadline) {
+			newExpiry = deadline
+		}
+	}
+
+	g.ExpiresAt = newExpiry
+	g.RefreshesUsed++
+	var refreshDeadline time.Time
+	if g.MaxRefreshDuration > 0 {
+		refreshDeadline = g.CreatedAt.Add(g.MaxRefreshDuration)
+	}
+	g.Token = s.buildMacaroon(peerID, newExpiry, g.Services, false, g.MaxDelegations, GrantOptions{
+		AutoRefresh:     g.AutoRefresh,
+		MaxRefreshes:    g.MaxRefreshes,
+		RefreshesUsed:   g.RefreshesUsed,
+		RefreshDeadline: refreshDeadline,
+	})
+
+	result := g.clone()
+	refreshesUsed := g.RefreshesUsed
+	maxRefreshes := g.MaxRefreshes
+	s.mu.Unlock()
+
+	if err := s.save(); err != nil {
+		s.logger.Error("grants: failed to persist after refresh", "peer", shortPeerID(peerID), "error", err)
+	}
+
+	s.logger.Info("grants: refreshed", "peer", shortPeerID(peerID),
+		"new_expiry", newExpiry.Format(time.RFC3339),
+		"refreshes_used", refreshesUsed,
+		"max_refreshes", maxRefreshes)
+
+	// NOTE: No onGrant callback here. The refreshed token is returned directly
+	// to the requesting peer via the refresh response on the same stream.
+	// Firing onGrant would cause duplicate delivery (new stream + response).
+
+	return result, nil
+}
+
+// UpdateMaxRefreshes updates the max refresh count for an existing grant.
+// Rebuilds the token so caveat values are accurate, and delivers the update.
+// Admin can increase or decrease at any time.
+func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
+	s.mu.Lock()
+	g, exists := s.grants[peerID]
+	if !exists {
+		s.mu.Unlock()
+		return fmt.Errorf("no grant found for peer %s", shortPeerID(peerID))
+	}
+	g.MaxRefreshes = maxRefreshes
+
+	// Rebuild token so the max_refreshes caveat reflects the new value.
+	var refreshDeadline time.Time
+	if g.AutoRefresh && g.MaxRefreshDuration > 0 {
+		refreshDeadline = g.CreatedAt.Add(g.MaxRefreshDuration)
+	}
+	g.Token = s.buildMacaroon(peerID, g.ExpiresAt, g.Services, g.Permanent, g.MaxDelegations, GrantOptions{
+		AutoRefresh:     g.AutoRefresh,
+		MaxRefreshes:    maxRefreshes,
+		RefreshesUsed:   g.RefreshesUsed,
+		RefreshDeadline: refreshDeadline,
+	})
+
+	var grantCopy *Grant
+	onGrant := s.onGrant
+	if onGrant != nil {
+		grantCopy = g.clone()
+	}
+	s.mu.Unlock()
+
+	if err := s.save(); err != nil {
+		s.logger.Error("grants: failed to persist after max-refreshes update", "peer", shortPeerID(peerID), "error", err)
+	}
+
+	s.logger.Info("grants: updated max_refreshes", "peer", shortPeerID(peerID), "max_refreshes", maxRefreshes)
+
+	// Deliver updated token to peer.
 	if onGrant != nil {
 		s.deliveryWg.Add(1)
 		go func() {
@@ -403,8 +574,8 @@ func (s *Store) cleanExpired() {
 }
 
 // buildMacaroon creates a macaroon token with the standard caveat set.
-// Used by both Grant() and Extend() to avoid duplication.
-func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []string, permanent bool, maxDelegations int) *macaroon.Macaroon {
+// Used by both Grant(), Extend(), and Refresh() to avoid duplication.
+func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []string, permanent bool, maxDelegations int, opts ...GrantOptions) *macaroon.Macaroon {
 	id := fmt.Sprintf("grant-%s-%d", shortPeerID(peerID), time.Now().UnixNano())
 	m := macaroon.New("shurli-node", s.rootKey, id)
 	m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatPeerID, peerID.String()))
@@ -417,11 +588,19 @@ func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []st
 		m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatService, strings.Join(services, ",")))
 	}
 
-	// Always emit max_delegations, even when 0. This ensures the verifier can
-	// reject tokens with manually injected delegate_to caveats. Without this
-	// caveat, a holder could bypass delegation restrictions by adding delegate_to
-	// and handing the token to an unauthorized peer.
+	// Always emit max_delegations, even when 0.
 	m.AddFirstPartyCaveat(fmt.Sprintf("%s=%d", macaroon.CaveatMaxDelegations, maxDelegations))
+
+	// Auto-refresh caveats (B4).
+	if len(opts) > 0 && opts[0].AutoRefresh {
+		opt := opts[0]
+		m.AddFirstPartyCaveat(fmt.Sprintf("%s=true", macaroon.CaveatAutoRefresh))
+		remaining := opt.MaxRefreshes - opt.RefreshesUsed
+		m.AddFirstPartyCaveat(fmt.Sprintf("%s=%d", macaroon.CaveatMaxRefreshes, remaining))
+		if !opt.RefreshDeadline.IsZero() {
+			m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatMaxRefreshDuration, opt.RefreshDeadline.Format(time.RFC3339)))
+		}
+	}
 
 	return m
 }

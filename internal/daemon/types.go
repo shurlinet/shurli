@@ -240,12 +240,15 @@ type GrantRequest struct {
 	Services       []string `json:"services,omitempty"`        // empty = all services
 	Permanent      bool     `json:"permanent,omitempty"`
 	MaxDelegations int      `json:"max_delegations,omitempty"` // 0=none, N=limited, -1=unlimited
+	AutoRefresh    bool     `json:"auto_refresh,omitempty"`    // B4: opt-in token refresh
+	MaxRefreshes   int      `json:"max_refreshes,omitempty"`   // B4: max refresh count
 }
 
 // GrantExtendRequest is the request body for extending a grant.
 type GrantExtendRequest struct {
-	Peer     string `json:"peer"`     // peer name or ID
-	Duration string `json:"duration"` // additional time
+	Peer         string `json:"peer"`                    // peer name or ID
+	Duration     string `json:"duration,omitempty"`      // additional time
+	MaxRefreshes *int   `json:"max_refreshes,omitempty"` // B4: update max refresh count (nil = no change)
 }
 
 // GrantRevokeRequest is the request body for revoking a grant.
@@ -272,6 +275,9 @@ type GrantInfo struct {
 	Permanent      bool     `json:"permanent,omitempty"`
 	Remaining      string   `json:"remaining,omitempty"`        // human-readable, empty for permanent
 	MaxDelegations int      `json:"max_delegations,omitempty"`  // 0=none, N=limited, -1=unlimited
+	AutoRefresh    bool     `json:"auto_refresh,omitempty"`     // B4: token refresh enabled
+	MaxRefreshes   int      `json:"max_refreshes,omitempty"`    // B4: total allowed
+	RefreshesUsed  int      `json:"refreshes_used,omitempty"`   // B4: consumed so far
 }
 
 // GrantListResponse is the response for listing grants.
