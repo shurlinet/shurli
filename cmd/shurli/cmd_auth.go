@@ -40,6 +40,8 @@ func runAuth(args []string) {
 		runAuthGrants(args[1:])
 	case "delegate":
 		runAuthDelegate(args[1:])
+	case "audit":
+		runAuthAudit(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown auth command: %s\n\n", args[0])
 		printAuthUsage()
@@ -62,6 +64,7 @@ func printAuthUsage() {
 	fmt.Println("  revoke   <peer>                                                Revoke data access grant")
 	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
 	fmt.Println("  delegate <peer> --to <target> [--duration 30m] [--delegate N]  Delegate to another peer")
+	fmt.Println("  audit    [--verify] [--tail N]                                 View or verify audit log")
 	fmt.Println()
 	fmt.Println("Authorization commands support --config <path> and --file <path>.")
 	fmt.Println("Grant commands require a running daemon.")

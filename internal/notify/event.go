@@ -18,8 +18,9 @@ const (
 	EventGrantExpired   EventType = "grant_expired"
 	EventGrantRevoked   EventType = "grant_revoked"
 	EventGrantExtended  EventType = "grant_extended"
-	EventGrantRefreshed EventType = "grant_refreshed"
-	EventTest           EventType = "test"
+	EventGrantRefreshed   EventType = "grant_refreshed"
+	EventGrantRateLimited EventType = "grant_rate_limited"
+	EventTest             EventType = "test"
 )
 
 // Severity indicates the urgency of an event.
