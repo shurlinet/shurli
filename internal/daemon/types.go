@@ -301,6 +301,18 @@ type PouchListResponse struct {
 	Entries []PouchEntryInfo `json:"entries"`
 }
 
+// ReconnectRequest is the request body for POST /v1/reconnect.
+type ReconnectRequest struct {
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// ReconnectResponse is returned by POST /v1/reconnect.
+type ReconnectResponse struct {
+	Peer   string `json:"peer"`
+	PeerID string `json:"peer_id"`
+	Status string `json:"status"` // "reconnecting" or "not_watched"
+}
+
 // NotificationsStatus is the notifications section in the status response.
 type NotificationsStatus struct {
 	Sinks []string `json:"sinks"` // names of configured sinks

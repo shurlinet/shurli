@@ -318,6 +318,38 @@ func (pm *PeerManager) OnNetworkChange() {
 	}
 }
 
+// ReconnectPeer clears internal backoff state for a single peer and triggers
+// an immediate reconnect cycle. This is the manual escape hatch for AI agents
+// and operators to recover a peer from backoff state without waiting for it
+// to expire naturally. Returns true if the peer was in the watchlist.
+func (pm *PeerManager) ReconnectPeer(pid peer.ID) bool {
+	pm.mu.Lock()
+	mp, ok := pm.peers[pid]
+	if ok {
+		mp.BackoffUntil = time.Time{}
+		mp.ConsecFailures = 0
+		mp.ProbeUntil = time.Time{}
+	}
+	pm.mu.Unlock()
+
+	if !ok {
+		return false
+	}
+
+	short := pid.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: manual reconnect requested", "peer", short)
+
+	// Trigger immediate reconnect cycle (non-blocking send).
+	select {
+	case pm.reconnectNow <- struct{}{}:
+	default:
+	}
+	return true
+}
+
 // StripPrivateAddrs removes private/LAN addresses from the peerstore for
 // all watched peers. Called during network changes BEFORE triggering
 // reconnect or mDNS browse. This prevents the swarm dial worker from

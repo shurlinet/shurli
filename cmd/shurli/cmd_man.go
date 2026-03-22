@@ -333,6 +333,11 @@ the DHT if the name is not found locally.
 .B proxy \fItarget\fR \fIservice\fR \fIlocal-port\fR
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
+.TP
+.B reconnect \fIpeer\fR [\fB--json\fR]
+Clear all dial backoffs for a peer and trigger immediate reconnection. Resets both
+the swarm-level and PeerManager-level backoff state. Useful for AI agents and operators
+to recover a peer from exponential backoff without waiting for it to expire naturally.
 PLUGIN_MAN_PLACEHOLDER
 .SH IDENTITY & ACCESS
 Access control in shurli is based on
