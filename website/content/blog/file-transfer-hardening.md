@@ -139,8 +139,7 @@ And this is just one direction. The P2P foundation opens doors we haven't fully 
 ## What's next
 
 - **Speed optimization**: Profile first, optimize second. Match or exceed SCP throughput while keeping integrity guarantees.
-- **Per-peer data access control**: Time-limited grants ("you can transfer for 1 hour"), admin-controlled, with grace periods.
-- **Share management**: Add/remove/update individual peers from shares without re-creating them.
-- **Better error messages**: "No shares visible to you" instead of cryptic stream resets (already shipped).
+
+**Since this post was published**: [Per-peer data access control](/blog/per-peer-data-grants/) is now live - time-limited macaroon capability grants with delegation, notifications, and tamper-evident audit logs. Share management (add/remove peers) and human-readable error messages are also shipped.
 
 The file transfer system is one piece of a larger architecture. Every component - network resilience, chaos-tested reconnection, relay circuits, identity and encryption, file transfer, reputation - builds toward the same goal: infrastructure that never betrays its users.

@@ -4,7 +4,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 9B + Plugin Architecture Complete)](#current-architecture-phase-9b--plugin-architecture-complete) - what's built and working
+- [Current Architecture (Phase 9B + Plugin Architecture + Per-Peer Grant System Complete)](#current-architecture-phase-9b--plugin-architecture--per-peer-grant-system-complete) - what's built and working
 - [Plugin Architecture](#plugin-architecture) - extensibility framework, three-layer evolution
 - [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
@@ -14,6 +14,14 @@ This document describes the technical architecture of Shurli, from current imple
 - [Security Model](#security-model) - implemented + planned extensions
   - [Role-Based Access Control (Phase 6)](#role-based-access-control-phase-6) - admin/member tiers
   - [Macaroon Capability Tokens (Phase 6)](#macaroon-capability-tokens-phase-6) - HMAC-chain bearer tokens
+  - [Per-Peer Data Access Grants](#per-peer-data-access-grants) - time-limited capability grants with macaroon tokens
+    - [Grant Store (Issuer Side)](#grant-store-issuer-side) - node-level grant management
+    - [Grant Pouch (Holder Side)](#grant-pouch-holder-side) - received token storage
+    - [Token Presentation (Stream-Level)](#token-presentation-stream-level) - binary grant header on plugin streams
+    - [P2P Grant Delivery Protocol](#p2p-grant-delivery-protocol) - token delivery, revocation, refresh
+    - [Delegation](#delegation) - multi-hop token attenuation
+    - [Notification Subsystem](#notification-subsystem) - multi-channel event routing
+    - [Integrity-Chained Audit Log](#integrity-chained-audit-log) - tamper-evident grant history
   - [Passphrase-Sealed Vault (Phase 6)](#passphrase-sealed-vault-phase-6) - relay key protection
   - [Async Invite Deposits (Phase 6)](#async-invite-deposits-phase-6) - client-deposit invites
   - [ZKP Privacy Layer (Phase 7)](#zkp-privacy-layer-phase-7) - anonymous membership proofs
@@ -33,7 +41,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ---
 
-## Current Architecture (Phase 9B + Plugin Architecture Complete)
+## Current Architecture (Phase 9B + Plugin Architecture + Per-Peer Grant System Complete)
 
 ### Component Overview
 
@@ -56,7 +64,9 @@ Shurli/
 │   │   ├── cmd_traceroute.go # Standalone P2P traceroute
 │   │   ├── cmd_resolve.go   # Standalone name resolution
 │   │   ├── cmd_whoami.go    # Show own peer ID
-│   │   ├── cmd_auth.go      # Auth add/list/remove/validate subcommands
+│   │   ├── cmd_auth.go      # Auth add/list/remove/validate + grant/revoke/extend/delegate/pouch/audit
+│   │   ├── cmd_auth_grants.go # Grant CLI: grant, grants, revoke, extend (all --json)
+│   │   ├── cmd_auth_audit.go  # Audit log CLI: auth audit [--verify] [--tail N] [--json]
 │   │   ├── cmd_relay.go     # Relay add/list/remove subcommands
 │   │   ├── cmd_service.go   # Service add/list/remove subcommands
 │   │   ├── cmd_config.go    # Config validate/show/rollback/apply/confirm
@@ -126,6 +136,7 @@ Shurli/
 │   ├── compress.go          # zstd compress/decompress with bomb protection
 │   ├── share.go             # ShareRegistry, TransferQueue, browse/download protocols
 │   ├── plugin_policy.go     # Transport-aware plugin access control (LAN/Direct/Relay bitmask)
+│   ├── grant_header.go      # Binary grant header on plugin streams (4-byte overhead, token presentation)
 │   ├── standalone.go        # Standalone mode helpers for CLI commands
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
@@ -188,7 +199,23 @@ Shurli/
 │   │   └── pake.go          # PAKE key exchange (X25519 DH + HKDF-SHA256 + XChaCha20-Poly1305)
 │   ├── macaroon/            # HMAC-chain capability tokens
 │   │   ├── macaroon.go      # Macaroon struct, HMAC chaining, verify, encode/decode
-│   │   └── caveat.go        # Caveat language parser (7 types: service, group, action, etc.)
+│   │   └── caveat.go        # Caveat language parser (13 types: peer_id, service, expires, etc.)
+│   ├── grants/              # Per-peer data access grant system
+│   │   ├── store.go         # GrantStore: issuer-side grant management, HMAC-integrity persistence
+│   │   ├── pouch.go         # GrantPouch: holder-side token storage, background refresh
+│   │   ├── protocol.go      # P2P grant delivery protocol (/shurli/grant/1.0.0)
+│   │   ├── delivery_queue.go # Offline delivery queue (granting node only, not relay)
+│   │   ├── audit.go         # Integrity-chained audit log (HMAC-SHA256 chain)
+│   │   ├── rate_limit.go    # Per-peer ops rate limiter (10/min default)
+│   │   ├── hmac_file.go     # HMAC-integrity file persistence helpers
+│   │   └── duration.go      # Duration parsing helpers
+│   ├── notify/              # Multi-channel notification subsystem
+│   │   ├── router.go        # Event router: dedup, non-blocking dispatch, pre-expiry warnings
+│   │   ├── event.go         # Event types (8), severity levels, Event struct
+│   │   ├── sink.go          # NotificationSink interface
+│   │   ├── sink_log.go      # LogSink: always-on structured slog audit trail
+│   │   ├── sink_desktop.go  # DesktopSink: osascript (macOS), notify-send (Linux)
+│   │   └── sink_webhook.go  # WebhookSink: HTTP POST with retry, auth headers, event filter
 │   ├── totp/                # RFC 6238 time-based one-time passwords
 │   │   └── totp.go          # Generate, Validate (with skew), NewSecret, provisioning URI
 │   ├── vault/               # Passphrase-sealed relay key vault
@@ -611,7 +638,23 @@ Six components work together to find and maintain the best connection path to ea
 
 **Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `cmd/shurli/serve_common.go`
+**Post-Chaos Hardening** (16 test cases, 11 root causes fixed, verified on real hardware):
+
+Chaos testing on satellite WiFi, terrestrial WiFi, 5G hotspot, and USB LAN (with live network transitions between them) revealed race conditions in the dial path that don't appear in unit tests. Key fixes:
+
+| Fix | Problem | Solution |
+|-----|---------|----------|
+| VPN tunnel detection | VPN activation adds `utun`/`tun`/`wg` interfaces that confuse address classification | Pattern matching on interface names; VPN addresses excluded from relay advertisement |
+| Default gateway tracking | Switching between private IPv4 networks (WiFi A -> WiFi B) doesn't change global IP but changes reachable peers | `RTM_ADD`/`RTM_CHANGE` monitoring on macOS route socket triggers full recovery chain |
+| TCP readiness probe | After satellite WiFi switch, mDNS discovers peer but TCP connect times out (ARP not resolved, 60-80s settle time) | TCP probe before dial; if probe fails, schedule retry instead of caching the failure |
+| Stale LAN address stripping | Old LAN addresses stay in peerstore after network switch, causing dials to wrong subnet | Strip all LAN addresses from peerstore on network change event |
+| IPv6 QUIC wins over mDNS LAN | mDNS discovers peer on LAN but IPv6 QUIC connects first via longer path | mDNS upgrades direct-but-no-LAN connections to LAN, closes dead IPv6, strips non-LAN addrs |
+| Dial cache poisoning | libp2p's dial_sync caches failed dials; network change doesn't invalidate cache | Clear swarm backoffs on network change via `OnNetworkChange()` |
+| Grant-aware backoff reset | After relay grants access, client sits in backoff from previous failed dials | Relay sends `/shurli/grant-changed/1.0.0` to client; client clears all backoffs |
+
+**Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops that need deterministic reconnection.
+
+**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peermanager.go`, `cmd/shurli/serve_common.go`
 
 ### libp2p Upstream Overrides
 
@@ -802,9 +845,250 @@ Key properties:
 - **Offline verification**: any party with the root key can verify without network calls
 - **Compact**: base64-encoded JSON, suitable for CLI and QR codes
 
-Supported caveat types: `service`, `group`, `action`, `peers_max`, `delegate`, `expires`, `network`.
+Supported caveat types:
+
+| Caveat | Purpose |
+|--------|---------|
+| `peer_id` | Binds token to a specific peer |
+| `service` | Comma-separated allowed services |
+| `group` | Group scope |
+| `action` | Allowed actions (invite, connect, admin) |
+| `peers_max` | Max peers this token can onboard |
+| `delegate` | Legacy delegation flag |
+| `delegate_to` | Binds delegated token to recipient peer (multi-hop audit trail) |
+| `max_delegations` | Remaining delegation hops (0=blocked, N=limited, -1=unlimited) |
+| `expires` | RFC3339 timestamp expiry |
+| `network` | DHT namespace scope |
+| `auto_refresh` | Enables background token refresh |
+| `max_refreshes` | Total refresh budget |
+| `max_refresh_duration` | Absolute deadline for all refreshes |
 
 **Reference**: `internal/macaroon/macaroon.go`, `internal/macaroon/caveat.go`
+
+### Per-Peer Data Access Grants
+
+> **Status: Implemented** (Phases A, R, B, C, D - all complete)
+
+Time-limited, per-peer capability grants built on macaroon tokens. Admins control exactly which peers can access which services, for how long. The grant system is the primary authorization layer for plugin services - relay ACLs are defense-in-depth only.
+
+**Architectural finding that drove this design**: In a multi-relay topology, relay-side ACLs alone are insufficient. A peer connected through a permissive relay bypasses a strict relay's ACL entirely. Node-level enforcement is the true security boundary. See [Security Thought Experiment](#security-thought-experiment) for the full 20-vector analysis.
+
+**Two-sided model**:
+
+```
+   Issuer (Node A)                           Holder (Peer B)
+   +--------------+                          +-----------+
+   | GrantStore   |  --- P2P delivery --->   | Pouch     |
+   | (keyed by    |  <-- refresh request --- | (keyed by |
+   |  grantee)    |  --- new token --------> |  issuer)  |
+   +--------------+                          +-----------+
+```
+
+#### Grant Store (Issuer Side)
+
+The admin's grant registry. Creates macaroon tokens, stores them locally, enforces them at stream open time.
+
+- Thread-safe, keyed by grantee peer ID
+- Persisted to `grants.json` with HMAC-SHA256 integrity (key derived from node identity via HKDF)
+- Monotonic version counter prevents expired-grant replay via file restore
+- Auto-cleanup of expired grants on configurable interval (default 30s)
+- Callbacks on every mutation: P2P token delivery, connection closure on revoke, Phase C notifications, Phase D audit log
+
+**CLI commands**:
+
+| Command | Purpose |
+|---------|---------|
+| `shurli auth grant <peer> --duration 1h` | Create time-limited grant |
+| `shurli auth grant <peer> --duration 7d --services file-transfer,file-browse` | Service-scoped grant |
+| `shurli auth grant <peer> --permanent` | Permanent grant (requires confirmation) |
+| `shurli auth revoke <peer>` | Immediate revocation + close all connections |
+| `shurli auth extend <peer> --duration 2h` | Extend from current time |
+| `shurli auth grants` | List all grants with remaining time |
+| `shurli auth grant <peer> --auto-refresh --max-refreshes 3` | Auto-refreshing grant |
+
+All commands support `--json` for AI agent integration (consistent `{"status":"ok","data":{...}}` envelope).
+
+**Reference**: `internal/grants/store.go`
+
+#### Grant Pouch (Holder Side)
+
+The receiver's token wallet. Stores macaroon tokens received from granting nodes.
+
+- Thread-safe, keyed by issuing node's peer ID
+- Persisted to `grant_pouch.json` with HMAC-SHA256 integrity (separate HKDF sub-key)
+- Background cleanup removes expired entries
+- Background refresh loop: at 10% remaining duration, requests fresh token from issuer
+- Delegation support: creates attenuated sub-tokens with decremented hop count
+
+**CLI**: `shurli auth pouch [--json]` shows held tokens with issuer, services, remaining time.
+
+**Reference**: `internal/grants/pouch.go`
+
+#### Token Presentation (Stream-Level)
+
+Every plugin stream opens with a binary grant header. The holder presents their token; the node verifies it cryptographically.
+
+**Wire format** (on every plugin stream open):
+
+```
+Byte 0:     Version (0x01)
+Byte 1:     Flags (0x01 = has token, 0x00 = no token)
+Bytes 2-3:  Token length (uint16 big-endian, max 8192)
+Bytes 4-N:  Base64-encoded macaroon token (only if flags & 0x01)
+```
+
+- 4 bytes overhead when no token (stack-allocated fast path)
+- 2-second read/write deadline prevents slowloris
+- Token path: verify cryptographically with root key (no disk I/O)
+- No-token path: falls back to local grant store lookup (Phase A behavior)
+- Token presented on non-relay transport: logged but not required (relay transport is where grants matter)
+- Constant-time rejection: HMAC work on all paths (valid, invalid, malformed) prevents timing oracles
+
+**Reference**: `pkg/p2pnet/grant_header.go`
+
+#### P2P Grant Delivery Protocol
+
+Protocol: `/shurli/grant/1.0.0`
+
+**Wire messages** (1-byte type + uint32 length + JSON payload, max 8192 bytes):
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `0x01` GrantDeliver | issuer -> peer | Token delivery |
+| `0x02` GrantRevoke | issuer -> peer | Revocation notice |
+| `0x03` GrantAck | peer -> issuer | Delivery acknowledgement |
+| `0x04` GrantRefresh | peer -> issuer | Token refresh request |
+
+- Trust check: only accepts deliveries/revocations from peers in authorized_keys
+- Rate limit: 5 deliveries per minute per peer (protocol level)
+- Offline queue: deliveries cached on granting node (not relay - sovereignty preserved), flushed on peer reconnect
+- Queue TTL: configurable (default 7 days), max 100 items
+- Stream timeout: 10 seconds
+- Protocol version field on all messages (downgrade protection)
+
+**Token refresh**: Peer's daemon monitors approaching expiry (10% remaining). Sends refresh request. Issuer checks budget and deadline, issues fresh token. CLI shows effective max duration (e.g., "1h grant, 3 refreshes = 4h effective max duration").
+
+**Reference**: `internal/grants/protocol.go`, `internal/grants/delivery_queue.go`
+
+#### Delegation
+
+Multi-hop token attenuation. A granted peer can create restricted sub-tokens for other peers.
+
+**How it works**:
+1. Admin grants Peer B with `--delegate 3` (3 further hops allowed)
+2. Peer B attenuates: adds `delegate_to=C` + `max_delegations=2` caveats
+3. Peer C presents the attenuated token to Admin's node
+4. Admin verifies full HMAC chain with root key - valid because caveats can only be narrowed, never widened
+
+**Delegation modes**:
+
+| Mode | CLI Flag | Behavior |
+|------|----------|----------|
+| Disabled | `--delegate 0` (default) | Token bound to this peer only |
+| Limited | `--delegate N` | Up to N further hops, each delegation decrements |
+| Unlimited | `--delegate unlimited` | Free re-sharing (still attenuation-only) |
+
+**CLI**: `shurli auth delegate <peer> --to <target> [--duration 10m] [--delegate 1]`
+
+The `delegate_to` caveat chain forms an audit trail: the original `peer_id` identifies who was first granted, each `delegate_to` identifies subsequent holders.
+
+**Reference**: `internal/macaroon/caveat.go` (ExtractEarliestExpires, delegation verifier), `internal/grants/pouch.go` (Delegate method)
+
+#### Notification Subsystem
+
+> **Status: Implemented** (Phase C)
+
+Multi-channel event routing for grant lifecycle events. Designed for desktop admins, headless servers, mobile apps, and AI agent pipelines.
+
+**Architecture**: `NotificationSink` interface with non-blocking dispatch.
+
+```go
+type NotificationSink interface {
+    Name() string
+    Notify(event Event) error
+}
+```
+
+**Event types**:
+
+| Event | Severity | Trigger |
+|-------|----------|---------|
+| `grant_created` | info | New grant issued |
+| `grant_expiring` | warn | Pre-expiry warning (configurable threshold, default 10 min) |
+| `grant_expired` | warn | Token expired |
+| `grant_revoked` | warn | Grant revoked |
+| `grant_extended` | info | Duration extended |
+| `grant_refreshed` | info | Token refreshed |
+| `grant_rate_limited` | warn | Peer exceeded ops rate limit |
+
+**Built-in sinks**:
+
+| Sink | Description | Config |
+|------|-------------|--------|
+| **LogSink** | Always on. Structured slog output. Audit trail baseline for log aggregators. | `notifications.log_level` |
+| **DesktopSink** | macOS: `osascript`, Linux: `notify-send`. Auto-disabled on headless. | `notifications.desktop: true` |
+| **WebhookSink** | HTTP POST JSON to configured URL. Retry with backoff. Event filter. | `notifications.webhook.url` |
+
+WebhookSink is the universal integration point: Telegram bots, Slack, email services, n8n, custom AI agent endpoints all consume webhooks.
+
+**Router**: Events dispatched to all sinks in goroutines (non-blocking). Sink failures/panics logged but never propagate. Dedup via event ID (5-minute TTL). Pre-expiry warning ticker runs at configurable interval.
+
+**AI agent pattern**: Webhook delivers structured JSON events. Agent receives, acts (extend grants, alert admin), sends commands back via `shurli auth extend --json`. The grant audit trail captures both the notification and the response.
+
+**CLI**: `shurli notify test` (send test event), `shurli notify list` (show configured sinks). `shurli status` includes notifications section.
+
+**Reference**: `internal/notify/router.go`, `internal/notify/event.go`, `internal/notify/sink_log.go`, `internal/notify/sink_desktop.go`, `internal/notify/sink_webhook.go`
+
+#### Integrity-Chained Audit Log
+
+> **Status: Implemented** (Phase D)
+
+Append-only, tamper-evident grant operation log.
+
+Each entry: `HMAC-SHA256(key, prev_hash + entry_data)`. Breaking the chain at any point invalidates all downstream entries.
+
+**Events logged**: grant_created, grant_revoked, grant_extended, grant_refreshed, grant_expired. Every Store mutation is captured.
+
+**CLI**:
+- `shurli auth audit` - Read log directly (works without daemon)
+- `shurli auth audit --verify` - Validate full chain integrity
+- `shurli auth audit --tail N` - Show last N entries (default 20)
+
+**Security**: Symlink rejection on write. Write + fsync before updating in-memory chain state (crash safety). Separate HKDF sub-key (`shurli/grants/audit/v1`).
+
+**Per-peer ops rate limiter**: 10 operations per minute per peer (default). Separate from protocol-level rate limit. Fires `grant_rate_limited` notification on first violation per window.
+
+**Reference**: `internal/grants/audit.go`, `internal/grants/rate_limit.go`
+
+#### Grant-Aware Backoff Reset
+
+When the relay creates a grant for a peer, it sends a `/shurli/grant-changed/1.0.0` notification to the client node. The client calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers.
+
+**Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
+
+**Reference**: `pkg/p2pnet/peermanager.go`
+
+#### Security Thought Experiment
+
+20 attack vectors analyzed across 5 categories before implementation. All mitigated.
+
+| # | Finding | Risk | Mitigation |
+|---|---------|------|------------|
+| C2 | Multi-relay bypass: relay ACL alone is insufficient | CRITICAL | Node-level enforcement is the true security boundary |
+| A1 | Grant store tampering | HIGH | HMAC-SHA256 with node-derived key |
+| B1 | Active transfers survive grant expiry | HIGH | 30s re-verify interval during transfers |
+| C1 | Service restrictions not enforced per-stream | HIGH | Every stream handler verifies grant independently |
+| E1 | Share peer list implicitly grants data access | HIGH | Share membership and data grants are separate decisions |
+| C3 | Active circuits survive revocation | MEDIUM | ClosePeer on revoke terminates all connections |
+| B2/B3 | Concurrent modification races | MEDIUM | In-memory mutex (single daemon per node) |
+| A2 | Symlink race on grant store | MEDIUM | Lstat check, reject symlinks on write |
+| D2 | Log injection via peer name | MEDIUM | Structured logging with sanitized fields |
+| D3 | Log tampering hides audit trail | MEDIUM | Integrity-chained append-only logs (Phase D) |
+| D1 | Timing oracle on grant state | LOW | Constant-time rejection on all deny paths |
+| B4 | Rapid grant-revoke confused state | LOW | Per-peer ops rate limiter (Phase D) |
+| E4 | Permission fatigue (social engineering) | LOW | Short default duration, confirmation for permanent |
+
+The critical architectural finding (C2) is the reason the grant system exists at the node level rather than extending relay ACLs. In a multi-relay topology, the node is the only enforcement point that sees all traffic regardless of relay path.
 
 ### Passphrase-Sealed Vault (Phase 6)
 
@@ -1084,7 +1368,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
 
-**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires an active time-limited grant (issued via `shurli relay grant <peer-id> --duration 1h`) for at least one peer in the circuit. Per-plugin peer allow/deny lists. Applied before any transfer operation.
+**Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires an active time-limited grant (issued via `shurli auth grant <peer-id> --duration 1h`). The grant is verified per-stream via the binary grant header (see [Token Presentation](#token-presentation-stream-level)). Per-plugin peer allow/deny lists. Applied before any transfer operation.
 
 **DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer. All rejections are silent. All thresholds configurable.
 
@@ -1185,19 +1469,103 @@ type Plugin interface {
 | `shurli plugin info <name>` | Show plugin details (version, status, commands, routes) |
 | `shurli plugin disable-all` | Emergency kill switch |
 
-**Three-Layer Evolution**:
-- **Layer 1 (NOW)**: Compiled-in Go plugins. Native performance, full Go capabilities. Official plugins ship this way.
-- **Layer 2 (NEXT)**: WASM via wazero. Any language (Rust, Python, JS, C). Sandboxed, cross-platform. Same `.wasm` runs on Go CLI, Swift app, Kotlin app.
-- **Layer 3 (FUTURE)**: AI-driven plugin generation. Skills.md describes behavior, AI writes code, compiles to WASM. Aligns with Zero-Human Network vision.
+**Supervisor** (Erlang-style): Crash detection + automatic restart with exponential backoff. Circuit breaker: 3 crashes within window = auto-disable. Crash count, state transitions (ACTIVE -> STOPPED -> LOADING -> ACTIVE), and disable events are all logged. Prevents cascading failures from a single bad plugin taking down the daemon.
 
-**Security** (43-vector threat analysis):
+**Property-Based Testing**: `TestProperty_RegistryStateMachine` and `TestProperty_CapabilityIsolation` use the rapid library for randomized state machine exploration. Supplements unit tests with adversarial input patterns.
+
+**Fuzz Testing**: 7 fuzz targets covering wire format parsing, config deserialization, and protocol message handling. 209 million executions across 1 hour per target. Zero crashes found.
+
+**Three-Layer Evolution**:
+
+| Layer | Runtime | Language Support | Isolation | Status |
+|-------|---------|-----------------|-----------|--------|
+| **Layer 1** | Compiled-in Go | Go only | Process-level (trusted code) | **NOW** - file transfer plugin shipped |
+| **Layer 2** | WASM via wazero | Rust, Go, Python, JS, C, any WASM target | Hardware-level (WASM spec guarantee) | **NEXT** - research complete, design ready |
+| **Layer 3** | AI-generated WASM | Any (AI writes code from Skills.md spec) | Same as Layer 2 | **FUTURE** - requires Layers 1-2 solid |
+
+Developers choose: compile into the binary (Go, Layer 1) OR ship as `.wasm` (any language, Layer 2). Both satisfy the same Plugin interface contract. WASM is never mandatory.
+
+#### Layer 2 Design (WASM via wazero)
+
+> **Status: Research complete** (8 parallel research agents, industry survey). Design ready for implementation.
+
+**Runtime**: wazero. Pure Go, zero CGo/external dependencies, cross-platform. Memory isolation is hardware-level (WASM spec guarantee), not soft sandbox. Cold start 5-20ms (one-time compilation), warm calls in microseconds. 3-5% overhead for I/O-bound work (plugins are mostly I/O-bound), 2-3x for CPU-bound. Production users: Arcjet, Traefik, OPA, Trivy.
+
+**Industry convergence**: Every major infrastructure project converges on the same model: compiled-in for trusted plugins + WASM for untrusted. Envoy, Traefik, Zed, and Grafana all follow this pattern.
+
+**Plugin loading**: Drop `.wasm` into `/plugins/`, Shurli discovers and loads with sandbox. Plugin interface from Layer 1 becomes the host-side contract. Host functions (not WASI sockets) provide network access for finer capability control.
+
+**Security boundaries**:
+- Pre-opened directories scoped to plugin's own config dir only (Capsicum pattern via WASI)
+- Memory caps per plugin: `WithMemoryLimitPages` (e.g., 16 pages = 1MB for simple plugins)
+- Context timeout on every WASM call (infinite loop protection)
+- Panics trapped and converted to Go errors
+- Explicit capability grants (network, filesystem, config) - plugins declare what they need
+
+**Serialization**: MessagePack or protobuf across the WASM boundary (not JSON - too slow for the hot path).
+
+**Framework**: knqyf263/go-plugin or Extism as the host-guest framework (both built on wazero). Final choice deferred until implementation.
+
+**Critical dependency**: WASI 0.3 (async I/O) expected mid-2026. Required for file transfer plugins in WASM. Without it, WASM plugins block on every I/O operation.
+
+**What NOT to do** (research-confirmed anti-patterns):
+- Go's native `plugin` package: broken, can't unload, effectively abandoned
+- eBPF for application plugins: wrong abstraction (kernel observability, not app features)
+- Process isolation (go-plugin style): WASM gives better isolation with less complexity
+- Component Model in Go: wazero doesn't support it, Go tooling not ready
+- Hot standby at plugin level: supervisor + restart is sufficient
+
+#### Module Slot Pattern
+
+Certain system functions need swappable implementations without requiring a full plugin. Module slots provide this:
+
+| Slot | Current | Next | Enterprise |
+|------|---------|------|------------|
+| **Reputation** | Heuristic scoring | Community Notes matrix factorization | Custom algorithms |
+| **Auth** | Macaroons + PAKE | (current is sufficient) | LDAP, SAML, OAuth2, client certs |
+| **Storage** | Local filesystem | (current is sufficient) | S3-compatible, distributed |
+
+The reputation slot is the first implementation. `ComputeScore()` returns 0-100 deterministic scores. The scoring algorithm is swappable: data collection and score consumption stay in core. Interface: `map[peer.ID]int`. The Community Notes matrix factorization algorithm is designed but not yet implemented - the heuristic scorer is the current placeholder.
+
+**Security** (43-vector threat analysis, 3 rounds):
+
+Three rounds of research-driven analysis: traditional attack vectors (16), build-time and supply chain (12), and AI-era threats (15). Every vector has documented mitigations. None deferred.
+
+| Severity | Count | Examples |
+|----------|-------|---------|
+| CRITICAL | 8 | Compiled-in total process access, WASM host function escape, supply chain via plugin install, AI-generated malicious code |
+| HIGH | 13 | Coarse permission grants, hot reload race conditions, confused deputy, side channel exfiltration, DDoS amplification |
+| MEDIUM | 12 | WASM resource exhaustion, directory poisoning, permission scope confusion, WASM sandbox detection |
+| LOW | 10 | Plugin metadata leaks, stale plugins, install MITM, prompt injection on AI plugins |
+
+Key mitigations:
 - Credential isolation: daemon keys, auth cookies, vault NEVER accessible via PluginContext
 - Plugins cannot install other plugins (propagation chain break, hard-coded)
 - Plugin directory 0700 permission check at startup
 - Structured error codes prevent identity/topology leakage
-- Future (Layer 2): WASM namespace enforcement, fuel metering, memory caps, per-plugin resource accounting
+- Layer 2: WASM namespace enforcement, memory caps, context timeouts, pre-opened directory scoping
 
 **Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
+
+### ACL-to-Macaroon Migration
+
+> **Status: Phase M1 complete. M2-M5 planned.**
+
+The per-peer data access grant system (Phases A-D) proved that macaroon capability tokens work at the plugin/service layer. The broader vision: replace ALL five layers of ACL-based access control with macaroon tokens.
+
+| Phase | Layer | Current Mechanism | Macaroon Replacement | Risk | Status |
+|-------|-------|-------------------|---------------------|------|--------|
+| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon with `peer_id`, `service`, `expires` caveats | - | **DONE** (Phases A-D) |
+| **M2** | Share | `shares.json` peer lists | Macaroon with `share_id` caveat | Low | Planned - natural extension of M1 |
+| **M3** | Relay | `relay_authorized_keys` + `relay_data` attribute | Macaroon presented to relay for circuit auth | Medium | Planned - relay needs token verification |
+| **M4** | Connection | `authorized_keys` + ConnectionGater | Macaroon presented during handshake | **High** | Planned - deepest change, touches libp2p setup |
+| **M5** | Role | `role=admin/member` attribute | `action` caveat on macaroon | Low | Planned - trivial once M4 done |
+
+**Migration strategy**: Run both ACL and macaroon in parallel during each phase (macaroon takes priority when present). Once proven per layer, deprecate ACL path. Eventually remove ACL code. Each phase is independently valuable and independently reversible.
+
+**Why this order**: M2 (share) is low risk and a natural extension. M3 (relay) is medium risk but high value. M4 (connection) is the highest risk because it touches the libp2p handshake path - saved for last. M5 is trivial once M4 lands because roles are just caveats on the connection token.
+
+**Reference**: `internal/grants/`, `internal/macaroon/`, `pkg/p2pnet/grant_header.go`
 
 ### Federation Trust Model
 
