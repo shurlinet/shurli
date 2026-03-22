@@ -43,6 +43,8 @@ type RuntimeInfo interface {
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	ConfigReloader() ConfigReloader                          // nil if reload not supported
 	GrantStore() *grants.Store                                // nil before initialization
+	GrantPouch() *grants.Pouch                                // nil before initialization
+	GrantProtocol() *grants.GrantProtocol                     // nil before initialization
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

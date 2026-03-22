@@ -38,6 +38,8 @@ func runAuth(args []string) {
 		runAuthExtend(args[1:])
 	case "grants":
 		runAuthGrants(args[1:])
+	case "delegate":
+		runAuthDelegate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown auth command: %s\n\n", args[0])
 		printAuthUsage()
@@ -55,10 +57,11 @@ func printAuthUsage() {
 	fmt.Println("  validate [file]                                               Validate authorized_keys format")
 	fmt.Println()
 	fmt.Println("Data access grants (macaroon capability tokens):")
-	fmt.Println("  grant    <peer> --duration 1h [--services file-transfer,...]   Grant data access")
-	fmt.Println("  grants                                                        List active grants")
-	fmt.Println("  revoke   <peer>                                               Revoke data access grant")
-	fmt.Println("  extend   <peer> --duration 2h                                 Extend a grant")
+	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant data access")
+	fmt.Println("  grants                                                         List active grants")
+	fmt.Println("  revoke   <peer>                                                Revoke data access grant")
+	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
+	fmt.Println("  delegate <peer> --to <target> [--duration 30m] [--delegate N]  Delegate to another peer")
 	fmt.Println()
 	fmt.Println("Authorization commands support --config <path> and --file <path>.")
 	fmt.Println("Grant commands require a running daemon.")

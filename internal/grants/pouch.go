@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -208,6 +210,117 @@ func (p *Pouch) List() []*PouchEntry {
 		if !e.Expired() {
 			result = append(result, e.clone())
 		}
+	}
+	return result
+}
+
+// Delegate creates an attenuated sub-token from an existing pouch entry.
+// The sub-token has all of the original caveats PLUS new restrictions:
+// - delegate_to=targetPeerID (binds the sub-token to the target)
+// - max_delegations decremented (or set to the requested value if lower)
+// - optional: shorter duration, fewer services
+// Returns the attenuated macaroon for delivery to the target peer.
+func (p *Pouch) Delegate(issuerID peer.ID, targetPeerID peer.ID, duration time.Duration, services []string, maxDelegations int) (*macaroon.Macaroon, error) {
+	p.mu.RLock()
+	entry, exists := p.entries[issuerID]
+	if !exists || entry.Expired() {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("no valid token from issuer %s", shortPeerID(issuerID))
+	}
+
+	// Check the original token allows delegation via the most restrictive caveat.
+	origMaxDel := extractMaxDelegations(entry.Token.Caveats)
+	if origMaxDel == 0 {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("token from issuer %s does not allow delegation (max_delegations=0)", shortPeerID(issuerID))
+	}
+
+	// Also verify the legacy delegate caveat isn't blocking.
+	for _, c := range entry.Token.Caveats {
+		key, value, err := macaroon.ParseCaveat(c)
+		if err != nil {
+			continue
+		}
+		if key == macaroon.CaveatDelegate && value == "false" {
+			p.mu.RUnlock()
+			return nil, fmt.Errorf("token from issuer %s has delegate=false", shortPeerID(issuerID))
+		}
+	}
+
+	// Clone the token so we don't mutate the stored one.
+	subToken := entry.Token.Clone()
+	p.mu.RUnlock()
+
+	// Add delegate_to caveat binding this sub-token to the target peer.
+	subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatDelegateTo, targetPeerID.String()))
+
+	// Compute new max_delegations: must be strictly less than original.
+	newMaxDel := maxDelegations
+	if origMaxDel > 0 {
+		// Limited delegation: decrement by 1, or use requested value if lower.
+		decremented := origMaxDel - 1
+		if newMaxDel < 0 {
+			// Caller requested unlimited, but original is limited. Cap at decremented.
+			newMaxDel = decremented
+		} else if newMaxDel > decremented {
+			newMaxDel = decremented
+		}
+	}
+	// origMaxDel == -1 (unlimited): use whatever the caller requested.
+	subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%d", macaroon.CaveatMaxDelegations, newMaxDel))
+
+	// Optional: add tighter duration (attenuate, never widen).
+	if duration > 0 {
+		subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatExpires, time.Now().Add(duration).Format(time.RFC3339)))
+	}
+
+	// Optional: add tighter service restriction.
+	if len(services) > 0 {
+		subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatService, strings.Join(services, ",")))
+	}
+
+	p.logger.Info("pouch: delegated token",
+		"issuer", shortPeerID(issuerID),
+		"target", shortPeerID(targetPeerID),
+		"max_delegations", newMaxDel)
+
+	return subToken, nil
+}
+
+// extractMaxDelegations returns the most restrictive max_delegations from a token's caveats.
+// In a delegation chain, multiple max_delegations caveats accumulate. The minimum
+// non-negative value wins. If any is 0, delegation is blocked. -1 (unlimited) only
+// applies when ALL max_delegations caveats are -1.
+// Returns 0 if not found (default: no delegation).
+func extractMaxDelegations(caveats []string) int {
+	found := false
+	result := -1 // start with unlimited, narrow down
+	for _, c := range caveats {
+		key, value, err := macaroon.ParseCaveat(c)
+		if err != nil {
+			continue
+		}
+		if key != macaroon.CaveatMaxDelegations {
+			continue
+		}
+		v, err := strconv.Atoi(value)
+		if err != nil {
+			return 0 // malformed = deny
+		}
+		found = true
+		if v == 0 {
+			return 0 // any zero blocks all delegation
+		}
+		if v == -1 {
+			continue // unlimited doesn't narrow the result
+		}
+		// v > 0: take the minimum
+		if result == -1 || v < result {
+			result = v
+		}
+	}
+	if !found {
+		return 0 // no caveat = no delegation
 	}
 	return result
 }

@@ -235,10 +235,11 @@ type PluginDisableAllResponse struct {
 
 // GrantRequest is the request body for creating a data access grant.
 type GrantRequest struct {
-	Peer      string   `json:"peer"`               // peer name or ID
-	Duration  string   `json:"duration"`            // e.g. "1h", "7d", "30m"
-	Services  []string `json:"services,omitempty"`  // empty = all services
-	Permanent bool     `json:"permanent,omitempty"`
+	Peer           string   `json:"peer"`                      // peer name or ID
+	Duration       string   `json:"duration"`                  // e.g. "1h", "7d", "30m"
+	Services       []string `json:"services,omitempty"`        // empty = all services
+	Permanent      bool     `json:"permanent,omitempty"`
+	MaxDelegations int      `json:"max_delegations,omitempty"` // 0=none, N=limited, -1=unlimited
 }
 
 // GrantExtendRequest is the request body for extending a grant.
@@ -252,15 +253,25 @@ type GrantRevokeRequest struct {
 	Peer string `json:"peer"` // peer name or ID
 }
 
+// GrantDelegateRequest is the request body for delegating a grant to another peer.
+type GrantDelegateRequest struct {
+	Peer           string   `json:"peer"`                      // peer holding the original grant
+	To             string   `json:"to"`                        // target peer to delegate to
+	Duration       string   `json:"duration,omitempty"`        // optional: shorter duration
+	Services       []string `json:"services,omitempty"`        // optional: fewer services
+	MaxDelegations int      `json:"max_delegations,omitempty"` // optional: further delegation hops
+}
+
 // GrantInfo represents a grant in API responses.
 type GrantInfo struct {
-	Peer      string   `json:"peer"`
-	PeerID    string   `json:"peer_id"`
-	Services  []string `json:"services,omitempty"`
-	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
-	CreatedAt string   `json:"created_at"`
-	Permanent bool     `json:"permanent,omitempty"`
-	Remaining string   `json:"remaining,omitempty"` // human-readable, empty for permanent
+	Peer           string   `json:"peer"`
+	PeerID         string   `json:"peer_id"`
+	Services       []string `json:"services,omitempty"`
+	ExpiresAt      string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	CreatedAt      string   `json:"created_at"`
+	Permanent      bool     `json:"permanent,omitempty"`
+	Remaining      string   `json:"remaining,omitempty"`        // human-readable, empty for permanent
+	MaxDelegations int      `json:"max_delegations,omitempty"`  // 0=none, N=limited, -1=unlimited
 }
 
 // GrantListResponse is the response for listing grants.

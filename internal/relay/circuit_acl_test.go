@@ -125,7 +125,7 @@ func TestCircuitACL_Disabled_GrantedPeerAllowed(t *testing.T) {
 	)
 
 	gs := newTestGrantStore(t)
-	gs.Grant(grantedPeer, 1*time.Hour, nil, false)
+	gs.Grant(grantedPeer, 1*time.Hour, nil, false, 0)
 
 	acl := NewCircuitACL(authPath, false, true, gs)
 
@@ -152,7 +152,7 @@ func TestCircuitACL_Disabled_ExpiredGrantDenied(t *testing.T) {
 
 	gs := newTestGrantStore(t)
 	// Grant with 1ms duration - will be expired by the time we check.
-	gs.Grant(peerWithExpired, 1*time.Millisecond, nil, false)
+	gs.Grant(peerWithExpired, 1*time.Millisecond, nil, false, 0)
 	time.Sleep(5 * time.Millisecond)
 
 	acl := NewCircuitACL(authPath, false, true, gs)
@@ -220,7 +220,7 @@ func TestCircuitACL_GrantRevokeDeniesAccess(t *testing.T) {
 	)
 
 	gs := newTestGrantStore(t)
-	gs.Grant(grantedPeer, 1*time.Hour, nil, false)
+	gs.Grant(grantedPeer, 1*time.Hour, nil, false, 0)
 	acl := NewCircuitACL(authPath, false, true, gs)
 
 	addr, _ := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
@@ -250,7 +250,7 @@ func TestCircuitACL_ServiceScopedGrantPassesRelayACL(t *testing.T) {
 
 	gs := newTestGrantStore(t)
 	// Grant scoped to file-transfer only.
-	gs.Grant(grantedPeer, 1*time.Hour, []string{"file-transfer"}, false)
+	gs.Grant(grantedPeer, 1*time.Hour, []string{"file-transfer"}, false, 0)
 
 	acl := NewCircuitACL(authPath, false, true, gs)
 
@@ -269,7 +269,7 @@ func TestCircuitACL_PermanentGrantAllowed(t *testing.T) {
 	)
 
 	gs := newTestGrantStore(t)
-	gs.Grant(grantedPeer, 0, nil, true) // permanent
+	gs.Grant(grantedPeer, 0, nil, true, 0) // permanent
 
 	acl := NewCircuitACL(authPath, false, true, gs)
 

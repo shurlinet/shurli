@@ -47,6 +47,8 @@ func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil }
 func (m *mockRuntime) GrantStore() *grants.Store                    { return nil }
+func (m *mockRuntime) GrantPouch() *grants.Pouch                    { return nil }
+func (m *mockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

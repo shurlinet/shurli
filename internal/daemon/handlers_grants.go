@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/shurlinet/shurli/internal/macaroon"
 )
 
 // handleGrantList returns all active grants.
@@ -25,10 +27,11 @@ func (s *Server) handleGrantList(w http.ResponseWriter, r *http.Request) {
 	var infos []GrantInfo
 	for _, g := range active {
 		info := GrantInfo{
-			PeerID:    g.PeerIDStr,
-			Services:  g.Services,
-			CreatedAt: g.CreatedAt.Format(time.RFC3339),
-			Permanent: g.Permanent,
+			PeerID:         g.PeerIDStr,
+			Services:       g.Services,
+			CreatedAt:      g.CreatedAt.Format(time.RFC3339),
+			Permanent:      g.Permanent,
+			MaxDelegations: g.MaxDelegations,
 		}
 
 		if name, ok := reverseNames[g.PeerIDStr]; ok {
@@ -94,17 +97,18 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent)
+	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
 	}
 
 	info := GrantInfo{
-		PeerID:    grant.PeerIDStr,
-		Services:  grant.Services,
-		CreatedAt: grant.CreatedAt.Format(time.RFC3339),
-		Permanent: grant.Permanent,
+		PeerID:         grant.PeerIDStr,
+		Services:       grant.Services,
+		CreatedAt:      grant.CreatedAt.Format(time.RFC3339),
+		Permanent:      grant.Permanent,
+		MaxDelegations: grant.MaxDelegations,
 	}
 
 	reverseNames := s.buildReverseNames()
@@ -196,6 +200,101 @@ func (s *Server) handleGrantExtend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RespondJSON(w, http.StatusOK, map[string]string{"status": "extended"})
+}
+
+// handleGrantDelegate creates a delegated sub-token from a pouch entry and delivers it.
+func (s *Server) handleGrantDelegate(w http.ResponseWriter, r *http.Request) {
+	pouch := s.runtime.GrantPouch()
+	if pouch == nil {
+		RespondError(w, http.StatusServiceUnavailable, "grant pouch not initialized")
+		return
+	}
+
+	proto := s.runtime.GrantProtocol()
+	if proto == nil {
+		RespondError(w, http.StatusServiceUnavailable, "grant protocol not initialized")
+		return
+	}
+
+	var req GrantDelegateRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Peer == "" {
+		RespondError(w, http.StatusBadRequest, "peer (grant issuer) is required")
+		return
+	}
+	if req.To == "" {
+		RespondError(w, http.StatusBadRequest, "to (delegation target) is required")
+		return
+	}
+
+	// Resolve both peer names.
+	issuerID, err := s.resolvePeerID(req.Peer)
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve issuer peer: %v", err))
+		return
+	}
+
+	targetID, err := s.resolvePeerID(req.To)
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve target peer: %v", err))
+		return
+	}
+
+	var duration time.Duration
+	if req.Duration != "" {
+		duration, err = time.ParseDuration(req.Duration)
+		if err != nil {
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid duration: %v", err))
+			return
+		}
+		if duration <= 0 {
+			RespondError(w, http.StatusBadRequest, "duration must be positive")
+			return
+		}
+	}
+
+	// Create the attenuated sub-token.
+	subToken, err := pouch.Delegate(issuerID, targetID, duration, req.Services, req.MaxDelegations)
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Deliver the sub-token to the target peer.
+	// When no explicit duration, extract the earliest expires from the sub-token's
+	// inherited caveats so the receiver's pouch stores the correct expiry metadata.
+	var expiresAt time.Time
+	if duration > 0 {
+		expiresAt = time.Now().Add(duration)
+	} else {
+		expiresAt = macaroon.ExtractEarliestExpires(subToken.Caveats)
+	}
+
+	status := "delivered"
+	deliveryErr := proto.DeliverGrant(r.Context(), targetID, subToken, req.Services, expiresAt, false)
+	if deliveryErr != nil {
+		// Peer might be offline. Enqueue for later delivery.
+		if qErr := proto.EnqueueGrant(targetID, subToken, req.Services, expiresAt, false); qErr != nil {
+			RespondError(w, http.StatusInternalServerError, fmt.Sprintf("delivery failed and queue error: %v; %v", deliveryErr, qErr))
+			return
+		}
+		status = "queued"
+	}
+
+	reverseNames := s.buildReverseNames()
+	targetName := req.To
+	if name, ok := reverseNames[targetID.String()]; ok {
+		targetName = name
+	}
+
+	RespondJSON(w, http.StatusCreated, map[string]string{
+		"status": status,
+		"target": targetName,
+	})
 }
 
 // resolvePeerID resolves a peer name or ID string to a peer.ID.
