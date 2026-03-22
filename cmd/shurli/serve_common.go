@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -1003,6 +1004,40 @@ func (rt *serveRuntime) SetupPeerNotify() {
 				}
 			}
 		}
+	})
+
+	// Grant-changed handler: when the relay creates/restores a grant for us,
+	// clear all dial backoffs and retry disconnected peers immediately.
+	// This eliminates the ~30s delay after a revoke-then-re-grant cycle.
+	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("grant-changed: rejected from non-relay",
+				"peer", remotePeer.String()[:16]+"...")
+			return
+		}
+
+		// Read and validate version byte.
+		var ver [1]byte
+		if _, err := io.ReadFull(s, ver[:]); err != nil {
+			slog.Warn("grant-changed: read error", "err", err)
+			return
+		}
+		if ver[0] != 0x01 {
+			slog.Warn("grant-changed: unsupported version", "version", ver[0])
+			return
+		}
+
+		slog.Info("grant-changed: relay notified access changed, clearing backoffs",
+			"relay", remotePeer.String()[:16]+"...")
+
+		// Clear swarm-level backoffs for all watched peers.
+		if rt.peerManager != nil {
+			rt.peerManager.OnNetworkChange()
+		}
+		rt.network.ResetBlackHoles()
 	})
 }
 
