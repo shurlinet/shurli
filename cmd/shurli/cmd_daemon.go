@@ -57,7 +57,9 @@ func (rt *serveRuntime) IsRelaying() bool {
 
 func (rt *serveRuntime) RelayAddresses() []string    { return rt.config.Relay.Addresses }
 func (rt *serveRuntime) DiscoveryNetwork() string     { return rt.config.Discovery.Network }
-func (rt *serveRuntime) GrantStore() *grants.Store    { return rt.grantStore }
+func (rt *serveRuntime) GrantStore() *grants.Store              { return rt.grantStore }
+func (rt *serveRuntime) GrantPouch() *grants.Pouch              { return rt.grantPouch }
+func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.grantProtocol }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -447,22 +449,41 @@ func runDaemonStart(args []string) {
 		dummyToken := macaroon.New("shurli-node", grantRootKey, "dummy")
 		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string) bool {
 			short := pid.String()[:16]
+
+			// D1 mitigation: all code paths must execute the same operations
+			// (decode, extract, permissive check, verify) to prevent timing oracles.
+			// When a step fails, subsequent steps run against dummy data.
+
+			token, decodeErr := macaroon.DecodeBase64(tokenB64)
+			if decodeErr != nil {
+				token = dummyToken // use dummy for remaining steps
+			}
+
+			delegateTo := macaroon.ExtractDelegateTo(token.Caveats)
+			hasPermissive := macaroon.HasPermissiveDelegation(token.Caveats)
+
 			verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
-				PeerID:  pid.String(),
-				Service: svc,
-				Now:     time.Now(),
+				PeerID:     pid.String(),
+				Service:    svc,
+				DelegateTo: delegateTo,
+				Now:        time.Now(),
 			})
-			token, err := macaroon.DecodeBase64(tokenB64)
-			if err != nil {
-				// D1: run dummy HMAC so timing is the same as a valid token.
-				dummyToken.Verify(grantRootKey, verifier)
+			verifyErr := token.Verify(grantRootKey, verifier)
+
+			// Now evaluate results. Order doesn't matter for timing - all work is done.
+			if decodeErr != nil {
 				slog.Warn("grants: presented token is malformed",
-					"peer", short, "service", svc, "error", err)
+					"peer", short, "service", svc, "error", decodeErr)
 				return false
 			}
-			if err := token.Verify(grantRootKey, verifier); err != nil {
+			if delegateTo != "" && !hasPermissive {
+				slog.Warn("grants: delegated token lacks delegation authorization",
+					"peer", short, "service", svc, "delegate_to", delegateTo[:min(16, len(delegateTo))])
+				return false
+			}
+			if verifyErr != nil {
 				slog.Warn("grants: presented token verification failed",
-					"peer", short, "service", svc, "error", err)
+					"peer", short, "service", svc, "error", verifyErr)
 				return false
 			}
 			return true

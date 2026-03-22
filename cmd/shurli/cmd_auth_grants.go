@@ -5,11 +5,40 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 )
+
+// formatDelegation returns a human-readable delegation mode string.
+func formatDelegation(maxDelegations int) string {
+	switch {
+	case maxDelegations == 0:
+		return "disabled"
+	case maxDelegations == -1:
+		return "unlimited"
+	default:
+		return fmt.Sprintf("%d hops", maxDelegations)
+	}
+}
+
+// parseDelegateFlag converts the --delegate flag value to an int.
+// Accepts: "0" (none), positive integers (limited hops), "unlimited" or "-1" (unlimited).
+func parseDelegateFlag(s string) (int, error) {
+	if s == "unlimited" {
+		return -1, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --delegate value %q: use a number or \"unlimited\"", s)
+	}
+	if v < -1 {
+		return 0, fmt.Errorf("invalid --delegate value %d: minimum is -1 (unlimited)", v)
+	}
+	return v, nil
+}
 
 func runAuthGrant(args []string) {
 	if err := doAuthGrant(args, os.Stdout); err != nil {
@@ -24,12 +53,18 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	duration := fs.String("duration", "1h", "grant duration (e.g. 1h, 7d, 30m)")
 	services := fs.String("services", "", "comma-separated service names (empty = all)")
 	permanent := fs.Bool("permanent", false, "grant permanent access (no expiry)")
+	delegateStr := fs.String("delegate", "0", "delegation hops: 0=none (default), N=limited, unlimited")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent]")
+		return fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited]")
+	}
+
+	delegateVal, err := parseDelegateFlag(*delegateStr)
+	if err != nil {
+		return err
 	}
 
 	peerName := fs.Arg(0)
@@ -61,10 +96,11 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	}
 
 	req := daemon.GrantRequest{
-		Peer:      peerName,
-		Duration:  *duration,
-		Services:  svcList,
-		Permanent: *permanent,
+		Peer:           peerName,
+		Duration:       *duration,
+		Services:       svcList,
+		Permanent:      *permanent,
+		MaxDelegations: delegateVal,
 	}
 
 	info, err := client.GrantCreate(req)
@@ -74,15 +110,16 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Granted data access to %s", info.Peer)
 	if len(info.Services) > 0 {
-		fmt.Fprintf(stdout, "  Services: %s\n", strings.Join(info.Services, ", "))
+		fmt.Fprintf(stdout, "  Services:   %s\n", strings.Join(info.Services, ", "))
 	} else {
-		fmt.Fprintln(stdout, "  Services: all")
+		fmt.Fprintln(stdout, "  Services:   all")
 	}
 	if info.Permanent {
-		fmt.Fprintln(stdout, "  Duration: permanent")
+		fmt.Fprintln(stdout, "  Duration:   permanent")
 	} else {
-		fmt.Fprintf(stdout, "  Expires:  %s (%s remaining)\n", info.ExpiresAt, info.Remaining)
+		fmt.Fprintf(stdout, "  Expires:    %s (%s remaining)\n", info.ExpiresAt, info.Remaining)
 	}
+	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(info.MaxDelegations))
 	return nil
 }
 
@@ -120,7 +157,11 @@ func doAuthGrants(args []string, stdout io.Writer) error {
 		if g.Permanent {
 			dur = "permanent"
 		}
-		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s\n", i+1, g.Peer, svc, dur)
+		delStr := ""
+		if g.MaxDelegations != 0 {
+			delStr = "  delegate:" + formatDelegation(g.MaxDelegations)
+		}
+		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s\n", i+1, g.Peer, svc, dur, delStr)
 		termcolor.Faint("     %s\n", g.PeerID)
 	}
 	return nil
@@ -157,6 +198,84 @@ func doAuthRevoke(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Revoked data access grant for %s", peerName)
 	fmt.Fprintln(stdout, "  All connections to this peer have been closed.")
+	return nil
+}
+
+func runAuthDelegate(args []string) {
+	if err := doAuthDelegate(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doAuthDelegate(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("auth delegate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	to := fs.String("to", "", "target peer to delegate to (required)")
+	duration := fs.String("duration", "", "optional shorter duration (e.g. 30m)")
+	services := fs.String("services", "", "optional comma-separated service names")
+	delegateStr := fs.String("delegate", "0", "further delegation hops for target (0=none, N, unlimited)")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: shurli auth delegate <peer> --to <target> [--duration 30m] [--services file-browse] [--delegate N|unlimited]")
+	}
+	if *to == "" {
+		return fmt.Errorf("--to is required (target peer for delegation)")
+	}
+
+	delegateVal, err := parseDelegateFlag(*delegateStr)
+	if err != nil {
+		return err
+	}
+
+	peerName := fs.Arg(0)
+
+	var svcList []string
+	if *services != "" {
+		for _, s := range strings.Split(*services, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				svcList = append(svcList, s)
+			}
+		}
+	}
+
+	client, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
+	if err != nil {
+		return err
+	}
+
+	req := daemon.GrantDelegateRequest{
+		Peer:           peerName,
+		To:             *to,
+		Duration:       *duration,
+		Services:       svcList,
+		MaxDelegations: delegateVal,
+	}
+
+	result, err := client.GrantDelegate(req)
+	if err != nil {
+		return err
+	}
+
+	status := result["status"]
+	target := result["target"]
+	if status == "queued" {
+		termcolor.Green("Delegated grant to %s (queued for delivery - peer offline)", target)
+	} else {
+		termcolor.Green("Delegated grant to %s (delivered)", target)
+	}
+	fmt.Fprintf(stdout, "  From: %s's grant\n", peerName)
+	if *duration != "" {
+		fmt.Fprintf(stdout, "  Duration: %s\n", *duration)
+	}
+	if len(svcList) > 0 {
+		fmt.Fprintf(stdout, "  Services: %s\n", strings.Join(svcList, ", "))
+	}
+	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(delegateVal))
 	return nil
 }
 

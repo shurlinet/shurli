@@ -231,7 +231,7 @@ _shurli_completions() {
     local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
-    local auth_cmds="add list remove validate grant grants revoke extend"
+    local auth_cmds="add list remove validate grant grants revoke extend delegate"
     local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
@@ -272,10 +272,13 @@ _shurli_completions() {
                     COMPREPLY=($(compgen -W "--config --file" -- "$cur"))
                     return ;;
                 grant)
-                    COMPREPLY=($(compgen -W "--duration --services --permanent" -- "$cur"))
+                    COMPREPLY=($(compgen -W "--duration --services --permanent --delegate" -- "$cur"))
                     return ;;
                 extend)
                     COMPREPLY=($(compgen -W "--duration" -- "$cur"))
+                    return ;;
+                delegate)
+                    COMPREPLY=($(compgen -W "--to --duration --services --delegate" -- "$cur"))
                     return ;;
                 grants|revoke)
                     return ;;
@@ -532,6 +535,7 @@ _shurli() {
         'grants:List active grants'
         'revoke:Revoke data access grant'
         'extend:Extend a grant'
+        'delegate:Delegate a grant to another peer'
     )
 
     local -a config_cmds
@@ -663,9 +667,11 @@ _shurli() {
             else
                 case "${words[3]}" in
                     grant)
-                        _arguments '--duration[Grant duration]:duration' '--services[Comma-separated services]:services' '--permanent[Permanent grant]' ;;
+                        _arguments '--duration[Grant duration]:duration' '--services[Comma-separated services]:services' '--permanent[Permanent grant]' '--delegate[Delegation hops (0=none, N=limited, -1=unlimited)]:hops' ;;
                     extend)
                         _arguments '--duration[Extension duration]:duration' ;;
+                    delegate)
+                        _arguments '--to[Target peer]:peer' '--duration[Shorter duration]:duration' '--services[Fewer services]:services' '--delegate[Further delegation hops]:hops' ;;
                     add)
                         _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' '--comment[Peer comment]:comment' '--role[Peer role (admin/member)]:role:(admin member)' ;;
                     *)
@@ -926,10 +932,16 @@ complete -c shurli -n '__shurli_using_command auth' -a grant    -d 'Grant data a
 complete -c shurli -n '__shurli_using_command auth' -a grants   -d 'List active grants'
 complete -c shurli -n '__shurli_using_command auth' -a revoke   -d 'Revoke data access grant'
 complete -c shurli -n '__shurli_using_command auth' -a extend   -d 'Extend a grant'
+complete -c shurli -n '__shurli_using_command auth' -a delegate -d 'Delegate a grant to another peer'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l duration  -d 'Grant duration (e.g. 1h, 7d)'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l services  -d 'Comma-separated services'
 complete -c shurli -n '__shurli_using_subcommand auth grant'    -l permanent -d 'Permanent grant'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l delegate  -d 'Delegation hops (0=none, N, -1=unlimited)'
 complete -c shurli -n '__shurli_using_subcommand auth extend'   -l duration  -d 'Extension duration'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l to        -d 'Target peer'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l duration  -d 'Shorter duration'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l services  -d 'Fewer services'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l delegate  -d 'Further delegation hops'
 
 # --- config subcommands ---
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'
