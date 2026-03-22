@@ -24,6 +24,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/macaroon"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"github.com/shurlinet/shurli/pkg/plugin"
@@ -62,6 +63,7 @@ func (rt *serveRuntime) GrantPouch() *grants.Pouch              { return rt.gran
 func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.grantProtocol }
 func (rt *serveRuntime) GrantsAutoRefresh() bool                { return rt.config.Grants.AutoRefresh }
 func (rt *serveRuntime) GrantsMaxRefreshDuration() string       { return rt.config.Grants.MaxRefreshDuration }
+func (rt *serveRuntime) NotifyRouter() *notify.Router            { return rt.notifyRouter }
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {
@@ -510,6 +512,80 @@ func runDaemonStart(args []string) {
 		slog.Warn("grants: no identity key available, grant store disabled")
 	}
 
+	// Phase C: notification router. LogSink is always active (audit trail).
+	notifyRouter := notify.NewRouter(slog.Default())
+	if rt.grantStore != nil {
+		// Wire GrantStore lifecycle events into the notification router.
+		rt.grantStore.SetOnNotify(func(eventType string, peerID peer.ID, meta map[string]string) {
+			severity := notify.SeverityInfo
+			if eventType == string(notify.EventGrantRevoked) || eventType == string(notify.EventGrantExpired) {
+				severity = notify.SeverityWarn
+			}
+			msg := notifyEventMessage(eventType, meta)
+			event := notify.NewEvent(notify.EventType(eventType), severity, peerID.String(), "", msg)
+			for k, v := range meta {
+				event = event.WithMetadata(k, v)
+			}
+			notifyRouter.Emit(event)
+		})
+
+		// Wire pre-expiry warning checker.
+		expiryThreshold := 10 * time.Minute
+		if rt.config.Notifications.ExpiryWarning != "" {
+			if parsed, err := time.ParseDuration(rt.config.Notifications.ExpiryWarning); err == nil && parsed > 0 {
+				expiryThreshold = parsed
+			}
+		}
+		grantStore := rt.grantStore
+		notifyRouter.SetExpiryChecker(notify.ExpiryCheckerFunc(func(d time.Duration) []notify.ExpiryInfo {
+			expiring := grantStore.ExpiringWithin(d)
+			result := make([]notify.ExpiryInfo, len(expiring))
+			for i, g := range expiring {
+				result[i] = notify.ExpiryInfo{
+					PeerID:    g.PeerIDStr,
+					ExpiresAt: g.ExpiresAt,
+					Remaining: g.Remaining(),
+				}
+			}
+			return result
+		}), expiryThreshold, 60*time.Second)
+
+		// Name resolver: peer ID -> human name.
+		notifyRouter.SetNameResolver(func(peerID string) string {
+			pnet := rt.network
+			if pnet == nil {
+				return ""
+			}
+			for name, pid := range pnet.ListNames() {
+				if pid.String() == peerID {
+					return name
+				}
+			}
+			return ""
+		})
+	}
+	// Phase C2: wire DesktopSink and WebhookSink from config.
+	if rt.config.Notifications.IsDesktopEnabled() {
+		if ds := notify.NewDesktopSink(); ds != nil {
+			notifyRouter.AddSink(ds)
+			slog.Info("notify: desktop sink enabled")
+		}
+	}
+	if rt.config.Notifications.Webhook.URL != "" {
+		ws := notify.NewWebhookSink(notify.WebhookConfig{
+			URL:     rt.config.Notifications.Webhook.URL,
+			Headers: rt.config.Notifications.Webhook.Headers,
+			Events:  rt.config.Notifications.Webhook.Events,
+		}, slog.Default())
+		if ws != nil {
+			notifyRouter.AddSink(ws)
+			slog.Info("notify: webhook sink enabled", "url", rt.config.Notifications.Webhook.URL)
+		}
+	}
+
+	notifyRouter.Start()
+	rt.notifyRouter = notifyRouter
+
 	pluginRegistry := plugin.NewRegistry(pluginProvider)
 	if err := plugins.RegisterAll(pluginRegistry); err != nil {
 		slog.Error("plugin registration failed", "error", err)
@@ -818,4 +894,33 @@ func runDaemonDisconnect(args []string) {
 		osExit(1)
 	}
 	fmt.Println("Proxy disconnected.")
+}
+
+// notifyEventMessage returns a human-readable message for a grant event type.
+func notifyEventMessage(eventType string, meta map[string]string) string {
+	switch eventType {
+	case string(notify.EventGrantCreated):
+		if exp, ok := meta["expires_at"]; ok {
+			return "grant created, expires " + exp
+		}
+		return "grant created"
+	case string(notify.EventGrantRevoked):
+		return "grant revoked"
+	case string(notify.EventGrantExpired):
+		return "grant expired"
+	case string(notify.EventGrantExtended):
+		if exp, ok := meta["expires_at"]; ok {
+			return "grant extended, new expiry " + exp
+		}
+		return "grant extended"
+	case string(notify.EventGrantRefreshed):
+		if used, ok := meta["refreshes_used"]; ok {
+			if max, ok2 := meta["max_refreshes"]; ok2 {
+				return "grant refreshed (" + used + "/" + max + ")"
+			}
+		}
+		return "grant refreshed"
+	default:
+		return eventType
+	}
 }

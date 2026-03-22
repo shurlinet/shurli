@@ -18,6 +18,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -57,6 +58,7 @@ func (m *networkMockRuntime) GrantPouch() *grants.Pouch                    { ret
 func (m *networkMockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
 func (m *networkMockRuntime) GrantsAutoRefresh() bool                      { return false }
 func (m *networkMockRuntime) GrantsMaxRefreshDuration() string             { return "" }
+func (m *networkMockRuntime) NotifyRouter() *notify.Router                 { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

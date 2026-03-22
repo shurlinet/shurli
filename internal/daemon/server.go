@@ -15,9 +15,10 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
-	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -47,6 +48,7 @@ type RuntimeInfo interface {
 	GrantProtocol() *grants.GrantProtocol                     // nil before initialization
 	GrantsAutoRefresh() bool                                  // config default for auto-refresh
 	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
+	NotifyRouter() *notify.Router                             // nil before initialization
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

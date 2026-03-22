@@ -730,6 +730,15 @@ Show detailed information about a plugin: commands, routes, protocols, config ke
 .B plugin disable-all
 Emergency kill switch. Disables all active plugins immediately.
 
+.SH NOTIFICATIONS
+.TP
+.B notify list
+Show all configured notification sinks (log, desktop, webhook).
+.TP
+.B notify test
+Send a test notification to all configured sinks. Useful for verifying
+webhook URLs, desktop notification permissions, and sink wiring.
+
 .SH OTHER COMMANDS
 .TP
 .B status \fR[\fB--config\fR \fIpath\fR]
