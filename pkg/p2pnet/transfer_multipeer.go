@@ -588,10 +588,15 @@ func (ts *TransferService) DownloadMultiPeer(
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		"multi-peer", "download", manifest.ChunkCount, false)
 	progress.setStatus("active")
+	// D1 fix: create a cancellable context so CancelTransfer can stop this download.
+	// The cancel func is registered on the progress object.
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	progress.setCancelFunc(dlCancel)
 	ts.logEvent(EventLogStarted, "multi-peer-download", "multi-peer", manifest.Filename, manifest.FileSize, 0, "", "")
 
 	// Launch background download.
 	go func() {
+		defer dlCancel()
 		dlStart := time.Now()
 		session := newMultiPeerSession(manifest, progress)
 
@@ -603,7 +608,7 @@ func (ts *TransferService) DownloadMultiPeer(
 		go func() {
 			defer wg.Done()
 			defer firstStream.Close()
-			if err := receiveSymbolsFromPeer(ctx, firstStream, session, firstStartID, firstCount); err != nil {
+			if err := receiveSymbolsFromPeer(dlCtx, firstStream, session, firstStartID, firstCount); err != nil {
 				slog.Warn("file-multi-peer: peer 0 failed", "error", err)
 				errCh <- err
 			}
@@ -645,7 +650,7 @@ func (ts *TransferService) DownloadMultiPeer(
 					return
 				}
 
-				if err := receiveSymbolsFromPeer(ctx, stream, session, startID, count); err != nil {
+				if err := receiveSymbolsFromPeer(dlCtx, stream, session, startID, count); err != nil {
 					slog.Warn("file-multi-peer: peer failed",
 						"peer_index", peerIdx, "error", err)
 					errCh <- err
@@ -665,8 +670,8 @@ func (ts *TransferService) DownloadMultiPeer(
 			// Session complete, all blocks decoded.
 		case <-doneCh:
 			// All peers finished (maybe before session is complete).
-		case <-ctx.Done():
-			progress.finish(ctx.Err())
+		case <-dlCtx.Done():
+			progress.finish(dlCtx.Err())
 			ts.markCompleted(progress.ID)
 			return
 		}
