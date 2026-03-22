@@ -223,7 +223,10 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE, per-peer data grants DONE (Phases A/R/B/C/D). 9C-9E planned | ✅ 9A-9B2+Grants |
+| **Phase 8B** | **Per-Peer Data Grants** | Macaroon grants, token delivery, delegation, notifications, audit log, rate limiting. Core access control (not plugin-specific) | ✅ DONE |
+| **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). Replace all 5 ACL layers with capability tokens (M2-M5 planned) | ✅/📋 M1 DONE |
+| **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Reputation slot designed | 📋 Planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 | Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
@@ -1058,7 +1061,7 @@ shurli binary
 
 ---
 
-#### Post-9B: Per-Peer Data Access Grants ✅ DONE
+#### Phase 8B: Per-Peer Data Grants ✅ DONE
 
 **Timeline**: 2026-03-20 to 2026-03-22
 **Status**: ✅ Complete (5 phases: A, R, B, C, D - all physically tested and deployed)
@@ -1117,11 +1120,11 @@ shurli binary
 
 ---
 
-#### Planned: ACL-to-Macaroon Migration (M2-M5)
+#### Phase 8C: ACL-to-Macaroon Migration (M2-M5)
 
 **Status**: 📋 Planned (M1 complete, M2-M5 phased rollout)
 
-**Goal**: Replace all five layers of ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) proved the pattern with Phases A-D. Each subsequent phase migrates one authorization layer.
+**Goal**: Replace all five layers of ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) proved the pattern with Phase 8B. Each subsequent phase migrates one authorization layer.
 
 **Why**: ACL entries sit in a single file (authorized_keys) - one point of compromise. Macaroon capability tokens are cryptographic, delegatable, attenuation-only, and verifiable offline with just a root key. The per-peer data grant system (M1) proved this works in production.
 
@@ -1144,7 +1147,7 @@ shurli binary
 
 ---
 
-#### Planned: Plugin Layer 2 - WASM Runtime
+#### Phase 9F: Layer 2 WASM Runtime
 
 **Status**: 📋 Planned (research complete, design ready)
 
@@ -1170,7 +1173,7 @@ shurli binary
 
 ---
 
-#### Planned: Plugin Layer 3 - AI-Driven Plugin Generation
+#### Phase 9G: Layer 3 AI Plugin Generation
 
 **Status**: 📋 Future (requires Layers 1-2 solid)
 
@@ -1180,7 +1183,7 @@ shurli binary
 
 ---
 
-#### Planned: Module Slots
+#### Phase 8D: Module Slots
 
 **Status**: 📋 Planned (reputation slot designed, auth slot future)
 
@@ -1927,7 +1930,10 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
 | **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
-| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned |
+| **Phase 8B: Per-Peer Data Grants** | ✅ | Complete (macaroon grants, token delivery, delegation, notifications, audit log, rate limiting) |
+| **Phase 8C: ACL-to-Macaroon Migration** | ✅/📋 | M1 complete (Phase 8B). M2-M5 planned |
+| **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F-9G future |
 | Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |

@@ -6,54 +6,42 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgG)"/>
-  <!-- Coverage bars - package coverage visualization -->
-  <!-- cmd/shurli -->
-  <text x="180" y="82" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">cmd/shurli</text>
-  <rect x="200" y="68" width="400" height="20" rx="4" fill="#1e2030"/>
-  <rect x="200" y="68" width="320" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
-  <text x="530" y="83" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">80%</text>
-  <!-- internal/daemon -->
-  <text x="180" y="114" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">internal/daemon</text>
-  <rect x="200" y="100" width="400" height="20" rx="4" fill="#1e2030"/>
-  <rect x="200" y="100" width="280" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
-  <text x="490" y="115" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">70%</text>
-  <!-- pkg/p2pnet -->
-  <text x="180" y="146" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">pkg/p2pnet</text>
-  <rect x="200" y="132" width="400" height="20" rx="4" fill="#1e2030"/>
-  <rect x="200" y="132" width="336" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
-  <text x="546" y="147" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">84%</text>
-  <!-- internal/config -->
-  <text x="180" y="178" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">internal/config</text>
-  <rect x="200" y="164" width="400" height="20" rx="4" fill="#1e2030"/>
-  <rect x="200" y="164" width="300" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
-  <text x="510" y="179" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">75%</text>
-  <!-- internal/auth -->
-  <text x="180" y="210" font-family="SF Mono, monospace" font-size="11" fill="#a9b1d6" text-anchor="end">internal/auth</text>
-  <rect x="200" y="196" width="400" height="20" rx="4" fill="#1e2030"/>
-  <rect x="200" y="196" width="300" height="20" rx="4" fill="#9ece6a" opacity="0.6"/>
-  <text x="510" y="211" font-family="SF Mono, monospace" font-size="10" fill="#9ece6a">75%</text>
-  <!-- Overall -->
-  <text x="180" y="258" font-family="SF Mono, monospace" font-size="13" fill="#c0caf5" text-anchor="end" font-weight="600">COMBINED</text>
-  <rect x="200" y="242" width="400" height="24" rx="5" fill="#1e2030"/>
-  <rect x="200" y="242" width="321" height="24" rx="5" fill="#e8729a" opacity="0.5"/>
-  <text x="530" y="259" font-family="SF Mono, monospace" font-size="12" fill="#e8729a" font-weight="600">80.3%</text>
-  <!-- Security audit section -->
-  <rect x="700" y="60" width="420" height="140" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
-  <text x="910" y="90" font-family="system-ui, sans-serif" font-size="14" fill="#c0caf5" text-anchor="middle" font-weight="600">Security Audit</text>
-  <text x="720" y="120" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">CVE-2026-26014</text>
-  <text x="920" y="120" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">RESOLVED</text>
-  <text x="720" y="144" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">CI Actions</text>
-  <text x="920" y="144" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">pinned to SHAs</text>
-  <text x="720" y="168" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">Hardening</text>
-  <text x="920" y="168" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a">10 files fixed</text>
-  <!-- ADR count -->
-  <rect x="700" y="230" width="200" height="120" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
-  <text x="800" y="270" font-family="system-ui, sans-serif" font-size="48" fill="#bb9af7" text-anchor="middle" font-weight="700" opacity="0.7">28</text>
-  <text x="800" y="296" font-family="system-ui, sans-serif" font-size="13" fill="#bb9af7" text-anchor="middle" opacity="0.6">ADRs</text>
-  <text x="800" y="316" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">architecture decisions</text>
-  <!-- Docker tests -->
-  <rect x="930" y="230" width="190" height="120" rx="10" fill="none" stroke="#222124" stroke-width="1"/>
-  <text x="1025" y="268" font-family="SF Mono, monospace" font-size="12" fill="#e0af68" text-anchor="middle">Docker</text>
-  <text x="1025" y="288" font-family="SF Mono, monospace" font-size="12" fill="#e0af68" text-anchor="middle">Integration</text>
-  <text x="1025" y="316" font-family="SF Mono, monospace" font-size="10" fill="#565f89" text-anchor="middle">relay + invite + ping</text>
+
+  <!-- Shield visual - centered, proper proportions (taller than wide) -->
+  <path d="M600,40 L740,90 L740,220 C740,310 600,360 600,360 C600,360 460,310 460,220 L460,90 Z"
+        fill="none" stroke="#9ece6a" stroke-width="2.5" opacity="0.7"/>
+  <path d="M600,58 L724,104 L724,218 C724,298 600,344 600,344 C600,344 476,298 476,218 L476,104 Z"
+        fill="#9ece6a" opacity="0.06"/>
+
+  <!-- Checkmark inside shield -->
+  <polyline points="560,200 588,232 645,168" fill="none" stroke="#9ece6a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+
+  <!-- Left side: coverage bars -->
+  <rect x="80" y="100" width="280" height="16" rx="8" fill="#1e2030"/>
+  <rect x="80" y="100" width="235" height="16" rx="8" fill="#9ece6a" opacity="0.4"/>
+  <text x="80" y="92" font-family="system-ui, sans-serif" font-size="12" fill="#9ece6a" opacity="0.7">Tested</text>
+
+  <rect x="80" y="145" width="280" height="16" rx="8" fill="#1e2030"/>
+  <rect x="80" y="145" width="200" height="16" rx="8" fill="#bb9af7" opacity="0.4"/>
+  <text x="80" y="137" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" opacity="0.7">Audited</text>
+
+  <rect x="80" y="190" width="280" height="16" rx="8" fill="#1e2030"/>
+  <rect x="80" y="190" width="250" height="16" rx="8" fill="#7aa2f7" opacity="0.4"/>
+  <text x="80" y="182" font-family="system-ui, sans-serif" font-size="12" fill="#7aa2f7" opacity="0.7">Hardened</text>
+
+  <!-- Right side: key stats -->
+  <rect x="860" y="90" width="260" height="60" rx="10" fill="#1e1d20" stroke="#9ece6a" stroke-width="1" opacity="0.7"/>
+  <text x="990" y="118" font-family="system-ui, sans-serif" font-size="26" fill="#9ece6a" text-anchor="middle" font-weight="700">80%</text>
+  <text x="990" y="140" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">code covered by tests</text>
+
+  <rect x="860" y="170" width="260" height="60" rx="10" fill="#1e1d20" stroke="#bb9af7" stroke-width="1" opacity="0.7"/>
+  <text x="990" y="198" font-family="system-ui, sans-serif" font-size="26" fill="#bb9af7" text-anchor="middle" font-weight="700">28</text>
+  <text x="990" y="220" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">architecture decisions recorded</text>
+
+  <rect x="860" y="250" width="260" height="60" rx="10" fill="#1e1d20" stroke="#e0af68" stroke-width="1" opacity="0.7"/>
+  <text x="990" y="278" font-family="system-ui, sans-serif" font-size="26" fill="#e0af68" text-anchor="middle" font-weight="700">10</text>
+  <text x="990" y="300" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">security issues found and fixed</text>
+
+  <!-- Bottom label -->
+  <text x="600" y="390" font-family="system-ui, sans-serif" font-size="13" fill="#565f89" text-anchor="middle">Every component tested, every decision documented, every vulnerability closed</text>
 </svg>
