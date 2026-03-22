@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -341,6 +342,63 @@ func (s *Server) buildReverseNames() map[string]string {
 		}
 	}
 	return reverse
+}
+
+// handleReconnect clears dial backoffs for a peer and triggers immediate reconnection.
+func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
+	var req ReconnectRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Peer == "" {
+		RespondError(w, http.StatusBadRequest, "peer is required")
+		return
+	}
+
+	peerID, err := s.resolvePeerID(req.Peer)
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, fmt.Sprintf("cannot resolve peer: %v", err))
+		return
+	}
+
+	// Clear swarm-level dial backoffs.
+	pnet := s.runtime.Network()
+	if pnet != nil {
+		pnet.ClearDialBackoffs([]peer.ID{peerID})
+	}
+
+	// Clear PeerManager internal backoffs and trigger reconnect cycle.
+	status := "reconnecting"
+	pm := s.runtime.PeerManager()
+	if pm != nil {
+		if !pm.ReconnectPeer(peerID) {
+			status = "not_watched"
+		}
+	}
+
+	// Attempt an immediate dial via ConnectToPeer (DHT + relay fallback).
+	// Use a detached context: r.Context() is cancelled when the response is sent,
+	// but ConnectToPeer needs to outlive the HTTP request.
+	// Dial regardless of watch status - the user explicitly asked to reconnect.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = s.runtime.ConnectToPeer(ctx, peerID)
+	}()
+
+	reverseNames := s.buildReverseNames()
+	peerName := peerID.String()
+	if name, ok := reverseNames[peerName]; ok {
+		peerName = name
+	}
+
+	RespondJSON(w, http.StatusOK, ReconnectResponse{
+		Peer:   peerName,
+		PeerID: peerID.String(),
+		Status: status,
+	})
 }
 
 // handlePouchList returns all non-expired tokens in the grant pouch (receiver's view).

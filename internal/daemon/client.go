@@ -526,6 +526,16 @@ func (c *Client) PouchList() (*PouchListResponse, error) {
 	return &result, nil
 }
 
+// Reconnect clears dial backoffs for a peer and triggers immediate reconnection.
+func (c *Client) Reconnect(peer string) (*ReconnectResponse, error) {
+	body, _ := json.Marshal(ReconnectRequest{Peer: peer})
+	var result ReconnectResponse
+	if err := c.doJSON("POST", "/v1/reconnect", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // NotifySinks returns all configured notification sinks.
 func (c *Client) NotifySinks() ([]NotifySinkInfo, error) {
 	var result []NotifySinkInfo

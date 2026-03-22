@@ -81,6 +81,8 @@ func main() {
 		runSession(os.Args[2:])
 	case "plugin":
 		runPlugin(os.Args[2:])
+	case "reconnect":
+		runReconnect(os.Args[2:])
 	case "notify":
 		runNotify(os.Args[2:])
 	case "doctor":
@@ -157,6 +159,7 @@ func printUsage() {
 	fmt.Println("  traceroute <target> [--json]           P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                Resolve name to peer ID")
 	fmt.Println("  proxy <target> <service> <local-port>  Forward TCP port")
+	fmt.Println("  reconnect <peer> [--json]              Clear backoffs and force redial")
 	fmt.Println()
 	fmt.Println("Identity & access:")
 	fmt.Println("  whoami                                 Show your peer ID")
