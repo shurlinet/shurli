@@ -145,12 +145,15 @@ func TestRouter_PreExpiryWarnings(t *testing.T) {
 	r.AddSink(s)
 
 	// Mock expiry checker that returns one expiring grant.
+	// Use a fixed ExpiresAt so the dedup ID is stable across ticks.
+	// (time.Now() would produce different ExpiresAt per tick, defeating dedup.)
+	fixedExpiry := time.Now().Add(5 * time.Minute).Truncate(time.Second)
 	checker := ExpiryCheckerFunc(func(d time.Duration) []ExpiryInfo {
 		return []ExpiryInfo{{
 			PeerID:    "QmExpiringPeer",
 			PeerName:  "bob",
-			ExpiresAt: time.Now().Add(5 * time.Minute),
-			Remaining: 5 * time.Minute,
+			ExpiresAt: fixedExpiry,
+			Remaining: time.Until(fixedExpiry),
 		}}
 	})
 	r.SetExpiryChecker(checker, 10*time.Minute, 50*time.Millisecond)
