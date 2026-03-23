@@ -453,19 +453,47 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 		replacement := fmt.Sprintf("names:\n  %s: \"%s\"", name, peerIDStr)
 		content = strings.Replace(content, "names: {}", replacement, 1)
 	} else if strings.Contains(content, "names:") {
-		// Append under existing names section - find the line and add after it
+		// Append under existing names section after the last entry.
 		lines := strings.Split(content, "\n")
 		var result []string
 		added := false
-		for _, line := range lines {
+		indent := "  " // default indentation
+		namesIdx := -1
+		lastEntryIdx := -1
+
+		// Find the names: line and the last entry under it.
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if namesIdx < 0 && strings.HasPrefix(trimmed, "names:") && !strings.Contains(line, "{}") {
+				namesIdx = i
+				continue
+			}
+			if namesIdx >= 0 && !added {
+				// Lines under names: that look like entries (key: "value"), skip comments.
+				if !strings.HasPrefix(trimmed, "#") && (strings.Contains(trimmed, ": \"") || strings.Contains(trimmed, ": '")) {
+					lastEntryIdx = i
+					// Detect indentation from this entry.
+					indent = line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+					// Non-empty, non-comment line = end of names section.
+					added = true
+				}
+			}
+		}
+
+		// Insert after the last entry (or after names: if no entries).
+		insertAfter := lastEntryIdx
+		if insertAfter < 0 {
+			insertAfter = namesIdx
+		}
+		for i, line := range lines {
 			result = append(result, line)
-			if !added && strings.HasPrefix(strings.TrimSpace(line), "names:") && !strings.Contains(line, "{}") {
-				result = append(result, fmt.Sprintf("  %s: \"%s\"", name, peerIDStr))
+			if !added && i == insertAfter {
+				result = append(result, fmt.Sprintf("%s%s: \"%s\"", indent, name, peerIDStr))
 				added = true
 			}
 		}
 		if !added {
-			// Fallback: append at end
 			result = append(result, fmt.Sprintf("\nnames:\n  %s: \"%s\"", name, peerIDStr))
 		}
 		content = strings.Join(result, "\n")
