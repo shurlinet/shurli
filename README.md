@@ -47,13 +47,22 @@ Or use `make install` to build, install, and set up a system service in one step
 
 ## Quick Start
 
+### 0. Deploy a relay (recommended)
+
+Follow the [Relay Setup Guide](docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
+This gives you full capability: data relay, file transfer, service proxy through NAT.
+
+Without your own relay, Shurli uses public seed nodes for peer discovery only.
+Direct connections work, but data relay through seeds is blocked by design.
+
 ### 1. Initialize (first time only)
 
 ```bash
 shurli init
 ```
 
-Interactive wizard: creates your identity (seed phrase backup), sets a password, and writes your configuration.
+Interactive wizard: creates your identity, sets a password, and writes your configuration.
+Choose "Use my own relay server" (option 1) and enter your relay address.
 
 ### 2. Connect
 

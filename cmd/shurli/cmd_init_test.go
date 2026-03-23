@@ -45,8 +45,8 @@ func TestDoInit_ConfigAlreadyExists(t *testing.T) {
 func TestDoInit_EmptyRelay(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), then enter empty address
-	stdin := strings.NewReader("2\n\n")
+	// Choose option 1 (own relay), then enter empty address
+	stdin := strings.NewReader("1\n\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -61,8 +61,8 @@ func TestDoInit_EmptyRelay(t *testing.T) {
 func TestDoInit_InvalidMultiaddr(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), then provide invalid multiaddr
-	stdin := strings.NewReader("2\n/invalid/multiaddr\n")
+	// Choose option 1 (own relay), then provide invalid multiaddr
+	stdin := strings.NewReader("1\n/invalid/multiaddr\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -77,8 +77,8 @@ func TestDoInit_InvalidMultiaddr(t *testing.T) {
 func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), IP:port input, then empty peer ID
-	stdin := strings.NewReader("2\n1.2.3.4:7777\n\n")
+	// Choose option 1 (own relay), IP:port input, then empty peer ID
+	stdin := strings.NewReader("1\n1.2.3.4:7777\n\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -93,8 +93,8 @@ func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), IP:port, then invalid peer ID
-	stdin := strings.NewReader("2\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
+	// Choose option 1 (own relay), IP:port, then invalid peer ID
+	stdin := strings.NewReader("1\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -122,7 +122,8 @@ func TestDoInit_InvalidChoice(t *testing.T) {
 }
 
 func TestDoInit_PublicNetworkDefault(t *testing.T) {
-	// Choosing option 1 (or just pressing enter) selects the public network.
+	// Choosing option 2 selects the public seed network.
+	// Option 1 (default/enter) is now own relay server.
 	// This skips past relay setup but then hits seed confirmation, which
 	// requires interactive terminal, so we just verify it doesn't error
 	// on the relay choice itself.

@@ -1,6 +1,6 @@
 ---
 title: "Relay Setup"
-weight: 5
+weight: 1
 description: "Complete guide to deploying your own Shurli relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."
 ---
 <!-- Auto-synced from RELAY-SETUP.md by sync-docs - do not edit directly -->

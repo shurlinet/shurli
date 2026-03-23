@@ -45,7 +45,7 @@ layout: hextra-home
 <div class="shurli-section">
   <div class="shurli-section-icon">{{< icon name="lightning-bolt" attributes="height=28" >}}</div>
   <h2 class="shurli-section-title">From zero to connected in 60 seconds</h2>
-  <p class="shurli-section-subtitle">Two commands on each device. No accounts to create, no keys to exchange manually, no ports to forward.</p>
+  <p class="shurli-section-subtitle">Deploy a relay, then two commands on each device. No accounts to create, no keys to exchange manually, no ports to forward.</p>
   <div class="shurli-demo-container">
     <img src="/images/terminal-demo.svg" alt="Shurli terminal demo showing init, invite, join, and proxy commands" class="shurli-demo-image" loading="lazy" />
   </div>
@@ -58,14 +58,14 @@ layout: hextra-home
 <div class="shurli-section">
   <div class="shurli-section-icon">{{< icon name="cog" attributes="height=28" >}}</div>
   <h2 class="shurli-section-title">How it works</h2>
-  <p class="shurli-section-subtitle">Three steps. Both devices end up in each other's authorized_keys. That's it.</p>
+  <p class="shurli-section-subtitle">Deploy a relay, initialize your devices, and pair them. Your network, your rules.</p>
 
   <div class="shurli-steps-grid">
     <div class="shurli-step">
       <div class="shurli-step-number">1</div>
-      <img src="/images/how-it-works-1-init.svg" alt="Step 1: Initialize Shurli on your server" class="shurli-step-image" loading="lazy" />
-      <h3 class="shurli-step-title">Initialize</h3>
-      <p class="shurli-step-desc">Run <code>shurli init</code> on your server. It creates a unique identity and comes online, ready to accept connections.</p>
+      <img src="/images/how-it-works-1-init.svg" alt="Step 1: Deploy relay and initialize Shurli" class="shurli-step-image" loading="lazy" />
+      <h3 class="shurli-step-title">Setup</h3>
+      <p class="shurli-step-desc">Deploy a relay on any VPS with <code>shurli relay setup</code>, then run <code>shurli init</code> on your devices. Your relay, your rules.</p>
     </div>
     <div class="shurli-step">
       <div class="shurli-step-number">2</div>
