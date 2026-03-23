@@ -164,7 +164,7 @@ type TransferConfig struct {
 	Compress *bool `yaml:"compress,omitempty"`
 
 	// LogPath is the file path for structured transfer event logging.
-	// Default: ~/.config/shurli/logs/transfers.log
+	// Default: ~/.shurli/logs/transfers.log
 	// Set to empty string to disable transfer logging.
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -257,7 +257,7 @@ type TransferConfig struct {
 	// --- Queue persistence ---
 
 	// QueueFile is the path for persisting queued transfers across daemon restarts.
-	// Default: ~/.config/shurli/queue.json. Set to empty string to disable.
+	// Default: ~/.shurli/queue.json. Set to empty string to disable.
 	QueueFile string `yaml:"queue_file,omitempty"`
 }
 

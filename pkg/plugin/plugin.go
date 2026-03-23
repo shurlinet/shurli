@@ -296,7 +296,7 @@ func (c *PluginContext) EngineHost() *p2pnet.Network {
 }
 
 // ConfigDir returns the plugin's config directory path.
-// e.g. ~/.config/shurli/plugins/shurli.io/official/filetransfer/
+// e.g. ~/.shurli/plugins/shurli.io/official/filetransfer/
 func (c *PluginContext) ConfigDir() string {
 	return c.configDir
 }
@@ -378,7 +378,7 @@ type interactionReport struct {
 type ContextProvider struct {
 	Network         *p2pnet.Network
 	ServiceRegistry *p2pnet.ServiceRegistry
-	ConfigDir       string                                      // base config dir (~/.config/shurli/)
+	ConfigDir       string                                      // base config dir (~/.shurli/)
 	NameResolver    func(name string) (peer.ID, error)
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity

@@ -816,22 +816,22 @@ are missing or outdated, run:
 
 .SH FILES
 .TP
-.I ~/.config/shurli/config.yaml
-Default node configuration file. Contains relay addresses, service
-definitions, peer names, and DHT settings.
+.I ~/.shurli/config.yaml
+Default node configuration file (user-level). Contains relay addresses,
+service definitions, peer names, and DHT settings.
 .TP
-.I ~/.config/shurli/identity.key
+.I ~/.shurli/identity.key
 Ed25519 private key. Generated once during \fBshurli init\fR. Back this
 file up; losing it means generating a new identity and re-pairing with
 all peers.
 .TP
-.I ~/.config/shurli/authorized_keys
+.I ~/.shurli/authorized_keys
 Peer allowlist. One entry per line. Supports attributes: role (admin/member),
 comment, expires, verified, group. Syntax is validated by \fBauth validate\fR.
 .TP
 .I ./shurli.yaml
 Alternate config location. Shurli searches the current directory first,
-then ~/.config/shurli/config.yaml. Override with \fB--config\fR.
+then /etc/shurli/config.yaml, then ~/.shurli/config.yaml. Override with \fB--config\fR.
 .TP
 .I relay-server.yaml
 Relay server configuration. Contains listen addresses, authorized_keys path,

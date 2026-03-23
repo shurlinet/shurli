@@ -65,7 +65,7 @@ All keytool functionality now lives in `shurli` subcommands: `shurli whoami` (pe
 - [x] Tested: SSH, XRDP, generic TCP proxy all working across LAN and 5G
 - [x] **UX Streamlining**:
   - [x] Single binary - merged home-node into `shurli daemon`
-  - [x] Standard config path - auto-discovery (`./shurli.yaml` -> `~/.config/shurli/config.yaml` -> `/etc/shurli/config.yaml`)
+  - [x] Standard config path - auto-discovery (`./shurli.yaml` -> `~/.shurli/config.yaml` -> `/etc/shurli/config.yaml`)
   - [x] `shurli init` - interactive setup wizard (generates config, keys, authorized_keys)
   - [x] All commands support `--config <path>` flag
   - [x] Unified config type (one config format for all modes)

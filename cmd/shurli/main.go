@@ -288,7 +288,7 @@ func printUsage() {
 	fmt.Println("The <target> can be a peer ID or a name from the names section of your config.")
 	fmt.Println()
 	fmt.Println("All commands support --config <path> to specify a config file.")
-	fmt.Println("Without --config, shurli searches: ./shurli.yaml, ~/.config/shurli/config.yaml")
+	fmt.Println("Without --config, shurli searches: ./shurli.yaml, /etc/shurli/config.yaml, ~/.shurli/config.yaml")
 	fmt.Println()
 	fmt.Println("Get started:  shurli init")
 }

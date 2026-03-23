@@ -143,7 +143,7 @@ check_existing_install() {
         DETECTED_ROLE="relay"
     elif systemctl is-active --quiet shurli-relay 2>/dev/null; then
         DETECTED_ROLE="relay"
-    elif [ -f /etc/shurli/config.yaml ] || [ -f "${HOME}/.config/shurli/config.yaml" ]; then
+    elif [ -f /etc/shurli/config.yaml ] || [ -f "${HOME}/.shurli/config.yaml" ] || [ -f "${HOME}/.config/shurli/config.yaml" ]; then
         DETECTED_ROLE="peer"
     elif systemctl is-active --quiet shurli-daemon 2>/dev/null; then
         DETECTED_ROLE="peer"
@@ -676,6 +676,7 @@ setup_peer() {
             # Build ReadWritePaths from directories that exist (systemd fails on missing paths)
             local rw_paths="/run/user"
             if [ -d /etc/shurli ]; then rw_paths="/etc/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/.shurli" ]; then rw_paths="/home/${svc_user}/.shurli ${rw_paths}"; fi
             if [ -d "/home/${svc_user}/.config/shurli" ]; then rw_paths="/home/${svc_user}/.config/shurli ${rw_paths}"; fi
             if [ -d "/home/${svc_user}/Downloads/shurli" ]; then rw_paths="/home/${svc_user}/Downloads/shurli ${rw_paths}"; fi
             run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=${rw_paths}|" "$service_dest"
@@ -708,7 +709,7 @@ setup_peer() {
 
     # Check if config already exists
     local config_exists="no"
-    for cfg_dir in /etc/shurli "${HOME}/.config/shurli"; do
+    for cfg_dir in /etc/shurli "${HOME}/.shurli" "${HOME}/.config/shurli"; do
         if [ -f "${cfg_dir}/config.yaml" ]; then
             config_exists="yes"
             break
@@ -741,7 +742,7 @@ setup_peer() {
             info "Config restored from backup."
             # Check if session token exists for auto-start
             local restored_dir=""
-            for d in /etc/shurli "${HOME}/.config/shurli"; do
+            for d in /etc/shurli "${HOME}/.shurli" "${HOME}/.config/shurli"; do
                 if [ -f "${d}/config.yaml" ]; then restored_dir="$d"; break; fi
             done
             if [ -n "$restored_dir" ] && [ ! -f "${restored_dir}/.session.token" ]; then
@@ -780,6 +781,7 @@ restart_peer_service() {
             fi
             local rw_paths="/run/user"
             if [ -d /etc/shurli ]; then rw_paths="/etc/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/.shurli" ]; then rw_paths="/home/${svc_user}/.shurli ${rw_paths}"; fi
             if [ -d "/home/${svc_user}/.config/shurli" ]; then rw_paths="/home/${svc_user}/.config/shurli ${rw_paths}"; fi
             if [ -d "/home/${svc_user}/Downloads/shurli" ]; then rw_paths="/home/${svc_user}/Downloads/shurli ${rw_paths}"; fi
             run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=${rw_paths}|" "$service_dest"
@@ -886,6 +888,8 @@ do_backup() {
     if [ -d /etc/shurli/relay ]; then relay_cfg="/etc/shurli/relay"; fi
     if [ -f /etc/shurli/config.yaml ]; then
         peer_cfg="/etc/shurli"
+    elif [ -f "${HOME}/.shurli/config.yaml" ]; then
+        peer_cfg="${HOME}/.shurli"
     elif [ -f "${HOME}/.config/shurli/config.yaml" ]; then
         peer_cfg="${HOME}/.config/shurli"
     fi
@@ -952,6 +956,8 @@ do_uninstall() {
     if [ -d /etc/shurli/relay ]; then relay_cfg="/etc/shurli/relay"; fi
     if [ -f /etc/shurli/config.yaml ]; then
         peer_cfg="/etc/shurli"
+    elif [ -f "${HOME}/.shurli/config.yaml" ]; then
+        peer_cfg="${HOME}/.shurli"
     elif [ -f "${HOME}/.config/shurli/config.yaml" ]; then
         peer_cfg="${HOME}/.config/shurli"
     fi
@@ -1071,9 +1077,13 @@ do_uninstall() {
             run_sudo rm -rf /etc/shurli
             log "Removed /etc/shurli/"
         fi
+        if [ -d "${HOME}/.shurli" ]; then
+            rm -rf "${HOME}/.shurli"
+            log "Removed ~/.shurli/"
+        fi
         if [ -d "${HOME}/.config/shurli" ]; then
             rm -rf "${HOME}/.config/shurli"
-            log "Removed ~/.config/shurli/"
+            log "Removed ~/.config/shurli/ (legacy)"
         fi
     elif [ "$choice" = "3" ]; then
         # Complete removal, no backup
@@ -1087,9 +1097,13 @@ do_uninstall() {
                 run_sudo rm -rf /etc/shurli
                 log "Removed /etc/shurli/"
             fi
+            if [ -d "${HOME}/.shurli" ]; then
+                rm -rf "${HOME}/.shurli"
+                log "Removed ~/.shurli/"
+            fi
             if [ -d "${HOME}/.config/shurli" ]; then
                 rm -rf "${HOME}/.config/shurli"
-                log "Removed ~/.config/shurli/"
+                log "Removed ~/.config/shurli/ (legacy)"
             fi
         else
             log "Config removal cancelled. Config preserved."

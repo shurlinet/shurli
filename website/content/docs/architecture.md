@@ -336,7 +336,7 @@ The invite protocol uses PAKE-secured key exchange: ephemeral X25519 DH + token-
 
 **3. Manual - edit `authorized_keys` file directly**
 ```bash
-echo "12D3KooW... # home-server" >> ~/.config/shurli/authorized_keys
+echo "12D3KooW... # home-server" >> ~/.shurli/authorized_keys
 ```
 
 ---
@@ -461,7 +461,7 @@ The `serveRuntime` struct implements this interface in `cmd_daemon.go`, keeping 
 
 ### Cookie-Based Authentication
 
-Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.config/shurli/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern - no plaintext passwords in config, token rotates on restart, same-user access only.
+Every API request requires `Authorization: Bearer <token>`. The token is a 32-byte random hex string written to `~/.shurli/.daemon-cookie` with `0600` permissions. This follows the Bitcoin Core / Docker pattern - no plaintext passwords in config, token rotates on restart, same-user access only.
 
 ### Stale Socket Detection
 
@@ -1362,7 +1362,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Transfer Queue**: Priority-ordered outbound queue with configurable concurrency limit (default: 3 active). `TransferQueue` manages pending/active/completed states. Priority flag via `shurli send --priority`.
 
-**Share Registry**: Persistent file sharing via `ShareRegistry`. `shurli share add <path> [--to peer]` registers files for browsing and download by authorized peers. Shares survive daemon restarts (persisted to `~/.config/shurli/shares.json`). Selective sharing: restrict individual shares to specific peers via `--to`.
+**Share Registry**: Persistent file sharing via `ShareRegistry`. `shurli share add <path> [--to peer]` registers files for browsing and download by authorized peers. Shares survive daemon restarts (persisted to `~/.shurli/shares.json`). Selective sharing: restrict individual shares to specific peers via `--to`.
 
 **Directory Transfer**: Recursive directory transfer with path structure preserved. `shurli send ./folder peer`. Relative paths sanitized (strip `..`, absolute paths, null bytes, control chars). Regular files only (no device files, pipes, sockets).
 
@@ -1370,7 +1370,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Rate Limiting**: Fixed-window rate limiter - 10 transfer requests per minute per peer. Silent rejection (no information leakage to non-friends). Applied to both single-peer and multi-peer request paths.
 
-**Transfer Logging**: `TransferLogger` writes JSON-line events to `~/.config/shurli/transfers.log`. File rotation at configurable size (default 10MB). Events: send, receive, accept, reject, cancel, complete, fail.
+**Transfer Logging**: `TransferLogger` writes JSON-line events to `~/.shurli/transfers.log`. File rotation at configurable size (default 10MB). Events: send, receive, accept, reject, cancel, complete, fail.
 
 **Notifications**: `TransferNotifier` supports two modes: `desktop` (OS-native notifications) and `command` (execute a shell command template with `{from}`, `{file}`, `{size}` placeholders). Configurable via `transfer.notify_mode` and `transfer.notify_command`.
 

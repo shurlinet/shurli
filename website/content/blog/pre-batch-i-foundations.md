@@ -124,7 +124,7 @@ $ shurli status
 Version:  v0.x.x
 Peer ID:  12D3KooW...
 Network:  my-crew
-Config:   ~/.config/shurli/config.yaml
+Config:   ~/.shurli/config.yaml
 ...
 ```
 
