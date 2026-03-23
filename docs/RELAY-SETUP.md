@@ -37,7 +37,7 @@ It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
 3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
-4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay (identity + vault are auto-created on first run with a single password), enables the service, configures firewall, tunes QUIC buffers
+4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay in foreground for first-time identity setup (create new or recover from existing seed phrase), enables the service, configures firewall, tunes QUIC buffers
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
@@ -53,7 +53,7 @@ Relay commands auto-detect the config at `/etc/shurli/relay/` and auto-escalate 
 ```bash
 # These work from any directory, as any user with sudo access
 shurli relay info
-shurli relay pair --count 3
+shurli relay invite create --ttl 24h
 
 # Edit config if needed (defaults are good - port 7777, gating enabled)
 sudo nano /etc/shurli/relay/relay-server.yaml
@@ -69,19 +69,30 @@ sudo systemctl restart shurli-relay
 
 ### Add peers to the relay
 
-**Option A: Pairing codes (recommended)**
+**Option A: Invite codes (recommended)**
 
-Generate pairing codes and share them with your peers:
+Generate invite codes and share them with your peers:
 
 ```bash
-# Generate 3 pairing codes (one per person)
-shurli relay pair --count 3
+# Generate an invite code (valid for 24 hours)
+shurli relay invite create --ttl 24h
 
-# Each person joins with one command on their machine:
-shurli join <pairing-code> --as laptop
+# Each person joins with one command on their device:
+shurli join <invite-code> --relay <IP:PORT>
+# Peer ID: <shown in invite output>
 ```
 
-Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `shurli verify <name>`.
+The `join --relay` command handles everything on a fresh device: creates identity (new or recover from seed phrase), sets password, writes config, connects to relay, starts daemon, and offers systemd service installation on Linux.
+
+Invite codes handle authorization automatically. Everyone who joins through the same relay is mutually authorized and can verify each other with `shurli verify <name>`.
+
+```bash
+# List active invites
+shurli relay invite list
+
+# Revoke an invite
+shurli relay invite revoke <group-id>
+```
 
 **Option B: Manual authorization**
 
@@ -400,7 +411,7 @@ bash tools/relay-setup.sh --check
 |-------|----------|
 | Service fails to start | `sudo journalctl -u shurli-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 /etc/shurli/relay/relay_node.key` |
-| Peers can't connect | Use `shurli relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
+| Peers can't connect | Use `shurli relay invite create` to generate invite codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |

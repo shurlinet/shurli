@@ -60,55 +60,94 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 sudo install -m 755 shurli /usr/local/bin/shurli
 ```
 
-### 1. Deploy a relay (recommended)
+### 1. Deploy your relay
 
 Follow the [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
-This gives you full capability: data relay, file transfer, service proxy through NAT.
+One script, takes a few minutes. Your relay, your rules. No third party controls your network.
 
-Without your own relay, Shurli uses public seed nodes for peer discovery only.
-Direct connections work, but data relay through seeds is blocked by design.
+### 2. Join your relay
 
-### 2. Initialize (first time only)
-
+On the relay, generate an invite:
 ```bash
-shurli init
+shurli relay invite create --ttl 24h
+# Output includes: invite code, relay IP:PORT, and Peer ID
 ```
 
-Interactive wizard: creates your identity, sets a password, and writes your configuration.
-Choose "Use my own relay server" (option 1) and enter your relay address.
-
-### 3. Connect
-
-**I have an invite code:**
-
+On your device, join with one command (it will prompt for the Peer ID):
 ```bash
-shurli join <invite-code> --as laptop
+shurli join <invite-code> --relay <IP:PORT>
 ```
 
-Done. You're connected and mutually authorized.
+That's it. Identity created, config written, relay connected, daemon started.
+On Linux it offers to install as a systemd service (starts on boot).
+Repeat on each device you want to connect.
 
-**I want to set up my own network:**
-
-On machine 1 (your server):
-```bash
-shurli invite --as home
-# Shows invite code + QR code, waits for the other side...
-```
-
-On machine 2 (your client):
-```bash
-shurli join <invite-code> --as laptop
-```
-
-### 4. Use it
+### 3. Use it
 
 ```bash
-# On the server - start the daemon
-shurli daemon
-
-# On the client - connect to a service
 shurli proxy home ssh 2222
 ssh -p 2222 user@localhost
+```
+
+---
+
+### Alternative: Init + Join (two-step)
+
+Set up config first, connect later:
+
+```bash
+# Step 1: Create identity and config (choose your relay or public seeds)
+shurli init
+
+# Step 2: On your relay, create an invite
+shurli relay invite create --ttl 24h
+
+# Step 3: On one device, generate the invite
+shurli invite --as home
+
+# Step 4: On the other device, join
+shurli join <invite-code> --as laptop
+
+# Step 5: Start the daemon
+shurli daemon
+```
+
+### Advanced: Manual setup (no wizards)
+
+For users who prefer full control without interactive prompts:
+
+```bash
+# 1. Create identity from seed phrase
+shurli recover --dir /etc/shurli
+
+# 2. Write config manually
+cat > /etc/shurli/config.yaml << 'EOF'
+version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+    - "/ip4/0.0.0.0/udp/0/quic-v1"
+relay:
+  addresses:
+    - "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW..."
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "shurli-default-network"
+  bootstrap_peers: []
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+names: {}
+EOF
+
+# 3. Add authorized peers manually
+echo "12D3KooW...  # relay" >> /etc/shurli/authorized_keys
+echo "12D3KooW...  # home-node" >> /etc/shurli/authorized_keys
+
+# 4. Start
+shurli daemon
 ```
 
 ## What Can I Do With Shurli?
