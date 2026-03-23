@@ -43,6 +43,7 @@ func runJoin(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("as", "", "your node's name on the network (e.g., \"laptop\")")
 	relayFlag := fs.String("relay", "", "relay address (IP:PORT or full multiaddr) - bootstraps config on fresh devices")
+	userFlag := fs.Bool("user", false, "install config in ~/.config/shurli/ instead of /etc/shurli/")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output for scripting")
 	fs.Parse(reorderFlags(fs, args))
 
@@ -86,12 +87,12 @@ func runJoin(args []string) {
 		fatal("Invalid invite code: %v", err)
 	}
 
-	runPairJoin(data, *nameFlag, *configFlag, *relayFlag, *nonInteractive, out, outln)
+	runPairJoin(data, *nameFlag, *configFlag, *relayFlag, *userFlag, *nonInteractive, out, outln)
 }
 
 // runPairJoin handles invite codes with PAKE-secured relay pairing.
 // The code contains only the token (no relay address). The joiner uses their configured relay.
-func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string, nonInteractive bool,
+func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string, userMode, nonInteractive bool,
 	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
 
 	outln("=== Shurli join ===")
@@ -106,7 +107,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 		// Bootstrap: create identity + config from scratch using the provided relay.
 		outln("No config found. Bootstrapping from --relay flag...")
 		outln()
-		cfgFile, err = bootstrapForJoin(relayAddr, os.Stdin, os.Stdout)
+		cfgFile, err = bootstrapForJoin(relayAddr, userMode, os.Stdin, os.Stdout)
 		if err != nil {
 			fatal("Bootstrap failed: %v", err)
 		}
@@ -469,10 +470,20 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 	}
 }
 
+// sudoRun executes a command with sudo, inheriting stdin/stdout/stderr
+// so the user can enter their password if needed.
+func sudoRun(args ...string) error {
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // bootstrapForJoin creates a fresh identity and config for a device that has never
 // run "shurli init". This enables "shurli join <code> --relay <addr>" as a single
 // command for new devices. Returns the path to the created config file.
-func bootstrapForJoin(relayInput string, stdin io.Reader, stdout io.Writer) (string, error) {
+func bootstrapForJoin(relayInput string, userMode bool, stdin io.Reader, stdout io.Writer) (string, error) {
 	// Validate relay address: accept full multiaddr or IP:PORT.
 	var relayAddr string
 	if isFullMultiaddr(relayInput) {
@@ -504,18 +515,43 @@ func bootstrapForJoin(relayInput string, stdin io.Reader, stdout io.Writer) (str
 	}
 
 	// Determine config directory.
-	configDir, err := config.DefaultConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine config directory: %w", err)
+	var configDir string
+	var dirErr error
+	if userMode {
+		configDir, dirErr = config.UserConfigDir()
+	} else {
+		configDir, dirErr = config.DefaultConfigDir()
+	}
+	if dirErr != nil {
+		return "", fmt.Errorf("cannot determine config directory: %w", dirErr)
 	}
 	configFile := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(configFile); err == nil {
 		return "", fmt.Errorf("config already exists: %s", configFile)
 	}
 
-	fmt.Fprintf(stdout, "Creating config directory: %s\n", configDir)
+	fmt.Fprintf(stdout, "Config directory: %s\n", configDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
+		// Needs sudo for /etc/shurli/
+		if !userMode {
+			fmt.Fprintln(stdout, "Creating system config directory (requires sudo)...")
+			if sudoErr := sudoRun("mkdir", "-p", configDir); sudoErr != nil {
+				return "", fmt.Errorf("failed to create directory: %w", sudoErr)
+			}
+			// chown to current user so we can write files without sudo
+			user := os.Getenv("USER")
+			if user == "" {
+				user = "root"
+			}
+			if sudoErr := sudoRun("chown", "-R", user+":"+user, configDir); sudoErr != nil {
+				return "", fmt.Errorf("failed to set ownership: %w", sudoErr)
+			}
+			if sudoErr := sudoRun("chmod", "700", configDir); sudoErr != nil {
+				return "", fmt.Errorf("failed to set permissions: %w", sudoErr)
+			}
+		} else {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
 	}
 
 	// Generate BIP39 seed.
