@@ -2,7 +2,7 @@ name: Deploy Website
 
 on:
   push:
-    branches: [main, dev/next-iteration]
+    branches: [main, dev]
     paths:
       - 'website/**'
       - 'docs/**'
