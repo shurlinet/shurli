@@ -259,6 +259,15 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 		relayAddrs = []string{relayAddr}
+
+		fmt.Fprintln(stdout)
+		fmt.Fprint(stdout, "Also add public seed nodes for broader peer discovery? [y/N]: ")
+		seedChoice, _ := reader.ReadString('\n')
+		seedChoice = strings.TrimSpace(strings.ToLower(seedChoice))
+		if seedChoice == "y" || seedChoice == "yes" {
+			relayAddrs = append(relayAddrs, HardcodedSeeds...)
+			fmt.Fprintf(stdout, "Added %d public seed nodes.\n", len(HardcodedSeeds))
+		}
 	case "2":
 		usedSeeds = true
 		relayAddrs = HardcodedSeeds
