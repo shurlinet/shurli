@@ -5,14 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/libp2p/go-libp2p/core/peer"
-
-	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/internal/identity"
 )
 
 func runRelayInvite(args []string, configFile string) {
@@ -188,43 +182,40 @@ func printRelayInviteUsage() {
 	fmt.Println("The joining peer uses: shurli join <code> --relay <addr>")
 }
 
-// detectRelayEndpoint reads the relay config and identity to return the
-// public IP, port, and peer ID separately. Returns empty strings on failure.
+// detectRelayEndpoint queries the running relay's admin socket for its
+// public IP, port, and peer ID. Returns empty strings on failure.
 func detectRelayEndpoint(configFile string) (ip, port, peerIDStr string) {
-	cfg, err := config.LoadRelayServerConfig(configFile)
+	client, cleanup, err := relayAdminClientOrRemote("", configFile)
 	if err != nil {
 		return "", "", ""
 	}
-	relayConfigDir := filepath.Dir(configFile)
-	pw, err := resolvePassword(relayConfigDir)
-	if err != nil {
+	defer cleanup()
+
+	info, err := client.GetInfo()
+	if err != nil || info.PeerID == "" {
 		return "", "", ""
 	}
-	priv, err := identity.LoadIdentity(cfg.Identity.KeyFile, pw)
-	if err != nil {
-		return "", "", ""
-	}
-	pid, err := peer.IDFromPrivateKey(priv)
-	if err != nil {
-		return "", "", ""
-	}
-	publicIPs := detectPublicIPs()
-	// Prefer IPv4.
-	for _, pip := range publicIPs {
-		if !strings.Contains(pip, ":") {
-			p := extractTCPPort(cfg.Network.ListenAddresses)
-			if p == "" {
-				p = "7777"
+
+	// Find public IPv4 multiaddr and extract IP:port.
+	for _, maddr := range info.Multiaddrs {
+		if strings.Contains(maddr, "/ip4/") && strings.Contains(maddr, "/tcp/") && !strings.Contains(maddr, "/ws") {
+			// Skip private/loopback.
+			if strings.Contains(maddr, "/ip4/127.") || strings.Contains(maddr, "/ip4/10.") || strings.Contains(maddr, "/ip4/192.168.") || strings.Contains(maddr, "/ip4/172.") {
+				continue
 			}
-			return pip, p, pid.String()
+			parts := strings.Split(maddr, "/")
+			for i, p := range parts {
+				if p == "ip4" && i+1 < len(parts) {
+					ip = parts[i+1]
+				}
+				if p == "tcp" && i+1 < len(parts) {
+					port = parts[i+1]
+				}
+			}
+			if ip != "" && port != "" {
+				return ip, port, info.PeerID
+			}
 		}
-	}
-	if len(publicIPs) > 0 {
-		p := extractTCPPort(cfg.Network.ListenAddresses)
-		if p == "" {
-			p = "7777"
-		}
-		return publicIPs[0], p, pid.String()
 	}
 	return "", "", ""
 }

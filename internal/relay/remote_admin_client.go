@@ -562,3 +562,19 @@ func (c *RemoteAdminClient) RelayExtend(peerID string, durationSecs int) error {
 	}
 	return nil
 }
+
+// GetInfo returns the relay's peer ID and multiaddrs.
+func (c *RemoteAdminClient) GetInfo() (*RelayInfoResponse, error) {
+	data, status, err := c.do("GET", "/v1/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var resp RelayInfoResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
