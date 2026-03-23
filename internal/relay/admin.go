@@ -280,6 +280,9 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/zkp/proving-key", s.handleZKPProvingKey)
 	mux.HandleFunc("GET /v1/zkp/verifying-key", s.handleZKPVerifyingKey)
 
+	// Relay info endpoint (peer ID, multiaddrs)
+	mux.HandleFunc("GET /v1/info", s.handleInfo)
+
 	// Relay data grant endpoints (time-limited per-peer data access)
 	mux.HandleFunc("POST /v1/relay-grant", s.handleRelayGrant)
 	mux.HandleFunc("GET /v1/relay-grants", s.handleRelayGrants)
@@ -1934,6 +1937,22 @@ func (s *AdminServer) recordVaultSealState(sealed bool) {
 			s.Metrics.VaultSealed.Set(0)
 		}
 	}
+}
+
+// handleInfo returns the relay's peer ID and public multiaddrs.
+func (s *AdminServer) handleInfo(w http.ResponseWriter, _ *http.Request) {
+	resp := struct {
+		PeerID     string   `json:"peer_id"`
+		Multiaddrs []string `json:"multiaddrs"`
+	}{}
+	if s.host != nil {
+		resp.PeerID = s.host.ID().String()
+		for _, addr := range s.host.Addrs() {
+			resp.Multiaddrs = append(resp.Multiaddrs, addr.String()+"/p2p/"+s.host.ID().String())
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func generateAdminCookie() (string, error) {

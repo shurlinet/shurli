@@ -66,6 +66,28 @@ func (c *AdminClient) do(method, path string, body io.Reader) ([]byte, int, erro
 	return data, resp.StatusCode, nil
 }
 
+// RelayInfoResponse holds the relay's peer ID and multiaddrs.
+type RelayInfoResponse struct {
+	PeerID     string   `json:"peer_id"`
+	Multiaddrs []string `json:"multiaddrs"`
+}
+
+// GetInfo returns the relay's peer ID and multiaddrs from the running server.
+func (c *AdminClient) GetInfo() (*RelayInfoResponse, error) {
+	data, status, err := c.do("GET", "/v1/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("info failed (HTTP %d): %s", status, data)
+	}
+	var resp RelayInfoResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // CreateGroup creates a pairing group and returns the invite codes.
 func (c *AdminClient) CreateGroup(count, ttlSec, expiresSec int, namespace string) (*PairResponse, error) {
 	reqBody, _ := json.Marshal(PairRequest{
