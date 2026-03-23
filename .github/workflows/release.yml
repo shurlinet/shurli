@@ -21,8 +21,9 @@ jobs:
           - goos: linux
             goarch: arm64
             os: ubuntu-latest
-            install_deps: ""
-            cgo: "0"
+            install_deps: sudo dpkg --add-architecture arm64 && sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list && echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' | sudo tee /etc/apt/sources.list.d/arm64.list && sudo apt-get update -y -qq && sudo apt-get install -y -qq gcc-aarch64-linux-gnu libavahi-compat-libdnssd-dev:arm64
+            cgo: "1"
+            cc: aarch64-linux-gnu-gcc
             suffix: ""
           - goos: darwin
             goarch: amd64
@@ -57,20 +58,33 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: ${{ matrix.cgo }}
+          CC: ${{ matrix.cc || '' }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
           COMMIT="$(git rev-parse --short HEAD)"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE} -s -w"
 
-          OUTNAME="shurli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
-          go build -ldflags "${LDFLAGS}" -trimpath -o "${OUTNAME}" ./cmd/shurli
-          echo "ARTIFACT=${OUTNAME}" >> "$GITHUB_ENV"
+          ARCHIVE_DIR="shurli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "${ARCHIVE_DIR}/deploy" "${ARCHIVE_DIR}/tools"
+
+          # Build binary into archive dir
+          go build -ldflags "${LDFLAGS}" -trimpath -o "${ARCHIVE_DIR}/shurli${{ matrix.suffix }}" ./cmd/shurli
+
+          # Bundle service files and setup scripts
+          cp deploy/shurli-daemon.service deploy/shurli-relay.service "${ARCHIVE_DIR}/deploy/"
+          cp deploy/com.shurli.daemon.plist "${ARCHIVE_DIR}/deploy/" 2>/dev/null || true
+          cp tools/relay-setup.sh "${ARCHIVE_DIR}/tools/"
+          chmod +x "${ARCHIVE_DIR}/tools/relay-setup.sh"
+
+          # Create archive
+          tar czf "${ARCHIVE_DIR}.tar.gz" "${ARCHIVE_DIR}"
+          echo "ARTIFACT=${ARCHIVE_DIR}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -92,7 +106,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum shurli-* > checksums-sha256.txt
+        run: sha256sum *.tar.gz > checksums-sha256.txt
 
       - name: Detect release type
         id: release_type
