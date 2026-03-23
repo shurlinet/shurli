@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/termcolor"
 )
@@ -306,7 +307,7 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 		return fmt.Errorf("could not find relay.addresses section in config file.\nPlease add manually to: %s", cfgFile)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -423,7 +424,7 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 		return fmt.Errorf("could not find relay address line in config file.\nPlease remove manually from: %s", cfgFile)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -511,7 +512,7 @@ func doRelaySeeds(args []string, stdout io.Writer) error {
 			result = append(result, line)
 		}
 
-		if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
+		if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
 			return fmt.Errorf("failed to write config: %w", err)
 		}
 

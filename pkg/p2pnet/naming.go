@@ -103,7 +103,7 @@ func (r *NameResolver) List() map[string]peer.ID {
 	return names
 }
 
-// LoadFromMap loads name mappings from a map.
+// LoadFromMap loads name mappings from a map (additive - existing names preserved).
 // Names are normalized: trimmed of whitespace and lowercased, consistent with Register().
 func (r *NameResolver) LoadFromMap(names map[string]string) error {
 	r.mu.Lock()
@@ -122,5 +122,29 @@ func (r *NameResolver) LoadFromMap(names map[string]string) error {
 		r.names[name] = peerID
 	}
 
+	return nil
+}
+
+// ReplaceFromMap replaces all name mappings with the given map.
+// Unlike LoadFromMap, this clears existing names first so that removed
+// names don't persist in memory after a config reload.
+func (r *NameResolver) ReplaceFromMap(names map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	fresh := make(map[string]peer.ID, len(names))
+	for name, peerIDStr := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		peerID, err := peer.Decode(peerIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid peer ID for name %s: %w", name, err)
+		}
+		fresh[name] = peerID
+	}
+
+	r.names = fresh
 	return nil
 }

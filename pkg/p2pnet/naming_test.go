@@ -209,6 +209,61 @@ func TestNameResolverLoadFromMap(t *testing.T) {
 	})
 }
 
+func TestNameResolverReplaceFromMap(t *testing.T) {
+	r := NewNameResolver()
+	pid1 := genTestPeerID(t)
+	pid2 := genTestPeerID(t)
+	pid3 := genTestPeerID(t)
+
+	// Load initial names.
+	r.LoadFromMap(map[string]string{
+		"home":   pid1.String(),
+		"laptop": pid2.String(),
+	})
+	if len(r.List()) != 2 {
+		t.Fatalf("expected 2 names, got %d", len(r.List()))
+	}
+
+	// Replace with a different set - "laptop" should disappear.
+	if err := r.ReplaceFromMap(map[string]string{
+		"home":    pid1.String(),
+		"desktop": pid3.String(),
+	}); err != nil {
+		t.Fatalf("ReplaceFromMap: %v", err)
+	}
+
+	list := r.List()
+	if len(list) != 2 {
+		t.Fatalf("expected 2 names after replace, got %d", len(list))
+	}
+	if _, ok := list["laptop"]; ok {
+		t.Error("laptop should have been removed by replace")
+	}
+	if list["desktop"] != pid3 {
+		t.Error("desktop should be in the new map")
+	}
+
+	// Replace with empty map clears all.
+	if err := r.ReplaceFromMap(map[string]string{}); err != nil {
+		t.Fatalf("ReplaceFromMap empty: %v", err)
+	}
+	if len(r.List()) != 0 {
+		t.Error("expected empty list after replacing with empty map")
+	}
+
+	// Replace with invalid peer ID returns error, keeps old state.
+	r.Register("keep-me", pid1)
+	err := r.ReplaceFromMap(map[string]string{
+		"bad": "not-a-valid-peer-id",
+	})
+	if err == nil {
+		t.Error("expected error for invalid peer ID")
+	}
+	if _, ok := r.List()["keep-me"]; !ok {
+		t.Error("old names should be preserved on error")
+	}
+}
+
 func TestNameResolverCaseInsensitive(t *testing.T) {
 	r := NewNameResolver()
 	pid := genTestPeerID(t)

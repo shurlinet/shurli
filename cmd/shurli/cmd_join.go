@@ -420,7 +420,7 @@ func addRelayToConfigFile(cfgFile, relayAddr string) error {
 		return fmt.Errorf("could not find relay.addresses section")
 	}
 
-	return os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600)
+	return auth.WriteFilePreserveOwnership(cfgFile, []byte(strings.Join(result, "\n")), 0600)
 }
 
 // updateConfigNames appends a name mapping to the config file.
@@ -502,7 +502,7 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 		content += fmt.Sprintf("\nnames:\n  %s: \"%s\"\n", name, peerIDStr)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(content), 0600); err != nil {
 		log.Printf("Warning: could not update config names: %v", err)
 	}
 }
