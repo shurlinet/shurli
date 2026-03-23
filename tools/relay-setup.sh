@@ -1162,8 +1162,8 @@ if [ ! -f "$DATA_DIR/relay_node.key" ]; then
     echo "[7/8] Creating relay identity..."
     echo
     echo "  The relay will start in the foreground so you can:"
-    echo "    1. Set a password for the identity key"
-    echo "    2. Write down the BIP39 seed phrase (ONLY way to recover)"
+    echo "    1. Create a new identity OR recover from an existing seed phrase"
+    echo "    2. Set a password for the identity key"
     echo "    3. Press Ctrl+C after you see 'Relay server started'"
     echo
     echo "  The service will be enabled and started automatically after this step."
