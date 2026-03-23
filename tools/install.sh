@@ -607,21 +607,30 @@ ${all_matches}"
         run_sudo find "$dest" -type f -exec chmod 600 {} \;
         log "Restored relay config to $dest"
     else
+        # macOS: restore to ~/.shurli/ (user-level config).
+        # Linux: restore to /etc/shurli/ (system service convention).
         local dest="/etc/shurli"
+        if [ "$GOOS" = "darwin" ]; then
+            dest="${HOME}/.shurli"
+        fi
         if [ -d "${latest}/peer" ]; then
-            run_sudo mkdir -p "$dest"
-            run_sudo cp -a "${latest}/peer/." "$dest/"
-            local svc_user
-            if [ "$(id -u)" -eq 0 ]; then
-                svc_user="${SUDO_USER:-root}"
+            if [ "$GOOS" = "darwin" ]; then
+                mkdir -p "$dest"
+                cp -a "${latest}/peer/." "$dest/"
             else
-                svc_user="$(whoami)"
+                run_sudo mkdir -p "$dest"
+                run_sudo cp -a "${latest}/peer/." "$dest/"
+                local svc_user
+                if [ "$(id -u)" -eq 0 ]; then
+                    svc_user="${SUDO_USER:-root}"
+                else
+                    svc_user="$(whoami)"
+                fi
+                run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
             fi
-            run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
-            run_sudo chmod 700 "$dest"
             # Directories need 700 (execute), files need 600
-            run_sudo find "$dest" -type d -exec chmod 700 {} \;
-            run_sudo find "$dest" -type f -exec chmod 600 {} \;
+            find "$dest" -type d -exec chmod 700 {} \;
+            find "$dest" -type f -exec chmod 600 {} \;
             log "Restored peer config to $dest"
         fi
     fi
@@ -762,7 +771,13 @@ setup_peer() {
     printf '\n'
     bold "Running shurli init..."
     printf '\n'
-    "$bin" init </dev/tty
+    # macOS: use --user to put config at ~/.shurli/ (no sudo needed).
+    # Linux: default to /etc/shurli/ (system service convention).
+    if [ "$GOOS" = "darwin" ]; then
+        "$bin" init --user </dev/tty
+    else
+        "$bin" init </dev/tty
+    fi
 
     # Start service
     restart_peer_service
@@ -1071,15 +1086,24 @@ do_uninstall() {
         fi
         log "Backup saved to: ${backup_dir}"
 
-        # Now remove
+        # Now remove config (but preserve the backups directory we just wrote to)
         info "Removing config..."
         if [ -d /etc/shurli ]; then
             run_sudo rm -rf /etc/shurli
             log "Removed /etc/shurli/"
         fi
         if [ -d "${HOME}/.shurli" ]; then
-            rm -rf "${HOME}/.shurli"
-            log "Removed ~/.shurli/"
+            # Remove everything except backups/ (which holds the backup we just made)
+            for entry in "${HOME}"/.shurli/*; do
+                [ "$(basename "$entry")" = "backups" ] && continue
+                rm -rf "$entry"
+            done
+            # Also remove dotfiles (.session.token, .daemon-cookie, etc.)
+            for entry in "${HOME}"/.shurli/.*; do
+                case "$(basename "$entry")" in .|..) continue ;; esac
+                rm -rf "$entry"
+            done
+            log "Removed ~/.shurli/ config (backups preserved)"
         fi
         if [ -d "${HOME}/.config/shurli" ]; then
             rm -rf "${HOME}/.config/shurli"
