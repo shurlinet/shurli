@@ -735,6 +735,28 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ "$1" = "help" ]; then
 fi
 
 # ============================================================
+# If --help flag, show usage and exit
+# ============================================================
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Usage: bash tools/relay-setup.sh [OPTION]"
+    echo
+    echo "Options:"
+    echo "  (none)        Full setup: create user, install Go, build, configure, start relay"
+    echo "  --check       Health check only (no changes)"
+    echo "  --uninstall   Remove service, firewall rules, system tuning"
+    echo "  --help, -h    Show this help"
+    echo
+    echo "Relay commands (after setup):"
+    echo "  shurli relay info                          Show peer ID, multiaddrs, QR code"
+    echo "  shurli relay authorize <peer-id> [comment] Allow a peer to connect"
+    echo "  shurli relay deauthorize <peer-id>         Remove a peer"
+    echo "  shurli relay list-peers                    List authorized peers"
+    echo "  shurli relay grant <peer-id> --duration 1h Grant time-limited data relay access"
+    echo "  shurli relay grants                        List active grants"
+    echo "  shurli relay invite create --ttl 24h       Create invite code for new peers"
+    exit 0
+fi
+
 # If --check flag, run health check only and exit
 # ============================================================
 if [ "$1" = "--check" ]; then
