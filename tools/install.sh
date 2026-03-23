@@ -49,7 +49,7 @@ run_sudo() {
 prompt() {
     local msg="$1" default="${2:-}"
     printf '  %s' "$msg" >&2
-    read -r REPLY </dev/tty 2>/dev/null || REPLY="$default"
+    read -r REPLY </dev/tty 2>/dev/null || read -r REPLY 2>/dev/null || REPLY="$default"
     REPLY="${REPLY:-$default}"
     printf '%s' "$REPLY"
 }
@@ -455,6 +455,89 @@ install_binary() {
     esac
 }
 
+# === Backup detection and restore ===
+
+find_backups() {
+    # Find shurli-backup-* directories in home, sorted newest first
+    FOUND_BACKUPS=""
+    for d in "${HOME}"/shurli-backup-*; do
+        if [ -d "$d" ]; then
+            FOUND_BACKUPS="${FOUND_BACKUPS}${d}
+"
+        fi
+    done
+}
+
+offer_restore() {
+    local role="$1"  # "peer" or "relay"
+    find_backups
+    if [ -z "$FOUND_BACKUPS" ]; then return 1; fi
+
+    # Find the most recent backup that has the right role
+    local latest=""
+    for d in ${FOUND_BACKUPS}; do
+        if [ "$role" = "relay" ] && [ -d "${d}/relay" ]; then
+            latest="$d"
+            break
+        elif [ "$role" = "peer" ] && [ -d "${d}/peer" ]; then
+            latest="$d"
+            break
+        fi
+    done
+    if [ -z "$latest" ]; then return 1; fi
+
+    info "Previous backup found: ${latest}"
+    if [ "$role" = "relay" ]; then
+        log "Contains: relay config, identity key, authorized peers"
+    else
+        log "Contains: peer config, identity key, authorized peers"
+    fi
+    printf '\n'
+    local choice
+    choice=$(prompt "Restore from this backup? [Y/n]: " "Y")
+    printf '\n'
+
+    if [ "$choice" = "n" ] || [ "$choice" = "N" ]; then
+        return 1
+    fi
+
+    # Restore
+    info "Restoring from backup..."
+    if [ "$role" = "relay" ]; then
+        local dest="/etc/shurli/relay"
+        run_sudo mkdir -p "$dest"
+        run_sudo cp -a "${latest}/relay/"* "$dest/"
+        # Fix ownership to current user
+        local svc_user
+        if [ "$(id -u)" -eq 0 ]; then
+            svc_user="${SUDO_USER:-root}"
+        else
+            svc_user="$(whoami)"
+        fi
+        run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
+        run_sudo chmod 700 "$dest"
+        run_sudo chmod 600 "$dest"/* 2>/dev/null || true
+        log "Restored relay config to $dest"
+    else
+        local dest="/etc/shurli"
+        if [ -d "${latest}/peer" ]; then
+            run_sudo mkdir -p "$dest"
+            run_sudo cp -a "${latest}/peer/"* "$dest/"
+            local svc_user
+            if [ "$(id -u)" -eq 0 ]; then
+                svc_user="${SUDO_USER:-root}"
+            else
+                svc_user="$(whoami)"
+            fi
+            run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
+            run_sudo chmod 700 "$dest"
+            run_sudo chmod 600 "$dest"/* 2>/dev/null || true
+            log "Restored peer config to $dest"
+        fi
+    fi
+    return 0
+}
+
 # === Role: Peer node setup ===
 
 setup_peer() {
@@ -545,6 +628,15 @@ setup_peer() {
         run_sudo rm -f "${cfg_dir}/config.yaml" 2>/dev/null || rm -f "${cfg_dir}/config.yaml"
     fi
 
+    # Check for previous backup to restore from (like macOS Migration Assistant)
+    if [ "$config_exists" = "no" ]; then
+        if offer_restore "peer"; then
+            info "Config restored from backup. Starting service..."
+            restart_peer_service
+            return
+        fi
+    fi
+
     printf '\n'
     bold "Running shurli init..."
     printf '\n'
@@ -626,6 +718,192 @@ setup_binary_only() {
     fi
 }
 
+# === Uninstall ===
+
+do_uninstall() {
+    printf '\n'
+    bold "Shurli Uninstaller"
+    printf '\n'
+
+    detect_platform
+    check_existing_install
+
+    if [ -z "$EXISTING_PATH" ]; then
+        info "No Shurli installation found."
+        exit 0
+    fi
+
+    info "Found Shurli at ${EXISTING_PATH}"
+    if [ -n "$EXISTING_VERSION" ]; then
+        log "Version: ${EXISTING_VERSION}"
+    fi
+    if [ -n "$DETECTED_ROLE" ]; then
+        log "Role:    ${DETECTED_ROLE}"
+    fi
+
+    # Find config directories
+    local relay_cfg="" peer_cfg=""
+    if [ -d /etc/shurli/relay ]; then relay_cfg="/etc/shurli/relay"; fi
+    if [ -f /etc/shurli/config.yaml ]; then
+        peer_cfg="/etc/shurli"
+    elif [ -f "${HOME}/.config/shurli/config.yaml" ]; then
+        peer_cfg="${HOME}/.config/shurli"
+    fi
+
+    printf '\n'
+    bold "What would you like to remove?"
+    log "1) Everything except config and keys (keep identity, can reinstall later)"
+    log "2) Everything (back up config to home directory first)"
+    log "3) Complete removal (delete config and keys permanently)"
+    log "4) Cancel"
+    printf '\n'
+    local choice
+    choice=$(prompt "Choice [1]: " "1")
+    printf '\n'
+
+    case "$choice" in
+        4|*)
+            if [ "$choice" = "4" ]; then
+                log "Cancelled."
+                exit 0
+            fi
+            # Fall through for 1, 2, 3
+            ;;
+    esac
+
+    case "$choice" in
+        1|2|3) ;; # valid
+        *) log "Cancelled."; exit 0 ;;
+    esac
+
+    # --- Step 1: Stop and disable services ---
+    info "Stopping services..."
+    if [ "$GOOS" = "linux" ] && has_cmd systemctl; then
+        for svc in shurli-daemon shurli-relay; do
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                run_sudo systemctl stop "$svc"
+                log "Stopped $svc"
+            fi
+            if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                run_sudo systemctl disable "$svc" 2>/dev/null
+                log "Disabled $svc"
+            fi
+        done
+    elif [ "$GOOS" = "darwin" ]; then
+        local uid
+        uid="$(id -u)"
+        if launchctl list 2>/dev/null | grep -q com.shurli.daemon; then
+            launchctl bootout "gui/${uid}/com.shurli.daemon" 2>/dev/null || true
+            log "Stopped com.shurli.daemon"
+        fi
+    fi
+
+    # --- Step 2: Run relay-setup.sh --uninstall for relay nodes ---
+    if [ "$DETECTED_ROLE" = "relay" ] && [ "$GOOS" = "linux" ]; then
+        # Check if relay-setup.sh is available in the repo or alongside the binary
+        local relay_uninstall=""
+        for candidate in \
+            "$(dirname "$EXISTING_PATH")/../tools/relay-setup.sh" \
+            "${HOME}/shurli/tools/relay-setup.sh" \
+            "/home/$(whoami)/shurli/tools/relay-setup.sh"; do
+            if [ -f "$candidate" ]; then
+                relay_uninstall="$candidate"
+                break
+            fi
+        done
+        if [ -n "$relay_uninstall" ]; then
+            info "Cleaning relay server settings (firewall, sysctl, journald)..."
+            bash "$relay_uninstall" --uninstall 2>/dev/null || true
+        else
+            warn "relay-setup.sh not found. Firewall rules and sysctl tuning not reverted."
+            log "Run 'bash tools/relay-setup.sh --uninstall' from the repo to clean those up."
+        fi
+    fi
+
+    # --- Step 3: Remove service files ---
+    info "Removing service files..."
+    if [ "$GOOS" = "linux" ]; then
+        for svc_file in /etc/systemd/system/shurli-daemon.service /etc/systemd/system/shurli-relay.service; do
+            if [ -f "$svc_file" ]; then
+                run_sudo rm -f "$svc_file"
+                log "Removed $svc_file"
+            fi
+        done
+        run_sudo systemctl daemon-reload 2>/dev/null || true
+    elif [ "$GOOS" = "darwin" ]; then
+        local plist="${HOME}/Library/LaunchAgents/com.shurli.daemon.plist"
+        if [ -f "$plist" ]; then
+            rm -f "$plist"
+            log "Removed $plist"
+        fi
+    fi
+
+    # --- Step 4: Remove binary ---
+    info "Removing binary..."
+    run_sudo rm -f "$EXISTING_PATH"
+    log "Removed $EXISTING_PATH"
+
+    # --- Step 5: Handle config based on choice ---
+    if [ "$choice" = "2" ]; then
+        # Back up config to home directory, then remove
+        local backup_dir="${HOME}/shurli-backup-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$backup_dir"
+        info "Backing up config to ${backup_dir}..."
+        if [ -n "$relay_cfg" ]; then
+            run_sudo cp -a "$relay_cfg" "${backup_dir}/relay" 2>/dev/null || cp -a "$relay_cfg" "${backup_dir}/relay"
+            log "Backed up: $relay_cfg"
+        fi
+        if [ -n "$peer_cfg" ]; then
+            run_sudo cp -a "$peer_cfg" "${backup_dir}/peer" 2>/dev/null || cp -a "$peer_cfg" "${backup_dir}/peer"
+            log "Backed up: $peer_cfg"
+        fi
+        log "Backup saved to: ${backup_dir}"
+
+        # Now remove
+        info "Removing config..."
+        if [ -d /etc/shurli ]; then
+            run_sudo rm -rf /etc/shurli
+            log "Removed /etc/shurli/"
+        fi
+        if [ -d "${HOME}/.config/shurli" ]; then
+            rm -rf "${HOME}/.config/shurli"
+            log "Removed ~/.config/shurli/"
+        fi
+    elif [ "$choice" = "3" ]; then
+        # Complete removal, no backup
+        warn "This will permanently delete your identity keys and config!"
+        local confirm
+        confirm=$(prompt "Type 'yes' to confirm: " "")
+        printf '\n'
+        if [ "$confirm" = "yes" ]; then
+            info "Removing config..."
+            if [ -d /etc/shurli ]; then
+                run_sudo rm -rf /etc/shurli
+                log "Removed /etc/shurli/"
+            fi
+            if [ -d "${HOME}/.config/shurli" ]; then
+                rm -rf "${HOME}/.config/shurli"
+                log "Removed ~/.config/shurli/"
+            fi
+        else
+            log "Config removal cancelled. Config preserved."
+        fi
+    else
+        # choice = 1: keep config
+        info "Config and keys preserved"
+        if [ -n "$relay_cfg" ]; then log "  $relay_cfg"; fi
+        if [ -n "$peer_cfg" ]; then log "  $peer_cfg"; fi
+    fi
+
+    printf '\n'
+    info "Shurli uninstalled."
+    if [ "$choice" = "1" ]; then
+        log "To reinstall: curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh"
+        log "Your identity and config are intact - just reinstall and start."
+    fi
+    printf '\n'
+}
+
 # === Cleanup ===
 
 cleanup() {
@@ -638,7 +916,7 @@ cleanup() {
 
 main() {
     # Parse arguments
-    # Env vars for piped usage: SHURLI_DEV=1, SHURLI_VERSION=v0.2.0
+    # Env vars for piped usage: SHURLI_DEV=1, SHURLI_VERSION=v0.2.0, SHURLI_UNINSTALL=1
     VERSION="${SHURLI_VERSION:-}"
     METHOD=""
     ROLE=""
@@ -646,6 +924,7 @@ main() {
     NO_VERIFY=""
     UPGRADE_MODE=""
     DEV_BUILD="${SHURLI_DEV:-}"
+    UNINSTALL="${SHURLI_UNINSTALL:-}"
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -655,6 +934,7 @@ main() {
             --dir)       OPT_DIR="$2"; shift 2 ;;
             --no-verify) NO_VERIFY="yes"; shift ;;
             --dev)       DEV_BUILD="yes"; shift ;;
+            --uninstall) UNINSTALL="yes"; shift ;;
             --help|-h)
                 printf 'Shurli Installer\n\n'
                 printf 'Usage: install.sh [--version VERSION] [--method download|build]\n'
@@ -663,6 +943,7 @@ main() {
                 printf 'Options:\n'
                 printf '  --dev           Install latest dev/pre-release build\n'
                 printf '  --version VER   Install a specific version (e.g., v0.2.0-dev)\n'
+                printf '  --uninstall     Uninstall Shurli\n'
                 exit 0
                 ;;
             *) error "Unknown option: $1" ;;
@@ -670,6 +951,12 @@ main() {
     done
 
     trap cleanup EXIT
+
+    # Uninstall mode - bail early, no version resolution needed
+    if [ -n "$UNINSTALL" ]; then
+        do_uninstall
+        exit 0
+    fi
 
     printf '\n'
     bold "Shurli Installer"
