@@ -76,7 +76,8 @@ func runInit(args []string) {
 func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/shurli)")
+	dirFlag := fs.String("dir", "", "config directory (default: /etc/shurli)")
+	userFlag := fs.Bool("user", false, "install config in ~/.config/shurli/ instead of /etc/shurli/")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
@@ -96,7 +97,13 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	// Determine config directory
 	configDir := *dirFlag
 	if configDir == "" {
-		d, err := config.DefaultConfigDir()
+		var d string
+		var err error
+		if *userFlag {
+			d, err = config.UserConfigDir()
+		} else {
+			d, err = config.DefaultConfigDir()
+		}
 		if err != nil {
 			return fmt.Errorf("cannot determine config directory: %w", err)
 		}
@@ -110,9 +117,27 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 
 	// Create config directory
-	fmt.Fprintf(stdout, "Creating config directory: %s\n", configDir)
+	fmt.Fprintf(stdout, "Config directory: %s\n", configDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		// Needs sudo for /etc/shurli/
+		if !*userFlag && *dirFlag == "" {
+			fmt.Fprintln(stdout, "Creating system config directory (requires sudo)...")
+			user := os.Getenv("USER")
+			if user == "" {
+				user = "root"
+			}
+			if e := sudoRun("mkdir", "-p", configDir); e != nil {
+				return fmt.Errorf("failed to create directory: %w", e)
+			}
+			if e := sudoRun("chown", "-R", user+":"+user, configDir); e != nil {
+				return fmt.Errorf("failed to set ownership: %w", e)
+			}
+			if e := sudoRun("chmod", "700", configDir); e != nil {
+				return fmt.Errorf("failed to set permissions: %w", e)
+			}
+		} else {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
 	}
 	fmt.Fprintln(stdout)
 
