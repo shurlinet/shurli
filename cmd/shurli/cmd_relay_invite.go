@@ -73,14 +73,14 @@ func doRelayInviteCreate(args []string, configFile string, stdout io.Writer) err
 	}
 	fmt.Fprintf(stdout, "Group ID: %s\n\n", resp.GroupID)
 	// Build the join command with relay address for copy-paste.
-	// Detect relay multiaddr for the --relay flag.
-	relayMultiaddr := detectRelayMultiaddr(configFile)
+	relayIP, relayPort, relayPeerID := detectRelayEndpoint(configFile)
 	fmt.Fprintln(stdout, "--- Send this to the joining peer ---")
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "Install shurli: https://shurli.io/docs/quick-start/")
 	fmt.Fprintln(stdout, "Then run:")
-	if relayMultiaddr != "" {
-		fmt.Fprintf(stdout, "  shurli join %s --relay %s\n", code, relayMultiaddr)
+	if relayIP != "" {
+		fmt.Fprintf(stdout, "  shurli join %s --relay %s:%s\n", code, relayIP, relayPort)
+		fmt.Fprintf(stdout, "  Peer ID: %s\n", relayPeerID)
 	} else {
 		fmt.Fprintln(stdout, "  shurli init")
 		fmt.Fprintf(stdout, "  shurli join %s\n", code)
@@ -188,37 +188,43 @@ func printRelayInviteUsage() {
 	fmt.Println("The joining peer uses: shurli join <code> --relay <addr>")
 }
 
-// detectRelayMultiaddr reads the relay config and identity to build the primary
-// public IPv4 TCP multiaddr (e.g., /ip4/1.2.3.4/tcp/7777/p2p/12D3Koo...).
-// Returns empty string if detection fails (non-fatal).
-func detectRelayMultiaddr(configFile string) string {
+// detectRelayEndpoint reads the relay config and identity to return the
+// public IP, port, and peer ID separately. Returns empty strings on failure.
+func detectRelayEndpoint(configFile string) (ip, port, peerIDStr string) {
 	cfg, err := config.LoadRelayServerConfig(configFile)
 	if err != nil {
-		return ""
+		return "", "", ""
 	}
 	relayConfigDir := filepath.Dir(configFile)
 	pw, err := resolvePassword(relayConfigDir)
 	if err != nil {
-		return ""
+		return "", "", ""
 	}
 	priv, err := identity.LoadIdentity(cfg.Identity.KeyFile, pw)
 	if err != nil {
-		return ""
+		return "", "", ""
 	}
-	peerID, err := peer.IDFromPrivateKey(priv)
+	pid, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
-		return ""
+		return "", "", ""
 	}
 	publicIPs := detectPublicIPs()
-	multiaddrs := buildPublicMultiaddrs(cfg.Network.ListenAddresses, publicIPs, peerID)
-	// Prefer IPv4 TCP (no WebSocket).
-	for _, maddr := range multiaddrs {
-		if strings.Contains(maddr, "/ip4/") && strings.Contains(maddr, "/tcp/") && !strings.Contains(maddr, "/ws") {
-			return maddr
+	// Prefer IPv4.
+	for _, pip := range publicIPs {
+		if !strings.Contains(pip, ":") {
+			p := extractTCPPort(cfg.Network.ListenAddresses)
+			if p == "" {
+				p = "7777"
+			}
+			return pip, p, pid.String()
 		}
 	}
-	if len(multiaddrs) > 0 {
-		return multiaddrs[0]
+	if len(publicIPs) > 0 {
+		p := extractTCPPort(cfg.Network.ListenAddresses)
+		if p == "" {
+			p = "7777"
+		}
+		return publicIPs[0], p, pid.String()
 	}
-	return ""
+	return "", "", ""
 }
