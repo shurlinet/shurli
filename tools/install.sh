@@ -766,6 +766,25 @@ setup_peer() {
 }
 
 restart_peer_service() {
+    # Update ReadWritePaths now that config dirs exist (may not have existed at service install time)
+    if [ "$GOOS" = "linux" ] && has_cmd systemctl; then
+        local service_dest="/etc/systemd/system/shurli-daemon.service"
+        if [ -f "$service_dest" ]; then
+            local svc_user
+            if [ "$(id -u)" -eq 0 ]; then
+                svc_user="${SUDO_USER:-root}"
+            else
+                svc_user="$(whoami)"
+            fi
+            local rw_paths="/run/user"
+            if [ -d /etc/shurli ]; then rw_paths="/etc/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/.config/shurli" ]; then rw_paths="/home/${svc_user}/.config/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/Downloads/shurli" ]; then rw_paths="/home/${svc_user}/Downloads/shurli ${rw_paths}"; fi
+            run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=${rw_paths}|" "$service_dest"
+            run_sudo systemctl daemon-reload
+        fi
+    fi
+
     if [ "$GOOS" = "linux" ] && has_cmd systemctl; then
         if systemctl is-enabled --quiet shurli-daemon 2>/dev/null; then
             run_sudo systemctl restart shurli-daemon
