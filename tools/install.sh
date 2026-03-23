@@ -630,13 +630,24 @@ setup_peer() {
 
     # Install runtime deps on Linux
     if [ "$GOOS" = "linux" ]; then
-        local pkgs=""
-        dpkg -s libavahi-compat-libdnssd1 >/dev/null 2>&1 || pkgs="libavahi-compat-libdnssd1"
-        has_cmd qrencode || pkgs="$pkgs qrencode"
-        if [ -n "$pkgs" ]; then
-            log "Installing runtime dependencies:$pkgs"
-            run_sudo apt-get update -qq >/dev/null 2>&1
-            run_sudo apt-get install -y -qq $pkgs >/dev/null 2>&1
+        info "Checking runtime dependencies..."
+        if has_cmd apt-get; then
+            local pkgs=""
+            dpkg -s libavahi-compat-libdnssd1 >/dev/null 2>&1 || pkgs="libavahi-compat-libdnssd1"
+            has_cmd qrencode || pkgs="$pkgs qrencode"
+            if [ -n "$pkgs" ]; then
+                log "Installing:$pkgs"
+                run_sudo apt-get update -qq >/dev/null 2>&1
+                run_sudo apt-get install -y -qq $pkgs >/dev/null 2>&1
+            else
+                log "All dependencies present."
+            fi
+        elif has_cmd yum; then
+            run_sudo yum install -y -q avahi-compat-libdns_sd qrencode 2>/dev/null || true
+        elif has_cmd apk; then
+            run_sudo apk add --quiet avahi-compat-libdns_sd qrencode 2>/dev/null || true
+        else
+            warn "Unknown package manager. Ensure libavahi-compat-libdnssd is installed."
         fi
     fi
 
@@ -657,7 +668,7 @@ setup_peer() {
             run_sudo cp "$service_src" "$service_dest"
             run_sudo sed -i "s|^User=.*|User=${svc_user}|" "$service_dest"
             run_sudo sed -i "s|^Group=.*|Group=${svc_user}|" "$service_dest"
-            run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=/home/${svc_user}/.config/shurli /home/${svc_user}/Downloads/shurli /run/user|" "$service_dest"
+            run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=/etc/shurli /home/${svc_user}/.config/shurli /home/${svc_user}/Downloads/shurli /run/user|" "$service_dest"
             run_sudo systemctl daemon-reload
             log "Service installed: shurli-daemon.service"
         fi
@@ -706,9 +717,10 @@ setup_peer() {
         local backup_choice
         backup_choice=$(prompt "Back up existing config before reinitializing? [Y/n]: " "Y")
         if [ "$backup_choice" != "n" ] && [ "$backup_choice" != "N" ]; then
-            local backup_dir="${cfg_dir}.backup.$(date +%Y%m%d%H%M%S)"
-            run_sudo cp -a "$cfg_dir" "$backup_dir" 2>/dev/null || cp -a "$cfg_dir" "$backup_dir"
-            log "Backed up to: ${backup_dir}"
+            local backup_dir="${HOME}/.shurli/backups/$(date +%Y%m%d-%H%M%S)"
+            mkdir -p "$backup_dir"
+            run_sudo cp -a "$cfg_dir" "${backup_dir}/peer" 2>/dev/null || cp -a "$cfg_dir" "${backup_dir}/peer"
+            log "Backed up to: ${backup_dir}/peer"
         fi
         run_sudo rm -f "${cfg_dir}/config.yaml" 2>/dev/null || rm -f "${cfg_dir}/config.yaml"
     fi
@@ -716,7 +728,21 @@ setup_peer() {
     # Check for previous backup to restore from (like macOS Migration Assistant)
     if [ "$config_exists" = "no" ]; then
         if offer_restore "peer"; then
-            info "Config restored from backup. Starting service..."
+            info "Config restored from backup."
+            # Check if session token exists for auto-start
+            local restored_dir=""
+            for d in /etc/shurli "${HOME}/.config/shurli"; do
+                if [ -f "${d}/config.yaml" ]; then restored_dir="$d"; break; fi
+            done
+            if [ -n "$restored_dir" ] && [ ! -f "${restored_dir}/.session.token" ]; then
+                info "Session token missing. Starting daemon to unlock identity..."
+                log "Enter your password, then press Ctrl+C after you see 'Daemon started'"
+                printf '\n'
+                trap 'true' INT
+                "$bin" daemon </dev/tty || true
+                trap - INT
+                printf '\n'
+            fi
             restart_peer_service
             return
         fi
@@ -740,6 +766,13 @@ restart_peer_service() {
             run_sudo systemctl enable shurli-daemon
             run_sudo systemctl start shurli-daemon
             log "Service enabled and started."
+        fi
+        # Quick health check
+        sleep 1
+        if systemctl is-active --quiet shurli-daemon 2>/dev/null; then
+            log "Service running."
+        else
+            warn "Service failed to start. Check: journalctl -u shurli-daemon -n 20"
         fi
         log "Logs: journalctl -u shurli-daemon -f"
     elif [ "$GOOS" = "darwin" ]; then
