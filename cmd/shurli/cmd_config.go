@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 )
 
@@ -386,7 +387,7 @@ func doConfigSet(args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if err := os.WriteFile(cfgFile, out, 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, out, 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

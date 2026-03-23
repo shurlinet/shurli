@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -219,5 +220,74 @@ func TestRemovePeerPreservesFileComments(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "keep-me") {
 		t.Error("other peer should be preserved")
+	}
+}
+
+func TestCaptureOwnership(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file ownership not supported on Windows")
+	}
+
+	// Non-existent file returns nil.
+	if got := captureOwnership("/nonexistent/path"); got != nil {
+		t.Errorf("expected nil for non-existent file, got %+v", got)
+	}
+
+	// Existing file returns ownership.
+	f := filepath.Join(t.TempDir(), "test")
+	os.WriteFile(f, []byte("test"), 0600)
+	got := captureOwnership(f)
+	if got == nil {
+		t.Fatal("expected ownership for existing file")
+	}
+	// UID should be current user (we're not root in tests).
+	if got.uid != os.Getuid() {
+		t.Errorf("uid = %d, want %d", got.uid, os.Getuid())
+	}
+}
+
+func TestRestoreOwnership_NotRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file ownership not supported on Windows")
+	}
+	// When not root, restoreOwnership should be a no-op (no error, no change).
+	if os.Getuid() == 0 {
+		t.Skip("test only runs as non-root")
+	}
+	f := filepath.Join(t.TempDir(), "test")
+	os.WriteFile(f, []byte("test"), 0600)
+	orig := captureOwnership(f)
+	// Should not panic or error.
+	restoreOwnership(f, orig)
+	restoreOwnership(f, nil)
+}
+
+func TestWriteFilePreserveOwnership(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "test.yaml")
+
+	// Write initial file.
+	if err := os.WriteFile(f, []byte("initial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Overwrite via WriteFilePreserveOwnership.
+	if err := WriteFilePreserveOwnership(f, []byte("updated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(f)
+	if string(data) != "updated" {
+		t.Errorf("content = %q, want %q", data, "updated")
+	}
+
+	// New file (doesn't exist yet) should work too.
+	f2 := filepath.Join(dir, "new.yaml")
+	if err := WriteFilePreserveOwnership(f2, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data2, _ := os.ReadFile(f2)
+	if string(data2) != "new" {
+		t.Errorf("content = %q, want %q", data2, "new")
 	}
 }
