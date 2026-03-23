@@ -38,6 +38,10 @@ network:
   # Set to true on nodes behind CGNAT (required for shurli daemon)
   force_private_reachability: false
 
+# Relay server addresses.
+# Own relay (option 1 in init) = full capability: data relay, file transfer, proxy.
+# Public seeds (option 2 in init) = discovery only, no data relay.
+# Deploy your own: https://shurli.io/docs/relay-setup/
 relay:
   addresses:
 %s  reservation_interval: "2m"
@@ -141,14 +145,14 @@ security:
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
-  # Data relay controls whether peers can forward data through this relay.
-  # When false (default): only admin peers and peers with active time-limited
-  # grants can establish data circuits. All peers can still use signaling
-  # protocols (pairing, peer-notify, admin, etc.) since those are direct
-  # streams, not relay circuits.
-  # When true: all authorized peers can relay data (SSH, XRDP, etc.).
-  # Per-peer grants: shurli relay grant <peer-id> --duration 1h
-  enable_data_relay: false
+  # Data relay: whether authorized peers can relay data through this server.
+  # Default: true (your relay, full capability for your peers).
+  # When true: all authorized peers can relay data (file transfer, SSH, etc.).
+  # When false: only admin peers and peers with active time-limited grants
+  # can establish data circuits. All peers can still use signaling protocols.
+  # For per-peer granular control, set to false and use:
+  #   shurli relay grant <peer-id> --duration 1h
+  enable_data_relay: true
 
   # Vault protects root key material. Created automatically on first run.
   vault_file: "relay_vault.json"

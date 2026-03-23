@@ -1,6 +1,6 @@
 ---
 title: "Daemon Service Setup"
-weight: 4
+weight: 5
 description: "Run the Shurli daemon as a managed system service on Linux (systemd) or macOS (launchd). Auto-start on boot, crash recovery, and security hardening."
 ---
 

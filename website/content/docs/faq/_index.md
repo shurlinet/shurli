@@ -1,6 +1,6 @@
 ---
 title: "FAQ"
-weight: 3
+weight: 4
 description: "Frequently asked questions about Shurli, organized by topic."
 ---
 <!-- Auto-synced from docs/faq/README.md by sync-docs - do not edit directly -->

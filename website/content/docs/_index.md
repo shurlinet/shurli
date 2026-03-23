@@ -6,12 +6,12 @@ description: "Everything you need to know about Shurli: quick start guide, archi
 Everything you need to know about Shurli, from getting started to deep architecture details.
 
 {{< cards >}}
-  {{< card link="quick-start" title="Quick Start" subtitle="Get connected in 60 seconds" icon="play" >}}
+  {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay (recommended first step)" icon="server" >}}
+  {{< card link="quick-start" title="Quick Start" subtitle="Initialize and connect your devices" icon="play" >}}
   {{< card link="network-tools" title="Network Tools" subtitle="Ping, traceroute, and resolve" icon="wifi" >}}
   {{< card link="faq" title="FAQ" subtitle="Security, comparisons, troubleshooting" icon="question-mark-circle" >}}
   {{< card link="trust" title="Trust & Security" subtitle="Threat model, vuln reporting, audit history" icon="shield-check" >}}
   {{< card link="daemon-service" title="Daemon Service" subtitle="Run as a system service on Linux or macOS" icon="cog" >}}
-  {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay server" icon="server" >}}
   {{< card link="relay-security" title="Relay Security" subtitle="Vault, 2FA, remote unseal" icon="lock-closed" >}}
   {{< card link="inviting-peers" title="Inviting Peers" subtitle="Pairing codes and async invites" icon="user-add" >}}
   {{< card link="managing-network" title="Managing Your Network" subtitle="Roles, permissions, peer ops" icon="users" >}}
