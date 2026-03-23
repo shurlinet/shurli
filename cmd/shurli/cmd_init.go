@@ -170,6 +170,64 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout)
 
+	// Identity: generate new or recover from seed phrase.
+	// This runs BEFORE network setup so the user confirms their identity first.
+	var privKey crypto.PrivKey
+	if recoverMode {
+		fmt.Fprintln(stdout, "Enter your seed phrase to recover your identity.")
+		fmt.Fprintln(stdout)
+		mnemonic, err := readSeedPhrase(stdout)
+		if err != nil {
+			return fmt.Errorf("failed to read seed phrase: %w", err)
+		}
+		if err := identity.ValidateMnemonic(mnemonic); err != nil {
+			return fmt.Errorf("invalid seed phrase: %w", err)
+		}
+		entropy, err := identity.SeedFromMnemonic(mnemonic)
+		if err != nil {
+			return fmt.Errorf("failed to decode seed: %w", err)
+		}
+		privKey, err = identity.DeriveIdentityKey(entropy)
+		if err != nil {
+			return fmt.Errorf("failed to derive identity key: %w", err)
+		}
+		peerID, _ := peer.IDFromPrivateKey(privKey)
+		tc.Wgreen(stdout, "Seed phrase accepted.\n")
+		fmt.Fprintf(stdout, "Recovered Peer ID: %s\n", peerID)
+		fmt.Fprintln(stdout)
+	} else {
+		fmt.Fprintln(stdout, "Generating identity...")
+		fmt.Fprintln(stdout)
+
+		mnemonic, entropy, err := identity.GenerateSeed()
+		if err != nil {
+			return fmt.Errorf("failed to generate seed: %w", err)
+		}
+		words := strings.Fields(mnemonic)
+
+		tc.Wyellow(stdout, "=== SEED PHRASE ===\n")
+		tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
+		tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
+		fmt.Fprintln(stdout)
+		fmt.Fprint(stdout, formatSeedGrid(words))
+		fmt.Fprintln(stdout)
+		tc.Wyellow(stdout, "===========================\n")
+		fmt.Fprintln(stdout)
+
+		if err := confirmSeedBackup(stdout, reader, words, *skipSeedConfirm); err != nil {
+			return fmt.Errorf("seed backup: %w", err)
+		}
+		if !*skipSeedConfirm {
+			fmt.Fprintln(stdout, "Seed backup confirmed.")
+			fmt.Fprintln(stdout)
+		}
+
+		privKey, err = identity.DeriveIdentityKey(entropy)
+		if err != nil {
+			return fmt.Errorf("failed to derive identity key: %w", err)
+		}
+	}
+
 	// Network setup: own relay (recommended) or public seed nodes
 	fmt.Fprintln(stdout, "Network setup:")
 	fmt.Fprintln(stdout, "  1. Use my own relay server (recommended)")
@@ -215,63 +273,6 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("invalid choice: %s (enter 1 or 2)", choice)
 	}
 	fmt.Fprintln(stdout)
-
-	var privKey crypto.PrivKey
-	if recoverMode {
-		// Recover from existing seed phrase.
-		fmt.Fprintln(stdout, "Enter your seed phrase to recover your identity.")
-		fmt.Fprintln(stdout)
-		mnemonic, err := readSeedPhrase(stdout)
-		if err != nil {
-			return fmt.Errorf("failed to read seed phrase: %w", err)
-		}
-		if err := identity.ValidateMnemonic(mnemonic); err != nil {
-			return fmt.Errorf("invalid seed phrase: %w", err)
-		}
-		entropy, err := identity.SeedFromMnemonic(mnemonic)
-		if err != nil {
-			return fmt.Errorf("failed to decode seed: %w", err)
-		}
-		privKey, err = identity.DeriveIdentityKey(entropy)
-		if err != nil {
-			return fmt.Errorf("failed to derive identity key: %w", err)
-		}
-		tc.Wgreen(stdout, "Seed phrase accepted.\n")
-		fmt.Fprintln(stdout)
-	} else {
-		// Generate new BIP39 seed.
-		fmt.Fprintln(stdout, "Generating identity...")
-		fmt.Fprintln(stdout)
-
-		mnemonic, entropy, err := identity.GenerateSeed()
-		if err != nil {
-			return fmt.Errorf("failed to generate seed: %w", err)
-		}
-		words := strings.Fields(mnemonic)
-
-		tc.Wyellow(stdout, "=== SEED PHRASE ===\n")
-		tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
-		tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
-		fmt.Fprintln(stdout)
-		fmt.Fprint(stdout, formatSeedGrid(words))
-		fmt.Fprintln(stdout)
-		tc.Wyellow(stdout, "===========================\n")
-		fmt.Fprintln(stdout)
-
-		// Seed backup confirmation quiz.
-		if err := confirmSeedBackup(stdout, reader, words, *skipSeedConfirm); err != nil {
-			return fmt.Errorf("seed backup: %w", err)
-		}
-		if !*skipSeedConfirm {
-			fmt.Fprintln(stdout, "Seed backup confirmed.")
-			fmt.Fprintln(stdout)
-		}
-
-		privKey, err = identity.DeriveIdentityKey(entropy)
-		if err != nil {
-			return fmt.Errorf("failed to derive identity key: %w", err)
-		}
-	}
 
 	// Set identity password (interactive).
 	fmt.Fprintln(stdout, "Set a password to protect your identity:")
