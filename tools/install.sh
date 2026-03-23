@@ -506,7 +506,8 @@ offer_restore() {
     if [ "$role" = "relay" ]; then
         local dest="/etc/shurli/relay"
         run_sudo mkdir -p "$dest"
-        run_sudo cp -a "${latest}/relay/"* "$dest/"
+        # cp -a the directory itself to preserve dotfiles (.session.token)
+        run_sudo cp -a "${latest}/relay/." "$dest/"
         # Fix ownership to current user
         local svc_user
         if [ "$(id -u)" -eq 0 ]; then
@@ -522,7 +523,7 @@ offer_restore() {
         local dest="/etc/shurli"
         if [ -d "${latest}/peer" ]; then
             run_sudo mkdir -p "$dest"
-            run_sudo cp -a "${latest}/peer/"* "$dest/"
+            run_sudo cp -a "${latest}/peer/." "$dest/"
             local svc_user
             if [ "$(id -u)" -eq 0 ]; then
                 svc_user="${SUDO_USER:-root}"
