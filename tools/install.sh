@@ -600,8 +600,9 @@ ${all_matches}"
             svc_user="$(whoami)"
         fi
         run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
-        run_sudo chmod 700 "$dest"
-        run_sudo chmod 600 "$dest"/* 2>/dev/null || true
+        # Directories need 700 (execute), files need 600
+        run_sudo find "$dest" -type d -exec chmod 700 {} \;
+        run_sudo find "$dest" -type f -exec chmod 600 {} \;
         log "Restored relay config to $dest"
     else
         local dest="/etc/shurli"
@@ -616,7 +617,9 @@ ${all_matches}"
             fi
             run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
             run_sudo chmod 700 "$dest"
-            run_sudo chmod 600 "$dest"/* 2>/dev/null || true
+            # Directories need 700 (execute), files need 600
+            run_sudo find "$dest" -type d -exec chmod 700 {} \;
+            run_sudo find "$dest" -type f -exec chmod 600 {} \;
             log "Restored peer config to $dest"
         fi
     fi
