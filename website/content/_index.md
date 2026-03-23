@@ -1,6 +1,6 @@
 ---
 title: Shurli
-description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly - no accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
+description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly. No accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
