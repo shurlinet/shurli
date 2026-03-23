@@ -45,11 +45,14 @@ func TestDoInit_ConfigAlreadyExists(t *testing.T) {
 func TestDoInit_EmptyRelay(t *testing.T) {
 	dir := t.TempDir()
 
-	// Identity: new (1), Network: own relay (1), then enter empty address
+	// Identity: new (1), then network: own relay (1), then empty address.
+	// --skip-seed-confirm bypasses the seed quiz so stdin reaches the relay prompt.
+	// Seed generation still happens but quiz is skipped.
+	// After seed, password prompt needs TTY - but empty relay errors before that.
 	stdin := strings.NewReader("1\n1\n\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for empty relay")
 	}
@@ -65,7 +68,7 @@ func TestDoInit_InvalidMultiaddr(t *testing.T) {
 	stdin := strings.NewReader("1\n1\n/invalid/multiaddr\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid multiaddr")
 	}
@@ -81,7 +84,7 @@ func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\n\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for empty peer ID")
 	}
@@ -97,7 +100,7 @@ func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid peer ID")
 	}
@@ -113,7 +116,7 @@ func TestDoInit_InvalidChoice(t *testing.T) {
 	stdin := strings.NewReader("1\n3\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid choice")
 	}
