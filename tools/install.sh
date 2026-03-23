@@ -125,6 +125,7 @@ fetch_latest_version() {
 check_existing_install() {
     EXISTING_VERSION=""
     EXISTING_PATH=""
+    DETECTED_ROLE=""
 
     # Check common install locations
     for dir in "$INSTALL_DIR" "$USER_INSTALL_DIR"; do
@@ -134,6 +135,17 @@ check_existing_install() {
             break
         fi
     done
+
+    # Auto-detect role from existing config/services
+    if [ -f /etc/shurli/relay/relay-server.yaml ]; then
+        DETECTED_ROLE="relay"
+    elif systemctl is-active --quiet shurli-relay 2>/dev/null; then
+        DETECTED_ROLE="relay"
+    elif [ -f /etc/shurli/config.yaml ] || [ -f "${HOME}/.config/shurli/config.yaml" ]; then
+        DETECTED_ROLE="peer"
+    elif systemctl is-active --quiet shurli-daemon 2>/dev/null; then
+        DETECTED_ROLE="peer"
+    fi
 }
 
 handle_existing_install() {
@@ -705,7 +717,11 @@ main() {
     # 6. Install binary
     install_binary
 
-    # 7. Choose role
+    # 7. Choose role (auto-detect from existing install)
+    if [ -z "$ROLE" ] && [ -n "$DETECTED_ROLE" ]; then
+        ROLE="$DETECTED_ROLE"
+        info "Detected existing ${ROLE} node configuration"
+    fi
     if [ -z "$ROLE" ]; then
         printf '\n'
         bold "What would you like to set up?"
