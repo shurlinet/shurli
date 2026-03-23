@@ -494,7 +494,11 @@ ${all_matches}"
     if [ "$match_count" -eq 1 ]; then
         # Single backup - offer directly
         latest="$(printf '%s' "$all_matches" | head -1)"
-        info "Previous backup found: ${latest}"
+        local ts
+        ts="$(basename "$latest")"
+        local human_ts
+        human_ts="$(echo "$ts" | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)-\([0-9]\{2\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1-\2-\3 \4:\5:\6/')"
+        info "Previous backup found: ${human_ts}"
     else
         # Multiple backups - show most recent 5, let user choose
         local show_count=5
@@ -507,7 +511,12 @@ ${all_matches}"
         local backup_list=""
         for d in ${all_matches}; do
             if [ "$i" -le "$show_count" ]; then
-                log "${i}) $(basename "$d")"
+                # Format YYYYMMDD-HHMMSS into YYYY-MM-DD HH:MM:SS
+                local ts
+                ts="$(basename "$d")"
+                local human_ts
+                human_ts="$(echo "$ts" | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)-\([0-9]\{2\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1-\2-\3 \4:\5:\6/')"
+                log "${i}) ${human_ts}"
                 backup_list="${backup_list}${d}
 "
             fi
