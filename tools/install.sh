@@ -5,6 +5,8 @@
 #   curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
 #   curl -sSL ... | SHURLI_DEV=1 sh             # install latest dev/pre-release
 #   curl -sSL ... | SHURLI_VERSION=v0.2.0 sh    # install specific version
+#   curl -sSL ... | SHURLI_BACKUP=1 sh          # back up config only
+#   curl -sSL ... | SHURLI_UNINSTALL=1 sh       # uninstall
 #
 # Options (passed after --):
 #   --dev               Install latest dev/pre-release build (default: stable only)
@@ -870,6 +872,58 @@ setup_binary_only() {
     fi
 }
 
+# === Backup only ===
+
+do_backup() {
+    printf '\n'
+    bold "Shurli Backup"
+    printf '\n'
+
+    detect_platform
+
+    # Find config directories
+    local relay_cfg="" peer_cfg=""
+    if [ -d /etc/shurli/relay ]; then relay_cfg="/etc/shurli/relay"; fi
+    if [ -f /etc/shurli/config.yaml ]; then
+        peer_cfg="/etc/shurli"
+    elif [ -f "${HOME}/.config/shurli/config.yaml" ]; then
+        peer_cfg="${HOME}/.config/shurli"
+    fi
+
+    if [ -z "$relay_cfg" ] && [ -z "$peer_cfg" ]; then
+        info "No Shurli config found to back up."
+        exit 0
+    fi
+
+    local backup_dir="${HOME}/.shurli/backups/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    info "Backing up to ${backup_dir}..."
+
+    if [ -n "$relay_cfg" ]; then
+        run_sudo cp -a "$relay_cfg" "${backup_dir}/relay" 2>/dev/null || cp -a "$relay_cfg" "${backup_dir}/relay"
+        log "Relay config: ${relay_cfg}"
+    fi
+    if [ -n "$peer_cfg" ]; then
+        run_sudo cp -a "$peer_cfg" "${backup_dir}/peer" 2>/dev/null || cp -a "$peer_cfg" "${backup_dir}/peer"
+        log "Peer config: ${peer_cfg}"
+    fi
+
+    log "Backup saved to: ${backup_dir}"
+
+    # Show what was backed up
+    printf '\n'
+    info "Contents:"
+    for sub in relay peer; do
+        if [ -d "${backup_dir}/${sub}" ]; then
+            local count
+            count="$(find "${backup_dir}/${sub}" -type f | wc -l | tr -d ' ')"
+            log "${sub}: ${count} files"
+        fi
+    done
+    printf '\n'
+}
+
 # === Uninstall ===
 
 do_uninstall() {
@@ -1077,6 +1131,7 @@ main() {
     UPGRADE_MODE=""
     DEV_BUILD="${SHURLI_DEV:-}"
     UNINSTALL="${SHURLI_UNINSTALL:-}"
+    BACKUP_ONLY="${SHURLI_BACKUP:-}"
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1087,6 +1142,7 @@ main() {
             --no-verify) NO_VERIFY="yes"; shift ;;
             --dev)       DEV_BUILD="yes"; shift ;;
             --uninstall) UNINSTALL="yes"; shift ;;
+            --backup)    BACKUP_ONLY="yes"; shift ;;
             --help|-h)
                 printf 'Shurli Installer\n\n'
                 printf 'Usage: install.sh [--version VERSION] [--method download|build]\n'
@@ -1095,6 +1151,7 @@ main() {
                 printf 'Options:\n'
                 printf '  --dev           Install latest dev/pre-release build\n'
                 printf '  --version VER   Install a specific version (e.g., v0.2.0-dev)\n'
+                printf '  --backup        Back up config without changing anything\n'
                 printf '  --uninstall     Uninstall Shurli\n'
                 exit 0
                 ;;
@@ -1103,6 +1160,12 @@ main() {
     done
 
     trap cleanup EXIT
+
+    # Backup mode - bail early, no version resolution needed
+    if [ -n "$BACKUP_ONLY" ]; then
+        do_backup
+        exit 0
+    fi
 
     # Uninstall mode - bail early, no version resolution needed
     if [ -n "$UNINSTALL" ]; then
