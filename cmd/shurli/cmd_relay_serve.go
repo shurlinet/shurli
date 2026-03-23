@@ -129,14 +129,13 @@ func runRelayServe(args []string) {
 		}
 	} else {
 		// No key file: ask new identity vs recover.
-		reader := bufio.NewReader(os.Stdin)
 		fmt.Println("Identity:")
 		fmt.Println("  1. Create a new identity (default)")
 		fmt.Println("  2. Recover from an existing seed phrase")
 		fmt.Println()
 		fmt.Print("Choice [1]: ")
 
-		idChoice, _ := reader.ReadString('\n')
+		idChoice, _ := stdinReadLine()
 		idChoice = strings.TrimSpace(idChoice)
 		if idChoice == "" {
 			idChoice = "1"
