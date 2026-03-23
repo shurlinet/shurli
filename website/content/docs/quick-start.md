@@ -21,7 +21,7 @@ sudo install -m 755 shurli /usr/local/bin/shurli
 
 ## 1. Deploy a relay (recommended)
 
-Follow the [Relay Setup Guide](https://github.com/shurlinet/shurli/blob/main/docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
+Follow the [Relay Setup guide](../relay-setup/) to deploy your own relay on any VPS.
 This gives you full capability: data relay, file transfer, service proxy through NAT.
 
 Without your own relay, Shurli uses public seed nodes for peer discovery only.
