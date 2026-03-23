@@ -473,20 +473,64 @@ offer_restore() {
     find_backups
     if [ -z "$FOUND_BACKUPS" ]; then return 1; fi
 
-    # Find the most recent backup that has the right role
-    local latest=""
+    # Collect matching backups (newest first by reversing glob order)
+    local matches="" match_count=0
+    local all_matches=""
     for d in ${FOUND_BACKUPS}; do
         if [ "$role" = "relay" ] && [ -d "${d}/relay" ]; then
-            latest="$d"
-            break
+            all_matches="${d}
+${all_matches}"
+            match_count=$((match_count + 1))
         elif [ "$role" = "peer" ] && [ -d "${d}/peer" ]; then
-            latest="$d"
-            break
+            all_matches="${d}
+${all_matches}"
+            match_count=$((match_count + 1))
         fi
     done
-    if [ -z "$latest" ]; then return 1; fi
+    if [ "$match_count" -eq 0 ]; then return 1; fi
 
-    info "Previous backup found: ${latest}"
+    # Pick the backup to restore
+    local latest=""
+    if [ "$match_count" -eq 1 ]; then
+        # Single backup - offer directly
+        latest="$(printf '%s' "$all_matches" | head -1)"
+        info "Previous backup found: ${latest}"
+    else
+        # Multiple backups - show most recent 5, let user choose
+        local show_count=5
+        if [ "$match_count" -le "$show_count" ]; then
+            show_count="$match_count"
+        fi
+        info "Found ${match_count} backups (showing ${show_count} most recent):"
+        printf '\n'
+        local i=1
+        local backup_list=""
+        for d in ${all_matches}; do
+            if [ "$i" -le "$show_count" ]; then
+                log "${i}) $(basename "$d")"
+                backup_list="${backup_list}${d}
+"
+            fi
+            i=$((i + 1))
+        done
+        local skip_num=$((show_count + 1))
+        log "${skip_num}) Skip restore"
+        printf '\n'
+        local pick
+        pick=$(prompt "Restore which backup? [1]: " "1")
+        printf '\n'
+
+        if [ "$pick" = "$skip_num" ]; then
+            return 1
+        fi
+
+        # Get the selected backup
+        latest="$(printf '%s' "$backup_list" | sed -n "${pick}p")"
+        if [ -z "$latest" ]; then
+            latest="$(printf '%s' "$all_matches" | head -1)"
+        fi
+    fi
+
     if [ "$role" = "relay" ]; then
         log "Contains: relay config, identity key, authorized peers"
     else
