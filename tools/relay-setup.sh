@@ -273,7 +273,7 @@ create_secure_user() {
         grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
         sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
         grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo "PermitRootLogin no" >> /etc/ssh/sshd_config
-        systemctl restart sshd
+        systemctl restart "$SSH_SERVICE"
         echo "  [OK] SSH hardened and restarted"
         echo
         local VPS_IP
