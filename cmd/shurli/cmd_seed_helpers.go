@@ -144,12 +144,15 @@ func readPasswordWithStrength(prompt string, stdout io.Writer) (string, error) {
 			}
 		}
 
-		// Update the strength indicator on the same line.
+		// Update the strength indicator on the same line after the prompt.
+		// Show dots for each character typed so user knows input is registered,
+		// followed by the strength label.
 		label := ""
 		if len(pw) > 0 {
 			label = " " + strengthLabel(validate.CheckPasswordStrength(string(pw)))
 		}
-		fmt.Fprintf(stdout, "\033[2K\r%s%s", prompt, label)
+		dots := strings.Repeat("*", len(pw))
+		fmt.Fprintf(stdout, "\033[2K\r%s%s %s", prompt, dots, label)
 	}
 }
 
