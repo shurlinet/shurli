@@ -852,9 +852,9 @@ func setupRelay() error {
 
 	// Start relay server in background inside the container.
 	// Container is sleeping; we launch shurli relay serve as a background process.
-	// Pipe password for first-run encrypted identity creation (non-TTY environment).
+	// Pipe: "1\n" for identity choice (new), then password twice for encrypted key creation.
 	_, _, err := dockerExec("relay", "sh", "-c",
-		"cd /data && printf 'TestPass1!\\nTestPass1!\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
+		"cd /data && printf '1\\nTestPass1!\\nTestPass1!\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
 	if err != nil {
 		return fmt.Errorf("failed to start relay server: %w", err)
 	}

@@ -171,8 +171,57 @@ func SetPeerAttr(authKeysPath, peerIDStr, key, value string) error {
 	return atomicWriteLines(authKeysPath, newLines)
 }
 
+// fileOwnership captures the UID/GID of a file before a write operation.
+// Used by atomicWriteLines and SaveIntegrityHash to restore ownership
+// when running as root on files owned by a service user.
+type fileOwnership struct {
+	uid int
+	gid int
+}
+
+// WriteFilePreserveOwnership is like os.WriteFile but preserves file ownership
+// when running as root on files owned by a different user. This prevents
+// root-run CLI commands from flipping ownership on service user files.
+func WriteFilePreserveOwnership(path string, data []byte, perm os.FileMode) error {
+	orig := captureOwnership(path)
+	if err := os.WriteFile(path, data, perm); err != nil {
+		return err
+	}
+	restoreOwnership(path, orig)
+	return nil
+}
+
+// captureOwnership returns the UID/GID of the file at path.
+// Returns nil if the file doesn't exist or stat fails (new file, no restore needed).
+func captureOwnership(path string) *fileOwnership {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return platformOwnership(info)
+}
+
+// restoreOwnership restores the UID/GID of path if we're running as root
+// and the original owner was a different user. This prevents root from
+// flipping ownership on files owned by service users (e.g., relay running
+// as "satinder" but admin runs "sudo shurli relay deauthorize").
+func restoreOwnership(path string, orig *fileOwnership) {
+	if orig == nil || os.Getuid() != 0 {
+		return
+	}
+	if orig.uid == 0 {
+		return // file was already root-owned, nothing to restore
+	}
+	if err := os.Chown(path, orig.uid, orig.gid); err != nil {
+		slog.Warn("failed to restore file ownership", "path", filepath.Base(path), "err", err)
+	}
+}
+
 // atomicWriteLines writes lines to a file atomically via temp file + rename.
+// Preserves file ownership when running as root.
 func atomicWriteLines(path string, lines []string) error {
+	orig := captureOwnership(path)
+
 	dir := filepath.Dir(path)
 	tempFile, err := os.CreateTemp(dir, ".authorized_keys.*.tmp")
 	if err != nil {
@@ -200,6 +249,7 @@ func atomicWriteLines(path string, lines []string) error {
 		return fmt.Errorf("failed to update file: %w", err)
 	}
 
+	restoreOwnership(path, orig)
 	SaveIntegrityHash(path)
 	return nil
 }
@@ -387,15 +437,20 @@ func ComputeFileHash(path string) (string, error) {
 
 // SaveIntegrityHash computes and saves the SHA-256 hash of the authorized_keys file.
 // Called after every mutation (add, remove, set-attr) to maintain the integrity record.
+// Preserves file ownership when running as root.
 func SaveIntegrityHash(authKeysPath string) {
 	hash, err := ComputeFileHash(authKeysPath)
 	if err != nil {
 		slog.Warn("integrity: failed to hash authorized_keys", "err", err)
 		return
 	}
-	if err := os.WriteFile(hashFilePath(authKeysPath), []byte(hash+"\n"), 0600); err != nil {
+	hashPath := hashFilePath(authKeysPath)
+	orig := captureOwnership(hashPath)
+	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0600); err != nil {
 		slog.Warn("integrity: failed to save hash", "err", err)
+		return
 	}
+	restoreOwnership(hashPath, orig)
 }
 
 // VerifyIntegrity checks the authorized_keys file against its stored hash.

@@ -767,6 +767,12 @@ func (n *Network) LoadNames(names map[string]string) error {
 	return n.nameResolver.LoadFromMap(names)
 }
 
+// ReplaceNames replaces all name mappings with the given map (for config reload).
+// Unlike LoadNames, removed names are cleared from memory.
+func (n *Network) ReplaceNames(names map[string]string) error {
+	return n.nameResolver.ReplaceFromMap(names)
+}
+
 // ListNames returns all registered name-to-peer-ID mappings.
 func (n *Network) ListNames() map[string]peer.ID {
 	return n.nameResolver.List()

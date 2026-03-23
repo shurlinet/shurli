@@ -197,6 +197,17 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 		result.Changed = append(result.Changed, "security.authorized_keys")
 	}
 
+	// Reload name mappings from config so auth add --comment changes
+	// take effect without daemon restart. Uses ReplaceNames (not LoadNames)
+	// so that removed names are cleared from memory.
+	if cr.rt.network != nil && newCfg.Names != nil {
+		if err := cr.rt.network.ReplaceNames(newCfg.Names); err != nil {
+			slog.Warn("failed to reload names from config", "err", err)
+		} else {
+			result.Changed = append(result.Changed, "names")
+		}
+	}
+
 	// Update the stored config pointer for future comparisons.
 	cr.rt.config = newCfg
 

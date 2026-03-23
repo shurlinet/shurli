@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
 )
@@ -186,7 +187,7 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 		content += fmt.Sprintf("\nservices:\n%s\n", block)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(content), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -368,7 +369,7 @@ func doServiceSetEnabled(args []string, enabled bool, stdout io.Writer) error {
 		return fmt.Errorf("could not find enabled field for service %q.\nPlease edit manually: %s", name, cfgFile)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -485,7 +486,7 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 		content = strings.Replace(content, "\nservices:\n", "\nservices: {}\n", 1)
 	}
 
-	if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
+	if err := auth.WriteFilePreserveOwnership(cfgFile, []byte(content), 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

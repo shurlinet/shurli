@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 )
 
@@ -152,11 +153,23 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 			if name != "" {
 				updateConfigNames(cfgFile, filepath.Dir(cfgFile), name, peerIDStr)
 				fmt.Fprintf(stdout, "  Name: %s (added to config)\n", name)
+				// Trigger daemon config reload so the name is usable immediately.
+				tryDaemonConfigReload()
 			}
 		}
 	}
 
 	return nil
+}
+
+// tryDaemonConfigReload attempts to trigger a config reload on the running daemon.
+// Silently succeeds if the daemon is not running (name will load on next start).
+func tryDaemonConfigReload() {
+	c, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
+	if err != nil {
+		return // daemon not running
+	}
+	c.ConfigReload() // best-effort, ignore errors
 }
 
 func runAuthList(args []string) {
