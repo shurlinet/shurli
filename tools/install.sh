@@ -681,6 +681,13 @@ setup_relay() {
         return
     fi
 
+    # Check for backup to restore before running fresh setup
+    if [ ! -f /etc/shurli/relay/relay-server.yaml ]; then
+        if offer_restore "relay"; then
+            info "Relay config restored from backup."
+        fi
+    fi
+
     local relay_setup="${ARCHIVE_DIR}/tools/relay-setup.sh"
     if [ ! -f "$relay_setup" ]; then
         error "relay-setup.sh not found in archive. Cannot continue."
