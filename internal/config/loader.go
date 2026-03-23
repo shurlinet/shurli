@@ -277,12 +277,13 @@ func FindConfigFile(explicitPath string) (string, error) {
 		"shurli.yaml",
 	}
 
-	// ~/.config/shurli/config.yaml
+	// /etc/shurli/config.yaml (system default, checked first)
+	searchPaths = append(searchPaths, filepath.Join("/etc", "shurli", "config.yaml"))
+
+	// ~/.config/shurli/config.yaml (user-level fallback)
 	if home, err := os.UserHomeDir(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(home, ".config", "shurli", "config.yaml"))
 	}
-
-	searchPaths = append(searchPaths, filepath.Join("/etc", "shurli", "config.yaml"))
 
 	for _, path := range searchPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -362,7 +363,15 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 }
 
 // DefaultConfigDir returns the default shurli config directory (~/.config/shurli).
+// DefaultConfigDir returns the system-level config directory (/etc/shurli).
+// This is the default for infrastructure that runs as a system service.
 func DefaultConfigDir() (string, error) {
+	return "/etc/shurli", nil
+}
+
+// UserConfigDir returns the user-level config directory (~/.config/shurli).
+// Used when --user flag is specified.
+func UserConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
