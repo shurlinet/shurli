@@ -51,13 +51,14 @@ Or use `make install` to build, install, and set up a system service in one step
 
 Build from source ([Go 1.26+](https://go.dev/dl/) required):
 ```bash
+# Linux (Debian/Ubuntu) - install mDNS dependency
+sudo apt install libavahi-compat-libdnssd-dev
+
 git clone https://github.com/shurlinet/shurli.git
 cd shurli
 go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 sudo install -m 755 shurli /usr/local/bin/shurli
 ```
-
-Linux also needs mDNS: `sudo apt install libavahi-compat-libdnssd-dev` (Debian/Ubuntu).
 
 ### 1. Deploy a relay (recommended)
 
