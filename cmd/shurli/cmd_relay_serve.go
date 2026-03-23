@@ -43,6 +43,7 @@ import (
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
@@ -145,9 +146,21 @@ func runRelayServe(args []string) {
 
 		// Prompt for new password to protect the identity key.
 		fmt.Println("Set a password to protect the relay identity:")
-		pw, pwErr := readPasswordConfirm("Password: ", "Confirm: ", os.Stdout)
-		if pwErr != nil {
-			fatal("Password error: %v", pwErr)
+		fmt.Printf("  Requirements: %d+ characters, at least 3 of: uppercase, lowercase, digit, symbol\n\n", validate.MinPasswordLen)
+		var pw string
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			p, pwErr := readPasswordConfirm("Password: ", "Confirm: ", os.Stdout)
+			if pwErr == nil {
+				pw = p
+				break
+			}
+			fmt.Printf("  %v\n", pwErr)
+			if attempt < maxAttempts {
+				fmt.Printf("  Try again (%d of %d)\n\n", attempt+1, maxAttempts)
+			} else {
+				fatal("Password setup failed after %d attempts", maxAttempts)
+			}
 		}
 
 		priv, err = identity.DeriveIdentityKey(entropy)
