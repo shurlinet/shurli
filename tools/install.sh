@@ -3,10 +3,12 @@
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
-#   curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh -s -- --version v0.2.0
+#   curl -sSL ... | sh -s -- --dev              # install latest dev/pre-release
+#   curl -sSL ... | sh -s -- --version v0.2.0   # install specific version
 #
 # Options (passed after --):
-#   --version VERSION   Install a specific version (default: latest release)
+#   --dev               Install latest dev/pre-release build (default: stable only)
+#   --version VERSION   Install a specific version
 #   --method METHOD     Install method: "download" or "build" (default: interactive)
 #   --role ROLE         Setup role: "peer", "relay", or "binary" (default: interactive)
 #   --dir DIR           Install directory (default: /usr/local/bin)
@@ -72,7 +74,7 @@ detect_platform() {
     esac
 
     SUFFIX=""
-    [ "$GOOS" = "windows" ] && SUFFIX=".exe"
+    if [ "$GOOS" = "windows" ]; then SUFFIX=".exe"; fi
 }
 
 # --- Download helper ---
@@ -91,15 +93,31 @@ download() {
 # --- Version resolution ---
 
 fetch_latest_version() {
-    local url="https://api.github.com/repos/${REPO}/releases/latest"
-    local response
-    if has_cmd curl; then
-        response="$(curl -fsSL "$url" 2>/dev/null)" || error "Failed to fetch latest version. Check your network connection."
-    elif has_cmd wget; then
-        response="$(wget -qO- "$url" 2>/dev/null)" || error "Failed to fetch latest version. Check your network connection."
+    local response=""
+
+    if [ "$DEV_BUILD" = "yes" ]; then
+        # --dev: fetch the most recent release (including pre-releases)
+        local url="https://api.github.com/repos/${REPO}/releases?per_page=1"
+        if has_cmd curl; then
+            response="$(curl -fsSL "$url" 2>/dev/null)" || response=""
+        elif has_cmd wget; then
+            response="$(wget -qO- "$url" 2>/dev/null)" || response=""
+        fi
+        VERSION="$(printf '%s' "$response" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')"
+        if [ -n "$VERSION" ]; then return 0; fi
+        error "No dev releases found at ${REPO_URL}/releases"
+    else
+        # Default: fetch the latest stable release only
+        local url="https://api.github.com/repos/${REPO}/releases/latest"
+        if has_cmd curl; then
+            response="$(curl -fsSL "$url" 2>/dev/null)" || response=""
+        elif has_cmd wget; then
+            response="$(wget -qO- "$url" 2>/dev/null)" || response=""
+        fi
+        VERSION="$(printf '%s' "$response" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')"
+        if [ -n "$VERSION" ]; then return 0; fi
+        error "No stable release found. Use --dev to install the latest dev build, or --version to specify a version."
     fi
-    VERSION="$(printf '%s' "$response" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')"
-    [ -z "$VERSION" ] && error "No releases found at ${REPO_URL}/releases"
 }
 
 # --- Upgrade detection ---
@@ -267,7 +285,7 @@ do_build() {
     fi
     go_version="$(grep '^go ' "$gomod_file" | awk '{print $2}')"
     rm -f "$gomod_file"
-    [ -z "$go_version" ] && error "Could not determine Go version from go.mod"
+    if [ -z "$go_version" ]; then error "Could not determine Go version from go.mod"; fi
     log "Required Go: ${go_version}"
 
     # Install build deps on Linux
@@ -411,7 +429,7 @@ install_binary() {
     if [ -x "${INSTALL_TO}/${BINARY_NAME}${SUFFIX}" ]; then
         local ver_out
         ver_out="$("${INSTALL_TO}/${BINARY_NAME}${SUFFIX}" --version 2>/dev/null | head -1)" || ver_out=""
-        [ -n "$ver_out" ] && log "$ver_out"
+        if [ -n "$ver_out" ]; then log "$ver_out"; fi
     fi
 
     # Warn if not in PATH
@@ -614,6 +632,7 @@ main() {
     OPT_DIR=""
     NO_VERIFY=""
     UPGRADE_MODE=""
+    DEV_BUILD=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -622,10 +641,15 @@ main() {
             --role)      ROLE="$2"; shift 2 ;;
             --dir)       OPT_DIR="$2"; shift 2 ;;
             --no-verify) NO_VERIFY="yes"; shift ;;
+            --dev)       DEV_BUILD="yes"; shift ;;
             --help|-h)
                 printf 'Shurli Installer\n\n'
                 printf 'Usage: install.sh [--version VERSION] [--method download|build]\n'
-                printf '                  [--role peer|relay|binary] [--dir DIR] [--no-verify]\n'
+                printf '                  [--role peer|relay|binary] [--dir DIR]\n'
+                printf '                  [--dev] [--no-verify]\n\n'
+                printf 'Options:\n'
+                printf '  --dev           Install latest dev/pre-release build\n'
+                printf '  --version VER   Install a specific version (e.g., v0.2.0-dev)\n'
                 exit 0
                 ;;
             *) error "Unknown option: $1" ;;
@@ -634,14 +658,17 @@ main() {
 
     trap cleanup EXIT
 
+    printf '\n'
+    bold "Shurli Installer"
+    printf '\n'
+
     # 1. Platform detection
     detect_platform
-    info "Shurli Installer"
     log "Platform: ${GOOS}/${GOARCH}"
 
     # 2. Resolve version
     if [ -z "$VERSION" ]; then
-        info "Fetching latest version..."
+        log "Fetching latest version..."
         fetch_latest_version
     fi
     log "Version: ${VERSION}"
