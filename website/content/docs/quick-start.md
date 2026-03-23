@@ -6,7 +6,19 @@ description: "Get two devices connected with Shurli in 60 seconds. Build from so
 <!-- Auto-synced from README.md by sync-docs - do not edit directly -->
 
 
-## 0. Deploy a relay (recommended)
+## 0. Install Shurli
+
+Build from source ([Go 1.26+](https://go.dev/dl/) required):
+```bash
+git clone https://github.com/shurlinet/shurli.git
+cd shurli
+go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
+sudo install -m 755 shurli /usr/local/bin/shurli
+```
+
+Linux also needs mDNS: `sudo apt install libavahi-compat-libdnssd-dev` (Debian/Ubuntu).
+
+## 1. Deploy a relay (recommended)
 
 Follow the [Relay Setup Guide](https://github.com/shurlinet/shurli/blob/main/docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
 This gives you full capability: data relay, file transfer, service proxy through NAT.
@@ -14,7 +26,7 @@ This gives you full capability: data relay, file transfer, service proxy through
 Without your own relay, Shurli uses public seed nodes for peer discovery only.
 Direct connections work, but data relay through seeds is blocked by design.
 
-## 1. Initialize (first time only)
+## 2. Initialize (first time only)
 
 ```bash
 shurli init
@@ -23,7 +35,7 @@ shurli init
 Interactive wizard: creates your identity, sets a password, and writes your configuration.
 Choose "Use my own relay server" (option 1) and enter your relay address.
 
-## 2. Connect
+## 3. Connect
 
 **I have an invite code:**
 
@@ -46,7 +58,7 @@ On machine 2 (your client):
 shurli join <invite-code> --as laptop
 ```
 
-## 3. Use it
+## 4. Use it
 
 ```bash
 # On the server - start the daemon
