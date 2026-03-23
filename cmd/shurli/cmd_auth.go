@@ -143,6 +143,19 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "  Role: %s\n", *roleFlag)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+
+	// Also add name mapping to config if a comment was provided.
+	if *commentFlag != "" && *fileFlag == "" {
+		cfgFile, cfgErr := config.FindConfigFile(*configFlag)
+		if cfgErr == nil {
+			name := sanitizeYAMLName(*commentFlag)
+			if name != "" {
+				updateConfigNames(cfgFile, filepath.Dir(cfgFile), name, peerIDStr)
+				fmt.Fprintf(stdout, "  Name: %s (added to config)\n", name)
+			}
+		}
+	}
+
 	return nil
 }
 
