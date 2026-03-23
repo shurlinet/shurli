@@ -25,7 +25,7 @@ More importantly, the daemon can manage multiple proxies simultaneously. Start a
 
 ![Before vs after daemon mode - from 5-10 second startup per command to instant responses](/images/blog/batch-f-before-after.svg)
 
-- **Unix domain socket**: `~/.config/shurli/shurli.sock` with `umask(0077)` for atomic permissions. No TCP port conflicts, filesystem-level access control
+- **Unix domain socket**: `~/.shurli/shurli.sock` with `umask(0077)` for atomic permissions. No TCP port conflicts, filesystem-level access control
 - **Cookie authentication**: 32-byte random hex token written to `.daemon-cookie` (mode `0600`). Rotated every daemon restart. Sent as `Authorization: Bearer <token>`
 - **15 REST endpoints**: status, services, peers, paths, auth (add/remove/list), ping, traceroute, resolve, connect/disconnect proxies, expose/unexpose services, shutdown
 - **Hot-reload authorized_keys**: Add or remove peers via `shurli daemon auth add <peer-id>`. Takes effect immediately, no restart needed

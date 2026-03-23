@@ -93,7 +93,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 - [x] Tested: SSH, XRDP, generic TCP proxy all working across LAN and 5G
 - [x] **UX Streamlining**:
   - [x] Single binary - merged home-node into `shurli daemon`
-  - [x] Standard config path - auto-discovery (`./shurli.yaml` → `~/.config/shurli/config.yaml` → `/etc/shurli/config.yaml`)
+  - [x] Standard config path - auto-discovery (`./shurli.yaml` → `~/.shurli/config.yaml` → `/etc/shurli/config.yaml`)
   - [x] `shurli init` - interactive setup wizard (generates config, keys, authorized_keys)
   - [x] All commands support `--config <path>` flag
   - [x] Unified config type (one config format for all modes)
@@ -268,7 +268,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
-- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 23 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
+- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 23 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** - `shurli invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `shurli join --non-interactive` reads invite code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:

@@ -21,6 +21,6 @@ ENTRYPOINT ["shurli"]
 FROM alpine:3.21 AS node
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /shurli /usr/local/bin/shurli
-RUN mkdir -p /root/.config/shurli /covdata
+RUN mkdir -p /root/.shurli /covdata
 WORKDIR /root
 ENTRYPOINT ["shurli"]

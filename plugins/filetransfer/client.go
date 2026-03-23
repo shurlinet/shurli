@@ -23,12 +23,24 @@ type daemonClient struct {
 	authToken  string
 }
 
-// newDaemonClient creates a daemon client using default config paths.
-func newDaemonClient() (*daemonClient, error) {
+// daemonDir returns the directory where the daemon stores its socket and cookie.
+// Mirrors cmd/shurli.daemonConfigDir() logic: find the config file, use its parent.
+func daemonDir() string {
+	if cfgFile, err := config.FindConfigFile(""); err == nil {
+		return filepath.Dir(cfgFile)
+	}
 	dir, err := config.DefaultConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine config directory: %w", err)
+		return "/etc/shurli" // last-resort fallback
 	}
+	return dir
+}
+
+// newDaemonClient creates a daemon client by locating the active config directory.
+// It uses FindConfigFile to discover where the daemon placed its socket, matching
+// the daemon's own logic for socket/cookie placement.
+func newDaemonClient() (*daemonClient, error) {
+	dir := daemonDir()
 	socketPath := filepath.Join(dir, "shurli.sock")
 	cookiePath := filepath.Join(dir, ".daemon-cookie")
 

@@ -118,8 +118,8 @@ The `<target>` in network commands accepts either a peer ID or a friendly name f
 The daemon runs as a long-lived background process. It starts the full P2P host, exposes configured services, and opens a Unix socket API for management.
 
 **Key features:**
-- Unix socket at `~/.config/shurli/shurli.sock` (no TCP exposure)
-- Cookie-based auth (`~/.config/shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
+- Unix socket at `~/.shurli/shurli.sock` (no TCP exposure)
+- Cookie-based auth (`~/.shurli/.daemon-cookie`) - 32-byte random token, rotated per restart
 - Hot-reload of authorized_keys via `daemon` auth endpoints
 - 38 REST endpoints for status, peers, services, auth, proxies, ping, traceroute, resolve, paths, file transfers, shares, config reload
 
@@ -143,7 +143,7 @@ For the full API reference: [DAEMON-API.md](DAEMON-API.md)
 
 1. `--config <path>` flag (explicit)
 2. `./shurli.yaml` (current directory)
-3. `~/.config/shurli/config.yaml` (standard location, created by `shurli init`)
+3. `~/.shurli/config.yaml` (standard location, created by `shurli init`)
 4. `/etc/shurli/config.yaml` (system-wide)
 
 ### Essential Config
