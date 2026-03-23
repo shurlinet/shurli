@@ -133,11 +133,12 @@ func runRelayServe(args []string) {
 		if err != nil {
 			fatal("Failed to generate seed: %v", err)
 		}
+		words := strings.Fields(mnemonic)
 		fmt.Println("=== RELAY SEED PHRASE ===")
 		fmt.Println("Write this down and store it securely. This is the ONLY way to")
 		fmt.Println("recover your relay identity and vault if this server is lost.")
 		fmt.Println()
-		fmt.Printf("  %s\n", mnemonic)
+		fmt.Print(formatSeedGrid(words))
 		fmt.Println()
 		fmt.Println("===========================")
 		fmt.Println()
