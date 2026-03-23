@@ -43,6 +43,9 @@ type RelayAdminAPI interface {
 	RelayGrants() ([]RelayGrantInfo, error)
 	RelayRevoke(peerID string) error
 	RelayExtend(peerID string, durationSecs int) error
+
+	// Relay info (peer ID, multiaddrs)
+	GetInfo() (*RelayInfoResponse, error)
 }
 
 // AuthorizedPeerInfo is the JSON representation of an authorized peer
