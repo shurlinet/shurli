@@ -47,13 +47,22 @@ Or use `make install` to build, install, and set up a system service in one step
 
 ## Quick Start
 
+### 0. Deploy a relay (recommended)
+
+Follow the [Relay Setup Guide](docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
+This gives you full capability: data relay, file transfer, service proxy through NAT.
+
+Without your own relay, Shurli uses public seed nodes for peer discovery only.
+Direct connections work, but data relay through seeds is blocked by design.
+
 ### 1. Initialize (first time only)
 
 ```bash
 shurli init
 ```
 
-Interactive wizard: creates your identity (seed phrase backup), sets a password, and writes your configuration.
+Interactive wizard: creates your identity, sets a password, and writes your configuration.
+Choose "Use my own relay server" (option 1) and enter your relay address.
 
 ### 2. Connect
 
@@ -5367,7 +5376,8 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 9: File Transfer Architecture](phase9-file-transfer.md) | ADR-R01 to ADR-R09 | FastCDC, BLAKE3, zstd, Reed-Solomon, RaptorQ, parallel streams, receive permissions, rate limiting |
 | [Post-Chaos Network Hardening](post-chaos-network-hardening.md) | ADR-S01 to ADR-S07 | Black hole reset, ForceReachabilityPrivate, constrained dial, VPN detection, gateway tracking, dial worker workaround, autorelay tuning |
 | [File Transfer Hardening](file-transfer-hardening.md) | ADR-R10 to ADR-R16 | DDoS defense (7 layers), queue persistence (HMAC), path privacy, checkpoint resume, queue backpressure, name normalization, relay transport |
-| [Per-Peer Data Grants](per-peer-data-grants.md) | ADR-T01 to ADR-T10 | Node-level enforcement, macaroon grants, dual-store (GrantStore + Pouch), binary stream header, P2P delivery protocol, delegation, notifications, audit log, rate limiting, backoff reset |
+| [Phase 8B: Per-Peer Data Grants](per-peer-data-grants.md) | ADR-T01 to ADR-T10 | Node-level enforcement, macaroon grants, dual-store (GrantStore + Pouch), binary stream header, P2P delivery protocol, delegation, notifications, audit log, rate limiting, backoff reset |
+| [Phase 9: Plugin Security Threat Analysis](plugin-security-threat-analysis.md) | ADR-U01 to ADR-U08 | Trusted computing base, WASM host function API, supply chain defense, decomposed permissions, lifecycle state machine, credential isolation, AI-era constraints, registry design |
 
 
 ---
@@ -8938,7 +8948,7 @@ The hardening was verified through a 3-round Level 4 audit:
 
 ---
 
-# Per-Peer Data Access Grants: Macaroon Capability Tokens for P2P Authorization
+# Phase 8B: Per-Peer Data Grants
 
 **Date**: 2026-03-22
 **Status**: Complete (Phases A, R, B, C, D)

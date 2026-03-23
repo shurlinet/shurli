@@ -182,30 +182,30 @@ All three paths are encrypted identically. The transition between them is
 automatic and invisible to the user.
 
 .SH GETTING STARTED
-A minimal setup takes about two minutes:
+A minimal setup:
 .PP
-.B "On your first device:"
+.B "1. Deploy a relay on a VPS (recommended):"
 .nf
-  shurli init
-  shurli daemon
+  shurli relay setup
+  shurli relay serve
 .fi
 .PP
-.B "On your second device:"
+.B "2. Initialize on your devices:"
 .nf
   shurli init
+  # Choose option 1 (own relay), enter your relay address
 .fi
 .PP
-.B "Pair them (from either device):"
+.B "3. Pair them:"
 .nf
   shurli invite --as home
-.fi
-.PP
-This prints a one-time code. On the other device:
-.nf
+  # On the other device:
   shurli join <code> --as laptop
 .fi
 .PP
 Both devices are now authorized and can reach each other.
+Without your own relay, you can still use public seed nodes for
+discovery (option 2 in init), but data relay is not available.
 
 .SH EXAMPLES
 .SS Expose SSH and connect from another device
@@ -403,10 +403,10 @@ running daemon.
 .TP
 .B init \fR[\fB--dir\fR \fIpath\fR] [\fB--network\fR \fInamespace\fR]
 Interactive first-time setup. Creates the config directory, generates an
-Ed25519 identity key, prompts for a relay server address, writes config.yaml,
-and installs shell completions and the man page. The \fB--network\fR flag
-creates a private DHT namespace (peers in different namespaces cannot
-discover each other).
+Ed25519 identity key, and writes config.yaml. Prompts for relay choice:
+own relay server (recommended, full capability) or public seed nodes
+(discovery only, no data relay). Installs shell completions and the man page.
+The \fB--network\fR flag creates a private DHT namespace.
 .TP
 .B config validate \fR[\fB--config\fR \fIpath\fR]
 Parse and validate the config file. Reports errors without starting anything.

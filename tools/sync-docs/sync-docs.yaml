@@ -7,7 +7,7 @@ github_base: "https://github.com/shurlinet/shurli/blob/main"
 docs:
   - source: NETWORK-TOOLS.md
     output: network-tools.md
-    weight: 2
+    weight: 3
     title: Network Tools
     description: "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
 
@@ -48,7 +48,7 @@ docs:
 quick_start:
   source: README.md
   output: quick-start.md
-  weight: 1
+  weight: 2
   title: Quick Start
   description: "Get two devices connected with Shurli in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."
 
@@ -56,7 +56,7 @@ quick_start:
 relay_setup:
   source: RELAY-SETUP.md
   output: relay-setup.md
-  weight: 5
+  weight: 1
   title: Relay Setup
   description: "Complete guide to deploying your own Shurli relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."
 
@@ -195,7 +195,7 @@ journal:
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
-    weight: 3
+    weight: 4
     title: FAQ
     description: "Frequently asked questions about Shurli, organized by topic."
 

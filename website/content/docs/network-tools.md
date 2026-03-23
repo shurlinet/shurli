@@ -1,6 +1,6 @@
 ---
 title: "Network Tools"
-weight: 2
+weight: 3
 description: "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
 ---
 <!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs - do not edit directly -->

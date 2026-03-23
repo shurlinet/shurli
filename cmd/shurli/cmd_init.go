@@ -116,16 +116,17 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprintln(stdout)
 
-	// Network setup: public Shurli network (default) or custom relay
+	// Network setup: own relay (recommended) or public seed nodes
 	reader := bufio.NewReader(stdin)
 	fmt.Fprintln(stdout, "Network setup:")
-	fmt.Fprintln(stdout, "  1. Join the Shurli public network (default)")
-	fmt.Fprintln(stdout, "     Uses public seed nodes for peer discovery and direct connections.")
-	fmt.Fprintln(stdout, "     NOTE: Seed nodes enable discovery only, NOT data relay.")
-	fmt.Fprintln(stdout, "     Data transfers happen directly between your devices.")
+	fmt.Fprintln(stdout, "  1. Use my own relay server (recommended)")
+	fmt.Fprintln(stdout, "     Full capability: data relay, file transfer, service proxy.")
+	fmt.Fprintln(stdout, "     Your relay, your rules. Setup: https://shurli.io/docs/relay-setup/")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "  2. Use my own relay server")
-	fmt.Fprintln(stdout, "     Use a self-hosted relay for full data relay capability.")
+	fmt.Fprintln(stdout, "  2. Use public seed nodes (limited - discovery only)")
+	fmt.Fprintln(stdout, "     Seed nodes handle peer DISCOVERY only. They do NOT relay data.")
+	fmt.Fprintln(stdout, "     You cannot: relay files, proxy services, or pass any data through seeds.")
+	fmt.Fprintln(stdout, "     You can: discover peers and make direct connections (hole-punching).")
 	fmt.Fprintln(stdout)
 	fmt.Fprint(stdout, "Choice [1]: ")
 
@@ -139,19 +140,24 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 
 	var relayAddrs []string
+	var usedSeeds bool
 	switch choice {
 	case "1":
-		relayAddrs = HardcodedSeeds
-		fmt.Fprintln(stdout)
-		fmt.Fprintf(stdout, "Using %d public Shurli seed nodes for discovery.\n", len(SeedPeerIDs()))
-		fmt.Fprintln(stdout, "These enable peer discovery and direct connections only.")
-		fmt.Fprintln(stdout, "For full data relay, deploy your own: https://shurli.io/docs/relay-setup/")
-	case "2":
 		relayAddr, err := promptRelayAddress(reader, stdout)
 		if err != nil {
 			return err
 		}
 		relayAddrs = []string{relayAddr}
+	case "2":
+		usedSeeds = true
+		relayAddrs = HardcodedSeeds
+		fmt.Fprintln(stdout)
+		fmt.Fprintf(stdout, "Using %d public seed nodes for DISCOVERY ONLY.\n", len(SeedPeerIDs()))
+		fmt.Fprintln(stdout, "  - No file transfer through seeds")
+		fmt.Fprintln(stdout, "  - No service proxy through seeds")
+		fmt.Fprintln(stdout, "  - No data circuits of any kind")
+		fmt.Fprintln(stdout, "  Direct connections still work when both peers are online.")
+		fmt.Fprintln(stdout, "  Deploy your own relay for full capability: https://shurli.io/docs/relay-setup/")
 	default:
 		return fmt.Errorf("invalid choice: %s (enter 1 or 2)", choice)
 	}
@@ -267,6 +273,11 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
 	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --as home")
 	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	if usedSeeds {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "  Tip: Deploy your own relay for full capability:")
+		fmt.Fprintln(stdout, "       https://shurli.io/docs/relay-setup/")
+	}
 	fmt.Fprintln(stdout)
 	tc.Wfaint(stdout, "If anything looks wrong later, run: shurli doctor\n")
 	return nil
