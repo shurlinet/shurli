@@ -881,8 +881,13 @@ setup_binary_only() {
     else
         printf '\n'
         log "Next steps:"
-        log "  shurli init                  Set up as a peer node"
-        log "  shurli join --relay          Join via relay server"
+        if [ "$GOOS" = "darwin" ]; then
+            log "  shurli init --user           Set up as a peer node"
+            log "  shurli join --relay --user   Join via relay server"
+        else
+            log "  shurli init                  Set up as a peer node"
+            log "  shurli join --relay          Join via relay server"
+        fi
         log "  shurli relay setup           Set up as a relay server"
         printf '\n'
         log "Docs: https://shurli.io/docs/quick-start/"
