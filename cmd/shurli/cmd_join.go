@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/hmac"
+	"io"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,10 +20,15 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
+
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/relay"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -36,6 +42,7 @@ func runJoin(args []string) {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("as", "", "your node's name on the network (e.g., \"laptop\")")
+	relayFlag := fs.String("relay", "", "relay address (IP:PORT or full multiaddr) - bootstraps config on fresh devices")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output for scripting")
 	fs.Parse(reorderFlags(fs, args))
 
@@ -79,12 +86,12 @@ func runJoin(args []string) {
 		fatal("Invalid invite code: %v", err)
 	}
 
-	runPairJoin(data, *nameFlag, *configFlag, *nonInteractive, out, outln)
+	runPairJoin(data, *nameFlag, *configFlag, *relayFlag, *nonInteractive, out, outln)
 }
 
 // runPairJoin handles invite codes with PAKE-secured relay pairing.
 // The code contains only the token (no relay address). The joiner uses their configured relay.
-func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonInteractive bool,
+func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string, nonInteractive bool,
 	out func(string, ...any) (int, error), outln func(...any) (int, error)) {
 
 	outln("=== Shurli join ===")
@@ -93,7 +100,16 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag string, nonIntera
 	// Resolve config. v3 codes have no relay address, so use existing config.
 	cfgFile, err := config.FindConfigFile(configFlag)
 	if err != nil {
-		fatal("No config found. Run 'shurli init' first.\n(Invite codes require a configured relay)")
+		if relayAddr == "" {
+			fatal("No config found. Run 'shurli init' first, or use --relay to bootstrap:\n  shurli join <code> --relay <IP:PORT> --as <name>")
+		}
+		// Bootstrap: create identity + config from scratch using the provided relay.
+		outln("No config found. Bootstrapping from --relay flag...")
+		outln()
+		cfgFile, err = bootstrapForJoin(relayAddr, os.Stdin, os.Stdout)
+		if err != nil {
+			fatal("Bootstrap failed: %v", err)
+		}
 	}
 	cfg, err := config.LoadNodeConfig(cfgFile)
 	if err != nil {
@@ -451,4 +467,149 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 	if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
 		log.Printf("Warning: could not update config names: %v", err)
 	}
+}
+
+// bootstrapForJoin creates a fresh identity and config for a device that has never
+// run "shurli init". This enables "shurli join <code> --relay <addr>" as a single
+// command for new devices. Returns the path to the created config file.
+func bootstrapForJoin(relayInput string, stdin io.Reader, stdout io.Writer) (string, error) {
+	// Validate relay address: accept full multiaddr or IP:PORT.
+	var relayAddr string
+	if isFullMultiaddr(relayInput) {
+		if _, err := ma.NewMultiaddr(relayInput); err != nil {
+			return "", fmt.Errorf("invalid multiaddr: %w", err)
+		}
+		relayAddr = relayInput
+	} else {
+		// IP:PORT format - need peer ID interactively.
+		ip, port, err := parseRelayHostPort(relayInput)
+		if err != nil {
+			return "", fmt.Errorf("invalid relay address: %w", err)
+		}
+		reader := bufio.NewReader(stdin)
+		fmt.Fprintln(stdout, "Enter the relay server's Peer ID:")
+		fmt.Fprint(stdout, "> ")
+		peerIDStr, err := reader.ReadString('\n')
+		if err != nil {
+			return "", fmt.Errorf("failed to read input: %w", err)
+		}
+		peerIDStr = strings.TrimSpace(peerIDStr)
+		if peerIDStr == "" {
+			return "", fmt.Errorf("relay Peer ID is required")
+		}
+		if err := validatePeerID(peerIDStr); err != nil {
+			return "", fmt.Errorf("invalid Peer ID: %w", err)
+		}
+		relayAddr = buildRelayMultiaddr(ip, port, peerIDStr)
+	}
+
+	// Determine config directory.
+	configDir, err := config.DefaultConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine config directory: %w", err)
+	}
+	configFile := filepath.Join(configDir, "config.yaml")
+	if _, err := os.Stat(configFile); err == nil {
+		return "", fmt.Errorf("config already exists: %s", configFile)
+	}
+
+	fmt.Fprintf(stdout, "Creating config directory: %s\n", configDir)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Generate BIP39 seed.
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Generating identity...")
+	fmt.Fprintln(stdout)
+
+	mnemonic, entropy, err := identity.GenerateSeed()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate seed: %w", err)
+	}
+	words := strings.Fields(mnemonic)
+
+	fmt.Fprintln(stdout, "=== SEED PHRASE ===")
+	fmt.Fprintln(stdout, "Write this down and store it securely. This is the ONLY way to")
+	fmt.Fprintln(stdout, "recover your identity if you lose this device.")
+	fmt.Fprintln(stdout)
+	fmt.Fprint(stdout, formatSeedGrid(words))
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "===========================")
+	fmt.Fprintln(stdout)
+
+	// Seed backup confirmation.
+	reader := bufio.NewReader(stdin)
+	if err := confirmSeedBackup(stdout, reader, words, false); err != nil {
+		return "", fmt.Errorf("seed backup: %w", err)
+	}
+	fmt.Fprintln(stdout, "Seed backup confirmed.")
+	fmt.Fprintln(stdout)
+
+	// Password setup.
+	fmt.Fprintln(stdout, "Set a password to protect your identity:")
+	fmt.Fprintf(stdout, "  Requirements: %d+ characters, at least 3 of: uppercase, lowercase, digit, symbol\n\n", validate.MinPasswordLen)
+
+	var password string
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		pw, pwErr := readPasswordConfirm("Password: ", "Confirm: ", stdout)
+		if pwErr == nil {
+			password = pw
+			break
+		}
+		fmt.Fprintf(stdout, "  %v\n", pwErr)
+		if attempt < maxAttempts {
+			fmt.Fprintf(stdout, "  Try again (%d of %d)\n\n", attempt+1, maxAttempts)
+		} else {
+			return "", fmt.Errorf("password setup failed after %d attempts", maxAttempts)
+		}
+	}
+	fmt.Fprintln(stdout)
+
+	// Derive and save identity.
+	privKey, err := identity.DeriveIdentityKey(entropy)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive identity key: %w", err)
+	}
+	keyFile := filepath.Join(configDir, "identity.key")
+	if err := identity.SaveIdentity(keyFile, privKey, password); err != nil {
+		return "", fmt.Errorf("failed to save identity: %w", err)
+	}
+
+	// Create session token.
+	if err := identity.CreateSession(configDir, password); err != nil {
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+
+	peerID, err := peer.IDFromPrivateKey(privKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to derive peer ID: %w", err)
+	}
+	fmt.Fprintf(stdout, "Your Peer ID: %s\n", peerID)
+	fmt.Fprintln(stdout)
+
+	// Create authorized_keys.
+	authKeysFile := filepath.Join(configDir, "authorized_keys")
+	if _, err := os.Stat(authKeysFile); os.IsNotExist(err) {
+		authContent := "# authorized_keys - Add peer IDs here (one per line)\n# Format: <peer_id> # optional comment\n"
+		if err := os.WriteFile(authKeysFile, []byte(authContent), 0600); err != nil {
+			return "", fmt.Errorf("failed to create authorized_keys: %w", err)
+		}
+	}
+
+	// Write config.
+	configContent := nodeConfigTemplate([]string{relayAddr}, "shurli join --relay", "")
+	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+		return "", fmt.Errorf("failed to write config: %w", err)
+	}
+
+	fmt.Fprintf(stdout, "Config written: %s\n", configFile)
+	fmt.Fprintf(stdout, "Identity saved: %s\n", keyFile)
+	fmt.Fprintln(stdout)
+
+	// Install shell completions and man page.
+	setupShellEnvironment(stdout)
+
+	return configFile, nil
 }
