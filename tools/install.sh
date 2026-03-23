@@ -522,15 +522,46 @@ ${all_matches}"
             fi
             i=$((i + 1))
         done
-        local skip_num=$((show_count + 1))
-        log "${skip_num}) Skip restore"
+        local next_num=$((show_count + 1))
+        if [ "$match_count" -gt "$show_count" ]; then
+            log "${next_num}) Show older backups"
+            next_num=$((next_num + 1))
+        fi
+        log "${next_num}) Skip restore"
         printf '\n'
         local pick
         pick=$(prompt "Restore which backup? [1]: " "1")
         printf '\n'
 
-        if [ "$pick" = "$skip_num" ]; then
+        if [ "$pick" = "$next_num" ]; then
             return 1
+        fi
+
+        # Show older backups if requested
+        if [ "$match_count" -gt "$show_count" ] && [ "$pick" = "$((show_count + 1))" ]; then
+            local i=1
+            backup_list=""
+            info "All ${match_count} backups:"
+            printf '\n'
+            for d in ${all_matches}; do
+                local ts
+                ts="$(basename "$d")"
+                local human_ts
+                human_ts="$(echo "$ts" | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)-\([0-9]\{2\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1-\2-\3 \4:\5:\6/')"
+                log "${i}) ${human_ts}"
+                backup_list="${backup_list}${d}
+"
+                i=$((i + 1))
+            done
+            local skip_all=$((match_count + 1))
+            log "${skip_all}) Skip restore"
+            printf '\n'
+            pick=$(prompt "Restore which backup? [1]: " "1")
+            printf '\n'
+
+            if [ "$pick" = "$skip_all" ]; then
+                return 1
+            fi
         fi
 
         # Get the selected backup
