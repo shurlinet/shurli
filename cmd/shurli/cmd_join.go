@@ -320,7 +320,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 			out("Start manually with: shurli daemon\n")
 		} else {
 			daemonPID = daemonCmd.Process.Pid
-			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonPID)
+			out("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log\n", daemonPID)
 		}
 	}
 
