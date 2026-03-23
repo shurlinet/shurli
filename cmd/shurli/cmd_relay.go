@@ -30,11 +30,8 @@ func runRelay(args []string) {
 	case "remove":
 		runRelayRemove(args[1:])
 		return
-	case "add-seeds":
-		runRelayAddSeeds(args[1:])
-		return
-	case "remove-seeds":
-		runRelayRemoveSeeds(args[1:])
+	case "seeds":
+		runRelaySeeds(args[1:])
 		return
 	}
 
@@ -435,98 +432,96 @@ func doRelayRemove(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func runRelayAddSeeds(args []string) {
-	if err := doRelayAddSeeds(args, os.Stdout); err != nil {
+func runRelaySeeds(args []string) {
+	if err := doRelaySeeds(args, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		osExit(1)
 	}
 }
 
-func doRelayAddSeeds(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("relay add-seeds", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
-		return err
+func doRelaySeeds(args []string, stdout io.Writer) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: shurli relay seeds <add|remove>")
 	}
 
-	return doRelayAdd(append(HardcodedSeeds, "--config", *configFlag), stdout)
-}
-
-func runRelayRemoveSeeds(args []string) {
-	if err := doRelayRemoveSeeds(args, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		osExit(1)
-	}
-}
-
-func doRelayRemoveSeeds(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("relay remove-seeds", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	configFlag := fs.String("config", "", "path to config file")
-	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
-		return err
-	}
-
-	cfgFile, cfg, err := resolveConfigFileErr(*configFlag)
-	if err != nil {
-		return err
-	}
-
-	// Find which seeds are currently configured.
-	seedSet := make(map[string]bool)
-	for _, s := range HardcodedSeeds {
-		seedSet[s] = true
-	}
-
-	var toRemove []string
-	for _, addr := range cfg.Relay.Addresses {
-		if seedSet[addr] {
-			toRemove = append(toRemove, addr)
+	switch args[0] {
+	case "add":
+		fs := flag.NewFlagSet("relay seeds add", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		configFlag := fs.String("config", "", "path to config file")
+		if err := fs.Parse(reorderArgs(args[1:], nil)); err != nil {
+			return err
 		}
-	}
+		return doRelayAdd(append(HardcodedSeeds, "--config", *configFlag), stdout)
 
-	if len(toRemove) == 0 {
-		fmt.Fprintln(stdout, "No public seed nodes found in config.")
-		return nil
-	}
+	case "remove":
+		fs := flag.NewFlagSet("relay seeds remove", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		configFlag := fs.String("config", "", "path to config file")
+		if err := fs.Parse(reorderArgs(args[1:], nil)); err != nil {
+			return err
+		}
 
-	// Check we're not removing everything.
-	remaining := len(cfg.Relay.Addresses) - len(toRemove)
-	if remaining == 0 {
-		return fmt.Errorf("cannot remove all relay addresses (would leave config with zero relays).\nAdd your own relay first: shurli relay add <address>")
-	}
+		cfgFile, cfg, err := resolveConfigFileErr(*configFlag)
+		if err != nil {
+			return err
+		}
 
-	// Remove seed lines from config file.
-	data, err := os.ReadFile(cfgFile)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %w", err)
-	}
+		seedSet := make(map[string]bool)
+		for _, s := range HardcodedSeeds {
+			seedSet[s] = true
+		}
 
-	lines := strings.Split(string(data), "\n")
-	var result []string
-	removed := 0
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- ") {
-			val := strings.TrimPrefix(trimmed, "- ")
-			val = strings.Trim(val, "\"'")
-			if seedSet[val] {
-				removed++
-				continue
+		var toRemove []string
+		for _, addr := range cfg.Relay.Addresses {
+			if seedSet[addr] {
+				toRemove = append(toRemove, addr)
 			}
 		}
-		result = append(result, line)
-	}
 
-	if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
+		if len(toRemove) == 0 {
+			fmt.Fprintln(stdout, "No public seed nodes found in config.")
+			return nil
+		}
 
-	fmt.Fprintf(stdout, "Removed %d public seed node(s).\n", removed)
-	fmt.Fprintf(stdout, "Config: %s\n", cfgFile)
-	return nil
+		remaining := len(cfg.Relay.Addresses) - len(toRemove)
+		if remaining == 0 {
+			return fmt.Errorf("cannot remove all relay addresses (would leave config with zero relays).\nAdd your own relay first: shurli relay add <address>")
+		}
+
+		data, err := os.ReadFile(cfgFile)
+		if err != nil {
+			return fmt.Errorf("failed to read config: %w", err)
+		}
+
+		lines := strings.Split(string(data), "\n")
+		var result []string
+		removed := 0
+
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- ") {
+				val := strings.TrimPrefix(trimmed, "- ")
+				val = strings.Trim(val, "\"'")
+				if seedSet[val] {
+					removed++
+					continue
+				}
+			}
+			result = append(result, line)
+		}
+
+		if err := os.WriteFile(cfgFile, []byte(strings.Join(result, "\n")), 0600); err != nil {
+			return fmt.Errorf("failed to write config: %w", err)
+		}
+
+		fmt.Fprintf(stdout, "Removed %d public seed node(s).\n", removed)
+		fmt.Fprintf(stdout, "Config: %s\n", cfgFile)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown seeds command: %s\nUsage: shurli relay seeds <add|remove>", args[0])
+	}
 }
 
 // truncateAddr shortens a multiaddr for display by showing IP and truncating the peer ID.
