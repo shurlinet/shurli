@@ -128,26 +128,76 @@ func runRelayServe(args []string) {
 			}
 		}
 	} else {
-		// No key file: generate BIP39 seed on first run.
-		// For recovery from an existing seed, use: shurli relay recover
-		mnemonic, entropy, err := identity.GenerateSeed()
-		if err != nil {
-			fatal("Failed to generate seed: %v", err)
-		}
-		words := strings.Fields(mnemonic)
-		fmt.Println("=== RELAY SEED PHRASE ===")
-		fmt.Println("Write this down and store it securely. This is the ONLY way to")
-		fmt.Println("recover your relay identity and vault if this server is lost.")
+		// No key file: ask new identity vs recover.
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Println("Identity:")
+		fmt.Println("  1. Create a new identity (default)")
+		fmt.Println("  2. Recover from an existing seed phrase")
 		fmt.Println()
-		fmt.Print(formatSeedGrid(words))
-		fmt.Println()
-		fmt.Println("===========================")
-		fmt.Println()
+		fmt.Print("Choice [1]: ")
 
-		// Prompt for new password to protect the identity key.
+		idChoice, _ := reader.ReadString('\n')
+		idChoice = strings.TrimSpace(idChoice)
+		if idChoice == "" {
+			idChoice = "1"
+		}
+
+		var mnemonic string
+		var entropy []byte
+		var pw string
+
+		switch idChoice {
+		case "2":
+			// Recover from existing seed phrase.
+			fmt.Println()
+			fmt.Println("Enter your seed phrase to recover the relay identity.")
+			fmt.Println()
+			var seedErr error
+			mnemonic, seedErr = readSeedPhrase(os.Stdout)
+			if seedErr != nil {
+				fatal("Failed to read seed phrase: %v", seedErr)
+			}
+			if seedErr = identity.ValidateMnemonic(mnemonic); seedErr != nil {
+				fatal("Invalid seed phrase: %v", seedErr)
+			}
+			entropy, seedErr = identity.SeedFromMnemonic(mnemonic)
+			if seedErr != nil {
+				fatal("Failed to decode seed: %v", seedErr)
+			}
+			priv, seedErr = identity.DeriveIdentityKey(entropy)
+			if seedErr != nil {
+				fatal("Failed to derive identity key: %v", seedErr)
+			}
+			recPeerID, _ := peer.IDFromPrivateKey(priv)
+			fmt.Println()
+			fmt.Println("Seed phrase accepted.")
+			fmt.Printf("Recovered Peer ID: %s\n\n", recPeerID)
+
+		case "1":
+			// Generate new BIP39 seed.
+			var genErr error
+			mnemonic, entropy, genErr = identity.GenerateSeed()
+			if genErr != nil {
+				fatal("Failed to generate seed: %v", genErr)
+			}
+			words := strings.Fields(mnemonic)
+			fmt.Println()
+			fmt.Println("=== RELAY SEED PHRASE ===")
+			fmt.Println("Write this down and store it securely. This is the ONLY way to")
+			fmt.Println("recover your relay identity and vault if this server is lost.")
+			fmt.Println()
+			fmt.Print(formatSeedGrid(words))
+			fmt.Println()
+			fmt.Println("===========================")
+			fmt.Println()
+
+		default:
+			fatal("Invalid choice: %s (enter 1 or 2)", idChoice)
+		}
+
+		// Password setup.
 		fmt.Println("Set a password to protect the relay identity:")
 		fmt.Printf("  Requirements: %d+ characters, at least 3 of: uppercase, lowercase, digit, symbol\n\n", validate.MinPasswordLen)
-		var pw string
 		const maxAttempts = 3
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			p, pwErr := readPasswordConfirm("Password: ", "Confirm: ", os.Stdout)
@@ -163,10 +213,15 @@ func runRelayServe(args []string) {
 			}
 		}
 
-		priv, err = identity.DeriveIdentityKey(entropy)
-		if err != nil {
-			fatal("Failed to derive identity key: %v", err)
+		// Derive key (for new identity; recovery already derived above).
+		if idChoice != "2" {
+			var dErr error
+			priv, dErr = identity.DeriveIdentityKey(entropy)
+			if dErr != nil {
+				fatal("Failed to derive identity key: %v", dErr)
+			}
 		}
+
 		if err := identity.SaveIdentity(cfg.Identity.KeyFile, priv, pw); err != nil {
 			fatal("Failed to save identity: %v", err)
 		}
