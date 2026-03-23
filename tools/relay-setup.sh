@@ -1304,8 +1304,43 @@ if [ ! -f "$DATA_DIR/relay_node.key" ]; then
     fi
     echo "  Identity and session token created."
     echo
+elif [ ! -f "$DATA_DIR/.session.token" ]; then
+    echo "[7/8] Identity key exists but session token is missing."
+    echo "  The relay needs a session token for auto-start."
+    echo "  Running interactively to unlock the key and create a session token."
+    echo "  Press Ctrl+C after you see 'Relay server started'."
+    echo
+    read -p "  Ready? [Y/n] " ready_choice
+    ready_choice="${ready_choice:-Y}"
+    if [[ ! "$ready_choice" =~ ^[Yy] ]]; then
+        echo
+        echo "  Setup paused. The service is installed but NOT enabled."
+        echo "  Run interactively to create the session token:"
+        echo "    cd $DATA_DIR && shurli relay serve"
+        echo "  Then: sudo systemctl enable --now shurli-relay"
+        exit 0
+    fi
+    echo
+
+    cd "$DATA_DIR"
+    trap 'true' INT
+    if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+        "$BINARY" relay serve
+    else
+        sudo -u "$SERVICE_USER" "$BINARY" relay serve
+    fi
+    trap - INT
+
+    echo
+    if [ -f "$DATA_DIR/.session.token" ]; then
+        echo "  Session token created."
+    else
+        echo "  Session token not created. The service may fail to auto-start."
+        echo "  Run: cd $DATA_DIR && shurli relay serve"
+    fi
+    echo
 else
-    echo "[7/8] Identity key already exists, skipping first-run."
+    echo "[7/8] Identity key and session token exist, skipping first-run."
 fi
 
 # --- 8. Enable and start service ---
