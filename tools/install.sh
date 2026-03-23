@@ -458,9 +458,9 @@ install_binary() {
 # === Backup detection and restore ===
 
 find_backups() {
-    # Find shurli-backup-* directories in home, sorted newest first
+    # Find backup directories in ~/.shurli/backups/, sorted newest first
     FOUND_BACKUPS=""
-    for d in "${HOME}"/shurli-backup-*; do
+    for d in "${HOME}"/.shurli/backups/*; do
         if [ -d "$d" ]; then
             FOUND_BACKUPS="${FOUND_BACKUPS}${d}
 "
@@ -846,7 +846,7 @@ do_uninstall() {
     # --- Step 5: Handle config based on choice ---
     if [ "$choice" = "2" ]; then
         # Back up config to home directory, then remove
-        local backup_dir="${HOME}/shurli-backup-$(date +%Y%m%d-%H%M%S)"
+        local backup_dir="${HOME}/.shurli/backups/$(date +%Y%m%d-%H%M%S)"
         mkdir -p "$backup_dir"
         info "Backing up config to ${backup_dir}..."
         if [ -n "$relay_cfg" ]; then
