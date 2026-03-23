@@ -209,19 +209,26 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 // --- Daemon paths ---
 
 func daemonSocketPath() string {
-	dir, err := config.DefaultConfigDir()
-	if err != nil {
-		fatal("Cannot determine config directory: %v", err)
-	}
-	return filepath.Join(dir, "shurli.sock")
+	return filepath.Join(daemonConfigDir(), "shurli.sock")
 }
 
 func daemonCookiePath() string {
-	dir, err := config.DefaultConfigDir()
-	if err != nil {
-		fatal("Cannot determine config directory: %v", err)
+	return filepath.Join(daemonConfigDir(), ".daemon-cookie")
+}
+
+// daemonConfigDir returns the directory where the daemon stores its socket and cookie.
+// It uses FindConfigFile to locate the actual config, so the socket ends up next to
+// the config file regardless of whether it's in /etc/shurli/ or ~/.config/shurli/.
+func daemonConfigDir() string {
+	cfgFile, err := config.FindConfigFile("")
+	if err == nil {
+		return filepath.Dir(cfgFile)
 	}
-	return filepath.Join(dir, ".daemon-cookie")
+	dir, dirErr := config.DefaultConfigDir()
+	if dirErr != nil {
+		fatal("Cannot determine config directory: %v", dirErr)
+	}
+	return dir
 }
 
 // --- Main daemon entry ---
