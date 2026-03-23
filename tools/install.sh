@@ -3,8 +3,8 @@
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
-#   curl -sSL ... | sh -s -- --dev              # install latest dev/pre-release
-#   curl -sSL ... | sh -s -- --version v0.2.0   # install specific version
+#   curl -sSL ... | SHURLI_DEV=1 sh             # install latest dev/pre-release
+#   curl -sSL ... | SHURLI_VERSION=v0.2.0 sh    # install specific version
 #
 # Options (passed after --):
 #   --dev               Install latest dev/pre-release build (default: stable only)
@@ -95,7 +95,7 @@ download() {
 fetch_latest_version() {
     local response=""
 
-    if [ "$DEV_BUILD" = "yes" ]; then
+    if [ -n "$DEV_BUILD" ]; then
         # --dev: fetch the most recent release (including pre-releases)
         local url="https://api.github.com/repos/${REPO}/releases?per_page=1"
         if has_cmd curl; then
@@ -626,13 +626,14 @@ cleanup() {
 
 main() {
     # Parse arguments
-    VERSION=""
+    # Env vars for piped usage: SHURLI_DEV=1, SHURLI_VERSION=v0.2.0
+    VERSION="${SHURLI_VERSION:-}"
     METHOD=""
     ROLE=""
     OPT_DIR=""
     NO_VERIFY=""
     UPGRADE_MODE=""
-    DEV_BUILD=""
+    DEV_BUILD="${SHURLI_DEV:-}"
 
     while [ $# -gt 0 ]; do
         case "$1" in
