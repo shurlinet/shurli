@@ -668,7 +668,12 @@ setup_peer() {
             run_sudo cp "$service_src" "$service_dest"
             run_sudo sed -i "s|^User=.*|User=${svc_user}|" "$service_dest"
             run_sudo sed -i "s|^Group=.*|Group=${svc_user}|" "$service_dest"
-            run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=/etc/shurli /home/${svc_user}/.config/shurli /home/${svc_user}/Downloads/shurli /run/user|" "$service_dest"
+            # Build ReadWritePaths from directories that exist (systemd fails on missing paths)
+            local rw_paths="/run/user"
+            if [ -d /etc/shurli ]; then rw_paths="/etc/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/.config/shurli" ]; then rw_paths="/home/${svc_user}/.config/shurli ${rw_paths}"; fi
+            if [ -d "/home/${svc_user}/Downloads/shurli" ]; then rw_paths="/home/${svc_user}/Downloads/shurli ${rw_paths}"; fi
+            run_sudo sed -i "s|^ReadWritePaths=.*|ReadWritePaths=${rw_paths}|" "$service_dest"
             run_sudo systemctl daemon-reload
             log "Service installed: shurli-daemon.service"
         fi
