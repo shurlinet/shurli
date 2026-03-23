@@ -45,8 +45,8 @@ func TestDoInit_ConfigAlreadyExists(t *testing.T) {
 func TestDoInit_EmptyRelay(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 1 (own relay), then enter empty address
-	stdin := strings.NewReader("1\n\n")
+	// Identity: new (1), Network: own relay (1), then enter empty address
+	stdin := strings.NewReader("1\n1\n\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -61,8 +61,8 @@ func TestDoInit_EmptyRelay(t *testing.T) {
 func TestDoInit_InvalidMultiaddr(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 1 (own relay), then provide invalid multiaddr
-	stdin := strings.NewReader("1\n/invalid/multiaddr\n")
+	// Identity: new (1), Network: own relay (1), then provide invalid multiaddr
+	stdin := strings.NewReader("1\n1\n/invalid/multiaddr\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -77,8 +77,8 @@ func TestDoInit_InvalidMultiaddr(t *testing.T) {
 func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 1 (own relay), IP:port input, then empty peer ID
-	stdin := strings.NewReader("1\n1.2.3.4:7777\n\n")
+	// Identity: new (1), Network: own relay (1), IP:port input, then empty peer ID
+	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\n\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -93,8 +93,8 @@ func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 1 (own relay), IP:port, then invalid peer ID
-	stdin := strings.NewReader("1\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
+	// Identity: new (1), Network: own relay (1), IP:port, then invalid peer ID
+	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
@@ -109,7 +109,8 @@ func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 func TestDoInit_InvalidChoice(t *testing.T) {
 	dir := t.TempDir()
 
-	stdin := strings.NewReader("3\n")
+	// Identity: new (1), Network: invalid choice (3)
+	stdin := strings.NewReader("1\n3\n")
 	var stdout bytes.Buffer
 
 	err := doInit([]string{"--dir", dir}, stdin, &stdout)
