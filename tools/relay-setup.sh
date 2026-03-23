@@ -3,9 +3,11 @@
 #
 # Usage:
 #   cd ~/shurli
-#   bash tools/relay-setup.sh              # Full setup (install + start + verify)
+#   bash tools/relay-setup.sh              # Full setup (build + install + start + verify)
 #   bash tools/relay-setup.sh --check      # Health check only (no changes)
 #   bash tools/relay-setup.sh --uninstall  # Remove service, firewall rules, tuning
+#   bash tools/relay-setup.sh --prebuilt   # Skip Go/build (binary already at /usr/local/bin)
+#   bash tools/relay-setup.sh --prebuilt --deploy-dir /path/to/deploy  # Use service files from path
 #
 # Relay server subcommands (via the shurli binary):
 #   shurli relay info                          # Show peer ID, multiaddrs, QR code
@@ -40,10 +42,42 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null || echo "")"
 DATA_DIR="/etc/shurli/relay"
 BINARY="/usr/local/bin/shurli"
 CURRENT_USER="$(whoami)"
+
+# Pre-built mode: skip Go install and compilation (binary already at $BINARY).
+# Set via --prebuilt flag (used by install.sh) or auto-detected.
+PREBUILT=false
+DEPLOY_DIR="${PROJECT_ROOT:+${PROJECT_ROOT}/deploy}"
+
+# Parse --prebuilt and --deploy-dir before other flag handling
+_args=()
+for _arg in "$@"; do
+    case "$_arg" in
+        --prebuilt)
+            PREBUILT=true
+            ;;
+        --deploy-dir)
+            _next_is_deploy=true
+            ;;
+        *)
+            if [ "${_next_is_deploy:-}" = "true" ]; then
+                DEPLOY_DIR="$_arg"
+                _next_is_deploy=""
+            else
+                _args+=("$_arg")
+            fi
+            ;;
+    esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
+
+# Auto-detect prebuilt: if binary exists and no PROJECT_ROOT/go.mod, we're not in a source tree
+if [ "$PREBUILT" = "false" ] && [ -x "$BINARY" ] && [ ! -f "${PROJECT_ROOT}/go.mod" ]; then
+    PREBUILT=true
+fi
 # Service user: detect from installed service file, else default to current user.
 # Overridden interactively during setup (root or non-root flow).
 if [ -f /etc/systemd/system/shurli-relay.service ]; then
@@ -718,6 +752,8 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ "$1" = "help" ]; then
     echo "  (no option)    Full setup (build, systemd, firewall, permissions)"
     echo "  --check        Health check only (no changes made)"
     echo "  --uninstall    Remove service, firewall rules, and system tuning"
+    echo "  --prebuilt     Skip Go install and build (binary already at /usr/local/bin)"
+    echo "  --deploy-dir   Path to deploy/ files (service templates)"
     echo "  --help         Show this help message"
     echo
     echo "Paths:"
@@ -744,6 +780,8 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  (none)        Full setup: create user, install Go, build, configure, start relay"
     echo "  --check       Health check only (no changes)"
     echo "  --uninstall   Remove service, firewall rules, system tuning"
+    echo "  --prebuilt    Skip Go install and build (binary already at /usr/local/bin)"
+    echo "  --deploy-dir  Path to deploy/ files (service templates)"
     echo "  --help, -h    Show this help"
     echo
     echo "Relay commands (after setup):"
@@ -872,6 +910,10 @@ echo "Service user:  $SERVICE_USER"
 echo
 
 # --- 1. Ensure Go meets minimum version from go.mod ---
+if [ "$PREBUILT" = "true" ]; then
+    echo "[1/8] Pre-built binary detected, skipping Go install."
+    echo
+else
 GO_MIN_VERSION=$(grep '^go ' "$PROJECT_ROOT/go.mod" | awk '{print $2}')
 INSTALL_GO=false
 
@@ -924,24 +966,36 @@ if [ "$INSTALL_GO" = true ]; then
     install_go
 fi
 echo
+fi  # end of PREBUILT=false block (step 1)
 
-# --- 2. Install build dependencies ---
+# --- 2. Install dependencies ---
+# Pre-built mode: runtime deps only. Source mode: build + runtime deps.
 PKGS_NEEDED=""
-command -v make &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED build-essential"
+if [ "$PREBUILT" = "false" ]; then
+    command -v make &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED build-essential"
+    dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd-dev"
+else
+    dpkg -s libavahi-compat-libdnssd1 &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd1"
+fi
 command -v qrencode &>/dev/null || PKGS_NEEDED="$PKGS_NEEDED qrencode"
-dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 || PKGS_NEEDED="$PKGS_NEEDED libavahi-compat-libdnssd-dev"
 
 if [ -n "$PKGS_NEEDED" ]; then
-    echo "[2/8] Installing build dependencies:$PKGS_NEEDED ..."
+    DEP_LABEL="dependencies"
+    [ "$PREBUILT" = "true" ] && DEP_LABEL="runtime dependencies"
+    echo "[2/8] Installing ${DEP_LABEL}:$PKGS_NEEDED ..."
     run_sudo apt-get update -qq > /dev/null 2>&1
     run_sudo apt-get install -y -qq $PKGS_NEEDED > /dev/null 2>&1
     echo "  Installed:$PKGS_NEEDED"
 else
-    echo "[2/8] All build dependencies present"
+    echo "[2/8] All dependencies present"
 fi
 command -v qrencode &>/dev/null && echo "  qrencode installed (used by --check for QR codes)"
-dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
-command -v make &>/dev/null && echo "  make installed (build system)"
+if [ "$PREBUILT" = "false" ]; then
+    dpkg -s libavahi-compat-libdnssd-dev &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd-dev installed (native mDNS LAN discovery)"
+    command -v make &>/dev/null && echo "  make installed (build system)"
+else
+    dpkg -s libavahi-compat-libdnssd1 &>/dev/null 2>&1 && echo "  libavahi-compat-libdnssd1 installed (native mDNS LAN discovery)"
+fi
 echo
 
 # --- 3. Tune network buffers for QUIC ---
@@ -1108,47 +1162,96 @@ if command -v iptables > /dev/null 2>&1; then
     echo
 fi
 
-# --- 6. Build and install via make ---
-echo "[6/8] Building and installing shurli..."
-cd "$PROJECT_ROOT"
+# --- 6. Build and install ---
+if [ "$PREBUILT" = "true" ]; then
+    echo "[6/8] Installing pre-built binary..."
 
-# Ensure Go is in PATH for make
-export PATH=$PATH:/usr/local/go/bin
+    # Validate binary exists
+    if [ ! -x "$BINARY" ]; then
+        echo "  Error: binary not found at $BINARY"
+        exit 1
+    fi
+    echo "  Binary: $BINARY ($($BINARY --version 2>/dev/null | head -1 || echo 'unknown version'))"
 
-if ! make install-relay SERVICE_USER="$SERVICE_USER"; then
-    echo
-    echo "  Build failed. Check errors above."
-    CURRENT_GO=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?' || echo "unknown")
-    if [ "$CURRENT_GO" = "unknown" ]; then
-        echo "  Go not found in PATH. Install go${GO_MIN_VERSION} first."
-    elif ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
-        echo "  Go ${CURRENT_GO} is below the required go${GO_MIN_VERSION}."
-        echo "  Install go${GO_MIN_VERSION} now? This will replace /usr/local/go. [y/N] "
-        read -r REPLY
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            install_go
-            echo
-            echo "  Retrying build..."
-            make install-relay SERVICE_USER="$SERVICE_USER"
+    # Create data directory
+    if [ ! -d "$DATA_DIR" ]; then
+        run_sudo mkdir -p "$DATA_DIR"
+        run_sudo chown "${SERVICE_USER}:${SERVICE_USER}" "$DATA_DIR"
+        run_sudo chmod 700 "$DATA_DIR"
+        echo "  Data directory: $DATA_DIR"
+    else
+        echo "  Data directory exists: $DATA_DIR"
+    fi
+
+    # Run relay setup (interactive - handles both fresh and existing configs)
+    if [ ! -f "$DATA_DIR/relay-server.yaml" ]; then
+        echo "  Running relay config setup..."
+        if [ "$CURRENT_USER" = "$SERVICE_USER" ]; then
+            "$BINARY" relay setup --dir "$DATA_DIR"
         else
-            echo "  Aborting  - cannot continue without a successful build."
-            exit 1
+            sudo -u "$SERVICE_USER" "$BINARY" relay setup --dir "$DATA_DIR"
         fi
     else
-        echo "  Go version go${CURRENT_GO} meets the minimum, but the"
-        echo "  installation at /usr/local/go may be corrupted."
+        echo "  Config exists: $DATA_DIR/relay-server.yaml"
+    fi
+
+    # Install service file from deploy dir
+    if [ -n "$DEPLOY_DIR" ] && [ -f "${DEPLOY_DIR}/shurli-relay.service" ]; then
+        run_sudo cp "${DEPLOY_DIR}/shurli-relay.service" /etc/systemd/system/shurli-relay.service
+        run_sudo sed -i "s/^User=.*/User=${SERVICE_USER}/" /etc/systemd/system/shurli-relay.service
+        run_sudo sed -i "s/^Group=.*/Group=${SERVICE_USER}/" /etc/systemd/system/shurli-relay.service
+        run_sudo systemctl daemon-reload
+        echo "  Service file installed."
+    elif [ -f /etc/systemd/system/shurli-relay.service ]; then
+        echo "  Service file already exists."
+    else
+        echo "  Warning: no service file found. Install manually or provide --deploy-dir."
+    fi
+
+    # Set file permissions
+    run_sudo chmod 600 "$DATA_DIR/relay-server.yaml" "$DATA_DIR/relay_authorized_keys" 2>/dev/null || true
+else
+    echo "[6/8] Building and installing shurli..."
+    cd "$PROJECT_ROOT"
+
+    # Ensure Go is in PATH for make
+    export PATH=$PATH:/usr/local/go/bin
+
+    if ! make install-relay SERVICE_USER="$SERVICE_USER"; then
         echo
-        echo "  Clean reinstall go${CURRENT_GO}? [y/N] "
-        read -r REPLY
-        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            GO_MIN_VERSION="$CURRENT_GO"
-            install_go
-            echo
-            echo "  Retrying build..."
-            make install-relay SERVICE_USER="$SERVICE_USER"
+        echo "  Build failed. Check errors above."
+        CURRENT_GO=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?' || echo "unknown")
+        if [ "$CURRENT_GO" = "unknown" ]; then
+            echo "  Go not found in PATH. Install go${GO_MIN_VERSION} first."
+        elif ! version_ge "$CURRENT_GO" "$GO_MIN_VERSION"; then
+            echo "  Go ${CURRENT_GO} is below the required go${GO_MIN_VERSION}."
+            echo "  Install go${GO_MIN_VERSION} now? This will replace /usr/local/go. [y/N] "
+            read -r REPLY
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                install_go
+                echo
+                echo "  Retrying build..."
+                make install-relay SERVICE_USER="$SERVICE_USER"
+            else
+                echo "  Aborting  - cannot continue without a successful build."
+                exit 1
+            fi
         else
-            echo "  Aborting  - cannot continue without a successful build."
-            exit 1
+            echo "  Go version go${CURRENT_GO} meets the minimum, but the"
+            echo "  installation at /usr/local/go may be corrupted."
+            echo
+            echo "  Clean reinstall go${CURRENT_GO}? [y/N] "
+            read -r REPLY
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                GO_MIN_VERSION="$CURRENT_GO"
+                install_go
+                echo
+                echo "  Retrying build..."
+                make install-relay SERVICE_USER="$SERVICE_USER"
+            else
+                echo "  Aborting  - cannot continue without a successful build."
+                exit 1
+            fi
         fi
     fi
 fi
