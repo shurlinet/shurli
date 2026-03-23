@@ -346,10 +346,18 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	// Install shell completions and man page.
 	setupShellEnvironment(stdout)
 
+	// Offer systemd service installation (Linux only, skipped on macOS/Windows).
+	serviceInstalled := promptInstallService(reader, stdout, 0)
+
 	tc.Wblue(stdout, "Next steps:\n")
-	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
-	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --as home")
-	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	if serviceInstalled {
+		fmt.Fprintln(stdout, "  1. Invite a peer:  shurli invite --as home")
+		fmt.Fprintln(stdout, "  2. Or connect:     shurli proxy <target> <service> <port>")
+	} else {
+		fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
+		fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --as home")
+		fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	}
 	if usedSeeds {
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "  Tip: Deploy your own relay for full capability:")

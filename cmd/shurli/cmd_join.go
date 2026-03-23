@@ -309,6 +309,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 
 	// Auto-start daemon.
 	outln("Starting daemon...")
+	var daemonPID int
 	if started := kickServiceDaemon(); !started {
 		daemonCmd := exec.Command(os.Args[0], "daemon")
 		daemonCmd.Stdout = nil
@@ -318,9 +319,17 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 			out("Could not auto-start daemon: %v\n", err)
 			out("Start manually with: shurli daemon\n")
 		} else {
-			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonCmd.Process.Pid)
+			daemonPID = daemonCmd.Process.Pid
+			outln("Daemon started (PID %d). Logs: /tmp/shurli-daemon.log", daemonPID)
 		}
 	}
+
+	// Offer systemd service installation (Linux only, interactive only).
+	if !nonInteractive {
+		reader := bufio.NewReader(os.Stdin)
+		promptInstallService(reader, os.Stdout, daemonPID)
+	}
+
 	if !nonInteractive && len(pairResp.Peers) > 0 {
 		outln()
 		outln("Try:")
