@@ -21,7 +21,8 @@ jobs:
           - goos: linux
             goarch: arm64
             os: ubuntu-latest
-            install_deps: sudo dpkg --add-architecture arm64 && sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list && echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' | sudo tee /etc/apt/sources.list.d/arm64.list && sudo apt-get update -y -qq && sudo apt-get install -y -qq gcc-aarch64-linux-gnu libavahi-compat-libdnssd-dev:arm64
+            install_deps: ""
+            arm64_cross: true
             cgo: "1"
             cc: aarch64-linux-gnu-gcc
             suffix: ""
@@ -52,6 +53,20 @@ jobs:
       - name: Install native mDNS library
         if: matrix.install_deps != ''
         run: ${{ matrix.install_deps }}
+
+      - name: Set up arm64 cross-compilation
+        if: matrix.arm64_cross == true
+        run: |
+          sudo dpkg --add-architecture arm64
+          # Pin existing sources to amd64 only
+          for f in /etc/apt/sources.list.d/ubuntu*.sources; do
+            sudo sed -i 's/^Architectures:.*/Architectures: amd64/' "$f" 2>/dev/null || true
+          done
+          # Add arm64 ports repository
+          echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' \
+            | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu libavahi-compat-libdnssd-dev:arm64
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
