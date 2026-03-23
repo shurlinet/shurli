@@ -58,12 +58,20 @@ jobs:
         if: matrix.arm64_cross == true
         run: |
           sudo dpkg --add-architecture arm64
-          # Pin existing sources to amd64 only
-          for f in /etc/apt/sources.list.d/ubuntu*.sources; do
-            sudo sed -i 's/^Architectures:.*/Architectures: amd64/' "$f" 2>/dev/null || true
+          # Pin ALL existing sources to amd64 only (security.ubuntu.com has no arm64)
+          for f in /etc/apt/sources.list.d/*.sources; do
+            sudo sed -i '/^Architectures:/d' "$f" 2>/dev/null || true
+            sudo sed -i '/^Types:/a Architectures: amd64' "$f" 2>/dev/null || true
           done
-          # Add arm64 ports repository
-          echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' \
+          # Also handle any .list files that don't use [arch=] yet
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
+          fi
+          # Add arm64 ports repository (covers main, security, updates)
+          printf '%s\n' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble-updates main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble-security main restricted universe multiverse' \
             | sudo tee /etc/apt/sources.list.d/arm64-ports.list
           sudo apt-get update -y -qq
           sudo apt-get install -y -qq gcc-aarch64-linux-gnu libavahi-compat-libdnssd-dev:arm64
