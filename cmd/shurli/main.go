@@ -181,6 +181,7 @@ func printUsage() {
 	fmt.Println("  relay add <address> [--peer-id <ID>]   Add a relay server")
 	fmt.Println("  relay list                             List relay servers")
 	fmt.Println("  relay remove <multiaddr>               Remove a relay server")
+	fmt.Println("  relay seeds <add|remove>               Add/remove public seed nodes")
 	fmt.Println()
 	fmt.Println("Relay server:")
 	fmt.Println("  relay setup                            Initialize relay server config")
