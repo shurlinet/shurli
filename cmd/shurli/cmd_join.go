@@ -715,8 +715,19 @@ func bootstrapForJoin(relayInput string, userMode bool, stdin io.Reader, stdout 
 		}
 	}
 
+	// Offer to add public seed nodes for broader discovery.
+	fmt.Fprint(stdout, "Also add public seed nodes for broader peer discovery? [y/N]: ")
+	seedChoice, _ := reader.ReadString('\n')
+	seedChoice = strings.TrimSpace(strings.ToLower(seedChoice))
+	relayAddrs := []string{relayAddr}
+	if seedChoice == "y" || seedChoice == "yes" {
+		relayAddrs = append(relayAddrs, HardcodedSeeds...)
+		fmt.Fprintf(stdout, "Added %d public seed nodes.\n", len(HardcodedSeeds))
+	}
+	fmt.Fprintln(stdout)
+
 	// Write config.
-	configContent := nodeConfigTemplate([]string{relayAddr}, "shurli join --relay", "")
+	configContent := nodeConfigTemplate(relayAddrs, "shurli join --relay", "")
 	if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
 		return "", fmt.Errorf("failed to write config: %w", err)
 	}
