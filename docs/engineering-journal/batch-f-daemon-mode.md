@@ -13,7 +13,7 @@ Unix socket IPC, cookie authentication, RuntimeInfo interface, and hot-reload au
 - **Named pipes** - Windows-friendly. Rejected because they don't support HTTP natively and complicate the implementation.
 - **gRPC** - Type-safe, bi-directional streaming. Rejected because it adds protobuf dependency, code generation, and binary size. HTTP+JSON is simpler and sufficient.
 
-**Decision**: Unix domain socket at `~/.config/shurli/shurli.sock` with HTTP/1.1 over it. Socket created with `umask(0077)` to ensure `0700` permissions atomically (no TOCTOU race between `Listen()` and `Chmod()`). Stale socket detection: try connecting first, only remove if connection fails.
+**Decision**: Unix domain socket at `~/.shurli/shurli.sock` with HTTP/1.1 over it. Socket created with `umask(0077)` to ensure `0700` permissions atomically (no TOCTOU race between `Listen()` and `Chmod()`). Stale socket detection: try connecting first, only remove if connection fails.
 
 **Consequences**: Unix-only (no Windows support for now). Accepted because Shurli's target users are Linux/macOS. Socket permissions enforce that only the owning user can connect. The HTTP layer means standard tools (`curl --unix-socket`) work for debugging.
 
@@ -30,7 +30,7 @@ Unix socket IPC, cookie authentication, RuntimeInfo interface, and hot-reload au
 - **Token in socket filename** - Embed the token in the path. Rejected because path-based auth is fragile and leaks the token in `ps` output and logs.
 - **No auth** (rely on socket permissions) - Rejected because defense-in-depth requires authentication even when filesystem permissions are correct.
 
-**Decision**: 32-byte random hex cookie written to `~/.config/shurli/.daemon-cookie` with `0600` permissions. CLI reads the cookie and sends it as `Authorization: Bearer <token>`. Cookie is rotated every daemon restart. Written AFTER socket is secured (ordering prevents clients from reading cookie before socket is ready).
+**Decision**: 32-byte random hex cookie written to `~/.shurli/.daemon-cookie` with `0600` permissions. CLI reads the cookie and sends it as `Authorization: Bearer <token>`. Cookie is rotated every daemon restart. Written AFTER socket is secured (ordering prevents clients from reading cookie before socket is ready).
 
 **Consequences**: Simple, fast, no crypto libraries needed. The cookie file is the single secret - protect it like an SSH private key. If compromised, restart the daemon to rotate.
 

@@ -43,7 +43,7 @@ func runJoin(args []string) {
 	configFlag := fs.String("config", "", "path to config file")
 	nameFlag := fs.String("as", "", "your node's name on the network (e.g., \"laptop\")")
 	relayFlag := fs.String("relay", "", "relay address (IP:PORT or full multiaddr) - bootstraps config on fresh devices")
-	userFlag := fs.Bool("user", false, "install config in ~/.config/shurli/ instead of /etc/shurli/")
+	userFlag := fs.Bool("user", false, "install config in ~/.shurli/ instead of /etc/shurli/")
 	nonInteractive := fs.Bool("non-interactive", false, "machine-friendly output for scripting")
 	fs.Parse(reorderFlags(fs, args))
 

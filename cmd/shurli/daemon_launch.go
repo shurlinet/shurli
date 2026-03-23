@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -150,7 +152,31 @@ func promptInstallService(reader *bufio.Reader, stdout io.Writer, daemonPID int)
 }
 
 // generateServiceFile returns a systemd unit file with the given user/group.
+// ReadWritePaths is built dynamically from directories that actually exist.
+// Uses the service user's home dir, not the current user's (they may differ
+// when root runs shurli init for a dedicated service account).
 func generateServiceFile(user string) string {
+	rwPaths := "/run/user"
+	if _, err := os.Stat("/etc/shurli"); err == nil {
+		rwPaths = "/etc/shurli " + rwPaths
+	}
+
+	// Determine the service user's home directory. os.UserHomeDir() returns
+	// the caller's home, which may be /root when installing for user "shurli".
+	home := userHomeDir(user)
+	if home != "" {
+		for _, sub := range []string{".shurli", ".config/shurli"} {
+			dir := filepath.Join(home, sub)
+			if _, err := os.Stat(dir); err == nil {
+				rwPaths = dir + " " + rwPaths
+			}
+		}
+		dlDir := filepath.Join(home, "Downloads", "shurli")
+		if _, err := os.Stat(dlDir); err == nil {
+			rwPaths = dlDir + " " + rwPaths
+		}
+	}
+
 	return fmt.Sprintf(`[Unit]
 Description=Shurli daemon - P2P network service
 Documentation=https://shurli.io
@@ -170,7 +196,7 @@ Group=%s
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/etc/shurli /run/user
+ReadWritePaths=%s
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
@@ -182,5 +208,15 @@ MemoryMax=512M
 
 [Install]
 WantedBy=multi-user.target
-`, user, user)
+`, user, user, rwPaths)
+}
+
+// userHomeDir returns the home directory for the given username.
+// Falls back to the current user's home if lookup fails.
+func userHomeDir(username string) string {
+	if u, err := user.Lookup(username); err == nil {
+		return u.HomeDir
+	}
+	home, _ := os.UserHomeDir()
+	return home
 }

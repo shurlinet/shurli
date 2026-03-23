@@ -264,7 +264,8 @@ func FindRelayConfigFile(explicitPath string) (string, error) {
 }
 
 // FindConfigFile searches for a shurli config file in standard locations.
-// Search order: explicitPath (if given), ./shurli.yaml, ~/.config/shurli/config.yaml, /etc/shurli/config.yaml
+// Search order: explicitPath (if given), ./shurli.yaml, /etc/shurli/config.yaml,
+// ~/.shurli/config.yaml, ~/.config/shurli/config.yaml (legacy fallback)
 func FindConfigFile(explicitPath string) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err != nil {
@@ -280,8 +281,10 @@ func FindConfigFile(explicitPath string) (string, error) {
 	// /etc/shurli/config.yaml (system default, checked first)
 	searchPaths = append(searchPaths, filepath.Join("/etc", "shurli", "config.yaml"))
 
-	// ~/.config/shurli/config.yaml (user-level fallback)
 	if home, err := os.UserHomeDir(); err == nil {
+		// ~/.shurli/config.yaml (user-level default)
+		searchPaths = append(searchPaths, filepath.Join(home, ".shurli", "config.yaml"))
+		// ~/.config/shurli/config.yaml (legacy fallback for existing installs)
 		searchPaths = append(searchPaths, filepath.Join(home, ".config", "shurli", "config.yaml"))
 	}
 
@@ -301,7 +304,7 @@ func LoadNodeConfig(path string) (*NodeConfig, error) {
 }
 
 // ResolveConfigPaths resolves relative file paths in the config to be relative
-// to the config file's directory. This allows configs in ~/.config/shurli/ to
+// to the config file's directory. This allows configs in ~/.shurli/ to
 // reference key files and authorized_keys using relative paths.
 func ResolveConfigPaths(cfg *NodeConfig, configDir string) {
 	if cfg.Identity.KeyFile != "" && !filepath.IsAbs(cfg.Identity.KeyFile) {
@@ -362,21 +365,110 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	return nil
 }
 
-// DefaultConfigDir returns the default shurli config directory (~/.config/shurli).
 // DefaultConfigDir returns the system-level config directory (/etc/shurli).
 // This is the default for infrastructure that runs as a system service.
 func DefaultConfigDir() (string, error) {
 	return "/etc/shurli", nil
 }
 
-// UserConfigDir returns the user-level config directory (~/.config/shurli).
-// Used when --user flag is specified.
+// UserConfigDir returns the user-level config directory (~/.shurli).
+// Used when --user flag is specified or when running as a non-root user.
 func UserConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
+	return filepath.Join(home, ".shurli"), nil
+}
+
+// LegacyUserConfigDir returns the old user-level config directory (~/.config/shurli).
+// Used for migration detection from the old path to ~/.shurli.
+func LegacyUserConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
 	return filepath.Join(home, ".config", "shurli"), nil
+}
+
+// NeedsLegacyMigration returns true if ~/.config/shurli/ has a config but ~/.shurli/ does not.
+// This means the user has an old-style install that should be migrated.
+func NeedsLegacyMigration() bool {
+	newDir, err := UserConfigDir()
+	if err != nil {
+		return false
+	}
+	legacyDir, err := LegacyUserConfigDir()
+	if err != nil {
+		return false
+	}
+	_, newErr := os.Stat(filepath.Join(newDir, "config.yaml"))
+	_, legacyErr := os.Stat(filepath.Join(legacyDir, "config.yaml"))
+	return legacyErr == nil && newErr != nil
+}
+
+// MigrateLegacyDir moves config files from ~/.config/shurli/ into ~/.shurli/.
+// If ~/.shurli/ already exists (e.g., backups/ or zkp/ subdirs), the contents
+// are merged by moving each entry individually. Entries already present in the
+// target are skipped (never overwritten). The legacy directory is removed only
+// if it becomes empty after migration.
+//
+// Returns the list of entry names that were skipped because they already existed
+// in the target directory. Callers can use this to inform the user.
+func MigrateLegacyDir() (skipped []string, err error) {
+	newDir, err := UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	legacyDir, err := LegacyUserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+
+	// Safety: refuse if target is a symlink (prevents writing into arbitrary dirs).
+	if fi, lErr := os.Lstat(newDir); lErr == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("%s is a symlink; refusing to migrate into it", newDir)
+		}
+	}
+
+	// Fast path: if target doesn't exist, rename the whole directory.
+	if _, statErr := os.Stat(newDir); os.IsNotExist(statErr) {
+		if rErr := os.Rename(legacyDir, newDir); rErr != nil {
+			return nil, fmt.Errorf("failed to move %s to %s: %w", legacyDir, newDir, rErr)
+		}
+		return nil, nil
+	}
+
+	// Slow path: target exists (backups/, zkp/, etc.). Merge contents.
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", legacyDir, err)
+	}
+
+	for _, entry := range entries {
+		src := filepath.Join(legacyDir, entry.Name())
+		dst := filepath.Join(newDir, entry.Name())
+
+		// Skip if destination already exists (don't overwrite backups, zkp cache, etc.)
+		if _, statErr := os.Stat(dst); statErr == nil {
+			skipped = append(skipped, entry.Name())
+			continue
+		}
+
+		// os.Rename preserves permissions and is atomic on the same filesystem.
+		if rErr := os.Rename(src, dst); rErr != nil {
+			return skipped, fmt.Errorf("failed to move %s to %s: %w", src, dst, rErr)
+		}
+	}
+
+	// Remove legacy dir if now empty.
+	remaining, _ := os.ReadDir(legacyDir)
+	if len(remaining) == 0 {
+		os.Remove(legacyDir)
+	}
+
+	return skipped, nil
 }
 
 // ValidateRelayServerConfig validates relay server configuration

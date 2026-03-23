@@ -6,8 +6,8 @@
 # Config search order:
 #   1. --config flag (if given)
 #   2. ./shurli.yaml (current directory)
-#   3. ~/.config/shurli/config.yaml
-#   4. /etc/shurli/config.yaml
+#   3. /etc/shurli/config.yaml
+#   4. ~/.shurli/config.yaml
 
 # Config schema version (do not change manually)
 version: 1

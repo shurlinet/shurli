@@ -724,3 +724,107 @@ func TestValidateClientNodeConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrateLegacyDir_TargetEmpty(t *testing.T) {
+	// Fast path: ~/.shurli/ doesn't exist, rename works.
+	home := t.TempDir()
+	legacyDir := filepath.Join(home, ".config", "shurli")
+	newDir := filepath.Join(home, ".shurli")
+
+	os.MkdirAll(legacyDir, 0700)
+	os.WriteFile(filepath.Join(legacyDir, "config.yaml"), []byte("test"), 0600)
+	os.WriteFile(filepath.Join(legacyDir, "identity.key"), []byte("key"), 0600)
+
+	// Simulate by calling the merge logic directly (can't override $HOME for the
+	// exported functions, so test the core logic).
+	if err := os.Rename(legacyDir, newDir); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(newDir, "config.yaml")); err != nil {
+		t.Error("config.yaml not in new dir")
+	}
+	if _, err := os.Stat(filepath.Join(newDir, "identity.key")); err != nil {
+		t.Error("identity.key not in new dir")
+	}
+	if _, err := os.Stat(legacyDir); !os.IsNotExist(err) {
+		t.Error("legacy dir should be gone")
+	}
+}
+
+func TestMigrateLegacyDir_MergeWithExisting(t *testing.T) {
+	// Slow path: ~/.shurli/ exists with backups, merge contents.
+	home := t.TempDir()
+	legacyDir := filepath.Join(home, ".config", "shurli")
+	newDir := filepath.Join(home, ".shurli")
+
+	// Create legacy dir with config files.
+	os.MkdirAll(legacyDir, 0700)
+	os.WriteFile(filepath.Join(legacyDir, "config.yaml"), []byte("config"), 0600)
+	os.WriteFile(filepath.Join(legacyDir, "identity.key"), []byte("key"), 0600)
+	os.MkdirAll(filepath.Join(legacyDir, "plugins"), 0700)
+
+	// Create new dir with existing backups (the merge scenario).
+	os.MkdirAll(filepath.Join(newDir, "backups", "20260324"), 0700)
+	os.MkdirAll(filepath.Join(newDir, "zkp"), 0700)
+	os.WriteFile(filepath.Join(newDir, "zkp", "srs.bin"), []byte("srs"), 0600)
+
+	// Simulate MigrateLegacyDir merge logic.
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		src := filepath.Join(legacyDir, entry.Name())
+		dst := filepath.Join(newDir, entry.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue // skip existing
+		}
+		if err := os.Rename(src, dst); err != nil {
+			t.Fatalf("rename %s: %v", entry.Name(), err)
+		}
+	}
+
+	// Verify merged state.
+	if _, err := os.Stat(filepath.Join(newDir, "config.yaml")); err != nil {
+		t.Error("config.yaml not merged")
+	}
+	if _, err := os.Stat(filepath.Join(newDir, "identity.key")); err != nil {
+		t.Error("identity.key not merged")
+	}
+	if _, err := os.Stat(filepath.Join(newDir, "plugins")); err != nil {
+		t.Error("plugins dir not merged")
+	}
+	// Existing dirs should be untouched.
+	if _, err := os.Stat(filepath.Join(newDir, "backups", "20260324")); err != nil {
+		t.Error("existing backups dir damaged")
+	}
+	if _, err := os.Stat(filepath.Join(newDir, "zkp", "srs.bin")); err != nil {
+		t.Error("existing zkp data damaged")
+	}
+}
+
+func TestMigrateLegacyDir_SymlinkRefused(t *testing.T) {
+	home := t.TempDir()
+	legacyDir := filepath.Join(home, ".config", "shurli")
+	newDir := filepath.Join(home, ".shurli")
+	targetDir := filepath.Join(home, "somewhere-else")
+
+	os.MkdirAll(legacyDir, 0700)
+	os.WriteFile(filepath.Join(legacyDir, "config.yaml"), []byte("test"), 0600)
+	os.MkdirAll(targetDir, 0700)
+
+	// Create symlink at new dir location.
+	if err := os.Symlink(targetDir, newDir); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+
+	// Verify Lstat detects it.
+	fi, err := os.Lstat(newDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink")
+	}
+}

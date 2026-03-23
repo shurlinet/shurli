@@ -78,7 +78,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dirFlag := fs.String("dir", "", "config directory (default: /etc/shurli)")
-	userFlag := fs.Bool("user", false, "install config in ~/.config/shurli/ instead of /etc/shurli/")
+	userFlag := fs.Bool("user", false, "install config in ~/.shurli/ instead of /etc/shurli/")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
@@ -94,6 +94,31 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	tc.Wgreen(stdout, "Welcome to Shurli!\n")
 	fmt.Fprintln(stdout)
+
+	// Check for legacy ~/.config/shurli/ that should be migrated to ~/.shurli/
+	if *dirFlag == "" && config.NeedsLegacyMigration() {
+		reader := bufio.NewReader(stdin)
+		legacyDir, _ := config.LegacyUserConfigDir()
+		newDir, _ := config.UserConfigDir()
+		fmt.Fprintf(stdout, "Existing config found at %s\n", legacyDir)
+		fmt.Fprintf(stdout, "Shurli now uses %s for user configs.\n", newDir)
+		fmt.Fprint(stdout, "Move config to new location? [Y/n]: ")
+		migrateChoice, _ := reader.ReadString('\n')
+		migrateChoice = strings.TrimSpace(strings.ToLower(migrateChoice))
+		if migrateChoice == "" || migrateChoice == "y" || migrateChoice == "yes" {
+			skipped, migErr := config.MigrateLegacyDir()
+			if migErr != nil {
+				return fmt.Errorf("migration failed: %w", migErr)
+			}
+			fmt.Fprintf(stdout, "Migrated config to %s\n", newDir)
+			if len(skipped) > 0 {
+				fmt.Fprintf(stdout, "Skipped (already exist in %s): %s\n", newDir, strings.Join(skipped, ", "))
+			}
+			return nil
+		}
+		fmt.Fprintln(stdout, "Keeping config at current location. The daemon will find it automatically.")
+		return nil
+	}
 
 	// Determine config directory
 	configDir := *dirFlag
@@ -111,7 +136,7 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		configDir = d
 	}
 
-	// Check if config already exists
+	// Check if config already exists (including legacy path)
 	configFile := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(configFile); err == nil {
 		return fmt.Errorf("config already exists: %s\nDelete it first if you want to reinitialize", configFile)

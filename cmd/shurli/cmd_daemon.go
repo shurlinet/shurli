@@ -229,7 +229,7 @@ func daemonCookiePath() string {
 
 // daemonConfigDir returns the directory where the daemon stores its socket and cookie.
 // It uses FindConfigFile to locate the actual config, so the socket ends up next to
-// the config file regardless of whether it's in /etc/shurli/ or ~/.config/shurli/.
+// the config file regardless of whether it's in /etc/shurli/ or ~/.shurli/.
 func daemonConfigDir() string {
 	cfgFile, err := config.FindConfigFile("")
 	if err == nil {

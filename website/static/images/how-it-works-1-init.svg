@@ -22,5 +22,5 @@
   <text x="20" y="160" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Connected to relay at relay.example.com</text>
   <text x="20" y="182" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Generating Ed25519 identity...</text>
   <text x="20" y="210" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Network initialized.</text>
-  <text x="20" y="232" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Config: ~/.config/shurli/config.yaml</text>
+  <text x="20" y="232" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Config: ~/.shurli/config.yaml</text>
 </svg>
