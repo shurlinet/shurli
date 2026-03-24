@@ -95,31 +95,6 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	tc.Wgreen(stdout, "Welcome to Shurli!\n")
 	fmt.Fprintln(stdout)
 
-	// Check for legacy ~/.config/shurli/ that should be migrated to ~/.shurli/
-	if *dirFlag == "" && config.NeedsLegacyMigration() {
-		reader := bufio.NewReader(stdin)
-		legacyDir, _ := config.LegacyUserConfigDir()
-		newDir, _ := config.UserConfigDir()
-		fmt.Fprintf(stdout, "Existing config found at %s\n", legacyDir)
-		fmt.Fprintf(stdout, "Shurli now uses %s for user configs.\n", newDir)
-		fmt.Fprint(stdout, "Move config to new location? [Y/n]: ")
-		migrateChoice, _ := reader.ReadString('\n')
-		migrateChoice = strings.TrimSpace(strings.ToLower(migrateChoice))
-		if migrateChoice == "" || migrateChoice == "y" || migrateChoice == "yes" {
-			skipped, migErr := config.MigrateLegacyDir()
-			if migErr != nil {
-				return fmt.Errorf("migration failed: %w", migErr)
-			}
-			fmt.Fprintf(stdout, "Migrated config to %s\n", newDir)
-			if len(skipped) > 0 {
-				fmt.Fprintf(stdout, "Skipped (already exist in %s): %s\n", newDir, strings.Join(skipped, ", "))
-			}
-			return nil
-		}
-		fmt.Fprintln(stdout, "Keeping config at current location. The daemon will find it automatically.")
-		return nil
-	}
-
 	// Determine config directory
 	configDir := *dirFlag
 	if configDir == "" {
