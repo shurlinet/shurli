@@ -14,6 +14,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 )
 
 func runAuth(args []string) {
@@ -219,7 +220,7 @@ func doAuthList(args []string, stdout io.Writer) error {
 		}
 
 		if entry.Comment != "" {
-			fmt.Fprintf(stdout, "  %d. %s %s  # %s\n", i+1, short, roleBadge, entry.Comment)
+			fmt.Fprintf(stdout, "  %d. %s %s  # %s\n", i+1, short, roleBadge, validate.SanitizeForDisplay(entry.Comment))
 		} else {
 			fmt.Fprintf(stdout, "  %d. %s %s\n", i+1, short, roleBadge)
 		}

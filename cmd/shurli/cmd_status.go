@@ -13,6 +13,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -117,7 +118,7 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprint(stdout, "  ")
 			fmt.Fprint(stdout, r.Address)
 			if r.AgentVersion != "" {
-				tc.Wfaint(stdout, "  %s", r.AgentVersion)
+				tc.Wfaint(stdout, "  %s", validate.SanitizeForDisplay(r.AgentVersion))
 			}
 			fmt.Fprintln(stdout)
 		}
@@ -127,7 +128,7 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprintln(stdout)
 			fmt.Fprintln(stdout, "Messages:")
 			for _, m := range daemonStatus.MOTDs {
-				name := m.RelayName
+				name := validate.SanitizeForDisplay(m.RelayName)
 				if name == "" {
 					pid := m.RelayPeerID
 					if len(pid) > 16 {
@@ -196,7 +197,7 @@ func doStatus(args []string, stdout io.Writer) error {
 				}
 				fmt.Fprint(stdout, short)
 				if p.Comment != "" {
-					tc.Wfaint(stdout, "  # %s", p.Comment)
+					tc.Wfaint(stdout, "  # %s", validate.SanitizeForDisplay(p.Comment))
 				}
 				fmt.Fprintln(stdout)
 			}
