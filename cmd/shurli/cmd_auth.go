@@ -15,6 +15,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runAuth(args []string) {
@@ -44,6 +45,8 @@ func runAuth(args []string) {
 		runAuthDelegate(args[1:])
 	case "pouch":
 		runAuthPouch(args[1:])
+	case "set-attr":
+		runAuthSetAttr(args[1:])
 	case "audit":
 		runAuthAudit(args[1:])
 	default:
@@ -61,6 +64,7 @@ func printAuthUsage() {
 	fmt.Println("  list                                                          List authorized peers")
 	fmt.Println("  remove   <peer-id>                                            Revoke a peer's access")
 	fmt.Println("  validate [file]                                               Validate authorized_keys format")
+	fmt.Println("  set-attr <peer-id> <key> <value>                              Set peer attribute")
 	fmt.Println()
 	fmt.Println("Relay data access grants (macaroon capability tokens):")
 	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant relay data access")
@@ -360,6 +364,65 @@ func doAuthValidate(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Validation passed")
 	fmt.Fprintf(stdout, "  Valid peer IDs: %d\n", validCount)
+	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+	return nil
+}
+
+func runAuthSetAttr(args []string) {
+	if err := doAuthSetAttr(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doAuthSetAttr(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("auth set-attr", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	configFlag := fs.String("config", "", "path to config file")
+	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	if fs.NArg() != 3 {
+		return fmt.Errorf("usage: shurli auth set-attr <peer-id> <key> <value>")
+	}
+
+	peerIDStr := fs.Arg(0)
+	key := fs.Arg(1)
+	value := fs.Arg(2)
+
+	allowed := map[string]bool{
+		"role":             true,
+		"group":            true,
+		"verified":         true,
+		"bandwidth_budget": true,
+	}
+	if !allowed[key] {
+		return fmt.Errorf("attribute %q not allowed (allowed: role, group, verified, bandwidth_budget)", key)
+	}
+
+	// Validate bandwidth_budget values parse correctly.
+	if key == "bandwidth_budget" {
+		if _, err := p2pnet.ParseByteSize(value); err != nil {
+			return fmt.Errorf("invalid bandwidth_budget value %q: %w", value, err)
+		}
+	}
+
+	authKeysPath, err := resolveAuthKeysPathErr(*fileFlag, *configFlag)
+	if err != nil {
+		return err
+	}
+
+	if err := auth.SetPeerAttr(authKeysPath, peerIDStr, key, value); err != nil {
+		return fmt.Errorf("failed to set attribute: %w", err)
+	}
+
+	short := peerIDStr
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	termcolor.Green("Set %s=%s on peer %s", key, value, short)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
 	return nil
 }
