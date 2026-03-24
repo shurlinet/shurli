@@ -1204,15 +1204,33 @@ main() {
             --uninstall) UNINSTALL="yes"; shift ;;
             --backup)    BACKUP_ONLY="yes"; shift ;;
             --help|-h)
-                printf 'Shurli Installer\n\n'
-                printf 'Usage: install.sh [--version VERSION] [--method download|build]\n'
-                printf '                  [--role peer|relay|binary] [--dir DIR]\n'
-                printf '                  [--dev] [--no-verify]\n\n'
-                printf 'Options:\n'
-                printf '  --dev           Install latest dev/pre-release build\n'
-                printf '  --version VER   Install a specific version (e.g., v0.2.0-dev)\n'
-                printf '  --backup        Back up config without changing anything\n'
-                printf '  --uninstall     Uninstall Shurli\n'
+                printf "${C_MAGENTA}${C_BOLD}Shurli Installer${C_NC}\n\n"
+                printf "Usage:\n"
+                printf "  curl -sSL get.shurli.io | sh\n"
+                printf "  curl -sSL get.shurli.io | SHURLI_DEV=1 sh\n"
+                printf "  sh install.sh [OPTIONS]\n\n"
+                printf "${C_BOLD}Options:${C_NC}\n"
+                printf "  --dev               Install latest dev/pre-release build\n"
+                printf "  --version VERSION   Install a specific version (e.g., v0.2.0-dev)\n"
+                printf "  --method METHOD     Install method: ${C_CYAN}download${C_NC} or ${C_CYAN}build${C_NC} (default: interactive)\n"
+                printf "  --role ROLE         Setup role: ${C_CYAN}peer${C_NC}, ${C_CYAN}relay${C_NC}, or ${C_CYAN}binary${C_NC} (default: interactive)\n"
+                printf "  --dir DIR           Install directory (default: /usr/local/bin)\n"
+                printf "  --no-verify         Skip SHA256 checksum verification\n"
+                printf "  --backup            Back up config without changing anything\n"
+                printf "  --uninstall         Uninstall Shurli\n"
+                printf "  --help, -h          Show this help\n\n"
+                printf "${C_BOLD}Environment variables:${C_NC}\n"
+                printf "  SHURLI_DEV=1        Same as --dev\n"
+                printf "  SHURLI_VERSION=VER  Same as --version\n"
+                printf "  SHURLI_UNINSTALL=1  Same as --uninstall\n"
+                printf "  SHURLI_BACKUP=1     Same as --backup\n\n"
+                printf "${C_BOLD}Examples:${C_NC}\n"
+                printf "  curl -sSL get.shurli.io | sh                       # interactive install\n"
+                printf "  curl -sSL get.shurli.io | SHURLI_DEV=1 sh          # latest dev build\n"
+                printf "  curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh\n"
+                printf "  sh install.sh --method download --role relay        # non-interactive relay\n"
+                printf "  sh install.sh --uninstall                           # uninstall\n"
+                printf "  sh install.sh --backup                              # back up config only\n"
                 exit 0
                 ;;
             *) error "Unknown option: $1" ;;
