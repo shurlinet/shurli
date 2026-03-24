@@ -1722,8 +1722,9 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
-		// Per-peer bandwidth budget check.
-		if ts.bandwidthTracker != nil && !ts.bandwidthTracker.check(peerKey, manifest.FileSize) {
+		// Per-peer bandwidth budget check (WAN only - LAN peers are local, no throttle).
+		transport := ClassifyTransport(s)
+		if transport != TransportLAN && ts.bandwidthTracker != nil && !ts.bandwidthTracker.check(peerKey, manifest.FileSize) {
 			slog.Warn("file-transfer: bandwidth budget exceeded",
 				"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
 			writeRejectWithReason(s, RejectReasonBusy)
@@ -2026,8 +2027,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"size", manifest.FileSize,
 				"path", filepath.Join(destDir, manifest.Filename))
 			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
-			// Record bandwidth usage for budget tracking.
-			if ts.bandwidthTracker != nil {
+			// Record bandwidth usage for budget tracking (WAN only).
+			if transport != TransportLAN && ts.bandwidthTracker != nil {
 				ts.bandwidthTracker.record(peerKey, manifest.FileSize)
 			}
 			// Register hash so this node can serve multi-peer requests for this file.
