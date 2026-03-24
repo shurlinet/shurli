@@ -4,6 +4,7 @@ package p2pnet
 
 import (
 	"context"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ func defaultGateway() string {
 
 	out, err := exec.CommandContext(ctx, "/sbin/ip", "route", "show", "default").Output()
 	if err != nil {
+		slog.Debug("netmonitor: gateway detection failed", "error", err)
 		return ""
 	}
 

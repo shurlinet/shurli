@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -77,9 +78,10 @@ type TokenLookup func(peerID peer.ID, service string) string
 //
 // The callback fields (grantChecker, tokenVerifier, tokenLookup) follow a
 // set-once-at-startup contract: they are configured via their Set* methods
-// during daemon initialization, before any streams are handled. The stream
-// handler hot path reads them without acquiring mu to avoid per-stream lock
-// overhead. This is safe because the fields are never modified after startup.
+// during daemon initialization, before any streams are handled. After setup,
+// call Seal() to enforce the contract. The stream handler hot path reads
+// callbacks without acquiring mu to avoid per-stream lock overhead. This is
+// safe because the fields are never modified after Seal().
 type ServiceRegistry struct {
 	host          host.Host
 	services      map[string]*Service
@@ -88,6 +90,7 @@ type ServiceRegistry struct {
 	grantChecker  GrantChecker  // set once at startup; nil = no grant checking (Phase A)
 	tokenVerifier TokenVerifier // set once at startup; nil = no token verification (Phase B)
 	tokenLookup   TokenLookup   // set once at startup; nil = no token presentation (Phase B)
+	sealed        int32         // atomic; 1 after Seal() - Set* panics if sealed
 	mu            sync.RWMutex  // protects services and middleware; NOT callbacks (set-once)
 }
 
@@ -364,10 +367,21 @@ func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 	return svc, exists
 }
 
+// Seal marks the registry as fully configured. After Seal(), calling any
+// Set* method panics. Call this after daemon initialization completes,
+// before streams are handled. This enforces the set-once-at-startup contract.
+func (r *ServiceRegistry) Seal() {
+	atomic.StoreInt32(&r.sealed, 1)
+}
+
 // SetGrantChecker sets the grant checker function used for relay authorization.
 // When a peer has a valid grant, relay transport is allowed for that peer+service
 // even if the plugin's default policy is LAN+Direct only.
+// Must be called before Seal().
 func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetGrantChecker called after Seal()")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.grantChecker = checker
@@ -376,7 +390,11 @@ func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
 // SetTokenVerifier sets the function used to verify presented grant tokens
 // on inbound plugin streams (Phase B). The verifier decodes the base64 token
 // and checks the macaroon HMAC chain + caveats.
+// Must be called before Seal().
 func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetTokenVerifier called after Seal()")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tokenVerifier = v
@@ -384,7 +402,11 @@ func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier) {
 
 // SetTokenLookup sets the function used to retrieve grant tokens from the
 // GrantPouch for outbound plugin streams (Phase B).
+// Must be called before Seal().
 func (r *ServiceRegistry) SetTokenLookup(l TokenLookup) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetTokenLookup called after Seal()")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tokenLookup = l
