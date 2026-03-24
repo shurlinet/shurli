@@ -418,11 +418,16 @@ func doAuthSetAttr(args []string, stdout io.Writer) error {
 		return fmt.Errorf("failed to set attribute: %w", err)
 	}
 
+	// Read back stored value (may differ from input due to sanitization).
+	stored := auth.GetPeerAttr(authKeysPath, peerIDStr, key)
+	if stored == "" {
+		stored = value
+	}
 	short := peerIDStr
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
-	termcolor.Green("Set %s=%s on peer %s", key, value, short)
+	termcolor.Green("Set %s=%s on peer %s", key, stored, short)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
 	return nil
 }
