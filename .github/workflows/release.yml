@@ -208,11 +208,7 @@ jobs:
           if [ -f RELEASE_NOTES.md ]; then
             { cat RELEASE_NOTES.md; printf '\n---\n\n'; printf '%b' "$NOTES"; } > /tmp/release-notes.md
           else
-            {
-              printf '> **Note**: No release summary was written for this version. '
-              printf 'Add \`RELEASE_NOTES.md\` to the repo before tagging for a human-readable summary.\n\n'
-              printf '%b' "$NOTES"
-            } > /tmp/release-notes.md
+            printf '%b' "$NOTES" > /tmp/release-notes.md
           fi
 
       - name: Create GitHub Release
