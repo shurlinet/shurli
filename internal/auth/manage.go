@@ -460,6 +460,40 @@ func PeerComment(authKeysPath string, peerID peer.ID) string {
 }
 
 
+// GetPeerAttr returns the value of a specific attribute for a peer.
+// Returns empty string if the peer or attribute is not found.
+func GetPeerAttr(authKeysPath, peerIDStr, key string) string {
+	file, err := os.Open(authKeysPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	targetID, err := peer.Decode(peerIDStr)
+	if err != nil {
+		return ""
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		pidStr, attrs, _ := parseLine(scanner.Text())
+		if pidStr == "" {
+			continue
+		}
+		pid, err := peer.Decode(pidStr)
+		if err != nil {
+			continue
+		}
+		if pid == targetID {
+			if attrs == nil {
+				return ""
+			}
+			return attrs[key]
+		}
+	}
+	return ""
+}
+
 // --- Integrity monitoring ---
 
 // hashFilePath returns the path to the integrity hash file for an authorized_keys file.

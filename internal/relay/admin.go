@@ -1309,12 +1309,13 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 
 	// Whitelist of allowed attribute keys to prevent arbitrary writes.
 	allowed := map[string]bool{
-		"role":     true,
-		"group":    true,
-		"verified": true,
+		"role":             true,
+		"group":            true,
+		"verified":         true,
+		"bandwidth_budget": true,
 	}
 	if !allowed[req.Key] {
-		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: role, group, verified)", req.Key))
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: role, group, verified, bandwidth_budget)", req.Key))
 		return
 	}
 

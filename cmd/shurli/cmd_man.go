@@ -371,6 +371,11 @@ are terminated.
 Check the authorized_keys file for syntax errors, duplicate entries, and
 invalid peer IDs.
 .TP
+.B auth set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR
+Set a peer attribute in authorized_keys. Allowed keys: role, group,
+verified, bandwidth_budget. Bandwidth budget values: unlimited, or a size
+like 500MB, 1GB, 10GB.
+.TP
 .B auth grant \fIpeer\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIfile-transfer,...\fR] [\fB--permanent\fR] [\fB--delegate\fR \fIN\fR]
 Grant relay data access to a peer using macaroon capability tokens.
 Default duration: 1 hour. When a peer has a grant, relay transport is

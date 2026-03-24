@@ -231,7 +231,7 @@ _shurli_completions() {
     local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify reconnect status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
-    local auth_cmds="add list remove validate grant grants revoke extend delegate pouch audit"
+    local auth_cmds="add list remove validate set-attr grant grants revoke extend delegate pouch audit"
     local config_cmds="validate show set rollback apply confirm"
     local relay_cmds="add list remove show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
