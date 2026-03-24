@@ -232,8 +232,8 @@ _shurli_completions() {
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate set-attr grant grants revoke extend delegate pouch audit"
-    local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
+    local config_cmds="validate show set reload rollback apply confirm"
+    local relay_cmds="add list remove seeds show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
     local relay_vault_cmds="init seal unseal status change-password"
     local relay_motd_cmds="set clear status"
@@ -554,6 +554,7 @@ _shurli() {
         'validate:Validate config'
         'show:Show resolved config'
         'set:Set a config value'
+        'reload:Reload config into running daemon'
         'rollback:Restore last-known-good config'
         'apply:Apply config with auto-revert'
         'confirm:Confirm applied config'
@@ -564,6 +565,7 @@ _shurli() {
         'add:Add a relay server'
         'list:List relay servers'
         'remove:Remove a relay server'
+        'seeds:Add or remove public seed nodes'
         'show:Show resolved relay config'
         'setup:Initialize relay server config'
         'serve:Start the relay server'
@@ -978,6 +980,7 @@ complete -c shurli -n '__shurli_using_subcommand auth audit'    -l tail      -d 
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'
 complete -c shurli -n '__shurli_using_command config' -a show     -d 'Show resolved config'
 complete -c shurli -n '__shurli_using_command config' -a set      -d 'Set a config value'
+complete -c shurli -n '__shurli_using_command config' -a reload   -d 'Reload config into running daemon'
 complete -c shurli -n '__shurli_using_command config' -a rollback -d 'Restore last-known-good config'
 complete -c shurli -n '__shurli_using_command config' -a apply    -d 'Apply config with auto-revert'
 complete -c shurli -n '__shurli_using_command config' -a confirm  -d 'Confirm applied config'
@@ -995,6 +998,7 @@ complete -c shurli -n '__shurli_using_subcommand config confirm'  -l config -d '
 complete -c shurli -n '__shurli_using_command relay' -a add         -d 'Add a relay server'
 complete -c shurli -n '__shurli_using_command relay' -a list        -d 'List relay servers'
 complete -c shurli -n '__shurli_using_command relay' -a remove      -d 'Remove a relay server'
+complete -c shurli -n '__shurli_using_command relay' -a seeds       -d 'Add or remove public seed nodes'
 complete -c shurli -n '__shurli_using_command relay' -a show        -d 'Show resolved relay config'
 complete -c shurli -n '__shurli_using_command relay' -a setup       -d 'Initialize relay server config'
 complete -c shurli -n '__shurli_using_command relay' -a serve       -d 'Start the relay server'

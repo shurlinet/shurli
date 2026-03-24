@@ -150,7 +150,7 @@ func printInviteCodes(codes []string, ttl time.Duration, nonInteractive bool) {
 	termcolor.Faint("--- Send this to the joining peer ---")
 	fmt.Println()
 	fmt.Println()
-	fmt.Println("Install shurli: https://shurli.net/install")
+	fmt.Println("Install shurli: curl -sSL get.shurli.io | sh")
 	fmt.Println("Then run:")
 	fmt.Println("  shurli init")
 	fmt.Printf("  shurli join %s --as <your-device-name>\n", codes[0])
