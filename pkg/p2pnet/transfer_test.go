@@ -1581,8 +1581,8 @@ func TestFailureTrackerCleanup(t *testing.T) {
 func TestBandwidthTracker(t *testing.T) {
 	bt := newBandwidthTracker(1000) // 1000 bytes/hour
 
-	// First check with small size should pass.
-	if !bt.check("peer1", 500) {
+	// First check with small size should pass (0 = use global budget).
+	if !bt.check("peer1", 500, 0) {
 		t.Error("500 bytes should fit in 1000 budget")
 	}
 
@@ -1590,19 +1590,19 @@ func TestBandwidthTracker(t *testing.T) {
 	bt.record("peer1", 500)
 
 	// Another 500 should fit.
-	if !bt.check("peer1", 500) {
+	if !bt.check("peer1", 500, 0) {
 		t.Error("another 500 should fit (total 1000)")
 	}
 
 	bt.record("peer1", 500)
 
 	// Now at budget, 1 more byte should fail.
-	if bt.check("peer1", 1) {
+	if bt.check("peer1", 1, 0) {
 		t.Error("should be over budget")
 	}
 
 	// Different peer should have full budget.
-	if !bt.check("peer2", 999) {
+	if !bt.check("peer2", 999, 0) {
 		t.Error("peer2 should have full budget")
 	}
 }
@@ -1610,8 +1610,8 @@ func TestBandwidthTracker(t *testing.T) {
 func TestBandwidthTrackerSingleTransferOverBudget(t *testing.T) {
 	bt := newBandwidthTracker(1000)
 
-	// Single transfer larger than budget should fail.
-	if bt.check("peer1", 1001) {
+	// Single transfer larger than budget should fail (0 = use global budget).
+	if bt.check("peer1", 1001, 0) {
 		t.Error("1001 bytes should not fit in 1000 budget")
 	}
 }

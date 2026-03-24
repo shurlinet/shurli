@@ -311,8 +311,9 @@ func ParseByteSize(s string) (int64, error) {
 		return 0, fmt.Errorf("empty size string")
 	}
 
+	// Scan digits only (no dots, no signs).
 	i := 0
-	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 		i++
 	}
 	numStr := s[:i]
@@ -326,21 +327,31 @@ func ParseByteSize(s string) (int64, error) {
 	if _, err := fmt.Sscanf(numStr, "%d", &num); err != nil {
 		return 0, fmt.Errorf("invalid number %q: %w", numStr, err)
 	}
+	if num < 0 {
+		return 0, fmt.Errorf("negative size not allowed: %d", num)
+	}
 
+	var multiplier int64
 	switch strings.ToUpper(suffix) {
 	case "", "B":
-		return num, nil
+		multiplier = 1
 	case "KB", "K":
-		return num * 1024, nil
+		multiplier = 1024
 	case "MB", "M":
-		return num * 1024 * 1024, nil
+		multiplier = 1024 * 1024
 	case "GB", "G":
-		return num * 1024 * 1024 * 1024, nil
+		multiplier = 1024 * 1024 * 1024
 	case "TB", "T":
-		return num * 1024 * 1024 * 1024 * 1024, nil
+		multiplier = 1024 * 1024 * 1024 * 1024
 	default:
 		return 0, fmt.Errorf("unknown suffix %q", suffix)
 	}
+
+	result := num * multiplier
+	if num != 0 && result/num != multiplier {
+		return 0, fmt.Errorf("value overflows int64: %d%s", num, suffix)
+	}
+	return result, nil
 }
 
 // StreamInfo tracks per-stream progress for parallel transfers.

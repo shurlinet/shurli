@@ -363,8 +363,12 @@ func (p *FileTransferPlugin) makePeerBudgetFunc() func(string) int64 {
 		}
 		bytes, err := p2pnet.ParseByteSize(v)
 		if err != nil {
+			short := peerID
+			if len(short) > 16 {
+				short = short[:16] + "..."
+			}
 			slog.Warn("plugin.filetransfer: invalid bandwidth_budget attribute",
-				"peer", peerID[:16]+"...", "value", v, "error", err)
+				"peer", short, "value", v, "error", err)
 			return 0
 		}
 		return bytes

@@ -1319,6 +1319,14 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate bandwidth_budget values parse correctly before writing.
+	if req.Key == "bandwidth_budget" {
+		if _, err := p2pnet.ParseByteSize(req.Value); err != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid bandwidth_budget value %q: %v", req.Value, err))
+			return
+		}
+	}
+
 	if err := auth.SetPeerAttr(s.authKeysPath, req.PeerID, req.Key, req.Value); err != nil {
 		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to set attribute: %v", err))
 		return
