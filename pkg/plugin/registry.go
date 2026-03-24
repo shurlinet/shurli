@@ -164,10 +164,12 @@ func (r *Registry) Register(p Plugin) error {
 	var configBytes []byte
 	if r.provider != nil && r.provider.ConfigDir != "" {
 		configDir = filepath.Join(r.provider.ConfigDir, "plugins", id)
-		// M2 fix: verify config dir path doesn't traverse symlinks outside base config dir.
+		// M2 fix: prevent symlink traversal by resolving the base config dir
+		// and rebuilding the plugin path from the resolved root. Since plugin
+		// IDs are validated (no "..", no "//", alphanumeric segments only),
+		// the rebuilt path is guaranteed to stay under the resolved base.
 		if resolved, err := filepath.EvalSymlinks(r.provider.ConfigDir); err == nil {
-			expectedPrefix := filepath.Join(resolved, "plugins", id)
-			configDir = expectedPrefix // use resolved path
+			configDir = filepath.Join(resolved, "plugins", id)
 		}
 		// Create config dir with 0700 if not exists.
 		if err := os.MkdirAll(configDir, 0700); err != nil {
