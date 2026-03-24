@@ -124,7 +124,11 @@ find_available_port() {
 audit_user() {
     local TARGET="$1"
     local TARGET_HOME
-    TARGET_HOME=$(eval echo "~$TARGET")
+    TARGET_HOME=$(getent passwd "$TARGET" 2>/dev/null | cut -d: -f6)
+    if [ -z "$TARGET_HOME" ]; then
+        echo "  [FAIL] Cannot determine home directory for $TARGET"
+        return 1
+    fi
 
     echo "--- Security audit: $TARGET ---"
     echo
@@ -637,7 +641,7 @@ run_check() {
             check_pass "UFW: port 7777 is allowed"
         else
             check_fail "UFW: port 7777 not in firewall rules"
-            echo "         Fix: sudo ufw allow 7777/tcp && sudo ufw allow 7777/udp"
+            echo "         Fix: sudo ufw limit 7777/tcp && sudo ufw allow 7777/udp"
         fi
 
         # Check WebSocket port firewall if configured
@@ -767,31 +771,9 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ "$1" = "help" ]; then
     echo "  shurli relay authorize <peer-id> [comment]  Allow a peer"
     echo "  shurli relay deauthorize <peer-id>          Remove a peer"
     echo "  shurli relay list-peers                     List authorized peers"
-    exit 0
-fi
-
-# ============================================================
-# If --help flag, show usage and exit
-# ============================================================
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "Usage: bash tools/relay-setup.sh [OPTION]"
-    echo
-    echo "Options:"
-    echo "  (none)        Full setup: create user, install Go, build, configure, start relay"
-    echo "  --check       Health check only (no changes)"
-    echo "  --uninstall   Remove service, firewall rules, system tuning"
-    echo "  --prebuilt    Skip Go install and build (binary already at /usr/local/bin)"
-    echo "  --deploy-dir  Path to deploy/ files (service templates)"
-    echo "  --help, -h    Show this help"
-    echo
-    echo "Relay commands (after setup):"
-    echo "  shurli relay info                          Show peer ID, multiaddrs, QR code"
-    echo "  shurli relay authorize <peer-id> [comment] Allow a peer to connect"
-    echo "  shurli relay deauthorize <peer-id>         Remove a peer"
-    echo "  shurli relay list-peers                    List authorized peers"
-    echo "  shurli relay grant <peer-id> --duration 1h Grant time-limited data relay access"
-    echo "  shurli relay grants                        List active grants"
-    echo "  shurli relay invite create --ttl 24h       Create invite code for new peers"
+    echo "  shurli relay grant <peer-id> --duration 1h  Grant time-limited data relay access"
+    echo "  shurli relay grants                         List active grants"
+    echo "  shurli relay invite create --ttl 24h        Create invite code for new peers"
     exit 0
 fi
 
@@ -842,7 +824,9 @@ if [ "$1" = "--uninstall" ]; then
     # --- 2. Remove firewall rules ---
     echo "[2/4] Removing firewall rules..."
     if command -v ufw &> /dev/null; then
-        run_sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp rule" || echo "  No 7777/tcp rule found"
+        # Remove both allow and limit rules (setup may have used either depending on version)
+        run_sudo ufw delete limit 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp limit rule" || true
+        run_sudo ufw delete allow 7777/tcp > /dev/null 2>&1 && echo "  Removed 7777/tcp allow rule" || true
         run_sudo ufw delete allow 7777/udp > /dev/null 2>&1 && echo "  Removed 7777/udp rule" || echo "  No 7777/udp rule found"
         # Remove WebSocket port rules (any port that setup may have opened)
         for WS_CLEANUP_PORT in 443 8443 9443 8080 8444 8445 9090; do
@@ -900,6 +884,24 @@ fi
 # ============================================================
 # Full setup
 # ============================================================
+
+# This automated setup script requires Linux (systemd, apt, ufw, sysctl).
+# On other platforms, the relay binary works fine - use manual setup instead.
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "=== Shurli Relay Server ==="
+    echo
+    echo "This setup script automates Linux-specific configuration (systemd, firewall, etc.)."
+    echo "Your platform ($(uname -s)) is fully supported for running a relay, but requires manual setup."
+    echo
+    echo "Manual setup steps:"
+    echo "  1. Build:   go build -ldflags=\"-s -w\" -trimpath -o shurli ./cmd/shurli"
+    echo "  2. Init:    ./shurli relay setup --dir /path/to/relay/config"
+    echo "  3. Run:     ./shurli relay serve"
+    echo
+    echo "  Docs: https://shurli.io/docs/relay-setup/"
+    exit 0
+fi
+
 echo "=== Shurli Relay Server Setup ==="
 echo
 echo "Project root:  $PROJECT_ROOT"
@@ -951,15 +953,28 @@ else
 fi
 
 install_go() {
-    wget -q "https://go.dev/dl/go${GO_MIN_VERSION}.linux-amd64.tar.gz"
+    local go_os go_arch
+    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
+        linux)  go_os="linux" ;;
+        darwin) go_os="darwin" ;;
+        *)      echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)   go_arch="amd64" ;;
+        aarch64|arm64)  go_arch="arm64" ;;
+        armv7l|armhf)   go_arch="armv6l" ;;
+        *)              echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+    esac
+    local go_tarball="go${GO_MIN_VERSION}.${go_os}-${go_arch}.tar.gz"
+    wget -q "https://go.dev/dl/${go_tarball}"
     run_sudo rm -rf /usr/local/go
-    run_sudo tar -C /usr/local -xzf "go${GO_MIN_VERSION}.linux-amd64.tar.gz"
-    rm "go${GO_MIN_VERSION}.linux-amd64.tar.gz"
+    run_sudo tar -C /usr/local -xzf "${go_tarball}"
+    rm "${go_tarball}"
     export PATH=$PATH:/usr/local/go/bin
     if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
         echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
     fi
-    echo "  Go $(go version | awk '{print $3}') installed"
+    echo "  Go $(go version | awk '{print $3}') installed (${go_arch})"
 }
 
 if [ "$INSTALL_GO" = true ]; then
@@ -1070,9 +1085,11 @@ echo
 # --- 5. Firewall ---
 echo "[5/8] Configuring firewall..."
 if command -v ufw &> /dev/null; then
-    run_sudo ufw allow 7777/tcp comment 'Shurli relay TCP' > /dev/null 2>&1 || true
+    # TCP: rate-limited (6 connections per 30s per source IP - SYN flood protection)
+    # UDP: allow (QUIC handles its own congestion control)
+    run_sudo ufw limit 7777/tcp comment 'Shurli relay TCP (rate limited)' > /dev/null 2>&1 || true
     run_sudo ufw allow 7777/udp comment 'Shurli relay QUIC' > /dev/null 2>&1 || true
-    echo "  UFW: ports 7777 TCP+UDP open"
+    echo "  UFW: port 7777 TCP rate-limited (6 conn/30s per source), UDP open"
 
     # Open WebSocket port if configured (anti-censorship)
     if [ -f "$DATA_DIR/relay-server.yaml" ]; then
@@ -1139,28 +1156,6 @@ else
 fi
 echo
 
-# --- 5.5. OS-level rate limiting (iptables) ---
-if command -v iptables > /dev/null 2>&1; then
-    echo "[5.5/8] Configuring iptables rate limiting..."
-
-    # TCP SYN flood protection
-    if ! run_sudo iptables -C INPUT -p tcp --syn -m limit --limit 50/s --limit-burst 100 -j ACCEPT 2>/dev/null; then
-        run_sudo iptables -A INPUT -p tcp --syn -m limit --limit 50/s --limit-burst 100 -j ACCEPT
-        echo "  TCP SYN rate limit: 50/s (burst 100)"
-    else
-        echo "  TCP SYN rate limit already configured"
-    fi
-
-    # UDP rate limiting (QUIC traffic)
-    if ! run_sudo iptables -C INPUT -p udp -m limit --limit 200/s --limit-burst 500 -j ACCEPT 2>/dev/null; then
-        run_sudo iptables -A INPUT -p udp -m limit --limit 200/s --limit-burst 500 -j ACCEPT
-        echo "  UDP rate limit: 200/s (burst 500)"
-    else
-        echo "  UDP rate limit already configured"
-    fi
-
-    echo
-fi
 
 # --- 6. Build and install ---
 if [ "$PREBUILT" = "true" ]; then

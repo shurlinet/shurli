@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Minimal permissions - CI only needs to read code
+permissions:
+  contents: read
+
+# Cancel redundant runs on the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     strategy:

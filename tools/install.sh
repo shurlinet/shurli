@@ -258,7 +258,7 @@ verify_checksum() {
         return 0
     fi
 
-    expected_sum="$(grep "$file_name" "$checksums_file" | awk '{print $1}')"
+    expected_sum="$(grep -F "$file_name" "$checksums_file" | awk '{print $1}')"
     rm -f "$checksums_file"
 
     if [ -z "$expected_sum" ]; then
@@ -432,16 +432,16 @@ do_build() {
     cp "${repo_dir}/tools/relay-setup.sh" "${ARCHIVE_DIR}/tools/"
     chmod +x "${ARCHIVE_DIR}/tools/relay-setup.sh"
 
+    # Remove temporary swap if we added it (must be before rm -rf of BUILD_DIR
+    # since the swap file lives inside BUILD_DIR)
+    if [ -n "${TEMP_SWAP:-}" ]; then
+        run_sudo swapoff "$TEMP_SWAP" 2>/dev/null || true
+        log "Temporary swap removed."
+    fi
+
     # Clean up build environment
     info "Cleaning build environment..."
     rm -rf "$BUILD_DIR"
-
-    # Remove temporary swap if we added it
-    if [ -n "${TEMP_SWAP:-}" ] && [ -f "${TEMP_SWAP}" ]; then
-        run_sudo swapoff "$TEMP_SWAP" 2>/dev/null || true
-        run_sudo rm -f "$TEMP_SWAP"
-        log "Temporary swap removed."
-    fi
 
     log "Build artifacts cleaned. Only the binary and support files remain."
 }
