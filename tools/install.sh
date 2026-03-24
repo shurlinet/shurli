@@ -5,6 +5,7 @@
 #   curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
 #   curl -sSL ... | SHURLI_DEV=1 sh             # install latest dev/pre-release
 #   curl -sSL ... | SHURLI_VERSION=v0.2.0 sh    # install specific version
+#   curl -sSL ... | SHURLI_METHOD=download SHURLI_ROLE=relay sh  # non-interactive
 #   curl -sSL ... | SHURLI_BACKUP=1 sh          # back up config only
 #   curl -sSL ... | SHURLI_UNINSTALL=1 sh       # uninstall
 #
@@ -649,8 +650,13 @@ ${all_matches}"
                 run_sudo chown -R "${svc_user}:${svc_user}" "$dest"
             fi
             # Directories need 700 (execute), files need 600
-            find "$dest" -type d -exec chmod 700 {} \;
-            find "$dest" -type f -exec chmod 600 {} \;
+            if [ "$GOOS" = "darwin" ]; then
+                find "$dest" -type d -exec chmod 700 {} \;
+                find "$dest" -type f -exec chmod 600 {} \;
+            else
+                run_sudo find "$dest" -type d -exec chmod 700 {} \;
+                run_sudo find "$dest" -type f -exec chmod 600 {} \;
+            fi
             log "Restored peer config to $dest"
         fi
     fi
@@ -1184,8 +1190,8 @@ main() {
     # Parse arguments
     # Env vars for piped usage: SHURLI_DEV=1, SHURLI_VERSION=v0.2.0, SHURLI_UNINSTALL=1
     VERSION="${SHURLI_VERSION:-}"
-    METHOD=""
-    ROLE=""
+    METHOD="${SHURLI_METHOD:-}"
+    ROLE="${SHURLI_ROLE:-}"
     OPT_DIR=""
     NO_VERIFY=""
     UPGRADE_MODE=""
@@ -1195,10 +1201,10 @@ main() {
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version)   VERSION="$2"; shift 2 ;;
-            --method)    METHOD="$2"; shift 2 ;;
-            --role)      ROLE="$2"; shift 2 ;;
-            --dir)       OPT_DIR="$2"; shift 2 ;;
+            --version)   [ $# -ge 2 ] || error "--version requires a value"; VERSION="$2"; shift 2 ;;
+            --method)    [ $# -ge 2 ] || error "--method requires a value"; METHOD="$2"; shift 2 ;;
+            --role)      [ $# -ge 2 ] || error "--role requires a value"; ROLE="$2"; shift 2 ;;
+            --dir)       [ $# -ge 2 ] || error "--dir requires a value"; OPT_DIR="$2"; shift 2 ;;
             --no-verify) NO_VERIFY="yes"; shift ;;
             --dev)       DEV_BUILD="yes"; shift ;;
             --uninstall) UNINSTALL="yes"; shift ;;
@@ -1220,15 +1226,18 @@ main() {
                 printf "  --uninstall         Uninstall Shurli\n"
                 printf "  --help, -h          Show this help\n\n"
                 printf "${C_BOLD}Environment variables:${C_NC}\n"
-                printf "  SHURLI_DEV=1        Same as --dev\n"
-                printf "  SHURLI_VERSION=VER  Same as --version\n"
-                printf "  SHURLI_UNINSTALL=1  Same as --uninstall\n"
-                printf "  SHURLI_BACKUP=1     Same as --backup\n\n"
+                printf "  SHURLI_DEV=1            Same as --dev\n"
+                printf "  SHURLI_VERSION=VER      Same as --version\n"
+                printf "  SHURLI_METHOD=METHOD    Same as --method (download or build)\n"
+                printf "  SHURLI_ROLE=ROLE        Same as --role (peer, relay, or binary)\n"
+                printf "  SHURLI_UNINSTALL=1      Same as --uninstall\n"
+                printf "  SHURLI_BACKUP=1         Same as --backup\n\n"
                 printf "${C_BOLD}Examples:${C_NC}\n"
                 printf "  curl -sSL get.shurli.io | sh                       # interactive install\n"
                 printf "  curl -sSL get.shurli.io | SHURLI_DEV=1 sh          # latest dev build\n"
                 printf "  curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh\n"
                 printf "  sh install.sh --method download --role relay        # non-interactive relay\n"
+                printf "  curl ... | SHURLI_METHOD=download SHURLI_ROLE=peer sh  # non-interactive piped\n"
                 printf "  sh install.sh --uninstall                           # uninstall\n"
                 printf "  sh install.sh --backup                              # back up config only\n"
                 exit 0
