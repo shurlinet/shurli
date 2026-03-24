@@ -6,9 +6,22 @@ Access your home server from anywhere. Share services with friends. No cloud, no
 
 ## Install
 
-### Pre-built binary
+### One-line install (recommended)
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/shurlinet/shurli/releases/latest).
+```bash
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+The install script detects your OS and architecture, downloads a pre-built binary, verifies SHA256 checksums, and walks you through setup (peer node, relay server, or binary-only). Supports upgrades, uninstall, and backup/restore.
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
 
 ### Build from source
 
@@ -49,16 +62,20 @@ Or use `make install` to build, install, and set up a system service in one step
 
 ### 0. Install Shurli
 
-Build from source ([Go 1.26+](https://go.dev/dl/) required):
 ```bash
-# Linux (Debian/Ubuntu) - install mDNS dependency
-sudo apt install libavahi-compat-libdnssd-dev
+# Short URL
+curl -sSL get.shurli.io | sh
 
-git clone https://github.com/shurlinet/shurli.git
-cd shurli
-go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
-sudo install -m 755 shurli /usr/local/bin/shurli
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
 ```
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
+
+To build from source instead, see "Build from source" above.
 
 ### 1. Deploy a relay (recommended)
 
@@ -9294,28 +9311,41 @@ Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.0
 
 ## 1. Initial VPS Setup
 
-SSH into your fresh VPS and install git:
+SSH into your fresh VPS and run the install script:
 
 ```bash
 ssh root@YOUR_VPS_IP
+
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+Choose **"Relay server"** when prompted. The script handles everything: downloads the binary, verifies checksums, creates a secure service user, configures firewall, installs systemd service, and starts the relay.
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
+
+### Alternative: clone repo and run setup script manually
+
+```bash
 apt update && apt upgrade -y
 apt install -y git ufw
 
-# Enable firewall with SSH access
 ufw allow OpenSSH
 ufw default deny incoming
 ufw default allow outgoing
 ufw enable
-```
 
-### Clone the repo
-
-```bash
 git clone https://github.com/shurlinet/shurli.git
 cd shurli
 ```
 
-### Run the setup script
+### Run the setup script (manual method)
 
 The script detects that you're root and walks you through creating a secure service user:
 

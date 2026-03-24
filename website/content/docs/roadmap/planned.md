@@ -183,7 +183,7 @@ All documentation source references (code paths in engineering journal, architec
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)
 - [ ] Ed25519-signed checksums
 - [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
-- [ ] One-line install: `curl -sSL get.shurli.io | sh`
+- [x] One-line install: `curl -sSL get.shurli.io | sh` *(2026-03-24)*
 - [ ] APT, AUR, Docker image
 
 **Embedded / Router Builds** (OpenWRT, Ubiquiti, GL.iNet, MikroTik):

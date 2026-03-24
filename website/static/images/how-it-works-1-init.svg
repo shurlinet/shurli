@@ -13,14 +13,15 @@
   <circle cx="20" cy="18" r="5" fill="#ff5f57"/>
   <circle cx="38" cy="18" r="5" fill="#febc2e"/>
   <circle cx="56" cy="18" r="5" fill="#28c840"/>
-  <text x="200" y="22" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle">server</text>
+  <text x="200" y="22" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle">terminal</text>
   <!-- Content -->
-  <text x="20" y="64" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli relay setup</text>
-  <text x="20" y="88" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Relay config ready.</text>
-  <text x="20" y="114" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ shurli init</text>
-  <text x="20" y="138" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Choice [1]: 1 (own relay)</text>
-  <text x="20" y="160" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Connected to relay at relay.example.com</text>
-  <text x="20" y="182" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Generating Ed25519 identity...</text>
-  <text x="20" y="210" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Network initialized.</text>
-  <text x="20" y="232" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Config: ~/.shurli/config.yaml</text>
+  <text x="20" y="64" font-family="SF Mono, monospace" font-size="13" fill="#e8729a">$ curl -sSL get.shurli.io | sh</text>
+  <text x="20" y="88" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Detected: linux/amd64</text>
+  <text x="20" y="110" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">Downloading v0.2.2... done</text>
+  <text x="20" y="132" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Checksum verified.</text>
+  <text x="20" y="160" font-family="SF Mono, monospace" font-size="12" fill="#a9b1d6">What would you like to set up?</text>
+  <text x="20" y="182" font-family="SF Mono, monospace" font-size="12" fill="#bb9af7">  1) Peer node</text>
+  <text x="20" y="202" font-family="SF Mono, monospace" font-size="12" fill="#bb9af7">  2) Relay server</text>
+  <text x="20" y="222" font-family="SF Mono, monospace" font-size="12" fill="#bb9af7">  3) Binary only</text>
+  <text x="20" y="252" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a">Installed to /usr/local/bin/shurli</text>
 </svg>

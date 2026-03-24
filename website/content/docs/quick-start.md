@@ -8,9 +8,27 @@ description: "Get connected with Shurli. Deploy a relay, join with one command, 
 
 ## 0. Install Shurli
 
-Build from source ([Go 1.26+](https://go.dev/dl/) required):
 ```bash
-# Linux (Debian/Ubuntu) - install mDNS dependency
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+The install script detects your OS and architecture, downloads a pre-built binary, verifies checksums, and walks you through setup. It handles peer nodes, relay servers, upgrades, and uninstall.
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
+
+<details>
+<summary>Build from source instead</summary>
+
+Requires [Go 1.26+](https://go.dev/dl/) and mDNS dev library on Linux:
+```bash
+# Linux (Debian/Ubuntu)
 sudo apt install libavahi-compat-libdnssd-dev
 
 git clone https://github.com/shurlinet/shurli.git
@@ -18,6 +36,7 @@ cd shurli
 go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 sudo install -m 755 shurli /usr/local/bin/shurli
 ```
+</details>
 
 ## 1. Deploy your relay
 
