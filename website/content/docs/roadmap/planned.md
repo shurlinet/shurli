@@ -147,6 +147,7 @@ Different languages have different release cycles, CI pipelines, and dependency 
 ## Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
+**Status**: Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser, Homebrew, APT planned)
 
 **Goal**: Make Shurli installable without a Go toolchain, launch with compelling use-case content, and establish `shurli.io` as the stable distribution anchor.
 
@@ -180,10 +181,13 @@ The domain (`shurli.io`) is the anchor. DNS is managed under our control. If any
 All documentation source references (code paths in engineering journal, architecture docs, etc.) link through `shurli.io/source/` instead of directly to any git host. When the primary moves, update one redirect config. Old search engine cached URLs and LLM training snapshots still resolve through the domain we control.
 
 **Package Managers & Binaries**:
+- [x] One-line install: `curl -sSL get.shurli.io | sh` *(2026-03-24)*
+- [x] Colored ANSI output, `--help`, `--yes`/`-y`, `--upgrade`, env vars *(2026-03-24)*
+- [x] Release archives (GitHub Actions, tar.gz per platform) *(2026-03-24)*
+- [x] `relay-setup.sh --prebuilt` (install from release archive) *(2026-03-24)*
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)
 - [ ] Ed25519-signed checksums
 - [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
-- [x] One-line install: `curl -sSL get.shurli.io | sh` *(2026-03-24)*
 - [ ] APT, AUR, Docker image
 
 **Embedded / Router Builds** (OpenWRT, Ubiquiti, GL.iNet, MikroTik):

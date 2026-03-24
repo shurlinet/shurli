@@ -4,7 +4,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Table of Contents
 
-- [Current Architecture (Phase 9B + Plugin Architecture + Phase 8B Per-Peer Data Grants Complete)](#current-architecture-phase-9b--plugin-architecture--per-peer-grant-system-complete) - what's built and working
+- [Current Architecture](#current-architecture) - what's built and working
 - [Plugin Architecture](#plugin-architecture) - extensibility framework, three-layer evolution
 - [Target Architecture (Phase 9C+)](#target-architecture-phase-9c) - planned additions
 - [Observability (Batch H)](#observability-batch-h) - Prometheus metrics, audit logging
@@ -41,7 +41,9 @@ This document describes the technical architecture of Shurli, from current imple
 
 ---
 
-## Current Architecture (Phase 9B + Plugin Architecture + Phase 8B Per-Peer Data Grants Complete)
+## Current Architecture
+
+Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets complete.
 
 ### Component Overview
 
@@ -64,25 +66,30 @@ Shurli/
 │   │   ├── cmd_traceroute.go # Standalone P2P traceroute
 │   │   ├── cmd_resolve.go   # Standalone name resolution
 │   │   ├── cmd_whoami.go    # Show own peer ID
-│   │   ├── cmd_auth.go      # Auth add/list/remove/validate + grant/revoke/extend/delegate/pouch/audit
+│   │   ├── cmd_auth.go      # Auth add/list/remove/validate/set-attr + grant dispatch
 │   │   ├── cmd_auth_grants.go # Grant CLI: grant, grants, revoke, extend (all --json)
 │   │   ├── cmd_auth_audit.go  # Audit log CLI: auth audit [--verify] [--tail N] [--json]
-│   │   ├── cmd_relay.go     # Relay add/list/remove subcommands
-│   │   ├── cmd_service.go   # Service add/list/remove subcommands
-│   │   ├── cmd_config.go    # Config validate/show/rollback/apply/confirm
-│   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake (--non-interactive)
-│   │   ├── cmd_join.go      # Decode invite, connect, auto-configure (--non-interactive, env var)
-│   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
-│   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
+│   │   ├── cmd_relay.go     # Relay add/list/remove/seeds + relay-server dispatch
+│   │   ├── cmd_relay_grants.go # Relay grant CLI: grant/grants/revoke/extend (relay admin API)
 │   │   ├── cmd_relay_serve.go # Relay server: serve/authorize/info/config
 │   │   ├── cmd_relay_vault.go # Vault CLI: init/seal/unseal/status
 │   │   ├── cmd_relay_invite.go # Invite CLI: create/list/revoke/modify
 │   │   ├── cmd_relay_zkp.go  # ZKP setup: BIP39 seed, SRS, proving/verifying keys
 │   │   ├── cmd_relay_motd.go # MOTD/goodbye CLI: set/clear/status, goodbye set/retract/shutdown
 │   │   ├── cmd_relay_remote.go # Remote admin --remote flag dispatcher
-│   │   ├── cmd_plugin.go      # Plugin CLI: list/enable/disable/info/disable-all
 │   │   ├── cmd_relay_recover.go # Relay identity recovery from seed phrase
 │   │   ├── cmd_relay_setup.go # Relay interactive setup wizard
+│   │   ├── cmd_relay_unix.go  # Platform-specific relay helpers (Unix)
+│   │   ├── cmd_relay_windows.go # Platform-specific relay helpers (Windows)
+│   │   ├── cmd_service.go   # Service add/list/remove subcommands
+│   │   ├── cmd_config.go    # Config validate/show/set/reload/rollback/apply/confirm
+│   │   ├── cmd_invite.go    # Generate invite code + QR + P2P handshake (--non-interactive)
+│   │   ├── cmd_join.go      # Decode invite, connect, auto-configure (--non-interactive, env var)
+│   │   ├── cmd_status.go    # Local status: version, peer ID, config, services, peers
+│   │   ├── cmd_verify.go    # SAS verification (4-emoji fingerprint)
+│   │   ├── cmd_plugin.go      # Plugin CLI: list/enable/disable/info/disable-all
+│   │   ├── cmd_reconnect.go   # Force reconnect to a peer via daemon API (--json)
+│   │   ├── cmd_notify.go      # Notification CLI: test/list (--json)
 │   │   ├── cmd_recover.go    # Top-level identity recovery from seed phrase
 │   │   ├── cmd_change_password.go # Top-level password change
 │   │   ├── cmd_lock.go       # Lock/unlock/session commands
@@ -95,15 +102,23 @@ Shurli/
 │   │   ├── seeds.go         # Hardcoded bootstrap seeds + DNS seed domain constant
 │   │   ├── serve_common.go  # Shared runtime setup (daemon + relay: P2P, metrics, watchdog)
 │   │   ├── daemon_launch.go # Service manager restart (launchd/systemd kick)
+│   │   ├── daemon_launch_windows.go # Service manager restart (Windows stub)
 │   │   ├── flag_helpers.go  # Shared CLI flag parsing helpers
+│   │   ├── flagorder.go     # Flag reordering (positional args after flags)
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
 ├── pkg/p2pnet/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
+│   ├── service_query.go     # Service query protocol (/shurli/service-query/1.0.0)
 │   ├── proxy.go             # Bidirectional TCP↔Stream proxy with half-close + byte counting
 │   ├── naming.go            # Local name resolution (name → peer ID)
 │   ├── identity.go          # Identity helpers (delegates to internal/identity)
+│   ├── contracts.go         # Public API interfaces (PeerNetwork, Resolver, ServiceManager, Authorizer)
+│   ├── events.go            # Typed event system (EventType, Event, EventBus)
+│   ├── protocolid.go        # Protocol ID formatter + init-time validation
+│   ├── bootstrap.go         # BootstrapAndConnect orchestration (DHT, relay, dial)
+│   ├── doc.go               # Package-level documentation
 │   ├── ping.go              # Shared P2P ping logic (PingPeer, ComputePingStats)
 │   ├── traceroute.go        # Shared P2P traceroute (TracePeer, hop analysis)
 │   ├── verify.go            # SAS verification helpers (emoji fingerprints)
@@ -112,6 +127,10 @@ Shurli/
 │   ├── pathdialer.go        # Parallel dial racing (direct + relay, first wins)
 │   ├── pathtracker.go       # Per-peer path quality tracking (event-bus driven)
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
+│   ├── netmonitor_darwin.go # macOS route socket network change detection
+│   ├── netmonitor_linux.go  # Linux netlink network change detection
+│   ├── netmonitor_other.go  # Fallback polling for other platforms
+│   ├── netmonitor_poll.go   # Interval-based interface polling
 │   ├── stunprober.go        # RFC 5389 STUN client, NAT type classification
 │   ├── peerrelay.go         # Every-peer-is-a-relay (auto-enable with public IP)
 │   ├── relaydiscovery.go    # DHT relay discovery + RelaySource interface + AutoRelay PeerSource
@@ -123,6 +142,11 @@ Shurli/
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
 │   ├── peermanager.go       # Background reconnection with exponential backoff
 │   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
+│   ├── gateway_darwin.go    # Default gateway detection (macOS)
+│   ├── gateway_linux.go     # Default gateway detection (Linux)
+│   ├── gateway_other.go     # Default gateway detection (fallback)
+│   ├── diskspace_unix.go    # Disk space checking (Unix statfs)
+│   ├── diskspace_windows.go # Disk space checking (Windows)
 │   ├── transfer.go          # SHFT v2 wire format, chunked transfer, receive modes, rate limiting
 │   ├── transfer_erasure.go  # Reed-Solomon erasure coding (stripe-based, auto-enable on Direct WAN)
 │   ├── transfer_resume.go   # Checkpoint-based resume (bitfield of received chunks, .shurli-ckpt files)
@@ -184,10 +208,12 @@ Shurli/
 │   │   ├── types.go            # JSON request/response types (StatusResponse, PingRequest, etc.)
 │   │   ├── server.go           # Unix socket HTTP server, cookie auth, proxy tracking
 │   │   ├── handlers.go         # HTTP handlers, format negotiation (JSON + text)
+│   │   ├── handlers_grants.go  # Grant-related daemon API handlers
+│   │   ├── handlers_notify.go  # Notification daemon API handlers
+│   │   ├── handlers_plugin.go  # Plugin daemon API handlers
 │   │   ├── middleware.go       # HTTP instrumentation (request timing, path sanitization)
 │   │   ├── client.go           # Client library for CLI → daemon communication
-│   │   ├── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
-│   │   └── daemon_test.go      # Tests (auth, handlers, lifecycle, integration)
+│   │   └── errors.go           # Sentinel errors (ErrDaemonAlreadyRunning, etc.)
 │   ├── identity/            # Ed25519 identity management (shared by daemon + relay modes)
 │   │   ├── identity.go      # CheckKeyFilePermissions, LoadOrCreateIdentity, PeerIDFromKeyFile
 │   │   ├── seed.go          # BIP39 generation, HKDF key derivation, unified seed architecture
@@ -265,22 +291,31 @@ Shurli/
 │   │   └── bitset.go        # Append-only bit array operations
 │   ├── termcolor/           # Minimal ANSI terminal colors (replaces fatih/color)
 │   │   └── color.go         # Green, Red, Yellow, Faint - respects NO_COLOR
+│   ├── platform/            # Platform-specific helpers
+│   │   ├── umask_unix.go     # File permission umask (Unix)
+│   │   └── umask_windows.go  # File permission umask (Windows stub)
 │   ├── validate/            # Input validation helpers
 │   │   ├── service.go        # ServiceName() - DNS-label format for protocol IDs
 │   │   ├── network.go        # Network address validation (multiaddr, IP, port)
+│   │   ├── password.go       # Password strength validation
+│   │   ├── display.go        # SanitizeForDisplay() - user-facing string sanitization
 │   │   ├── relay_message.go  # SanitizeRelayMessage() - URL/email strip, ASCII whitelist
 │   │   └── errors.go         # Sentinel errors
 │   └── watchdog/            # Health monitoring + systemd integration
 │       └── watchdog.go      # Health check loop, sd_notify (Ready/Watchdog/Stopping)
 │
 ├── deploy/                  # Service management files
+│   ├── README.md               # Deployment guide
 │   ├── shurli-daemon.service   # systemd unit for daemon (Linux)
 │   ├── shurli-relay.service    # systemd unit for relay server (Linux)
 │   └── com.shurli.daemon.plist # launchd plist for daemon (macOS)
 │
 ├── tools/                   # Dev and deployment tools
+│   ├── install.sh              # One-line installer (curl get.shurli.io | sh)
+│   ├── install-go.sh           # Go toolchain installer for relay setup
 │   ├── relay-setup.sh          # Relay VPS deploy/verify/uninstall script
-│   └── sync-docs/              # Hugo doc sync pipeline
+│   ├── sync-docs/              # Hugo doc sync pipeline
+│   └── importcheck/            # Import boundary checker (pkg/ must not import internal/)
 │
 ├── configs/                 # Sample configuration files
 │   ├── shurli.sample.yaml
@@ -289,12 +324,15 @@ Shurli/
 │
 ├── docs/                    # Project documentation
 │   ├── ARCHITECTURE.md      # This file
+│   ├── COMMANDS.md          # CLI command reference
 │   ├── DAEMON-API.md        # Daemon API reference
 │   ├── ENGINEERING-JOURNAL.md # Phase-by-phase engineering decisions
 │   ├── MONITORING.md        # Prometheus + Grafana monitoring guide
 │   ├── NETWORK-TOOLS.md     # Network diagnostic tools guide
-│   ├── ROADMAP.md
-│   ├── TESTING.md
+│   ├── RELAY-SETUP.md       # Relay server setup guide
+│   ├── ROADMAP.md           # Development roadmap
+│   ├── TESTING.md           # Test strategy and coverage
+│   ├── TROUBLESHOOTING.md   # Common issues and fixes
 │   ├── engineering-journal/ # Detailed per-phase journal entries
 │   └── faq/               # FAQ sub-pages (comparisons, security, relay, design, deep dives)
 │

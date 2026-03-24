@@ -4,34 +4,44 @@ Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.0
 
 ## 1. Initial VPS Setup
 
-SSH into your fresh VPS and install git:
+SSH into your fresh VPS and run the install script:
 
 ```bash
 ssh root@YOUR_VPS_IP
+
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+Choose **"Relay server"** when prompted. The script handles everything: downloads the binary, verifies checksums, creates a secure service user, configures firewall, installs systemd service, and starts the relay.
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
+
+<details>
+<summary>Alternative: clone repo and run setup script manually</summary>
+
+```bash
 apt update && apt upgrade -y
 apt install -y git ufw
 
-# Enable firewall with SSH access
 ufw allow OpenSSH
 ufw default deny incoming
 ufw default allow outgoing
 ufw enable
-```
 
-### Clone the repo
-
-```bash
 git clone https://github.com/shurlinet/shurli.git
 cd shurli
-```
-
-### Run the setup script
-
-The script detects that you're root and walks you through creating a secure service user:
-
-```bash
 bash tools/relay-setup.sh
 ```
+</details>
+
+### What the setup does
 
 It will:
 1. Ask you to **select an existing user** or **create a new one**
