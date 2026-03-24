@@ -203,8 +203,12 @@ jobs:
             NOTES="${NOTES}**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}\n"
           fi
 
-          # Write to file (avoids shell escaping issues with gh)
-          printf '%b' "$NOTES" > /tmp/release-notes.md
+          # Prepend human-written summary if RELEASE_NOTES.md exists in repo
+          if [ -f RELEASE_NOTES.md ]; then
+            { cat RELEASE_NOTES.md; printf '\n---\n\n'; printf '%b' "$NOTES"; } > /tmp/release-notes.md
+          else
+            printf '%b' "$NOTES" > /tmp/release-notes.md
+          fi
 
       - name: Create GitHub Release
         env:
