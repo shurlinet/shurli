@@ -384,9 +384,80 @@
 }
 
 /* ============================================================ */
-/* Install section                                               */
+/* Quickstart install block (Homebrew-style, front and center)   */
 /* ============================================================ */
 
+.shurli-quickstart {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.shurli-quickstart-command {
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.shurli-quickstart-command pre {
+  font-size: 1.1rem;
+  border: 1px solid rgba(218, 28, 92, 0.3);
+  border-radius: 8px;
+}
+
+:is(.dark .shurli-quickstart-command pre) {
+  border-color: rgba(251, 176, 64, 0.3);
+}
+
+.shurli-quickstart .hextra-code-copy-btn-container,
+.shurli-quickstart-bottom .hextra-code-copy-btn-container {
+  opacity: 1 !important;
+}
+
+.shurli-quickstart-or {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #4b5563;
+  text-align: center;
+  margin: 0.5rem 0;
+}
+
+:is(.dark .shurli-quickstart-or) {
+  color: #d1d5db;
+}
+
+.shurli-quickstart-alt {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.shurli-quickstart-alt pre {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.shurli-quickstart-note {
+  font-size: 0.9rem;
+  color: #4b5563;
+  margin-top: 0.75rem;
+  font-weight: 500;
+}
+
+:is(.dark .shurli-quickstart-note) {
+  color: #d1d5db;
+}
+
+.shurli-quickstart-bottom {
+  margin-bottom: 2.5rem;
+  padding-bottom: 2.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+:is(.dark .shurli-quickstart-bottom) {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Legacy (keep for build-from-source tab in docs) */
 .shurli-install-container {
   width: 100%;
   max-width: 640px;

@@ -1322,7 +1322,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 - [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev/next-iteration` (see deployment note below)
 - [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS provider configured, CNAME deployed, site live *(2026-02-20)*
 - [x] DNS managed via DNS provider - A/AAAA records → GitHub Pages, CDN + DDoS protection enabled, SSL mode "Full" *(2026-02-20)*
-- [ ] CNAME `get.shurli.io` → serves install script
+- [x] CNAME `get.shurli.io` → serves install script *(2026-03-24, DNS redirect → shurli.io/install → tools/install.sh)*
 - [x] Landing page - hero section, feature grid (NAT traversal, single binary, SSH trust, 60s pairing, TCP proxy, self-healing) *(Batch G)*
 - [x] Existing docs rendered as site pages - `tools/sync-docs` transforms ARCHITECTURE, FAQ, TESTING, ROADMAP, DAEMON-API, NETWORK-TOOLS, ENGINEERING-JOURNAL into Hugo-ready content *(Batch G)*
 - [x] Custom blog listing template - image cards with title overlay, gradient, responsive grid *(post-Batch G)*
@@ -1403,10 +1403,10 @@ Deliverables:
 
 **Package Managers & Binaries**:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) - publish to GitHub Releases + GitLab Releases
-- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
+- [x] GitHub Actions workflow: on tag push, build binaries for Linux/macOS (amd64 + arm64) *(2026-03-24, release.yml with .tar.gz archives)*
 - [ ] Publish to GitHub Releases with Ed25519-signed checksums (release key in repo)
 - [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
-- [ ] One-line install script: `curl -sSL get.shurli.io | sh` - fetches `releases/latest.json`, detects OS/arch, downloads binary (GitHub → GitLab → IPFS fallback), verifies checksum, installs to `~/.local/bin` or `/usr/local/bin`
+- [x] One-line install script: `curl -sSL get.shurli.io | sh` - detects OS/arch, downloads archive from GitHub Releases, verifies SHA256 checksum, installs to `/usr/local/bin`, walks through peer/relay setup *(2026-03-24)*
 - [ ] APT repository for Debian/Ubuntu
 - [ ] AUR package for Arch Linux
 - [ ] Docker image + `docker-compose.yml` for containerized deployment
