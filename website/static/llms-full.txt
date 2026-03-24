@@ -867,6 +867,7 @@ There are three ways to authorize peers:
 shurli auth add <peer-id> --comment "label"
 shurli auth list
 shurli auth remove <peer-id>
+shurli auth set-attr <peer-id> <key> <value>  # Set peer attribute (role, group, verified, bandwidth_budget)
 ```
 
 **2. Invite/Join flow - zero-touch mutual authorization**
@@ -1918,7 +1919,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 
 **Plugin Policy**: `PluginPolicy` enforces transport restrictions on file transfer. Default: `TransportLAN | TransportDirect | TransportRelay`. Relay transport requires an active time-limited grant (issued via `shurli auth grant <peer-id> --duration 1h`). The grant is verified per-stream via the binary grant header (see [Token Presentation](#token-presentation-stream-level)). Per-plugin peer allow/deny lists. Applied before any transfer operation.
 
-**DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer. All rejections are silent. All thresholds configurable.
+**DDoS Defense** (7 layers): Browse rate limit (10/min/peer), global inbound rate (30/min), per-peer queue depth (10 max), failure backoff (3 fails = 60s block), min speed enforcement (10 KB/s for 30s), temp file budget, bandwidth budget per peer (configurable per-peer via `shurli auth set-attr <peer> bandwidth_budget <value>`, e.g. `unlimited`, `500MB`, `1GB`; LAN peers exempt; priority: LAN > per-peer attr > config > default 100MB/hr). All rejections are silent. All thresholds configurable.
 
 **Queue Persistence**: Outbound queue persisted with HMAC-SHA256 integrity. 24h TTL, 1000 entry limit, 0600 permissions, atomic writes. Survives daemon restarts. Per-peer outbound limit: 100 queued per peer.
 
