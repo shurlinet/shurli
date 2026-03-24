@@ -185,6 +185,21 @@ func (ts *TransferService) sendParallel(
 		ws.SetDeadline(time.Now().Add(transferStreamDeadline))
 	}
 
+	// D1 fix: compose cancel func to reset workers AND preserve control stream reset.
+	// The caller (SendFile) already set cancelFunc to s.Reset() for the control stream.
+	// We must not drop that - capture it and call both on cancel.
+	progress.mu.Lock()
+	prevCancel := progress.cancelFunc
+	progress.mu.Unlock()
+	progress.setCancelFunc(func() {
+		if prevCancel != nil {
+			prevCancel() // reset control stream
+		}
+		for _, ws := range workers {
+			ws.Reset() // reset worker streams
+		}
+	})
+
 	var wg sync.WaitGroup
 	var firstErr atomic.Value
 
@@ -273,10 +288,26 @@ type parallelSession struct {
 	corrupted    []int
 	nextWorkerID int32 // atomically incremented to assign stream indices to workers
 
-	// done is closed when receiveChunked completes.
+	// D1 fix: track attached worker streams so cancel can reset them.
+	workerStreams []network.Stream
+
+	// done is closed when receiveParallel completes or cancel fires.
+	// Worker streams check this to exit their read loops.
 	done chan struct{}
 	// chunks receives verified chunk data from any stream.
 	chunks chan parallelChunk
+}
+
+// resetWorkerStreams resets all attached worker streams to unblock
+// any goroutines stuck in readChunkFrame after cancel or completion.
+func (s *parallelSession) resetWorkerStreams() {
+	s.mu.Lock()
+	streams := s.workerStreams
+	s.workerStreams = nil
+	s.mu.Unlock()
+	for _, ws := range streams {
+		ws.Reset()
+	}
 }
 
 // parallelChunk is a verified chunk delivered from any stream.
@@ -338,6 +369,11 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 	// Assign a stream index (workers start at 1, control is 0).
 	streamIdx := int(atomic.AddInt32(&session.nextWorkerID, 1))
 
+	// D1 fix: register this worker stream so cancel can reset it.
+	session.mu.Lock()
+	session.workerStreams = append(session.workerStreams, s)
+	session.mu.Unlock()
+
 	slog.Debug("file-transfer: worker stream attached", "peer", short, "stream", streamIdx)
 
 	// Read chunks and deliver to session.
@@ -356,11 +392,17 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 			return // done signal (shouldn't happen on workers, but handle gracefully)
 		}
 
-		session.chunks <- parallelChunk{
+		// Use select to avoid blocking forever if receiveParallel has returned
+		// and the chunks channel is full. Without this, the worker goroutine leaks.
+		select {
+		case session.chunks <- parallelChunk{
 			index:       index,
 			data:        wireData,
 			isParity:    index >= session.manifest.ChunkCount,
 			streamIndex: streamIdx,
+		}:
+		case <-session.done:
+			return
 		}
 	}
 }
@@ -485,6 +527,17 @@ func (ts *TransferService) receiveParallel(
 		return nil
 	}
 
+	// Ensure worker cleanup happens on ALL exit paths (success, error, cancel).
+	// sync.Once prevents double-close of session.done.
+	var cleanupOnce sync.Once
+	cleanupWorkers := func() {
+		cleanupOnce.Do(func() {
+			close(session.done)
+			session.resetWorkerStreams()
+		})
+	}
+	defer cleanupWorkers()
+
 	// Read from control stream + parallel chunk channel concurrently.
 	// The control goroutine reads until it gets the done signal (index == -1)
 	// or an error. It does not count frames to avoid racing with workers
@@ -519,7 +572,7 @@ func (ts *TransferService) receiveParallel(
 				break
 			}
 			if err := processChunk(chunk.index, chunk.data, chunk.streamIndex); err != nil {
-				close(session.done)
+				cleanupWorkers()
 				<-controlDone
 				return err
 			}
@@ -530,7 +583,7 @@ func (ts *TransferService) receiveParallel(
 		case err := <-controlDone:
 			// Control stream finished (got done signal or error).
 			if err != nil {
-				close(session.done)
+				cleanupWorkers()
 				return err
 			}
 			controlFinished = true
@@ -548,9 +601,6 @@ func (ts *TransferService) receiveParallel(
 			return err
 		}
 	}
-
-	// Close the session so workers exit.
-	close(session.done)
 
 	// Check for missing chunks.
 	session.mu.Lock()

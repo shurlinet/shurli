@@ -963,6 +963,8 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 // These can cause terminal injection (OSC 52 clipboard RCE), AI prompt injection
 // (ASCII smuggling via Unicode Tags), or extension spoofing (BiDi RLO).
 // See: CVE-2024-50349, CVE-2022-45872, CVE-2021-42574, OWASP LLM01:2025.
+// NOTE: isUnsafeDisplayRune in internal/validate/display.go mirrors this logic
+// for terminal display sanitization. Keep both in sync when adding new ranges.
 func isDangerousRune(r rune) bool {
 	// C0 control chars (U+0000-U+001F) - includes ESC (0x1b).
 	if r <= 0x1F {
@@ -1594,9 +1596,6 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		// Peek the first byte to detect parallel worker streams.
 		// Worker streams start with msgWorkerHello and are ancillary to an
 		// already-accepted control stream, so they skip all normal checks.
-		// Peek the first byte to detect parallel worker streams.
-		// Worker streams start with msgWorkerHello and are ancillary to an
-		// already-accepted control stream, so they skip all normal checks.
 		br := bufio.NewReaderSize(s, 4096)
 		firstByte, peekErr := br.Peek(1)
 		if peekErr == nil && firstByte[0] == msgWorkerHello {
@@ -1898,8 +1897,6 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
-		// D1 fix: register stream reset so CancelTransfer can stop this receive.
-		progress.setCancelFunc(func() { s.Reset() })
 		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 		// Set up parallel receive session so worker streams can deliver chunks.
@@ -1964,6 +1961,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		if hasErasure && manifest.ParityCount > 0 {
 			session.parityData = make(map[int][]byte, manifest.ParityCount)
 		}
+
+		// D1 fix: register cancel func that resets control + all worker streams.
+		// Set after session creation so workers attached later are included.
+		progress.setCancelFunc(func() {
+			s.Reset()
+			session.resetWorkerStreams()
+		})
 
 		ts.registerParallelSession(manifest.RootHash, session)
 
@@ -2041,293 +2045,6 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			})
 		}
 	}
-}
-
-// receiveChunked reads chunks, verifies each hash, and assembles the file.
-// Supports both fresh transfers and resume from a checkpoint.
-// Chunks may arrive out of order; writes use WriteAt with precomputed offsets.
-// On interruption, a checkpoint is saved for later resume.
-func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, progress *TransferProgress, ckpt *transferCheckpoint) error {
-	offsets := buildOffsetTable(m.ChunkSizes)
-
-	var tmpPath string
-	var tmpFile *os.File
-	var have *bitfield
-	var transferErr error
-
-	if ckpt != nil {
-		// Resume from checkpoint.
-		tmpPath = ckpt.tmpPath
-		have = ckpt.have
-		var err error
-		tmpFile, err = os.OpenFile(tmpPath, os.O_WRONLY, 0600)
-		if err != nil {
-			// Tmp file gone despite earlier stat check (race). Start fresh.
-			ckpt = nil
-		}
-	}
-
-	if ckpt == nil {
-		// Fresh transfer.
-		var err error
-		tmpPath, tmpFile, err = ts.createTempFile(m.Filename)
-		if err != nil {
-			return fmt.Errorf("create temp file: %w", err)
-		}
-		have = newBitfield(m.ChunkCount)
-
-		// Pre-allocate file to full size for sparse writes.
-		if err := tmpFile.Truncate(m.FileSize); err != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-			return fmt.Errorf("pre-allocate file: %w", err)
-		}
-	}
-
-	// On exit: save checkpoint on error, clean up on success.
-	defer func() {
-		tmpFile.Close()
-		if transferErr != nil && have.count() > 0 {
-			// Save checkpoint so we can resume later.
-			cp := &transferCheckpoint{
-				manifest: m,
-				have:     have,
-				tmpPath:  tmpPath,
-			}
-			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
-				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
-			} else {
-				slog.Info("file-transfer: checkpoint saved",
-					"file", m.Filename,
-					"have", have.count(), "total", m.ChunkCount)
-			}
-		} else if transferErr != nil {
-			// Error before any chunks received. Clean up temp file.
-			os.Remove(tmpPath)
-		} else {
-			// Success. Temp file already renamed; remove checkpoint.
-			removeCheckpoint(ts.receiveDir, m.RootHash)
-		}
-	}()
-
-	compressed := m.Flags&flagCompressed != 0
-	hasErasure := m.Flags&flagErasureCoded != 0
-	totalExpected := m.ChunkCount + m.ParityCount // data + parity frames on wire
-
-	// Parity chunk storage (in memory, not written to file).
-	var parityData map[int][]byte
-	if hasErasure && m.ParityCount > 0 {
-		parityData = make(map[int][]byte, m.ParityCount)
-	}
-
-	// Track corrupted data chunks (for RS reconstruction).
-	var corrupted []int
-
-	// Seed progress with already-received data from checkpoint.
-	var totalWritten int64
-	if have.count() > 0 {
-		for i := 0; i < m.ChunkCount; i++ {
-			if have.has(i) {
-				totalWritten += int64(m.ChunkSizes[i])
-			}
-		}
-		progress.updateChunks(totalWritten, have.count())
-	}
-
-	// Minimum speed enforcement state.
-	var speedCheckStart time.Time
-	var speedCheckBytes int64
-	speedWindow := time.Duration(ts.minSpeedSeconds) * time.Second
-	minBytes := int64(ts.minSpeedBytes) * int64(ts.minSpeedSeconds) // total bytes required per window
-
-	// Receive data + parity chunks.
-	// Compute remaining frames once: live have.count() changes each iteration.
-	framesRemaining := totalExpected - have.count()
-	framesRead := 0
-	for framesRead < framesRemaining {
-		index, wireData, err := readChunkFrame(r)
-		if err != nil {
-			transferErr = fmt.Errorf("read chunk: %w", err)
-			return transferErr
-		}
-		if index == -1 {
-			break // done signal
-		}
-		progress.addWireBytes(int64(len(wireData)))
-
-		// Minimum speed check (starts after first chunk received).
-		if ts.minSpeedBytes > 0 && speedWindow > 0 {
-			now := time.Now()
-			if speedCheckStart.IsZero() {
-				speedCheckStart = now
-				speedCheckBytes = int64(len(wireData))
-			} else {
-				speedCheckBytes += int64(len(wireData))
-				elapsed := now.Sub(speedCheckStart)
-				if elapsed >= speedWindow {
-					if speedCheckBytes < minBytes {
-						transferErr = fmt.Errorf("transfer too slow: %d bytes in %s (min %d bytes/s)",
-							speedCheckBytes, elapsed.Truncate(time.Second), ts.minSpeedBytes)
-						return transferErr
-					}
-					// Reset window.
-					speedCheckStart = now
-					speedCheckBytes = 0
-				}
-			}
-		}
-
-		// Parity chunk (index >= ChunkCount).
-		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
-			parityIdx := index - m.ChunkCount
-			hash := blake3Sum(wireData)
-			if hash != m.ParityHashes[parityIdx] {
-				slog.Warn("file-transfer: parity chunk hash mismatch, skipping",
-					"index", parityIdx)
-			} else {
-				parityData[parityIdx] = wireData
-			}
-			framesRead++
-			continue
-		}
-
-		// Validate data chunk index bounds.
-		if index < 0 || index >= m.ChunkCount {
-			transferErr = fmt.Errorf("chunk index out of range: %d", index)
-			return transferErr
-		}
-		if have.has(index) {
-			framesRead++
-			continue // duplicate, skip
-		}
-
-		// Decompress if needed.
-		chunkData := wireData
-		if compressed {
-			maxDecomp := len(wireData) * maxDecompressRatio
-			if maxDecomp > maxDecompressedChunk {
-				maxDecomp = maxDecompressedChunk
-			}
-			decompressed, decErr := decompressChunk(wireData, maxDecomp)
-			if decErr != nil {
-				chunkData = wireData
-			} else {
-				chunkData = decompressed
-			}
-		}
-
-		// Verify chunk hash BEFORE writing to disk.
-		hash := blake3Hash(chunkData)
-		if hash != m.ChunkHashes[index] {
-			if hasErasure {
-				// With erasure: note corruption, attempt RS reconstruction later.
-				corrupted = append(corrupted, index)
-				framesRead++
-				continue
-			}
-			transferErr = fmt.Errorf("chunk %d hash mismatch: corrupted", index)
-			return transferErr
-		}
-
-		// Verify size matches manifest.
-		if uint32(len(chunkData)) != m.ChunkSizes[index] {
-			transferErr = fmt.Errorf("chunk %d size mismatch: got %d, expected %d",
-				index, len(chunkData), m.ChunkSizes[index])
-			return transferErr
-		}
-
-		// Re-check disk space periodically (every 64 chunks).
-		if framesRead%64 == 0 && framesRead > 0 {
-			remaining := m.FileSize - totalWritten
-			if err := ts.checkDiskSpace(remaining); err != nil {
-				transferErr = fmt.Errorf("disk space check at chunk %d: %w", index, err)
-				return transferErr
-			}
-		}
-
-		// Write at correct offset (sparse write).
-		if _, err := tmpFile.WriteAt(chunkData, offsets[index]); err != nil {
-			transferErr = fmt.Errorf("write chunk %d at offset %d: %w", index, offsets[index], err)
-			return transferErr
-		}
-
-		have.set(index)
-		framesRead++
-		totalWritten += int64(len(chunkData))
-		progress.updateChunks(totalWritten, have.count())
-
-		// Log progress milestones at 25%, 50%, 75%.
-		if m.FileSize > 0 {
-			pct := int(totalWritten * 100 / m.FileSize)
-			prevPct := int((totalWritten - int64(len(chunkData))) * 100 / m.FileSize)
-			peerID := progress.PeerID
-			switch {
-			case pct >= 75 && prevPct < 75:
-				ts.logEvent(EventLogProgress75, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			case pct >= 50 && prevPct < 50:
-				ts.logEvent(EventLogProgress50, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			case pct >= 25 && prevPct < 25:
-				ts.logEvent(EventLogProgress25, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			}
-		}
-	}
-
-	// Read the done message (if not already consumed by the loop).
-	if framesRead > 0 {
-		doneIdx, _, err := readChunkFrame(r)
-		if err != nil {
-			transferErr = fmt.Errorf("read done signal: %w", err)
-			return transferErr
-		}
-		if doneIdx != -1 {
-			transferErr = fmt.Errorf("expected done signal, got chunk %d", doneIdx)
-			return transferErr
-		}
-	}
-
-	// RS reconstruction for corrupted/missing data chunks.
-	if len(corrupted) > 0 && hasErasure {
-		slog.Info("file-transfer: attempting RS reconstruction",
-			"corrupted", len(corrupted), "parity_available", len(parityData))
-
-		if err := ts.rsReconstruct(tmpFile, m, offsets, corrupted, parityData); err != nil {
-			transferErr = fmt.Errorf("RS reconstruction: %w", err)
-			return transferErr
-		}
-
-		// Mark reconstructed chunks as received.
-		for _, idx := range corrupted {
-			have.set(idx)
-			totalWritten += int64(m.ChunkSizes[idx])
-		}
-		progress.updateChunks(totalWritten, have.count())
-	} else if have.missing() > 0 {
-		transferErr = fmt.Errorf("transfer incomplete: %d chunks missing", have.missing())
-		return transferErr
-	}
-
-	// Flush to disk.
-	if err := tmpFile.Sync(); err != nil {
-		transferErr = fmt.Errorf("sync file: %w", err)
-		return transferErr
-	}
-	tmpFile.Close()
-
-	// Atomic rename to final path.
-	finalPath, err := ts.finalPath(m.Filename)
-	if err != nil {
-		transferErr = fmt.Errorf("determine final path: %w", err)
-		return transferErr
-	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		transferErr = fmt.Errorf("rename temp to final: %w", err)
-		return transferErr
-	}
-
-	// Set file permissions.
-	os.Chmod(finalPath, 0644)
-
-	return nil
 }
 
 // blake3Hash computes BLAKE3-256 of data.
@@ -3554,8 +3271,6 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		peerKey, "download", manifest.ChunkCount, compressed)
 	progress.setStatus("active")
-	// D1 fix: register stream reset so CancelTransfer can stop the receive goroutine.
-	progress.setCancelFunc(func() { s.Reset() })
 	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 	// Receive chunks (reuses the parallel receive path).
@@ -3607,6 +3322,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		if hasErasure && manifest.ParityCount > 0 {
 			session.parityData = make(map[int][]byte, manifest.ParityCount)
 		}
+
+		// D1 fix: register cancel func that resets control + all worker streams.
+		progress.setCancelFunc(func() {
+			s.Reset()
+			session.resetWorkerStreams()
+		})
 
 		ts.registerParallelSession(manifest.RootHash, session)
 		recvErr := ts.receiveParallel(rw, session, nil)
