@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -24,18 +25,59 @@ type PeerEntry struct {
 	Role      string    // "admin" or "member" (empty = member, backward compatible)
 }
 
+// maxCommentLen is the maximum length for a peer comment in authorized_keys.
+const maxCommentLen = 512
+
 // sanitizeComment strips characters that could corrupt the authorized_keys
-// file format: newlines (line injection), carriage returns, and null bytes.
+// file format or inject terminal escape sequences: all C0 control characters
+// (U+0000-U+001F, includes NUL, ESC, newlines, CR) and C1 control characters
+// (U+007F-U+009F). Length is capped at maxCommentLen bytes.
 func sanitizeComment(s string) string {
+	s = truncateUTF8(s, maxCommentLen)
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if r == '\n' || r == '\r' || r == 0 {
+		if r <= 0x1F || (r >= 0x7F && r <= 0x9F) {
 			continue
 		}
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// maxAttrValueLen is the maximum length for a peer attribute value.
+const maxAttrValueLen = 256
+
+// sanitizeAttrValue strips characters that could corrupt the authorized_keys
+// file format or inject log entries. Attribute values must not contain
+// control characters, spaces (they delimit fields), equals signs (they
+// delimit key=value), or hash (starts comments). Length is capped at
+// maxAttrValueLen bytes.
+func sanitizeAttrValue(s string) string {
+	s = truncateUTF8(s, maxAttrValueLen)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r <= 0x1F || (r >= 0x7F && r <= 0x9F) {
+			continue
+		}
+		if r == ' ' || r == '=' || r == '#' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// truncateUTF8 truncates s to at most maxBytes without splitting a multi-byte rune.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // parseLine parses a single authorized_keys line into its components.
@@ -151,7 +193,7 @@ func SetPeerAttr(authKeysPath, peerIDStr, key, value string) error {
 			if value == "" {
 				delete(attrs, key)
 			} else {
-				attrs[key] = value
+				attrs[key] = sanitizeAttrValue(value)
 			}
 			newLines = append(newLines, formatLine(pidStr, attrs, comment))
 		} else {
