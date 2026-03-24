@@ -38,6 +38,80 @@ sudo install -m 755 shurli /usr/local/bin/shurli
 ```
 </details>
 
+<details>
+<summary>Install script options reference</summary>
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--dev` | Install latest dev/pre-release build (default: stable only) |
+| `--version VERSION` | Install a specific version (e.g., `v0.2.2-dev`) |
+| `--method METHOD` | Install method: `download` or `build` (default: interactive prompt) |
+| `--role ROLE` | Setup role: `peer`, `relay`, or `binary` (default: interactive prompt) |
+| `--dir DIR` | Install directory (default: `/usr/local/bin`) |
+| `--no-verify` | Skip SHA256 checksum verification |
+| `--backup` | Back up config without changing anything |
+| `--uninstall` | Uninstall Shurli |
+| `--help`, `-h` | Show help |
+
+### Environment variables
+
+When piping (`curl | sh`), use environment variables instead of flags:
+
+| Variable | Equivalent |
+|----------|------------|
+| `SHURLI_DEV=1` | `--dev` |
+| `SHURLI_VERSION=v0.2.2-dev` | `--version v0.2.2-dev` |
+| `SHURLI_UNINSTALL=1` | `--uninstall` |
+| `SHURLI_BACKUP=1` | `--backup` |
+
+### Examples
+
+```bash
+# Interactive install (prompts for method and role)
+curl -sSL get.shurli.io | sh
+
+# Latest dev build
+curl -sSL get.shurli.io | SHURLI_DEV=1 sh
+
+# Specific version
+curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh
+
+# Non-interactive: download binary, set up as relay
+sh install.sh --method download --role relay
+
+# Non-interactive: download binary, set up as peer
+sh install.sh --method download --role peer
+
+# Back up config only (no install)
+curl -sSL get.shurli.io | SHURLI_BACKUP=1 sh
+
+# Uninstall (interactive: choose keep config, backup, or full removal)
+curl -sSL get.shurli.io | SHURLI_UNINSTALL=1 sh
+```
+
+### What the script does
+
+1. **Detects platform** (OS and architecture: linux/darwin, amd64/arm64)
+2. **Checks for existing install** (offers upgrade, reinstall, or cancel)
+3. **Downloads or builds** (pre-built archive with checksum verification, or isolated build-from-source)
+4. **Installs binary** to `/usr/local/bin` (or `~/.local/bin` without sudo)
+5. **Runs role setup**:
+   - **Peer node**: installs runtime deps, systemd/launchd service, runs `shurli init`
+   - **Relay server**: runs `relay-setup.sh` in prebuilt mode (user creation, firewall, systemd, identity)
+   - **Binary only**: installs binary, prints next steps
+6. **Supports backup/restore**: detects previous backups in `~/.shurli/backups/`, offers to restore
+7. **macOS**: codesigns binary for stable Local Network Privacy identity
+
+### Uninstall options
+
+1. **Keep config and keys** - removes binary and services, preserves identity (can reinstall later)
+2. **Back up then remove** - backs up to `~/.shurli/backups/`, then removes everything
+3. **Complete removal** - permanently deletes config, keys, and identity (requires typing "yes")
+
+</details>
+
 ## 1. Deploy your relay
 
 Follow the [Relay Setup guide](../relay-setup/) to deploy your own relay on any VPS.
