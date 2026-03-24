@@ -206,16 +206,7 @@ jobs:
             NOTES="${NOTES}**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}\n"
           fi
 
-          # Prepend human-written summary if RELEASE_NOTES.md exists in repo.
-          # If missing, add a notice so it's visible on GitHub that notes were skipped.
-          if [ -f RELEASE_NOTES.md ]; then
-            { cat RELEASE_NOTES.md; printf '\n---\n\n'; printf '%b' "$NOTES"; } > /tmp/release-notes.md
-          else
-            {
-              printf '> **Note**: No release summary was written for this version.\n\n'
-              printf '%b' "$NOTES"
-            } > /tmp/release-notes.md
-          fi
+          printf '%b' "$NOTES" > /tmp/release-notes.md
 
       - name: Create GitHub Release
         env:
