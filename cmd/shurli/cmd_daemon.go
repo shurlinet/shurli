@@ -344,6 +344,14 @@ func runDaemonStart(args []string) {
 		ScoreResolver:   scoreResolver,
 	}
 
+	// Wire peer attribute resolver for per-peer settings (bandwidth_budget, etc.).
+	if rt.authKeys != "" {
+		akPath := rt.authKeys
+		pluginProvider.PeerAttrFunc = func(peerID, key string) string {
+			return auth.GetPeerAttr(akPath, peerID, key)
+		}
+	}
+
 	// Wire HKDF-SHA256 key derivation from node identity (Finding 39, 56).
 	// Uses the Ed25519 seed bytes (first 32 bytes of raw private key) as HKDF IKM.
 	// Each (identity, domain) pair produces a unique, stable 32-byte key.

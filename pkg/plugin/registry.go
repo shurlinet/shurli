@@ -196,12 +196,14 @@ func (r *Registry) Register(p Plugin) error {
 	var keyDeriver func(string) []byte
 	var scoreResolver func(peer.ID) int
 	var grantChecker func(peer.ID, string) bool
+	var peerAttrFunc func(string, string) string
 	if r.provider != nil {
 		nameResolver = r.provider.NameResolver
 		peerConnector = r.provider.PeerConnector
 		keyDeriver = r.provider.KeyDeriver
 		scoreResolver = r.provider.ScoreResolver
 		grantChecker = r.provider.GrantChecker
+		peerAttrFunc = r.provider.PeerAttrFunc
 	}
 	var net *p2pnet.Network
 	if r.provider != nil {
@@ -220,6 +222,7 @@ func (r *Registry) Register(p Plugin) error {
 		keyDeriver:     keyDeriver,
 		scoreResolver:  scoreResolver,
 		grantChecker:   grantChecker,
+		peerAttrFunc:   peerAttrFunc,
 	}
 
 	entry := &pluginEntry{

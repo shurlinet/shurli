@@ -204,7 +204,8 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		MinSpeedSeconds:         p.config.MinSpeedSeconds,
 		MaxTempSize:             p.config.MaxTempSize,
 		TempFileExpiry:          tempExpiry,
-		BandwidthBudget:         p.config.BandwidthBudget,
+		BandwidthBudget: p.config.BandwidthBudget,
+		PeerBudgetFunc:  p.makePeerBudgetFunc(),
 		FailureBackoffThreshold: fbThreshold,
 		FailureBackoffWindow:    fbWindow,
 		FailureBackoffBlock:     fbBlock,
@@ -332,6 +333,27 @@ func (p *FileTransferPlugin) Stop() error {
 
 	slog.Info("plugin.filetransfer: stopped")
 	return nil
+}
+
+// makePeerBudgetFunc returns a closure that looks up per-peer bandwidth_budget
+// attributes from authorized_keys. Returns nil if no peer attr resolver is available.
+func (p *FileTransferPlugin) makePeerBudgetFunc() func(string) int64 {
+	if p.ctx == nil {
+		return nil
+	}
+	return func(peerID string) int64 {
+		v := p.ctx.PeerAttr(peerID, "bandwidth_budget")
+		if v == "" {
+			return 0 // use global default
+		}
+		bytes, err := p2pnet.ParseByteSize(v)
+		if err != nil {
+			slog.Warn("plugin.filetransfer: invalid bandwidth_budget attribute",
+				"peer", peerID[:16]+"...", "value", v, "error", err)
+			return 0
+		}
+		return bytes
+	}
 }
 
 // OnNetworkReady is called after bootstrap. Requeues persisted transfers.

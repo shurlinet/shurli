@@ -167,6 +167,7 @@ func printUsage() {
 	fmt.Println("  auth list                              List authorized peers")
 	fmt.Println("  auth remove <peer-id>                  Revoke a peer's access")
 	fmt.Println("  auth validate [file]                   Validate authorized_keys format")
+	fmt.Println("  auth set-attr <peer> <key> <value>     Set peer attribute (e.g. bandwidth_budget 1GB)")
 	fmt.Println()
 	fmt.Println("Configuration:")
 	fmt.Println("  init                                   Set up shurli configuration")

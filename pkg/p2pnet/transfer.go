@@ -247,17 +247,26 @@ func newBandwidthTracker(budget int64) *bandwidthTracker {
 }
 
 // check returns true if the peer has budget remaining for the given size.
-func (bt *bandwidthTracker) check(peerID string, size int64) bool {
+// peerBudget overrides the global budget: -1 = unlimited, 0 = use global, >0 = per-peer limit.
+func (bt *bandwidthTracker) check(peerID string, size int64, peerBudget int64) bool {
+	if peerBudget < 0 {
+		return true // unlimited
+	}
+
+	budget := bt.budget
+	if peerBudget > 0 {
+		budget = peerBudget
+	}
+
 	bt.mu.Lock()
 	defer bt.mu.Unlock()
 
 	now := time.Now()
 	rec, ok := bt.peers[peerID]
 	if !ok || now.After(rec.windowEnd) {
-		// New window. Check if the single transfer fits.
-		return size <= bt.budget
+		return size <= budget
 	}
-	return (rec.bytes + size) <= bt.budget
+	return (rec.bytes + size) <= budget
 }
 
 // record adds bytes to a peer's usage in the current hour window.
@@ -287,6 +296,50 @@ func (bt *bandwidthTracker) cleanup() {
 		if now.After(rec.windowEnd) {
 			delete(bt.peers, k)
 		}
+	}
+}
+
+// ParseByteSize parses a human-readable byte size string into bytes.
+// Supports: "unlimited" (returns -1), plain numbers, and suffixes
+// KB, MB, GB, TB (case-insensitive, binary: 1MB = 1048576).
+func ParseByteSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "unlimited") {
+		return -1, nil
+	}
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+
+	i := 0
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
+		i++
+	}
+	numStr := s[:i]
+	suffix := strings.TrimSpace(s[i:])
+
+	if numStr == "" {
+		return 0, fmt.Errorf("no numeric value in %q", s)
+	}
+
+	var num int64
+	if _, err := fmt.Sscanf(numStr, "%d", &num); err != nil {
+		return 0, fmt.Errorf("invalid number %q: %w", numStr, err)
+	}
+
+	switch strings.ToUpper(suffix) {
+	case "", "B":
+		return num, nil
+	case "KB", "K":
+		return num * 1024, nil
+	case "MB", "M":
+		return num * 1024 * 1024, nil
+	case "GB", "G":
+		return num * 1024 * 1024 * 1024, nil
+	case "TB", "T":
+		return num * 1024 * 1024 * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("unknown suffix %q", suffix)
 	}
 }
 
@@ -482,6 +535,11 @@ type TransferConfig struct {
 	TempFileExpiry   time.Duration // auto-expire .tmp files older than this (default: 1h, 0 = never)
 	BandwidthBudget  int64 // max bytes per peer per hour (default: 100MB, 0 = unlimited)
 
+	// PeerBudgetFunc returns the per-peer bandwidth budget override for a peer.
+	// Returns: -1 = unlimited, 0 = use global default, >0 = bytes per hour.
+	// If nil, global BandwidthBudget is used for all peers.
+	PeerBudgetFunc func(peerID string) int64
+
 	// Failure backoff.
 	FailureBackoffThreshold int           // fails within window to trigger block (default: 3)
 	FailureBackoffWindow    time.Duration // failure counting window (default: 5m)
@@ -577,6 +635,7 @@ type TransferService struct {
 	globalRateLimiter *transferRateLimiter // single-key rate limiter for all inbound
 	failureTracker    *failureTracker      // per-peer failure backoff
 	bandwidthTracker  *bandwidthTracker    // per-peer hourly bandwidth budget
+	peerBudgetFunc    func(string) int64   // per-peer budget override lookup
 	maxQueuedPerPeer  int                  // max pending+active per peer (0 = no limit)
 	minSpeedBytes     int                  // minimum transfer speed bytes/sec
 	minSpeedSeconds   int                  // speed check window
@@ -766,6 +825,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	if bwBudget > 0 {
 		ts.bandwidthTracker = newBandwidthTracker(bwBudget)
 	}
+	ts.peerBudgetFunc = cfg.PeerBudgetFunc
 
 	// Queue persistence.
 	ts.queueFile = cfg.QueueFile
@@ -1724,7 +1784,11 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 		// Per-peer bandwidth budget check (WAN only - LAN peers are local, no throttle).
 		transport := ClassifyTransport(s)
-		if transport != TransportLAN && ts.bandwidthTracker != nil && !ts.bandwidthTracker.check(peerKey, manifest.FileSize) {
+		var peerBudget int64
+		if ts.peerBudgetFunc != nil {
+			peerBudget = ts.peerBudgetFunc(peerKey)
+		}
+		if transport != TransportLAN && ts.bandwidthTracker != nil && !ts.bandwidthTracker.check(peerKey, manifest.FileSize, peerBudget) {
 			slog.Warn("file-transfer: bandwidth budget exceeded",
 				"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
 			writeRejectWithReason(s, RejectReasonBusy)

@@ -219,6 +219,7 @@ type PluginContext struct {
 	keyDeriver     func(domain string) []byte          // HKDF-SHA256 key derivation
 	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
 	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
+	peerAttrFunc   func(string, string) string        // peer attribute lookup (peerID, key) -> value
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -323,6 +324,15 @@ func (c *PluginContext) HasGrant(peerID peer.ID, service string) bool {
 	return c.grantChecker(peerID, service)
 }
 
+// PeerAttr returns the value of a peer attribute from authorized_keys.
+// Returns empty string if no resolver is configured or attribute not found.
+func (c *PluginContext) PeerAttr(peerID string, key string) string {
+	if c.peerAttrFunc == nil {
+		return ""
+	}
+	return c.peerAttrFunc(peerID, key)
+}
+
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
 // Re-export when the reputation pipeline or metrics integration is built.
 // These were exported but had zero callers across the entire codebase.
@@ -384,6 +394,7 @@ type ContextProvider struct {
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
 	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
+	PeerAttrFunc    func(peerID string, key string) string     // peer attribute lookup from authorized_keys
 }
 
 // --- Info ---
