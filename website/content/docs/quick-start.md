@@ -84,13 +84,16 @@ curl -sSL get.shurli.io | SHURLI_DEV=1 sh
 # Specific version
 curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh
 
-# Fully non-interactive piped install (relay server)
+# Non-interactive relay server deploy
 curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=relay sh
 
-# Fully non-interactive piped install (peer node)
+# Non-interactive peer node install
 curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=peer sh
 
-# Fully unattended - for AI agents and automation
+# Non-interactive upgrade (replace binary, keep config, restart service)
+curl -sSL get.shurli.io | SHURLI_YES=1 SHURLI_UPGRADE=upgrade SHURLI_METHOD=download sh
+
+# Fully unattended binary install (AI agents and automation)
 curl -sSL get.shurli.io | SHURLI_YES=1 SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=binary sh
 
 # Non-interactive with flags (when running script directly)
