@@ -53,7 +53,7 @@ fetch_latest_version() {
 # Show current installed version (if any)
 current_version() {
     if [ -x "${GO_DIR}/bin/go" ]; then
-        "${GO_DIR}/bin/go" version | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?'
+        "${GO_DIR}/bin/go" version | sed -E 's/.*go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/'
     else
         echo "none"
     fi
@@ -83,14 +83,38 @@ do_install() {
     echo "Installing:  Go ${version}"
     [ "$current" != "none" ] && echo "Replacing:   Go ${current}"
 
-    # Download
+    # Download to a secure temp directory (not predictable /tmp path)
+    local dl_dir
+    dl_dir="$(mktemp -d)"
     echo "Downloading: ${url}"
-    curl -fSL -o "/tmp/${tarball}" "$url"
+    curl -fSL -o "${dl_dir}/${tarball}" "$url"
+
+    # Verify checksum from Go's official SHA256 file
+    echo "Verifying checksum..."
+    local sha_url="https://go.dev/dl/${tarball}.sha256"
+    local expected_sum
+    expected_sum="$(curl -fsSL "$sha_url" 2>/dev/null)" || expected_sum=""
+    if [ -n "$expected_sum" ]; then
+        local actual_sum
+        if command -v sha256sum >/dev/null 2>&1; then
+            actual_sum="$(sha256sum "${dl_dir}/${tarball}" | awk '{print $1}')"
+        elif command -v shasum >/dev/null 2>&1; then
+            actual_sum="$(shasum -a 256 "${dl_dir}/${tarball}" | awk '{print $1}')"
+        fi
+        if [ -n "${actual_sum:-}" ] && [ "$actual_sum" != "$expected_sum" ]; then
+            rm -rf "$dl_dir"
+            echo "Checksum mismatch! Expected: $expected_sum Got: $actual_sum"
+            exit 1
+        fi
+        echo "Checksum verified."
+    else
+        echo "Warning: could not fetch checksum. Skipping verification."
+    fi
 
     # Remove old, extract new
     sudo rm -rf "$GO_DIR"
-    sudo tar -C "$INSTALL_DIR" -xzf "/tmp/${tarball}"
-    rm -f "/tmp/${tarball}"
+    sudo tar -C "$INSTALL_DIR" -xzf "${dl_dir}/${tarball}"
+    rm -rf "$dl_dir"
 
     # Add to PATH if not already there
     detect_profile
