@@ -462,29 +462,25 @@ func PeerComment(authKeysPath string, peerID peer.ID) string {
 
 // GetPeerAttr returns the value of a specific attribute for a peer.
 // Returns empty string if the peer or attribute is not found.
+// Uses string comparison on encoded peer IDs to avoid costly decoding per line.
 func GetPeerAttr(authKeysPath, peerIDStr, key string) string {
+	// Validate the target peer ID once upfront.
+	targetID, err := peer.Decode(peerIDStr)
+	if err != nil {
+		return ""
+	}
+	canonical := targetID.String()
+
 	file, err := os.Open(authKeysPath)
 	if err != nil {
 		return ""
 	}
 	defer file.Close()
 
-	targetID, err := peer.Decode(peerIDStr)
-	if err != nil {
-		return ""
-	}
-
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		pidStr, attrs, _ := parseLine(scanner.Text())
-		if pidStr == "" {
-			continue
-		}
-		pid, err := peer.Decode(pidStr)
-		if err != nil {
-			continue
-		}
-		if pid == targetID {
+		if pidStr == canonical {
 			if attrs == nil {
 				return ""
 			}
