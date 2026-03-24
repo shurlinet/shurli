@@ -33,6 +33,7 @@ import (
 	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
@@ -877,9 +878,9 @@ func (rt *serveRuntime) SetupMOTDClient() {
 	motdClient := relay.NewMOTDClient(func(msg relay.MOTDMessage) {
 		switch msg.Type {
 		case 0x01: // MOTD
-			fmt.Printf("\n[RELAY MOTD] %s\n", msg.Message)
+			fmt.Printf("\n[RELAY MOTD] %s\n", validate.SanitizeForDisplay(msg.Message))
 		case 0x02: // Goodbye
-			fmt.Printf("\n[RELAY GOODBYE] %s\n", msg.Message)
+			fmt.Printf("\n[RELAY GOODBYE] %s\n", validate.SanitizeForDisplay(msg.Message))
 		case 0x03: // Retract
 			fmt.Printf("\n[RELAY] Goodbye retracted\n")
 		}

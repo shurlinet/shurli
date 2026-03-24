@@ -1139,7 +1139,7 @@ func listPeersViaClient(client relay.RelayAdminAPI, stdout io.Writer, wide bool)
 		fmt.Fprintf(stdout, "Connected peers (%d):\n\n", len(connected))
 		for _, p := range connected {
 			pid := formatPeerID(p.PeerID, wide)
-			agent := p.AgentVersion
+			agent := validate.SanitizeForDisplay(p.AgentVersion)
 			if agent == "" {
 				agent = "unknown"
 			}
@@ -1158,7 +1158,7 @@ func listPeersViaClient(client relay.RelayAdminAPI, stdout io.Writer, wide bool)
 
 			if p.Comment != "" {
 				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s  # %s\n",
-					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag, p.Comment)
+					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag, validate.SanitizeForDisplay(p.Comment))
 			} else {
 				fmt.Fprintf(stdout, "  %-*s  %-24s  %-8s %-5s %-39s %6s  %s\n",
 					peerIDWidth(wide), pid, agent, p.Direction, p.Transport, ip, dur, authTag)
@@ -1188,7 +1188,7 @@ func printAuthorizedPeers(stdout io.Writer, peers []relay.AuthorizedPeerInfo, wi
 		}
 		pid := formatPeerID(p.PeerID, wide)
 		if p.Comment != "" {
-			fmt.Fprintf(stdout, "  %s  %s  # %s\n", pid, tags, p.Comment)
+			fmt.Fprintf(stdout, "  %s  %s  # %s\n", pid, tags, validate.SanitizeForDisplay(p.Comment))
 		} else {
 			fmt.Fprintf(stdout, "  %s  %s\n", pid, tags)
 		}
