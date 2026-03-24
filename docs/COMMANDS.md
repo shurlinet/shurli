@@ -34,6 +34,7 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 | `shurli auth list` | List authorized peers |
 | `shurli auth remove <peer-id>` | Revoke a peer |
 | `shurli auth validate` | Validate authorized_keys format |
+| `shurli auth set-attr <peer-id> <key> <value>` | Set peer attribute (role, group, verified, bandwidth_budget) |
 
 ## Configuration & Setup
 
