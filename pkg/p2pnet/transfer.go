@@ -829,14 +829,20 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	}
 
 	// Bandwidth budget per peer (default: 100 MB/hour).
+	// -1 = unlimited globally (but per-peer overrides still apply if PeerBudgetFunc is set).
 	bwBudget := cfg.BandwidthBudget
 	if bwBudget == 0 {
 		bwBudget = 100 * 1024 * 1024
 	}
-	if bwBudget > 0 {
+	ts.peerBudgetFunc = cfg.PeerBudgetFunc
+	if bwBudget > 0 || ts.peerBudgetFunc != nil {
+		if bwBudget < 0 {
+			// Global unlimited, but tracker needed for per-peer overrides.
+			// Use max int64 as global budget (effectively unlimited).
+			bwBudget = 1<<63 - 1
+		}
 		ts.bandwidthTracker = newBandwidthTracker(bwBudget)
 	}
-	ts.peerBudgetFunc = cfg.PeerBudgetFunc
 
 	// Queue persistence.
 	ts.queueFile = cfg.QueueFile
@@ -1795,16 +1801,18 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 		// Per-peer bandwidth budget check (WAN only - LAN peers are local, no throttle).
 		transport := ClassifyTransport(s)
-		var peerBudget int64
-		if ts.peerBudgetFunc != nil {
-			peerBudget = ts.peerBudgetFunc(peerKey)
-		}
-		if transport != TransportLAN && ts.bandwidthTracker != nil && !ts.bandwidthTracker.check(peerKey, manifest.FileSize, peerBudget) {
-			slog.Warn("file-transfer: bandwidth budget exceeded",
-				"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
-			writeRejectWithReason(s, RejectReasonBusy)
-			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "bandwidth budget exceeded", "")
-			return
+		if transport != TransportLAN && ts.bandwidthTracker != nil {
+			var peerBudget int64
+			if ts.peerBudgetFunc != nil {
+				peerBudget = ts.peerBudgetFunc(peerKey)
+			}
+			if !ts.bandwidthTracker.check(peerKey, manifest.FileSize, peerBudget) {
+				slog.Warn("file-transfer: bandwidth budget exceeded",
+					"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
+				writeRejectWithReason(s, RejectReasonBusy)
+				ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "bandwidth budget exceeded", "")
+				return
+			}
 		}
 
 		// Temp file budget check.
