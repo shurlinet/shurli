@@ -63,6 +63,8 @@ When piping (`curl | sh`), use environment variables instead of flags:
 |----------|------------|
 | `SHURLI_DEV=1` | `--dev` |
 | `SHURLI_VERSION=v0.2.2-dev` | `--version v0.2.2-dev` |
+| `SHURLI_METHOD=download` | `--method download` |
+| `SHURLI_ROLE=relay` | `--role relay` |
 | `SHURLI_UNINSTALL=1` | `--uninstall` |
 | `SHURLI_BACKUP=1` | `--backup` |
 
@@ -78,11 +80,14 @@ curl -sSL get.shurli.io | SHURLI_DEV=1 sh
 # Specific version
 curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh
 
-# Non-interactive: download binary, set up as relay
-sh install.sh --method download --role relay
+# Fully non-interactive piped install (relay server)
+curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=relay sh
 
-# Non-interactive: download binary, set up as peer
-sh install.sh --method download --role peer
+# Fully non-interactive piped install (peer node)
+curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=peer sh
+
+# Non-interactive with flags (when running script directly)
+sh install.sh --method download --role relay
 
 # Back up config only (no install)
 curl -sSL get.shurli.io | SHURLI_BACKUP=1 sh
