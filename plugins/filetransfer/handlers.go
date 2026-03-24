@@ -286,7 +286,8 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 			daemon.RespondError(w, http.StatusForbidden, "no shares visible to you on this peer")
 			return
 		}
-		daemon.RespondError(w, http.StatusInternalServerError, fmt.Sprintf("browse failed: %v", err))
+		slog.Warn("plugin.filetransfer: browse failed", "peer", req.Peer, "error", err)
+		daemon.RespondError(w, http.StatusInternalServerError, "browse failed: unexpected error")
 		return
 	}
 
@@ -435,7 +436,8 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 			daemon.RespondError(w, http.StatusForbidden, "download failed: connection reset by remote peer. Check that both peers are online and the share still exists.")
 			return
 		}
-		daemon.RespondError(w, http.StatusInternalServerError, fmt.Sprintf("download failed: %v", err))
+		slog.Warn("plugin.filetransfer: download failed", "peer", req.Peer, "path", req.RemotePath, "error", err)
+		daemon.RespondError(w, http.StatusInternalServerError, "download failed: unexpected error")
 		return
 	}
 
@@ -498,10 +500,11 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// P11 fix: path confinement - reject system paths to prevent file exfiltration.
+	// P11 fix: jailroot path confinement - only allow files within $HOME or /tmp.
+	// A3 audit: replaced blacklist with whitelist model. Everything outside is blocked.
 	cleanPath := filepath.Clean(req.Path)
-	if isForbiddenSystemPath(cleanPath) {
-		daemon.RespondError(w, http.StatusBadRequest, "path confinement: system paths are not allowed for send")
+	if !isAllowedSendPath(cleanPath) {
+		daemon.RespondError(w, http.StatusBadRequest, "path confinement: only files within your home directory or temp directory can be sent")
 		return
 	}
 
@@ -617,7 +620,8 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 
 	events, err := p2pnet.ReadTransferEvents(logPath, max)
 	if err != nil {
-		daemon.RespondError(w, http.StatusInternalServerError, fmt.Sprintf("read transfer log: %v", err))
+		slog.Warn("plugin.filetransfer: read transfer log failed", "path", logPath, "error", err)
+		daemon.RespondError(w, http.StatusInternalServerError, "transfer history unavailable")
 		return
 	}
 	if events == nil {

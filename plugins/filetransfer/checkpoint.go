@@ -99,17 +99,33 @@ func isInsideDir(dir, path string) bool {
 	return resolvedPath == resolvedDir || strings.HasPrefix(resolvedPath, resolvedDir+string(os.PathSeparator))
 }
 
-// isForbiddenSystemPath returns true for paths under system directories that should
-// never be sent via file transfer. Prevents accidental/malicious file exfiltration (P11 fix).
-// L4-3 fix: case-insensitive comparison so /ETC/passwd is blocked on macOS (case-insensitive FS).
-func isForbiddenSystemPath(path string) bool {
-	forbidden := []string{"/etc/", "/var/", "/proc/", "/sys/", "/dev/", "/boot/", "/sbin/", "/usr/sbin/"}
-	clean := strings.ToLower(filepath.Clean(path))
-	for _, prefix := range forbidden {
-		if strings.HasPrefix(clean, prefix) || clean == strings.TrimSuffix(prefix, "/") {
+// isAllowedSendPath returns true only for paths within the user's home directory
+// or the OS temp directory. All other paths are blocked.
+// This is a jailroot model (whitelist, not blacklist): instead of listing forbidden
+// paths, we only allow known-safe roots. Anything outside is rejected.
+// A3 audit fix: replaces isForbiddenSystemPath (blacklist) which missed macOS/Windows paths.
+func isAllowedSendPath(path string) bool {
+	clean := filepath.Clean(path)
+
+	// Allow files in user's home directory.
+	if home, err := os.UserHomeDir(); err == nil {
+		if isInsideDir(home, clean) {
 			return true
 		}
 	}
+
+	// Allow files in OS temp directory (covers /tmp on Linux, /var/folders on macOS).
+	if tmpDir := os.TempDir(); tmpDir != "" {
+		if isInsideDir(tmpDir, clean) {
+			return true
+		}
+	}
+
+	// Explicit /tmp fallback (os.TempDir on macOS returns /var/folders/..., not /tmp).
+	if isInsideDir("/tmp", clean) {
+		return true
+	}
+
 	return false
 }
 
