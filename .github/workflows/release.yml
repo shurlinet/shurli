@@ -144,12 +144,74 @@ jobs:
             echo "title=Shurli $TAG" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          # Find previous tag
+          PREV_TAG="$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)"
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+
+          # Parse conventional commits into sections
+          FEATURES=""
+          FIXES=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            hash="${line%% *}"
+            msg="${line#* }"
+            short="${hash:0:7}"
+
+            case "$msg" in
+              feat:*|feat\(*)
+                clean="${msg#feat: }"
+                clean="${clean#feat(*): }"
+                FEATURES="${FEATURES}- ${clean} (${short})\n"
+                ;;
+              fix:*|fix\(*)
+                clean="${msg#fix: }"
+                clean="${clean#fix(*)!: }"
+                FIXES="${FIXES}- ${clean} (${short})\n"
+                ;;
+              *)
+                OTHER="${OTHER}- ${msg} (${short})\n"
+                ;;
+            esac
+          done < <(git log --oneline "$RANGE" 2>/dev/null)
+
+          # Build notes
+          NOTES=""
+          if [ -n "$FEATURES" ]; then
+            NOTES="${NOTES}## Features\n\n${FEATURES}\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            NOTES="${NOTES}## Bug Fixes\n\n${FIXES}\n"
+          fi
+          if [ -n "$OTHER" ]; then
+            NOTES="${NOTES}## Other Changes\n\n${OTHER}\n"
+          fi
+
+          NOTES="${NOTES}## Platforms\n\n"
+          NOTES="${NOTES}\`linux/amd64\`, \`linux/arm64\`, \`darwin/amd64\`, \`darwin/arm64\`, \`windows/amd64\`\n\n"
+
+          if [ -n "$PREV_TAG" ]; then
+            NOTES="${NOTES}**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}\n"
+          fi
+
+          # Write to file (avoids shell escaping issues with gh)
+          printf '%b' "$NOTES" > /tmp/release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
             --title "${{ steps.release_type.outputs.title }}" \
-            --generate-notes \
+            --notes-file /tmp/release-notes.md \
             ${{ steps.release_type.outputs.prerelease == 'true' && '--prerelease' || '' }} \
             dist/*
