@@ -440,7 +440,11 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 		return nil, fmt.Errorf("no grant found for peer %s", shortPeerID(peerID))
 	}
 
-	if g.Permanent || now.After(g.ExpiresAt) {
+	if g.Permanent {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("permanent grants cannot be refreshed for peer %s", shortPeerID(peerID))
+	}
+	if now.After(g.ExpiresAt) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("grant for peer %s has expired", shortPeerID(peerID))
 	}
