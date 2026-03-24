@@ -51,6 +51,8 @@ sudo install -m 755 shurli /usr/local/bin/shurli
 | `--role ROLE` | Setup role: `peer`, `relay`, or `binary` (default: interactive prompt) |
 | `--dir DIR` | Install directory (default: `/usr/local/bin`) |
 | `--no-verify` | Skip SHA256 checksum verification |
+| `--upgrade MODE` | Existing install behavior: `upgrade` or `reinstall` (default: interactive) |
+| `--yes`, `-y` | Accept all defaults non-interactively |
 | `--backup` | Back up config without changing anything |
 | `--uninstall` | Uninstall Shurli |
 | `--help`, `-h` | Show help |
@@ -65,6 +67,8 @@ When piping (`curl | sh`), use environment variables instead of flags:
 | `SHURLI_VERSION=v0.2.2-dev` | `--version v0.2.2-dev` |
 | `SHURLI_METHOD=download` | `--method download` |
 | `SHURLI_ROLE=relay` | `--role relay` |
+| `SHURLI_UPGRADE=upgrade` | `--upgrade upgrade` |
+| `SHURLI_YES=1` | `--yes` |
 | `SHURLI_UNINSTALL=1` | `--uninstall` |
 | `SHURLI_BACKUP=1` | `--backup` |
 
@@ -86,8 +90,11 @@ curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=relay 
 # Fully non-interactive piped install (peer node)
 curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=peer sh
 
+# Fully unattended - for AI agents and automation
+curl -sSL get.shurli.io | SHURLI_YES=1 SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=binary sh
+
 # Non-interactive with flags (when running script directly)
-sh install.sh --method download --role relay
+sh install.sh --method download --role relay --yes
 
 # Back up config only (no install)
 curl -sSL get.shurli.io | SHURLI_BACKUP=1 sh
