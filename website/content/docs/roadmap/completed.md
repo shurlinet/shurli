@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A Core Interfaces, Phase 9B File Transfer, Chaos Testing, Plugin Architecture Shift."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants (+ D1/D3 hardening), Phase 9A Core Interfaces, Phase 9B File Transfer, Chaos Testing, Plugin Architecture Shift, E14 Relay-First Onboarding, Per-Peer Bandwidth Budgets, Phase 10 Distribution (partial)."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -567,6 +567,8 @@ Replaced binary `relay_data=true` with time-limited, per-peer capability grants 
 - [x] Configurable cleanup interval, per-peer ops rate limiter (10/min)
 - [x] Protocol version on wire messages (downgrade protection)
 - [x] 3 rounds self-review, 8 bugs fixed. 25/25 PASS -race
+- [x] D1: Cancel propagation fix (physical test PASS) *(2026-03-24)*
+- [x] D3: `SanitizeForDisplay()` applied to 8 display points, `sanitizeComment`/`sanitizeAttrValue` hardened *(2026-03-24)*
 
 ### Post-D UX + AI Agent CLI
 
@@ -777,4 +779,43 @@ shurli binary
 **Three-layer evolution**: Layer 1 (compiled-in Go, current), Layer 2 (WASM via wazero, next), Layer 3 (AI-driven plugin generation, future).
 
 **Test status**: 24/24 packages PASS, zero races. 7 fuzz targets clean.
+
+### E14: Relay-First Onboarding
+
+**Timeline**: 2026-03-23
+
+Restructured onboarding so relay pairing is the primary path. Simplifies first-time setup.
+
+- [x] Relay-first onboarding flow (relay pairing before peer-to-peer)
+- [x] 12 commits on dev branch
+- [x] 5 ACL issues deferred to macaroon migration
+
+### Per-Peer Bandwidth Budgets
+
+**Timeline**: 2026-03-24
+
+Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers always exempt.
+
+- [x] `shurli auth set-attr <peer> bandwidth_budget <value>` (local + relay admin API)
+- [x] Pipeline: authorized_keys attr -> PeerAttrFunc -> PeerBudgetFunc -> bandwidthTracker override
+- [x] Values: `unlimited`, `500MB`, `1GB`, etc. Config accepts human-readable strings
+- [x] 3 audit rounds, 23 tests
+- [x] Docs: COMMANDS.md, managing-network.md updated
+
+---
+
+## Phase 10: Distribution (partial)
+
+**Timeline**: 2026-03-24
+**Status**: Install script, release archives, relay-setup --prebuilt complete. GoReleaser, Homebrew, APT planned.
+
+- [x] `tools/install.sh` - one-line installer (`curl -sSL get.shurli.io | sh`)
+- [x] Colored ANSI output (terminal-aware), `--help`, `--yes`/`-y`, `--upgrade` flags
+- [x] `SHURLI_METHOD`/`SHURLI_ROLE`/`SHURLI_UPGRADE`/`SHURLI_YES` env vars
+- [x] `get.shurli.io` DNS redirect to `shurli.io/install`
+- [x] GitHub Actions release archives (tar.gz per platform)
+- [x] `relay-setup.sh --prebuilt` (install from release archive instead of source build)
+- [x] `~/.shurli/` config path (migrated from `~/.config/shurli/`)
+- [x] Website onboarding redesign (Homebrew-style install in hero, dual URLs)
+- [x] Auto-generated release notes from conventional commits
 

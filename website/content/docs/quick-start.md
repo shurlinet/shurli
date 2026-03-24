@@ -1,7 +1,7 @@
 ---
 title: "Quick Start"
 weight: 2
-description: "Get connected with Shurli. Deploy a relay, join with one command, proxy any TCP service through an encrypted P2P tunnel."
+description: "Get two devices connected with Shurli in 60 seconds. Build from source, init, invite, join, and proxy any TCP service through an encrypted P2P tunnel."
 ---
 <!-- Auto-synced from README.md by sync-docs - do not edit directly -->
 
@@ -41,7 +41,7 @@ sudo install -m 755 shurli /usr/local/bin/shurli
 <details>
 <summary>Install script options reference</summary>
 
-### Options
+## Options
 
 | Flag | Description |
 |------|-------------|
@@ -57,7 +57,7 @@ sudo install -m 755 shurli /usr/local/bin/shurli
 | `--uninstall` | Uninstall Shurli |
 | `--help`, `-h` | Show help |
 
-### Environment variables
+## Environment variables
 
 When piping (`curl | sh`), use environment variables instead of flags:
 
@@ -72,7 +72,7 @@ When piping (`curl | sh`), use environment variables instead of flags:
 | `SHURLI_UNINSTALL=1` | `--uninstall` |
 | `SHURLI_BACKUP=1` | `--backup` |
 
-### Examples
+## Examples
 
 ```bash
 # Interactive install (prompts for method and role)
@@ -106,7 +106,7 @@ curl -sSL get.shurli.io | SHURLI_BACKUP=1 sh
 curl -sSL get.shurli.io | SHURLI_UNINSTALL=1 sh
 ```
 
-### What the script does
+## What the script does
 
 1. **Detects platform** (OS and architecture: linux/darwin, amd64/arm64)
 2. **Checks for existing install** (offers upgrade, reinstall, or cancel)
@@ -119,7 +119,7 @@ curl -sSL get.shurli.io | SHURLI_UNINSTALL=1 sh
 6. **Supports backup/restore**: detects previous backups in `~/.shurli/backups/`, offers to restore
 7. **macOS**: codesigns binary for stable Local Network Privacy identity
 
-### Uninstall options
+## Uninstall options
 
 1. **Keep config and keys** - removes binary and services, preserves identity (can reinstall later)
 2. **Back up then remove** - backs up to `~/.shurli/backups/`, then removes everything

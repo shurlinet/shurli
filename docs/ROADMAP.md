@@ -1059,6 +1059,28 @@ shurli binary
 - `plugins/filetransfer/plugin.go` - File transfer plugin implementation
 - `cmd/shurli/cmd_plugin.go` - Plugin CLI commands
 
+#### E14: Relay-First Onboarding ✅ DONE
+
+**Timeline**: 2026-03-23
+
+Restructured onboarding so relay pairing is the primary path. Simplifies first-time setup.
+
+- [x] Relay-first onboarding flow (relay pairing before peer-to-peer)
+- [x] 12 commits on dev branch
+- [x] 5 ACL issues deferred to macaroon migration
+
+#### Per-Peer Bandwidth Budgets ✅ DONE
+
+**Timeline**: 2026-03-24
+
+Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers always exempt.
+
+- [x] `shurli auth set-attr <peer> bandwidth_budget <value>` (local + relay admin API)
+- [x] Pipeline: authorized_keys attr -> PeerAttrFunc -> PeerBudgetFunc -> bandwidthTracker override
+- [x] Values: `unlimited`, `500MB`, `1GB`, etc. Config accepts human-readable strings
+- [x] 3 audit rounds, 23 tests
+- [x] Docs: COMMANDS.md, managing-network.md updated
+
 ---
 
 #### Phase 8B: Per-Peer Data Grants ✅ DONE
@@ -1102,6 +1124,8 @@ shurli binary
 - [x] Per-peer ops rate limiter (10/min default, fires notification on violation)
 - [x] Protocol version on wire messages (downgrade protection)
 - [x] 3 rounds self-review, 8 bugs fixed. 25/25 PASS -race
+- [x] D1: Cancel propagation fix (physical test PASS) *(2026-03-24)*
+- [x] D3: `SanitizeForDisplay()` applied to 8 display points, `sanitizeComment`/`sanitizeAttrValue` hardened *(2026-03-24)*
 
 **Post-D UX + AI Agent CLI**:
 - [x] Rich notification messages (services/direction/peer name)
@@ -1306,7 +1330,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 ### Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
-**Status**: 📋 Planned
+**Status**: ✅/📋 Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser, Homebrew, APT, auto-upgrade planned)
 
 **Goal**: Make Shurli installable without a Go toolchain, launch with compelling use-case content, and establish `shurli.io` as the stable distribution anchor - independent of any single hosting provider.
 
@@ -1933,8 +1957,8 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 8B: Per-Peer Data Grants** | ✅ | Complete (macaroon grants, token delivery, delegation, notifications, audit log, rate limiting) |
 | **Phase 8C: ACL-to-Macaroon Migration** | ✅/📋 | M1 complete (Phase 8B). M2-M5 planned |
 | **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
-| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F-9G future |
-| Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth DONE. 9C-9E planned, 9F-9G future |
+| Phase 10: Distribution & Launch | ✅/📋 | Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser/Homebrew/APT planned) |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
 | Phase 13: Federation | 📋 2-3 weeks | Planned |

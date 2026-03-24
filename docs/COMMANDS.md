@@ -1,6 +1,6 @@
 # Commands
 
-Shurli ships as a single binary with 33 subcommands. All commands support `--config <path>` to specify a config file.
+Shurli ships as a single binary with subcommands. All commands support `--config <path>` to specify a config file.
 
 ## Daemon
 
@@ -44,6 +44,7 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 | `shurli config validate` | Validate config file |
 | `shurli config show` | Show resolved configuration |
 | `shurli config set <key> <value> [--duration 10m]` | Set a config value (dotted path, e.g. `network.force_private_reachability true`) |
+| `shurli config reload` | Trigger daemon to reload config from disk |
 | `shurli config rollback` | Restore last-known-good config |
 | `shurli config apply <file> [--confirm-timeout 5m]` | Apply config with auto-revert safety net |
 | `shurli config confirm` | Confirm applied config (cancels auto-revert) |
@@ -99,6 +100,105 @@ Shurli ships as a single binary with 33 subcommands. All commands support `--con
 | `shurli service enable <name>` | Re-enable a disabled service |
 | `shurli service disable <name>` | Disable a service without removing its config |
 | `shurli service list` | List configured services |
+
+## Relay Server (operator commands)
+
+### Client-side relay config
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay add <multiaddr>` | Add a relay address to config |
+| `shurli relay list` | List configured relay addresses |
+| `shurli relay remove <multiaddr>` | Remove a relay address from config |
+| `shurli relay seeds` | Show bootstrap seed addresses |
+
+### Server-side relay management
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay serve [--config path]` | Start the relay server |
+| `shurli relay setup` | Interactive relay setup wizard |
+| `shurli relay show` | Show relay server config |
+| `shurli relay authorize <peer-id>` | Authorize a peer on relay |
+| `shurli relay deauthorize <peer-id>` | Deauthorize a peer on relay |
+| `shurli relay set-attr <peer-id> <key> <value>` | Set peer attribute (role, bandwidth_budget, etc.) |
+| `shurli relay list-peers` | List authorized peers on relay |
+| `shurli relay info` | Show relay identity and status |
+| `shurli relay version` | Show relay version |
+| `shurli relay config <subcommand>` | Relay config management |
+| `shurli relay recover` | Recover relay identity from seed phrase |
+| `shurli relay verify <peer>` | Verify relay peer identity |
+
+### Relay grants
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay grant <peer-id> <plugin> [--duration 24h]` | Grant plugin access to a peer on relay |
+| `shurli relay grants [--json]` | List all grants on relay |
+| `shurli relay revoke <peer-id> <plugin>` | Revoke a grant on relay |
+| `shurli relay extend <peer-id> <plugin> [--duration 24h]` | Extend a grant on relay |
+
+### Relay invites
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay invite create [--count N] [--ttl 10m]` | Generate pairing codes |
+| `shurli relay invite list` | List active invite codes |
+| `shurli relay invite revoke <code>` | Revoke an invite code |
+| `shurli relay invite modify <code> [--add-caveat ...]` | Add caveats to an invite |
+
+### Relay vault
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay vault init` | Initialize vault with passphrase |
+| `shurli relay vault seal` | Seal the vault (lock root key) |
+| `shurli relay vault unseal` | Unseal the vault (unlock root key) |
+| `shurli relay vault status` | Show vault seal status |
+| `shurli relay seal` | Shorthand for vault seal |
+| `shurli relay unseal [--remote <peer>]` | Shorthand for vault unseal (supports remote) |
+| `shurli relay seal-status` | Shorthand for vault status |
+
+### Relay MOTD and goodbye
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay motd set <message>` | Set relay message of the day |
+| `shurli relay motd clear` | Clear relay MOTD |
+| `shurli relay motd status` | Show current MOTD |
+| `shurli relay goodbye set <message>` | Set goodbye message (maintenance warning) |
+| `shurli relay goodbye retract` | Retract goodbye message |
+| `shurli relay goodbye shutdown [--grace 5m]` | Send goodbye and shut down relay |
+
+### Relay ZKP
+
+| Command | Description |
+|---------|-------------|
+| `shurli relay zkp-setup [--seed]` | Generate ZKP proving/verifying keys |
+| `shurli relay zkp-test` | Test ZKP proof generation and verification |
+
+## Plugins
+
+| Command | Description |
+|---------|-------------|
+| `shurli plugin list [--json]` | List installed plugins with status |
+| `shurli plugin enable <name>` | Enable a plugin |
+| `shurli plugin disable <name>` | Disable a plugin |
+| `shurli plugin info <name>` | Show plugin details |
+| `shurli plugin disable-all` | Emergency kill switch - disable all plugins |
+
+## Reconnect
+
+| Command | Description |
+|---------|-------------|
+| `shurli reconnect <peer> [--json]` | Force reconnect to a peer via daemon (resets backoff) |
+
+## Notifications
+
+| Command | Description |
+|---------|-------------|
+| `shurli notify test [--json]` | Send a test notification to all configured sinks |
+| `shurli notify list [--json]` | List configured notification sinks |
 
 ## Diagnostics
 
