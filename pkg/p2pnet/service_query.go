@@ -15,6 +15,7 @@ const ServiceQueryProtocol = "/shurli/service-query/1.0.0"
 
 // Wire message types for service query.
 const (
+	serviceQueryVersion     = 0x01
 	msgServiceQueryRequest  = 0x01
 	msgServiceQueryResponse = 0x02
 	msgServiceQueryError    = 0x03
@@ -39,13 +40,17 @@ func HandleServiceQuery(registry *ServiceRegistry) StreamHandler {
 
 		s.SetDeadline(time.Now().Add(serviceQueryTimeout))
 
-		// Read request type.
-		var msgType [1]byte
-		if _, err := io.ReadFull(s, msgType[:]); err != nil {
+		// Read version + request type.
+		var reqHeader [2]byte
+		if _, err := io.ReadFull(s, reqHeader[:]); err != nil {
 			return
 		}
 
-		if msgType[0] != msgServiceQueryRequest {
+		if reqHeader[0] != serviceQueryVersion {
+			writeServiceQueryError(s, "unsupported version")
+			return
+		}
+		if reqHeader[1] != msgServiceQueryRequest {
 			writeServiceQueryError(s, "unknown request type")
 			return
 		}
@@ -78,7 +83,9 @@ func HandleServiceQuery(registry *ServiceRegistry) StreamHandler {
 		if _, err := s.Write(header[:]); err != nil {
 			return
 		}
-		s.Write(data)
+		if _, err := s.Write(data); err != nil {
+			slog.Debug("service-query: write response data failed", "err", err)
+		}
 	}
 }
 
@@ -86,10 +93,11 @@ func HandleServiceQuery(registry *ServiceRegistry) StreamHandler {
 func QueryPeerServices(s network.Stream) ([]RemoteServiceInfo, error) {
 	s.SetDeadline(time.Now().Add(serviceQueryTimeout))
 
-	// Send request.
-	var msgBuf [1]byte
-	msgBuf[0] = msgServiceQueryRequest
-	if _, err := s.Write(msgBuf[:]); err != nil {
+	// Send version + request type.
+	var reqBuf [2]byte
+	reqBuf[0] = serviceQueryVersion
+	reqBuf[1] = msgServiceQueryRequest
+	if _, err := s.Write(reqBuf[:]); err != nil {
 		return nil, err
 	}
 
@@ -128,6 +136,10 @@ func writeServiceQueryError(s network.Stream, msg string) {
 	var header [5]byte
 	header[0] = msgServiceQueryError
 	binary.BigEndian.PutUint32(header[1:], uint32(len(data)))
-	s.Write(header[:])
-	s.Write(data)
+	if _, err := s.Write(header[:]); err != nil {
+		return
+	}
+	if _, err := s.Write(data); err != nil {
+		slog.Debug("service-query: write error response failed", "err", err)
+	}
 }

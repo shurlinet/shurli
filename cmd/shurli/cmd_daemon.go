@@ -655,6 +655,10 @@ func runDaemonStart(args []string) {
 		})
 	}
 
+	// All Set* callbacks configured. Seal the registry to enforce the
+	// set-once-at-startup contract. Any future Set* call will panic.
+	rt.network.ServiceRegistry().Seal()
+
 	pluginRegistry := plugin.NewRegistry(pluginProvider)
 	if err := plugins.RegisterAll(pluginRegistry); err != nil {
 		slog.Error("plugin registration failed", "error", err)
