@@ -60,7 +60,7 @@ type TransferConfig struct {
 	MinSpeedSeconds int    `yaml:"min_speed_seconds"`
 	MaxTempSize     int64  `yaml:"max_temp_size"`
 	TempFileExpiry  string `yaml:"temp_file_expiry"`
-	BandwidthBudget int64  `yaml:"bandwidth_budget"`
+	BandwidthBudget string `yaml:"bandwidth_budget"` // human-readable: "500MB", "1GB", "unlimited", or plain bytes
 
 	// Share defaults.
 	DefaultPersistent *bool `yaml:"default_persistent"` // default for --persist flag (default: true)

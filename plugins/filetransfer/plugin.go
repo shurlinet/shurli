@@ -204,7 +204,7 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		MinSpeedSeconds:         p.config.MinSpeedSeconds,
 		MaxTempSize:             p.config.MaxTempSize,
 		TempFileExpiry:          tempExpiry,
-		BandwidthBudget: p.config.BandwidthBudget,
+		BandwidthBudget: parseBandwidthBudget(p.config.BandwidthBudget),
 		PeerBudgetFunc:  p.makePeerBudgetFunc(),
 		FailureBackoffThreshold: fbThreshold,
 		FailureBackoffWindow:    fbWindow,
@@ -333,6 +333,21 @@ func (p *FileTransferPlugin) Stop() error {
 
 	slog.Info("plugin.filetransfer: stopped")
 	return nil
+}
+
+// parseBandwidthBudget converts a human-readable bandwidth budget string to bytes.
+// Returns 0 (use hardcoded default) if empty or unparseable.
+func parseBandwidthBudget(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	v, err := p2pnet.ParseByteSize(s)
+	if err != nil {
+		slog.Warn("plugin.filetransfer: invalid bandwidth_budget config, using default",
+			"value", s, "error", err)
+		return 0
+	}
+	return v
 }
 
 // makePeerBudgetFunc returns a closure that looks up per-peer bandwidth_budget
