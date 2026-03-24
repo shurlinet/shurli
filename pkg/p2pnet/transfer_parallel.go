@@ -489,6 +489,8 @@ func (ts *TransferService) receiveParallel(
 			}
 			if decompressed, err := decompressChunk(wireData, maxDecomp); err == nil {
 				chunkData = decompressed
+			} else {
+				slog.Debug("transfer: decompression failed, using raw data", "chunk", index, "size", len(wireData), "error", err)
 			}
 		}
 
