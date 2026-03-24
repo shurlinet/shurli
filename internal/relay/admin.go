@@ -1339,13 +1339,18 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
-	slog.Info("peer attribute set via admin", "peer_id", short, "key", req.Key, "value", req.Value)
+	// Read back stored value (may differ from input due to sanitization).
+	stored := auth.GetPeerAttr(s.authKeysPath, req.PeerID, req.Key)
+	if stored == "" {
+		stored = req.Value
+	}
+	slog.Info("peer attribute set via admin", "peer_id", short, "key", req.Key, "value", stored)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "updated",
 		"peer_id": req.PeerID,
 		"key":     req.Key,
-		"value":   req.Value,
+		"value":   stored,
 	})
 }
 
