@@ -403,6 +403,11 @@ P2P or queued if the target is offline.
 List all grant tokens received from other nodes (the "pouch"). Shows issuer
 name, allowed services, remaining time, and permanent status. Requires a
 running daemon.
+.TP
+.B auth audit \fR[\fB--verify\fR] [\fB--tail\fR \fIN\fR] [\fB--json\fR]
+Display the grant audit log. Shows grant, revoke, extend, and delegate
+events with timestamps. Use \fB--verify\fR to check HMAC chain integrity.
+Default: last 20 entries (configurable with \fB--tail\fR).
 
 .SH CONFIGURATION
 .TP
@@ -426,6 +431,11 @@ Set a single config value using a dotted key path (e.g.,
 comments. Use \fB--duration\fR with \fBtransfer.receive_mode timed\fR to set
 both the mode and duration in a single command. Apply without restart:
 \fBshurli config reload\fR.
+.TP
+.B config reload \fR[\fB--json\fR] [\fB--status\fR]
+Reload the running daemon's config from disk without restarting. Reports
+which fields changed. Use \fB--status\fR to check the last reload result
+without triggering a new reload.
 .TP
 .B config rollback \fR[\fB--config\fR \fIpath\fR]
 Replace the current config with the last-known-good backup (created
@@ -455,6 +465,11 @@ Show all configured relay addresses.
 .B relay remove \fImultiaddr\fR [\fB--force\fR]
 Remove a relay address. Refuses to remove the last one unless \fB--force\fR
 is given, since the daemon needs at least one relay to start.
+.TP
+.B relay seeds add\fR|\fBremove
+Toggle public seed nodes in authorized_keys. Seeds provide peer discovery
+when you do not operate your own relay. \fBadd\fR authorizes the default
+seed peers; \fBremove\fR deauthorizes them.
 
 .SH RELAY SERVER COMMANDS
 Run these on a VPS to operate a relay. Relay servers do not store any user

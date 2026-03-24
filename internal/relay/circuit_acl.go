@@ -46,8 +46,8 @@ type CircuitACL struct {
 // enableDataRelay is the global toggle from relay-server.yaml security config.
 // enableConnectionGating controls whether reservations require authorization.
 // When gating is disabled, all peers can reserve (open relay mode).
-// grantStore provides time-limited per-peer data access grants (may be nil
-// during startup; set via SetGrantStore before the relay accepts connections).
+// grantStore provides time-limited per-peer data access grants (may be nil if
+// grants are not configured).
 // The authorized_keys data is cached in memory and refreshed via Reload().
 func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating bool, grantStore *grants.Store) *CircuitACL {
 	acl := &CircuitACL{
@@ -61,14 +61,6 @@ func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating 
 	// Initial load.
 	acl.loadFromDisk()
 	return acl
-}
-
-// SetGrantStore sets or replaces the grant store used for data access checks.
-// Must be called before the relay starts accepting connections (startup-only).
-func (a *CircuitACL) SetGrantStore(gs *grants.Store) {
-	a.mu.Lock()
-	a.grantStore = gs
-	a.mu.Unlock()
 }
 
 // Reload refreshes the cached authorized_keys data from disk.
