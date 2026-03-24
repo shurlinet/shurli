@@ -284,6 +284,11 @@ func atomicWriteLines(path string, lines []string) error {
 			return fmt.Errorf("failed to write temp file: %w", err)
 		}
 	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
 	tempFile.Close()
 
 	if err := os.Rename(tempPath, path); err != nil {
