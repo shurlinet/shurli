@@ -495,7 +495,7 @@ Supports --remote for administration from any admin device.
 .TP
 .B relay set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR [\fB--remote\fR \fIaddr\fR]
 Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
-role (admin/member), group, verified.
+role (admin/member), group, verified, bandwidth_budget (unlimited, 500MB, 1GB, etc.).
 Supports --remote for administration from any admin device.
 .TP
 .B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--remote\fR \fIaddr\fR]
@@ -632,6 +632,9 @@ persisted to disk. Clients cache the goodbye and show it on reconnect attempts.
 .TP
 .B relay goodbye retract [\fB--remote\fR \fIaddr\fR]
 Retract a goodbye announcement. Peers clear their cached goodbye.
+.TP
+.B relay goodbye status [\fB--remote\fR \fIaddr\fR]
+Show current goodbye announcement status.
 .TP
 .B relay goodbye shutdown \fR[\fImessage\fR] [\fB--remote\fR \fIaddr\fR]
 Send a goodbye to all peers and shut down the relay. Use for planned
