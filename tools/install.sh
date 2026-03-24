@@ -6,6 +6,7 @@
 #   curl -sSL ... | SHURLI_DEV=1 sh             # install latest dev/pre-release
 #   curl -sSL ... | SHURLI_VERSION=v0.2.0 sh    # install specific version
 #   curl -sSL ... | SHURLI_METHOD=download SHURLI_ROLE=relay sh  # non-interactive
+#   curl -sSL ... | SHURLI_YES=1 SHURLI_METHOD=download SHURLI_ROLE=binary sh  # AI agents
 #   curl -sSL ... | SHURLI_BACKUP=1 sh          # back up config only
 #   curl -sSL ... | SHURLI_UNINSTALL=1 sh       # uninstall
 #
@@ -68,9 +69,15 @@ run_sudo() {
 }
 
 # Prompt user for a choice. Returns the entered value.
+# In non-interactive mode (--yes / SHURLI_YES=1), returns the default immediately.
 # Usage: result=$(prompt "Choice [1]: " "1")
 prompt() {
     local msg="$1" default="${2:-}"
+    if [ "${AUTO_YES:-}" = "yes" ]; then
+        printf '  %s%s\n' "$msg" "$default" >&2
+        printf '%s' "$default"
+        return
+    fi
     printf '  %s' "$msg" >&2
     read -r REPLY </dev/tty 2>/dev/null || read -r REPLY 2>/dev/null || REPLY="$default"
     REPLY="${REPLY:-$default}"
@@ -180,8 +187,20 @@ handle_existing_install() {
     log "Path:    $EXISTING_PATH"
     log "Version: $EXISTING_VERSION"
     log "Target:  $VERSION"
-    printf '\n'
 
+    # If upgrade mode already set via --upgrade or SHURLI_UPGRADE, skip prompt
+    if [ -n "$UPGRADE_MODE" ]; then
+        case "$UPGRADE_MODE" in
+            upgrade|reinstall)
+                info "Upgrade mode: ${UPGRADE_MODE}"
+                stop_running_services
+                return
+                ;;
+            *) error "Invalid upgrade mode: ${UPGRADE_MODE}. Use 'upgrade' or 'reinstall'." ;;
+        esac
+    fi
+
+    printf '\n'
     printf "  ${C_MAGENTA}1)${C_NC} Upgrade ${C_DIM}(replace binary, keep config)${C_NC}\n"
     printf "  ${C_MAGENTA}2)${C_NC} Reinstall ${C_DIM}(replace binary, reinitialize)${C_NC}\n"
     printf "  ${C_MAGENTA}3)${C_NC} Cancel\n"
@@ -1194,10 +1213,11 @@ main() {
     ROLE="${SHURLI_ROLE:-}"
     OPT_DIR=""
     NO_VERIFY=""
-    UPGRADE_MODE=""
+    UPGRADE_MODE="${SHURLI_UPGRADE:-}"
     DEV_BUILD="${SHURLI_DEV:-}"
     UNINSTALL="${SHURLI_UNINSTALL:-}"
     BACKUP_ONLY="${SHURLI_BACKUP:-}"
+    AUTO_YES="${SHURLI_YES:-}"
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1209,6 +1229,8 @@ main() {
             --dev)       DEV_BUILD="yes"; shift ;;
             --uninstall) UNINSTALL="yes"; shift ;;
             --backup)    BACKUP_ONLY="yes"; shift ;;
+            --yes|-y)    AUTO_YES="yes"; shift ;;
+            --upgrade)   [ $# -ge 2 ] || error "--upgrade requires a value"; UPGRADE_MODE="$2"; shift 2 ;;
             --help|-h)
                 printf "${C_MAGENTA}${C_BOLD}Shurli Installer${C_NC}\n\n"
                 printf "Usage:\n"
@@ -1222,6 +1244,8 @@ main() {
                 printf "  --role ROLE         Setup role: ${C_CYAN}peer${C_NC}, ${C_CYAN}relay${C_NC}, or ${C_CYAN}binary${C_NC} (default: interactive)\n"
                 printf "  --dir DIR           Install directory (default: /usr/local/bin)\n"
                 printf "  --no-verify         Skip SHA256 checksum verification\n"
+                printf "  --upgrade MODE      Existing install: ${C_CYAN}upgrade${C_NC} or ${C_CYAN}reinstall${C_NC} (default: interactive)\n"
+                printf "  --yes, -y           Accept all defaults non-interactively\n"
                 printf "  --backup            Back up config without changing anything\n"
                 printf "  --uninstall         Uninstall Shurli\n"
                 printf "  --help, -h          Show this help\n\n"
@@ -1230,6 +1254,8 @@ main() {
                 printf "  SHURLI_VERSION=VER      Same as --version\n"
                 printf "  SHURLI_METHOD=METHOD    Same as --method (download or build)\n"
                 printf "  SHURLI_ROLE=ROLE        Same as --role (peer, relay, or binary)\n"
+                printf "  SHURLI_UPGRADE=MODE     Same as --upgrade (upgrade or reinstall)\n"
+                printf "  SHURLI_YES=1            Same as --yes\n"
                 printf "  SHURLI_UNINSTALL=1      Same as --uninstall\n"
                 printf "  SHURLI_BACKUP=1         Same as --backup\n\n"
                 printf "${C_BOLD}Examples:${C_NC}\n"
@@ -1238,6 +1264,8 @@ main() {
                 printf "  curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh\n"
                 printf "  sh install.sh --method download --role relay        # non-interactive relay\n"
                 printf "  curl ... | SHURLI_METHOD=download SHURLI_ROLE=peer sh  # non-interactive piped\n"
+                printf "  curl ... | SHURLI_YES=1 SHURLI_METHOD=download SHURLI_ROLE=binary sh\n"
+                printf "                                                      # fully unattended (AI agents)\n"
                 printf "  sh install.sh --uninstall                           # uninstall\n"
                 printf "  sh install.sh --backup                              # back up config only\n"
                 exit 0
