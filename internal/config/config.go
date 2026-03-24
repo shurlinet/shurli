@@ -251,8 +251,8 @@ type TransferConfig struct {
 	TempFileExpiry string `yaml:"temp_file_expiry,omitempty"`
 
 	// BandwidthBudget is the maximum bytes a single peer can transfer per hour.
-	// Prevents bandwidth exhaustion from a single peer. Default: 104857600 (100 MB). 0 = unlimited.
-	BandwidthBudget int64 `yaml:"bandwidth_budget,omitempty"`
+	// Human-readable: "500MB", "1GB", "unlimited". Default: 100MB. Empty/omit = default.
+	BandwidthBudget string `yaml:"bandwidth_budget,omitempty"`
 
 	// --- Queue persistence ---
 
