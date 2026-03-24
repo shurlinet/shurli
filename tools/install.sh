@@ -25,13 +25,33 @@ BINARY_NAME="shurli"
 INSTALL_DIR="/usr/local/bin"
 USER_INSTALL_DIR="${HOME}/.local/bin"
 
+# --- Color support ---
+
+if [ -t 1 ]; then
+    C_RED='\033[0;31m'
+    C_GREEN='\033[0;32m'
+    C_YELLOW='\033[1;33m'
+    C_BLUE='\033[1;34m'
+    C_MAGENTA='\033[0;35m'
+    C_CYAN='\033[0;36m'
+    C_BOLD='\033[1m'
+    C_DIM='\033[2m'
+    C_NC='\033[0m'
+else
+    C_RED='' C_GREEN='' C_YELLOW='' C_BLUE='' C_MAGENTA='' C_CYAN='' C_BOLD='' C_DIM='' C_NC=''
+fi
+
+# Reset terminal color on exit (safety net). Combined with cleanup trap in main().
+
 # --- Output helpers ---
 
-log()   { printf '  %s\n' "$*"; }
-info()  { printf '\n  \033[1;34m>\033[0m %s\n' "$*"; }
-warn()  { printf '  \033[1;33mWarning:\033[0m %s\n' "$*"; }
-error() { printf '\n  \033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
-bold()  { printf '  \033[1m%s\033[0m\n' "$*"; }
+log()     { printf "  %s\n" "$*"; }
+info()    { printf "\n  ${C_BLUE}>${C_NC} ${C_BOLD}%s${C_NC}\n" "$*"; }
+success() { printf "  ${C_GREEN}%s${C_NC}\n" "$*"; }
+warn()    { printf "  ${C_YELLOW}Warning:${C_NC} %s\n" "$*"; }
+error()   { printf "\n  ${C_RED}Error:${C_NC} %s\n" "$*" >&2; exit 1; }
+bold()    { printf "  ${C_BOLD}%s${C_NC}\n" "$*"; }
+dim()     { printf "  ${C_DIM}%s${C_NC}\n" "$*"; }
 
 # --- System helpers ---
 
@@ -161,12 +181,12 @@ handle_existing_install() {
     log "Target:  $VERSION"
     printf '\n'
 
+    printf "  ${C_MAGENTA}1)${C_NC} Upgrade ${C_DIM}(replace binary, keep config)${C_NC}\n"
+    printf "  ${C_MAGENTA}2)${C_NC} Reinstall ${C_DIM}(replace binary, reinitialize)${C_NC}\n"
+    printf "  ${C_MAGENTA}3)${C_NC} Cancel\n"
+    printf '\n'
     local choice
-    choice=$(prompt "  1) Upgrade (replace binary, keep config)
-  2) Reinstall (replace binary, reinitialize)
-  3) Cancel
-
-Choice [1]: " "1")
+    choice=$(prompt "Choice [1]: " "1")
     printf '\n'
 
     case "$choice" in
@@ -239,7 +259,7 @@ verify_checksum() {
         rm -f "$file_path"
         error "Checksum mismatch!\n  Expected: $expected_sum\n  Got:      $actual_sum\n\nThe download may be corrupted. Try again or report at ${REPO_URL}/issues"
     fi
-    log "Checksum verified."
+    success "Checksum verified."
 }
 
 # === METHOD 1: Download pre-built archive ===
@@ -381,7 +401,7 @@ do_build() {
         -o "${BUILD_DIR}/shurli${SUFFIX}" \
         "${repo_dir}/cmd/shurli" || error "Build failed. Check errors above."
 
-    log "Build complete."
+    success "Build complete."
 
     # Set up archive layout (same structure as pre-built download)
     ARCHIVE_DIR="${WORK_DIR}/shurli-${VERSION}-${GOOS}-${GOARCH}"
@@ -437,7 +457,7 @@ install_binary() {
         codesign -s - -f "${INSTALL_TO}/${BINARY_NAME}" 2>/dev/null || true
     fi
 
-    log "Installed: ${INSTALL_TO}/${BINARY_NAME}${SUFFIX}"
+    success "Installed: ${INSTALL_TO}/${BINARY_NAME}${SUFFIX}"
 
     # Verify it runs
     if [ -x "${INSTALL_TO}/${BINARY_NAME}${SUFFIX}" ]; then
@@ -811,12 +831,12 @@ restart_peer_service() {
         else
             run_sudo systemctl enable shurli-daemon
             run_sudo systemctl start shurli-daemon
-            log "Service enabled and started."
+            success "Service enabled and started."
         fi
         # Quick health check
         sleep 1
         if systemctl is-active --quiet shurli-daemon 2>/dev/null; then
-            log "Service running."
+            success "Service running."
         else
             warn "Service failed to start. Check: journalctl -u shurli-daemon -n 20"
         fi
@@ -880,26 +900,24 @@ setup_binary_only() {
         fi
     else
         printf '\n'
-        log "Next steps:"
+        bold "Next steps:"
         if [ "$GOOS" = "darwin" ]; then
-            log "  shurli init --user           Set up as a peer node"
-            log "  shurli join --relay --user   Join via relay server"
+            printf "  ${C_CYAN}shurli init --user${C_NC}           Set up as a peer node\n"
+            printf "  ${C_CYAN}shurli join --relay --user${C_NC}   Join via relay server\n"
         else
-            log "  shurli init                  Set up as a peer node"
-            log "  shurli join --relay          Join via relay server"
+            printf "  ${C_CYAN}shurli init${C_NC}                  Set up as a peer node\n"
+            printf "  ${C_CYAN}shurli join --relay${C_NC}          Join via relay server\n"
         fi
-        log "  shurli relay setup           Set up as a relay server"
+        printf "  ${C_CYAN}shurli relay setup${C_NC}           Set up as a relay server\n"
         printf '\n'
-        log "Docs: https://shurli.io/docs/quick-start/"
+        printf "  Docs: ${C_CYAN}https://shurli.io/docs/quick-start/${C_NC}\n"
     fi
 }
 
 # === Backup only ===
 
 do_backup() {
-    printf '\n'
-    bold "Shurli Backup"
-    printf '\n'
+    printf "\n  ${C_MAGENTA}${C_BOLD}Shurli Backup${C_NC}\n\n"
 
     detect_platform
 
@@ -951,9 +969,7 @@ do_backup() {
 # === Uninstall ===
 
 do_uninstall() {
-    printf '\n'
-    bold "Shurli Uninstaller"
-    printf '\n'
+    printf "\n  ${C_MAGENTA}${C_BOLD}Shurli Uninstaller${C_NC}\n\n"
 
     detect_platform
     check_existing_install
@@ -984,10 +1000,10 @@ do_uninstall() {
 
     printf '\n'
     bold "What would you like to remove?"
-    log "1) Everything except config and keys (keep identity, can reinstall later)"
-    log "2) Everything (back up config to home directory first)"
-    log "3) Complete removal (delete config and keys permanently)"
-    log "4) Cancel"
+    printf "  ${C_MAGENTA}1)${C_NC} Everything except config and keys ${C_DIM}(keep identity, can reinstall later)${C_NC}\n"
+    printf "  ${C_MAGENTA}2)${C_NC} Everything ${C_DIM}(back up config to home directory first)${C_NC}\n"
+    printf "  ${C_RED}3)${C_NC} Complete removal ${C_DIM}(delete config and keys permanently)${C_NC}\n"
+    printf "  ${C_MAGENTA}4)${C_NC} Cancel\n"
     printf '\n'
     local choice
     choice=$(prompt "Choice [1]: " "1")
@@ -1145,7 +1161,7 @@ do_uninstall() {
     fi
 
     printf '\n'
-    info "Shurli uninstalled."
+    printf "\n  ${C_GREEN}${C_BOLD}Shurli uninstalled.${C_NC}\n"
     if [ "$choice" = "1" ]; then
         log "To reinstall: curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh"
         log "Your identity and config are intact - just reinstall and start."
@@ -1159,6 +1175,7 @@ cleanup() {
     if [ -n "${WORK_DIR:-}" ] && [ -d "${WORK_DIR:-}" ]; then
         rm -rf "$WORK_DIR"
     fi
+    printf "${C_NC}"
 }
 
 # === Main ===
@@ -1216,20 +1233,18 @@ main() {
         exit 0
     fi
 
-    printf '\n'
-    bold "Shurli Installer"
-    printf '\n'
+    printf "\n  ${C_MAGENTA}${C_BOLD}Shurli Installer${C_NC}\n\n"
 
     # 1. Platform detection
     detect_platform
-    log "Platform: ${GOOS}/${GOARCH}"
+    log "Platform: ${C_CYAN}${GOOS}/${GOARCH}${C_NC}"
 
     # 2. Resolve version
     if [ -z "$VERSION" ]; then
         log "Fetching latest version..."
         fetch_latest_version
     fi
-    log "Version: ${VERSION}"
+    log "Version: ${C_CYAN}${VERSION}${C_NC}"
 
     # 3. Check for existing install
     check_existing_install
@@ -1241,8 +1256,8 @@ main() {
     if [ -z "$METHOD" ]; then
         printf '\n'
         bold "How would you like to install Shurli?"
-        log "1) Download pre-built binary (fastest, recommended)"
-        log "2) Build from source (isolated build environment)"
+        printf "  ${C_MAGENTA}1)${C_NC} Download pre-built binary ${C_DIM}(fastest, recommended)${C_NC}\n"
+        printf "  ${C_MAGENTA}2)${C_NC} Build from source ${C_DIM}(isolated build environment)${C_NC}\n"
         printf '\n'
         METHOD=$(prompt "Choice [1]: " "1")
         case "$METHOD" in
@@ -1270,9 +1285,9 @@ main() {
     if [ -z "$ROLE" ]; then
         printf '\n'
         bold "What would you like to set up?"
-        log "1) Peer node (home server, desktop, Raspberry Pi)"
-        log "2) Relay server (VPS, cloud server)"
-        log "3) Binary only (skip setup)"
+        printf "  ${C_MAGENTA}1)${C_NC} Peer node ${C_DIM}(home server, desktop, Raspberry Pi)${C_NC}\n"
+        printf "  ${C_MAGENTA}2)${C_NC} Relay server ${C_DIM}(VPS, cloud server)${C_NC}\n"
+        printf "  ${C_MAGENTA}3)${C_NC} Binary only ${C_DIM}(skip setup)${C_NC}\n"
         printf '\n'
         ROLE=$(prompt "Choice [1]: " "1")
         case "$ROLE" in
@@ -1290,7 +1305,7 @@ main() {
         binary) setup_binary_only ;;
     esac
 
-    info "Done!"
+    printf "\n  ${C_GREEN}${C_BOLD}Done!${C_NC}\n"
     printf '\n'
 }
 
