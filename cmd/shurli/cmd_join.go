@@ -733,6 +733,9 @@ func bootstrapForJoin(relayInput string, userMode bool, stdin io.Reader, stdout 
 		return "", fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// Create filetransfer plugin config with sensible defaults (receive_dir, bandwidth_budget).
+	createPluginDefaults(configDir)
+
 	fmt.Fprintf(stdout, "Config written: %s\n", configFile)
 	fmt.Fprintf(stdout, "Identity saved: %s\n", keyFile)
 	fmt.Fprintln(stdout)

@@ -447,6 +447,11 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 						continue // keep LAN connections
 					}
 				}
+				if streams := c.GetStreams(); len(streams) > 0 {
+					slog.Info("mdns: keeping non-LAN conn (has active streams)",
+						"peer", short, "remote", remoteMA, "streams", len(streams))
+					continue
+				}
 				slog.Info("mdns: closing non-LAN direct conn (LAN established)",
 					"peer", short, "remote", remoteMA)
 				c.Close()
