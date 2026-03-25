@@ -396,10 +396,20 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 				return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 			}, req.RemotePath)
 			if probeErr == nil {
-				opener := func(pid peer.ID) (network.Stream, error) {
-					return pnet.OpenPluginStream(r.Context(), pid, "file-multi-peer")
+				// Use activeCtx (not r.Context()) so streams survive after HTTP response.
+				// Same pattern as handleSend: r.Context() dies when response is sent,
+				// but multi-peer download continues in background.
+				p.mu.RLock()
+				dlCtx := p.activeCtx
+				p.mu.RUnlock()
+				if dlCtx == nil {
+					daemon.RespondError(w, http.StatusServiceUnavailable, "plugin is shutting down")
+					return
 				}
-				progress, dlErr := ts.DownloadMultiPeer(r.Context(), rootHash, allPeers, opener, destDir)
+				opener := func(pid peer.ID) (network.Stream, error) {
+					return pnet.OpenPluginStream(dlCtx, pid, "file-multi-peer")
+				}
+				progress, dlErr := ts.DownloadMultiPeer(dlCtx, rootHash, allPeers, opener, destDir)
 				if dlErr == nil {
 					snap := progress.Snapshot()
 					slog.Info("multi-peer download started via API",
