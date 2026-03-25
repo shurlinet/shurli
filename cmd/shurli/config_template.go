@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
 )
 
 // nodeConfigTemplate returns the default config YAML for a new Shurli node.
@@ -92,6 +96,58 @@ names: {}
 #   audit:
 #     enabled: true
 `, generator, addrLines, networkLine)
+}
+
+// defaultReceiveDir returns a platform-appropriate default receive directory.
+// macOS/Windows: ~/Downloads/shurli/  Linux: ~/shurli/received/
+func defaultReceiveDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return filepath.Join(home, "Downloads", "shurli")
+	}
+	return filepath.Join(home, "shurli", "received")
+}
+
+// createPluginDefaults creates the filetransfer plugin config directory and
+// a default config.yaml so new nodes have a working receive_dir and sensible
+// bandwidth_budget out of the box. Without this, every new node needs manual
+// plugin config creation before file transfer works.
+func createPluginDefaults(configDir string) {
+	pluginDir := filepath.Join(configDir, "plugins", "shurli.io", "official", "filetransfer")
+	if err := os.MkdirAll(pluginDir, 0700); err != nil {
+		slog.Debug("init: could not create plugin config dir", "error", err)
+		return
+	}
+	configPath := filepath.Join(pluginDir, "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return // already exists
+	}
+
+	recvDir := defaultReceiveDir()
+	if recvDir == "" {
+		return
+	}
+
+	content := fmt.Sprintf(`# File transfer plugin configuration
+# Generated automatically by shurli init/join
+
+# Directory where received files are saved.
+receive_dir: %q
+
+# Who can send you files: "contacts" (authorized peers only), "ask", "open", "off"
+receive_mode: "contacts"
+
+# Per-peer bandwidth budget per hour. "unlimited", "500MB", "1GB", etc.
+# LAN peers are always exempt regardless of this setting.
+bandwidth_budget: "unlimited"
+`, recvDir)
+
+	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+		slog.Debug("init: could not write plugin config", "error", err)
+	}
 }
 
 // relayServerConfigTemplate returns the default relay server config YAML.

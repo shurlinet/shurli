@@ -481,9 +481,12 @@ func (ts *TransferService) receiveParallel(
 		session.mu.Unlock()
 
 		// Decompress if needed.
+		// Use manifest ChunkSizes (Merkle-verified) as decompression limit instead of
+		// ratio-based cap. Ratio cap fails on highly compressible data (e.g. zeros
+		// compress at 8456:1, so 30 bytes * 10 = 300 byte cap vs 256KB actual chunk).
 		chunkData := wireData
 		if compressed {
-			maxDecomp := len(wireData) * maxDecompressRatio
+			maxDecomp := int(m.ChunkSizes[index])
 			if maxDecomp > maxDecompressedChunk {
 				maxDecomp = maxDecompressedChunk
 			}

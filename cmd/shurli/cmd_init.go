@@ -341,6 +341,9 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// Create filetransfer plugin config with sensible defaults (receive_dir, bandwidth_budget).
+	createPluginDefaults(configDir)
+
 	tc.Wgreen(stdout, "Config written to:  %s\n", configFile)
 	tc.Wgreen(stdout, "Identity saved to:  %s\n", keyFile)
 	fmt.Fprintln(stdout)

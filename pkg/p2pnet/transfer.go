@@ -63,7 +63,6 @@ const (
 	maxManifestSize        = 64 << 20   // 64 MB max manifest wire size
 	maxChunkWireSize       = 4 << 20    // 4 MB max single chunk on wire (compressed)
 	maxDecompressedChunk   = 8 << 20    // 8 MB max decompressed chunk
-	maxDecompressRatio     = 10         // abort if decompressed > 10x compressed
 	maxConcurrentTransfers = 10         // global inbound transfer limit
 	maxPerPeerTransfers    = 3          // per-peer inbound limit
 	maxTrackedTransfers    = 10000      // max tracked transfer entries
@@ -535,10 +534,10 @@ type TransferConfig struct {
 	MultiPeerMaxPeers int   // max peers to download from simultaneously (default: 4)
 	MultiPeerMinSize  int64 // min file size for multi-peer (default: 10 MB)
 
-	RateLimit int // max transfer requests per peer per minute (default: 10, 0 = disabled)
+	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
 
 	// DDoS defense settings.
-	GlobalRateLimit  int   // max total inbound transfer requests per minute (default: 30, 0 = disabled)
+	GlobalRateLimit  int   // max total inbound transfer requests per minute (default: 600, 0 = disabled)
 	MaxQueuedPerPeer int   // max pending+active transfers per peer (default: 10)
 	MinSpeedBytes    int   // minimum transfer speed bytes/sec (default: 1024, 0 = disabled)
 	MinSpeedSeconds  int   // speed check window seconds (default: 30)
@@ -750,10 +749,11 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	ts.queueCtx, ts.queueCancel = context.WithCancel(context.Background())
 	go ts.runQueueProcessor()
 
-	// Per-peer rate limiter (default 10/min, negative = disabled).
+	// Per-peer rate limiter (default 600/min = 10/sec, negative = disabled).
+	// Must be high enough for directory transfers (one stream per file).
 	rateLimit := cfg.RateLimit
 	if rateLimit == 0 {
-		rateLimit = 10 // default
+		rateLimit = 600 // default: 10/sec handles directories with hundreds of files
 	}
 	if rateLimit > 0 {
 		ts.rateLimiter = newTransferRateLimiter(rateLimit)
@@ -776,7 +776,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	// Global inbound rate limiter (default 30/min).
 	globalLimit := cfg.GlobalRateLimit
 	if globalLimit == 0 {
-		globalLimit = 30
+		globalLimit = 600 // default: matches per-peer limit for directory transfers
 	}
 	if globalLimit > 0 {
 		ts.globalRateLimiter = newTransferRateLimiter(globalLimit)
@@ -2078,14 +2078,16 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				tmpFile.Close()
 				// NEW-1 fix: use destDir for final path (may be overridden by accept dest).
 				fp := filepath.Join(destDir, manifest.Filename)
+				// Create parent directories BEFORE collision check (directory transfers
+				// have relative paths like "mydir/subdir/file.txt" and the parent dirs
+				// may not exist yet).
+				if dir := filepath.Dir(fp); dir != destDir {
+					os.MkdirAll(dir, 0755)
+				}
 				fp, fpErr := nonCollidingPath(fp)
 				if fpErr != nil {
 					err = fmt.Errorf("determine final path: %w", fpErr)
 				} else {
-					// Create parent directories for relative paths.
-					if dir := filepath.Dir(fp); dir != destDir {
-						os.MkdirAll(dir, 0755)
-					}
 					if renameErr := os.Rename(tmpPath, fp); renameErr != nil {
 						err = fmt.Errorf("rename temp to final: %w", renameErr)
 					} else {
