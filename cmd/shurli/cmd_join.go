@@ -486,14 +486,15 @@ func updateConfigNames(cfgFile, configDir, name, peerIDStr string) {
 		if insertAfter < 0 {
 			insertAfter = namesIdx
 		}
+		inserted := false
 		for i, line := range lines {
 			result = append(result, line)
-			if !added && i == insertAfter {
+			if !inserted && i == insertAfter {
 				result = append(result, fmt.Sprintf("%s%s: \"%s\"", indent, name, peerIDStr))
-				added = true
+				inserted = true
 			}
 		}
-		if !added {
+		if !inserted {
 			result = append(result, fmt.Sprintf("\nnames:\n  %s: \"%s\"", name, peerIDStr))
 		}
 		content = strings.Join(result, "\n")
