@@ -1466,7 +1466,7 @@ Deliverables:
 - [ ] Guide: Game/media streaming (Moonlight/Sunshine tunneling, latency characteristics)
 - [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
 - [ ] Multi-GPU / distributed inference documentation (exo, llama.cpp RPC)
-- [ ] Blog post / demo: phone → relay → home 5090 → streaming LLM response
+- [ ] Blog post / demo: phone → relay → home GPU → streaming LLM response
 
 **Automation & Integration Guides**:
 - [ ] Guide: *"Scripting & Automation with Shurli"* - daemon API, headless onboarding, Python SDK usage
@@ -1754,7 +1754,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 1. **Hacker News post**: *"Show HN: Shurli - self-hosted P2P tunnels through Starlink CGNAT (no accounts, no vendor)"*
 2. **r/selfhosted post**: Focus on SSH + XRDP + GPU inference through CGNAT
 3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
-4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
+4. **Demo video**: Phone → relay → home GPU → streaming LLM response
 5. **Comparisons**: Honest architectural comparison posts
 
 ### Community Infrastructure (set up at or before launch)
