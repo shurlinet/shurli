@@ -515,6 +515,34 @@ security:
 	}
 }
 
+func TestLoadRelayServerConfigDataRelayDefaults(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+identity:
+  key_file: "relay.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/7777"
+security:
+  enable_connection_gating: false
+  enable_data_relay: true
+`
+	path := filepath.Join(dir, "relay.yaml")
+	os.WriteFile(path, []byte(yaml), 0600)
+
+	cfg, err := LoadRelayServerConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRelayServerConfig: %v", err)
+	}
+
+	if cfg.Resources.SessionDataLimit != "2GB" {
+		t.Errorf("SessionDataLimit = %q, want %q (data relay default)", cfg.Resources.SessionDataLimit, "2GB")
+	}
+	if cfg.Resources.SessionDuration != "2h" {
+		t.Errorf("SessionDuration = %q, want %q (data relay default)", cfg.Resources.SessionDuration, "2h")
+	}
+}
+
 func TestLoadRelayServerConfigCustomResources(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `

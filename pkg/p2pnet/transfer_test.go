@@ -2137,3 +2137,22 @@ func TestQueuePerPeerLimit(t *testing.T) {
 		t.Fatalf("peer-B enqueue should succeed: %v", err)
 	}
 }
+
+func TestIsRetryableReject(t *testing.T) {
+	tests := []struct {
+		err  string
+		want bool
+	}{
+		{"peer rejected transfer: receiver busy", true},
+		{"peer rejected transfer: insufficient disk space", false},
+		{"peer rejected transfer: file too large", false},
+		{"peer rejected transfer", false},
+		{"open stream: connection reset", false},
+	}
+	for _, tt := range tests {
+		got := isRetryableReject(fmt.Errorf("%s", tt.err))
+		if got != tt.want {
+			t.Errorf("isRetryableReject(%q) = %v, want %v", tt.err, got, tt.want)
+		}
+	}
+}

@@ -242,6 +242,35 @@ func TestTransferQueuePending(t *testing.T) {
 	}
 }
 
+func TestTransferQueueRequeue(t *testing.T) {
+	q := NewTransferQueue(1) // only 1 active at a time
+
+	id, _ := q.Enqueue("/a", "p1", "send", PriorityNormal)
+
+	// Dequeue makes it active.
+	qt := q.Dequeue()
+	if qt == nil || qt.ID != id {
+		t.Fatal("expected to dequeue the job")
+	}
+
+	// Queue is at capacity (1 active). Dequeue should return nil.
+	if q.Dequeue() != nil {
+		t.Fatal("expected nil dequeue at capacity")
+	}
+
+	// Requeue moves it from active back to pending.
+	q.Requeue(id, "/a", "p1", "send", PriorityNormal)
+
+	// Now it should be dequeue-able again.
+	qt2 := q.Dequeue()
+	if qt2 == nil {
+		t.Fatal("expected to dequeue requeued job")
+	}
+	if qt2.ID != id {
+		t.Errorf("requeued ID = %q, want %q", qt2.ID, id)
+	}
+}
+
 func TestShareNonexistentPath(t *testing.T) {
 	reg := NewShareRegistry()
 	err := reg.Share("/nonexistent/path/to/file", nil, false)
