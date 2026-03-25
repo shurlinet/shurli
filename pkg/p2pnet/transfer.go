@@ -2287,6 +2287,12 @@ func (ts *TransferService) ListTransfers() []TransferSnapshot {
 	return result
 }
 
+// Retry constants for transient failures (e.g., receiver busy).
+const (
+	maxSendRetries    = 5
+	initialRetryDelay = 2 * time.Second
+)
+
 // queuedJob holds everything needed to execute a queued transfer.
 type queuedJob struct {
 	queueID    string
@@ -2297,6 +2303,7 @@ type queuedJob struct {
 	opts       SendOptions
 	openStream streamOpener
 	progress   *TransferProgress // synthetic "queued" progress visible to CLI
+	retryCount int               // number of retries so far
 }
 
 // SubmitSend enqueues an outbound transfer. If a slot is available it starts
@@ -2459,6 +2466,33 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 		}
 	}
 
+	// Retry on transient "receiver busy" rejection.
+	if finalErr != nil && isRetryableReject(finalErr) && job.retryCount < maxSendRetries {
+		job.retryCount++
+		delay := initialRetryDelay * time.Duration(1<<(job.retryCount-1)) // 2s, 4s, 8s, 16s, 32s
+		slog.Info("queued transfer: receiver busy, retrying",
+			"id", job.queueID, "peer", job.peerID, "attempt", job.retryCount, "delay", delay)
+		job.progress.setStatus("retrying")
+
+		select {
+		case <-jobCtx.Done():
+			job.progress.finish(fmt.Errorf("cancelled during retry backoff"))
+		case <-time.After(delay):
+			// Re-queue: put job back and signal processor.
+			job.progress.setStatus("queued")
+			ts.pendingJobsMu.Lock()
+			ts.pendingJobs[job.queueID] = job
+			ts.pendingJobsMu.Unlock()
+			// Re-enqueue in the priority queue so the processor picks it up.
+			ts.queue.Requeue(job.queueID, job.filePath, job.peerID, "send", job.priority)
+			select {
+			case ts.queueReady <- struct{}{}:
+			default:
+			}
+			return // Don't complete or finish - the job will be retried.
+		}
+	}
+
 	job.progress.finish(finalErr)
 
 	if finalErr != nil {
@@ -2476,6 +2510,13 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 	default:
 	}
 	ts.persistQueue()
+}
+
+// isRetryableReject returns true if the error indicates a transient rejection
+// that should be retried (receiver busy, rate limit, etc.).
+func isRetryableReject(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "receiver busy")
 }
 
 // pollSendProgress copies progress from a SendFile operation into the queued job's

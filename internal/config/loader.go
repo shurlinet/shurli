@@ -180,8 +180,10 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 		return nil, fmt.Errorf("%w: version %d is newer than supported version %d; please upgrade relay-server", ErrConfigVersionTooNew, config.Version, CurrentConfigVersion)
 	}
 
-	// Apply defaults for zero-valued resource fields
-	applyRelayResourceDefaults(&config.Resources)
+	// Apply defaults for zero-valued resource fields.
+	// Self-hosted relays (enable_data_relay: true) get relaxed session limits
+	// to support file transfer. Seeds keep the painful 64MB default.
+	applyRelayResourceDefaults(&config.Resources, config.Security.EnableDataRelay)
 
 	// Apply health endpoint defaults
 	if config.Health.Enabled && config.Health.ListenAddress == "" {
@@ -431,7 +433,10 @@ func DefaultRelayResources() RelayResourcesConfig {
 }
 
 // applyRelayResourceDefaults fills zero-valued fields with defaults.
-func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
+// enableDataRelay selects the tier: when true (self-hosted relay), session
+// limits are relaxed to support file transfer. When false (seed/signaling),
+// the painful 64MB default forces peers toward direct connections.
+func applyRelayResourceDefaults(rc *RelayResourcesConfig, enableDataRelay bool) {
 	defaults := DefaultRelayResources()
 	if rc.MaxReservations == 0 {
 		rc.MaxReservations = defaults.MaxReservations
@@ -452,10 +457,18 @@ func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
 		rc.ReservationTTL = defaults.ReservationTTL
 	}
 	if rc.SessionDuration == "" {
-		rc.SessionDuration = defaults.SessionDuration
+		if enableDataRelay {
+			rc.SessionDuration = "2h"
+		} else {
+			rc.SessionDuration = defaults.SessionDuration
+		}
 	}
 	if rc.SessionDataLimit == "" {
-		rc.SessionDataLimit = defaults.SessionDataLimit
+		if enableDataRelay {
+			rc.SessionDataLimit = "2GB"
+		} else {
+			rc.SessionDataLimit = defaults.SessionDataLimit
+		}
 	}
 }
 

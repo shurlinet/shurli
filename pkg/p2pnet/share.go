@@ -1364,6 +1364,39 @@ func (q *TransferQueue) Complete(id string) {
 	delete(q.active, id)
 }
 
+// Requeue moves an active transfer back to the pending queue for retry.
+// The existing ID is preserved so progress tracking continues seamlessly.
+func (q *TransferQueue) Requeue(id, filePath, peerID, direction string, priority TransferPriority) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Remove from active.
+	delete(q.active, id)
+
+	qt := &QueuedTransfer{
+		ID:        id,
+		FilePath:  filePath,
+		PeerID:    peerID,
+		Priority:  priority,
+		Direction: direction,
+		QueuedAt:  time.Now(),
+	}
+
+	// Insert by priority (same logic as Enqueue).
+	inserted := false
+	for i, existing := range q.pending {
+		if priority > existing.Priority {
+			q.pending = append(q.pending[:i+1], q.pending[i:]...)
+			q.pending[i] = qt
+			inserted = true
+			break
+		}
+	}
+	if !inserted {
+		q.pending = append(q.pending, qt)
+	}
+}
+
 // Cancel removes a pending transfer from the queue.
 func (q *TransferQueue) Cancel(id string) bool {
 	q.mu.Lock()

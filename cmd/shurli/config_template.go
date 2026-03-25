@@ -223,8 +223,12 @@ security:
 #   max_reservations_per_ip: 8   # Reservations per source IP
 #   max_reservations_per_asn: 32 # Reservations per AS number
 #   reservation_ttl: "1h"        # How long a reservation lasts
+#   # Session limits are tier-aware:
+#   #   Seed (enable_data_relay: false): 10m duration, 64MB data (painful default)
+#   #   Self-hosted relay (enable_data_relay: true): 2h duration, 2GB data
+#   # Override explicitly if needed:
 #   session_duration: "10m"      # Max duration per relayed session
-#   session_data_limit: "64MB"   # Max data per session per direction
+#   session_data_limit: "64MB"   # Max data per session per direction (cumulative)
 
 # Health check endpoint for monitoring (Prometheus, UptimeKuma, etc.)
 # Disabled by default. Binds to localhost only - not exposed to the internet.
