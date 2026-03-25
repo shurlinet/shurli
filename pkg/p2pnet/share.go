@@ -964,25 +964,21 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		}
 
 		// Use os.Root for atomic path traversal safety.
-		root, err := os.OpenRoot(share.Path)
+		// For single-file shares, open parent dir as root (os.OpenRoot fails on files).
+		rootPath := share.Path
+		if !share.IsDir {
+			rootPath = filepath.Dir(share.Path)
+			if relPath == "" {
+				relPath = filepath.Base(share.Path)
+			}
+		}
+		root, err := os.OpenRoot(rootPath)
 		if err != nil {
 			writeDownloadError(s, "not found")
 			s.Close()
 			return
 		}
 		defer root.Close()
-
-		// For single-file shares without a subpath, use the share's basename.
-		if relPath == "" && !share.IsDir {
-			relPath = filepath.Base(share.Path)
-			root.Close()
-			root, err = os.OpenRoot(filepath.Dir(share.Path))
-			if err != nil {
-				writeDownloadError(s, "not found")
-				s.Close()
-				return
-			}
-		}
 
 		if relPath == "" {
 			writeDownloadError(s, "no file specified")
