@@ -192,6 +192,21 @@ journal:
     title: Per-Peer Data Grants
     description: "Macaroon capability tokens for per-peer, time-limited access control. Node-level enforcement, delegation, notifications, tamper-evident audit log."
 
+  - source: plugin-security-threat-analysis.md
+    weight: 27
+    title: Phase 9 - Plugin Security Threat Analysis
+    description: "43-vector threat analysis across 3 rounds. Trusted computing base, WASM host function API, supply chain defense, credential isolation, AI-era constraints."
+
+  - source: grant-receipt-protocol.md
+    weight: 28
+    title: Phase 9 - Grant Receipt Protocol
+    description: "Relay-issued receipts with session budgets, client-side grant cache, smart pre-transfer checks, per-chunk circuit byte tracking, smart reconnection."
+
+  - source: relay-circuit-investigation.md
+    weight: 29
+    title: Phase 9 - Relay Circuit Investigation
+    description: "Tier-aware session limits (RC1), receiver busy retry (RC2), seed relay churn superseded by Grant Receipt Protocol (RC3)."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md

@@ -1,8 +1,10 @@
 # Post-Chaos Network Hardening
 
-**Date**: 2026-03-11 to 2026-03-14
-**Status**: Complete
-**ADRs**: ADR-S01 to ADR-S07
+| | |
+|---|---|
+| **Date** | 2026-03-11 to 2026-03-14 |
+| **Status** | Complete |
+| **ADRs** | ADR-S01 to ADR-S07 |
 
 Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root causes in libp2p's network transition handling and 8 post-chaos flags. All resolved. This journal covers the architectural decisions made during the fix and investigation phase.
 
@@ -10,8 +12,10 @@ Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root 
 
 ### ADR-S01: Reset Black Hole Detectors on Network Change
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -38,8 +42,10 @@ Self-recovery requires 5 successful probes out of 100 attempts. At 1 probe per 1
 
 ### ADR-S02: ForceReachabilityPrivate for Permanent Relay Fallback
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -66,8 +72,10 @@ Set `libp2p.ForceReachabilityPrivate()` always in daemon mode. The daemon mainta
 
 ### ADR-S03: Constrained Dial for Confirmed Path
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -88,8 +96,10 @@ Before `DialPeer`, save all peerstore addresses, `ClearAddrs`, add ONLY the conf
 
 ### ADR-S04: VPN Tunnel Interface Detection
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -112,8 +122,10 @@ Interface name patterns: `utun[0-9]+` (macOS: WireGuard, IKEv2, LightWay), `tun[
 
 ### ADR-S05: Default Gateway Tracking for Private IPv4 Switches
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -149,8 +161,10 @@ Option 2 in the original plan. Rejected: higher false-positive rate from DHCP re
 
 ### ADR-S06: Dial Worker Cache Poisoning Workaround
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -185,8 +199,10 @@ Three-part fix (all three required - removing any one re-opens the cache poisoni
 
 ### ADR-S07: Autorelay Static Relay Tuning
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 

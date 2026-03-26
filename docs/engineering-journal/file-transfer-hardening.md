@@ -1,8 +1,10 @@
 # File Transfer Hardening: DDoS Defense, Queue Persistence & Path Privacy
 
-**Date**: 2026-03-15
-**Status**: Complete
-**ADRs**: ADR-R10 to ADR-R16
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Complete |
+| **ADRs** | ADR-R10 to ADR-R16 |
 
 Physical testing of the file transfer system on real hardware across multiple networks revealed 13 issues. This journal documents the architecture decisions behind the hardening fixes: DDoS defense layers, queue persistence, path privacy, resume integrity, and the audit process that verified them.
 
@@ -10,8 +12,10 @@ Physical testing of the file transfer system on real hardware across multiple ne
 
 ## ADR-R10: Seven-Layer DDoS Defense
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -45,8 +49,10 @@ No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Que
 
 ## ADR-R11: Queue Persistence with HMAC Integrity
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -79,8 +85,10 @@ Encryption would hide the file paths, but the daemon needs to read them to re-su
 
 ## ADR-R12: Path Privacy - Opaque Share IDs
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -114,8 +122,10 @@ Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
 
 ## ADR-R13: Checkpoint Resume with Bitfield Tracking
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -141,8 +151,10 @@ Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allo
 
 ## ADR-R14: Queue Backpressure - Global and Per-Peer Limits
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -170,8 +182,10 @@ Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pen
 
 ## ADR-R15: Case-Insensitive Name Resolution
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -198,8 +212,10 @@ The first attempt normalized only on lookup (case-insensitive iteration). This a
 
 ## ADR-R16: Relay Transport for File Transfer Plugins
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
