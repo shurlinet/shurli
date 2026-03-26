@@ -56,7 +56,7 @@ Shurli ships as a single binary with subcommands. All commands support `--config
 | `shurli invite [--as "home"] [--non-interactive]` | Generate invite code + QR, wait for join |
 | `shurli join <code> [--as "laptop"] [--non-interactive]` | Accept invite or relay pairing code, auto-configure |
 | `shurli verify <peer>` | Verify peer identity via SAS fingerprint (4-emoji + numeric) |
-| `shurli status` | Show local config, identity, authorized peers, services, names |
+| `shurli status` | Show local config, identity, authorized peers, relay grants, services, names |
 | `shurli version` | Show version, commit, build date, Go version |
 
 ## File Transfer
@@ -137,6 +137,30 @@ Shurli ships as a single binary with subcommands. All commands support `--config
 | `shurli relay grants [--json]` | List all grants on relay |
 | `shurli relay revoke <peer-id> <plugin>` | Revoke a grant on relay |
 | `shurli relay extend <peer-id> <plugin> [--duration 24h]` | Extend a grant on relay |
+
+### Relay grant receipts in `shurli status`
+
+When the daemon is running, `shurli status` displays a `Relay Grants:` section showing cached grant receipts received from relays via the `/shurli/grant-receipt/1.0.0` protocol.
+
+**Output format per relay**:
+
+```
+Relay Grants:
+  my-relay: active, expires in 23h45m, 2.0 GB/session (1.2 GB used), 2h0m0s/circuit
+  backup-relay: permanent, unlimited/session, 2h0m0s/circuit
+  signal-relay: no grant (signaling only)
+```
+
+| Field | Meaning |
+|-------|---------|
+| `active` / `permanent` | Whether the grant has a time limit or is permanent |
+| `expires in <duration>` | Time remaining before the grant expires (omitted for permanent grants) |
+| `<size>/session` | Per-direction data budget for the current circuit session (`unlimited` if no limit) |
+| `(<size> used)` | Cumulative bytes sent and received on the current circuit (omitted if zero) |
+| `<duration>/circuit` | Maximum duration of a single relay circuit session (omitted if unlimited) |
+| `no grant (signaling only)` | Relay is configured but no grant receipt has been received. The relay can be used for peer discovery and signaling but not for data transfer. |
+
+Grant receipts are cached locally in `~/.shurli/grant_cache.json` and survive daemon restarts. Per-circuit usage counters reset when a new circuit is established.
 
 ### Relay invites
 
