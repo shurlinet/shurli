@@ -287,8 +287,8 @@ a local control API over a Unix socket.
 Start the daemon in the foreground.
 .TP
 .B daemon status \fR[\fB--json\fR]
-Query the running daemon for its peer ID, uptime, connected peers, and
-active proxies.
+Query the running daemon for its peer ID, uptime, connected peers, relay
+grant cache, and active proxies.
 .TP
 .B daemon stop
 Send a graceful shutdown signal. Active proxy tunnels are drained before exit.
@@ -775,8 +775,9 @@ webhook URLs, desktop notification permissions, and sink wiring.
 .SH OTHER COMMANDS
 .TP
 .B status \fR[\fB--config\fR \fIpath\fR]
-Show a summary of local configuration: config file path, identity, relay
-addresses, authorized peers, and registered services.
+Show a summary of local configuration and daemon state: config file path,
+identity, relay addresses, relay grant cache (budget, remaining time, session
+usage per relay), authorized peers, and registered services.
 .TP
 .B doctor \fR[\fB--fix\fR]
 Health check for your shurli installation. Verifies:

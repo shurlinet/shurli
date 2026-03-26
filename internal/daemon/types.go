@@ -20,6 +20,7 @@ type StatusResponse struct {
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
 	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
+	RelayGrants       []RelayGrantInfo `json:"relay_grants,omitempty"`  // client-side cached relay grant receipts
 	Notifications     *NotificationsStatus `json:"notifications,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
@@ -311,6 +312,17 @@ type ReconnectResponse struct {
 	Peer   string `json:"peer"`
 	PeerID string `json:"peer_id"`
 	Status string `json:"status"` // "reconnecting" or "not_watched"
+}
+
+// RelayGrantInfo describes a cached relay grant receipt for status display.
+type RelayGrantInfo struct {
+	RelayPeerID      string `json:"relay_peer_id"`
+	RelayName        string `json:"relay_name,omitempty"`       // parsed from agent version
+	Permanent        bool   `json:"permanent,omitempty"`
+	Remaining        string `json:"remaining,omitempty"`        // human-readable time left
+	SessionBudget    string `json:"session_budget,omitempty"`   // e.g. "2 GB" or "unlimited"
+	SessionUsed      string `json:"session_used,omitempty"`     // e.g. "1.2 GB"
+	SessionDuration  string `json:"session_duration,omitempty"` // e.g. "2h"
 }
 
 // NotificationsStatus is the notifications section in the status response.

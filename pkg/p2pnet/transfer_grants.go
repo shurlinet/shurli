@@ -134,7 +134,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 	// Log grant status (user-facing).
 	budgetStr := "unlimited"
 	if budget < math.MaxInt64 {
-		budgetStr = formatBytes(budget)
+		budgetStr = FormatBytes(budget)
 	}
 	remainStr := "permanent"
 	if remaining != time.Duration(math.MaxInt64) {
@@ -154,7 +154,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 			"relay", shortPeerStr(relayID),
 			"grant_remaining", remainStr,
 			"session_budget", budgetStr,
-			"file_size", formatBytes(fileSize),
+			"file_size", FormatBytes(fileSize),
 			"estimate", estimateStr)
 	} else {
 		slog.Info("relay-grant: transfer check",
@@ -162,7 +162,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 			"grant_remaining", remainStr,
 			"session_budget", budgetStr,
 			"session_duration", sessionStr,
-			"file_size", formatBytes(fileSize),
+			"file_size", FormatBytes(fileSize),
 			"budget_ok", info.BudgetOK,
 			"time_ok", info.TimeOK)
 	}
@@ -170,7 +170,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 	if !info.BudgetOK {
 		slog.Warn("relay-grant: insufficient session budget, will establish new circuit",
 			"relay", shortPeerStr(relayID),
-			"need", formatBytes(fileSize),
+			"need", FormatBytes(fileSize),
 			"have", budgetStr)
 	}
 
@@ -257,8 +257,8 @@ func shortPeerStr(pid peer.ID) string {
 	return s
 }
 
-// formatBytes formats a byte count for user-facing display.
-func formatBytes(b int64) string {
+// FormatBytes formats a byte count for user-facing display (e.g. "1.2 GB", "500 MB").
+func FormatBytes(b int64) string {
 	if b >= 1<<30 {
 		return fmt.Sprintf("%.1f GB", float64(b)/float64(1<<30))
 	}
