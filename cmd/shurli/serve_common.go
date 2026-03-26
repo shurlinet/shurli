@@ -1030,9 +1030,8 @@ func (rl *receiptRateLimiter) allow(relayID peer.ID) bool {
 	return true
 }
 
-// setupGrantReceiptHandler registers handlers for BOTH the new grant-receipt
-// and legacy grant-changed protocols. The new protocol caches the full receipt;
-// the legacy protocol triggers the same backoff-clearing behavior as before.
+// setupGrantReceiptHandler registers the grant-receipt protocol handler.
+// When a relay pushes a 62-byte receipt, the client caches it and clears backoffs.
 func (rt *serveRuntime) setupGrantReceiptHandler() {
 	h := rt.network.Host()
 	rl := &receiptRateLimiter{}
@@ -1117,55 +1116,11 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 				"relay", short)
 		}
 
-		// Same backoff-clearing as legacy handler.
-		rt.clearBackoffsAndReconnect()
-	})
-
-	// Legacy handler for old relays that only speak grant-changed.
-	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
-		defer s.Close()
-		remotePeer := s.Conn().RemotePeer()
-
-		short := remotePeer.String()
-		if len(short) > 16 {
-			short = short[:16] + "..."
-		}
-
-		if !rt.isConfiguredRelay(remotePeer) {
-			slog.Warn("grant-changed: rejected from non-relay", "peer", short)
-			return
-		}
-
-		// S7: rate limit (shared with receipt handler).
-		if !rl.allow(remotePeer) {
-			slog.Debug("grant-changed: rate limited", "peer", short)
-			return
-		}
-
-		// Read and validate version byte with timeout.
-		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			slog.Warn("grant-changed: set deadline error", "err", err)
-			return
-		}
-		var ver [1]byte
-		if _, err := io.ReadFull(s, ver[:]); err != nil {
-			slog.Warn("grant-changed: read error", "err", err)
-			return
-		}
-		if ver[0] != 0x01 {
-			slog.Warn("grant-changed: unsupported version", "version", ver[0])
-			return
-		}
-
-		slog.Info("grant-changed: relay notified access changed (legacy), clearing backoffs",
-			"relay", short)
-
 		rt.clearBackoffsAndReconnect()
 	})
 }
 
 // clearBackoffsAndReconnect clears dial backoffs and triggers reconnection.
-// Shared by both grant-receipt and legacy grant-changed handlers.
 func (rt *serveRuntime) clearBackoffsAndReconnect() {
 	if rt.gater != nil {
 		rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())

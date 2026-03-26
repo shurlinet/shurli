@@ -1775,7 +1775,7 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		"permanent", req.Permanent,
 		"duration_sec", req.DurationSec)
 
-	// Push grant receipt to the grantee (or legacy signal if no HMAC key).
+	// Push grant receipt to the grantee.
 	// Fire-and-forget: if the peer isn't connected, receipt is delivered on reconnect.
 	// Use request parameters (req.Permanent, duration) instead of the Grant pointer
 	// to avoid a data race: grantStore.Grant() returns the same pointer stored in
@@ -1786,13 +1786,6 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
 				slog.Debug("relay grant: receipt notify failed",
-					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
-			}
-		}()
-	} else if s.host != nil {
-		go func() {
-			if err := NotifyGrantChanged(context.Background(), s.host, pid); err != nil {
-				slog.Debug("relay grant: grant-changed notify failed",
 					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
 			}
 		}()
