@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 
@@ -76,7 +77,8 @@ func runInit(args []string) {
 func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	dirFlag := fs.String("dir", "", "config directory (default: ~/.config/shurli)")
+	dirFlag := fs.String("dir", "", "config directory (default: /etc/shurli)")
+	userFlag := fs.Bool("user", false, "install config in ~/.shurli/ instead of /etc/shurli/")
 	networkFlag := fs.String("network", "", "DHT network namespace for private networks (e.g., \"my-crew\")")
 	skipSeedConfirm := fs.Bool("skip-seed-confirm", false, "skip seed backup confirmation quiz (automation only)")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
@@ -96,36 +98,146 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	// Determine config directory
 	configDir := *dirFlag
 	if configDir == "" {
-		d, err := config.DefaultConfigDir()
+		var d string
+		var err error
+		if *userFlag {
+			d, err = config.UserConfigDir()
+		} else {
+			d, err = config.DefaultConfigDir()
+		}
 		if err != nil {
 			return fmt.Errorf("cannot determine config directory: %w", err)
 		}
 		configDir = d
 	}
 
-	// Check if config already exists
+	// Check if config already exists (including legacy path)
 	configFile := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(configFile); err == nil {
 		return fmt.Errorf("config already exists: %s\nDelete it first if you want to reinitialize", configFile)
 	}
 
 	// Create config directory
-	fmt.Fprintf(stdout, "Creating config directory: %s\n", configDir)
+	fmt.Fprintf(stdout, "Config directory: %s\n", configDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		// Needs sudo for /etc/shurli/
+		if !*userFlag && *dirFlag == "" {
+			fmt.Fprintln(stdout, "Creating system config directory (requires sudo)...")
+			user := os.Getenv("USER")
+			if user == "" {
+				user = "root"
+			}
+			if e := sudoRun("mkdir", "-p", configDir); e != nil {
+				return fmt.Errorf("failed to create directory: %w", e)
+			}
+			if e := sudoRun("chown", "-R", user+":"+user, configDir); e != nil {
+				return fmt.Errorf("failed to set ownership: %w", e)
+			}
+			if e := sudoRun("chmod", "700", configDir); e != nil {
+				return fmt.Errorf("failed to set permissions: %w", e)
+			}
+		} else {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
 	}
 	fmt.Fprintln(stdout)
 
-	// Network setup: public Shurli network (default) or custom relay
+	// Identity setup: new or recover
 	reader := bufio.NewReader(stdin)
-	fmt.Fprintln(stdout, "Network setup:")
-	fmt.Fprintln(stdout, "  1. Join the Shurli public network (default)")
-	fmt.Fprintln(stdout, "     Uses public seed nodes for peer discovery and direct connections.")
-	fmt.Fprintln(stdout, "     NOTE: Seed nodes enable discovery only, NOT data relay.")
-	fmt.Fprintln(stdout, "     Data transfers happen directly between your devices.")
+	fmt.Fprintln(stdout, "Identity:")
+	fmt.Fprintln(stdout, "  1. Create a new identity (default)")
+	fmt.Fprintln(stdout, "  2. Recover from an existing seed phrase")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "  2. Use my own relay server")
-	fmt.Fprintln(stdout, "     Use a self-hosted relay for full data relay capability.")
+	fmt.Fprint(stdout, "Choice [1]: ")
+
+	idChoice, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	idChoice = strings.TrimSpace(idChoice)
+	if idChoice == "" {
+		idChoice = "1"
+	}
+
+	var recoverMode bool
+	switch idChoice {
+	case "1":
+		// New identity - handled below
+	case "2":
+		recoverMode = true
+	default:
+		return fmt.Errorf("invalid choice: %s (enter 1 or 2)", idChoice)
+	}
+	fmt.Fprintln(stdout)
+
+	// Identity: generate new or recover from seed phrase.
+	// This runs BEFORE network setup so the user confirms their identity first.
+	var privKey crypto.PrivKey
+	if recoverMode {
+		fmt.Fprintln(stdout, "Enter your seed phrase to recover your identity.")
+		fmt.Fprintln(stdout)
+		mnemonic, err := readSeedPhrase(stdout)
+		if err != nil {
+			return fmt.Errorf("failed to read seed phrase: %w", err)
+		}
+		if err := identity.ValidateMnemonic(mnemonic); err != nil {
+			return fmt.Errorf("invalid seed phrase: %w", err)
+		}
+		entropy, err := identity.SeedFromMnemonic(mnemonic)
+		if err != nil {
+			return fmt.Errorf("failed to decode seed: %w", err)
+		}
+		privKey, err = identity.DeriveIdentityKey(entropy)
+		if err != nil {
+			return fmt.Errorf("failed to derive identity key: %w", err)
+		}
+		peerID, _ := peer.IDFromPrivateKey(privKey)
+		tc.Wgreen(stdout, "Seed phrase accepted.\n")
+		fmt.Fprintf(stdout, "Recovered Peer ID: %s\n", peerID)
+		fmt.Fprintln(stdout)
+	} else {
+		fmt.Fprintln(stdout, "Generating identity...")
+		fmt.Fprintln(stdout)
+
+		mnemonic, entropy, err := identity.GenerateSeed()
+		if err != nil {
+			return fmt.Errorf("failed to generate seed: %w", err)
+		}
+		words := strings.Fields(mnemonic)
+
+		tc.Wyellow(stdout, "=== SEED PHRASE ===\n")
+		tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
+		tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
+		fmt.Fprintln(stdout)
+		fmt.Fprint(stdout, formatSeedGrid(words))
+		fmt.Fprintln(stdout)
+		tc.Wyellow(stdout, "===========================\n")
+		fmt.Fprintln(stdout)
+
+		if err := confirmSeedBackup(stdout, reader, words, *skipSeedConfirm); err != nil {
+			return fmt.Errorf("seed backup: %w", err)
+		}
+		if !*skipSeedConfirm {
+			fmt.Fprintln(stdout, "Seed backup confirmed.")
+			fmt.Fprintln(stdout)
+		}
+
+		privKey, err = identity.DeriveIdentityKey(entropy)
+		if err != nil {
+			return fmt.Errorf("failed to derive identity key: %w", err)
+		}
+	}
+
+	// Network setup: own relay (recommended) or public seed nodes
+	fmt.Fprintln(stdout, "Network setup:")
+	fmt.Fprintln(stdout, "  1. Use my own relay server (recommended)")
+	fmt.Fprintln(stdout, "     Full capability: data relay, file transfer, service proxy.")
+	fmt.Fprintln(stdout, "     Your relay, your rules. Setup: https://shurli.io/docs/relay-setup/")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  2. Use public seed nodes (limited - discovery only)")
+	fmt.Fprintln(stdout, "     Seed nodes handle peer DISCOVERY only. They do NOT relay data.")
+	fmt.Fprintln(stdout, "     You cannot: relay files, proxy services, or pass any data through seeds.")
+	fmt.Fprintln(stdout, "     You can: discover peers and make direct connections (hole-punching).")
 	fmt.Fprintln(stdout)
 	fmt.Fprint(stdout, "Choice [1]: ")
 
@@ -139,57 +251,37 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 
 	var relayAddrs []string
+	var usedSeeds bool
 	switch choice {
 	case "1":
-		relayAddrs = HardcodedSeeds
-		fmt.Fprintln(stdout)
-		fmt.Fprintf(stdout, "Using %d public Shurli seed nodes for discovery.\n", len(SeedPeerIDs()))
-		fmt.Fprintln(stdout, "These enable peer discovery and direct connections only.")
-		fmt.Fprintln(stdout, "For full data relay, deploy your own: https://shurli.io/docs/relay-setup/")
-	case "2":
 		relayAddr, err := promptRelayAddress(reader, stdout)
 		if err != nil {
 			return err
 		}
 		relayAddrs = []string{relayAddr}
+
+		fmt.Fprintln(stdout)
+		fmt.Fprint(stdout, "Also add public seed nodes for broader peer discovery? [y/N]: ")
+		seedChoice, _ := reader.ReadString('\n')
+		seedChoice = strings.TrimSpace(strings.ToLower(seedChoice))
+		if seedChoice == "y" || seedChoice == "yes" {
+			relayAddrs = append(relayAddrs, HardcodedSeeds...)
+			fmt.Fprintf(stdout, "Added %d public seed nodes.\n", len(HardcodedSeeds))
+		}
+	case "2":
+		usedSeeds = true
+		relayAddrs = HardcodedSeeds
+		fmt.Fprintln(stdout)
+		fmt.Fprintf(stdout, "Using %d public seed nodes for DISCOVERY ONLY.\n", len(SeedPeerIDs()))
+		fmt.Fprintln(stdout, "  - No file transfer through seeds")
+		fmt.Fprintln(stdout, "  - No service proxy through seeds")
+		fmt.Fprintln(stdout, "  - No data circuits of any kind")
+		fmt.Fprintln(stdout, "  Direct connections still work when both peers are online.")
+		fmt.Fprintln(stdout, "  Deploy your own relay for full capability: https://shurli.io/docs/relay-setup/")
 	default:
 		return fmt.Errorf("invalid choice: %s (enter 1 or 2)", choice)
 	}
 	fmt.Fprintln(stdout)
-
-	// Generate BIP39 seed
-	fmt.Fprintln(stdout, "Generating identity...")
-	fmt.Fprintln(stdout)
-
-	mnemonic, entropy, err := identity.GenerateSeed()
-	if err != nil {
-		return fmt.Errorf("failed to generate seed: %w", err)
-	}
-	words := strings.Fields(mnemonic)
-
-	tc.Wyellow(stdout, "=== SEED PHRASE ===\n")
-	tc.Wyellow(stdout, "Write this down and store it securely. This is the ONLY way to\n")
-	tc.Wyellow(stdout, "recover your identity if you lose this device.\n")
-	fmt.Fprintln(stdout)
-	fmt.Fprint(stdout, formatSeedGrid(words))
-	fmt.Fprintln(stdout)
-	tc.Wyellow(stdout, "===========================\n")
-	fmt.Fprintln(stdout)
-
-	// Seed backup confirmation quiz.
-	if err := confirmSeedBackup(stdout, reader, words, *skipSeedConfirm); err != nil {
-		return fmt.Errorf("seed backup: %w", err)
-	}
-	if !*skipSeedConfirm {
-		fmt.Fprintln(stdout, "Seed backup confirmed.")
-		fmt.Fprintln(stdout)
-	}
-
-	// Derive identity key from seed.
-	privKey, err := identity.DeriveIdentityKey(entropy)
-	if err != nil {
-		return fmt.Errorf("failed to derive identity key: %w", err)
-	}
 
 	// Set identity password (interactive).
 	fmt.Fprintln(stdout, "Set a password to protect your identity:")
@@ -249,6 +341,9 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// Create filetransfer plugin config with sensible defaults (receive_dir, bandwidth_budget).
+	createPluginDefaults(configDir)
+
 	tc.Wgreen(stdout, "Config written to:  %s\n", configFile)
 	tc.Wgreen(stdout, "Identity saved to:  %s\n", keyFile)
 	fmt.Fprintln(stdout)
@@ -263,10 +358,23 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 	// Install shell completions and man page.
 	setupShellEnvironment(stdout)
 
+	// Offer systemd service installation (Linux only, skipped on macOS/Windows).
+	serviceInstalled := promptInstallService(reader, stdout, 0)
+
 	tc.Wblue(stdout, "Next steps:\n")
-	fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
-	fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --name home")
-	fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	if serviceInstalled {
+		fmt.Fprintln(stdout, "  1. Invite a peer:  shurli invite --as home")
+		fmt.Fprintln(stdout, "  2. Or connect:     shurli proxy <target> <service> <port>")
+	} else {
+		fmt.Fprintln(stdout, "  1. Run as server:  shurli daemon")
+		fmt.Fprintln(stdout, "  2. Invite a peer:  shurli invite --as home")
+		fmt.Fprintln(stdout, "  3. Or connect:     shurli proxy <target> <service> <port>")
+	}
+	if usedSeeds {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "  Tip: Deploy your own relay for full capability:")
+		fmt.Fprintln(stdout, "       https://shurli.io/docs/relay-setup/")
+	}
 	fmt.Fprintln(stdout)
 	tc.Wfaint(stdout, "If anything looks wrong later, run: shurli doctor\n")
 	return nil

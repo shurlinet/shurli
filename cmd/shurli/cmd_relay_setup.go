@@ -210,6 +210,10 @@ func createFreshRelayConfig(dir string, stdout io.Writer) error {
 
 	// Key is auto-generated on first serve
 	fmt.Fprintln(stdout, "  relay_node.key will be generated on first 'shurli relay serve'")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  Data relay: ENABLED for all authorized peers.")
+	fmt.Fprintln(stdout, "  For per-peer time-limited access: set enable_data_relay: false")
+	fmt.Fprintln(stdout, "  in relay-server.yaml, then use: shurli relay grant <peer-id> --duration 1h")
 	return nil
 }
 

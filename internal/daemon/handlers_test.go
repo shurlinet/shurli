@@ -17,6 +17,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -50,9 +52,15 @@ func (m *networkMockRuntime) IsRelaying() bool                            { retu
 func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
-func (m *networkMockRuntime) TransferService() *p2pnet.TransferService    { return nil }
-func (m *networkMockRuntime) ShareRegistry() *p2pnet.ShareRegistry        { return nil }
 func (m *networkMockRuntime) ConfigReloader() ConfigReloader               { return nil }
+func (m *networkMockRuntime) GrantStore() *grants.Store                    { return nil }
+func (m *networkMockRuntime) GrantPouch() *grants.Pouch                    { return nil }
+func (m *networkMockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
+func (m *networkMockRuntime) GrantsAutoRefresh() bool                      { return false }
+func (m *networkMockRuntime) GrantsMaxRefreshDuration() string             { return "" }
+func (m *networkMockRuntime) NotifyRouter() *notify.Router                 { return nil }
+func (m *networkMockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *networkMockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {

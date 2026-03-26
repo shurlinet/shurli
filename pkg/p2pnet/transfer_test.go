@@ -3,11 +3,16 @@ package p2pnet
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -629,18 +634,88 @@ func TestTransferServiceReceiveMode(t *testing.T) {
 
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
-		input, expected string
+		name, input, expected string
 	}{
-		{"normal.txt", "normal.txt"},
-		{"has\x00null.txt", "hasnull.txt"},
-		{"control\x01chars\x1f.txt", "controlchars.txt"},
-		{"", ""},
+		{"normal", "normal.txt", "normal.txt"},
+		{"null bytes", "has\x00null.txt", "hasnull.txt"},
+		{"C0 control chars", "control\x01chars\x1f.txt", "controlchars.txt"},
+		{"empty", "", ""},
+		// Terminal escape injection (OSC 52 clipboard RCE, ANSI clear screen).
+		{"ESC byte", "\x1b[2Jevil.txt", "[2Jevil.txt"},
+		{"OSC 52 clipboard", "\x1b]52;c;Y3VybA==\afile.txt", "]52;c;Y3VybA==file.txt"},
+		// DEL and C1 control chars.
+		{"DEL", "file\x7fname.txt", "filename.txt"},
+		{"C1 control", "file\u0085name.txt", "filename.txt"},
+		{"C1 range", "file\u008Dname.txt", "filename.txt"},
+		// Unicode Tags (ASCII smuggling for LLM prompt injection).
+		{"Unicode Tag", "report\U000E0041\U000E0042.pdf", "report.pdf"},
+		{"Tag cancel", "file\U000E007F.txt", "file.txt"},
+		// Zero-width characters (invisible payloads).
+		{"ZWSP", "photo\u200B.jpg", "photo.jpg"},
+		{"ZWNJ", "file\u200C.txt", "file.txt"},
+		{"ZWJ", "file\u200D.txt", "file.txt"},
+		{"BOM", "\uFEFFfile.txt", "file.txt"},
+		{"Word Joiner", "file\u2060.txt", "file.txt"},
+		{"Invisible Times", "file\u2062.txt", "file.txt"},
+		{"Invisible Plus", "file\u2064.txt", "file.txt"},
+		{"Mongolian VS", "file\u180E.txt", "file.txt"},
+		// BiDi control characters (extension spoofing via RLO U+202E).
+		{"RLO", "data\u202Etxt.exe", "datatxt.exe"},
+		{"LRO", "file\u202D.txt", "file.txt"},
+		{"LRE", "file\u202A.txt", "file.txt"},
+		{"RLE", "file\u202B.txt", "file.txt"},
+		{"PDF", "file\u202C.txt", "file.txt"},
+		{"LRI", "file\u2066.txt", "file.txt"},
+		{"RLI", "file\u2067.txt", "file.txt"},
+		{"FSI", "file\u2068.txt", "file.txt"},
+		{"PDI", "file\u2069.txt", "file.txt"},
+		{"LRM", "file\u200E.txt", "file.txt"},
+		{"RLM", "file\u200F.txt", "file.txt"},
+		// Variation selectors (Sneaky Bits binary encoding).
+		{"VS1", "file\uFE00.txt", "file.txt"},
+		{"VS16", "file\uFE0F.txt", "file.txt"},
+		{"SVS", "file\U000E0100.txt", "file.txt"},
+		// Legitimate Unicode must pass through unchanged.
+		{"Japanese", "\u6771\u4eac.txt", "\u6771\u4eac.txt"},
+		{"Arabic", "\u0645\u0644\u0641.txt", "\u0645\u0644\u0641.txt"},
+		{"Emoji", "\U0001F600photo.jpg", "\U0001F600photo.jpg"},
+		{"Korean", "\uD55C\uAD6D.txt", "\uD55C\uAD6D.txt"},
+		{"Accented", "caf\u00E9.txt", "caf\u00E9.txt"},
 	}
 	for _, tt := range tests {
-		got := sanitizeFilename(tt.input)
-		if got != tt.expected {
-			t.Errorf("sanitize(%q): got %q, want %q", tt.input, got, tt.expected)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeFilename(tt.input)
+			if got != tt.expected {
+				t.Errorf("sanitizeFilename(%q): got %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSanitizeDisplayName(t *testing.T) {
+	// SanitizeDisplayName uses the same isDangerousRune as sanitizeFilename.
+	// Test the exported function specifically for CLI display safety.
+	tests := []struct {
+		name, input, expected string
+	}{
+		{"clean filename", "report.pdf", "report.pdf"},
+		{"ANSI clear screen", "\x1b[2Jevil.txt", "[2Jevil.txt"},
+		{"OSC 52 clipboard RCE", "\x1b]52;c;base64cmd\aclean.txt", "]52;c;base64cmdclean.txt"},
+		{"Unicode Tags smuggling", "file\U000E0048\U000E0049.pdf", "file.pdf"},
+		{"RLO extension spoof", "data\u202Etxt.exe", "datatxt.exe"},
+		{"zero-width invisible", "photo\u200B\u200C\u200D.jpg", "photo.jpg"},
+		{"Sneaky Bits", "file\u2062\u2064.txt", "file.txt"},
+		{"Japanese preserved", "\u6771\u4eac\u30EC\u30DD\u30FC\u30C8.pdf", "\u6771\u4eac\u30EC\u30DD\u30FC\u30C8.pdf"},
+		{"emoji preserved", "\U0001F4C4document.txt", "\U0001F4C4document.txt"},
+		{"combined attack", "\x1b]52;c;cmd\a\u202E\U000E0041\u200Bfile.txt", "]52;c;cmdfile.txt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeDisplayName(tt.input)
+			if got != tt.expected {
+				t.Errorf("SanitizeDisplayName(%q): got %q, want %q", tt.input, got, tt.expected)
+			}
+		})
 	}
 }
 
@@ -1013,7 +1088,10 @@ func TestSubmitSendCreatesQueuedProgress(t *testing.T) {
 
 	// We can't use a real streamOpener without libp2p, so test the queue tracking
 	// directly via the queue + transfers map.
-	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	qID, err := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
 	progress := &TransferProgress{
 		ID:        qID,
 		Filename:  "test.txt",
@@ -1051,7 +1129,10 @@ func TestCancelQueuedTransfer(t *testing.T) {
 	}, nil, nil)
 
 	// Enqueue and track.
-	qID := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	qID, err := ts.queue.Enqueue(testFile, "peer1", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
 	progress := &TransferProgress{
 		ID:       qID,
 		Filename: "cancel-me.txt",
@@ -1063,8 +1144,8 @@ func TestCancelQueuedTransfer(t *testing.T) {
 	ts.mu.Unlock()
 
 	// Cancel should succeed.
-	if !ts.CancelTransfer(qID) {
-		t.Fatal("CancelTransfer should return true for queued item")
+	if err := ts.CancelTransfer(qID); err != nil {
+		t.Fatalf("CancelTransfer should succeed for queued item: %v", err)
 	}
 
 	// Progress should show cancelled.
@@ -1077,8 +1158,8 @@ func TestCancelQueuedTransfer(t *testing.T) {
 	}
 
 	// Cancel again should fail (already removed from queue).
-	if ts.CancelTransfer(qID) {
-		t.Error("second CancelTransfer should return false")
+	if err := ts.CancelTransfer(qID); err == nil {
+		t.Error("second CancelTransfer should return error")
 	}
 }
 
@@ -1090,8 +1171,8 @@ func TestListTransfersIncludesQueued(t *testing.T) {
 	}, nil, nil)
 
 	// Add items to queue (without executing).
-	ts.queue.Enqueue("/file1", "peer1", "send", PriorityHigh)
-	ts.queue.Enqueue("/file2", "peer2", "send", PriorityNormal)
+	ts.queue.Enqueue("/file1", "peer1", "send", PriorityHigh)   //nolint:errcheck
+	ts.queue.Enqueue("/file2", "peer2", "send", PriorityNormal) //nolint:errcheck
 
 	// Also track an active transfer.
 	ts.trackTransfer("active.txt", 1024, "peer3", "send", 10, true)
@@ -1125,8 +1206,8 @@ func TestCancelActiveTransfer(t *testing.T) {
 	// Create an active (non-done) transfer.
 	p := ts.trackTransfer("active.txt", 1024, "peer1", "send", 10, true)
 
-	if !ts.CancelTransfer(p.ID) {
-		t.Fatal("CancelTransfer should succeed for active transfer")
+	if err := ts.CancelTransfer(p.ID); err != nil {
+		t.Fatalf("CancelTransfer should succeed for active transfer: %v", err)
 	}
 
 	snap := p.Snapshot()
@@ -1145,8 +1226,8 @@ func TestCancelCompletedTransferFails(t *testing.T) {
 	p := ts.trackTransfer("done.txt", 1024, "peer1", "send", 10, true)
 	p.finish(nil) // mark as complete
 
-	if ts.CancelTransfer(p.ID) {
-		t.Error("CancelTransfer should return false for completed transfer")
+	if err := ts.CancelTransfer(p.ID); err == nil {
+		t.Error("CancelTransfer should return error for completed transfer")
 	}
 }
 
@@ -1436,5 +1517,642 @@ func TestStreamProgressDynamicGrow(t *testing.T) {
 	if snap.StreamProgress[2].ChunksDone != 1 || snap.StreamProgress[2].BytesDone != 200 {
 		t.Errorf("stream 2: got {%d, %d}, want {1, 200}",
 			snap.StreamProgress[2].ChunksDone, snap.StreamProgress[2].BytesDone)
+	}
+}
+
+// --- DDoS defense tests ---
+
+func TestFailureTracker(t *testing.T) {
+	ft := newFailureTracker(3, 5*time.Minute, 1*time.Second)
+
+	// Not blocked initially.
+	if ft.isBlocked("peer1") {
+		t.Error("peer1 should not be blocked initially")
+	}
+
+	// Record 2 failures - not yet at threshold.
+	ft.recordFailure("peer1")
+	ft.recordFailure("peer1")
+	if ft.isBlocked("peer1") {
+		t.Error("peer1 should not be blocked after 2 failures")
+	}
+
+	// 3rd failure triggers block.
+	ft.recordFailure("peer1")
+	if !ft.isBlocked("peer1") {
+		t.Error("peer1 should be blocked after 3 failures")
+	}
+
+	// Different peer should not be affected.
+	if ft.isBlocked("peer2") {
+		t.Error("peer2 should not be blocked")
+	}
+
+	// Wait for block to expire (1 second).
+	time.Sleep(1100 * time.Millisecond)
+	if ft.isBlocked("peer1") {
+		t.Error("peer1 block should have expired")
+	}
+}
+
+func TestFailureTrackerCleanup(t *testing.T) {
+	ft := newFailureTracker(3, 5*time.Minute, 10*time.Millisecond)
+
+	ft.recordFailure("peer1")
+	ft.recordFailure("peer1")
+	ft.recordFailure("peer1")
+	// Now blocked.
+	if !ft.isBlocked("peer1") {
+		t.Error("expected peer1 blocked")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	ft.cleanup()
+
+	// After block expires and cleanup, record should be gone.
+	ft.mu.Lock()
+	_, exists := ft.peers["peer1"]
+	ft.mu.Unlock()
+	if exists {
+		t.Error("peer1 should have been cleaned up")
+	}
+}
+
+func TestBandwidthTracker(t *testing.T) {
+	bt := newBandwidthTracker(1000) // 1000 bytes/hour
+
+	// First check with small size should pass (0 = use global budget).
+	if !bt.check("peer1", 500, 0) {
+		t.Error("500 bytes should fit in 1000 budget")
+	}
+
+	// Record 500 bytes.
+	bt.record("peer1", 500)
+
+	// Another 500 should fit.
+	if !bt.check("peer1", 500, 0) {
+		t.Error("another 500 should fit (total 1000)")
+	}
+
+	bt.record("peer1", 500)
+
+	// Now at budget, 1 more byte should fail.
+	if bt.check("peer1", 1, 0) {
+		t.Error("should be over budget")
+	}
+
+	// Different peer should have full budget.
+	if !bt.check("peer2", 999, 0) {
+		t.Error("peer2 should have full budget")
+	}
+}
+
+func TestBandwidthTrackerSingleTransferOverBudget(t *testing.T) {
+	bt := newBandwidthTracker(1000)
+
+	// Single transfer larger than budget should fail (0 = use global budget).
+	if bt.check("peer1", 1001, 0) {
+		t.Error("1001 bytes should not fit in 1000 budget")
+	}
+}
+
+func TestGlobalRateLimiter(t *testing.T) {
+	// Use the existing transferRateLimiter with a single key for global limiting.
+	rl := newTransferRateLimiter(3) // 3 per minute
+
+	if !rl.allow("_global_") {
+		t.Error("1st should pass")
+	}
+	if !rl.allow("_global_") {
+		t.Error("2nd should pass")
+	}
+	if !rl.allow("_global_") {
+		t.Error("3rd should pass")
+	}
+	if rl.allow("_global_") {
+		t.Error("4th should be rejected (over limit)")
+	}
+}
+
+func TestCountPeerPending(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	// Add some pending transfers.
+	ts.mu.Lock()
+	ts.pending["p1"] = &PendingTransfer{PeerID: "peer-A"}
+	ts.pending["p2"] = &PendingTransfer{PeerID: "peer-A"}
+	ts.pending["p3"] = &PendingTransfer{PeerID: "peer-B"}
+	ts.mu.Unlock()
+
+	ts.mu.RLock()
+	countA := ts.countPeerPending("peer-A")
+	countB := ts.countPeerPending("peer-B")
+	countC := ts.countPeerPending("peer-C")
+	ts.mu.RUnlock()
+
+	if countA != 2 {
+		t.Errorf("peer-A: got %d, want 2", countA)
+	}
+	if countB != 1 {
+		t.Errorf("peer-B: got %d, want 1", countB)
+	}
+	if countC != 0 {
+		t.Errorf("peer-C: got %d, want 0", countC)
+	}
+}
+
+func TestCheckTempBudget(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	// Set a 1 KB temp budget.
+	ts.maxTempSize = 1024
+
+	// No temp files - should pass.
+	if err := ts.checkTempBudget(); err != nil {
+		t.Errorf("empty dir should pass: %v", err)
+	}
+
+	// Create a temp file under budget.
+	os.WriteFile(filepath.Join(dir, ".shurli-tmp-abc"), make([]byte, 500), 0600)
+	if err := ts.checkTempBudget(); err != nil {
+		t.Errorf("500 bytes should be under 1024 budget: %v", err)
+	}
+
+	// Create another to exceed budget.
+	os.WriteFile(filepath.Join(dir, ".shurli-tmp-def"), make([]byte, 600), 0600)
+	if err := ts.checkTempBudget(); err == nil {
+		t.Error("1100 bytes should exceed 1024 budget")
+	}
+
+	// Non-temp files should be ignored.
+	os.Remove(filepath.Join(dir, ".shurli-tmp-abc"))
+	os.Remove(filepath.Join(dir, ".shurli-tmp-def"))
+	os.WriteFile(filepath.Join(dir, "regular-file.bin"), make([]byte, 2000), 0644)
+	if err := ts.checkTempBudget(); err != nil {
+		t.Errorf("regular files should not count: %v", err)
+	}
+}
+
+func TestDDoSDefenseDefaults(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	// Verify defaults are applied.
+	if ts.globalRateLimiter == nil {
+		t.Error("global rate limiter should be initialized (default 30/min)")
+	}
+	if ts.failureTracker == nil {
+		t.Error("failure tracker should be initialized (default 3/5m/60s)")
+	}
+	if ts.bandwidthTracker == nil {
+		t.Error("bandwidth tracker should be initialized (default 100MB/hour)")
+	}
+	if ts.maxQueuedPerPeer != 10 {
+		t.Errorf("maxQueuedPerPeer: got %d, want 10", ts.maxQueuedPerPeer)
+	}
+	if ts.minSpeedBytes != 1024 {
+		t.Errorf("minSpeedBytes: got %d, want 1024", ts.minSpeedBytes)
+	}
+	if ts.minSpeedSeconds != 30 {
+		t.Errorf("minSpeedSeconds: got %d, want 30", ts.minSpeedSeconds)
+	}
+	if ts.maxTempSize != 1<<30 {
+		t.Errorf("maxTempSize: got %d, want %d", ts.maxTempSize, 1<<30)
+	}
+}
+
+// --- Queue persistence tests ---
+
+func TestQueuePersistAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	queueFile := filepath.Join(dir, "queue.json")
+	hmacKey := []byte("test-hmac-key-32-bytes-long!!!!!")
+
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: hmacKey,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	// Create a test file to queue.
+	testFile := filepath.Join(dir, "test.bin")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+
+	// Enqueue directly into the transfer queue.
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
+
+	// Persist.
+	ts.persistQueue()
+
+	// Verify file exists with 0600 permissions.
+	info, err := os.Stat(queueFile)
+	if err != nil {
+		t.Fatalf("queue file should exist: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("permissions: got %o, want 0600", info.Mode().Perm())
+	}
+
+	// Load in a new service.
+	ts2, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: hmacKey,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts2.Close()
+
+	entries := ts2.loadPersistedQueue()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].FilePath != testFile {
+		t.Errorf("file path: got %q, want %q", entries[0].FilePath, testFile)
+	}
+	if entries[0].PeerID != "12D3KooWTestPeer123456789012345678901234" {
+		t.Errorf("peer ID mismatch")
+	}
+}
+
+func TestQueuePersistHMACTamperDetection(t *testing.T) {
+	dir := t.TempDir()
+	queueFile := filepath.Join(dir, "queue.json")
+	hmacKey := []byte("test-hmac-key-32-bytes-long!!!!!")
+
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: hmacKey,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	testFile := filepath.Join(dir, "test.bin")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
+	ts.persistQueue()
+
+	// Tamper with the file.
+	data, _ := os.ReadFile(queueFile)
+	tampered := bytes.Replace(data, []byte("test.bin"), []byte("evil.bin"), 1)
+	os.WriteFile(queueFile, tampered, 0600)
+
+	// Load should reject tampered file.
+	entries := ts.loadPersistedQueue()
+	if len(entries) != 0 {
+		t.Error("tampered queue file should be rejected")
+	}
+}
+
+func TestQueuePersistWrongKey(t *testing.T) {
+	dir := t.TempDir()
+	queueFile := filepath.Join(dir, "queue.json")
+
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: []byte("key-one-32-bytes-long!!!!!!!!!!!"),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	testFile := filepath.Join(dir, "test.bin")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+	ts.queue.Enqueue(testFile, "12D3KooWTestPeer123456789012345678901234", "send", PriorityNormal) //nolint:errcheck
+	ts.persistQueue()
+
+	// Load with different key.
+	ts2, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: []byte("key-two-32-bytes-long!!!!!!!!!!!"),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts2.Close()
+
+	entries := ts2.loadPersistedQueue()
+	if len(entries) != 0 {
+		t.Error("wrong HMAC key should reject queue file")
+	}
+}
+
+func TestQueuePersistExpiredEntries(t *testing.T) {
+	dir := t.TempDir()
+	queueFile := filepath.Join(dir, "queue.json")
+	hmacKey := []byte("test-hmac-key-32-bytes-long!!!!!")
+
+	testFile := filepath.Join(dir, "test.bin")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+
+	// Write a queue file with an expired entry directly.
+	entry := persistedQueueEntry{
+		ID:       "q-old",
+		FilePath: testFile,
+		PeerID:   "12D3KooWTestPeer123456789012345678901234",
+		Priority: PriorityNormal,
+		QueuedAt: time.Now().Add(-25 * time.Hour), // expired (>24h)
+		Nonce:    "abc123",
+	}
+	entriesJSON, _ := json.Marshal([]persistedQueueEntry{entry})
+	mac := hmac.New(sha256.New, hmacKey)
+	mac.Write(entriesJSON)
+	macSum := hex.EncodeToString(mac.Sum(nil))
+
+	pq := persistedQueue{
+		Version: queueFileVersion,
+		HMAC:    macSum,
+		Entries: []persistedQueueEntry{entry},
+	}
+	data, _ := json.MarshalIndent(pq, "", "  ")
+	os.WriteFile(queueFile, data, 0600)
+
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: hmacKey,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	entries := ts.loadPersistedQueue()
+	if len(entries) != 0 {
+		t.Error("expired entry should be filtered out")
+	}
+}
+
+func TestQueuePersistMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	queueFile := filepath.Join(dir, "queue.json")
+	hmacKey := []byte("test-hmac-key-32-bytes-long!!!!!")
+
+	// Write a queue file with a valid entry but the file doesn't exist.
+	entry := persistedQueueEntry{
+		ID:       "q-missing",
+		FilePath: filepath.Join(dir, "nonexistent.bin"),
+		PeerID:   "12D3KooWTestPeer123456789012345678901234",
+		Priority: PriorityNormal,
+		QueuedAt: time.Now(),
+		Nonce:    "abc123",
+	}
+	entriesJSON, _ := json.Marshal([]persistedQueueEntry{entry})
+	mac := hmac.New(sha256.New, hmacKey)
+	mac.Write(entriesJSON)
+	macSum := hex.EncodeToString(mac.Sum(nil))
+
+	pq := persistedQueue{
+		Version: queueFileVersion,
+		HMAC:    macSum,
+		Entries: []persistedQueueEntry{entry},
+	}
+	data, _ := json.MarshalIndent(pq, "", "  ")
+	os.WriteFile(queueFile, data, 0600)
+
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:   dir,
+		Compress:     true,
+		QueueFile:    queueFile,
+		QueueHMACKey: hmacKey,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	entries := ts.loadPersistedQueue()
+	if len(entries) != 0 {
+		t.Error("entry with missing file should be filtered out")
+	}
+}
+
+func TestQueuePersistNoKeyDisabled(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir: dir,
+		Compress:   true,
+		QueueFile:  filepath.Join(dir, "queue.json"),
+		// No HMAC key - persistence should be disabled.
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	ts.persistQueue()
+
+	// File should not be created.
+	if _, err := os.Stat(filepath.Join(dir, "queue.json")); err == nil {
+		t.Error("queue file should not be created without HMAC key")
+	}
+}
+
+func TestEmptyFileManifest(t *testing.T) {
+	// Verify that a 0-byte file produces a valid manifest with 0 chunks.
+	dir := t.TempDir()
+	emptyFile := filepath.Join(dir, "empty.txt")
+	os.WriteFile(emptyFile, nil, 0644)
+
+	f, err := os.Open(emptyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	info, _ := f.Stat()
+	if info.Size() != 0 {
+		t.Fatalf("expected 0 bytes, got %d", info.Size())
+	}
+
+	// Chunk the empty file.
+	var chunks []Chunk
+	err = ChunkReader(f, 0, func(c Chunk) error {
+		chunks = append(chunks, c)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ChunkReader on empty file: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Errorf("empty file should produce 0 chunks, got %d", len(chunks))
+	}
+
+	// Merkle root of 0 hashes.
+	root := MerkleRoot(nil)
+	if root != [32]byte{} {
+		t.Error("Merkle root of empty should be zero hash")
+	}
+
+	// Bitfield with 0 bits.
+	bf := newBitfield(0)
+	if bf.count() != 0 {
+		t.Error("empty bitfield count should be 0")
+	}
+	if bf.missing() != 0 {
+		t.Error("empty bitfield missing should be 0")
+	}
+}
+
+func TestQueueBackpressure(t *testing.T) {
+	q := NewTransferQueue(2)
+
+	// Fill the queue to maxPending (1000), spreading across peers
+	// to avoid hitting per-peer limit (100) first.
+	for i := 0; i < q.maxPending; i++ {
+		peer := fmt.Sprintf("peer-%d", i%20) // 20 peers, 50 each
+		_, err := q.Enqueue("/file", peer, "send", PriorityNormal)
+		if err != nil {
+			t.Fatalf("enqueue %d failed unexpectedly: %v", i, err)
+		}
+	}
+
+	// Next enqueue should fail with global limit.
+	_, err := q.Enqueue("/overflow", "peer-new", "send", PriorityNormal)
+	if err == nil {
+		t.Fatal("expected ErrQueueFull when queue is at capacity")
+	}
+	if err != ErrQueueFull {
+		t.Fatalf("expected ErrQueueFull, got: %v", err)
+	}
+
+	// After dequeue, should be able to enqueue again.
+	q.Dequeue()
+	_, err = q.Enqueue("/after-drain", "peer-new", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("enqueue after drain should succeed: %v", err)
+	}
+}
+
+func TestQueueConcurrent(t *testing.T) {
+	q := NewTransferQueue(5)
+
+	var wg sync.WaitGroup
+	errCount := int64(0)
+	successCount := int64(0)
+
+	// 50 goroutines each enqueue 10 items.
+	for g := 0; g < 50; g++ {
+		wg.Add(1)
+		go func(peer string) {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				_, err := q.Enqueue("/file", peer, "send", PriorityNormal)
+				if err != nil {
+					atomic.AddInt64(&errCount, 1)
+				} else {
+					atomic.AddInt64(&successCount, 1)
+				}
+			}
+		}(fmt.Sprintf("peer-%d", g))
+	}
+
+	// Concurrently dequeue.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			qt := q.Dequeue()
+			if qt != nil {
+				q.Complete(qt.ID)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+
+	total := successCount + errCount
+	if total != 500 {
+		t.Errorf("expected 500 total operations, got %d", total)
+	}
+
+	// Some should succeed, some may fail (queue full at 1000).
+	if successCount == 0 {
+		t.Error("expected at least some successful enqueues")
+	}
+
+	// Verify queue integrity: pending + active should be consistent.
+	q.mu.Lock()
+	pendingCount := len(q.pending)
+	activeCount := len(q.active)
+	q.mu.Unlock()
+
+	t.Logf("concurrent test: %d success, %d full, pending=%d, active=%d",
+		successCount, errCount, pendingCount, activeCount)
+}
+
+func TestQueuePerPeerLimit(t *testing.T) {
+	q := NewTransferQueue(2)
+
+	// Fill per-peer limit (100) for peer-A.
+	for i := 0; i < q.maxPerPeer; i++ {
+		_, err := q.Enqueue("/file", "peer-A", "send", PriorityNormal)
+		if err != nil {
+			t.Fatalf("enqueue %d for peer-A failed: %v", i, err)
+		}
+	}
+
+	// Next enqueue for peer-A should fail with ErrPeerQueueFull.
+	_, err := q.Enqueue("/overflow", "peer-A", "send", PriorityNormal)
+	if err != ErrPeerQueueFull {
+		t.Fatalf("expected ErrPeerQueueFull for peer-A, got: %v", err)
+	}
+
+	// peer-B should still be able to enqueue.
+	_, err = q.Enqueue("/file", "peer-B", "send", PriorityNormal)
+	if err != nil {
+		t.Fatalf("peer-B enqueue should succeed: %v", err)
+	}
+}
+
+func TestIsRetryableReject(t *testing.T) {
+	tests := []struct {
+		err  string
+		want bool
+	}{
+		{"peer rejected transfer: receiver busy", true},
+		{"peer rejected transfer: insufficient disk space", false},
+		{"peer rejected transfer: file too large", false},
+		{"peer rejected transfer", false},
+		{"open stream: connection reset", false},
+	}
+	for _, tt := range tests {
+		got := isRetryableReject(fmt.Errorf("%s", tt.err))
+		if got != tt.want {
+			t.Errorf("isRetryableReject(%q) = %v, want %v", tt.err, got, tt.want)
+		}
 	}
 }

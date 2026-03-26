@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -154,6 +155,24 @@ func (c *Client) Services() ([]ServiceInfo, error) {
 // ServicesText returns services as plain text.
 func (c *Client) ServicesText() (string, error) {
 	return c.doText("GET", "/v1/services", nil)
+}
+
+// RemoteServices queries a remote peer's services via the daemon.
+func (c *Client) RemoteServices(peer string) (*RemoteServiceResponse, error) {
+	req := RemoteServiceRequest{Peer: peer}
+	body, _ := json.Marshal(req)
+	var resp RemoteServiceResponse
+	if err := c.doJSON("POST", "/v1/services/remote", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// RemoteServicesText queries a remote peer's services, returns plain text.
+func (c *Client) RemoteServicesText(peer string) (string, error) {
+	req := RemoteServiceRequest{Peer: peer}
+	body, _ := json.Marshal(req)
+	return c.doText("POST", "/v1/services/remote", strings.NewReader(string(body)))
 }
 
 // Peers returns the list of connected peers. If all is true, includes non-shurli DHT peers.
@@ -317,143 +336,6 @@ func (c *Client) Unlock() error {
 	return c.doJSON("POST", "/v1/unlock", nil, nil)
 }
 
-// --- File sharing methods ---
-
-// ShareAdd shares a path with specified peers (empty = all authorized).
-func (c *Client) ShareAdd(path string, peers []string, persistent bool) error {
-	req := ShareRequest{Path: path, Peers: peers, Persistent: persistent}
-	body, _ := json.Marshal(req)
-	return c.doJSON("POST", "/v1/shares", strings.NewReader(string(body)), nil)
-}
-
-// ShareRemove stops sharing a path.
-func (c *Client) ShareRemove(path string) error {
-	req := UnshareRequest{Path: path}
-	body, _ := json.Marshal(req)
-	return c.doJSON("DELETE", "/v1/shares", strings.NewReader(string(body)), nil)
-}
-
-// ShareList returns all shared paths.
-func (c *Client) ShareList() ([]ShareInfo, error) {
-	var resp []ShareInfo
-	if err := c.doJSON("GET", "/v1/shares", nil, &resp); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// ShareListText returns shared paths as plain text.
-func (c *Client) ShareListText() (string, error) {
-	return c.doText("GET", "/v1/shares", nil)
-}
-
-// Browse browses a remote peer's shared files.
-func (c *Client) Browse(peer, subPath string) (*BrowseResponse, error) {
-	req := BrowseRequest{Peer: peer, SubPath: subPath}
-	body, _ := json.Marshal(req)
-	var resp BrowseResponse
-	if err := c.doJSON("POST", "/v1/browse", strings.NewReader(string(body)), &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// BrowseText browses a remote peer's shared files, returns plain text.
-func (c *Client) BrowseText(peer, subPath string) (string, error) {
-	req := BrowseRequest{Peer: peer, SubPath: subPath}
-	body, _ := json.Marshal(req)
-	return c.doText("POST", "/v1/browse", strings.NewReader(string(body)))
-}
-
-// --- Download methods ---
-
-// Download initiates a receiver-side file download from a peer's shared files.
-func (c *Client) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string) (*DownloadResponse, error) {
-	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers}
-	body, _ := json.Marshal(req)
-	var resp DownloadResponse
-	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// DownloadText initiates a download and returns a plain text summary.
-func (c *Client) DownloadText(peer, remotePath, localDest string) (string, error) {
-	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest}
-	body, _ := json.Marshal(req)
-	return c.doText("POST", "/v1/download", strings.NewReader(string(body)))
-}
-
-// --- File transfer methods ---
-
-// Send initiates a file transfer to a peer via the daemon.
-func (c *Client) Send(filePath, peer string, noCompress bool, streams int, priority string) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority}
-	body, _ := json.Marshal(req)
-	var resp SendResponse
-	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// TransferStatus returns the progress of a transfer by ID.
-func (c *Client) TransferStatus(id string) (*p2pnet.TransferProgress, error) {
-	var resp p2pnet.TransferProgress
-	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// TransferList returns all tracked transfers.
-func (c *Client) TransferList() ([]p2pnet.TransferSnapshot, error) {
-	var resp []p2pnet.TransferSnapshot
-	if err := c.doJSON("GET", "/v1/transfers", nil, &resp); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// TransferHistory returns recent transfer events from the log file.
-func (c *Client) TransferHistory(max int) ([]p2pnet.TransferEvent, error) {
-	path := fmt.Sprintf("/v1/transfers/history?max=%d", max)
-	var resp []p2pnet.TransferEvent
-	if err := c.doJSON("GET", path, nil, &resp); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// TransferPending returns the list of transfers awaiting approval (ask mode).
-func (c *Client) TransferPending() ([]PendingTransferInfo, error) {
-	var resp []PendingTransferInfo
-	if err := c.doJSON("GET", "/v1/transfers/pending", nil, &resp); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-// TransferAccept approves a pending transfer, with an optional destination directory.
-func (c *Client) TransferAccept(id, dest string) error {
-	req := TransferAcceptRequest{Dest: dest}
-	body, _ := json.Marshal(req)
-	return c.doJSON("POST", "/v1/transfers/"+id+"/accept", strings.NewReader(string(body)), nil)
-}
-
-// TransferReject rejects a pending transfer with an optional reason.
-func (c *Client) TransferReject(id, reason string) error {
-	req := TransferRejectRequest{Reason: reason}
-	body, _ := json.Marshal(req)
-	return c.doJSON("POST", "/v1/transfers/"+id+"/reject", strings.NewReader(string(body)), nil)
-}
-
-// CancelTransfer cancels a queued or active transfer by ID.
-func (c *Client) CancelTransfer(id string) error {
-	return c.doJSON("POST", "/v1/transfers/"+id+"/cancel", nil, nil)
-}
-
 // --- Invite methods ---
 
 // InviteCreate creates a new async invite via the daemon (relay-delegated).
@@ -530,4 +412,144 @@ func (c *Client) ConfigReloadStatus() (*ConfigReloadState, error) {
 // ConfigReloadStatusText returns the daemon's config reload state as plain text.
 func (c *Client) ConfigReloadStatusText() (string, error) {
 	return c.doText("GET", "/v1/config/reload", nil)
+}
+
+// --- Plugin management ---
+
+// validatePluginClientName checks the plugin name is safe for URL path construction.
+// Rejects empty, slashes, dots, and non-alphanumeric chars (except hyphens).
+func validatePluginClientName(name string) error {
+	if name == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf("invalid plugin name %q", name)
+		}
+	}
+	return nil
+}
+
+// PluginList returns all registered plugins.
+func (c *Client) PluginList() ([]PluginInfoResponse, error) {
+	var result []PluginInfoResponse
+	if err := c.doJSON("GET", "/v1/plugins", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// PluginInfo returns details for a single plugin.
+func (c *Client) PluginInfo(name string) (*PluginInfoResponse, error) {
+	if err := validatePluginClientName(name); err != nil {
+		return nil, err
+	}
+	var result PluginInfoResponse
+	if err := c.doJSON("GET", "/v1/plugins/"+name, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// PluginEnable enables a plugin.
+func (c *Client) PluginEnable(name string) error {
+	if err := validatePluginClientName(name); err != nil {
+		return err
+	}
+	return c.doJSON("POST", "/v1/plugins/"+name+"/enable", nil, nil)
+}
+
+// PluginDisable disables a plugin.
+func (c *Client) PluginDisable(name string) error {
+	if err := validatePluginClientName(name); err != nil {
+		return err
+	}
+	return c.doJSON("POST", "/v1/plugins/"+name+"/disable", nil, nil)
+}
+
+// PluginDisableAll disables all active plugins (kill switch).
+func (c *Client) PluginDisableAll() (int, error) {
+	var result PluginDisableAllResponse
+	if err := c.doJSON("POST", "/v1/plugins/disable-all", nil, &result); err != nil {
+		return 0, err
+	}
+	return result.Disabled, nil
+}
+
+// GrantList returns all active data access grants.
+func (c *Client) GrantList() (*GrantListResponse, error) {
+	var result GrantListResponse
+	if err := c.doJSON("GET", "/v1/grants", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GrantCreate creates a new data access grant for a peer.
+func (c *Client) GrantCreate(req GrantRequest) (*GrantInfo, error) {
+	body, _ := json.Marshal(req)
+	var result GrantInfo
+	if err := c.doJSON("POST", "/v1/grants", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GrantRevoke revokes a peer's data access grant.
+func (c *Client) GrantRevoke(peer string) error {
+	body, _ := json.Marshal(GrantRevokeRequest{Peer: peer})
+	return c.doJSON("POST", "/v1/grants/revoke", bytes.NewReader(body), nil)
+}
+
+// GrantExtendFull extends a grant with full request options (duration and/or max-refreshes).
+func (c *Client) GrantExtendFull(req GrantExtendRequest) error {
+	body, _ := json.Marshal(req)
+	return c.doJSON("POST", "/v1/grants/extend", bytes.NewReader(body), nil)
+}
+
+// GrantDelegate delegates a grant to another peer with optional restrictions.
+func (c *Client) GrantDelegate(req GrantDelegateRequest) (map[string]string, error) {
+	body, _ := json.Marshal(req)
+	var result map[string]string
+	if err := c.doJSON("POST", "/v1/grants/delegate", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// PouchList returns all non-expired tokens in the grant pouch (receiver's view).
+func (c *Client) PouchList() (*PouchListResponse, error) {
+	var result PouchListResponse
+	if err := c.doJSON("GET", "/v1/grants/pouch", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Reconnect clears dial backoffs for a peer and triggers immediate reconnection.
+func (c *Client) Reconnect(peer string) (*ReconnectResponse, error) {
+	body, _ := json.Marshal(ReconnectRequest{Peer: peer})
+	var result ReconnectResponse
+	if err := c.doJSON("POST", "/v1/reconnect", bytes.NewReader(body), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// NotifySinks returns all configured notification sinks.
+func (c *Client) NotifySinks() ([]NotifySinkInfo, error) {
+	var result []NotifySinkInfo
+	if err := c.doJSON("GET", "/v1/notify/sinks", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// NotifyTest sends a test notification to all configured sinks.
+func (c *Client) NotifyTest() (map[string]string, error) {
+	var result map[string]string
+	if err := c.doJSON("POST", "/v1/notify/test", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

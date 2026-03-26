@@ -113,6 +113,36 @@ func (h *PeerHistory) Count() int {
 	return len(h.records)
 }
 
+// AllRecords returns a snapshot of all peer records (copies, safe to read without lock).
+func (h *PeerHistory) AllRecords() map[string]*PeerRecord {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	result := make(map[string]*PeerRecord, len(h.records))
+	for id, r := range h.records {
+		cp := *r
+		cp.PathTypes = make(map[string]int, len(r.PathTypes))
+		for k, v := range r.PathTypes {
+			cp.PathTypes[k] = v
+		}
+		result[id] = &cp
+	}
+	return result
+}
+
+// MaxConnections returns the highest ConnectionCount across all peers.
+// Used as the normalization ceiling for ComputeScore's availability component.
+func (h *PeerHistory) MaxConnections() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	max := 1 // minimum 1 to avoid division by zero
+	for _, r := range h.records {
+		if r.ConnectionCount > max {
+			max = r.ConnectionCount
+		}
+	}
+	return max
+}
+
 // Load reads the history file from disk.
 func (h *PeerHistory) Load() error {
 	data, err := os.ReadFile(h.path)

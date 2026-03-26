@@ -47,46 +47,215 @@ Or use `make install` to build, install, and set up a system service in one step
 
 ## Quick Start
 
-### 1. Initialize (first time only)
+### 0. Install Shurli
 
 ```bash
-shurli init
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
 ```
 
-Interactive wizard: creates your identity (seed phrase backup), sets a password, and writes your configuration.
+The install script detects your OS and architecture, downloads a pre-built binary, verifies checksums, and walks you through setup. It handles peer nodes, relay servers, upgrades, and uninstall.
 
-### 2. Connect
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
 
-**I have an invite code:**
+<details>
+<summary>Build from source instead</summary>
+
+Requires [Go 1.26+](https://go.dev/dl/) and mDNS dev library on Linux:
+```bash
+# Linux (Debian/Ubuntu)
+sudo apt install libavahi-compat-libdnssd-dev
+
+git clone https://github.com/shurlinet/shurli.git
+cd shurli
+go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
+sudo install -m 755 shurli /usr/local/bin/shurli
+```
+</details>
+
+<details>
+<summary>Install script options reference</summary>
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--dev` | Install latest dev/pre-release build (default: stable only) |
+| `--version VERSION` | Install a specific version (e.g., `v0.2.2-dev`) |
+| `--method METHOD` | Install method: `download` or `build` (default: interactive prompt) |
+| `--role ROLE` | Setup role: `peer`, `relay`, or `binary` (default: interactive prompt) |
+| `--dir DIR` | Install directory (default: `/usr/local/bin`) |
+| `--no-verify` | Skip SHA256 checksum verification |
+| `--upgrade MODE` | Existing install behavior: `upgrade` or `reinstall` (default: interactive) |
+| `--yes`, `-y` | Accept all defaults non-interactively |
+| `--backup` | Back up config without changing anything |
+| `--uninstall` | Uninstall Shurli |
+| `--help`, `-h` | Show help |
+
+### Environment variables
+
+When piping (`curl | sh`), use environment variables instead of flags:
+
+| Variable | Equivalent |
+|----------|------------|
+| `SHURLI_DEV=1` | `--dev` |
+| `SHURLI_VERSION=v0.2.2-dev` | `--version v0.2.2-dev` |
+| `SHURLI_METHOD=download` | `--method download` |
+| `SHURLI_ROLE=relay` | `--role relay` |
+| `SHURLI_UPGRADE=upgrade` | `--upgrade upgrade` |
+| `SHURLI_YES=1` | `--yes` |
+| `SHURLI_UNINSTALL=1` | `--uninstall` |
+| `SHURLI_BACKUP=1` | `--backup` |
+
+### Examples
 
 ```bash
-shurli join <invite-code> --name laptop
+# Interactive install (prompts for method and role)
+curl -sSL get.shurli.io | sh
+
+# Latest dev build
+curl -sSL get.shurli.io | SHURLI_DEV=1 sh
+
+# Specific version
+curl -sSL get.shurli.io | SHURLI_VERSION=v0.2.2-dev sh
+
+# Non-interactive relay server deploy
+curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=relay sh
+
+# Non-interactive peer node install
+curl -sSL get.shurli.io | SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=peer sh
+
+# Non-interactive upgrade (replace binary, keep config, restart service)
+curl -sSL get.shurli.io | SHURLI_YES=1 SHURLI_UPGRADE=upgrade SHURLI_METHOD=download sh
+
+# Fully unattended binary install (AI agents and automation)
+curl -sSL get.shurli.io | SHURLI_YES=1 SHURLI_DEV=1 SHURLI_METHOD=download SHURLI_ROLE=binary sh
+
+# Non-interactive with flags (when running script directly)
+sh install.sh --method download --role relay --yes
+
+# Back up config only (no install)
+curl -sSL get.shurli.io | SHURLI_BACKUP=1 sh
+
+# Uninstall (interactive: choose keep config, backup, or full removal)
+curl -sSL get.shurli.io | SHURLI_UNINSTALL=1 sh
 ```
 
-Done. You're connected and mutually authorized.
+### What the script does
 
-**I want to set up my own network:**
+1. **Detects platform** (OS and architecture: linux/darwin, amd64/arm64)
+2. **Checks for existing install** (offers upgrade, reinstall, or cancel)
+3. **Downloads or builds** (pre-built archive with checksum verification, or isolated build-from-source)
+4. **Installs binary** to `/usr/local/bin` (or `~/.local/bin` without sudo)
+5. **Runs role setup**:
+   - **Peer node**: installs runtime deps, systemd/launchd service, runs `shurli init`
+   - **Relay server**: runs `relay-setup.sh` in prebuilt mode (user creation, firewall, systemd, identity)
+   - **Binary only**: installs binary, prints next steps
+6. **Supports backup/restore**: detects previous backups in `~/.shurli/backups/`, offers to restore
+7. **macOS**: codesigns binary for stable Local Network Privacy identity
 
-On machine 1 (your server):
+### Uninstall options
+
+1. **Keep config and keys** - removes binary and services, preserves identity (can reinstall later)
+2. **Back up then remove** - backs up to `~/.shurli/backups/`, then removes everything
+3. **Complete removal** - permanently deletes config, keys, and identity (requires typing "yes")
+
+</details>
+
+### 1. Deploy your relay
+
+Follow the [docs/RELAY-SETUP.md](docs/RELAY-SETUP.md) to deploy your own relay on any VPS.
+One script, takes a few minutes. Your relay, your rules. No third party controls your network.
+
+### 2. Join your relay
+
+On the relay, generate an invite:
 ```bash
-shurli invite --name home
-# Shows invite code + QR code, waits for the other side...
+shurli relay invite create --ttl 24h
+# Output includes: invite code, relay IP:PORT, and Peer ID
 ```
 
-On machine 2 (your client):
+On your device, join with one command (it will prompt for the Peer ID):
 ```bash
-shurli join <invite-code> --name laptop
+shurli join <invite-code> --relay <IP:PORT>
 ```
+
+That's it. Identity created, config written, relay connected, daemon started.
+On Linux it offers to install as a systemd service (starts on boot).
+Repeat on each device you want to connect.
 
 ### 3. Use it
 
 ```bash
-# On the server - start the daemon
-shurli daemon
-
-# On the client - connect to a service
 shurli proxy home ssh 2222
 ssh -p 2222 user@localhost
+```
+
+---
+
+### Alternative: Init + Join (two-step)
+
+Set up config first, connect later:
+
+```bash
+# Step 1: Create identity and config (choose your relay or public seeds)
+shurli init
+
+# Step 2: On your relay, create an invite
+shurli relay invite create --ttl 24h
+
+# Step 3: On one device, generate the invite
+shurli invite --as home
+
+# Step 4: On the other device, join
+shurli join <invite-code> --as laptop
+
+# Step 5: Start the daemon
+shurli daemon
+```
+
+### Advanced: Manual setup (no wizards)
+
+For users who prefer full control without interactive prompts:
+
+```bash
+# 1. Create identity from seed phrase
+shurli recover --dir /etc/shurli
+
+# 2. Write config manually
+cat > /etc/shurli/config.yaml << 'EOF'
+version: 1
+identity:
+  key_file: "identity.key"
+network:
+  listen_addresses:
+    - "/ip4/0.0.0.0/tcp/0"
+    - "/ip4/0.0.0.0/udp/0/quic-v1"
+relay:
+  addresses:
+    - "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW..."
+  reservation_interval: "2m"
+discovery:
+  rendezvous: "shurli-default-network"
+  bootstrap_peers: []
+security:
+  authorized_keys_file: "authorized_keys"
+  enable_connection_gating: true
+names: {}
+EOF
+
+# 3. Add authorized peers manually
+echo "12D3KooW...  # relay" >> /etc/shurli/authorized_keys
+echo "12D3KooW...  # home-node" >> /etc/shurli/authorized_keys
+
+# 4. Start
+shurli daemon
 ```
 
 ## What Can I Do With Shurli?

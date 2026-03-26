@@ -1,6 +1,6 @@
 ---
 title: "Relay Setup"
-weight: 5
+weight: 1
 description: "Complete guide to deploying your own Shurli relay server on a VPS. Ubuntu setup, systemd service, firewall rules, and health checks."
 ---
 <!-- Auto-synced from RELAY-SETUP.md by sync-docs - do not edit directly -->
@@ -10,40 +10,50 @@ Complete guide to deploying the relay server on a fresh VPS (Ubuntu 22.04 / 24.0
 
 ## 1. Initial VPS Setup
 
-SSH into your fresh VPS and install git:
+SSH into your fresh VPS and run the install script:
 
 ```bash
 ssh root@YOUR_VPS_IP
+
+# Short URL
+curl -sSL get.shurli.io | sh
+
+# Or use the full GitHub URL directly
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+Choose **"Relay server"** when prompted. The script handles everything: downloads the binary, verifies checksums, creates a secure service user, configures firewall, installs systemd service, and starts the relay.
+
+For pre-release builds, set the environment variable before `sh`:
+```bash
+curl -sSL <URL> | SHURLI_DEV=1 sh
+```
+
+<details>
+<summary>Alternative: clone repo and run setup script manually</summary>
+
+```bash
 apt update && apt upgrade -y
 apt install -y git ufw
 
-# Enable firewall with SSH access
 ufw allow OpenSSH
 ufw default deny incoming
 ufw default allow outgoing
 ufw enable
-```
 
-### Clone the repo
-
-```bash
 git clone https://github.com/shurlinet/shurli.git
 cd shurli
-```
-
-### Run the setup script
-
-The script detects that you're root and walks you through creating a secure service user:
-
-```bash
 bash tools/relay-setup.sh
 ```
+</details>
+
+### What the setup does
 
 It will:
 1. Ask you to **select an existing user** or **create a new one**
 2. **New user**: creates the account, sets a password, copies your SSH keys, locks down home directory (700), and offers to harden SSH (disable password auth + root login)
 3. **Existing user**: audits sudo group, password, SSH keys, directory permissions, and SSH daemon config, and offers to fix any issues
-4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay (identity + vault are auto-created on first run with a single password), enables the service, configures firewall, tunes QUIC buffers
+4. Continues with the full setup: builds binary, installs to `/usr/local/bin/shurli`, creates data directory at `/etc/shurli/relay/`, installs systemd service, starts the relay in foreground for first-time identity setup (create new or recover from existing seed phrase), enables the service, configures firewall, tunes QUIC buffers
 
 **If creating a new user**, test SSH access in a separate terminal before closing the root session:
 
@@ -59,7 +69,7 @@ Relay commands auto-detect the config at `/etc/shurli/relay/` and auto-escalate 
 ```bash
 # These work from any directory, as any user with sudo access
 shurli relay info
-shurli relay pair --count 3
+shurli relay invite create --ttl 24h
 
 # Edit config if needed (defaults are good - port 7777, gating enabled)
 sudo nano /etc/shurli/relay/relay-server.yaml
@@ -75,19 +85,30 @@ sudo systemctl restart shurli-relay
 
 ### Add peers to the relay
 
-**Option A: Pairing codes (recommended)**
+**Option A: Invite codes (recommended)**
 
-Generate pairing codes and share them with your peers:
+Generate invite codes and share them with your peers:
 
 ```bash
-# Generate 3 pairing codes (one per person)
-shurli relay pair --count 3
+# Generate an invite code (valid for 24 hours)
+shurli relay invite create --ttl 24h
 
-# Each person joins with one command on their machine:
-shurli join <pairing-code> --name laptop
+# Each person joins with one command on their device:
+shurli join <invite-code> --relay <IP:PORT>
+# Peer ID: <shown in invite output>
 ```
 
-Pairing codes handle authorization automatically. Everyone who joins with a code from the same relay is mutually authorized and can verify each other with `shurli verify <name>`.
+The `join --relay` command handles everything on a fresh device: creates identity (new or recover from seed phrase), sets password, writes config, connects to relay, starts daemon, and offers systemd service installation on Linux.
+
+Invite codes handle authorization automatically. Everyone who joins through the same relay is mutually authorized and can verify each other with `shurli verify <name>`.
+
+```bash
+# List active invites
+shurli relay invite list
+
+# Revoke an invite
+shurli relay invite revoke <group-id>
+```
 
 **Option B: Manual authorization**
 
@@ -406,7 +427,7 @@ bash tools/relay-setup.sh --check
 |-------|----------|
 | Service fails to start | `sudo journalctl -u shurli-relay -n 30` for error logs |
 | "Permission denied" on key file | `chmod 600 /etc/shurli/relay/relay_node.key` |
-| Peers can't connect | Use `shurli relay pair` to generate codes, or check `relay_authorized_keys` has their peer IDs |
+| Peers can't connect | Use `shurli relay invite create` to generate invite codes, or check `relay_authorized_keys` has their peer IDs |
 | Random peers connecting | Verify `enable_connection_gating: true` in config |
 | High log disk usage | `sudo journalctl --vacuum-size=200M` to trim now |
 | Port not reachable | `sudo ufw status` and check VPS provider firewall/security group |

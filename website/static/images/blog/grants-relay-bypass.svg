@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <style>
+    @keyframes flowRight { 0% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 0; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes shieldPulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.5; } }
+    @keyframes xFlash { 0%, 40%, 100% { opacity: 0; } 50%, 90% { opacity: 1; } }
+    @keyframes checkPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .flow-good { stroke-dasharray: 8 4; animation: flowRight 1s linear infinite; }
+    .flow-bad { stroke-dasharray: 8 4; animation: flowRight 1s linear infinite; }
+    .fade1 { animation: fadeIn 0.6s ease-out 0.2s both; }
+    .fade2 { animation: fadeIn 0.6s ease-out 0.5s both; }
+    .fade3 { animation: fadeIn 0.6s ease-out 0.8s both; }
+    .fade4 { animation: fadeIn 0.6s ease-out 0.4s both; }
+    .shield { animation: shieldPulse 3s ease-in-out infinite; }
+    .x-mark { animation: xFlash 2s ease-in-out infinite; }
+    .check { animation: checkPulse 2s ease-in-out infinite 1s; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="400" fill="#0a0a1a"/>
+  <text x="400" y="30" text-anchor="middle" font-size="13" fill="#666" letter-spacing="1">MULTI-RELAY BYPASS</text>
+
+  <!-- Peer A (attacker) on left -->
+  <g class="fade1">
+    <circle cx="100" cy="200" r="35" stroke="#ff6b6b" stroke-width="2" fill="#ff6b6b" fill-opacity="0.08"/>
+    <text x="100" y="195" text-anchor="middle" font-size="12" font-weight="600" fill="#ff6b6b">Peer</text>
+    <text x="100" y="210" text-anchor="middle" font-size="10" fill="#ff6b6b" opacity="0.7">attacker</text>
+  </g>
+
+  <!-- Relay A (strict) top path -->
+  <g class="fade2">
+    <rect x="345" y="72" width="110" height="56" rx="8" stroke="#ff6b6b" stroke-width="1.5" fill="#ff6b6b" fill-opacity="0.06"/>
+    <text x="400" y="95" text-anchor="middle" font-size="11" font-weight="600" fill="#ff6b6b">Relay A</text>
+    <text x="400" y="110" text-anchor="middle" font-size="9" fill="#ff6b6b" opacity="0.6">strict ACL</text>
+  </g>
+
+  <!-- Relay B (permissive) bottom path -->
+  <g class="fade4">
+    <rect x="345" y="272" width="110" height="56" rx="8" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.06"/>
+    <text x="400" y="295" text-anchor="middle" font-size="11" font-weight="600" fill="#ffb347">Relay B</text>
+    <text x="400" y="310" text-anchor="middle" font-size="9" fill="#ffb347" opacity="0.6">permissive</text>
+  </g>
+
+  <!-- Node (target) on right -->
+  <g class="fade3">
+    <circle cx="700" cy="200" r="35" stroke="#00d4aa" stroke-width="2" fill="#00d4aa" fill-opacity="0.08"/>
+    <circle cx="700" cy="200" r="48" stroke="#00d4aa" stroke-width="1" fill="none" class="shield"/>
+    <text x="700" y="195" text-anchor="middle" font-size="12" font-weight="600" fill="#00d4aa">Node</text>
+    <text x="700" y="210" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.7">target</text>
+  </g>
+
+  <!-- PATH 1: Peer -> Relay A (strict) -> Node : BLOCKED -->
+  <line x1="135" y1="175" x2="345" y2="110" stroke="#ff6b6b" stroke-width="1.5" opacity="0.3" class="flow-bad"/>
+  <line x1="455" y1="90" x2="665" y2="175" stroke="#ff6b6b" stroke-width="1.5" opacity="0.15" stroke-dasharray="4 8"/>
+
+  <!-- X mark on strict relay path -->
+  <g class="x-mark">
+    <circle cx="540" cy="130" r="14" fill="#ff6b6b" fill-opacity="0.2"/>
+    <line x1="534" y1="124" x2="546" y2="136" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="546" y1="124" x2="534" y2="136" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <text x="540" y="158" text-anchor="middle" font-size="9" fill="#ff6b6b" opacity="0.6" class="x-mark">BLOCKED</text>
+
+  <!-- PATH 2: Peer -> Relay B (permissive) -> Node : PASSES RELAY -->
+  <line x1="135" y1="225" x2="345" y2="290" stroke="#ffb347" stroke-width="1.5" opacity="0.5" class="flow-good"/>
+  <line x1="455" y1="290" x2="665" y2="225" stroke="#ffb347" stroke-width="1.5" opacity="0.5" class="flow-good"/>
+
+  <!-- Check mark on permissive relay path -->
+  <g class="check">
+    <circle cx="540" cy="275" r="14" fill="#ffb347" fill-opacity="0.2"/>
+    <path d="M535,275 L539,279 L546,271" stroke="#ffb347" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="540" y="303" text-anchor="middle" font-size="9" fill="#ffb347" opacity="0.7" class="check">BYPASSED!</text>
+
+  <!-- Bottom message -->
+  <rect x="200" y="355" width="400" height="34" rx="6" fill="#00d4aa" fill-opacity="0.06" stroke="#00d4aa" stroke-width="0.5"/>
+  <text x="400" y="376" text-anchor="middle" font-size="12" font-weight="500" fill="#00d4aa">The NODE is the only reliable enforcement point</text>
+
+  <!-- Path labels -->
+  <text x="220" y="160" font-size="9" fill="#ff6b6b" opacity="0.4" transform="rotate(-18, 220, 160)">data circuit</text>
+  <text x="220" y="270" font-size="9" fill="#ffb347" opacity="0.5" transform="rotate(18, 220, 270)">data circuit</text>
+</svg>

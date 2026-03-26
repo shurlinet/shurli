@@ -113,7 +113,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 
 	// Get node-a peer ID.
-	out, _, err := dockerExec("node-a", "shurli", "whoami", "--config", "/root/.config/shurli/config.yaml")
+	out, _, err := dockerExec("node-a", "shurli", "whoami", "--config", "/root/.shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("node-a whoami failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestInviteJoinFlow(t *testing.T) {
 		t.Fatalf("node-b setup failed: %v", err)
 	}
 
-	out, _, err = dockerExec("node-b", "shurli", "whoami", "--config", "/root/.config/shurli/config.yaml")
+	out, _, err = dockerExec("node-b", "shurli", "whoami", "--config", "/root/.shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("node-b whoami failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// Run invite in background, capturing stdout (the invite code) to a file.
 	// No nohup needed - container runs "sleep infinity" so no SIGHUP risk.
 	_, _, err = dockerExec("node-a", "sh", "-c",
-		"shurli invite --non-interactive --name home --config /root/.config/shurli/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
+		"shurli invite --non-interactive --as home --config /root/.shurli/config.yaml > /tmp/invite-stdout.txt 2>/tmp/invite-stderr.txt &")
 	if err != nil {
 		t.Fatalf("failed to start invite on node-a: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// ── Step 5: Run join on node-b ──
 	t.Log("Running join on node-b...")
 	// Use SHURLI_INVITE_CODE env var - clean approach for scripted usage.
-	joinCmd := fmt.Sprintf("SHURLI_INVITE_CODE='%s' shurli join --non-interactive --name laptop", inviteCode)
+	joinCmd := fmt.Sprintf("SHURLI_INVITE_CODE='%s' shurli join --non-interactive --as laptop", inviteCode)
 	out, stderr, err := dockerExecWithTimeout("node-b", 60*time.Second, "sh", "-c", joinCmd)
 	if err != nil {
 		t.Fatalf("node-b join failed: %v\nstdout: %s\nstderr: %s", err, out, stderr)
@@ -192,7 +192,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	// Inviter learns about joiner later via peer-notify (when daemon runs).
 	t.Log("Verifying node-b authorized_keys...")
 
-	authB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/authorized_keys")
+	authB, _, err := dockerExec("node-b", "cat", "/root/.shurli/authorized_keys")
 	if err != nil {
 		t.Fatalf("failed to read node-b authorized_keys: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestInviteJoinFlow(t *testing.T) {
 	}
 
 	// ── Step 7: Verify names in node-b's config ──
-	cfgB, _, err := dockerExec("node-b", "cat", "/root/.config/shurli/config.yaml")
+	cfgB, _, err := dockerExec("node-b", "cat", "/root/.shurli/config.yaml")
 	if err != nil {
 		t.Fatalf("failed to read node-b config: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestPingThroughRelay(t *testing.T) {
 	// Since the test doesn't run a long-lived daemon during invite/join, we
 	// simulate this by adding node-b to node-a's authorized_keys directly.
 	t.Log("Simulating peer-notify: adding node-b to node-a authorized_keys...")
-	appendCmd := fmt.Sprintf("echo '%s # laptop' >> /root/.config/shurli/authorized_keys", nodeBPeerID)
+	appendCmd := fmt.Sprintf("echo '%s # laptop' >> /root/.shurli/authorized_keys", nodeBPeerID)
 	if _, _, err := dockerExec("node-a", "sh", "-c", appendCmd); err != nil {
 		t.Fatalf("failed to add node-b to node-a authorized_keys: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestPingThroughRelay(t *testing.T) {
 	// so node-a will only advertise relay addresses.
 	t.Log("Starting daemon on node-a...")
 	_, _, err := dockerExec("node-a", "sh", "-c",
-		"shurli daemon start --config /root/.config/shurli/config.yaml > /tmp/daemon-stdout.txt 2>&1 &")
+		"shurli daemon start --config /root/.shurli/config.yaml > /tmp/daemon-stdout.txt 2>&1 &")
 	if err != nil {
 		t.Fatalf("failed to start daemon on node-a: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestPingThroughRelay(t *testing.T) {
 
 	// ── Step 4: Ping from node-b ──
 	t.Log("Pinging node-a from node-b...")
-	// Config is at default location (~/.config/shurli/config.yaml), no --config needed.
+	// Config is at default location (~/.shurli/config.yaml), no --config needed.
 	out, stderr, err := dockerExecWithTimeout("node-b", 90*time.Second,
 		"shurli", "ping", "--standalone", "--json", "-c", "2", "home")
 	if err != nil {
@@ -852,9 +852,9 @@ func setupRelay() error {
 
 	// Start relay server in background inside the container.
 	// Container is sleeping; we launch shurli relay serve as a background process.
-	// Pipe password for first-run encrypted identity creation (non-TTY environment).
+	// Pipe: "1\n" for identity choice (new), then password twice for encrypted key creation.
 	_, _, err := dockerExec("relay", "sh", "-c",
-		"cd /data && printf 'TestPass1!\\nTestPass1!\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
+		"cd /data && printf '1\\nTestPass1!\\nTestPass1!\\n' | shurli relay serve > /tmp/relay-stdout.txt 2>&1 &")
 	if err != nil {
 		return fmt.Errorf("failed to start relay server: %w", err)
 	}
@@ -893,16 +893,16 @@ func setupNode(container, relayAddr, mnemonic string) error {
 	cfg := generateNodeConfig(relayAddr)
 
 	// Write config.
-	if err := writeFileInContainer(container, "/root/.config/shurli/config.yaml", cfg); err != nil {
+	if err := writeFileInContainer(container, "/root/.shurli/config.yaml", cfg); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 	// Security hardening requires 0600 on config files.
-	if _, _, err := dockerExec(container, "chmod", "600", "/root/.config/shurli/config.yaml"); err != nil {
+	if _, _, err := dockerExec(container, "chmod", "600", "/root/.shurli/config.yaml"); err != nil {
 		return fmt.Errorf("failed to chmod node config: %w", err)
 	}
 
 	// Write empty authorized_keys.
-	if err := writeFileInContainer(container, "/root/.config/shurli/authorized_keys",
+	if err := writeFileInContainer(container, "/root/.shurli/authorized_keys",
 		"# authorized_keys - Peer ID allowlist (one per line)\n"); err != nil {
 		return fmt.Errorf("failed to write authorized_keys: %w", err)
 	}
@@ -910,7 +910,7 @@ func setupNode(container, relayAddr, mnemonic string) error {
 	// Create identity + session token via shurli recover.
 	// Pipes: line 1 = seed phrase, line 2 = password, line 3 = password confirm.
 	recoverCmd := fmt.Sprintf(
-		"printf '%s\\nTestPass1!\\nTestPass1!\\n' | shurli recover --dir /root/.config/shurli",
+		"printf '%s\\nTestPass1!\\nTestPass1!\\n' | shurli recover --dir /root/.shurli",
 		mnemonic)
 	_, stderr, err := dockerExec(container, "sh", "-c", recoverCmd)
 	if err != nil {

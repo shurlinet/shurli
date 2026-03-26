@@ -51,7 +51,7 @@ Data forwarding (circuit relay, where the relay blindly forwards bytes between t
 **Decision**: Implement `CircuitACL` struct satisfying `relayv2.ACLFilter`. Behavior:
 
 - `AllowReserve`: Always returns true. Connection gating (`authorized_keys`) already controls who can connect at all. Double-gating reservations would break legitimate signaling peers.
-- `AllowConnect`: If `enable_data_relay` is true globally, allow all circuits. Otherwise, allow only if either the source or destination peer has data relay privileges (admin role OR `relay_data=true` attribute in authorized_keys).
+- `AllowConnect`: If `enable_data_relay` is true globally, allow all circuits. Otherwise, allow only if either the source or destination peer has data relay privileges (admin role OR an active time-limited grant issued via `shurli relay grant <peer-id> --duration 1h`).
 
 Wired in at relay startup:
 ```go
@@ -59,7 +59,7 @@ circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.
 relayv2.New(h, relayv2.WithACL(circuitACL), ...)
 ```
 
-**Per-peer override**: `relay_data=true` attribute on any authorized_keys entry grants that specific peer circuit relay access without enabling it globally. Added via `shurli relay authorize <peer-id>` and then setting the attribute. Uses the same `parseLine()`/`formatLine()` machinery from `internal/auth/manage.go`.
+**Per-peer override**: A time-limited grant issued via `shurli relay grant <peer-id> --duration 1h` grants that specific peer circuit relay access without enabling it globally. Grants expire automatically; the relay operator does not need to manually revoke them. Grant state is checked on every `AllowConnect` call, so newly issued or expired grants take effect immediately without relay restart.
 
 **Consequences**: Zero protocol changes. Zero wire format changes. The relay simply refuses to forward data circuits for unauthorized peers. Authorized peers and admin peers are unaffected. The ACL reads authorized_keys on every `AllowConnect` call (no caching), so attribute changes take effect immediately without relay restart.
 

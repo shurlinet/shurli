@@ -65,6 +65,33 @@ func truncateError(s string) string {
 	return s
 }
 
+// HumanizeError translates cryptic libp2p errors into actionable user-facing messages.
+// Returns a human-friendly string. Falls back to truncateError for unrecognized patterns.
+func HumanizeError(err string) string {
+	lower := strings.ToLower(err)
+
+	switch {
+	case strings.Contains(lower, "all dials failed") || strings.Contains(lower, "no good addresses"):
+		return "could not reach peer. Possible causes:\n" +
+			"  - The peer is offline or unreachable\n" +
+			"  - Relay data access may not be enabled for your peer\n" +
+			"  Hint: ask the relay admin to enable data relay,\n" +
+			"    or set up your own relay with relaxed permissions"
+	case strings.Contains(lower, "no reservation"):
+		return "relay denied reservation. The relay may not authorize this peer.\n" +
+			"  Hint: ensure the peer is in the relay's authorized_keys"
+	case strings.Contains(lower, "resource limit"):
+		return "relay resource limit reached. The relay is at capacity.\n" +
+			"  Hint: try again later, or set up your own relay"
+	case strings.Contains(lower, "connection refused"):
+		return "connection refused. The peer or relay is not accepting connections"
+	case strings.Contains(lower, "context deadline exceeded") || strings.Contains(lower, "i/o timeout"):
+		return "connection timed out. The peer may be offline or behind a restrictive firewall"
+	}
+
+	return truncateError(err)
+}
+
 func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 	short := evt.Remote.String()
 	if len(short) > 16 {
@@ -227,14 +254,22 @@ func New(cfg *Config) (*Network, error) {
 		}
 
 		if len(relayInfos) > 0 {
-			// WithBackoff: reduce from default 1h to 30s. Autorelay sets backoff BEFORE
-			// every reservation attempt (even successful ones). After a network change
-			// kills the relay connection (CloseStaleConnections), autorelay tries to
-			// re-reserve but the 1h backoff from the initial startup attempt is still
-			// active → relay skipped for up to 1 hour. 30s means relay is retried within
-			// one rsvpRefreshInterval after the connection is re-established.
+			// Static relay tuning (all defaults are designed for DHT-discovered relays):
+			// - WithBackoff(30s): reduced from 1h default. Backoff is set BEFORE every
+			//   reservation attempt. After network change kills the relay connection,
+			//   30s means retry within one rsvpRefreshInterval.
+			// - WithMinInterval(5s): reduced from 30s default. Rate-limits peer source
+			//   calls. For static relays the peer source returns a hardcoded list (no
+			//   network cost), so 5s is safe and reduces reconnection delay from ~30s to ~5s.
+			// - WithBootDelay(0): default 3min waits for minCandidates (4) before connecting.
+			//   We have known static relays, no discovery phase needed.
+			// - WithMinCandidates(1): default 4. We have 2 static relays and want to
+			//   connect to the first available immediately, not wait for more candidates.
 			hostOpts = append(hostOpts, libp2p.EnableAutoRelayWithStaticRelays(relayInfos,
 				autorelay.WithBackoff(30*time.Second),
+				autorelay.WithMinInterval(5*time.Second),
+				autorelay.WithBootDelay(0),
+				autorelay.WithMinCandidates(1),
 			))
 		}
 
@@ -486,6 +521,24 @@ func (n *Network) ResetBlackHoles() {
 	slog.Info("libp2p: black hole detectors reset (network change)")
 }
 
+// ClearDialBackoffs clears the swarm's per-peer dial backoff cache.
+// Call after a network change: the previous "no route to host" failures
+// are invalid because the new network may have different routing (e.g.,
+// VPN with local network sharing now allows LAN paths that previously failed).
+// Without this, mDNS upgrade attempts are rejected by stale swarm backoffs.
+func (n *Network) ClearDialBackoffs(peers []peer.ID) {
+	sw, ok := n.host.Network().(*swarm.Swarm)
+	if !ok {
+		return
+	}
+	for _, pid := range peers {
+		sw.Backoff().Clear(pid)
+	}
+	if len(peers) > 0 {
+		slog.Info("libp2p: swarm dial backoffs cleared (network change)", "peers", len(peers))
+	}
+}
+
 // Host returns the underlying libp2p host
 func (n *Network) Host() host.Host {
 	return n.host
@@ -539,6 +592,48 @@ func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPee
 	})
 }
 
+// RegisterHandlerRelayAllowed registers a custom stream handler that permits
+// relay transport in addition to LAN and Direct. Use this for plugins that
+// need to work for relay-only peers (e.g., file transfer for NAT-to-NAT).
+func (n *Network) RegisterHandlerRelayAllowed(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error {
+	if err := ValidateServiceName(name); err != nil {
+		return err
+	}
+
+	policy := &PluginPolicy{
+		AllowedTransports: TransportLAN | TransportDirect | TransportRelay,
+	}
+
+	if allowedPeers != nil {
+		policy.AllowPeers = allowedPeers
+	}
+
+	return n.serviceRegistry.RegisterService(&Service{
+		Name:     name,
+		Protocol: fmt.Sprintf("/shurli/%s/1.0.0", name),
+		Handler:  handler,
+		Enabled:  true,
+		Policy:   policy,
+	})
+}
+
+// RegisterServiceQuery registers the service-query protocol handler, which
+// allows remote peers to discover this node's enabled services. Relay transport
+// is allowed since this only returns metadata (service names and protocols).
+func (n *Network) RegisterServiceQuery() error {
+	policy := &PluginPolicy{
+		AllowedTransports: TransportLAN | TransportDirect | TransportRelay,
+	}
+
+	return n.serviceRegistry.RegisterService(&Service{
+		Name:     "service-query",
+		Protocol: ServiceQueryProtocol,
+		Handler:  HandleServiceQuery(n.serviceRegistry),
+		Enabled:  true,
+		Policy:   policy,
+	})
+}
+
 // OpenPluginStream opens a stream to a remote peer for a registered plugin,
 // enforcing the plugin's transport and peer policy.
 //
@@ -559,17 +654,33 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 		return nil, fmt.Errorf("peer denied by plugin %q policy", serviceName)
 	}
 
+	// Phase B: look up pouch token once, reuse for relay decision + header write.
+	var pouchToken string
+	if svc.Policy != nil && n.serviceRegistry.tokenLookup != nil {
+		pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
+	}
+
+	// Check if relay is allowed: by policy, local grant store, or pouch token.
+	relayAllowed := svc.Policy == nil || svc.Policy.RelayAllowed()
+	if !relayAllowed && n.serviceRegistry.grantChecker != nil {
+		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName)
+	}
+	if !relayAllowed && pouchToken != "" {
+		relayAllowed = true
+	}
+
 	// Respect transport policy: only use WithAllowLimitedConn if relay is permitted.
 	dialCtx := ctx
-	if svc.Policy == nil || svc.Policy.RelayAllowed() {
+	if relayAllowed {
 		dialCtx = network.WithAllowLimitedConn(ctx, svc.Protocol)
 	}
 
 	s, err := n.host.NewStream(dialCtx, peerID, protocol.ID(svc.Protocol))
 	if err != nil {
 		// Helpful error when relay-only peer + relay not allowed.
-		if svc.Policy != nil && !svc.Policy.RelayAllowed() && isRelayOnlyPeer(n.host, peerID) {
-			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay: %w", serviceName, err)
+		if !relayAllowed && isRelayOnlyPeer(n.host, peerID) {
+			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay. "+
+				"Grant data access: shurli auth grant <peer> --duration 1h: %w", serviceName, err)
 		}
 		return nil, fmt.Errorf("open stream: %w", err)
 	}
@@ -579,8 +690,27 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
 		if !svc.Policy.TransportAllowed(transport) {
+			relayGranted := false
+			if transport == TransportRelay {
+				if n.serviceRegistry.grantChecker != nil {
+					relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName)
+				}
+				if !relayGranted && pouchToken != "" {
+					relayGranted = true
+				}
+			}
+			if !relayGranted {
+				s.Reset()
+				return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
+			}
+		}
+	}
+
+	// Phase B: write grant header before returning stream to plugin.
+	if svc.Policy != nil {
+		if err := WriteGrantHeader(s, pouchToken); err != nil {
 			s.Reset()
-			return nil, fmt.Errorf("plugin %q: connection transport not allowed by policy", serviceName)
+			return nil, fmt.Errorf("write grant header: %w", err)
 		}
 	}
 
@@ -635,6 +765,17 @@ func (n *Network) RegisterName(name string, peerID peer.ID) error {
 // LoadNames loads name-to-peer-ID mappings from a string map (e.g., from YAML config)
 func (n *Network) LoadNames(names map[string]string) error {
 	return n.nameResolver.LoadFromMap(names)
+}
+
+// ReplaceNames replaces all name mappings with the given map (for config reload).
+// Unlike LoadNames, removed names are cleared from memory.
+func (n *Network) ReplaceNames(names map[string]string) error {
+	return n.nameResolver.ReplaceFromMap(names)
+}
+
+// ListNames returns all registered name-to-peer-ID mappings.
+func (n *Network) ListNames() map[string]peer.ID {
+	return n.nameResolver.List()
 }
 
 // AddRelayAddressesForPeer adds relay circuit addresses for a target peer to the peerstore.

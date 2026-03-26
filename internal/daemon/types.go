@@ -19,9 +19,11 @@ type StatusResponse struct {
 	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
+	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
+	RelayGrants       []RelayGrantInfo `json:"relay_grants,omitempty"`  // client-side cached relay grant receipts
+	Notifications     *NotificationsStatus `json:"notifications,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
-	ReceiveMode                string `json:"receive_mode,omitempty"`
-	TimedModeRemainingSeconds  int    `json:"timed_mode_remaining_seconds,omitempty"`
+	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 }
 
 // RelayStatus describes a configured relay's connection state.
@@ -192,90 +194,16 @@ type InviteWaitResponse struct {
 	Total  int    `json:"total"`
 }
 
-// SendRequest is the body for POST /v1/send.
-type SendRequest struct {
-	Path       string `json:"path"`        // local file path to send
-	Peer       string `json:"peer"`        // peer name or ID
-	NoCompress bool   `json:"no_compress"` // disable zstd compression
-	Streams    int    `json:"streams"`     // parallel stream count (0 = adaptive default)
-	Priority   string `json:"priority"`    // "low", "normal" (default), "high"
+// RemoteServiceRequest is sent to POST /v1/services/remote.
+type RemoteServiceRequest struct {
+	Peer string `json:"peer"` // peer name or ID
 }
 
-// SendResponse is returned by POST /v1/send.
-type SendResponse struct {
-	TransferID string `json:"transfer_id"`
-	Filename   string `json:"filename"`
-	Size       int64  `json:"size"`
-	PeerID     string `json:"peer_id"`
+// RemoteServiceResponse is returned by POST /v1/services/remote.
+type RemoteServiceResponse struct {
+	Services []p2pnet.RemoteServiceInfo `json:"services"`
 }
 
-// TransferAcceptRequest is the body for POST /v1/transfers/{id}/accept.
-type TransferAcceptRequest struct {
-	Dest string `json:"dest,omitempty"` // override receive directory
-}
-
-// TransferRejectRequest is the body for POST /v1/transfers/{id}/reject.
-type TransferRejectRequest struct {
-	Reason string `json:"reason,omitempty"` // "space", "busy", "size"
-}
-
-// PendingTransferInfo is returned by GET /v1/transfers/pending.
-type PendingTransferInfo struct {
-	ID       string `json:"id"`
-	Filename string `json:"filename"`
-	Size     int64  `json:"size"`
-	PeerID   string `json:"peer_id"`
-	Time     string `json:"time"`
-}
-
-// ShareRequest is the body for POST /v1/shares.
-type ShareRequest struct {
-	Path       string   `json:"path"`                  // path to share
-	Peers      []string `json:"peers,omitempty"`        // peer IDs (empty = all authorized)
-	Persistent bool     `json:"persistent,omitempty"`   // survive daemon restart
-}
-
-// UnshareRequest is the body for DELETE /v1/shares.
-type UnshareRequest struct {
-	Path string `json:"path"`
-}
-
-// BrowseRequest is the body for POST /v1/browse.
-type BrowseRequest struct {
-	Peer    string `json:"peer"`              // peer name or ID
-	SubPath string `json:"sub_path,omitempty"` // browse within a shared directory
-}
-
-// BrowseResponse is returned by POST /v1/browse.
-type BrowseResponse struct {
-	Entries []p2pnet.BrowseEntry `json:"entries"`
-	Error   string               `json:"error,omitempty"`
-}
-
-// ShareInfo is returned by GET /v1/shares.
-type ShareInfo struct {
-	Path       string   `json:"path"`
-	Peers      []string `json:"peers,omitempty"`
-	Persistent bool     `json:"persistent"`
-	IsDir      bool     `json:"is_dir"`
-	SharedAt   string   `json:"shared_at"`
-}
-
-// DownloadRequest is the body for POST /v1/download.
-type DownloadRequest struct {
-	Peer       string   `json:"peer"`                  // peer name or ID
-	RemotePath string   `json:"remote_path"`           // path on the remote peer's share
-	LocalDest  string   `json:"local_dest"`            // local directory to save into (empty = configured receive dir)
-	MultiPeer  bool     `json:"multi_peer,omitempty"`   // enable multi-peer swarming download
-	ExtraPeers []string `json:"extra_peers,omitempty"` // additional peer names/IDs that have the file
-}
-
-// DownloadResponse is returned by POST /v1/download.
-type DownloadResponse struct {
-	TransferID string `json:"transfer_id"`
-	FileName   string `json:"filename"`
-	FileSize   int64  `json:"file_size"`
-}
 
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
@@ -285,4 +213,125 @@ type ErrorResponse struct {
 // DataResponse wraps a successful response.
 type DataResponse struct {
 	Data any `json:"data"`
+}
+
+// PluginInfoResponse is returned by GET /v1/plugins and GET /v1/plugins/{name}.
+type PluginInfoResponse struct {
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Type       string   `json:"type"`        // "built-in" or "installed"
+	State      string   `json:"state"`       // "loading", "ready", "active", "draining", "stopped"
+	Enabled    bool     `json:"enabled"`
+	Commands   []string `json:"commands"`
+	Routes     []string `json:"routes"`
+	Protocols  []string `json:"protocols"`
+	ConfigKey  string   `json:"config_key"`
+	CrashCount int      `json:"crash_count"`
+}
+
+// PluginDisableAllResponse is returned by POST /v1/plugins/disable-all.
+type PluginDisableAllResponse struct {
+	Disabled int    `json:"disabled"`
+	Error    string `json:"error,omitempty"`
+}
+
+// GrantRequest is the request body for creating a data access grant.
+type GrantRequest struct {
+	Peer           string   `json:"peer"`                      // peer name or ID
+	Duration       string   `json:"duration"`                  // e.g. "1h", "7d", "30m"
+	Services       []string `json:"services,omitempty"`        // empty = all services
+	Permanent      bool     `json:"permanent,omitempty"`
+	MaxDelegations int      `json:"max_delegations,omitempty"` // 0=none, N=limited, -1=unlimited
+	AutoRefresh    bool     `json:"auto_refresh,omitempty"`    // B4: opt-in token refresh
+	MaxRefreshes   int      `json:"max_refreshes,omitempty"`   // B4: max refresh count
+}
+
+// GrantExtendRequest is the request body for extending a grant.
+type GrantExtendRequest struct {
+	Peer         string `json:"peer"`                    // peer name or ID
+	Duration     string `json:"duration,omitempty"`      // additional time
+	MaxRefreshes *int   `json:"max_refreshes,omitempty"` // B4: update max refresh count (nil = no change)
+}
+
+// GrantRevokeRequest is the request body for revoking a grant.
+type GrantRevokeRequest struct {
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// GrantDelegateRequest is the request body for delegating a grant to another peer.
+type GrantDelegateRequest struct {
+	Peer           string   `json:"peer"`                      // peer holding the original grant
+	To             string   `json:"to"`                        // target peer to delegate to
+	Duration       string   `json:"duration,omitempty"`        // optional: shorter duration
+	Services       []string `json:"services,omitempty"`        // optional: fewer services
+	MaxDelegations int      `json:"max_delegations,omitempty"` // optional: further delegation hops
+}
+
+// GrantInfo represents a grant in API responses.
+type GrantInfo struct {
+	Peer           string   `json:"peer"`
+	PeerID         string   `json:"peer_id"`
+	Services       []string `json:"services,omitempty"`
+	ExpiresAt      string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	CreatedAt      string   `json:"created_at"`
+	Permanent      bool     `json:"permanent,omitempty"`
+	Remaining      string   `json:"remaining,omitempty"`        // human-readable, empty for permanent
+	MaxDelegations int      `json:"max_delegations,omitempty"`  // 0=none, N=limited, -1=unlimited
+	AutoRefresh    bool     `json:"auto_refresh,omitempty"`     // B4: token refresh enabled
+	MaxRefreshes   int      `json:"max_refreshes,omitempty"`    // B4: total allowed
+	RefreshesUsed  int      `json:"refreshes_used,omitempty"`   // B4: consumed so far
+}
+
+// GrantListResponse is the response for listing grants.
+type GrantListResponse struct {
+	Grants []GrantInfo `json:"grants"`
+}
+
+// PouchEntryInfo represents a received grant token in API responses.
+type PouchEntryInfo struct {
+	Issuer    string   `json:"issuer"`              // issuer name or truncated ID
+	IssuerID  string   `json:"issuer_id"`           // full peer ID
+	Services  []string `json:"services,omitempty"`   // empty = all
+	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	Remaining string   `json:"remaining,omitempty"`  // human-readable
+	Permanent bool     `json:"permanent,omitempty"`
+}
+
+// PouchListResponse is the response for listing pouch entries.
+type PouchListResponse struct {
+	Entries []PouchEntryInfo `json:"entries"`
+}
+
+// ReconnectRequest is the request body for POST /v1/reconnect.
+type ReconnectRequest struct {
+	Peer string `json:"peer"` // peer name or ID
+}
+
+// ReconnectResponse is returned by POST /v1/reconnect.
+type ReconnectResponse struct {
+	Peer   string `json:"peer"`
+	PeerID string `json:"peer_id"`
+	Status string `json:"status"` // "reconnecting" or "not_watched"
+}
+
+// RelayGrantInfo describes a cached relay grant receipt for status display.
+type RelayGrantInfo struct {
+	RelayPeerID      string `json:"relay_peer_id"`
+	RelayName        string `json:"relay_name,omitempty"`       // parsed from agent version
+	Permanent        bool   `json:"permanent,omitempty"`
+	Remaining        string `json:"remaining,omitempty"`        // human-readable time left
+	SessionBudget    string `json:"session_budget,omitempty"`   // e.g. "2 GB" or "unlimited"
+	SessionUsed      string `json:"session_used,omitempty"`     // e.g. "1.2 GB"
+	SessionDuration  string `json:"session_duration,omitempty"` // e.g. "2h"
+}
+
+// NotificationsStatus is the notifications section in the status response.
+type NotificationsStatus struct {
+	Sinks []string `json:"sinks"` // names of configured sinks
+}
+
+// NotifySinkInfo represents a configured notification sink.
+type NotifySinkInfo struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "active"
 }

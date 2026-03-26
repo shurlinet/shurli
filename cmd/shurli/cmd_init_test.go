@@ -45,11 +45,14 @@ func TestDoInit_ConfigAlreadyExists(t *testing.T) {
 func TestDoInit_EmptyRelay(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), then enter empty address
-	stdin := strings.NewReader("2\n\n")
+	// Identity: new (1), then network: own relay (1), then empty address.
+	// --skip-seed-confirm bypasses the seed quiz so stdin reaches the relay prompt.
+	// Seed generation still happens but quiz is skipped.
+	// After seed, password prompt needs TTY - but empty relay errors before that.
+	stdin := strings.NewReader("1\n1\n\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for empty relay")
 	}
@@ -61,11 +64,11 @@ func TestDoInit_EmptyRelay(t *testing.T) {
 func TestDoInit_InvalidMultiaddr(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), then provide invalid multiaddr
-	stdin := strings.NewReader("2\n/invalid/multiaddr\n")
+	// Identity: new (1), Network: own relay (1), then provide invalid multiaddr
+	stdin := strings.NewReader("1\n1\n/invalid/multiaddr\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid multiaddr")
 	}
@@ -77,11 +80,11 @@ func TestDoInit_InvalidMultiaddr(t *testing.T) {
 func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), IP:port input, then empty peer ID
-	stdin := strings.NewReader("2\n1.2.3.4:7777\n\n")
+	// Identity: new (1), Network: own relay (1), IP:port input, then empty peer ID
+	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\n\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for empty peer ID")
 	}
@@ -93,11 +96,11 @@ func TestDoInit_IPWithEmptyPeerID(t *testing.T) {
 func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 	dir := t.TempDir()
 
-	// Choose option 2 (custom relay), IP:port, then invalid peer ID
-	stdin := strings.NewReader("2\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
+	// Identity: new (1), Network: own relay (1), IP:port, then invalid peer ID
+	stdin := strings.NewReader("1\n1\n1.2.3.4:7777\nnot-a-valid-peer-id\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid peer ID")
 	}
@@ -109,10 +112,11 @@ func TestDoInit_IPWithInvalidPeerID(t *testing.T) {
 func TestDoInit_InvalidChoice(t *testing.T) {
 	dir := t.TempDir()
 
-	stdin := strings.NewReader("3\n")
+	// Identity: new (1), Network: invalid choice (3)
+	stdin := strings.NewReader("1\n3\n")
 	var stdout bytes.Buffer
 
-	err := doInit([]string{"--dir", dir}, stdin, &stdout)
+	err := doInit([]string{"--dir", dir, "--skip-seed-confirm"}, stdin, &stdout)
 	if err == nil {
 		t.Fatal("expected error for invalid choice")
 	}
@@ -122,7 +126,8 @@ func TestDoInit_InvalidChoice(t *testing.T) {
 }
 
 func TestDoInit_PublicNetworkDefault(t *testing.T) {
-	// Choosing option 1 (or just pressing enter) selects the public network.
+	// Choosing option 2 selects the public seed network.
+	// Option 1 (default/enter) is now own relay server.
 	// This skips past relay setup but then hits seed confirmation, which
 	// requires interactive terminal, so we just verify it doesn't error
 	// on the relay choice itself.

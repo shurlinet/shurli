@@ -1,6 +1,6 @@
 ---
 title: Shurli
-description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly - no accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
+description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly. No accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
@@ -24,31 +24,41 @@ layout: hextra-home
 {{< /hextra/hero-headline >}}
 </div>
 
-<div class="hx:mb-8">
+<div class="hx:mb-6">
 {{< hextra/hero-subtitle >}}
   Connect your devices and agents directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
 {{< /hextra/hero-subtitle >}}
 </div>
 
+<!-- ============================================================ -->
+<!-- SECTION: Quickstart (Homebrew-style, front and center)        -->
+<!-- ============================================================ -->
+
+<div class="shurli-quickstart">
+  <div class="shurli-quickstart-command">
+
+```bash
+curl -sSL get.shurli.io | sh
+```
+
+  </div>
+  <p class="shurli-quickstart-or">or</p>
+  <div class="shurli-quickstart-alt">
+
+```bash
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+  </div>
+  <p class="shurli-quickstart-note">No accounts. No cloud. Interactive setup walks you through everything.</p>
+</div>
+
 <div class="hx:mb-12 hx:flex hx:flex-wrap hx:gap-4 hx:justify-center">
-{{< hextra/hero-button text="Get Started" link="docs/quick-start" >}}
+{{< hextra/hero-button text="Quick Start Guide" link="docs/quick-start" >}}
 <a href="https://github.com/shurlinet/shurli" target="_blank" rel="noopener" class="shurli-secondary-btn">
   {{< icon name="github" attributes="height=18" >}}
   <span>View on GitHub</span>
 </a>
-</div>
-
-<!-- ============================================================ -->
-<!-- SECTION: Terminal Demo                                        -->
-<!-- ============================================================ -->
-
-<div class="shurli-section">
-  <div class="shurli-section-icon">{{< icon name="lightning-bolt" attributes="height=28" >}}</div>
-  <h2 class="shurli-section-title">From zero to connected in 60 seconds</h2>
-  <p class="shurli-section-subtitle">Two commands on each device. No accounts to create, no keys to exchange manually, no ports to forward.</p>
-  <div class="shurli-demo-container">
-    <img src="/images/terminal-demo.svg" alt="Shurli terminal demo showing init, invite, join, and proxy commands" class="shurli-demo-image" loading="lazy" />
-  </div>
 </div>
 
 <!-- ============================================================ -->
@@ -58,14 +68,14 @@ layout: hextra-home
 <div class="shurli-section">
   <div class="shurli-section-icon">{{< icon name="cog" attributes="height=28" >}}</div>
   <h2 class="shurli-section-title">How it works</h2>
-  <p class="shurli-section-subtitle">Three steps. Both devices end up in each other's authorized_keys. That's it.</p>
+  <p class="shurli-section-subtitle">The install script handles setup. Here's what happens next.</p>
 
   <div class="shurli-steps-grid">
     <div class="shurli-step">
       <div class="shurli-step-number">1</div>
-      <img src="/images/how-it-works-1-init.svg" alt="Step 1: Initialize Shurli on your server" class="shurli-step-image" loading="lazy" />
-      <h3 class="shurli-step-title">Initialize</h3>
-      <p class="shurli-step-desc">Run <code>shurli init</code> on your server. It creates a unique identity and comes online, ready to accept connections.</p>
+      <img src="/images/how-it-works-1-init.svg" alt="Step 1: Install and choose your role" class="shurli-step-image" loading="lazy" />
+      <h3 class="shurli-step-title">Install</h3>
+      <p class="shurli-step-desc">Run the install script. Choose relay server (VPS) or peer node (your device). Identity, config, and service setup handled automatically.</p>
     </div>
     <div class="shurli-step">
       <div class="shurli-step-number">2</div>
@@ -77,13 +87,26 @@ layout: hextra-home
       <div class="shurli-step-number">3</div>
       <img src="/images/how-it-works-3-connect.svg" alt="Step 3: Join and start proxying services" class="shurli-step-image" loading="lazy" />
       <h3 class="shurli-step-title">Connect</h3>
-      <p class="shurli-step-desc">Run <code>shurli join</code> on your laptop. Both devices trust each other automatically. Access any service through the encrypted connection.</p>
+      <p class="shurli-step-desc">Run <code>shurli join</code> on your laptop. Both devices trust each other automatically. Access any service through the encrypted tunnel.</p>
     </div>
   </div>
 </div>
 
 <!-- ============================================================ -->
-<!-- SECTION: Feature Grid (existing, unchanged)                   -->
+<!-- SECTION: Terminal Demo                                        -->
+<!-- ============================================================ -->
+
+<div class="shurli-section">
+  <div class="shurli-section-icon">{{< icon name="lightning-bolt" attributes="height=28" >}}</div>
+  <h2 class="shurli-section-title">From zero to connected in 60 seconds</h2>
+  <p class="shurli-section-subtitle">Deploy a relay, then two commands on each device. No keys to exchange manually, no ports to forward.</p>
+  <div class="shurli-demo-container">
+    <img src="/images/terminal-demo.svg" alt="Shurli terminal demo showing init, invite, join, and proxy commands" class="shurli-demo-image" loading="lazy" />
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION: Feature Grid                                         -->
 <!-- ============================================================ -->
 
 {{< hextra/feature-grid >}}
@@ -94,9 +117,9 @@ layout: hextra-home
     style="background: radial-gradient(ellipse at 50% 80%,rgba(59,130,246,0.15),hsla(0,0%,100%,0));"
   >}}
   {{< hextra/feature-card
-    title="One File, Nothing Else"
+    title="One Command, Done"
     icon="cube"
-    subtitle="Download one file. Run it. Done. No containers, no runtimes, no databases to set up. Works offline after the initial pairing."
+    subtitle="Single binary, no containers, no runtimes, no databases. The install script detects your platform and handles everything. Works offline after pairing."
     style="background: radial-gradient(ellipse at 50% 80%,rgba(16,185,129,0.15),hsla(0,0%,100%,0));"
   >}}
   {{< hextra/feature-card
@@ -256,62 +279,6 @@ layout: hextra-home
 </div>
 
 <!-- ============================================================ -->
-<!-- SECTION: Install                                              -->
-<!-- ============================================================ -->
-
-<div class="shurli-section">
-  <div class="shurli-section-icon">{{< icon name="download" attributes="height=28" >}}</div>
-  <h2 class="shurli-section-title">Install</h2>
-  <p class="shurli-section-subtitle">Single binary. No runtime dependencies. Build from source with Go.</p>
-
-  <div class="shurli-install-container">
-
-{{< tabs items="macOS,Linux,From Source" >}}
-{{< tab >}}
-```bash
-# Clone and build
-git clone https://github.com/shurlinet/shurli.git
-cd Shurli
-go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
-
-# Move to PATH
-sudo mv shurli /usr/local/bin/
-
-# Verify
-shurli version
-```
-{{< /tab >}}
-{{< tab >}}
-```bash
-# Clone and build
-git clone https://github.com/shurlinet/shurli.git
-cd Shurli
-go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
-
-# Move to PATH
-sudo mv shurli /usr/local/bin/
-
-# Verify
-shurli version
-```
-{{< /tab >}}
-{{< tab >}}
-```bash
-# Requires Go 1.22+
-git clone https://github.com/shurlinet/shurli.git
-cd Shurli
-go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
-
-# Run directly
-./shurli version
-```
-{{< /tab >}}
-{{< /tabs >}}
-
-  </div>
-</div>
-
-<!-- ============================================================ -->
 <!-- SECTION: What's Working Today                                 -->
 <!-- ============================================================ -->
 
@@ -389,10 +356,31 @@ go build -ldflags="-s -w" -trimpath -o shurli ./cmd/shurli
 </div>
 
 <!-- ============================================================ -->
-<!-- SECTION: Bottom CTA                                           -->
+<!-- SECTION: Bottom CTA (with install repeated)                   -->
 <!-- ============================================================ -->
 
 <div class="shurli-section shurli-cta-section">
+
+  <div class="shurli-quickstart shurli-quickstart-bottom">
+    <h2 class="shurli-section-title">Ready to try it?</h2>
+    <div class="shurli-quickstart-command">
+
+```bash
+curl -sSL get.shurli.io | sh
+```
+
+  </div>
+    <p class="shurli-quickstart-or">or</p>
+    <div class="shurli-quickstart-alt">
+
+```bash
+curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.sh | sh
+```
+
+  </div>
+    <p class="shurli-quickstart-note">For pre-release builds: <code>curl -sSL &lt;URL&gt; | SHURLI_DEV=1 sh</code></p>
+  </div>
+
   <div class="shurli-cta-grid">
     <a href="https://github.com/shurlinet/shurli" target="_blank" rel="noopener" class="shurli-cta-card">
       <div class="shurli-cta-icon">{{< icon name="github" attributes="height=28" >}}</div>

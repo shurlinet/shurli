@@ -9,6 +9,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -104,7 +105,7 @@ func runTraceroute(args []string) {
 		} else {
 			name := ""
 			if hop.Name != "" {
-				name = " (" + hop.Name + ")"
+				name = " (" + validate.SanitizeForDisplay(hop.Name) + ")"
 			}
 			fmt.Printf(" %d  %s%s  %s  ", hop.Hop, peerShort, name, hop.Address)
 			tc.Wgreen(os.Stdout, "%.1fms", hop.RttMs)

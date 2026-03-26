@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -22,21 +23,61 @@ type PeerEntry struct {
 	Verified  string    // empty = unverified, otherwise fingerprint prefix
 	Group     string    // pairing group ID (empty = manually added or invited)
 	Role      string    // "admin" or "member" (empty = member, backward compatible)
-	RelayData bool      // relay_data=true allows data circuits through public/seed relays
 }
 
+// maxCommentLen is the maximum length for a peer comment in authorized_keys.
+const maxCommentLen = 512
+
 // sanitizeComment strips characters that could corrupt the authorized_keys
-// file format: newlines (line injection), carriage returns, and null bytes.
+// file format or inject terminal escape sequences: all C0 control characters
+// (U+0000-U+001F, includes NUL, ESC, newlines, CR) and C1 control characters
+// (U+007F-U+009F). Length is capped at maxCommentLen bytes.
 func sanitizeComment(s string) string {
+	s = truncateUTF8(s, maxCommentLen)
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if r == '\n' || r == '\r' || r == 0 {
+		if r <= 0x1F || (r >= 0x7F && r <= 0x9F) {
 			continue
 		}
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// maxAttrValueLen is the maximum length for a peer attribute value.
+const maxAttrValueLen = 256
+
+// sanitizeAttrValue strips characters that could corrupt the authorized_keys
+// file format or inject log entries. Attribute values must not contain
+// control characters, spaces (they delimit fields), equals signs (they
+// delimit key=value), or hash (starts comments). Length is capped at
+// maxAttrValueLen bytes.
+func sanitizeAttrValue(s string) string {
+	s = truncateUTF8(s, maxAttrValueLen)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r <= 0x1F || (r >= 0x7F && r <= 0x9F) {
+			continue
+		}
+		if r == ' ' || r == '=' || r == '#' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// truncateUTF8 truncates s to at most maxBytes without splitting a multi-byte rune.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // parseLine parses a single authorized_keys line into its components.
@@ -94,9 +135,8 @@ func formatLine(peerIDStr string, attrs map[string]string, comment string) strin
 	writeAttr("expires")
 	writeAttr("verified")
 	writeAttr("role")
-	writeAttr("relay_data")
 	for k, v := range attrs {
-		if k == "expires" || k == "verified" || k == "role" || k == "relay_data" {
+		if k == "expires" || k == "verified" || k == "role" {
 			continue
 		}
 		b.WriteString("  ")
@@ -153,7 +193,7 @@ func SetPeerAttr(authKeysPath, peerIDStr, key, value string) error {
 			if value == "" {
 				delete(attrs, key)
 			} else {
-				attrs[key] = value
+				attrs[key] = sanitizeAttrValue(value)
 			}
 			newLines = append(newLines, formatLine(pidStr, attrs, comment))
 		} else {
@@ -173,8 +213,57 @@ func SetPeerAttr(authKeysPath, peerIDStr, key, value string) error {
 	return atomicWriteLines(authKeysPath, newLines)
 }
 
+// fileOwnership captures the UID/GID of a file before a write operation.
+// Used by atomicWriteLines and SaveIntegrityHash to restore ownership
+// when running as root on files owned by a service user.
+type fileOwnership struct {
+	uid int
+	gid int
+}
+
+// WriteFilePreserveOwnership is like os.WriteFile but preserves file ownership
+// when running as root on files owned by a different user. This prevents
+// root-run CLI commands from flipping ownership on service user files.
+func WriteFilePreserveOwnership(path string, data []byte, perm os.FileMode) error {
+	orig := captureOwnership(path)
+	if err := os.WriteFile(path, data, perm); err != nil {
+		return err
+	}
+	restoreOwnership(path, orig)
+	return nil
+}
+
+// captureOwnership returns the UID/GID of the file at path.
+// Returns nil if the file doesn't exist or stat fails (new file, no restore needed).
+func captureOwnership(path string) *fileOwnership {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return platformOwnership(info)
+}
+
+// restoreOwnership restores the UID/GID of path if we're running as root
+// and the original owner was a different user. This prevents root from
+// flipping ownership on files owned by service users (e.g., relay running
+// as "satinder" but admin runs "sudo shurli relay deauthorize").
+func restoreOwnership(path string, orig *fileOwnership) {
+	if orig == nil || os.Getuid() != 0 {
+		return
+	}
+	if orig.uid == 0 {
+		return // file was already root-owned, nothing to restore
+	}
+	if err := os.Chown(path, orig.uid, orig.gid); err != nil {
+		slog.Warn("failed to restore file ownership", "path", filepath.Base(path), "err", err)
+	}
+}
+
 // atomicWriteLines writes lines to a file atomically via temp file + rename.
+// Preserves file ownership when running as root.
 func atomicWriteLines(path string, lines []string) error {
+	orig := captureOwnership(path)
+
 	dir := filepath.Dir(path)
 	tempFile, err := os.CreateTemp(dir, ".authorized_keys.*.tmp")
 	if err != nil {
@@ -195,6 +284,11 @@ func atomicWriteLines(path string, lines []string) error {
 			return fmt.Errorf("failed to write temp file: %w", err)
 		}
 	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
 	tempFile.Close()
 
 	if err := os.Rename(tempPath, path); err != nil {
@@ -202,6 +296,7 @@ func atomicWriteLines(path string, lines []string) error {
 		return fmt.Errorf("failed to update file: %w", err)
 	}
 
+	restoreOwnership(path, orig)
 	SaveIntegrityHash(path)
 	return nil
 }
@@ -344,10 +439,6 @@ func ListPeers(authKeysPath string) ([]PeerEntry, error) {
 		if v, ok := attrs["role"]; ok {
 			entry.Role = v
 		}
-		if v, ok := attrs["relay_data"]; ok {
-			entry.RelayData = v == "true"
-		}
-
 		entries = append(entries, entry)
 	}
 
@@ -373,19 +464,35 @@ func PeerComment(authKeysPath string, peerID peer.ID) string {
 	return ""
 }
 
-// HasRelayData checks whether a peer has the relay_data=true attribute,
-// which grants permission to establish data circuits through public/seed relays.
-func HasRelayData(authKeysPath string, peerID peer.ID) bool {
-	entries, err := ListPeers(authKeysPath)
+
+// GetPeerAttr returns the value of a specific attribute for a peer.
+// Returns empty string if the peer or attribute is not found.
+// Uses string comparison on encoded peer IDs to avoid costly decoding per line.
+func GetPeerAttr(authKeysPath, peerIDStr, key string) string {
+	// Validate the target peer ID once upfront.
+	targetID, err := peer.Decode(peerIDStr)
 	if err != nil {
-		return false
+		return ""
 	}
-	for _, e := range entries {
-		if e.PeerID == peerID {
-			return e.RelayData
+	canonical := targetID.String()
+
+	file, err := os.Open(authKeysPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		pidStr, attrs, _ := parseLine(scanner.Text())
+		if pidStr == canonical {
+			if attrs == nil {
+				return ""
+			}
+			return attrs[key]
 		}
 	}
-	return false
+	return ""
 }
 
 // --- Integrity monitoring ---
@@ -407,15 +514,20 @@ func ComputeFileHash(path string) (string, error) {
 
 // SaveIntegrityHash computes and saves the SHA-256 hash of the authorized_keys file.
 // Called after every mutation (add, remove, set-attr) to maintain the integrity record.
+// Preserves file ownership when running as root.
 func SaveIntegrityHash(authKeysPath string) {
 	hash, err := ComputeFileHash(authKeysPath)
 	if err != nil {
 		slog.Warn("integrity: failed to hash authorized_keys", "err", err)
 		return
 	}
-	if err := os.WriteFile(hashFilePath(authKeysPath), []byte(hash+"\n"), 0600); err != nil {
+	hashPath := hashFilePath(authKeysPath)
+	orig := captureOwnership(hashPath)
+	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0600); err != nil {
 		slog.Warn("integrity: failed to save hash", "err", err)
+		return
 	}
+	restoreOwnership(hashPath, orig)
 }
 
 // VerifyIntegrity checks the authorized_keys file against its stored hash.

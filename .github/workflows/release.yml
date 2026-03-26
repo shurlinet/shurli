@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -22,7 +22,9 @@ jobs:
             goarch: arm64
             os: ubuntu-latest
             install_deps: ""
-            cgo: "0"
+            arm64_cross: true
+            cgo: "1"
+            cc: aarch64-linux-gnu-gcc
             suffix: ""
           - goos: darwin
             goarch: amd64
@@ -52,25 +54,60 @@ jobs:
         if: matrix.install_deps != ''
         run: ${{ matrix.install_deps }}
 
+      - name: Set up arm64 cross-compilation
+        if: matrix.arm64_cross == true
+        run: |
+          sudo dpkg --add-architecture arm64
+          # Pin ALL existing sources to amd64 only (security.ubuntu.com has no arm64)
+          for f in /etc/apt/sources.list.d/*.sources; do
+            sudo sed -i '/^Architectures:/d' "$f" 2>/dev/null || true
+            sudo sed -i '/^Types:/a Architectures: amd64' "$f" 2>/dev/null || true
+          done
+          # Also handle any .list files that don't use [arch=] yet
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
+          fi
+          # Add arm64 ports repository (covers main, security, updates)
+          printf '%s\n' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble-updates main restricted universe multiverse' \
+            'deb [arch=arm64] http://ports.ubuntu.com/ noble-security main restricted universe multiverse' \
+            | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu libavahi-compat-libdnssd-dev:arm64
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: ${{ matrix.cgo }}
+          CC: ${{ matrix.cc || '' }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
           COMMIT="$(git rev-parse --short HEAD)"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE} -s -w"
 
-          OUTNAME="shurli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
-          go build -ldflags "${LDFLAGS}" -trimpath -o "${OUTNAME}" ./cmd/shurli
-          echo "ARTIFACT=${OUTNAME}" >> "$GITHUB_ENV"
+          ARCHIVE_DIR="shurli-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "${ARCHIVE_DIR}/deploy" "${ARCHIVE_DIR}/tools"
+
+          # Build binary into archive dir
+          go build -ldflags "${LDFLAGS}" -trimpath -o "${ARCHIVE_DIR}/shurli${{ matrix.suffix }}" ./cmd/shurli
+
+          # Bundle service files and setup scripts
+          cp deploy/shurli-daemon.service deploy/shurli-relay.service "${ARCHIVE_DIR}/deploy/"
+          cp deploy/com.shurli.daemon.plist "${ARCHIVE_DIR}/deploy/" 2>/dev/null || true
+          cp tools/relay-setup.sh "${ARCHIVE_DIR}/tools/"
+          chmod +x "${ARCHIVE_DIR}/tools/relay-setup.sh"
+
+          # Create archive
+          tar czf "${ARCHIVE_DIR}.tar.gz" "${ARCHIVE_DIR}"
+          echo "ARTIFACT=${ARCHIVE_DIR}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -81,6 +118,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -92,12 +131,13 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum shurli-* > checksums-sha256.txt
+        run: sha256sum *.tar.gz > checksums-sha256.txt
 
       - name: Detect release type
         id: release_type
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          TAG="${{ github.ref_name }}"
           # Tags with hyphen suffix are pre-releases (v0.1.1-dev.1, v0.2.0-rc.1, etc.)
           if [[ "$TAG" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
@@ -107,12 +147,80 @@ jobs:
             echo "title=Shurli $TAG" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate release notes
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Find previous tag
+          PREV_TAG="$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)"
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+
+          # Parse conventional commits into sections
+          FEATURES=""
+          FIXES=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            hash="${line%% *}"
+            msg="${line#* }"
+            short="${hash:0:7}"
+
+            case "$msg" in
+              feat:*|feat\(*)
+                clean="${msg#feat: }"
+                clean="${clean#feat(*): }"
+                FEATURES="${FEATURES}- ${clean} (${short})\n"
+                ;;
+              fix:*|fix\(*)
+                clean="${msg#fix: }"
+                clean="${clean#fix(*)!: }"
+                FIXES="${FIXES}- ${clean} (${short})\n"
+                ;;
+              *)
+                OTHER="${OTHER}- ${msg} (${short})\n"
+                ;;
+            esac
+          done < <(git log --oneline "$RANGE" 2>/dev/null)
+
+          # Build notes
+          NOTES=""
+          if [ -n "$FEATURES" ]; then
+            NOTES="${NOTES}## Features\n\n${FEATURES}\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            NOTES="${NOTES}## Bug Fixes\n\n${FIXES}\n"
+          fi
+          if [ -n "$OTHER" ]; then
+            NOTES="${NOTES}## Other Changes\n\n${OTHER}\n"
+          fi
+
+          NOTES="${NOTES}## Platforms\n\n"
+          NOTES="${NOTES}\`linux/amd64\`, \`linux/arm64\`, \`darwin/amd64\`, \`darwin/arm64\`, \`windows/amd64\`\n\n"
+
+          if [ -n "$PREV_TAG" ]; then
+            NOTES="${NOTES}**Full changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}\n"
+          fi
+
+          printf '%b' "$NOTES" > /tmp/release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TITLE: ${{ steps.release_type.outputs.title }}
+          IS_PRERELEASE: ${{ steps.release_type.outputs.prerelease }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ steps.release_type.outputs.title }}" \
-            --generate-notes \
-            ${{ steps.release_type.outputs.prerelease == 'true' && '--prerelease' || '' }} \
+          PRERELEASE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$RELEASE_TAG" \
+            --title "$RELEASE_TITLE" \
+            --notes-file /tmp/release-notes.md \
+            $PRERELEASE_FLAG \
             dist/*

@@ -184,6 +184,9 @@ Key configuration fields for network management:
 | Remove relay | `shurli relay remove <addr>` |
 | List relays | `shurli relay list` |
 | Validate auth file | `shurli auth validate` |
+| Set peer attribute | `shurli auth set-attr <peer-id> <key> <value>` |
+| Limit peer bandwidth | `shurli auth set-attr <peer-id> bandwidth_budget 1GB` |
+| Unlimited peer bandwidth | `shurli auth set-attr <peer-id> bandwidth_budget unlimited` |
 | Create pairing code | `shurli relay pair --count N --ttl 2h` |
 | Create invite deposit | `shurli relay invite create --ttl 86400` |
 | List invites | `shurli relay invite list` |
@@ -200,6 +203,27 @@ Key configuration fields for network management:
 | Change password | `shurli change-password` |
 | Lock daemon | `shurli lock` |
 | Unlock daemon | `shurli unlock` |
+
+## Per-peer attributes
+
+Control individual peer behavior with `shurli auth set-attr`:
+
+| Attribute | Values | Effect |
+|-----------|--------|--------|
+| `role` | `admin`, `member` | Peer privileges |
+| `group` | any string | Organize peers |
+| `verified` | fingerprint prefix | Identity verification status |
+| `bandwidth_budget` | `unlimited`, `500MB`, `1GB`, etc. | Hourly transfer limit for this peer |
+
+```bash
+# Limit a peer to 1GB per hour
+shurli auth set-attr 12D3KooW... bandwidth_budget 1GB
+
+# Remove the limit (use global default)
+shurli auth set-attr 12D3KooW... bandwidth_budget ""
+```
+
+The bandwidth budget priority chain: LAN peers (always exempt) > per-peer attribute > config file `bandwidth_budget` > default (100MB/hr). Config accepts human-readable values like `"500MB"` or `"unlimited"`.
 
 ## Remote relay management
 

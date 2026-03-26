@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 // manInstallDir returns the man page directory for section 1.
@@ -124,7 +127,7 @@ func uninstallManPage() {
 }
 
 func manPage() string {
-	return `.TH SHURLI 1 "2026-03-02" "shurli ` + version + `" "Shurli Manual"
+	page := `.TH SHURLI 1 "2026-03-02" "shurli ` + version + `" "Shurli Manual"
 
 .SH NAME
 shurli \- sovereign peer-to-peer networking tool
@@ -137,11 +140,11 @@ shurli \- sovereign peer-to-peer networking tool
 .B shurli daemon
 .br
 .B shurli invite
-[\fB--name\fR \fIlabel\fR]
+[\fB--as\fR \fIname\fR]
 .br
 .B shurli join
 .I code
-[\fB--name\fR \fIlabel\fR]
+[\fB--as\fR \fIname\fR]
 .br
 .B shurli proxy
 .I target service local-port
@@ -179,30 +182,30 @@ All three paths are encrypted identically. The transition between them is
 automatic and invisible to the user.
 
 .SH GETTING STARTED
-A minimal setup takes about two minutes:
+A minimal setup:
 .PP
-.B "On your first device:"
+.B "1. Deploy a relay on a VPS (recommended):"
+.nf
+  shurli relay setup
+  shurli relay serve
+.fi
+.PP
+.B "2. Initialize on your devices:"
 .nf
   shurli init
-  shurli daemon
+  # Choose option 1 (own relay), enter your relay address
 .fi
 .PP
-.B "On your second device:"
+.B "3. Pair them:"
 .nf
-  shurli init
-.fi
-.PP
-.B "Pair them (from either device):"
-.nf
-  shurli invite --name home
-.fi
-.PP
-This prints a one-time code. On the other device:
-.nf
-  shurli join <code> --name laptop
+  shurli invite --as home
+  # On the other device:
+  shurli join <code> --as laptop
 .fi
 .PP
 Both devices are now authorized and can reach each other.
+Without your own relay, you can still use public seed nodes for
+discovery (option 2 in init), but data relay is not available.
 
 .SH EXAMPLES
 .SS Expose SSH and connect from another device
@@ -284,8 +287,8 @@ a local control API over a Unix socket.
 Start the daemon in the foreground.
 .TP
 .B daemon status \fR[\fB--json\fR]
-Query the running daemon for its peer ID, uptime, connected peers, and
-active proxies.
+Query the running daemon for its peer ID, uptime, connected peers, relay
+grant cache, and active proxies.
 .TP
 .B daemon stop
 Send a graceful shutdown signal. Active proxy tunnels are drained before exit.
@@ -331,67 +334,11 @@ the DHT if the name is not found locally.
 Forward a local TCP port to a remote peer's service. Runs in the foreground
 until interrupted with Ctrl-C.
 .TP
-.B send \fIfile\fR \fIpeer\fR [\fB--follow\fR] [\fB--no-compress\fR] [\fB--streams\fR \fIN\fR] [\fB--priority\fR \fIP\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--json\fR]
-Send a file to a peer over the P2P network. Uses chunked transfer with
-BLAKE3 Merkle integrity verification and zstd compression (on by default).
-Use \fB--no-compress\fR to disable compression. Use \fB--streams\fR to set
-the parallel stream count (0 = auto based on transport type). Use
-\fB--priority\fR to set queue priority (low, normal, high; default: normal).
-The command submits the transfer to the daemon and exits immediately
-(fire-and-forget). Use \fB--follow\fR to stay attached and watch progress
-inline. Use \fB--quiet\fR for a single progress bar (no chunk details) or
-\fB--silent\fR for no progress output. Requires a running daemon.
-.TP
-.B share add \fIpath\fR [\fB--to\fR \fIpeer\fR] [\fB--peers\fR \fIid1,id2\fR] [\fB--persist\fR] [\fB--json\fR]
-Share a file or directory with authorized peers. Use \fB--to\fR to share
-with a single peer, or \fB--peers\fR for multiple peers. Using both
-\fB--to\fR and \fB--peers\fR together is an error. Without either flag,
-all authorized peers have access. Use \fB--persist\fR to survive daemon
-restarts.
-.TP
-.B share remove \fIpath\fR [\fB--json\fR]
-Stop sharing a previously shared path.
-.TP
-.B share list [\fB--json\fR]
-List all currently shared paths, their type (file or directory),
-and peer restrictions.
-.TP
-.B browse \fIpeer\fR [\fB--path\fR \fI/sub/dir\fR] [\fB--json\fR]
-Browse files and directories shared by a remote peer. Use \fB--path\fR
-to navigate within a specific shared directory. Only shows content the
-remote peer has explicitly shared with you.
-.TP
-.B download \fIpeer\fR:\fIpath\fR [\fB--dest\fR \fIdir\fR] [\fB--follow\fR] [\fB--quiet\fR] [\fB--silent\fR] [\fB--multi-peer\fR] [\fB--peers\fR \fIlist\fR] [\fB--json\fR]
-Download a file from a remote peer's shared files. The argument uses
-\fIpeer\fR:\fIpath\fR format where the path is as shown by
-\fBshurli browse\fR. Use \fB--dest\fR to save to a specific local
-directory (default: configured receive directory). Use \fB--follow\fR
-to watch progress inline. Use \fB--multi-peer\fR with \fB--peers\fR
-to download from multiple peers simultaneously using RaptorQ fountain
-codes for loss-tolerant swarming. Requires a running daemon.
-.TP
-.B transfers \fR[\fB--watch\fR] [\fB--history\fR] [\fB--max\fR \fIN\fR] [\fB--json\fR]
-List pending, active, and completed file transfers. Shows direction, peer,
-progress, compression status, and errors. Use \fB--watch\fR for a live feed
-that refreshes every 2 seconds (read-only; use \fBaccept\fR/\fBreject\fR in
-a separate terminal for actions). Use \fB--history\fR to show the structured
-transfer event log. Use \fB--max\fR to limit history output (default: 50).
-.TP
-.B accept \fIid\fR|\fB--all\fR [\fB--dest\fR \fIpath\fR] [\fB--json\fR]
-Accept a pending incoming file transfer (ask mode). Use \fB--all\fR to
-accept all pending transfers at once. Use \fB--dest\fR to save to a specific
-directory instead of the default receive directory.
-.TP
-.B reject \fIid\fR|\fB--all\fR [\fB--reason\fR space|busy|size] [\fB--json\fR]
-Reject a pending incoming file transfer. Use \fB--all\fR to reject all
-pending transfers at once. Use \fB--reason\fR to announce the rejection
-reason to the sender. Without \fB--reason\fR, the sender sees a generic
-"declined" message.
-.TP
-.B cancel \fIid\fR [\fB--json\fR]
-Cancel a queued or active file transfer. Queued transfers are removed from
-the queue. Active transfers are stopped with best effort.
-
+.B reconnect \fIpeer\fR [\fB--json\fR]
+Clear all dial backoffs for a peer and trigger immediate reconnection. Resets both
+the swarm-level and PeerManager-level backoff state. Useful for AI agents and operators
+to recover a peer from exponential backoff without waiting for it to expire naturally.
+PLUGIN_MAN_PLACEHOLDER
 .SH IDENTITY & ACCESS
 Access control in shurli is based on
 .I authorized_keys
@@ -423,15 +370,53 @@ are terminated.
 .B auth validate \fR[\fIfile\fR]
 Check the authorized_keys file for syntax errors, duplicate entries, and
 invalid peer IDs.
+.TP
+.B auth set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR
+Set a peer attribute in authorized_keys. Allowed keys: role, group,
+verified, bandwidth_budget. Bandwidth budget values: unlimited, or a size
+like 500MB, 1GB, 10GB.
+.TP
+.B auth grant \fIpeer\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIfile-transfer,...\fR] [\fB--permanent\fR] [\fB--delegate\fR \fIN\fR]
+Grant relay data access to a peer using macaroon capability tokens.
+Default duration: 1 hour. When a peer has a grant, relay transport is
+allowed for their plugin streams. The --delegate flag controls whether the
+peer can re-share this grant: 0=no delegation (default), N=limited hops,
+-1=unlimited. Requires a running daemon.
+.TP
+.B auth grants
+List all active relay data access grants with remaining time.
+.TP
+.B auth revoke \fIpeer\fR
+Revoke relay data access. All connections to the peer are closed immediately.
+.TP
+.B auth extend \fIpeer\fR \fB--duration\fR \fI2h\fR
+Extend an existing grant. The new expiry is calculated from now, not from the
+original expiry.
+.TP
+.B auth delegate \fIpeer\fR \fB--to\fR \fItarget\fR [\fB--duration\fR \fI30m\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--delegate\fR \fIN\fR]
+Delegate a received grant to another peer. Creates an attenuated sub-token
+with the same or tighter restrictions (shorter duration, fewer services,
+fewer delegation hops). The sub-token is delivered to the target peer via
+P2P or queued if the target is offline.
+.TP
+.B auth pouch \fR[\fB--json\fR]
+List all grant tokens received from other nodes (the "pouch"). Shows issuer
+name, allowed services, remaining time, and permanent status. Requires a
+running daemon.
+.TP
+.B auth audit \fR[\fB--verify\fR] [\fB--tail\fR \fIN\fR] [\fB--json\fR]
+Display the grant audit log. Shows grant, revoke, extend, and delegate
+events with timestamps. Use \fB--verify\fR to check HMAC chain integrity.
+Default: last 20 entries (configurable with \fB--tail\fR).
 
 .SH CONFIGURATION
 .TP
 .B init \fR[\fB--dir\fR \fIpath\fR] [\fB--network\fR \fInamespace\fR]
 Interactive first-time setup. Creates the config directory, generates an
-Ed25519 identity key, prompts for a relay server address, writes config.yaml,
-and installs shell completions and the man page. The \fB--network\fR flag
-creates a private DHT namespace (peers in different namespaces cannot
-discover each other).
+Ed25519 identity key, and writes config.yaml. Prompts for relay choice:
+own relay server (recommended, full capability) or public seed nodes
+(discovery only, no data relay). Installs shell completions and the man page.
+The \fB--network\fR flag creates a private DHT namespace.
 .TP
 .B config validate \fR[\fB--config\fR \fIpath\fR]
 Parse and validate the config file. Reports errors without starting anything.
@@ -446,6 +431,11 @@ Set a single config value using a dotted key path (e.g.,
 comments. Use \fB--duration\fR with \fBtransfer.receive_mode timed\fR to set
 both the mode and duration in a single command. Apply without restart:
 \fBshurli config reload\fR.
+.TP
+.B config reload \fR[\fB--json\fR] [\fB--status\fR]
+Reload the running daemon's config from disk without restarting. Reports
+which fields changed. Use \fB--status\fR to check the last reload result
+without triggering a new reload.
 .TP
 .B config rollback \fR[\fB--config\fR \fIpath\fR]
 Replace the current config with the last-known-good backup (created
@@ -475,6 +465,11 @@ Show all configured relay addresses.
 .B relay remove \fImultiaddr\fR [\fB--force\fR]
 Remove a relay address. Refuses to remove the last one unless \fB--force\fR
 is given, since the daemon needs at least one relay to start.
+.TP
+.B relay seeds add\fR|\fBremove
+Toggle public seed nodes in authorized_keys. Seeds provide peer discovery
+when you do not operate your own relay. \fBadd\fR authorizes the default
+seed peers; \fBremove\fR deauthorizes them.
 
 .SH RELAY SERVER COMMANDS
 Run these on a VPS to operate a relay. Relay servers do not store any user
@@ -497,6 +492,25 @@ the relay. Supports --remote for administration from any admin device.
 .B relay deauthorize \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
 Remove a peer's relay access. Active connections from that peer are dropped.
 Supports --remote for administration from any admin device.
+.TP
+.B relay set-attr \fIpeer-id\fR \fIkey\fR \fIvalue\fR [\fB--remote\fR \fIaddr\fR]
+Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
+role (admin/member), group, verified, bandwidth_budget (unlimited, 500MB, 1GB, etc.).
+Supports --remote for administration from any admin device.
+.TP
+.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--remote\fR \fIaddr\fR]
+Grant time-limited data relay access to a peer. Default duration is 1 hour.
+Without a grant, peers can only use signaling protocols (pairing, discovery).
+Admin peers always have data access regardless of grants.
+.TP
+.B relay grants [\fB--remote\fR \fIaddr\fR]
+List all active data relay grants with remaining time.
+.TP
+.B relay revoke \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
+Revoke a peer's data relay grant and terminate all active circuits.
+.TP
+.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--remote\fR \fIaddr\fR]
+Extend an existing data relay grant. The new expiry is calculated from now.
 .TP
 .B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.
@@ -619,6 +633,9 @@ persisted to disk. Clients cache the goodbye and show it on reconnect attempts.
 .B relay goodbye retract [\fB--remote\fR \fIaddr\fR]
 Retract a goodbye announcement. Peers clear their cached goodbye.
 .TP
+.B relay goodbye status [\fB--remote\fR \fIaddr\fR]
+Show current goodbye announcement status.
+.TP
 .B relay goodbye shutdown \fR[\fImessage\fR] [\fB--remote\fR \fIaddr\fR]
 Send a goodbye to all peers and shut down the relay. Use for planned
 decommission with a clean handoff.
@@ -687,12 +704,12 @@ secret is the invite code itself, so no pre-existing secure channel is needed.
 After pairing, both peers are added to each other's authorized_keys
 automatically.
 .TP
-.B invite \fR[\fB--name\fR \fI"home"\fR] [\fB--ttl\fR \fIduration\fR] [\fB--non-interactive\fR]
+.B invite \fR[\fB--as\fR \fI"home"\fR] [\fB--ttl\fR \fIduration\fR] [\fB--non-interactive\fR]
 Generate a one-time invite code and wait for a peer to join. The
-\fB--name\fR label is stored in the joiner's config for friendly addressing.
+\fB--as\fR flag sets your node's name on the network.
 Default TTL: 10 minutes.
 .TP
-.B join \fIcode\fR [\fB--name\fR \fI"laptop"\fR] [\fB--non-interactive\fR]
+.B join \fIcode\fR [\fB--as\fR \fI"laptop"\fR] [\fB--non-interactive\fR]
 Connect to the inviting peer using the code. Mutually authenticates, then
 exchanges peer IDs and authorized_keys entries.
 .TP
@@ -727,11 +744,40 @@ cryptographic material.
 .B session destroy
 Delete the session token. The daemon will require password entry on next start.
 
+.SH PLUGINS
+Manage the plugin system. Plugins extend Shurli with new capabilities
+(file transfer, Wake-on-LAN, etc.) and can be enabled/disabled at runtime.
+.TP
+.B plugin list \fR[\fB--json\fR]
+List all registered plugins with their name, version, type, and state.
+.TP
+.B plugin enable \fIname\fR
+Enable a plugin. Registers its protocols and starts background work.
+.TP
+.B plugin disable \fIname\fR
+Disable a plugin. Drains active connections (30s timeout) and unregisters protocols.
+.TP
+.B plugin info \fIname\fR \fR[\fB--json\fR]
+Show detailed information about a plugin: commands, routes, protocols, config key, crash count.
+.TP
+.B plugin disable-all
+Emergency kill switch. Disables all active plugins immediately.
+
+.SH NOTIFICATIONS
+.TP
+.B notify list
+Show all configured notification sinks (log, desktop, webhook).
+.TP
+.B notify test
+Send a test notification to all configured sinks. Useful for verifying
+webhook URLs, desktop notification permissions, and sink wiring.
+
 .SH OTHER COMMANDS
 .TP
 .B status \fR[\fB--config\fR \fIpath\fR]
-Show a summary of local configuration: config file path, identity, relay
-addresses, authorized peers, and registered services.
+Show a summary of local configuration and daemon state: config file path,
+identity, relay addresses, relay grant cache (budget, remaining time, session
+usage per relay), authorized peers, and registered services.
 .TP
 .B doctor \fR[\fB--fix\fR]
 Health check for your shurli installation. Verifies:
@@ -794,22 +840,22 @@ are missing or outdated, run:
 
 .SH FILES
 .TP
-.I ~/.config/shurli/config.yaml
-Default node configuration file. Contains relay addresses, service
-definitions, peer names, and DHT settings.
+.I ~/.shurli/config.yaml
+Default node configuration file (user-level). Contains relay addresses,
+service definitions, peer names, and DHT settings.
 .TP
-.I ~/.config/shurli/identity.key
+.I ~/.shurli/identity.key
 Ed25519 private key. Generated once during \fBshurli init\fR. Back this
 file up; losing it means generating a new identity and re-pairing with
 all peers.
 .TP
-.I ~/.config/shurli/authorized_keys
+.I ~/.shurli/authorized_keys
 Peer allowlist. One entry per line. Supports attributes: role (admin/member),
 comment, expires, verified, group. Syntax is validated by \fBauth validate\fR.
 .TP
 .I ./shurli.yaml
 Alternate config location. Shurli searches the current directory first,
-then ~/.config/shurli/config.yaml. Override with \fB--config\fR.
+then /etc/shurli/config.yaml, then ~/.shurli/config.yaml. Override with \fB--config\fR.
 .TP
 .I relay-server.yaml
 Relay server configuration. Contains listen addresses, authorized_keys path,
@@ -878,4 +924,19 @@ Shurli began as a personal tool to securely connect devices across multiple
 ISPs and network types without trusting any third party. Inspired by operators
 who chose to shut down rather than compromise their users.
 `
+	// Inject plugin man page sections (only enabled plugins).
+	allCmds := plugin.CLICommandDescriptions()
+	var enabledCmds []plugin.CLICommandEntry
+	for _, cmd := range allCmds {
+		if isPluginEnabledInConfig(cmd.PluginName) {
+			enabledCmds = append(enabledCmds, cmd)
+		}
+	}
+	if len(enabledCmds) > 0 {
+		pluginSection := plugin.GenerateManSection(enabledCmds)
+		page = strings.Replace(page, "PLUGIN_MAN_PLACEHOLDER", pluginSection, 1)
+	} else {
+		page = strings.Replace(page, "PLUGIN_MAN_PLACEHOLDER\n", "", 1)
+	}
+	return page
 }
