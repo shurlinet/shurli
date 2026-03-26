@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -379,8 +380,9 @@ type TransferProgress struct {
 	Done        bool      `json:"done"`
 	Error       string    `json:"error,omitempty"`
 
-	mu         sync.Mutex
-	cancelFunc func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
+	mu           sync.Mutex
+	cancelFunc   func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
+	relayTracker func(int64) // per-chunk relay grant byte tracking (H7)
 }
 
 func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
@@ -413,9 +415,21 @@ func (p *TransferProgress) updateStream(streamIdx int, chunkBytes int64) {
 }
 
 // addWireBytes adds n bytes to CompressedSize (tracks compressed wire bytes).
+// Also calls relayTracker for grant circuit byte tracking (H7).
 func (p *TransferProgress) addWireBytes(n int64) {
 	p.mu.Lock()
 	p.CompressedSize += n
+	tracker := p.relayTracker
+	p.mu.Unlock()
+	if tracker != nil {
+		tracker(n)
+	}
+}
+
+// setRelayTracker registers a per-chunk relay grant byte tracker (H7).
+func (p *TransferProgress) setRelayTracker(f func(int64)) {
+	p.mu.Lock()
+	p.relayTracker = f
 	p.mu.Unlock()
 }
 
@@ -558,6 +572,9 @@ type TransferConfig struct {
 	// Queue persistence.
 	QueueFile    string // path for persisted queue (empty = disabled)
 	QueueHMACKey []byte // 32-byte HMAC key for queue file integrity
+
+	// Relay grant checker for pre-transfer budget/time checks and per-chunk tracking.
+	GrantChecker RelayGrantChecker
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -663,6 +680,9 @@ type TransferService struct {
 	queueFile    string     // path for persisted queue file
 	queueHMACKey []byte     // HMAC key for queue integrity
 	persistMu    sync.Mutex // P7 fix: serializes persistQueue writes
+
+	// Relay grant checker for budget/time checks and per-chunk tracking (H7).
+	grantChecker RelayGrantChecker
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -743,6 +763,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		multiPeerMinSize:  multiPeerMinSize,
 		hashRegistry:      make(map[[32]byte]string),
 		jobCancels:        make(map[string]context.CancelFunc),
+		grantChecker:      cfg.GrantChecker,
 	}
 
 	// Start the single queue processor goroutine.
@@ -1378,6 +1399,11 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
 	progress.setCancelFunc(func() { s.Reset() })
 
+	// H7: set per-chunk relay grant byte tracker if stream goes through a relay.
+	if tracker := ts.makeChunkTracker(s, "send"); tracker != nil {
+		progress.setRelayTracker(tracker)
+	}
+
 	// Set erasure info on progress for CLI display.
 	if useErasure && len(parityEntries) > 0 {
 		progress.mu.Lock()
@@ -1981,6 +2007,12 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
+
+		// H7: set per-chunk relay grant byte tracker if receiving through a relay.
+		if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
+			progress.setRelayTracker(tracker)
+		}
+
 		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 		// Set up parallel receive session so worker streams can deliver chunks.
@@ -2303,7 +2335,9 @@ type queuedJob struct {
 	opts       SendOptions
 	openStream streamOpener
 	progress   *TransferProgress // synthetic "queued" progress visible to CLI
-	retryCount int               // number of retries so far
+	retryCount         int     // number of retries so far
+	relayReconnects    int     // relay session expiry reconnection attempts (H11)
+	lastRelayPeerID    peer.ID // relay peer from last attempt (for session expiry detection)
 }
 
 // SubmitSend enqueues an outbound transfer. If a slot is available it starts
@@ -2446,23 +2480,145 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 
 	var finalErr error
 	if job.isDir {
-		_, finalErr = ts.SendDirectory(jobCtx, job.filePath, job.openStream, job.opts)
+		// Pre-transfer relay grant check for directory sends.
+		// Open a probe stream to detect relay and check grant, then close it.
+		// SendDirectory opens fresh streams per-file; this is just for the check.
+		if ts.grantChecker != nil {
+			probeStream, probeErr := job.openStream()
+			if probeErr == nil {
+				relayID := relayPeerFromStream(probeStream)
+				job.lastRelayPeerID = relayID
+				if relayID != "" {
+					dirSize := int64(0)
+					// Walk directory to get total size for grant check.
+					filepath.WalkDir(job.filePath, func(_ string, d os.DirEntry, _ error) error {
+						if d != nil && d.Type().IsRegular() {
+							if fi, err := d.Info(); err == nil {
+								dirSize += fi.Size()
+							}
+						}
+						return nil
+					})
+					grantInfo := ts.checkRelayGrant(probeStream, dirSize, "send")
+
+					if grantInfo.GrantActive && !grantInfo.TimeOK {
+						probeStream.Close()
+						finalErr = fmt.Errorf("relay grant expires too soon for directory transfer (remaining: %s)",
+							grantInfo.GrantRemaining.Truncate(time.Second))
+					}
+				}
+				if finalErr == nil {
+					probeStream.Close()
+				}
+			}
+		}
+		if finalErr == nil {
+			_, finalErr = ts.SendDirectory(jobCtx, job.filePath, job.openStream, job.opts)
+		}
 	} else {
 		stream, err := job.openStream()
 		if err != nil {
 			finalErr = fmt.Errorf("open stream: %w", err)
 		} else {
-			// SendFile runs in background and updates progress internally.
-			// We need to wait for it to complete.
-			sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
-			if sendErr != nil {
-				finalErr = sendErr
-			} else {
-				// Copy the real transfer's progress into our queued progress tracker.
-				// D1 fix: check jobCtx.Done() so cancel propagates to the polling loop.
-				// When cancelled, reset the stream to stop the underlying SendFile goroutine.
-				finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress)
+			// Pre-transfer relay grant check: budget + time (H7).
+			if ts.grantChecker != nil {
+				relayID := relayPeerFromStream(stream)
+				job.lastRelayPeerID = relayID
+				if relayID != "" {
+					fileSize := int64(0)
+					if fi, statErr := os.Stat(job.filePath); statErr == nil {
+						fileSize = fi.Size()
+					}
+					grantInfo := ts.checkRelayGrant(stream, fileSize, "send")
+
+					// Budget insufficient: close stream and reopen for fresh circuit.
+					if grantInfo.GrantActive && !grantInfo.BudgetOK {
+						stream.Close()
+						ts.grantChecker.ResetCircuitCounters(relayID)
+						newStream, reopenErr := job.openStream()
+						if reopenErr != nil {
+							finalErr = fmt.Errorf("relay reconnect for fresh budget: %w", reopenErr)
+							stream = nil
+						} else {
+							stream = newStream
+							// Re-verify relay on new stream (may route through different relay).
+							newRelayID := relayPeerFromStream(newStream)
+							if newRelayID != "" {
+								job.lastRelayPeerID = newRelayID
+							}
+							slog.Info("relay-grant: new circuit established for fresh budget",
+								"relay", shortPeerStr(job.lastRelayPeerID))
+
+							// Re-check time after reopen (circuit setup consumed grant time).
+							recheckInfo := ts.checkRelayGrant(newStream, fileSize, "send")
+							if recheckInfo.GrantActive && !recheckInfo.TimeOK {
+								stream.Close()
+								stream = nil
+								finalErr = fmt.Errorf("relay grant expires too soon after circuit reopen (remaining: %s)",
+									recheckInfo.GrantRemaining.Truncate(time.Second))
+							}
+						}
+					}
+
+					// Time insufficient on original check: abort (don't waste relay bandwidth).
+					if grantInfo.GrantActive && !grantInfo.TimeOK && finalErr == nil {
+						if stream != nil {
+							stream.Close()
+						}
+						finalErr = fmt.Errorf("relay grant expires too soon for transfer (remaining: %s)",
+							grantInfo.GrantRemaining.Truncate(time.Second))
+					}
+				}
 			}
+
+			if finalErr == nil && stream != nil {
+				// SendFile runs in background and updates progress internally.
+				// We need to wait for it to complete.
+				sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
+				if sendErr != nil {
+					finalErr = sendErr
+				} else {
+					// Copy the real transfer's progress into our queued progress tracker.
+					// D1 fix: check jobCtx.Done() so cancel propagates to the polling loop.
+					// When cancelled, reset the stream to stop the underlying SendFile goroutine.
+					finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress)
+				}
+			}
+		}
+	}
+
+	// H11: Relay session expiry reconnection. If a relayed transfer failed and the
+	// grant is still active, the failure was likely a session expiry. Retry with
+	// exponential backoff (new circuit = fresh session budget + reset counters).
+	if finalErr != nil && !isRetryableReject(finalErr) &&
+		job.lastRelayPeerID != "" && job.relayReconnects < relayReconnectMaxAttempts &&
+		ts.isRelaySessionExpiry(job.lastRelayPeerID, finalErr) {
+
+		job.relayReconnects++
+		delay := relayReconnectDelay(job.relayReconnects - 1)
+		slog.Info("relay-grant: session likely expired, reconnecting with fresh circuit",
+			"id", job.queueID, "relay", shortPeerStr(job.lastRelayPeerID),
+			"attempt", job.relayReconnects, "delay", delay)
+
+		if ts.grantChecker != nil {
+			ts.grantChecker.ResetCircuitCounters(job.lastRelayPeerID)
+		}
+		job.progress.setStatus("relay-reconnecting")
+
+		select {
+		case <-jobCtx.Done():
+			job.progress.finish(fmt.Errorf("cancelled during relay reconnect backoff"))
+		case <-time.After(delay):
+			job.progress.setStatus("queued")
+			ts.pendingJobsMu.Lock()
+			ts.pendingJobs[job.queueID] = job
+			ts.pendingJobsMu.Unlock()
+			ts.queue.Requeue(job.queueID, job.filePath, job.peerID, "send", job.priority)
+			select {
+			case ts.queueReady <- struct{}{}:
+			default:
+			}
+			return
 		}
 	}
 
@@ -3398,6 +3554,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		peerKey, "download", manifest.ChunkCount, compressed)
 	progress.setStatus("active")
+
+	// H7: set per-chunk relay grant byte tracker if downloading through a relay.
+	if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
+		progress.setRelayTracker(tracker)
+	}
+
 	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 	// Receive chunks (reuses the parallel receive path).

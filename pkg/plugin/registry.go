@@ -223,8 +223,9 @@ func (r *Registry) Register(p Plugin) error {
 		declaredProtos: declaredProtos,
 		keyDeriver:     keyDeriver,
 		scoreResolver:  scoreResolver,
-		grantChecker:   grantChecker,
-		peerAttrFunc:   peerAttrFunc,
+		grantChecker:      grantChecker,
+		peerAttrFunc:      peerAttrFunc,
+		relayGrantChecker: r.provider.RelayGrantChecker,
 	}
 
 	entry := &pluginEntry{

@@ -213,6 +213,9 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		// Queue persistence.
 		QueueFile:    queueFile,
 		QueueHMACKey: queueHMACKey,
+
+		// Relay grant checker for transfer budget/time checks (H7).
+		GrantChecker: p.ctx.RelayGrantChecker(),
 	}
 
 	ts, err := p2pnet.NewTransferService(cfg, nil, p.network.Events())
