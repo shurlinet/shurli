@@ -20,12 +20,6 @@ import (
 // Protocol ID for peer introduction delivery.
 const PeerNotifyProtocol = "/shurli/peer-notify/1.0.0"
 
-// GrantChangedProtocol is the legacy grant notification protocol (v1).
-// Sends a single version byte when a grant changes. Superseded by
-// GrantReceiptProtocol which carries the full receipt payload.
-// Kept for backward compatibility with older clients.
-const GrantChangedProtocol = "/shurli/grant-changed/1.0.0"
-
 // Wire format version.
 const notifyVersion byte = 0x01
 
@@ -364,34 +358,3 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 	}
 }
 
-// NotifyGrantChanged sends a grant-changed signal to a connected peer.
-// The message is a single version byte (0x01). The client uses it as a
-// trigger to clear dial backoffs and retry disconnected peers.
-// Returns nil if the peer is not connected (nothing to notify).
-func NotifyGrantChanged(ctx context.Context, h host.Host, targetPeerID peer.ID) error {
-	if h.Network().Connectedness(targetPeerID) != network.Connected {
-		return nil // not connected, nothing to do
-	}
-
-	streamCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	streamCtx = network.WithAllowLimitedConn(streamCtx, GrantChangedProtocol)
-	s, err := h.NewStream(streamCtx, targetPeerID, protocol.ID(GrantChangedProtocol))
-	if err != nil {
-		return fmt.Errorf("grant-changed stream: %w", err)
-	}
-	defer s.Close()
-
-	// Single version byte is the entire message.
-	if _, err := s.Write([]byte{notifyVersion}); err != nil {
-		return fmt.Errorf("grant-changed write: %w", err)
-	}
-
-	short := targetPeerID.String()
-	if len(short) > 16 {
-		short = short[:16] + "..."
-	}
-	slog.Info("grant-changed: notified peer", "peer", short)
-	return nil
-}
