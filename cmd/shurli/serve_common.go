@@ -99,6 +99,7 @@ type serveRuntime struct {
 	grantPouch    *grants.Pouch
 	grantProtocol *grants.GrantProtocol
 	deliveryQueue *grants.DeliveryQueue
+	grantCache    *grants.GrantCache // client-side relay grant receipt cache
 
 	// Phase D: hardening
 	opsRateLimiter *grants.OpsRateLimiter
@@ -1009,23 +1010,143 @@ func (rt *serveRuntime) SetupPeerNotify() {
 
 }
 
-// setupGrantChangedHandler registers the grant-changed stream handler.
-// When the relay creates/restores a grant for us, clear all dial backoffs
-// and retry disconnected peers immediately. This eliminates the ~30s delay
-// after a revoke-then-re-grant cycle.
-func (rt *serveRuntime) setupGrantChangedHandler() {
+// receiptRateLimiter tracks the last receipt time per relay (S7: max 1 per 10s).
+type receiptRateLimiter struct {
+	mu   sync.Mutex
+	last map[peer.ID]time.Time
+}
+
+func (rl *receiptRateLimiter) allow(relayID peer.ID) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if rl.last == nil {
+		rl.last = make(map[peer.ID]time.Time)
+	}
+	last, ok := rl.last[relayID]
+	if ok && time.Since(last) < 10*time.Second {
+		return false
+	}
+	rl.last[relayID] = time.Now()
+	return true
+}
+
+// setupGrantReceiptHandler registers handlers for BOTH the new grant-receipt
+// and legacy grant-changed protocols. The new protocol caches the full receipt;
+// the legacy protocol triggers the same backoff-clearing behavior as before.
+func (rt *serveRuntime) setupGrantReceiptHandler() {
 	h := rt.network.Host()
+	rl := &receiptRateLimiter{}
+
+	// Handler for the new grant-receipt protocol (62-byte receipt).
+	h.SetStreamHandler(protocol.ID(relay.GrantReceiptProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		short := remotePeer.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("grant-receipt: rejected from non-relay", "peer", short)
+			return
+		}
+
+		// S7: rate limit receipt processing (max 1 per relay per 10s).
+		if !rl.allow(remotePeer) {
+			slog.Debug("grant-receipt: rate limited", "peer", short)
+			return
+		}
+
+		// Read the full 62-byte receipt with timeout to prevent hanging
+		// on a malicious relay that sends partial data.
+		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			slog.Warn("grant-receipt: set deadline error", "err", err)
+			return
+		}
+		var buf [relay.GrantReceiptSize]byte
+		if _, err := io.ReadFull(s, buf[:]); err != nil {
+			slog.Warn("grant-receipt: read error", "err", err)
+			return
+		}
+
+		decoded, err := relay.DecodeGrantReceipt(buf[:])
+		if err != nil {
+			slog.Warn("grant-receipt: decode error", "err", err)
+			return
+		}
+
+		// Clock drift detection.
+		drift := time.Since(decoded.IssuedAt)
+		if drift < 0 {
+			drift = -drift
+		}
+		if drift > 60*time.Second {
+			slog.Warn("grant-receipt: clock drift detected",
+				"relay", short, "drift", drift.Round(time.Second))
+		}
+
+		// Cache the receipt.
+		if rt.grantCache != nil {
+			receipt := &grants.GrantReceipt{
+				RelayPeerID:      remotePeer,
+				GrantDuration:    decoded.GrantDuration,
+				SessionDataLimit: decoded.SessionDataLimit,
+				SessionDuration:  decoded.SessionDuration,
+				Permanent:        decoded.Permanent,
+				ReceivedAt:       time.Now(),
+				IssuedAt:         decoded.IssuedAt,
+				HMAC:             decoded.HMAC,
+			}
+			rt.grantCache.Put(receipt)
+
+			if decoded.Permanent {
+				slog.Info("grant-receipt: cached permanent grant",
+					"relay", short,
+					"session_data", decoded.SessionDataLimit,
+					"session_duration", decoded.SessionDuration)
+			} else {
+				slog.Info("grant-receipt: cached grant",
+					"relay", short,
+					"duration", decoded.GrantDuration,
+					"session_data", decoded.SessionDataLimit,
+					"session_duration", decoded.SessionDuration)
+			}
+		} else {
+			slog.Warn("grant-receipt: received but cache not initialized (identity key missing?)",
+				"relay", short)
+		}
+
+		// Same backoff-clearing as legacy handler.
+		rt.clearBackoffsAndReconnect()
+	})
+
+	// Legacy handler for old relays that only speak grant-changed.
 	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
 		defer s.Close()
 		remotePeer := s.Conn().RemotePeer()
 
+		short := remotePeer.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
 		if !rt.isConfiguredRelay(remotePeer) {
-			slog.Warn("grant-changed: rejected from non-relay",
-				"peer", remotePeer.String()[:16]+"...")
+			slog.Warn("grant-changed: rejected from non-relay", "peer", short)
 			return
 		}
 
-		// Read and validate version byte.
+		// S7: rate limit (shared with receipt handler).
+		if !rl.allow(remotePeer) {
+			slog.Debug("grant-changed: rate limited", "peer", short)
+			return
+		}
+
+		// Read and validate version byte with timeout.
+		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			slog.Warn("grant-changed: set deadline error", "err", err)
+			return
+		}
 		var ver [1]byte
 		if _, err := io.ReadFull(s, ver[:]); err != nil {
 			slog.Warn("grant-changed: read error", "err", err)
@@ -1036,21 +1157,23 @@ func (rt *serveRuntime) setupGrantChangedHandler() {
 			return
 		}
 
-		slog.Info("grant-changed: relay notified access changed, clearing backoffs",
-			"relay", remotePeer.String()[:16]+"...")
+		slog.Info("grant-changed: relay notified access changed (legacy), clearing backoffs",
+			"relay", short)
 
-		// Clear swarm-level dial backoffs so libp2p retries immediately.
-		if rt.gater != nil {
-			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
-		}
-
-		// Clear PeerManager-level backoffs and trigger immediate reconnect cycle.
-		if rt.peerManager != nil {
-			rt.peerManager.OnNetworkChange()
-		}
-
-		rt.network.ResetBlackHoles()
+		rt.clearBackoffsAndReconnect()
 	})
+}
+
+// clearBackoffsAndReconnect clears dial backoffs and triggers reconnection.
+// Shared by both grant-receipt and legacy grant-changed handlers.
+func (rt *serveRuntime) clearBackoffsAndReconnect() {
+	if rt.gater != nil {
+		rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+	}
+	if rt.peerManager != nil {
+		rt.peerManager.OnNetworkChange()
+	}
+	rt.network.ResetBlackHoles()
 }
 
 // isConfiguredRelay checks if a peer ID matches one of the configured relay addresses.
@@ -1433,6 +1556,9 @@ func (rt *serveRuntime) Shutdown() {
 	}
 	if rt.notifyRouter != nil {
 		rt.notifyRouter.Stop()
+	}
+	if rt.grantCache != nil {
+		rt.grantCache.Stop()
 	}
 	if rt.grantProtocol != nil {
 		rt.grantProtocol.Stop()

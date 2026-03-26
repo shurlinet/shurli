@@ -315,7 +315,7 @@ func runDaemonStart(args []string) {
 	// the relay tries to deliver peer introductions before the handler exists.
 	rt.SetupPingPong()
 	rt.SetupPeerNotify()
-	rt.setupGrantChangedHandler() // not gated by authKeys - any node can use relays
+	rt.setupGrantReceiptHandler() // not gated by authKeys - any node can use relays
 	rt.SetupMOTDClient()
 
 	// Check plugin directory permissions (for future WASM plugins).
@@ -480,6 +480,26 @@ func runDaemonStart(args []string) {
 		grantProto.StartQueueFlush()
 		pouch.SetRefresher(grantProto) // B4: enable background token refresh
 		rt.grantProtocol = grantProto
+
+		// Grant receipt cache: client-side cache of relay grant receipts.
+		// HKDF domain "grant-cache/v1" for file integrity (H10: separate from relay receipt key).
+		cacheHMACKey := pluginProvider.KeyDeriver("grant-cache/v1")
+		cachePath := filepath.Join(configDir, "grant_cache.json")
+		gc, gcErr := grants.LoadGrantCache(cachePath, cacheHMACKey)
+		if gcErr != nil {
+			slog.Error("grants: failed to load receipt cache, starting empty", "error", gcErr)
+			gc = grants.NewGrantCache(cacheHMACKey)
+			gc.SetPersistPath(cachePath)
+		}
+		gc.StartCleanup(cleanupInterval)
+		rt.grantCache = gc
+
+		// Wire revocation -> cache clearing (H9/H12).
+		grantProto.SetOnRevoke(func(issuerID peer.ID) {
+			// Use current time as revocation time (best available - relay doesn't
+			// send a timestamp in the revocation message).
+			rt.grantCache.HandleRevocation(issuerID, time.Now())
+		})
 
 		// Wire delivery into Store: deliver grant tokens to peers on create/revoke.
 		gs.SetOnGrant(func(peerID peer.ID, g *grants.Grant) {
