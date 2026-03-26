@@ -36,6 +36,8 @@ The `join` command itself completed in seconds. Both nodes appeared in each othe
 
 Build time is separate. Once the binary exists, onboarding is a two-command operation that takes seconds.
 
+**Update**: Since this session, `shurli init` now defaults to relay mode. New nodes connect through a relay immediately, with direct connections upgrading automatically when NAT traversal succeeds. The `join --relay` command bootstraps via relay seeds, so peers behind CGNAT (roughly half the internet) work out of the box without any manual configuration.
+
 ## What we found and fixed immediately
 
 After successful pairing, pinging the external node returned an error. The external user's node also reported a health check warning: "no relay addresses." Despite being connected to the relay, it couldn't establish a relay reservation. We identified the root cause and fixed it within minutes.
@@ -73,11 +75,13 @@ After ping confirmed connectivity, the external user was able to proxy services 
 
 Next test: file transfer. Controlled devices could already transfer files at decent speeds on LAN. Would it work over a relay circuit between two countries?
 
-**First attempt was unsuccessful.** The file transfer plugins were configured to reject relay transport by default. Error: "plugin does not allow relay, and peer is only reachable via relay."
+**First attempt was unsuccessful.** At the time, file transfer plugins were configured to reject relay transport by default. Error: "plugin does not allow relay, and peer is only reachable via relay."
 
-**The fix**: Updated all file transfer plugins to allow relay transport. But allowing relay transport in the plugin is only half the story. The relay itself still enforces per-peer ACL. Even with the plugin fix, only a peer holding an active time-limited grant (or the relay administrator) can actually use data circuits. Every other peer, even if authorized and connected, remains in signaling-only mode.
+**The fix**: Updated all file transfer plugins to allow relay transport. This is now the default. But allowing relay transport in the plugin is only half the story. The relay itself still enforces per-peer access control. Only a peer holding an active time-limited grant (or the relay administrator) can use data circuits. Every other peer, even if authorized and connected, remains in signaling-only mode.
 
-This is why running your own relay matters. A cheap VPS ($5-10/month) gives you full control over which peers get data access, for how long, and with what limits. Relying on public or third-party relays means you're subject to their policies, their bandwidth limits, and their access decisions. Your own relay, your own rules.
+Since this session, the Grant Receipt Protocol adds another layer: relays issue cryptographic receipts with session data limits, duration, and per-chunk byte tracking. The client caches these receipts and runs smart pre-transfer checks. If a file exceeds the relay's session budget, the transfer is blocked before wasting bandwidth. If a session expires mid-transfer, smart reconnection retries with fresh budget while excluding application-level errors.
+
+This is why running your own relay matters. A cheap VPS ($5-10/month) gives you full control over which peers get data access, for how long, and with what limits. On a self-hosted relay, you set your own session limits (up to 2 GB per session, 2 hours per circuit). Relying on public or third-party relays means you're subject to their policies, their bandwidth limits, and their access decisions. Your own relay, your own rules.
 
 After rebuilding on both sides:
 
@@ -98,7 +102,8 @@ A 50 MB file transferred successfully from NZ to AU over the relay circuit. The 
 
 Public seed relay throughput is intentionally constrained. These shared relays enforce per-session limits to prevent abuse and conserve resources for all users. Direct peer-to-peer connections (when NAT traversal succeeds) bypass the relay entirely.
 
-This is another reason to run your own relay. On a self-hosted relay, you control every parameter: session duration, data limits, per-peer bandwidth, circuit limits. You can configure it as generously as your infrastructure allows. A $5/month VPS with generous bandwidth gives you a private relay with no shared resource constraints, full per-peer ACL control, and throughput limited only by your server's capacity. Speed optimization across all transport paths is actively in progress, with proper benchmarking on dedicated infrastructure planned before publishing any performance numbers.
+This is another reason to run your own relay. On a self-hosted relay, you control every parameter: session duration (up to 2 hours), data limits (up to 2 GB per session), per-peer bandwidth budgets, and circuit limits. A $5/month VPS gives you a private relay with no shared resource constraints, full per-peer access control, and throughput limited only by your server's capacity. Speed optimization across all transport paths is actively in progress, with proper benchmarking on dedicated infrastructure planned before publishing any performance numbers.
+
 ## What we found and fixed
 
 This single session surfaced 11 UX gaps. Four were fixed during the session itself:
@@ -109,13 +114,13 @@ This single session surfaced 11 UX gaps. Four were fixed during the session itse
 - File transfer via relay circuits. Originally, file transfer was restricted to direct and LAN connections only, with relays completely cut off. During this test we revised that decision and enabled relay as a valid transport path, but with per-peer granular access control on the relay side to prevent abuse. Only specifically authorized peers can use data circuits through the relay. Upcoming updates will introduce even richer per-peer permission controls, including time-limited grants and admin-managed access windows
 - Improved file transfer progress bar with cleaner visual output across terminal environments including tmux and screen
 
-**Documented for follow-up:**
-- Invite flow should auto-grant relay data access (or surface a clear error)
-- "All dials failed" error should mention relay ACL when relevant
-- Naming UX during invite/join needs improvement
-- Share management needs per-peer add/remove/update (not replace entire list)
-- Browse with no visible shares should say so, not return a cryptic stream reset
-- Per-peer, time-limited data access grants (admin controls who can transfer, for how long)
+**Documented for follow-up (all now shipped)**:
+- ~~Invite flow should auto-grant relay data access~~ - Relay-first onboarding now handles this. Relay grants are issued via `shurli relay grant <peer> --duration <duration>`, with a Grant Receipt Protocol that caches budgets client-side
+- ~~"All dials failed" error should mention relay ACL~~ - Human-readable error messages now explain what went wrong and suggest fixes
+- ~~Naming UX during invite/join~~ - `--as` flag for both invite and join
+- ~~Share management needs per-peer add/remove/update~~ - `share add` appends peers, `share deny` removes individual peers
+- ~~Browse with no visible shares~~ - Now returns "no shares visible" instead of a cryptic stream reset
+- ~~Per-peer, time-limited data access grants~~ - Full [macaroon capability token system](/blog/per-peer-data-grants/) with delegation, notifications, audit logs, and per-peer bandwidth budgets
 
 ![The full stack: every step from invite to download, with performance numbers](/images/blog/first-user-flow.svg)
 
@@ -130,6 +135,8 @@ All over a relay circuit, NZ to AU. Two peers behind NAT, no direct connection p
 The problems found were all UX and configuration gaps, not protocol failures. The P2P layer, the relay circuit, the identity system, the file transfer pipeline all worked correctly. What broke was the space between features: the onboarding flow didn't configure data access automatically, error messages didn't explain what was wrong, and plugin policy was too restrictive for relay-only peers.
 
 Every gap found by an external user in 30 minutes would have taken weeks to discover in a controlled environment. This is why testing with real users on real networks is irreplaceable.
+
+**Update**: Every UX gap documented above has been fixed. Relay-first onboarding, human-readable errors, per-peer grants with delegation and audit trails, share management, bandwidth budgets, and the Grant Receipt Protocol all shipped in v0.3.0. The file transfer pipeline was extracted into a supervised plugin with 43-vector security analysis and 209 million fuzz executions. A 16-test chaos campaign verified network resilience across satellite, cellular, terrestrial WiFi, USB LAN, and VPN.
 
 ## How this gets built {#how}
 

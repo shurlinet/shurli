@@ -19,13 +19,13 @@ We looked at what people actually complain about when transferring files peer-to
 
 **No resume.** Many widely-used transfer tools have no resume capability by design. A 100 GB transfer that fails at 99 GB starts from scratch. Tools that do support resume typically use byte-offset approaches (like HTTP Range), which can't handle out-of-order delivery, parallel streams, or multi-source downloads. Chunk-level tracking is required for real resume, and most P2P tools don't have it.
 
-**LAN-only or cloud-dependent.** Many popular file sharing tools only work on your local network by design. Tools that work over the internet route through someone else's servers. Direct, NAT-traversing, relay-capable file transfer without a cloud middleman is architecturally rare.
+**LAN-only or cloud-dependent.** Many popular file sharing tools only work on your local network by design. Tools that work over the internet route through someone else's servers. Direct, NAT-traversing, relay-capable file transfer without a cloud middleman is architecturally rare. Shurli's relay-first onboarding means every new node connects through a relay by default. Direct connections upgrade automatically when NAT traversal succeeds, but relay is the guaranteed baseline, not a fallback.
 
 **Platform lock-in.** Some of the best file sharing experiences are locked to a single ecosystem by design. If your nodes span Linux servers, laptops, and phones across different platforms, your options shrink fast.
 
 **No integrity verification.** Common transfer utilities send raw bytes and trust the transport layer entirely. If a byte flips in transit, you won't know until something breaks later. Cryptographic per-chunk verification during transfer is not a standard feature in most transfer tools.
 
-**Zero abuse protection.** Most P2P transfer tools have no rate limiting, no queue depth protection, no bandwidth budgets. Once a peer is authorized to connect, there's no mechanism to limit what they can do. An authorized peer that goes rogue can spam transfer requests, exhaust disk space, or stall your bandwidth.
+**Zero abuse protection.** Most P2P transfer tools have no rate limiting, no queue depth protection, no bandwidth budgets. Once a peer is authorized to connect, there's no mechanism to limit what they can do. An authorized peer that goes rogue can spam transfer requests, exhaust disk space, or stall your bandwidth. Shurli enforces per-peer bandwidth budgets (`shurli auth set-attr <peer> bandwidth_budget 500MB`), seven-layer DDoS defense, and relay-level session limits with per-chunk byte tracking.
 
 **Path leakage.** Most P2P file sharing protocols transmit filesystem paths as part of the transfer. The remote peer can see your username, directory structure, and operating system from the paths alone. This is an architectural choice, not a bug - most tools simply weren't designed with path privacy in mind.
 
@@ -140,6 +140,13 @@ And this is just one direction. The P2P foundation opens doors we haven't fully 
 
 - **Speed optimization**: Profile first, optimize second. Match or exceed SCP throughput while keeping integrity guarantees.
 
-**Since this post was published**: [Per-peer data access control](/blog/per-peer-data-grants/) is now live - time-limited macaroon capability grants with delegation, notifications, and tamper-evident audit logs. Share management (add/remove peers) and human-readable error messages are also shipped.
+**Since this post was published**:
+
+- [Per-peer data access control](/blog/per-peer-data-grants/) is now live - time-limited macaroon capability grants with delegation, notifications, and tamper-evident audit logs. Share management (add/remove peers) and human-readable error messages are also shipped.
+- **Grant Receipt Protocol**: Relay circuits now issue cryptographic receipts with session data limits, duration, and per-chunk byte tracking. The client caches these receipts and runs smart pre-transfer checks before sending: if the file exceeds the relay's session budget, the transfer is blocked before wasting bandwidth. Smart reconnection retries transport failures with exponential backoff while excluding application-level errors (rejections, disk space, access denied).
+- **Per-peer bandwidth budgets**: Admins can set per-peer transfer limits (`shurli auth set-attr <peer> bandwidth_budget 500MB`). LAN peers are always exempt. The budget overrides the global default, and the value is enforced at the transfer layer.
+- **Relay-first onboarding**: `shurli init` now defaults to relay mode. Every new node connects through a relay immediately. Direct connections upgrade automatically when NAT traversal succeeds. This means file transfer works for CGNAT users (roughly half the internet) out of the box.
+- **Plugin architecture**: File transfer is now a plugin, not a monolithic feature. The transfer pipeline runs inside a supervisor with crash detection, restart, backoff, and checkpoint/restore. 43-vector security threat analysis, 209 million fuzz executions, zero crashes.
+- **16-test chaos campaign**: Physical testing across satellite, cellular, terrestrial WiFi, USB LAN, and VPN. 15 PASS, 1 PARTIAL PASS, zero regressions. WiFi switching, VPN toggling, cellular handoffs, interface removal - all tested on real hardware.
 
 The file transfer system is one piece of a larger architecture. Every component - network resilience, chaos-tested reconnection, relay circuits, identity and encryption, file transfer, reputation - builds toward the same goal: infrastructure that never betrays its users.

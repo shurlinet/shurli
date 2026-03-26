@@ -226,7 +226,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 8B** | **Per-Peer Data Grants** | Macaroon grants, token delivery, delegation, notifications, audit log, rate limiting. Core access control (not plugin-specific) | ✅ DONE |
 | **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). Replace all 5 ACL layers with capability tokens (M2-M5 planned) | ✅/📋 M1 DONE |
 | **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Reputation slot designed | 📋 Planned |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE, Grant Receipt Protocol DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 | Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
@@ -1080,6 +1080,36 @@ Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers a
 - [x] Values: `unlimited`, `500MB`, `1GB`, etc. Config accepts human-readable strings
 - [x] 3 audit rounds, 23 tests
 - [x] Docs: COMMANDS.md, managing-network.md updated
+
+#### Grant Receipt Protocol ✅ DONE
+
+**Timeline**: 2026-03-26
+**Status**: ✅ Complete (4 batches + physical retest + docs)
+
+**Goal**: Give clients pre-transfer visibility into relay session budgets. Prevent wasted bandwidth on transfers that will exceed relay limits.
+
+**Why this was needed**: Relay circuit investigation (2026-03-26) revealed three issues: (1) seed and self-hosted relays shared identical conservative defaults, (2) receiver busy rejections were treated as permanent failures, (3) clients had no visibility into relay budgets before attempting transfers. A 174 MB file routed through a seed relay with 64 MB limit would fail after consuming bandwidth.
+
+**What shipped**:
+- [x] **Relay-issued grant receipts**: 62-byte binary message (session data limit, duration, grant expiry, HMAC-SHA256 signature). Protocol: `/shurli/grant-receipt/1.0.0`
+- [x] **Client-side grant cache**: Receipts persisted to disk (HMAC integrity, symlink rejection, 1 MB max). Per-circuit byte tracking (send/receive). Background cleanup of expired entries
+- [x] **Smart pre-transfer check**: `checkRelayGrant()` validates budget + time before transfer starts. Conservative 200 KB/s estimate. Checks both grant remaining and session duration
+- [x] **Per-chunk circuit byte tracking**: `makeChunkTracker()` counts actual compressed bytes on wire. Budget reflects real bandwidth usage, not file size
+- [x] **Smart reconnection**: `isRelaySessionExpiry()` retries transport failures (exponential backoff, max 5 attempts) while excluding application errors (rejected, disk space, access denied, cancelled)
+- [x] **Tier-aware session defaults**: Seed relays 64 MB/10 min, self-hosted relays 2 GB/2 hours. Explicit config always overrides
+- [x] **Receiver busy retry**: Exponential backoff (2s to 32s, max 5 attempts) for transient "receiver busy" rejections
+- [x] **Backward compatibility**: Older relays/clients work without receipts (existing behavior). Version byte (0x01) for future extensions
+- [x] **CLI visibility**: `shurli status` shows per-relay grant info (remaining budget, time, session duration)
+- [x] **Docs**: ARCHITECTURE.md (wire format, client cache, smart pre-transfer, backward compat), COMMANDS.md (relay grants output format)
+
+**Physical retest** (2026-03-26): 4 tests via relay (cellular CGNAT -> seed relay -> home node). 9.6 MB MP3 PASS. 16.8 MB ZIP PASS. 174 MB AVI correctly blocked pre-transfer ("file size exceeds relay session limit 64.0 MB"). Post-rejection 9.6 MB retry PASS.
+
+**Key Files**:
+- `internal/relay/grant_receipt.go` - Wire format, HMAC signing/verification
+- `internal/grants/cache.go` - Client-side grant cache, circuit byte tracking
+- `pkg/p2pnet/transfer_grants.go` - Pre-transfer check, chunk tracker, smart reconnection
+
+**Engineering Journal**: [Grant Receipt Protocol](engineering-journal/grant-receipt-protocol.md) (ADR-V01 to ADR-V05), [Relay Circuit Investigation](engineering-journal/relay-circuit-investigation.md) (ADR-W01 to ADR-W03)
 
 ---
 
@@ -1957,7 +1987,8 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 8B: Per-Peer Data Grants** | ✅ | Complete (macaroon grants, token delivery, delegation, notifications, audit log, rate limiting) |
 | **Phase 8C: ACL-to-Macaroon Migration** | ✅/📋 | M1 complete (Phase 8B). M2-M5 planned |
 | **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
-| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth DONE. 9C-9E planned, 9F-9G future |
+| **Grant Receipt Protocol** | ✅ | Complete (relay receipts, client cache, pre-transfer checks, smart reconnection, tier-aware limits) |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth/Grant Receipt DONE. 9C-9E planned, 9F-9G future |
 | Phase 10: Distribution & Launch | ✅/📋 | Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser/Homebrew/APT planned) |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
@@ -2122,8 +2153,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-03-20
-**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). 9C-9E planned.
-**Phases**: 1-8 (complete), 9 (in progress: 9A-9B2 done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
+**Last Updated**: 2026-03-27
+**Latest Release**: v0.3.0 (2026-03-26, 148 commits merged to main). Plugin architecture, grants, Grant Receipt Protocol, distribution, relay-first onboarding, bandwidth budgets, pre-merge audit, physical testing.
+**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). Grant Receipt Protocol complete. 9C-9E planned.
+**Phases**: 1-8B (complete), 9 (in progress: 9A-9B + Grant Receipt done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
 **Next Milestone**: Phase 9C - Service Discovery & Additional Plugins (discovery protocol, service templates, Wake-on-LAN)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

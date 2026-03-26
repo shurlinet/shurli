@@ -6,9 +6,11 @@ description: "Discovery-only seed relays, server-side circuit ACL, init flow, co
 <!-- Auto-synced from docs/engineering-journal/seed-relay-separation.md by sync-docs - do not edit directly -->
 
 
-**Date**: 2026-03-03
-**Status**: Complete
-**ADRs**: ADR-P01 to ADR-P05
+| | |
+|---|---|
+| **Date** | 2026-03-03 |
+| **Status** | Complete |
+| **ADRs** | ADR-P01 to ADR-P05 |
 
 Public seed relays are reclassified as discovery-only nodes. Data forwarding (SSH, XRDP, etc.) through seed relays is blocked at the relay server. The init flow defaults to the public Shurli network. A generic `config set` subcommand is added.
 

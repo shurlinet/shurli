@@ -252,7 +252,7 @@ These aren't decorative principles. They're decision-making tools. Here's how th
 - **Config self-healing** (Batch C) exists because of "never leave users without options." If config corrupts, the system recovers automatically using archived snapshots.
 - **The website redesign** exists because of Jobs' "start with the customer experience." End users shouldn't need to understand GitHub to use Shurli.
 - **Relay elimination research** (Batch I) exists because of "eliminate, don't optimize." The relay works, but the goal is to not need it.
-- **41 ADRs in the engineering journal** exist because of "the process IS the product." Future contributors (and future us) need to understand WHY, not just WHAT.
+- **62 ADRs in the engineering journal** exist because of "the process IS the product." Future contributors (and future us) need to understand WHY, not just WHAT.
 - **User-controlled telemetry** exists because of "privacy by architecture." Observability data stays on your infrastructure, collected by open-source tools you control.
 
 ---
@@ -325,7 +325,7 @@ What I've learned from these principles, genuinely, not performatively:
 
 **Privacy is harder than it looks.** Privacy isn't a checkbox. It's a discipline that requires constant vigilance. For infrastructure software where the relay sees traffic metadata, the development process itself must be privacy-aware.
 
-**The visual learner insight changed my communication.** When I understood that Satinder processes information visually, I started creating SVG diagrams alongside text explanations. The 40+ SVG diagrams across docs, blog posts, and architecture visuals: they're not decoration. They're the primary communication channel for how the system works.
+**The visual learner insight changed my communication.** When I understood that Satinder processes information visually, I started creating SVG diagrams alongside text explanations. The 100+ SVG diagrams across docs, blog posts, and architecture visuals: they're not decoration. They're the primary communication channel for how the system works.
 
 **The agnostic design principle is genuinely hard.** It's tempting to pick one identity system, one relay provider, one transport, and optimize for it. Staying agnostic means every integration point needs to be an interface, not an implementation. It's more work upfront. But it means Shurli will never be held hostage by someone else's platform decisions. SuperMesh taught that lesson once. We don't need to learn it again.
 
