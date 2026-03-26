@@ -105,6 +105,10 @@ type GrantProtocol struct {
 	rateMu    sync.Mutex
 	rateLimit map[peer.ID]*rateLimitEntry
 
+	// Callback fired when a revocation is received (client-side cache clearing).
+	revokeMu sync.RWMutex
+	onRevoke func(issuerID peer.ID)
+
 	// Background queue flush loop.
 	stopCh         chan struct{}
 	doneCh         chan struct{}
@@ -126,6 +130,15 @@ func NewGrantProtocol(h host.Host, pouch *Pouch, store *Store, queue *DeliveryQu
 		stopCh:     make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
+}
+
+// SetOnRevoke sets a callback invoked when a revocation is received.
+// Used by the client to clear the grant receipt cache on revocation.
+// Thread-safe: may be called before or after Register().
+func (gp *GrantProtocol) SetOnRevoke(fn func(issuerID peer.ID)) {
+	gp.revokeMu.Lock()
+	defer gp.revokeMu.Unlock()
+	gp.onRevoke = fn
 }
 
 // Register registers the inbound stream handler on the host.
@@ -402,6 +415,14 @@ func (gp *GrantProtocol) handleRevocation(s libp2pnet.Stream, remotePeer peer.ID
 	}
 
 	removed := gp.pouch.Remove(remotePeer)
+
+	// Notify grant cache (client-side receipt clearing).
+	gp.revokeMu.RLock()
+	cb := gp.onRevoke
+	gp.revokeMu.RUnlock()
+	if cb != nil {
+		cb(remotePeer)
+	}
 
 	gp.logger.Info("grant-protocol: revocation received",
 		"issuer", short,
