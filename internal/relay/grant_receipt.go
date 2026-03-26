@@ -18,7 +18,7 @@ import (
 )
 
 // GrantReceiptProtocol is the upgraded grant notification protocol.
-// Replaces GrantChangedProtocol with a full receipt payload.
+// Carries a full 62-byte receipt with grant parameters.
 const GrantReceiptProtocol = "/shurli/grant-receipt/1.0.0"
 
 // GrantChecker is the subset of grants.Store needed for reconnect receipt delivery.
@@ -185,7 +185,6 @@ func NotifyGrantReceipt(ctx context.Context, h host.Host, targetPeerID peer.ID,
 }
 
 // sendGrantReceipt sends pre-encoded receipt bytes to a connected peer.
-// Negotiates GrantReceiptProtocol with GrantChangedProtocol fallback.
 // If the peer is not connected, returns nil.
 func sendGrantReceipt(ctx context.Context, h host.Host, targetPeerID peer.ID,
 	receiptData []byte) error {
@@ -200,33 +199,20 @@ func sendGrantReceipt(ctx context.Context, h host.Host, targetPeerID peer.ID,
 	// Allow delivery over limited (relayed) connections (H15).
 	streamCtx = network.WithAllowLimitedConn(streamCtx, GrantReceiptProtocol)
 	s, err := h.NewStream(streamCtx, targetPeerID,
-		protocol.ID(GrantReceiptProtocol),
-		protocol.ID(GrantChangedProtocol)) // fallback to old protocol
+		protocol.ID(GrantReceiptProtocol))
 	if err != nil {
 		return fmt.Errorf("grant-receipt stream: %w", err)
 	}
 	defer s.Close()
 
-	short := targetPeerID.String()
-	if len(short) > 16 {
-		short = short[:16] + "..."
-	}
-
-	// Check which protocol was negotiated.
-	if s.Protocol() == protocol.ID(GrantChangedProtocol) {
-		// Peer only supports old protocol - send 1-byte signal.
-		if _, err := s.Write([]byte{notifyVersion}); err != nil {
-			return fmt.Errorf("grant-changed write: %w", err)
-		}
-		slog.Info("grant-changed: notified peer (legacy)", "peer", short)
-		return nil
-	}
-
-	// New protocol - send full receipt.
 	if _, err := s.Write(receiptData); err != nil {
 		return fmt.Errorf("grant-receipt write: %w", err)
 	}
 
+	short := targetPeerID.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
 	slog.Info("grant-receipt: delivered to peer", "peer", short)
 	return nil
 }

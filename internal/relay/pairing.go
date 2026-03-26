@@ -29,7 +29,6 @@ func init() {
 	p2pnet.MustValidateProtocolIDs(
 		InviteProtocol,
 		PeerNotifyProtocol,
-		GrantChangedProtocol,
 		GrantReceiptProtocol,
 		MOTDProtocol,
 		UnsealProtocol,
