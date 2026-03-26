@@ -494,6 +494,9 @@ func runDaemonStart(args []string) {
 		gc.StartCleanup(cleanupInterval)
 		rt.grantCache = gc
 
+		// Wire grant cache into plugin context for transfer budget/time checks (H7).
+		pluginProvider.RelayGrantChecker = gc
+
 		// Wire revocation -> cache clearing (H9/H12).
 		grantProto.SetOnRevoke(func(issuerID peer.ID) {
 			// Use current time as revocation time (best available - relay doesn't
