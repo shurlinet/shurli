@@ -6,9 +6,11 @@ description: "Unified BIP39 seed, encrypted identity, session tokens, remote adm
 <!-- Auto-synced from docs/engineering-journal/phase8-identity-remote-admin.md by sync-docs - do not edit directly -->
 
 
-**Date**: 2026-03-02
-**Status**: Complete
-**ADRs**: ADR-O01 to ADR-O17
+| | |
+|---|---|
+| **Date** | 2026-03-02 |
+| **Status** | Complete |
+| **ADRs** | ADR-O01 to ADR-O17 |
 
 Phase 8 addresses seven converging problems: two separate seed systems, no backup confirmation, wrong password UX, unprotected identity.key, missing recovery CLI, unseal-only remote management, and engineering journal gaps for doctor/completion/man.
 

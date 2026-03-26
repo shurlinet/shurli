@@ -1,8 +1,10 @@
 # Phase 8: Identity Security & Remote Admin
 
-**Date**: 2026-03-02
-**Status**: Complete
-**ADRs**: ADR-O01 to ADR-O17
+| | |
+|---|---|
+| **Date** | 2026-03-02 |
+| **Status** | Complete |
+| **ADRs** | ADR-O01 to ADR-O17 |
 
 Phase 8 addresses seven converging problems: two separate seed systems, no backup confirmation, wrong password UX, unprotected identity.key, missing recovery CLI, unseal-only remote management, and engineering journal gaps for doctor/completion/man.
 

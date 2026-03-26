@@ -1,13 +1,16 @@
 ---
-title: "Phase 9: Plugin Security Threat Analysis"
+title: "Phase 9 - Plugin Security Threat Analysis"
 weight: 27
-description: "43-vector threat analysis for the plugin system. Trusted computing base, WASM host function security, supply chain defense, AI-era threat mitigations."
+description: "43-vector threat analysis across 3 rounds. Trusted computing base, WASM host function API, supply chain defense, credential isolation, AI-era constraints."
 ---
 <!-- Auto-synced from docs/engineering-journal/plugin-security-threat-analysis.md by sync-docs - do not edit directly -->
 
-**Date**: 2026-03-17
-**Status**: Complete (analysis). Mitigations applied to Layer 1. Layer 2/3 mitigations tracked for implementation.
-**ADRs**: ADR-U01 to ADR-U08
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Complete (analysis). Mitigations applied to Layer 1. Layer 2/3 mitigations tracked for implementation. |
+| **ADRs** | ADR-U01 to ADR-U08 |
 
 43 attack vectors identified across three rounds of analysis. Every vector has a concrete mitigation strategy. Nothing deferred without a tracking note. This journal covers the architecture decisions that emerged from the analysis, not the individual vectors (those are documented in the full threat model).
 
@@ -15,8 +18,10 @@ description: "43-vector threat analysis for the plugin system. Trusted computing
 
 ### ADR-U01: Layer 1 Compiled-In Plugins Are the Trusted Computing Base
 
-**Date**: 2026-03-17
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -40,8 +45,10 @@ The `PluginContext` interface already enforces this: it provides scoped access (
 
 ### ADR-U02: WASM Host Function API Is the Security Boundary
 
-**Date**: 2026-03-17
-**Status**: Accepted (design, not yet implemented)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design, not yet implemented) |
 
 ### Context
 
@@ -69,8 +76,10 @@ Spend 80% of Layer 2 security effort on host function design.
 
 ### ADR-U03: Supply Chain Defense via Content-Addressed Storage
 
-**Date**: 2026-03-17
-**Status**: Accepted (design)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
 
 ### Context
 
@@ -95,8 +104,10 @@ Four-layer defense:
 
 ### ADR-U04: Decomposed Permission Model
 
-**Date**: 2026-03-17
-**Status**: Accepted (design)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
 
 ### Context
 
@@ -123,8 +134,10 @@ DNS resolution only available with `network:external` permission for approved do
 
 ### ADR-U05: Plugin Lifecycle State Machine
 
-**Date**: 2026-03-17
-**Status**: Accepted (partially implemented in supervisor)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (partially implemented in supervisor) |
 
 ### Context
 
@@ -149,8 +162,10 @@ Atomic state machine: `LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED`.
 
 ### ADR-U06: Credential Isolation (Zero-Knowledge Plugin Boundary)
 
-**Date**: 2026-03-17
-**Status**: Accepted (implemented in PluginContext)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (implemented in PluginContext) |
 
 ### Context
 
@@ -173,8 +188,10 @@ Daemon credentials (auth cookie, Ed25519 private key, vault passphrase, macaroon
 
 ### ADR-U07: AI-Era Threat Mitigations (Layer 3 Design Constraints)
 
-**Date**: 2026-03-17
-**Status**: Accepted (design constraints for future Layer 3)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design constraints for future Layer 3) |
 
 ### Context
 
@@ -198,8 +215,10 @@ Three hard constraints for Layer 3 (AI agent plugin development):
 
 ### ADR-U08: Registry Is Informational Only
 
-**Date**: 2026-03-17
-**Status**: Accepted (design)
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
 
 ### Context
 

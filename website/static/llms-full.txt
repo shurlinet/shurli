@@ -1370,7 +1370,7 @@ Chaos testing on satellite WiFi, terrestrial WiFi, 5G hotspot, and USB LAN (with
 | Stale LAN address stripping | Old LAN addresses stay in peerstore after network switch, causing dials to wrong subnet | Strip all LAN addresses from peerstore on network change event |
 | IPv6 QUIC wins over mDNS LAN | mDNS discovers peer on LAN but IPv6 QUIC connects first via longer path | mDNS upgrades direct-but-no-LAN connections to LAN, closes dead IPv6, strips non-LAN addrs |
 | Dial cache poisoning | libp2p's dial_sync caches failed dials; network change doesn't invalidate cache | Clear swarm backoffs on network change via `OnNetworkChange()` |
-| Grant-aware backoff reset | After relay grants access, client sits in backoff from previous failed dials | Relay sends `/shurli/grant-changed/1.0.0` to client; client clears all backoffs |
+| Grant-aware backoff reset | After relay grants access, client sits in backoff from previous failed dials | Relay pushes `/shurli/grant-receipt/1.0.0` to client; client caches receipt and clears all backoffs |
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops that need deterministic reconnection.
 
@@ -1782,7 +1782,7 @@ Each entry: `HMAC-SHA256(key, prev_hash + entry_data)`. Breaking the chain at an
 
 #### Grant-Aware Backoff Reset
 
-When the relay creates or extends a grant, it pushes a grant receipt via `/shurli/grant-receipt/1.0.0` (or falls back to the legacy `/shurli/grant-changed/1.0.0` signal for older clients). The client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers. See [Grant Receipt Protocol](#grant-receipt-protocol) for full details.
+When the relay creates or extends a grant, it pushes a grant receipt via `/shurli/grant-receipt/1.0.0`. The client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers. See [Grant Receipt Protocol](#grant-receipt-protocol) for full details.
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
 
@@ -1792,7 +1792,7 @@ When the relay creates or extends a grant, it pushes a grant receipt via `/shurl
 
 Protocol: `/shurli/grant-receipt/1.0.0`
 
-Replaces the 1-byte `/shurli/grant-changed/1.0.0` signal with a full 62-byte receipt that carries grant parameters. The relay pushes a receipt to the peer whenever a grant is created, extended, or the peer reconnects. Backward compatible: falls back to the legacy protocol if the peer does not support receipts.
+Carries a full 62-byte receipt with grant parameters. The relay pushes a receipt to the peer whenever a grant is created, extended, or the peer reconnects.
 
 **Wire format (62 bytes)**:
 
@@ -1831,7 +1831,7 @@ Per-chunk byte tracking: every chunk written to a relayed stream increments the 
 **Relay-side push** (`internal/relay/grant_receipt.go`):
 
 - `NotifyGrantReceipt()` encodes and sends a receipt to a connected peer. If the peer is offline, delivery is deferred to reconnect.
-- `sendGrantReceipt()` negotiates `GrantReceiptProtocol` with `GrantChangedProtocol` fallback. If the peer only supports the legacy protocol, a 1-byte signal is sent instead.
+- `sendGrantReceipt()` sends pre-encoded receipt bytes to a connected peer via `GrantReceiptProtocol`.
 - `RunReconnectNotifier()` pushes receipts to peers with active grants on reconnection (via `EvtPeerIdentificationCompleted`).
 
 **Client-side handler** (`cmd/shurli/serve_common.go`):
@@ -4710,7 +4710,7 @@ Where Shurli goes further than Ethereum's usage:
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-Shurli ships with 40 custom Prometheus metrics (proxy, auth, vault, pairing, deposits, admin socket, ZKP proving/verification) alongside libp2p built-in metrics, structured audit logging, and a pre-built Grafana dashboard with 56 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+Shurli ships with 53 custom Prometheus metrics (proxy, auth, vault, pairing, deposits, admin socket, ZKP proving/verification, grants, transfers, plugins) alongside libp2p built-in metrics, structured audit logging, and a pre-built Grafana dashboard with 56 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
 
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 
@@ -5643,6 +5643,8 @@ New developers, contributors, and future-us should be able to read this and unde
 | [File Transfer Hardening](file-transfer-hardening.md) | ADR-R10 to ADR-R16 | DDoS defense (7 layers), queue persistence (HMAC), path privacy, checkpoint resume, queue backpressure, name normalization, relay transport |
 | [Phase 8B: Per-Peer Data Grants](per-peer-data-grants.md) | ADR-T01 to ADR-T10 | Node-level enforcement, macaroon grants, dual-store (GrantStore + Pouch), binary stream header, P2P delivery protocol, delegation, notifications, audit log, rate limiting, backoff reset |
 | [Phase 9: Plugin Security Threat Analysis](plugin-security-threat-analysis.md) | ADR-U01 to ADR-U08 | Trusted computing base, WASM host function API, supply chain defense, decomposed permissions, lifecycle state machine, credential isolation, AI-era constraints, registry design |
+| [Phase 9: Grant Receipt Protocol](grant-receipt-protocol.md) | ADR-V01 to ADR-V05 | Relay-issued receipts, client-side grant cache, smart pre-transfer check, per-chunk circuit byte tracking, smart reconnection |
+| [Phase 9: Relay Circuit Investigation](relay-circuit-investigation.md) | ADR-W01 to ADR-W03 | Tier-aware session limits, receiver busy retry, seed relay churn (superseded by Grant Receipt Protocol) |
 
 
 ---
@@ -7930,9 +7932,11 @@ Total Phase 7 tests: ~91
 
 # Phase 8: Identity Security & Remote Admin
 
-**Date**: 2026-03-02
-**Status**: Complete
-**ADRs**: ADR-O01 to ADR-O17
+| | |
+|---|---|
+| **Date** | 2026-03-02 |
+| **Status** | Complete |
+| **ADRs** | ADR-O01 to ADR-O17 |
 
 Phase 8 addresses seven converging problems: two separate seed systems, no backup confirmation, wrong password UX, unprotected identity.key, missing recovery CLI, unseal-only remote management, and engineering journal gaps for doctor/completion/man.
 
@@ -8183,9 +8187,11 @@ Machine binding: token encrypted with key derived from hostname + machine ID. Co
 
 # Seed Relay Separation & Init Flow
 
-**Date**: 2026-03-03
-**Status**: Complete
-**ADRs**: ADR-P01 to ADR-P05
+| | |
+|---|---|
+| **Date** | 2026-03-03 |
+| **Status** | Complete |
+| **ADRs** | ADR-P01 to ADR-P05 |
 
 Public seed relays are reclassified as discovery-only nodes. Data forwarding (SSH, XRDP, etc.) through seed relays is blocked at the relay server. The init flow defaults to the public Shurli network. A generic `config set` subcommand is added.
 
@@ -8337,9 +8343,11 @@ If intermediate keys don't exist, they are created as mapping nodes. Boolean val
 
 # Phase 9: SDK, Plugins & Protocol Consolidation
 
-**Date**: 2026-03-08
-**Status**: In Progress
-**ADRs**: ADR-Q01 to ADR-Q05
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | In Progress |
+| **ADRs** | ADR-Q01 to ADR-Q05 |
 
 Phase 9 builds the plugin system, SDK interfaces, and file transfer - the first concrete plugin. It also consolidates legacy protocol versions that accumulated during rapid iteration.
 
@@ -8347,8 +8355,10 @@ Phase 9 builds the plugin system, SDK interfaces, and file transfer - the first 
 
 ## ADR-Q01: Delete Invite v1/v2 Code
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8384,8 +8394,10 @@ The reasoning: backward compatibility for formats with zero users is pure comple
 
 ## ADR-Q02: Pairing Protocol Wire Version Retained
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8399,8 +8411,10 @@ Keep the `2.0.0` wire version. The protocol ID is a wire identifier, not a marke
 
 ## ADR-Q03: Protocol ID Helpers
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8419,8 +8433,10 @@ All relay protocol constants validated at startup via `init()`.
 
 ## ADR-Q04: Bootstrap Extraction
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8438,8 +8454,10 @@ CLI commands now call one function instead of duplicating the pattern.
 
 ## ADR-Q05: File Transfer Plugin (Phase 9B)
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8469,9 +8487,11 @@ Daemon integration:
 
 # Phase 9: File Transfer Architecture
 
-**Date**: 2026-03-11
-**Status**: Complete
-**ADRs**: ADR-R01 to ADR-R09
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Complete |
+| **ADRs** | ADR-R01 to ADR-R09 |
 
 File transfer is the first production plugin built on the Phase 9A service infrastructure. It spans ~6,100 lines across 10 source files in `pkg/p2pnet/`, with full daemon integration, CLI commands, and a management API.
 
@@ -8479,8 +8499,10 @@ File transfer is the first production plugin built on the Phase 9A service infra
 
 ## ADR-R01: Own FastCDC Implementation
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8509,8 +8531,10 @@ Every Go CDC library we evaluated either required a second pass for hashing, pul
 
 ## ADR-R02: BLAKE3 for All Hashing
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8533,8 +8557,10 @@ BLAKE3 is ~3-5x faster than SHA-256 on modern hardware. For large file transfers
 
 ## ADR-R03: zstd On-By-Default with Bomb Protection
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8558,8 +8584,10 @@ Bomb protection: `maxDecompressRatio = 10`. If decompressed output exceeds 10x c
 
 ## ADR-R04: Reed-Solomon Stripe-Based Erasure Coding
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8585,8 +8613,10 @@ The alternative is whole-file RS encoding, which requires holding the entire fil
 
 ## ADR-R05: RaptorQ Fountain Codes for Multi-Source
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8610,8 +8640,10 @@ Plain multi-source (each peer sends different chunks) requires a coordinator to 
 
 ## ADR-R06: Adaptive Parallel Streams
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8639,8 +8671,10 @@ LAN has near-zero latency and high bandwidth. 8 streams is conservative for giga
 
 ## ADR-R07: AirDrop-Style Receive Permissions
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8670,8 +8704,10 @@ Apple's AirDrop proved this UX works: most users want "contacts only" and occasi
 
 ## ADR-R08: Fixed-Window Rate Limiting with Silent Rejection
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8699,8 +8735,10 @@ Informative error messages ("rate limited, try again in X seconds") help attacke
 
 ## ADR-R09: AI Compression Deferral
 
-**Date**: 2026-03-09
-**Status**: Accepted (Revisit 2028-2029)
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted (Revisit 2028-2029) |
 
 ### Context
 
@@ -8758,9 +8796,11 @@ This is deliberate: a CLI that blocks until transfer completion ties up a termin
 
 # Post-Chaos Network Hardening
 
-**Date**: 2026-03-11 to 2026-03-14
-**Status**: Complete
-**ADRs**: ADR-S01 to ADR-S07
+| | |
+|---|---|
+| **Date** | 2026-03-11 to 2026-03-14 |
+| **Status** | Complete |
+| **ADRs** | ADR-S01 to ADR-S07 |
 
 Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root causes in libp2p's network transition handling and 8 post-chaos flags. All resolved. This journal covers the architectural decisions made during the fix and investigation phase.
 
@@ -8768,8 +8808,10 @@ Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root 
 
 ### ADR-S01: Reset Black Hole Detectors on Network Change
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8796,8 +8838,10 @@ Self-recovery requires 5 successful probes out of 100 attempts. At 1 probe per 1
 
 ### ADR-S02: ForceReachabilityPrivate for Permanent Relay Fallback
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8824,8 +8868,10 @@ Set `libp2p.ForceReachabilityPrivate()` always in daemon mode. The daemon mainta
 
 ### ADR-S03: Constrained Dial for Confirmed Path
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8846,8 +8892,10 @@ Before `DialPeer`, save all peerstore addresses, `ClearAddrs`, add ONLY the conf
 
 ### ADR-S04: VPN Tunnel Interface Detection
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8870,8 +8918,10 @@ Interface name patterns: `utun[0-9]+` (macOS: WireGuard, IKEv2, LightWay), `tun[
 
 ### ADR-S05: Default Gateway Tracking for Private IPv4 Switches
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8907,8 +8957,10 @@ Option 2 in the original plan. Rejected: higher false-positive rate from DHCP re
 
 ### ADR-S06: Dial Worker Cache Poisoning Workaround
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8943,8 +8995,10 @@ Three-part fix (all three required - removing any one re-opens the cache poisoni
 
 ### ADR-S07: Autorelay Static Relay Tuning
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -8979,9 +9033,11 @@ Add three options alongside the existing `WithBackoff(30s)`:
 
 # File Transfer Hardening: DDoS Defense, Queue Persistence & Path Privacy
 
-**Date**: 2026-03-15
-**Status**: Complete
-**ADRs**: ADR-R10 to ADR-R16
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Complete |
+| **ADRs** | ADR-R10 to ADR-R16 |
 
 Physical testing of the file transfer system on real hardware across multiple networks revealed 13 issues. This journal documents the architecture decisions behind the hardening fixes: DDoS defense layers, queue persistence, path privacy, resume integrity, and the audit process that verified them.
 
@@ -8989,8 +9045,10 @@ Physical testing of the file transfer system on real hardware across multiple ne
 
 ## ADR-R10: Seven-Layer DDoS Defense
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9024,8 +9082,10 @@ No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Que
 
 ## ADR-R11: Queue Persistence with HMAC Integrity
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9058,8 +9118,10 @@ Encryption would hide the file paths, but the daemon needs to read them to re-su
 
 ## ADR-R12: Path Privacy - Opaque Share IDs
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9093,8 +9155,10 @@ Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
 
 ## ADR-R13: Checkpoint Resume with Bitfield Tracking
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9120,8 +9184,10 @@ Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allo
 
 ## ADR-R14: Queue Backpressure - Global and Per-Peer Limits
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9149,8 +9215,10 @@ Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pen
 
 ## ADR-R15: Case-Insensitive Name Resolution
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9177,8 +9245,10 @@ The first attempt normalized only on lookup (case-insensitive iteration). This a
 
 ## ADR-R16: Relay Transport for File Transfer Plugins
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9215,9 +9285,11 @@ The hardening was verified through a 3-round Level 4 audit:
 
 # Phase 8B: Per-Peer Data Grants
 
-**Date**: 2026-03-22
-**Status**: Complete (Phases A, R, B, C, D)
-**ADRs**: ADR-T01 to ADR-T10
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Complete (Phases A, R, B, C, D) |
+| **ADRs** | ADR-T01 to ADR-T10 |
 
 The first external user session (2026-03-15) exposed a fundamental flaw: relay-level ACLs (`relay_data=true`) are binary, permanent, and - critically - bypassable in multi-relay topologies. This journal documents the architecture decisions behind the per-peer data access grant system that replaced it.
 
@@ -9225,8 +9297,10 @@ The first external user session (2026-03-15) exposed a fundamental flaw: relay-l
 
 ## ADR-T01: Node-Level Enforcement as Primary Security Boundary
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9248,8 +9322,10 @@ The NODE is the only enforcement point that sees all traffic regardless of relay
 
 ## ADR-T02: Macaroon Tokens Over ACL Attributes
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9280,8 +9356,10 @@ Key properties:
 
 ## ADR-T03: Dual-Store Architecture (GrantStore + GrantPouch)
 
-**Date**: 2026-03-20
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-20 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9314,8 +9392,10 @@ A single store would conflate "grants I've issued" with "tokens I hold." Differe
 
 ## ADR-T04: Binary Grant Header on Plugin Streams
 
-**Date**: 2026-03-21
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-21 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9352,8 +9432,10 @@ Binary (not JSON) because this is the hot path. Stack-allocated 4-byte fast path
 
 ## ADR-T05: P2P Grant Delivery Protocol
 
-**Date**: 2026-03-21
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-21 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9388,8 +9470,10 @@ Trust check: only accept deliveries from peers in authorized_keys (prevents rand
 
 ## ADR-T06: Multi-Hop Delegation via Caveat Attenuation
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9424,8 +9508,10 @@ Zero-duration delegation: when delegating without `--duration`, the duration def
 
 ## ADR-T07: Notification Subsystem (Sink Pattern)
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9465,8 +9551,10 @@ AppleScript injection via unsanitized peer name in DesktopSink. Both title and b
 
 ## ADR-T08: Integrity-Chained Audit Log
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9490,8 +9578,10 @@ Separate file (`grant_audit.log`), separate HKDF sub-key (`shurli/grants/audit/v
 
 ## ADR-T09: Per-Peer Ops Rate Limiter
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9515,8 +9605,10 @@ Notification callback called OUTSIDE lock (prevents webhook response time from b
 
 ## ADR-T10: Grant-Aware Backoff Reset
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -9526,7 +9618,7 @@ After a relay grants data access to a client, the client's swarm may have accumu
 
 Two mechanisms:
 
-1. **Automatic**: Relay sends `/shurli/grant-changed/1.0.0` to client on grant creation. Client calls `OnNetworkChange()` to clear all swarm backoffs.
+1. **Automatic**: Relay pushes `/shurli/grant-receipt/1.0.0` to client on grant creation. Client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs.
 
 2. **Manual**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops.
 
@@ -9536,6 +9628,554 @@ Two mechanisms:
 - AI agents can programmatically trigger reconnection after granting access
 
 **Reference**: `pkg/p2pnet/peermanager.go`
+
+
+---
+
+# Phase 9: Plugin Security Threat Analysis
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Complete (analysis). Mitigations applied to Layer 1. Layer 2/3 mitigations tracked for implementation. |
+| **ADRs** | ADR-U01 to ADR-U08 |
+
+43 attack vectors identified across three rounds of analysis. Every vector has a concrete mitigation strategy. Nothing deferred without a tracking note. This journal covers the architecture decisions that emerged from the analysis, not the individual vectors (those are documented in the full threat model).
+
+---
+
+### ADR-U01: Layer 1 Compiled-In Plugins Are the Trusted Computing Base
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted |
+
+### Context
+
+Layer 1 plugins run in the same Go process as the daemon. They have full access to the libp2p host, private keys, peer connections, and all secrets. This is not a bug to fix; it's a deliberate architectural boundary.
+
+The threat analysis identified this as the single highest-impact vector: a malicious compiled-in plugin can impersonate the node, intercept all streams, poison DHT, and exfiltrate everything.
+
+### Decision
+
+Layer 1 compiled-in plugins are part of the Trusted Computing Base. Official code only. No third-party compiled-in plugins. The binary IS the trust boundary. Third-party plugins must use WASM (Layer 2) with sandboxing.
+
+The `PluginContext` interface already enforces this: it provides scoped access (ConnectToPeer, OpenStream, RegisterHandler) rather than raw host access. But discipline, not enforcement, is the boundary for Layer 1.
+
+### Consequences
+
+- Layer 1 is simple, fast, and fully trusted
+- All third-party extensibility deferred to Layer 2 WASM
+- `shurli build --with` (Layer 1.5) explicitly documented as "you're compiling this into your kernel" trust decision
+
+---
+
+### ADR-U02: WASM Host Function API Is the Security Boundary
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design, not yet implemented) |
+
+### Context
+
+wazero's WASM sandbox is solid, but every host function exposed is a hole through the wall. If you expose `host_send_stream(peer_id, protocol, data)`, a malicious plugin can craft raw protocol messages to forge core Shurli protocols.
+
+Real-world: V8 had CVE-2023-6699 (WASM type confusion), Wasmtime had CVE-2026-27572 (DoS from guest), Pyodide had CVE-2025-68668 (escape, CVSS 9.9).
+
+### Decision
+
+Design host functions like OS syscalls. Three rules:
+
+1. **Protocol namespace enforcement**: WASM plugins can only register handlers under `/shurli/plugin/<plugin-name>/`. Never under `/shurli/` root.
+2. **Narrow, typed, validated**: Every host function validates inputs against a schema. Never raw stream/socket access.
+3. **Logged and rate-limited**: Every host function call counted per plugin per time window.
+
+Spend 80% of Layer 2 security effort on host function design.
+
+### Consequences
+
+- Plugin capabilities are strictly bounded by what host functions expose
+- Narrower API = less attack surface but also less functionality per plugin
+- Performance overhead from per-call validation and logging (acceptable for WASM plugins)
+
+---
+
+### ADR-U03: Supply Chain Defense via Content-Addressed Storage
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
+
+### Context
+
+Real incidents: PyPI `semantic-types` typosquat (Jan 2025), npm ShaiHulud worm (500+ packages via stolen tokens), VS Code `prettier-vscode-plus` impersonation (Nov 2025, 4 hours before takedown), Go `boltdb-go/bolt` backdoor on module proxy for 3 years.
+
+### Decision
+
+Four-layer defense:
+
+1. **Ed25519 signatures** on .wasm binaries. Pin author public keys, not names.
+2. **Content-addressed storage**: plugins identified by hash. `shurli plugin install sha256:abc123` is the safe path.
+3. **No auto-update**. Updates require explicit user approval with permission diff.
+4. **TOFU key pinning** (like SSH known_hosts): first install pins the author's key. Key change = refuse update + warn.
+
+### Consequences
+
+- Typosquatting mitigated: names are human convenience, hashes are the identity
+- Update flow is manual and explicit (sovereignty preserved)
+- Key rotation requires signing key-rotation message with OLD key endorsing NEW key
+
+---
+
+### ADR-U04: Decomposed Permission Model
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
+
+### Context
+
+Broad permissions ("network", "filesystem") create confused deputy problems. A "weather widget" with "network" permission can enumerate all peers, map topology, and exfiltrate data via protocol messages.
+
+### Decision
+
+Fine-grained, scoped permissions:
+
+- `network:peers` - communicate with Shurli peers only (plugin's protocol namespace)
+- `network:external:<domain>` - reach specific external domains
+- `filesystem.read:<path>` - scoped to specific directories
+- `config.read` vs `config.read.sensitive` (separate grants)
+
+DNS resolution only available with `network:external` permission for approved domains. The existing `PluginPolicy` transport bitmask pattern is the right foundation to extend.
+
+### Consequences
+
+- Plugin approval prompts show exact scopes, not summaries
+- More granular permissions = more approval prompts (UX trade-off)
+- Backward compatible with Layer 1's policy system
+
+---
+
+### ADR-U05: Plugin Lifecycle State Machine
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (partially implemented in supervisor) |
+
+### Context
+
+Hot reload creates timing windows. During disable, old plugin's goroutines may still be running with permissions that should be revoked. During enable, protocol handlers may be registered before permission checks are initialized.
+
+### Decision
+
+Atomic state machine: `LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED`.
+
+- Plugins handle streams ONLY in `ACTIVE` state
+- `DRAINING`: stop new streams, wait for in-progress (30s hard timeout), then forcibly cancel
+- Permission check on EVERY host function call, not just init
+- Atomic swap on reload: new plugin fully loaded before old handler deregistered
+
+### Consequences
+
+- No streams accepted before `ACTIVE`, no operations after `DRAINING`
+- The supervisor's crash-detect + restart + backoff pattern (already built) aligns with this state machine
+- Reload creates a brief overlap where both versions are in memory (bounded by load time)
+
+---
+
+### ADR-U06: Credential Isolation (Zero-Knowledge Plugin Boundary)
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (implemented in PluginContext) |
+
+### Context
+
+Daemon credentials (auth cookie, Ed25519 private key, vault passphrase, macaroon root keys, ZKP proving key) must never be accessible to plugins. Even compiled-in ones should use the `PluginContext` interface, not direct access to daemon internals.
+
+### Decision
+
+- `PluginContext` methods provide scoped operations (connect, open stream, register handler) but never expose raw keys or credentials
+- WASM plugins get opaque peer handles, not raw peer IDs
+- Error messages from host functions use structured error codes, not strings (prevents metadata leaks via verbose libp2p errors)
+- Plugin-triggered logs use per-session pseudonym maps for peer identifiers
+
+### Consequences
+
+- Plugins cannot impersonate the daemon even if compromised
+- Error handling is less informative for debugging (acceptable trade-off)
+- Existing `CredentialSet` isolation in PluginContext validates this approach
+
+---
+
+### ADR-U07: AI-Era Threat Mitigations (Layer 3 Design Constraints)
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design constraints for future Layer 3) |
+
+### Context
+
+Round 3 of the analysis covered 10 AI-emergent threats backed by real incidents: CodeBreaker (USENIX 2024), ShaiHulud npm worm (2025), Anthropic Sleeper Agents (2024), Kimwolf botnet (700k I2P Sybils, Feb 2026), MCP 30 CVEs in 60 days (Jan-Feb 2026).
+
+### Decision
+
+Three hard constraints for Layer 3 (AI agent plugin development):
+
+1. **Treat all AI output as untrusted input**. Skills.md is untrusted. Generated code goes through the full security pipeline.
+2. **Break propagation chains**. Plugins cannot install other plugins. Hard-coded in code, not a permission. `shurli plugin install` is human-only.
+3. **Hard-coded action boundaries for AI agents**. Trust-modifying actions (adding peers, changing capabilities, installing plugins) always require human approval. Enforced in code, not prompts.
+
+### Consequences
+
+- Layer 3 AI agents are strictly bounded, even if the AI model is compromised
+- Human remains in the loop for all trust-modifying decisions
+- AI agents can operate nodes autonomously for routine operations (monitoring, reconnection, grant refresh) but not for security-critical changes
+
+---
+
+### ADR-U08: Registry Is Informational Only
+
+| | |
+|---|---|
+| **Date** | 2026-03-17 |
+| **Status** | Accepted (design) |
+
+### Context
+
+Plugin registries are high-value targets. Pidgin's plugin repository was compromised for 41 days serving DarkGate malware (Aug 2024). Terraform modules were trivially hijackable.
+
+### Decision
+
+If a registry is built, it is INFORMATIONAL ONLY:
+
+- Does not host binaries. Binaries fetched from author's URL, verified against author's signing key
+- Registry index signed with project keys. Public key embedded in binary
+- 48-hour delay on new entries before appearing in search results
+- Multi-party signing: 2-of-3 maintainer signatures to publish registry update
+- Transparency log: every registry update appended to public log (Certificate Transparency model)
+
+### Consequences
+
+- Registry compromise doesn't directly compromise users (no binary hosting)
+- Discovery is centralized but trust is distributed (author keys, not registry keys)
+- 48-hour delay slows legitimate plugin publishing (acceptable for security)
+
+
+---
+
+# Phase 9: Grant Receipt Protocol
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Complete (4 batches + physical retest + docs) |
+| **Phase** | 9 (Plugins, SDK & First Plugins) |
+| **ADRs** | ADR-V01 to ADR-V05 |
+
+The relay circuit investigation (2026-03-26) revealed that seed relays correctly denied large transfers (64 MB session limit), but clients had no way to know this before attempting the transfer. The Grant Receipt Protocol gives clients pre-transfer visibility into relay budgets, enabling smart transfer decisions.
+
+---
+
+## ADR-V01: Relay-Issued Grant Receipts
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+
+### Context
+
+After RC1 (tier-aware session limits) and RC2 (receiver busy retry) were fixed, a fundamental visibility gap remained: clients connecting through relays had no knowledge of the relay's session data limit, session duration, or grant expiry. A 174 MB file routed through a seed relay with a 64 MB limit would fail after consuming bandwidth. The client needed to know the limits before starting.
+
+### Decision
+
+Relays issue a **Grant Receipt** to clients upon circuit establishment. The receipt is a 62-byte binary message containing session parameters, signed with HMAC-SHA256.
+
+Wire format:
+```
+Byte 0:     Version (0x01)
+Bytes 1-8:  Grant duration (seconds, uint64 big-endian, 0=permanent)
+Bytes 9-16: Session data limit (bytes, uint64 big-endian, 0=unlimited)
+Bytes 17-20: Session duration (seconds, uint32 big-endian)
+Byte 21:   Permanent flag (0x00/0x01)
+Bytes 22-29: Issued-at timestamp (Unix seconds, uint64 big-endian)
+Bytes 30-61: HMAC-SHA256 over canonical payload
+```
+
+Protocol ID: `/shurli/grant-receipt/1.0.0`
+
+### Consequences
+
+- Clients receive relay budget information at circuit setup time, not after transfer failure
+- 62 bytes of overhead per circuit establishment (negligible)
+- HMAC prevents receipt forgery (client cannot inflate budgets)
+- Issued-at timestamp enables clock drift detection between relay and client
+
+**Reference**: `internal/relay/grant_receipt.go`
+
+---
+
+## ADR-V02: Client-Side Grant Cache
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+
+### Context
+
+Grant receipts arrive at circuit establishment. The client needs to persist this information across reconnections and make it available to the transfer layer for pre-transfer checks.
+
+### Decision
+
+`GrantCache` (`internal/grants/cache.go`) stores receipts keyed by relay peer ID with:
+- Thread-safe map with per-receipt fields: grant duration, session data limit, session duration, permanent flag, timestamps
+- JSON persistence to disk with HMAC integrity and symlink rejection
+- Max cache file size: 1 MB (DoS defense)
+- Per-circuit tracking fields (not persisted): `CircuitBytesSent`, `CircuitBytesReceived`, `CircuitStartedAt`
+- Background cleanup goroutine removes expired entries
+- Revocation handling with issued-at ordering (rejects stale revocations)
+
+### Consequences
+
+- Transfer layer can check budgets without network calls
+- Circuit byte counters reset on each new circuit (fresh session budget)
+- Overflow clamping (MaxInt64) prevents integer overflow on long-lived circuits
+- Cache survives daemon restarts; circuit counters intentionally do not (fresh session on restart)
+
+**Reference**: `internal/grants/cache.go`
+
+---
+
+## ADR-V03: Smart Pre-Transfer Check
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+
+### Context
+
+Clients should not attempt transfers that will exceed the relay's session budget. Wasting bandwidth on a transfer that will be rejected at 64 MB of a 174 MB file is unacceptable.
+
+### Decision
+
+`checkRelayGrant()` (`pkg/p2pnet/transfer_grants.go`) runs before every relay transfer:
+
+1. Extract relay peer ID from the circuit multiaddr
+2. Query grant cache for receipt: `GrantStatus(relayID)`
+3. Check budget: `HasSufficientBudget(relayID, fileSize, direction)`
+4. Estimate transfer time at conservative 200 KB/s
+5. Verify grant remaining time covers the estimated transfer duration
+6. Verify session duration covers the estimated transfer duration (transfer must fit in one session)
+
+Returns a `relayTransferInfo` struct with: `IsRelayed`, `RelayPeerID`, `GrantActive`, `GrantRemaining`, `SessionBudget`, `SessionDuration`, `BudgetOK`, `TimeOK`.
+
+### Consequences
+
+- Transfers that would exceed relay budget are blocked before any data flows
+- User sees clear error: "file size (X) exceeds relay session limit (Y)" for budget failures
+- Conservative 200 KB/s estimate means the check errs on the side of caution
+- Session duration check (H11) ensures the transfer fits within a single circuit session, not just the grant lifetime
+
+**Reference**: `pkg/p2pnet/transfer_grants.go`
+
+---
+
+## ADR-V04: Per-Chunk Circuit Byte Tracking
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+
+### Context
+
+Pre-transfer checks validate the total file size against the budget, but the actual bytes on the wire differ from file size due to compression, protocol overhead, and chunking. Accurate budget tracking requires counting actual bytes written to the relay circuit.
+
+### Decision
+
+`makeChunkTracker()` (`pkg/p2pnet/transfer_grants.go`) creates a callback function for relayed streams:
+
+1. For direct connections: returns nil (no tracking needed)
+2. For relayed streams: extracts relay peer ID from circuit multiaddr
+3. Returns closure that calls `TrackCircuitBytes(relayID, direction, bytesOnWire)` after each chunk write
+4. Called inside `addWireBytes()` in the transfer progress tracker, outside the mutex
+
+The progress tracker calls `tracker(n)` for every chunk frame written, counting compressed bytes (actual wire usage, not original file size).
+
+### Consequences
+
+- Budget tracking reflects actual bandwidth consumption, not file size
+- Compression savings are correctly reflected in budget usage
+- Tracking happens at the chunk level, not file level, so budget overruns are caught within one chunk of the limit
+- Zero overhead for direct connections (nil tracker)
+
+**Reference**: `pkg/p2pnet/transfer_grants.go`, `pkg/p2pnet/transfer.go`
+
+---
+
+## ADR-V05: Smart Reconnection with App-Error Exclusion
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+
+### Context
+
+Relay sessions expire. When a transfer fails mid-stream due to session expiry, the client should retry with a fresh circuit. But not all failures are session expiry. Application-level errors (peer rejected, file too large, disk space, access denied) should not trigger reconnection because the retry would also fail.
+
+### Decision
+
+`isRelaySessionExpiry()` (`pkg/p2pnet/transfer_grants.go`) classifies transfer errors:
+
+**Do not retry** (application errors):
+- "rejected", "file too large", "disk space"
+- "open file", "stat file", "chunk file" (local I/O)
+- "cancelled", "grant expires", "access denied"
+
+**Retry** (likely session expiry):
+- Grant is still active AND error is transport-level
+
+Reconnection flow:
+1. Increment `job.relayReconnects` (max 5 attempts)
+2. Calculate exponential backoff: 2s, 4s, 8s, 16s, 32s
+3. Call `ResetCircuitCounters(relayID)` for fresh session budget
+4. Requeue job with "relay-reconnecting" status
+
+### Consequences
+
+- Transport failures get automatic retry with fresh session budget
+- Application errors fail immediately without wasting relay bandwidth
+- Exponential backoff prevents rapid circuit churn
+- Budget counters reset per circuit (each session gets its own budget)
+- Max 5 reconnection attempts prevents infinite loops
+
+**Reference**: `pkg/p2pnet/transfer_grants.go`, `pkg/p2pnet/transfer.go`
+
+
+---
+
+# Phase 9: Relay Circuit Investigation
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Complete (3 bugs found, 2 fixed, 1 superseded by Grant Receipt Protocol) |
+| **Phase** | 9 (Plugins, SDK & First Plugins) |
+| **ADRs** | ADR-W01 to ADR-W03 |
+
+During file transfer physical retesting (2026-03-25), relay circuit transfers failed intermittently. Investigation revealed three distinct issues, none of which were protocol bugs. The root causes were configuration defaults, missing retry logic, and a relay selection gap.
+
+---
+
+## ADR-W01: Tier-Aware Session Limit Defaults (RC1)
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+| **Commit** | 572d086 |
+
+### Context
+
+Seed relays (public, shared, `enable_data_relay: false` by default) and self-hosted relays (private, admin-controlled) were using identical session defaults: 64 MB data limit, 10-minute session duration. A 174 MB file transfer through a self-hosted relay failed at 64 MB because the self-hosted relay inherited seed relay limits.
+
+This is not a bug in the relay protocol. The relay correctly enforced its configured limit. The problem was that the default configuration did not distinguish between seed relays (which should be conservative) and self-hosted relays (which should be generous).
+
+### Decision
+
+Two tiers of session defaults:
+
+| Parameter | Seed relay | Self-hosted relay |
+|-----------|-----------|-------------------|
+| Session data limit | 64 MB | 2 GB |
+| Session duration | 10 minutes | 2 hours |
+
+Detection: if `enable_data_relay` is false (seed relay behavior), use conservative defaults. If true (self-hosted relay), use generous defaults. Explicit config values always override tier defaults.
+
+### Consequences
+
+- Self-hosted relays now support large file transfers out of the box
+- Seed relays remain conservative (shared resource protection)
+- Existing explicit configs are not affected
+- Relay operators who want custom limits can still set them
+
+**Reference**: `internal/relay/`
+
+---
+
+## ADR-W02: Receiver Busy Retry with Exponential Backoff (RC2)
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Accepted |
+| **Commit** | 572d086 |
+
+### Context
+
+When a receiver was processing another transfer, the sender got a "receiver busy" rejection. The transfer queue treated this as a permanent failure and dropped the job. For relay transfers (where reconnection is expensive), this was especially wasteful.
+
+### Decision
+
+The transfer queue now distinguishes "receiver busy" from other rejections:
+
+- **Receiver busy**: transient, retryable. Requeue with exponential backoff (2s, 4s, 8s, 16s, 32s, max 5 attempts)
+- **Other rejections**: permanent, fail immediately
+
+`Requeue()` method moves active jobs back to the pending queue with updated retry state.
+
+### Consequences
+
+- Busy peers get automatic retry without user intervention
+- Exponential backoff prevents hammering the receiver
+- Max 5 attempts prevents infinite retry loops
+- Works for both direct and relayed transfers
+
+**Reference**: `pkg/p2pnet/transfer.go`
+
+---
+
+## ADR-W03: Seed Relay Churn and Budget-Aware Selection (RC3)
+
+| | |
+|---|---|
+| **Date** | 2026-03-26 |
+| **Status** | Superseded by Grant Receipt Protocol (ADR-V01 to ADR-V05) |
+
+### Context
+
+The original 0.4-second circuit drop observed during testing was caused by transfers routed through seed-only relays. The seed relay correctly denied the data circuit (ACL enforcement), and the circuit was torn down. This was not a bug. The issue was that PeerManager picks the first available circuit, not the best one for the transfer.
+
+A 174 MB file routed through a seed relay with a 64 MB session limit will always fail. The client needs to select a relay with sufficient budget.
+
+### Decision
+
+This issue was superseded by the Grant Receipt Protocol (Batches 1-4). The Grant Receipt Protocol provides:
+
+1. **Client-side visibility**: clients know each relay's session budget via cached receipts
+2. **Pre-transfer checks**: transfers blocked before wasting bandwidth on an insufficient relay
+3. **Smart error messages**: "file size (174 MB) exceeds relay session limit (64 MB)" instead of a generic circuit failure
+
+Budget-aware relay *selection* (choosing the best relay before dialing) is tracked as FT-Y #7 for post-merge optimization. The current approach is: try the relay, check the budget pre-transfer, fail fast with a clear message if insufficient. The next step is: check all cached receipts first, select the relay with sufficient budget, then dial.
+
+### Consequences
+
+- The immediate problem (wasted bandwidth on insufficient relays) is solved by pre-transfer checks
+- The optimization (proactive relay selection) is deferred to FT-Y #7
+- No relay protocol changes were needed; the solution is entirely client-side
+
+**Reference**: `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`
 
 
 ---

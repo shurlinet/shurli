@@ -698,7 +698,7 @@ Chaos testing on satellite WiFi, terrestrial WiFi, 5G hotspot, and USB LAN (with
 | Stale LAN address stripping | Old LAN addresses stay in peerstore after network switch, causing dials to wrong subnet | Strip all LAN addresses from peerstore on network change event |
 | IPv6 QUIC wins over mDNS LAN | mDNS discovers peer on LAN but IPv6 QUIC connects first via longer path | mDNS upgrades direct-but-no-LAN connections to LAN, closes dead IPv6, strips non-LAN addrs |
 | Dial cache poisoning | libp2p's dial_sync caches failed dials; network change doesn't invalidate cache | Clear swarm backoffs on network change via `OnNetworkChange()` |
-| Grant-aware backoff reset | After relay grants access, client sits in backoff from previous failed dials | Relay sends `/shurli/grant-changed/1.0.0` to client; client clears all backoffs |
+| Grant-aware backoff reset | After relay grants access, client sits in backoff from previous failed dials | Relay pushes `/shurli/grant-receipt/1.0.0` to client; client caches receipt and clears all backoffs |
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops that need deterministic reconnection.
 
@@ -1110,7 +1110,7 @@ Each entry: `HMAC-SHA256(key, prev_hash + entry_data)`. Breaking the chain at an
 
 #### Grant-Aware Backoff Reset
 
-When the relay creates or extends a grant, it pushes a grant receipt via `/shurli/grant-receipt/1.0.0` (or falls back to the legacy `/shurli/grant-changed/1.0.0` signal for older clients). The client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers. See [Grant Receipt Protocol](#grant-receipt-protocol) for full details.
+When the relay creates or extends a grant, it pushes a grant receipt via `/shurli/grant-receipt/1.0.0`. The client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers. See [Grant Receipt Protocol](#grant-receipt-protocol) for full details.
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
 
@@ -1120,7 +1120,7 @@ When the relay creates or extends a grant, it pushes a grant receipt via `/shurl
 
 Protocol: `/shurli/grant-receipt/1.0.0`
 
-Replaces the 1-byte `/shurli/grant-changed/1.0.0` signal with a full 62-byte receipt that carries grant parameters. The relay pushes a receipt to the peer whenever a grant is created, extended, or the peer reconnects. Backward compatible: falls back to the legacy protocol if the peer does not support receipts.
+Carries a full 62-byte receipt with grant parameters. The relay pushes a receipt to the peer whenever a grant is created, extended, or the peer reconnects.
 
 **Wire format (62 bytes)**:
 
@@ -1159,7 +1159,7 @@ Per-chunk byte tracking: every chunk written to a relayed stream increments the 
 **Relay-side push** (`internal/relay/grant_receipt.go`):
 
 - `NotifyGrantReceipt()` encodes and sends a receipt to a connected peer. If the peer is offline, delivery is deferred to reconnect.
-- `sendGrantReceipt()` negotiates `GrantReceiptProtocol` with `GrantChangedProtocol` fallback. If the peer only supports the legacy protocol, a 1-byte signal is sent instead.
+- `sendGrantReceipt()` sends pre-encoded receipt bytes to a connected peer via `GrantReceiptProtocol`.
 - `RunReconnectNotifier()` pushes receipts to peers with active grants on reconnection (via `EvtPeerIdentificationCompleted`).
 
 **Client-side handler** (`cmd/shurli/serve_common.go`):

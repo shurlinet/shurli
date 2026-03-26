@@ -1,8 +1,10 @@
 # Phase 9: File Transfer Architecture
 
-**Date**: 2026-03-11
-**Status**: Complete
-**ADRs**: ADR-R01 to ADR-R09
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Complete |
+| **ADRs** | ADR-R01 to ADR-R09 |
 
 File transfer is the first production plugin built on the Phase 9A service infrastructure. It spans ~6,100 lines across 10 source files in `pkg/p2pnet/`, with full daemon integration, CLI commands, and a management API.
 
@@ -10,8 +12,10 @@ File transfer is the first production plugin built on the Phase 9A service infra
 
 ## ADR-R01: Own FastCDC Implementation
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -40,8 +44,10 @@ Every Go CDC library we evaluated either required a second pass for hashing, pul
 
 ## ADR-R02: BLAKE3 for All Hashing
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -64,8 +70,10 @@ BLAKE3 is ~3-5x faster than SHA-256 on modern hardware. For large file transfers
 
 ## ADR-R03: zstd On-By-Default with Bomb Protection
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -89,8 +97,10 @@ Bomb protection: `maxDecompressRatio = 10`. If decompressed output exceeds 10x c
 
 ## ADR-R04: Reed-Solomon Stripe-Based Erasure Coding
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -116,8 +126,10 @@ The alternative is whole-file RS encoding, which requires holding the entire fil
 
 ## ADR-R05: RaptorQ Fountain Codes for Multi-Source
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -141,8 +153,10 @@ Plain multi-source (each peer sends different chunks) requires a coordinator to 
 
 ## ADR-R06: Adaptive Parallel Streams
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -170,8 +184,10 @@ LAN has near-zero latency and high bandwidth. 8 streams is conservative for giga
 
 ## ADR-R07: AirDrop-Style Receive Permissions
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -201,8 +217,10 @@ Apple's AirDrop proved this UX works: most users want "contacts only" and occasi
 
 ## ADR-R08: Fixed-Window Rate Limiting with Silent Rejection
 
-**Date**: 2026-03-09
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -230,8 +248,10 @@ Informative error messages ("rate limited, try again in X seconds") help attacke
 
 ## ADR-R09: AI Compression Deferral
 
-**Date**: 2026-03-09
-**Status**: Accepted (Revisit 2028-2029)
+| | |
+|---|---|
+| **Date** | 2026-03-09 |
+| **Status** | Accepted (Revisit 2028-2029) |
 
 ### Context
 

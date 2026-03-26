@@ -14,17 +14,23 @@ image: /images/blog/the-shurli-difference.svg
 
 This is not a roadmap pitch. Everything described here is shipped, tested code running on physical hardware across multiple networks. This post exists because no other project combines all of these capabilities in one binary.
 
+**Update (v0.3.0)**: Since this post was originally published, Shurli has shipped: a plugin architecture with supervised execution and 43-vector security analysis, a full file transfer pipeline with integrity verification and seven-layer DDoS defense, per-peer data grants with macaroon capability tokens, a Grant Receipt Protocol for relay-aware transfers, per-peer bandwidth budgets, relay-first onboarding, 16-test chaos testing across 5 network types, and one-line installation (`curl -fsSL get.shurli.io | sh`). The numbers table at the bottom has been updated to reflect the current state.
+
 ## The short version
 
 Shurli is a single Go binary that gives you a private peer-to-peer network with:
 
-1. Automatic NAT (Network Address Translation) traversal and path selection
+1. Automatic NAT traversal and relay-first path selection
 2. Cryptographic identity and authorization
 3. Zero-knowledge anonymous authentication
 4. Private reputation proofs with binding score commitment
 5. Unified BIP39 seed identity (one backup recovers everything)
-6. Full Prometheus observability
-7. Zero cloud accounts, zero third-party services
+6. Plugin architecture with supervised execution and file transfer
+7. Per-peer data grants with macaroon capability tokens
+8. Relay-aware transfers with Grant Receipt Protocol
+9. Per-peer bandwidth budgets
+10. Full Prometheus observability
+11. One-line installation, zero cloud accounts, zero third-party services
 
 Each of these exists somewhere in isolation. The combination does not.
 
@@ -138,7 +144,7 @@ Operators can set a message of the day (MOTD) shown to peers on connect, or a "g
 
 ![Full Observability](/images/blog/the-shurli-difference-observability.svg)
 
-40 custom Prometheus metrics covering:
+53 custom Prometheus metrics covering:
 
 | Category | What's tracked |
 |----------|---------------|
@@ -157,7 +163,7 @@ Every metric helper is nil-safe: if you don't set `--metrics-addr`, zero overhea
 
 Everything above compiles to one Go binary. ~37 MB stripped. No containers required (though it works in them). No cloud accounts. No third-party auth services. No subscription. No API keys.
 
-systemd and launchd service files included. Cross-compiles to Linux (amd64, arm64) and macOS (arm64). The relay runs on a $5/month VPS (Virtual Private Server).
+One-line install: `curl -fsSL get.shurli.io | sh`. Supports download or build-from-source, peer or relay roles, upgrade detection, and backup/restore. systemd and launchd service files included. Cross-compiles to Linux (amd64, arm64) and macOS (arm64). The relay runs on a $5/month VPS.
 
 ## Why this combination matters
 
@@ -181,8 +187,11 @@ The result is a tool where:
 - Your anonymity is provable (PLONK proofs, not trust)
 - Your reputation is private (range proofs with binding commitment, not public scores)
 - Your keys are deterministic (one BIP39 seed recovers everything)
+- Your file transfers are verified (BLAKE3 Merkle trees, Reed-Solomon parity, per-chunk integrity)
+- Your access control is granular (time-limited, service-scoped, delegatable macaroon grants)
+- Your relay usage is metered (Grant Receipt Protocol with pre-transfer budget checks)
 - Your infrastructure is sovereign (single binary, not cloud APIs)
-- Your operations are observable (40 Prometheus metrics, not blind hope)
+- Your operations are observable (53 Prometheus metrics, not blind hope)
 
 ## The numbers
 
@@ -192,12 +201,11 @@ The result is a tool where:
 | Languages | Go (single module) |
 | External crypto dependencies | 0 (stdlib + golang.org/x/crypto, already in project) |
 | Zero-knowledge proof dependency | 1 (gnark v0.14.0, ConsenSys, audited) |
-| Custom Prometheus metrics | 40 |
+| Custom Prometheus metrics | 53 |
 | Grafana panels | 56 |
-| Test count | 884 across 20 packages |
-| P2P protocols | 11 custom |
-| Admin API endpoints | 42 (24 relay + 18 daemon) |
-| Subcommands | 24 |
+| Test count | ~1,500+ across 27 packages |
+| P2P protocols | 15 custom |
+| Subcommands | 38 |
 | Supported transports | QUIC, TCP, WebSocket |
 | Auth factors | Identity + passphrase + TOTP + YubiKey |
 | Membership proof size | 520 bytes |
@@ -205,6 +213,8 @@ The result is a tool where:
 | Range proof constraints | 27,004 SCS |
 | Proof verification time | 2-3ms |
 | Tree capacity | 1M+ peers |
+| Fuzz executions (plugin security) | 209 million, zero crashes |
+| Chaos test cases | 16 across 5 network types |
 | Cloud accounts required | 0 |
 | Subscriptions required | 0 |
 | Third-party services required | 0 |
