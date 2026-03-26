@@ -50,6 +50,7 @@ type RuntimeInfo interface {
 	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
 	NotifyRouter() *notify.Router                             // nil before initialization
 	PeerManager() *p2pnet.PeerManager                         // nil before initialization
+	GrantCacheSnapshot() []*grants.GrantReceipt               // nil if no grant cache
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.

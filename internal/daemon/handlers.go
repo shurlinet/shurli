@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -16,7 +17,9 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/relay"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -290,6 +293,60 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.PluginStatus = s.registry.StatusContributions()
 	}
 
+	// Client-side relay grant cache (Batch 4: CLI visibility).
+	// Show per-relay grant status: active grants get details, relays without grants
+	// get "no grant (signaling only)" so the user sees WHY a relay can't transfer data.
+	if len(resp.Relays) > 0 {
+		// Index cached receipts by relay peer ID for O(1) lookup.
+		receiptByRelay := make(map[string]*grants.GrantReceipt)
+		for _, r := range rt.GrantCacheSnapshot() {
+			if !r.Expired() {
+				receiptByRelay[r.RelayPeerID.String()] = r
+			}
+		}
+
+		for _, rs := range resp.Relays {
+			safeName := validate.SanitizeForDisplay(rs.RelayName)
+			r, hasGrant := receiptByRelay[rs.PeerID]
+			if !hasGrant {
+				resp.RelayGrants = append(resp.RelayGrants, RelayGrantInfo{
+					RelayPeerID: rs.PeerID,
+					RelayName:   safeName,
+				})
+				continue
+			}
+			rgi := RelayGrantInfo{
+				RelayPeerID: rs.PeerID,
+				RelayName:   safeName,
+				Permanent:   r.Permanent,
+			}
+			if r.Permanent {
+				rgi.Remaining = "permanent"
+			} else {
+				rgi.Remaining = formatDuration(r.Remaining())
+			}
+			if r.SessionDataLimit == 0 {
+				rgi.SessionBudget = "unlimited"
+			} else {
+				rgi.SessionBudget = p2pnet.FormatBytes(r.SessionDataLimit)
+			}
+			// Clamp sum to prevent int64 overflow (both counters are individually
+			// clamped to MaxInt64 by TrackCircuitBytes).
+			sent, recv := r.CircuitBytesSent, r.CircuitBytesReceived
+			if sent > math.MaxInt64-recv {
+				sent = math.MaxInt64 - recv
+			}
+			used := sent + recv
+			if used > 0 {
+				rgi.SessionUsed = p2pnet.FormatBytes(used)
+			}
+			if r.SessionDuration > 0 {
+				rgi.SessionDuration = formatDuration(r.SessionDuration)
+			}
+			resp.RelayGrants = append(resp.RelayGrants, rgi)
+		}
+	}
+
 	if WantsText(r) {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "peer_id: %s\n", resp.PeerID)
@@ -342,6 +399,27 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		for pluginName, fields := range resp.PluginStatus {
 			for k, v := range fields {
 				fmt.Fprintf(&sb, "%s.%s: %v\n", pluginName, k, v)
+			}
+		}
+		if len(resp.RelayGrants) > 0 {
+			fmt.Fprintf(&sb, "relay_grants: %d\n", len(resp.RelayGrants))
+			for _, rg := range resp.RelayGrants {
+				name := rg.RelayName
+				if name == "" {
+					name = truncatePeerID(rg.RelayPeerID)
+				}
+				if rg.Remaining == "" && !rg.Permanent {
+					fmt.Fprintf(&sb, "  %s: no_grant\n", name)
+					continue
+				}
+				fmt.Fprintf(&sb, "  %s: %s, budget=%s", name, rg.Remaining, rg.SessionBudget)
+				if rg.SessionUsed != "" {
+					fmt.Fprintf(&sb, " (used=%s)", rg.SessionUsed)
+				}
+				if rg.SessionDuration != "" {
+					fmt.Fprintf(&sb, ", circuit=%s", rg.SessionDuration)
+				}
+				fmt.Fprintln(&sb)
 			}
 		}
 		RespondText(w, http.StatusOK, sb.String())

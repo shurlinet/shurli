@@ -60,6 +60,7 @@ func (m *networkMockRuntime) GrantsAutoRefresh() bool                      { ret
 func (m *networkMockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 func (m *networkMockRuntime) NotifyRouter() *notify.Router                 { return nil }
 func (m *networkMockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *networkMockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
 type mockGater struct {
