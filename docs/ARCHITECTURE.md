@@ -22,6 +22,7 @@ This document describes the technical architecture of Shurli, from current imple
     - [Delegation](#delegation) - multi-hop token attenuation
     - [Notification Subsystem](#notification-subsystem) - multi-channel event routing
     - [Integrity-Chained Audit Log](#integrity-chained-audit-log) - tamper-evident grant history
+    - [Grant Receipt Protocol](#grant-receipt-protocol) - relay-pushed 62-byte receipts, client cache, smart pre-transfer checks
   - [Passphrase-Sealed Vault (Phase 6)](#passphrase-sealed-vault-phase-6) - relay key protection
   - [Async Invite Deposits (Phase 6)](#async-invite-deposits-phase-6) - client-deposit invites
   - [ZKP Privacy Layer (Phase 7)](#zkp-privacy-layer-phase-7) - anonymous membership proofs
@@ -153,6 +154,7 @@ Shurli/
 │   ├── transfer_parallel.go # Parallel QUIC streams (adaptive, 1 for LAN, up to 4 for WAN)
 │   ├── transfer_multipeer.go # RaptorQ fountain codes for multi-source download
 │   ├── transfer_raptorq.go  # RaptorQ symbol encoding/decoding
+│   ├── transfer_grants.go   # Relay grant pre-transfer checks, smart reconnection, budget tracking
 │   ├── transfer_log.go      # Transfer event logger (JSON lines, file rotation)
 │   ├── transfer_notify.go   # Transfer notifications (desktop/command modes)
 │   ├── chunker.go           # FastCDC content-defined chunking (own impl, adaptive targets)
@@ -232,6 +234,7 @@ Shurli/
 │   │   ├── protocol.go      # P2P grant delivery protocol (/shurli/grant/1.0.0)
 │   │   ├── delivery_queue.go # Offline delivery queue (granting node only, not relay)
 │   │   ├── audit.go         # Integrity-chained audit log (HMAC-SHA256 chain)
+│   │   ├── cache.go         # GrantCache: client-side relay grant receipt cache, budget tracking, persistence
 │   │   ├── rate_limit.go    # Per-peer ops rate limiter (10/min default)
 │   │   ├── hmac_file.go     # HMAC-integrity file persistence helpers
 │   │   └── duration.go      # Duration parsing helpers
@@ -254,6 +257,7 @@ Shurli/
 │   ├── relay/               # Relay pairing, admin socket, peer introductions, vault unseal, MOTD
 │   │   ├── tokens.go        # Token store (v2 pairing codes, TTL, namespace)
 │   │   ├── pairing.go       # Relay pairing protocol (/shurli/relay-pair/1.0.0)
+│   │   ├── grant_receipt.go  # Grant receipt wire format (62 bytes), encode/decode/verify, relay-side push
 │   │   ├── notify.go        # Reconnect notifier + peer introduction delivery (/shurli/peer-notify/1.0.0)
 │   │   ├── admin.go         # Relay admin Unix socket server (cookie auth, /v1/ endpoints)
 │   │   ├── admin_api.go     # RelayAdminAPI interface (local + remote transparent)
@@ -1100,11 +1104,74 @@ Each entry: `HMAC-SHA256(key, prev_hash + entry_data)`. Breaking the chain at an
 
 #### Grant-Aware Backoff Reset
 
-When the relay creates a grant for a peer, it sends a `/shurli/grant-changed/1.0.0` notification to the client node. The client calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers.
+When the relay creates or extends a grant, it pushes a grant receipt via `/shurli/grant-receipt/1.0.0` (or falls back to the legacy `/shurli/grant-changed/1.0.0` signal for older clients). The client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs, enabling immediate reconnection without waiting for exponential backoff timers. See [Grant Receipt Protocol](#grant-receipt-protocol) for full details.
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
 
 **Reference**: `pkg/p2pnet/peermanager.go`
+
+#### Grant Receipt Protocol
+
+Protocol: `/shurli/grant-receipt/1.0.0`
+
+Replaces the 1-byte `/shurli/grant-changed/1.0.0` signal with a full 62-byte receipt that carries grant parameters. The relay pushes a receipt to the peer whenever a grant is created, extended, or the peer reconnects. Backward compatible: falls back to the legacy protocol if the peer does not support receipts.
+
+**Wire format (62 bytes)**:
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | version | `0x01` |
+| 1 | 8 BE | grant_duration_secs | Relative duration (0 for permanent grants) |
+| 9 | 8 BE | session_data_limit | Bytes per direction per session (0 = unlimited) |
+| 17 | 4 BE | session_duration_secs | Per-circuit session duration |
+| 21 | 1 | permanent | `0x00` = no, `0x01` = yes |
+| 22 | 8 BE | issued_at | Unix seconds (relay clock) |
+| 30 | 32 | HMAC-SHA256 | Over canonical payload (first 30 bytes) |
+
+The HMAC key is derived via HKDF from the relay's identity with context `"grant-receipt/v1"`. Clients store the HMAC for future verification but do not verify it locally today (no shared key). The `issued_at` field enables stale-revocation detection: a revocation older than the current cached receipt is ignored.
+
+**Client-side GrantCache** (`internal/grants/cache.go`):
+
+- Keyed by relay peer ID. One receipt per relay.
+- Thread-safe (`sync.RWMutex`). Persisted to `~/.shurli/grant_cache.json` with HMAC-SHA256 integrity (key derived from client identity via HKDF with context `"grant-cache/v1"`).
+- Symlink rejection on write (defense-in-depth). Max file size check on load (1 MB).
+- Per-circuit byte counters (`CircuitBytesSent`, `CircuitBytesReceived`) track session budget usage. These are in-memory only (not persisted) and reset on new circuit.
+- Background cleanup goroutine removes expired entries on a configurable interval.
+- `GrantStatus()` satisfies the `RelayGrantChecker` interface via structural typing (no import cycle).
+
+**Smart pre-transfer checks** (`pkg/p2pnet/transfer_grants.go`):
+
+Before a relay-mediated file transfer, the transfer service checks the cached receipt:
+
+1. **Budget check**: is the remaining session budget (per direction) sufficient for the file size?
+2. **Time check**: is the grant remaining time (and session duration) sufficient for the estimated transfer time at a conservative 200 KB/s?
+3. If budget is insufficient, the transfer service establishes a new circuit (resetting session counters) and retries.
+4. If the transfer fails mid-stream and the grant is still active, smart reconnection retries with exponential backoff (2s initial, 32s max, 5 attempts). Application-level errors (rejection, file errors, access denied) are excluded from retry.
+
+Per-chunk byte tracking: every chunk written to a relayed stream increments the circuit byte counter via `TrackCircuitBytes()`, clamped to `MaxInt64` to prevent overflow.
+
+**Relay-side push** (`internal/relay/grant_receipt.go`):
+
+- `NotifyGrantReceipt()` encodes and sends a receipt to a connected peer. If the peer is offline, delivery is deferred to reconnect.
+- `sendGrantReceipt()` negotiates `GrantReceiptProtocol` with `GrantChangedProtocol` fallback. If the peer only supports the legacy protocol, a 1-byte signal is sent instead.
+- `RunReconnectNotifier()` pushes receipts to peers with active grants on reconnection (via `EvtPeerIdentificationCompleted`).
+
+**Client-side handler** (`cmd/shurli/serve_common.go`):
+
+- Registers stream handlers for both protocols.
+- Receipt handler: validates sender is a configured relay, rate limits (max 1 per relay per 10s), reads 62 bytes with 5s deadline, decodes, checks clock drift (warns if >60s), caches the receipt, then clears dial backoffs.
+- Legacy handler: clears dial backoffs only (same behavior as before the protocol upgrade).
+
+**CLI visibility** (`shurli status`):
+
+The `Relay Grants:` section in `shurli status` displays per-relay grant info from the cache. See the [Commands](COMMANDS.md) reference for output format details.
+
+**Backward compatibility**:
+
+- Relays running the new code send receipts to new clients and 1-byte signals to old clients (protocol negotiation).
+- New clients with old relays never receive receipts (no handler registered on the relay). The cache stays empty and pre-transfer checks are skipped (graceful degradation).
+
+**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`, `cmd/shurli/serve_common.go`
 
 #### Security Thought Experiment
 
