@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -27,9 +28,12 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/identity"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/reputation"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
@@ -90,11 +94,18 @@ type serveRuntime struct {
 	// MOTD client for relay message queries (populated by SetupMOTDClient)
 	motdClient *relay.MOTDClient
 
-	// File transfer service (populated by SetupTransfer)
-	transferService *p2pnet.TransferService
+	// Per-peer data access grants (macaroon capability tokens)
+	grantStore    *grants.Store
+	grantPouch    *grants.Pouch
+	grantProtocol *grants.GrantProtocol
+	deliveryQueue *grants.DeliveryQueue
+	grantCache    *grants.GrantCache // client-side relay grant receipt cache
 
-	// Share registry (populated by SetupSharing)
-	shareRegistry *p2pnet.ShareRegistry
+	// Phase D: hardening
+	opsRateLimiter *grants.OpsRateLimiter
+
+	// Notification router (Phase C)
+	notifyRouter *notify.Router
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -563,10 +574,28 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.metrics.InterfaceCount.WithLabelValues("ipv6").Set(float64(ipv6Count))
 		}
 
+		// Strip private/LAN addresses from watched peers' peerstore FIRST,
+		// before any subsystem can trigger a DialPeer that reads the peerstore.
+		// The swarm's dial worker caches dial failures per address; if any
+		// subsystem tries a stale LAN address during WiFi settling, the cached
+		// "no route to host" poisons concurrent mDNS upgrades joining the same
+		// worker. mDNS re-populates LAN addresses from fresh multicast discovery.
+		// Order: strip → reset black holes → clear backoffs → reconnectNow → BrowseNow
+		if rt.peerManager != nil {
+			rt.peerManager.StripPrivateAddrs()
+		}
+
 		// Reset libp2p's black hole detectors. A network change invalidates
 		// the previous state: IPv6/UDP may work on the new network even if
 		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
 		rt.network.ResetBlackHoles()
+
+		// Clear swarm dial backoffs for watched peers. Previous "no route to
+		// host" failures are invalid after a network change (e.g., VPN with
+		// local network sharing now allows LAN paths that previously failed).
+		if rt.peerManager != nil && rt.gater != nil {
+			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+		}
 
 		// Re-evaluate peer relay eligibility on network change
 		if rt.peerRelay != nil {
@@ -630,8 +659,8 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.netIntel.AnnounceNow()
 		}
 
-		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v)\n",
-			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed)
+		fmt.Printf("Network change: +%d -%d IPs (ipv6=%v ipv4=%v gw=%v)\n",
+			len(change.Added), len(change.Removed), change.IPv6Changed, change.IPv4Changed, change.GatewayChanged)
 
 		// Re-probe STUN on network change (external address may have changed)
 		if rt.stunProber != nil {
@@ -793,6 +822,13 @@ func (rt *serveRuntime) ExposeConfiguredServices() {
 			}
 		}
 	}
+
+	// Register service-query protocol so remote peers can discover our services.
+	// Allow relay transport since this is metadata-only (no data transfer).
+	if err := rt.network.RegisterServiceQuery(); err != nil {
+		log.Printf("Warning: failed to register service-query handler: %v", err)
+	}
+
 	fmt.Println()
 }
 
@@ -843,9 +879,9 @@ func (rt *serveRuntime) SetupMOTDClient() {
 	motdClient := relay.NewMOTDClient(func(msg relay.MOTDMessage) {
 		switch msg.Type {
 		case 0x01: // MOTD
-			fmt.Printf("\n[RELAY MOTD] %s\n", msg.Message)
+			fmt.Printf("\n[RELAY MOTD] %s\n", validate.SanitizeForDisplay(msg.Message))
 		case 0x02: // Goodbye
-			fmt.Printf("\n[RELAY GOODBYE] %s\n", msg.Message)
+			fmt.Printf("\n[RELAY GOODBYE] %s\n", validate.SanitizeForDisplay(msg.Message))
 		case 0x03: // Retract
 			fmt.Printf("\n[RELAY] Goodbye retracted\n")
 		}
@@ -971,6 +1007,173 @@ func (rt *serveRuntime) SetupPeerNotify() {
 			}
 		}
 	})
+
+}
+
+// receiptRateLimiter tracks the last receipt time per relay (S7: max 1 per 10s).
+type receiptRateLimiter struct {
+	mu   sync.Mutex
+	last map[peer.ID]time.Time
+}
+
+func (rl *receiptRateLimiter) allow(relayID peer.ID) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if rl.last == nil {
+		rl.last = make(map[peer.ID]time.Time)
+	}
+	last, ok := rl.last[relayID]
+	if ok && time.Since(last) < 10*time.Second {
+		return false
+	}
+	rl.last[relayID] = time.Now()
+	return true
+}
+
+// setupGrantReceiptHandler registers handlers for BOTH the new grant-receipt
+// and legacy grant-changed protocols. The new protocol caches the full receipt;
+// the legacy protocol triggers the same backoff-clearing behavior as before.
+func (rt *serveRuntime) setupGrantReceiptHandler() {
+	h := rt.network.Host()
+	rl := &receiptRateLimiter{}
+
+	// Handler for the new grant-receipt protocol (62-byte receipt).
+	h.SetStreamHandler(protocol.ID(relay.GrantReceiptProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		short := remotePeer.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("grant-receipt: rejected from non-relay", "peer", short)
+			return
+		}
+
+		// S7: rate limit receipt processing (max 1 per relay per 10s).
+		if !rl.allow(remotePeer) {
+			slog.Debug("grant-receipt: rate limited", "peer", short)
+			return
+		}
+
+		// Read the full 62-byte receipt with timeout to prevent hanging
+		// on a malicious relay that sends partial data.
+		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			slog.Warn("grant-receipt: set deadline error", "err", err)
+			return
+		}
+		var buf [relay.GrantReceiptSize]byte
+		if _, err := io.ReadFull(s, buf[:]); err != nil {
+			slog.Warn("grant-receipt: read error", "err", err)
+			return
+		}
+
+		decoded, err := relay.DecodeGrantReceipt(buf[:])
+		if err != nil {
+			slog.Warn("grant-receipt: decode error", "err", err)
+			return
+		}
+
+		// Clock drift detection.
+		drift := time.Since(decoded.IssuedAt)
+		if drift < 0 {
+			drift = -drift
+		}
+		if drift > 60*time.Second {
+			slog.Warn("grant-receipt: clock drift detected",
+				"relay", short, "drift", drift.Round(time.Second))
+		}
+
+		// Cache the receipt.
+		if rt.grantCache != nil {
+			receipt := &grants.GrantReceipt{
+				RelayPeerID:      remotePeer,
+				GrantDuration:    decoded.GrantDuration,
+				SessionDataLimit: decoded.SessionDataLimit,
+				SessionDuration:  decoded.SessionDuration,
+				Permanent:        decoded.Permanent,
+				ReceivedAt:       time.Now(),
+				IssuedAt:         decoded.IssuedAt,
+				HMAC:             decoded.HMAC,
+			}
+			rt.grantCache.Put(receipt)
+
+			if decoded.Permanent {
+				slog.Info("grant-receipt: cached permanent grant",
+					"relay", short,
+					"session_data", decoded.SessionDataLimit,
+					"session_duration", decoded.SessionDuration)
+			} else {
+				slog.Info("grant-receipt: cached grant",
+					"relay", short,
+					"duration", decoded.GrantDuration,
+					"session_data", decoded.SessionDataLimit,
+					"session_duration", decoded.SessionDuration)
+			}
+		} else {
+			slog.Warn("grant-receipt: received but cache not initialized (identity key missing?)",
+				"relay", short)
+		}
+
+		// Same backoff-clearing as legacy handler.
+		rt.clearBackoffsAndReconnect()
+	})
+
+	// Legacy handler for old relays that only speak grant-changed.
+	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
+		defer s.Close()
+		remotePeer := s.Conn().RemotePeer()
+
+		short := remotePeer.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+
+		if !rt.isConfiguredRelay(remotePeer) {
+			slog.Warn("grant-changed: rejected from non-relay", "peer", short)
+			return
+		}
+
+		// S7: rate limit (shared with receipt handler).
+		if !rl.allow(remotePeer) {
+			slog.Debug("grant-changed: rate limited", "peer", short)
+			return
+		}
+
+		// Read and validate version byte with timeout.
+		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			slog.Warn("grant-changed: set deadline error", "err", err)
+			return
+		}
+		var ver [1]byte
+		if _, err := io.ReadFull(s, ver[:]); err != nil {
+			slog.Warn("grant-changed: read error", "err", err)
+			return
+		}
+		if ver[0] != 0x01 {
+			slog.Warn("grant-changed: unsupported version", "version", ver[0])
+			return
+		}
+
+		slog.Info("grant-changed: relay notified access changed (legacy), clearing backoffs",
+			"relay", short)
+
+		rt.clearBackoffsAndReconnect()
+	})
+}
+
+// clearBackoffsAndReconnect clears dial backoffs and triggers reconnection.
+// Shared by both grant-receipt and legacy grant-changed handlers.
+func (rt *serveRuntime) clearBackoffsAndReconnect() {
+	if rt.gater != nil {
+		rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+	}
+	if rt.peerManager != nil {
+		rt.peerManager.OnNetworkChange()
+	}
+	rt.network.ResetBlackHoles()
 }
 
 // isConfiguredRelay checks if a peer ID matches one of the configured relay addresses.
@@ -1054,7 +1257,7 @@ func (rt *serveRuntime) StartWatchdog(extraChecks ...watchdog.HealthCheck) {
 						return nil
 					}
 				}
-				return fmt.Errorf("no relay addresses")
+				return fmt.Errorf("no relay addresses; add one with 'shurli relay add <address>' or run 'shurli init' to configure")
 			},
 		},
 	}
@@ -1260,123 +1463,74 @@ func (rt *serveRuntime) StartPeerHistorySaver() {
 	}()
 }
 
-// SetupTransfer initializes the file transfer service and registers the
-// inbound stream handler on the P2P host.
-func (rt *serveRuntime) SetupTransfer() {
-	compress := true
-	if rt.config.Transfer.Compress != nil {
-		compress = *rt.config.Transfer.Compress
+// ComputeReputationScores computes reputation scores from peer history and returns
+// a map of peer ID string -> score (0-100). This is the bridge between PeerHistory
+// data collection and score consumption (PluginContext, ZKP tree).
+func (rt *serveRuntime) ComputeReputationScores() map[string]int {
+	if rt.peerHistory == nil {
+		return nil
 	}
-
-	logPath := rt.config.Transfer.LogPath
-	if logPath == "" {
-		logPath = filepath.Join(filepath.Dir(rt.configFile), "logs", "transfers.log")
+	records := rt.peerHistory.AllRecords()
+	if len(records) == 0 {
+		return nil
 	}
-
-	erasureOverhead := 0.1 // default 10% RS parity
-	if rt.config.Transfer.ErasureOverhead != nil {
-		erasureOverhead = *rt.config.Transfer.ErasureOverhead
+	maxConn := rt.peerHistory.MaxConnections()
+	now := time.Now()
+	scores := make(map[string]int, len(records))
+	for peerID, record := range records {
+		scores[peerID] = reputation.ComputeScore(record, maxConn, now)
 	}
-
-	multiPeerEnabled := true
-	if rt.config.Transfer.MultiPeerEnabled != nil {
-		multiPeerEnabled = *rt.config.Transfer.MultiPeerEnabled
-	}
-
-	cfg := p2pnet.TransferConfig{
-		ReceiveDir:        rt.config.Transfer.ReceiveDir,
-		MaxSize:           rt.config.Transfer.MaxFileSize,
-		ReceiveMode:       p2pnet.ReceiveMode(rt.config.Transfer.ReceiveMode),
-		Compress:          compress,
-		ErasureOverhead:   erasureOverhead,
-		LogPath:           logPath,
-		Notify:            rt.config.Transfer.Notify,
-		NotifyCommand:     rt.config.Transfer.NotifyCommand,
-		MaxConcurrent:     rt.config.Transfer.MaxConcurrent,
-		MultiPeerEnabled:  multiPeerEnabled,
-		MultiPeerMaxPeers: rt.config.Transfer.MultiPeerMaxPeers,
-		MultiPeerMinSize:  rt.config.Transfer.MultiPeerMinSize,
-		RateLimit:         rt.config.Transfer.RateLimit,
-	}
-
-	ts, err := p2pnet.NewTransferService(cfg, rt.metrics, rt.network.Events())
-	if err != nil {
-		fmt.Printf("Warning: file transfer disabled: %v\n", err)
-		return
-	}
-	rt.transferService = ts
-
-	// If config specifies timed mode at startup, activate the timer.
-	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
-		durStr := rt.config.Transfer.TimedDuration
-		if durStr == "" {
-			durStr = "10m"
-		}
-		if dur, parseErr := time.ParseDuration(durStr); parseErr == nil {
-			if timedErr := ts.SetTimedMode(dur); timedErr != nil {
-				fmt.Printf("Warning: timed mode failed: %v\n", timedErr)
-			}
-		}
-	}
-
-	// Register the inbound handler as a custom service.
-	// Default policy: LAN + Direct only. Relay is explicitly excluded to protect
-	// relay bandwidth (relays are signaling-only, not data pipes).
-	if err := rt.network.RegisterHandler("file-transfer", ts.HandleInbound(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-transfer handler: %v\n", err)
-		return
-	}
-
-	// Register multi-peer download handler (fountain-coded swarming).
-	// Same policy as file-transfer: LAN + Direct only.
-	if err := rt.network.RegisterHandler("file-multi-peer", ts.HandleMultiPeerRequest(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-multi-peer handler: %v\n", err)
-	}
-
-	fmt.Printf("File transfer enabled (receive dir: %s)\n", cfg.ReceiveDir)
-	if cfg.ReceiveDir == "" {
-		fmt.Println("  (default: ~/Downloads/shurli/)")
-	}
+	return scores
 }
 
-// SetupSharing initializes the share registry and registers the browse
-// protocol handler on the P2P host. Persistent shares are loaded from disk.
-func (rt *serveRuntime) SetupSharing() {
-	configDir := filepath.Dir(rt.configFile)
-	persistPath := filepath.Join(configDir, "shares.json")
-
-	reg, err := p2pnet.LoadShareRegistry(persistPath)
-	if err != nil {
-		fmt.Printf("Warning: failed to load persistent shares: %v\n", err)
-		reg = p2pnet.NewShareRegistry()
-		reg.SetPersistPath(persistPath)
-	}
-	rt.shareRegistry = reg
-
-	if err := rt.network.RegisterHandler("file-browse", reg.HandleBrowse(), nil); err != nil {
-		fmt.Printf("Warning: failed to register file-browse handler: %v\n", err)
-		return
+// StartReputationScoreUpdater runs a background goroutine that periodically
+// computes reputation scores from peer history. Scores are stored in a thread-safe
+// map accessible via the scoreResolver function returned by this method.
+//
+// Pipeline: PeerHistory -> ComputeScore -> scoreMap (read by PluginContext.peerScore)
+func (rt *serveRuntime) StartReputationScoreUpdater() func(peer.ID) int {
+	if rt.peerHistory == nil {
+		return func(_ peer.ID) int { return 0 }
 	}
 
-	// Register download protocol handler (requires transfer service).
-	if rt.transferService != nil {
-		if err := rt.network.RegisterHandler("file-download", reg.HandleDownload(rt.transferService), nil); err != nil {
-			fmt.Printf("Warning: failed to register file-download handler: %v\n", err)
+	var mu sync.RWMutex
+	scores := make(map[string]int)
+
+	// Compute once at startup so scores are available immediately.
+	if initial := rt.ComputeReputationScores(); initial != nil {
+		scores = initial
+	}
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case <-ticker.C:
+				computed := rt.ComputeReputationScores()
+				if computed != nil {
+					mu.Lock()
+					scores = computed
+					mu.Unlock()
+					slog.Info("reputation: scores updated", "peers", len(computed))
+				}
+			}
 		}
-	}
+	}()
 
-	fmt.Println("File sharing enabled")
+	return func(id peer.ID) int {
+		mu.RLock()
+		defer mu.RUnlock()
+		return scores[id.String()]
+	}
 }
 
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
+// Transfer service shutdown is handled by plugin Stop() via registry.StopAll().
 func (rt *serveRuntime) Shutdown() {
-	// Close transfer service (flushes log file, stops rate limiter cleanup).
-	if rt.transferService != nil {
-		if err := rt.transferService.Close(); err != nil {
-			slog.Warn("transfer-service: close failed", "err", err)
-		}
-	}
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {
@@ -1399,6 +1553,22 @@ func (rt *serveRuntime) Shutdown() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		rt.metricsServer.Shutdown(shutdownCtx)
 		shutdownCancel()
+	}
+	if rt.notifyRouter != nil {
+		rt.notifyRouter.Stop()
+	}
+	if rt.grantCache != nil {
+		rt.grantCache.Stop()
+	}
+	if rt.grantProtocol != nil {
+		rt.grantProtocol.Stop()
+		rt.grantProtocol.Unregister()
+	}
+	if rt.grantPouch != nil {
+		rt.grantPouch.Stop()
+	}
+	if rt.grantStore != nil {
+		rt.grantStore.Stop()
 	}
 	rt.cancel()
 	rt.network.Close()

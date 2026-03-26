@@ -17,7 +17,7 @@ import (
 func runInvite(args []string) {
 	fs := flag.NewFlagSet("invite", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
-	nameFlag := fs.String("name", "", "friendly name for this peer (e.g., \"home\")")
+	nameFlag := fs.String("as", "", "your node's name on the network (e.g., \"home-server\")")
 	ttlFlag := fs.Duration("ttl", 24*time.Hour, "invite code expiry duration")
 	countFlag := fs.Int("count", 1, "number of invite codes to generate")
 	remoteFlag := fs.String("remote", "", "relay address (multiaddr, name, or peer ID)")
@@ -48,7 +48,7 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 	cfgFile, cfg := resolveConfigFile(configFlag)
 	if remoteAddr == "" {
 		if len(cfg.Relay.Addresses) == 0 {
-			fatal("No relay addresses in config. Use --remote or add relay addresses to config.")
+			fatal("No relay addresses in config.\n  Add one with: shurli relay add <address>\n  Or specify directly: shurli invite --remote <relay-address>")
 		}
 		remoteAddr = cfg.Relay.Addresses[0]
 	}
@@ -150,10 +150,10 @@ func printInviteCodes(codes []string, ttl time.Duration, nonInteractive bool) {
 	termcolor.Faint("--- Send this to the joining peer ---")
 	fmt.Println()
 	fmt.Println()
-	fmt.Println("Install shurli: https://shurli.net/install")
+	fmt.Println("Install shurli: curl -sSL get.shurli.io | sh")
 	fmt.Println("Then run:")
 	fmt.Println("  shurli init")
-	fmt.Printf("  shurli join %s --name <your-device-name>\n", codes[0])
+	fmt.Printf("  shurli join %s --as <your-device-name>\n", codes[0])
 	fmt.Println()
 	termcolor.Faint("---")
 	fmt.Println()

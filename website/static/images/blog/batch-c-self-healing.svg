@@ -6,56 +6,60 @@
     </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgC)"/>
-  <!-- Config archive timeline - versioned configs flowing left to right -->
-  <!-- Config v1 (archived) -->
-  <rect x="80" y="150" width="140" height="100" rx="8" fill="none" stroke="#565f89" stroke-width="1.5" opacity="0.5"/>
-  <text x="150" y="180" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle" opacity="0.7">config.v1</text>
-  <rect x="100" y="195" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <rect x="100" y="207" width="80" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <rect x="100" y="219" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <!-- Config v2 (archived) -->
-  <rect x="280" y="150" width="140" height="100" rx="8" fill="none" stroke="#565f89" stroke-width="1.5" opacity="0.5"/>
-  <text x="350" y="180" font-family="SF Mono, monospace" font-size="11" fill="#565f89" text-anchor="middle" opacity="0.7">config.v2</text>
-  <rect x="300" y="195" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <rect x="300" y="207" width="80" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <rect x="300" y="219" width="100" height="6" rx="2" fill="#565f89" opacity="0.2"/>
-  <!-- Config v3 (bad - red) -->
-  <rect x="480" y="150" width="140" height="100" rx="8" fill="none" stroke="#f7768e" stroke-width="2" opacity="0.7"/>
-  <text x="550" y="180" font-family="SF Mono, monospace" font-size="11" fill="#f7768e" text-anchor="middle">config.v3</text>
-  <rect x="500" y="195" width="100" height="6" rx="2" fill="#f7768e" opacity="0.3"/>
-  <rect x="500" y="207" width="80" height="6" rx="2" fill="#f7768e" opacity="0.3"/>
-  <rect x="500" y="219" width="100" height="6" rx="2" fill="#f7768e" opacity="0.3"/>
-  <text x="550" y="272" font-family="SF Mono, monospace" font-size="10" fill="#f7768e" text-anchor="middle" opacity="0.7">broken!</text>
-  <!-- Rollback arrow from v3 back to v2 -->
-  <path d="M 500 290 Q 400 320 320 290" fill="none" stroke="#e0af68" stroke-width="2" stroke-dasharray="6,4"/>
-  <path d="M 325 285 L 320 290 L 327 294" fill="none" stroke="#e0af68" stroke-width="2"/>
-  <text x="410" y="340" font-family="SF Mono, monospace" font-size="11" fill="#e0af68" text-anchor="middle" opacity="0.7">rollback</text>
-  <!-- Watchdog - heartbeat pulse -->
-  <circle cx="800" cy="200" r="40" fill="none" stroke="#9ece6a" stroke-width="2" opacity="0.4"/>
-  <circle cx="800" cy="200" r="60" fill="none" stroke="#9ece6a" stroke-width="1" opacity="0.2"/>
-  <circle cx="800" cy="200" r="80" fill="none" stroke="#9ece6a" stroke-width="0.5" opacity="0.1"/>
-  <!-- Heartbeat line through the circle -->
-  <path d="M 730 200 L 770 200 L 780 170 L 790 230 L 800 180 L 810 220 L 820 200 L 870 200" fill="none" stroke="#9ece6a" stroke-width="2"/>
-  <text x="800" y="300" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" text-anchor="middle" opacity="0.6">watchdog</text>
-  <!-- Commit-confirmed timer -->
-  <circle cx="1040" cy="200" r="50" fill="none" stroke="#e8729a" stroke-width="2" opacity="0.5"/>
-  <!-- Clock hand -->
-  <line x1="1040" y1="200" x2="1040" y2="160" stroke="#e8729a" stroke-width="2.5" stroke-linecap="round"/>
-  <line x1="1040" y1="200" x2="1065" y2="210" stroke="#e8729a" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="1040" cy="200" r="4" fill="#e8729a"/>
-  <!-- Timer ticks -->
-  <line x1="1040" y1="152" x2="1040" y2="158" stroke="#e8729a" stroke-width="1.5" opacity="0.4"/>
-  <line x1="1088" y1="200" x2="1082" y2="200" stroke="#e8729a" stroke-width="1.5" opacity="0.4"/>
-  <line x1="1040" y1="248" x2="1040" y2="242" stroke="#e8729a" stroke-width="1.5" opacity="0.4"/>
-  <line x1="992" y1="200" x2="998" y2="200" stroke="#e8729a" stroke-width="1.5" opacity="0.4"/>
-  <text x="1040" y="280" font-family="SF Mono, monospace" font-size="10" fill="#e8729a" text-anchor="middle" opacity="0.6">commit-confirmed</text>
-  <text x="1040" y="295" font-family="SF Mono, monospace" font-size="9" fill="#e8729a" text-anchor="middle" opacity="0.4">auto-revert in 5m</text>
-  <!-- Arrows connecting configs -->
-  <path d="M 220 200 L 275 200" stroke="#565f89" stroke-width="1" opacity="0.4" marker-end="url(#arrowC)"/>
-  <path d="M 420 200 L 475 200" stroke="#565f89" stroke-width="1" opacity="0.4" marker-end="url(#arrowC)"/>
-  <defs>
-    <marker id="arrowC" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-      <polygon points="0 0, 8 3, 0 6" fill="#565f89" opacity="0.4"/>
-    </marker>
-  </defs>
+
+  <!-- Timeline bar -->
+  <line x1="100" y1="200" x2="1100" y2="200" stroke="#2a282c" stroke-width="3"/>
+
+  <!-- State 1: Running normally (green) -->
+  <circle cx="200" cy="200" r="30" fill="#9ece6a" opacity="0.1" stroke="#9ece6a" stroke-width="2"/>
+  <circle cx="200" cy="200" r="12" fill="#9ece6a" opacity="0.4"/>
+  <text x="200" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" text-anchor="middle" font-weight="600">Running</text>
+
+  <!-- Arrow 1 -->
+  <line x1="240" y1="200" x2="360" y2="200" stroke="#565f89" stroke-width="1.5"/>
+  <polygon points="355,194 365,200 355,206" fill="#565f89"/>
+
+  <!-- State 2: Something breaks (red) -->
+  <circle cx="400" cy="200" r="30" fill="#f7768e" opacity="0.1" stroke="#f7768e" stroke-width="2"/>
+  <!-- X mark -->
+  <line x1="390" y1="190" x2="410" y2="210" stroke="#f7768e" stroke-width="3" stroke-linecap="round"/>
+  <line x1="410" y1="190" x2="390" y2="210" stroke="#f7768e" stroke-width="3" stroke-linecap="round"/>
+  <text x="400" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#f7768e" text-anchor="middle" font-weight="600">Break</text>
+
+  <!-- Arrow 2 -->
+  <line x1="440" y1="200" x2="560" y2="200" stroke="#565f89" stroke-width="1.5"/>
+  <polygon points="555,194 565,200 555,206" fill="#565f89"/>
+
+  <!-- State 3: Detects problem (amber) -->
+  <circle cx="600" cy="200" r="30" fill="#e0af68" opacity="0.1" stroke="#e0af68" stroke-width="2"/>
+  <!-- Eye icon -->
+  <ellipse cx="600" cy="200" rx="14" ry="9" fill="none" stroke="#e0af68" stroke-width="1.5"/>
+  <circle cx="600" cy="200" r="5" fill="#e0af68" opacity="0.5"/>
+  <text x="600" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#e0af68" text-anchor="middle" font-weight="600">Detect</text>
+
+  <!-- Arrow 3 -->
+  <line x1="640" y1="200" x2="760" y2="200" stroke="#565f89" stroke-width="1.5"/>
+  <polygon points="755,194 765,200 755,206" fill="#565f89"/>
+
+  <!-- State 4: Rolls back (purple) -->
+  <circle cx="800" cy="200" r="30" fill="#bb9af7" opacity="0.1" stroke="#bb9af7" stroke-width="2"/>
+  <!-- Rewind arrow -->
+  <path d="M 810 192 A 12 12 0 1 0 810 208" fill="none" stroke="#bb9af7" stroke-width="2"/>
+  <polygon points="806,191 814,191 810,184" fill="#bb9af7"/>
+  <text x="800" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#bb9af7" text-anchor="middle" font-weight="600">Roll Back</text>
+
+  <!-- Arrow 4 -->
+  <line x1="840" y1="200" x2="960" y2="200" stroke="#565f89" stroke-width="1.5"/>
+  <polygon points="955,194 965,200 955,206" fill="#565f89"/>
+
+  <!-- State 5: Recovered (green again) -->
+  <circle cx="1000" cy="200" r="30" fill="#9ece6a" opacity="0.1" stroke="#9ece6a" stroke-width="2"/>
+  <!-- Checkmark -->
+  <polyline points="988,200 996,210 1012,190" fill="none" stroke="#9ece6a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1000" y="160" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" text-anchor="middle" font-weight="600">Recovered</text>
+
+  <!-- Subtitle -->
+  <text x="600" y="280" font-family="system-ui, sans-serif" font-size="15" fill="#c0caf5" text-anchor="middle" font-weight="600">Bad config? Already fixed.</text>
+  <text x="600" y="310" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">Shurli detects broken settings, rolls back to the last working version, and keeps running.</text>
+  <text x="600" y="335" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">No manual restarts. No downtime. No panic.</text>
 </svg>

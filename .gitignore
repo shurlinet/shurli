@@ -44,6 +44,7 @@ relay_authorized_keys
 !test/**/compose.yaml
 !website/hugo.yaml
 !.github/workflows/*.yaml
+!tools/sync-docs/sync-docs.yaml
 
 # Claude Code project instructions (private, never commit)
 CLAUDE.md
@@ -59,3 +60,5 @@ CLAUDE.md
 
 # socials images
 website/static/images/social/
+sync-docs
+.claude/hooks/postchange-reminder.sh

@@ -180,8 +180,10 @@ func LoadRelayServerConfig(path string) (*RelayServerConfig, error) {
 		return nil, fmt.Errorf("%w: version %d is newer than supported version %d; please upgrade relay-server", ErrConfigVersionTooNew, config.Version, CurrentConfigVersion)
 	}
 
-	// Apply defaults for zero-valued resource fields
-	applyRelayResourceDefaults(&config.Resources)
+	// Apply defaults for zero-valued resource fields.
+	// Self-hosted relays (enable_data_relay: true) get relaxed session limits
+	// to support file transfer. Seeds keep the painful 64MB default.
+	applyRelayResourceDefaults(&config.Resources, config.Security.EnableDataRelay)
 
 	// Apply health endpoint defaults
 	if config.Health.Enabled && config.Health.ListenAddress == "" {
@@ -264,7 +266,8 @@ func FindRelayConfigFile(explicitPath string) (string, error) {
 }
 
 // FindConfigFile searches for a shurli config file in standard locations.
-// Search order: explicitPath (if given), ./shurli.yaml, ~/.config/shurli/config.yaml, /etc/shurli/config.yaml
+// Search order: explicitPath (if given), ./shurli.yaml, /etc/shurli/config.yaml,
+// ~/.shurli/config.yaml
 func FindConfigFile(explicitPath string) (string, error) {
 	if explicitPath != "" {
 		if _, err := os.Stat(explicitPath); err != nil {
@@ -277,12 +280,13 @@ func FindConfigFile(explicitPath string) (string, error) {
 		"shurli.yaml",
 	}
 
-	// ~/.config/shurli/config.yaml
-	if home, err := os.UserHomeDir(); err == nil {
-		searchPaths = append(searchPaths, filepath.Join(home, ".config", "shurli", "config.yaml"))
-	}
-
+	// /etc/shurli/config.yaml (system default, checked first)
 	searchPaths = append(searchPaths, filepath.Join("/etc", "shurli", "config.yaml"))
+
+	if home, err := os.UserHomeDir(); err == nil {
+		// ~/.shurli/config.yaml (user-level default)
+		searchPaths = append(searchPaths, filepath.Join(home, ".shurli", "config.yaml"))
+	}
 
 	for _, path := range searchPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -300,7 +304,7 @@ func LoadNodeConfig(path string) (*NodeConfig, error) {
 }
 
 // ResolveConfigPaths resolves relative file paths in the config to be relative
-// to the config file's directory. This allows configs in ~/.config/shurli/ to
+// to the config file's directory. This allows configs in ~/.shurli/ to
 // reference key files and authorized_keys using relative paths.
 func ResolveConfigPaths(cfg *NodeConfig, configDir string) {
 	if cfg.Identity.KeyFile != "" && !filepath.IsAbs(cfg.Identity.KeyFile) {
@@ -361,13 +365,20 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 	return nil
 }
 
-// DefaultConfigDir returns the default shurli config directory (~/.config/shurli).
+// DefaultConfigDir returns the system-level config directory (/etc/shurli).
+// This is the default for infrastructure that runs as a system service.
 func DefaultConfigDir() (string, error) {
+	return "/etc/shurli", nil
+}
+
+// UserConfigDir returns the user-level config directory (~/.shurli).
+// Used when --user flag is specified or when running as a non-root user.
+func UserConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "shurli"), nil
+	return filepath.Join(home, ".shurli"), nil
 }
 
 // ValidateRelayServerConfig validates relay server configuration
@@ -422,7 +433,10 @@ func DefaultRelayResources() RelayResourcesConfig {
 }
 
 // applyRelayResourceDefaults fills zero-valued fields with defaults.
-func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
+// enableDataRelay selects the tier: when true (self-hosted relay), session
+// limits are relaxed to support file transfer. When false (seed/signaling),
+// the painful 64MB default forces peers toward direct connections.
+func applyRelayResourceDefaults(rc *RelayResourcesConfig, enableDataRelay bool) {
 	defaults := DefaultRelayResources()
 	if rc.MaxReservations == 0 {
 		rc.MaxReservations = defaults.MaxReservations
@@ -443,10 +457,18 @@ func applyRelayResourceDefaults(rc *RelayResourcesConfig) {
 		rc.ReservationTTL = defaults.ReservationTTL
 	}
 	if rc.SessionDuration == "" {
-		rc.SessionDuration = defaults.SessionDuration
+		if enableDataRelay {
+			rc.SessionDuration = "2h"
+		} else {
+			rc.SessionDuration = defaults.SessionDuration
+		}
 	}
 	if rc.SessionDataLimit == "" {
-		rc.SessionDataLimit = defaults.SessionDataLimit
+		if enableDataRelay {
+			rc.SessionDataLimit = "2GB"
+		} else {
+			rc.SessionDataLimit = defaults.SessionDataLimit
+		}
 	}
 }
 

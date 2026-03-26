@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes tokenFly { 0% { opacity: 0; } 10% { opacity: 1; } 45% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 0; } }
+    @keyframes refreshFly { 0%, 50% { opacity: 0; } 60% { opacity: 1; } 95% { opacity: 1; } 100% { opacity: 0; } }
+    @keyframes storePulse { 0%, 70%, 100% { fill-opacity: 0.05; } 80% { fill-opacity: 0.15; } }
+    @keyframes pouchPulse { 0%, 85%, 100% { fill-opacity: 0.05; } 90%, 95% { fill-opacity: 0.15; } }
+    .fade1 { animation: fadeIn 0.6s ease-out 0.2s both; }
+    .fade2 { animation: fadeIn 0.6s ease-out 0.5s both; }
+    .token-pos1 { animation: tokenFly 4s ease-in-out infinite 1s; }
+    .token-pos2 { animation: tokenFly 4s ease-in-out infinite 1s; }
+    .refresh-pos { animation: refreshFly 4s ease-in-out infinite 1s; }
+    .store-bg { animation: storePulse 4s ease-in-out infinite 1s; }
+    .pouch-bg { animation: pouchPulse 4s ease-in-out infinite 1s; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="800" height="400" fill="#0a0a1a"/>
+  <text x="400" y="30" text-anchor="middle" font-size="13" fill="#666" letter-spacing="1">DUAL-STORE ARCHITECTURE</text>
+
+  <!-- Left: GrantStore (Issuer) -->
+  <g class="fade1">
+    <rect x="30" y="50" width="280" height="270" rx="12" stroke="#00d4aa" stroke-width="1.5" fill="#00d4aa" class="store-bg"/>
+    <text x="170" y="80" text-anchor="middle" font-size="16" font-weight="700" fill="#00d4aa">GrantStore</text>
+    <text x="170" y="98" text-anchor="middle" font-size="11" fill="#888">Issuer Side</text>
+
+    <text x="50" y="125" font-size="10" fill="#00d4aa" opacity="0.5" class="mono">keyed by: grantee peer ID</text>
+
+    <!-- Store entries -->
+    <rect x="50" y="140" width="240" height="32" rx="4" fill="#00d4aa" fill-opacity="0.06" stroke="#00d4aa" stroke-width="0.5"/>
+    <text x="60" y="160" font-size="10" fill="#00d4aa" class="mono">peer-B  1h  file-browse</text>
+
+    <rect x="50" y="180" width="240" height="32" rx="4" fill="#ffb347" fill-opacity="0.06" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="60" y="200" font-size="10" fill="#ffb347" class="mono">peer-C  7d  all-services</text>
+
+    <rect x="50" y="220" width="240" height="32" rx="4" fill="#4488ff" fill-opacity="0.06" stroke="#4488ff" stroke-width="0.5"/>
+    <text x="60" y="240" font-size="10" fill="#4488ff" class="mono">peer-D  perm  ssh-proxy</text>
+
+    <rect x="130" y="275" width="80" height="16" rx="8" fill="#00d4aa" fill-opacity="0.1" stroke="#00d4aa" stroke-width="0.5"/>
+    <text x="170" y="287" text-anchor="middle" font-size="8" fill="#00d4aa">HMAC integrity</text>
+  </g>
+
+  <!-- Right: GrantPouch (Holder) -->
+  <g class="fade2">
+    <rect x="490" y="50" width="280" height="270" rx="12" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" class="pouch-bg"/>
+    <text x="630" y="80" text-anchor="middle" font-size="16" font-weight="700" fill="#ffb347">GrantPouch</text>
+    <text x="630" y="98" text-anchor="middle" font-size="11" fill="#888">Holder Side</text>
+
+    <text x="510" y="125" font-size="10" fill="#ffb347" opacity="0.5" class="mono">keyed by: issuer peer ID</text>
+
+    <rect x="510" y="140" width="240" height="32" rx="4" fill="#ffb347" fill-opacity="0.06" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="520" y="160" font-size="10" fill="#ffb347" class="mono">node-A  58m left  browse</text>
+
+    <rect x="510" y="180" width="240" height="32" rx="4" fill="#00d4aa" fill-opacity="0.06" stroke="#00d4aa" stroke-width="0.5"/>
+    <text x="520" y="200" font-size="10" fill="#00d4aa" class="mono">node-B  6d left   all</text>
+
+    <rect x="575" y="235" width="110" height="16" rx="8" fill="#ffb347" fill-opacity="0.1" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="630" y="247" text-anchor="middle" font-size="8" fill="#ffb347">auto-refresh at 10%</text>
+
+    <rect x="590" y="275" width="80" height="16" rx="8" fill="#ffb347" fill-opacity="0.1" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="630" y="287" text-anchor="middle" font-size="8" fill="#ffb347">HMAC integrity</text>
+  </g>
+
+  <!-- P2P delivery arrow -->
+  <line x1="320" y1="345" x2="480" y2="345" stroke="#00d4aa" stroke-width="1" opacity="0.2"/>
+  <text x="400" y="338" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.5">/shurli/grant/1.0.0</text>
+  <polygon points="475,340 485,345 475,350" fill="#00d4aa" opacity="0.3"/>
+
+  <!-- Animated token at different positions -->
+  <rect x="350" y="339" width="24" height="14" rx="4" fill="#00d4aa" fill-opacity="0.6" class="token-pos1"/>
+  <text x="362" y="349" text-anchor="middle" font-size="7" fill="#0a0a1a" font-weight="700" class="token-pos1">TKN</text>
+
+  <rect x="430" y="339" width="24" height="14" rx="4" fill="#00d4aa" fill-opacity="0.6" class="token-pos2"/>
+  <text x="442" y="349" text-anchor="middle" font-size="7" fill="#0a0a1a" font-weight="700" class="token-pos2">TKN</text>
+
+  <!-- Refresh request arrow -->
+  <line x1="320" y1="375" x2="480" y2="375" stroke="#ffb347" stroke-width="1" opacity="0.15"/>
+  <text x="400" y="393" text-anchor="middle" font-size="9" fill="#ffb347" opacity="0.4">refresh request</text>
+  <polygon points="325,370 315,375 325,380" fill="#ffb347" opacity="0.3"/>
+
+  <rect x="380" y="369" width="28" height="12" rx="3" fill="#ffb347" fill-opacity="0.5" class="refresh-pos"/>
+  <text x="394" y="378" text-anchor="middle" font-size="6" fill="#0a0a1a" font-weight="700" class="refresh-pos">REF</text>
+</svg>

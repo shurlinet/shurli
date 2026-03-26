@@ -2,6 +2,7 @@ package p2pnet
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -32,8 +33,10 @@ func newNameResolverFrom(custom Resolver) *NameResolver {
 	}
 }
 
-// Register registers a name → peer ID mapping
+// Register registers a name → peer ID mapping.
+// Names are normalized: trimmed of whitespace and lowercased for consistent lookup.
 func (r *NameResolver) Register(name string, peerID peer.ID) error {
+	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
@@ -45,20 +48,26 @@ func (r *NameResolver) Register(name string, peerID peer.ID) error {
 	return nil
 }
 
-// Unregister removes a name mapping
+// Unregister removes a name mapping.
+// Name is normalized (trimmed + lowercased) to match stored keys.
 func (r *NameResolver) Unregister(name string) {
+	name = strings.ToLower(strings.TrimSpace(name))
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	delete(r.names, name)
 }
 
-// Resolve resolves a name to a peer ID
-// If the name is not found, tries to parse it as a direct peer ID
+// Resolve resolves a name to a peer ID.
+// Name is normalized (trimmed + lowercased) for direct map lookup.
+// If the name is not found, tries to parse it as a direct peer ID.
 func (r *NameResolver) Resolve(name string) (peer.ID, error) {
-	// Try local name mapping first
+	normalized := strings.ToLower(strings.TrimSpace(name))
+
+	// Try local name mapping first (normalized key lookup).
 	r.mu.RLock()
-	if peerID, exists := r.names[name]; exists {
+	if peerID, exists := r.names[normalized]; exists {
 		r.mu.RUnlock()
 		return peerID, nil
 	}
@@ -71,7 +80,7 @@ func (r *NameResolver) Resolve(name string) (peer.ID, error) {
 		}
 	}
 
-	// Try to parse as direct peer ID
+	// Try to parse as direct peer ID (case-sensitive, peer IDs are exact).
 	peerID, err := peer.Decode(name)
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", ErrNameNotFound, name)
@@ -94,12 +103,17 @@ func (r *NameResolver) List() map[string]peer.ID {
 	return names
 }
 
-// LoadFromMap loads name mappings from a map
+// LoadFromMap loads name mappings from a map (additive - existing names preserved).
+// Names are normalized: trimmed of whitespace and lowercased, consistent with Register().
 func (r *NameResolver) LoadFromMap(names map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for name, peerIDStr := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
 		peerID, err := peer.Decode(peerIDStr)
 		if err != nil {
 			return fmt.Errorf("invalid peer ID for name %s: %w", name, err)
@@ -108,5 +122,29 @@ func (r *NameResolver) LoadFromMap(names map[string]string) error {
 		r.names[name] = peerID
 	}
 
+	return nil
+}
+
+// ReplaceFromMap replaces all name mappings with the given map.
+// Unlike LoadFromMap, this clears existing names first so that removed
+// names don't persist in memory after a config reload.
+func (r *NameResolver) ReplaceFromMap(names map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	fresh := make(map[string]peer.ID, len(names))
+	for name, peerIDStr := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		peerID, err := peer.Decode(peerIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid peer ID for name %s: %w", name, err)
+		}
+		fresh[name] = peerID
+	}
+
+	r.names = fresh
 	return nil
 }

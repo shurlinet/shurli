@@ -105,7 +105,7 @@ shurli browse home-server
 shurli download document.pdf home-server
 ```
 
-Shares persist across daemon restarts (stored in `~/.config/shurli/shares.json`).
+Shares persist across daemon restarts (stored in `~/.shurli/shares.json`).
 
 ## Multi-Source Download
 
@@ -162,7 +162,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 | `transfer.timed_duration` | `10m` | Default duration for timed receive mode |
 | `transfer.notify` | `none` | Notification mode: none, desktop, command |
 | `transfer.notify_command` | `""` | Command template with {from}, {file}, {size} |
-| `transfer.log_path` | `~/.config/shurli/logs/transfers.log` | Transfer event log path |
+| `transfer.log_path` | `~/.shurli/logs/transfers.log` | Transfer event log path |
 | `transfer.multi_peer_enabled` | `true` | Enable multi-peer swarming downloads |
 | `transfer.multi_peer_max_peers` | `4` | Max peers for multi-source download |
 
@@ -173,9 +173,9 @@ For programmatic use (SDK consumers, scripts, other applications):
 ### Send a file
 
 ```bash
-curl -X POST --unix-socket ~/.config/shurli/shurli.sock \
+curl -X POST --unix-socket ~/.shurli/shurli.sock \
   http://localhost/v1/send \
-  -H "Cookie: auth=$(cat ~/.config/shurli/.daemon-cookie)" \
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)" \
   -H "Content-Type: application/json" \
   -d '{"file_path": "/absolute/path/to/file.pdf", "peer": "home-server"}'
 ```
@@ -190,17 +190,17 @@ Response:
 ### Check transfer progress
 
 ```bash
-curl --unix-socket ~/.config/shurli/shurli.sock \
+curl --unix-socket ~/.shurli/shurli.sock \
   "http://localhost/v1/transfers/xfer-a1b2c3d4e5f6" \
-  -H "Cookie: auth=$(cat ~/.config/shurli/.daemon-cookie)"
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)"
 ```
 
 ### List all transfers
 
 ```bash
-curl --unix-socket ~/.config/shurli/shurli.sock \
+curl --unix-socket ~/.shurli/shurli.sock \
   http://localhost/v1/transfers \
-  -H "Cookie: auth=$(cat ~/.config/shurli/.daemon-cookie)"
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)"
 ```
 
 See the [Daemon API reference](/docs/daemon-api/) for the full list of 15 file transfer endpoints.

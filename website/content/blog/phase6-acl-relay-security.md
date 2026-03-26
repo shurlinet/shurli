@@ -252,19 +252,23 @@ The pre-built [Grafana dashboard](/docs/monitoring/) now ships with 37 panels (3
 Phase 6 isn't the end goal. It builds the foundation for what comes next:
 
 ```
-Phase 6 (now):   Macaroon tokens handle permissions.
-                 authorized_keys handles identity.
-                 Both coexist.
+Phase 6:   Macaroon tokens handle permissions.
+           authorized_keys handles identity.
+           Both coexist.
 
-Phase 7 (next):  Zero-knowledge proofs let you prove
-                 "I have a valid token" without showing
-                 the token itself.
+Phase 7:   Zero-knowledge proofs let you prove
+           "I have a valid token" without showing
+           the token itself. (Shipped.)
 
-Future:          authorized_keys becomes optional.
-                 Macaroons (or UCANs) carry everything.
+Now:       Per-peer data grants use macaroons for
+           time-limited, service-scoped, delegatable
+           access control. Node-level enforcement.
+
+Future:    authorized_keys becomes optional.
+           Macaroons (or UCANs) carry everything.
 ```
 
-You can't build "prove you're authorized without revealing your identity" until authorization itself is well-defined. Phase 6 defines it. Everything built here is a stepping stone, not a dead end. Nothing needs to be torn out when the next phase arrives.
+**Update**: Phase 7 (ZKP anonymous auth) and [per-peer data access grants](/blog/per-peer-data-grants/) are both shipped. Macaroon tokens now carry time-limited, delegatable permissions verified per-stream. The progression held exactly as designed: each phase built on the last without tearing anything out.
 
 ## Impact
 

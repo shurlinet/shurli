@@ -12,8 +12,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/zeroconf/v2"
 	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 // MDNSServiceName is the DNS-SD service type used for LAN discovery.
@@ -35,6 +37,13 @@ const (
 	// attempts. On a busy LAN with many Shurli nodes, prevents
 	// spawning hundreds of goroutines at once.
 	mdnsMaxConcurrentConnects = 5
+
+	// discoveredAddrTTL is the peerstore TTL for addresses learned via
+	// mDNS discovery, probes, or peerstore manipulation (strip/restore).
+	// 10 minutes balances freshness with stability. Used across mdns.go
+	// and peermanager.go. Intentionally shorter than DHT-discovered addrs
+	// (1 hour in pathdialer.go) since LAN topology changes frequently.
+	discoveredAddrTTL = 10 * time.Minute
 
 	// mdnsBrowseInterval controls how often we re-query the network.
 	// Each round creates a fresh multicast socket, working around
@@ -290,9 +299,23 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		short = short[:16] + "..."
 	}
 
+	// Check if peer needs upgrading BEFORE dedup. Upgrade is needed when:
+	// 1. All connections are relayed (relay->direct upgrade), OR
+	// 2. Direct connections exist but none use LAN IPv4 (internet->LAN upgrade).
+	//    Case 2 happens on satellite networks: DHT bootstrap connects via IPv6 QUIC, but
+	//    satellite router client isolation blocks inter-client IPv6 data. The connection
+	//    appears "direct" but is silently dead. mDNS proving LAN reachability
+	//    means we should establish a real LAN connection.
+	// Upgrade attempts bypass dedup because mDNS multicast reception is proof
+	// the peer is on LAN right now.
+	connsForDedup := md.host.Network().ConnsToPeer(pi.ID)
+	peerNeedsUpgrade := allConnsRelayed(connsForDedup) ||
+		(len(connsForDedup) > 0 && !anyConnIsLAN(connsForDedup))
+
 	// Dedup: skip if we attempted this peer recently.
+	// Exception: relay-only peers always get an upgrade attempt.
 	md.mu.Lock()
-	if last, ok := md.lastTry[pi.ID]; ok && time.Since(last) < mdnsDedupeInterval {
+	if last, ok := md.lastTry[pi.ID]; ok && time.Since(last) < mdnsDedupeInterval && !peerNeedsUpgrade {
 		md.mu.Unlock()
 		return
 	}
@@ -316,22 +339,27 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// The full address set is added AFTER the connect succeeds.
 	allAddrs := pi.Addrs
 	lanAddrs := filterLANAddrs(allAddrs)
+
+	// Use the upgrade check from above (computed before dedup).
+	// Re-check in case state changed between dedup and here.
+	currentConns := md.host.Network().ConnsToPeer(pi.ID)
+	needsUpgrade := allConnsRelayed(currentConns) ||
+		(len(currentConns) > 0 && !anyConnIsLAN(currentConns))
+
 	if len(lanAddrs) > 0 {
 		pi.Addrs = lanAddrs
-		md.host.Peerstore().AddAddrs(pi.ID, lanAddrs, 10*time.Minute)
+		md.host.Peerstore().AddAddrs(pi.ID, lanAddrs, discoveredAddrTTL)
 		slog.Info("mdns: filtered to LAN addresses", "peer", short, "lan_addrs", len(lanAddrs))
 	} else {
 		// No LAN match: add all and let libp2p try everything.
-		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 	}
-
-	// Check if peer is connected via relay only. If so, we'll upgrade
-	// to direct using ForceDirectDial (establishes direct alongside relay,
-	// then closes relay after).
-	conns := md.host.Network().ConnsToPeer(pi.ID)
-	needsUpgrade := allConnsRelayed(conns)
 	if needsUpgrade {
-		slog.Info("mdns: peer on LAN but connected via relay, upgrading to direct", "peer", short)
+		reason := "relay-only"
+		if !allConnsRelayed(currentConns) {
+			reason = "direct-but-no-LAN"
+		}
+		slog.Info("mdns: peer on LAN but needs upgrade", "peer", short, "reason", reason)
 		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("upgraded").Inc()
 		}
@@ -351,54 +379,128 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		defer md.wg.Done()
 		defer func() { <-md.sem }()
 
-		ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
-		defer cancel()
-
 		if needsUpgrade {
-			// Force a direct dial using ONLY TCP LAN addresses. QUIC
-			// addresses hit the UDP black hole detector (poisoned from
-			// previous CGNAT networks) and cascade-fail. TCP over LAN
-			// is reliable and what mDNS guarantees.
-			ctx = network.WithForceDirectDial(ctx, "mdns-upgrade")
-
-			tcpAddrs := filterTCPAddrs(pi.Addrs)
+			// Use only LAN IPv4 TCP for the first attempt. Trying multiple
+			// address families simultaneously (IPv4 + IPv6) causes cascade
+			// failures in the swarm: rapid IPv6 "no route" kills the IPv4
+			// through rate limiting. Retry broadens to all TCP if needed.
+			tcpAddrs := filterTCPAddrs(filterLANAddrs(allAddrs))
 			if len(tcpAddrs) == 0 {
-				slog.Warn("mdns: no TCP LAN addresses for upgrade", "peer", short)
-				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+				slog.Warn("mdns: no usable TCP addresses for upgrade", "peer", short)
+				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 				return
 			}
 
-			// Temporarily restrict peerstore to TCP LAN addresses only,
-			// same technique as probeAndUpgrade fix #3.
-			savedAddrs := md.host.Peerstore().Addrs(pi.ID)
-			md.host.Peerstore().ClearAddrs(pi.ID)
-			md.host.Peerstore().AddAddrs(pi.ID, tcpAddrs, 10*time.Minute)
+			// Probe TCP reachability before involving libp2p's dial machinery.
+			// The swarm dial worker caches failures per address in trackedDials;
+			// if WiFi is still settling, a failed DialPeer poisons the cache and
+			// blocks retries that join the same worker. The retrying probe (500ms
+			// intervals, 3s budget) waits for the path to work before committing
+			// to a DialPeer that would burn the address in the worker cache.
+			// The probe uses its own timeout so it does NOT consume DialPeer's 5s.
+			if !md.probeAddr(tcpAddrs[0], short) {
+				md.scheduleRetry(pi.ID, tcpAddrs, allAddrs, short)
+				return
+			}
 
-			_, dialErr := md.host.Network().DialPeer(ctx, pi.ID)
+			// Fresh context for DialPeer - probe already ran with its own timeout,
+			// DialPeer gets a full mdnsConnectTimeout budget.
+			ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
+			defer cancel()
+			ctx = network.WithForceDirectDial(ctx, "mdns-upgrade")
 
-			// Restore full address set regardless of outcome.
-			md.host.Peerstore().AddAddrs(pi.ID, savedAddrs, 10*time.Minute)
-			md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+			dialErr := md.dialWithBackoffClear(ctx, pi.ID, tcpAddrs, allAddrs)
 
 			if dialErr != nil {
 				slog.Info("mdns: upgrade to direct failed", "peer", short, "error", dialErr)
+				md.scheduleRetry(pi.ID, tcpAddrs, allAddrs, short)
 				return
 			}
 			slog.Info("mdns: upgraded to DIRECT via LAN", "peer", short)
+
+			// Close non-LAN direct connections AND strip their addresses
+			// from the peerstore. When upgrading from internet-direct (IPv6)
+			// to LAN-direct (private IPv4), the old connection is likely dead
+			// (e.g. satellite router client isolation blocks inter-client IPv6).
+			//
+			// Two-part cleanup is essential:
+			// 1. Close the connection (stop streams from using it)
+			// 2. Strip non-LAN addrs from peerstore (prevent PeerManager
+			//    from immediately re-dialing the dead IPv6 path)
+			//
+			// LAN addresses are preserved via mDNS re-discovery (every 30s).
+			// Non-LAN addresses will be restored naturally by DHT refresh
+			// or identify protocol, at which point the connection may work
+			// again (e.g., after switching away from satellite router).
+			for _, c := range md.host.Network().ConnsToPeer(pi.ID) {
+				if c.Stat().Limited {
+					continue // leave relay connections alone
+				}
+				remoteMA := c.RemoteMultiaddr()
+				first, _ := ma.SplitFirst(remoteMA)
+				if first == nil {
+					continue
+				}
+				if first.Protocol().Code == ma.P_IP4 {
+					ip := net.ParseIP(first.Value())
+					if ip != nil && isPrivateIPv4(ip) {
+						continue // keep LAN connections
+					}
+				}
+				if streams := c.GetStreams(); len(streams) > 0 {
+					slog.Info("mdns: keeping non-LAN conn (has active streams)",
+						"peer", short, "remote", remoteMA, "streams", len(streams))
+					continue
+				}
+				slog.Info("mdns: closing non-LAN direct conn (LAN established)",
+					"peer", short, "remote", remoteMA)
+				c.Close()
+			}
+
+			// Strip non-LAN addresses from peerstore to prevent re-dial.
+			// Keep only private IPv4 (LAN) + relay circuit addresses.
+			allPeerstoreAddrs := md.host.Peerstore().Addrs(pi.ID)
+			md.host.Peerstore().ClearAddrs(pi.ID)
+			for _, addr := range allPeerstoreAddrs {
+				if isCircuitAddr(addr) {
+					md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
+					continue
+				}
+				first, _ := ma.SplitFirst(addr)
+				if first != nil && first.Protocol().Code == ma.P_IP4 {
+					ip := net.ParseIP(first.Value())
+					if ip != nil && isPrivateIPv4(ip) {
+						md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
+					}
+				}
+			}
 		} else {
+			ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
+			defer cancel()
+
 			if err := md.host.Connect(ctx, pi); err != nil {
 				slog.Info("mdns: connect failed", "peer", short, "error", err)
-				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 				return
 			}
-			slog.Info("mdns: connected to LAN peer", "peer", short)
+			// Verify we actually established a direct connection. If pathDialer
+			// won the race while this goroutine was starting, Connect() returns
+			// nil immediately (peer already connected via relay) with no direct
+			// established. The false "connected to LAN peer" log masked this
+			// TOCTOU race — the real direct arrives later via home-node inbound.
+			if allConnsRelayed(md.host.Network().ConnsToPeer(pi.ID)) {
+				slog.Info("mdns: connect nil but relay-only (pathDialer won race, awaiting inbound direct)",
+					"peer", short)
+			} else {
+				slog.Info("mdns: connected to LAN peer", "peer", short)
+			}
 		}
 		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
 		}
 
 		// Add the full address set now that connect succeeded.
-		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, 10*time.Minute)
+		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 
 		// Don't close relay connections here. Let direct and relay
 		// coexist. libp2p prefers non-limited (direct) connections for
@@ -409,6 +511,156 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		// Relay cleanup is handled by probeAndUpgrade's closeRelayConns
 		// after confirming the direct path is stable.
 	}()
+}
+
+// dialWithBackoffClear attempts a ForceDirectDial to a peer using only the
+// specified TCP addresses. Before dialing, it clears any stale swarm backoff
+// for this peer (mDNS discovery proves LAN reachability, so prior "no route
+// to host" failures from a different network state are invalid).
+func (md *MDNSDiscovery) dialWithBackoffClear(ctx context.Context, pid peer.ID, tcpAddrs, allAddrs []ma.Multiaddr) error {
+	// Clear stale swarm dial backoff. mDNS multicast reception is proof
+	// the peer is on our LAN - any cached dial failure is from old state.
+	if sw, ok := md.host.Network().(*swarm.Swarm); ok {
+		sw.Backoff().Clear(pid)
+	}
+
+	// Temporarily restrict peerstore to TCP LAN addresses only,
+	// same technique as probeAndUpgrade fix #3.
+	savedAddrs := md.host.Peerstore().Addrs(pid)
+	md.host.Peerstore().ClearAddrs(pid)
+	md.host.Peerstore().AddAddrs(pid, tcpAddrs, discoveredAddrTTL)
+
+	_, dialErr := md.host.Network().DialPeer(ctx, pid)
+
+	// Restore full address set regardless of outcome.
+	md.host.Peerstore().AddAddrs(pid, savedAddrs, discoveredAddrTTL)
+	md.host.Peerstore().AddAddrs(pid, allAddrs, discoveredAddrTTL)
+
+	return dialErr
+}
+
+// scheduleRetry schedules a single delayed retry of the mDNS upgrade dial.
+// Called when the first attempt fails but mDNS proved the peer is on LAN
+// (multicast packet received = LAN reachable). The retry runs after 10s,
+// giving ARP time to resolve (satellite WiFi: 60-80s from cold, but often
+// only needs a few seconds after initial failure). Capped at one retry -
+// if it fails, the next mDNS browse cycle (30s) takes over with fresh state.
+func (md *MDNSDiscovery) scheduleRetry(pid peer.ID, tcpLANAddrs, allAddrs []ma.Multiaddr, short string) {
+	md.wg.Add(1)
+	time.AfterFunc(10*time.Second, func() {
+		defer md.wg.Done()
+
+		// Check if context is still alive (daemon not shutting down).
+		if md.ctx.Err() != nil {
+			return
+		}
+
+		// Acquire semaphore slot (same as HandlePeerFound). Non-blocking:
+		// if all slots are busy, skip - the next browse cycle will retry.
+		select {
+		case md.sem <- struct{}{}:
+		default:
+			slog.Debug("mdns: retry skipped, concurrent connect limit reached", "peer", short)
+			return
+		}
+		defer func() { <-md.sem }()
+
+		// Check if peer is still relay-only. If already direct (home-node
+		// dialed in, or probeAndUpgrade succeeded), no retry needed.
+		conns := md.host.Network().ConnsToPeer(pid)
+		if !allConnsRelayed(conns) {
+			slog.Debug("mdns: retry skipped, already direct", "peer", short)
+			return
+		}
+
+		// Retry with same filtered set (private IPv4 + global IPv6 TCP).
+		// The first attempt may have failed due to ARP not resolved yet.
+		// 10s later, ARP should be ready.
+		retryAddrs := filterMDNSUpgradeAddrs(allAddrs)
+		if len(retryAddrs) == 0 {
+			retryAddrs = tcpLANAddrs // fallback
+		}
+
+		// Probe before DialPeer (same as first attempt). By 10s after the
+		// network switch, WiFi should be settled. If probe still fails,
+		// the path is genuinely broken - let the next browse cycle handle it.
+		if !md.probeAddr(retryAddrs[0], short) {
+			return
+		}
+
+		slog.Info("mdns: retry upgrade (mDNS proved LAN reachable)",
+			"peer", short, "tcp_addrs", len(retryAddrs))
+
+		ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
+		defer cancel()
+		ctx = network.WithForceDirectDial(ctx, "mdns-retry")
+
+		if err := md.dialWithBackoffClear(ctx, pid, retryAddrs, allAddrs); err != nil {
+			slog.Info("mdns: retry upgrade failed", "peer", short, "error", err)
+			return
+		}
+
+		slog.Info("mdns: retry upgraded to DIRECT via LAN", "peer", short)
+
+		if md.metrics != nil && md.metrics.MDNSDiscoveredTotal != nil {
+			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
+		}
+	})
+}
+
+// filterMDNSUpgradeAddrs returns TCP multiaddrs suitable for mDNS upgrade
+// dials: private IPv4 (LAN) + global IPv6, TCP only. Excludes QUIC/UDP
+// (black hole risk), loopback (never reachable cross-host), ULA (fd00::/8,
+// typically not routable across satellite router segments), and circuit
+// (relay, not direct). This gives the swarm a clean set: either the LAN
+// IPv4 path works, or the global IPv6 TCP path works, or both.
+func filterMDNSUpgradeAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
+	var result []ma.Multiaddr
+	for _, addr := range addrs {
+		// Must have TCP transport.
+		hasTCP := false
+		ma.ForEach(addr, func(c ma.Component) bool {
+			if c.Protocol().Code == ma.P_TCP {
+				hasTCP = true
+				return false
+			}
+			return true
+		})
+		if !hasTCP {
+			continue
+		}
+		// Exclude circuit/relay addresses.
+		if isCircuitAddr(addr) {
+			continue
+		}
+		// Check IP: allow private IPv4 (LAN) and global IPv6.
+		first, _ := ma.SplitFirst(addr)
+		if first == nil {
+			continue
+		}
+		switch first.Protocol().Code {
+		case ma.P_IP4:
+			ip := net.ParseIP(first.Value())
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			// Allow private IPv4 (LAN addresses from mDNS).
+			if isPrivateIPv4(ip) {
+				result = append(result, addr)
+			}
+		case ma.P_IP6:
+			ip := net.ParseIP(first.Value())
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			// Allow global IPv6 only. Exclude ULA (fd/fc) - often not
+			// routable across router segments on satellite networks.
+			if isGlobalIPv6(ip) {
+				result = append(result, addr)
+			}
+		}
+	}
+	return result
 }
 
 // isSuitableForMDNS returns true for multiaddrs that should be advertised
@@ -483,40 +735,61 @@ func randomString(l int) string {
 	return string(s)
 }
 
-// filterLANAddrs returns only the multiaddrs with a private IPv4 address
-// on the same subnet as one of our local interfaces. mDNS means "same
-// LAN", so only private IPv4 addresses are reliable for direct connection.
-//
-// Why not IPv6/ULA: many consumer routers give all clients the same IPv6
-// prefix but block inter-client IPv6 traffic (client isolation). ULA
-// prefixes (fd00::/8) match our subnet but may also be blocked. Private
-// IPv4 is the universal LAN signal: if both devices share a 10.x/16 or
-// 192.168.x/24 subnet, they can talk.
-func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
-	localNets := localIPv4Subnets()
-	if len(localNets) == 0 {
-		return nil // can't determine local subnets, don't filter
+// rfc1918Nets are the globally-defined private IPv4 ranges (RFC 1918) plus
+// RFC 6598 shared address space (100.64.0.0/10, used by CGNAT). These are
+// the authoritative "local" ranges — any IP in them is non-routable on the
+// public internet, and if mDNS delivered a packet from a peer advertising
+// such an address, the peer is reachable on the local network by definition.
+// Subnet mask size is irrelevant: a /16 LAN and a /24 LAN are equally local.
+var rfc1918Nets = func() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10", // RFC 6598 shared address space (CGNAT)
 	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, n, _ := net.ParseCIDR(cidr)
+		nets = append(nets, n)
+	}
+	return nets
+}()
 
+// isPrivateIPv4 returns true if ip falls within any RFC 1918 or RFC 6598 range.
+func isPrivateIPv4(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	for _, n := range rfc1918Nets {
+		if n.Contains(ip4) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterLANAddrs returns only the multiaddrs with a private IPv4 address
+// (RFC 1918 / RFC 6598). mDNS multicast is link-local — receiving a peer's
+// advertisement proves the peer is on the same physical network. The peer's
+// private IPv4 addresses are therefore directly reachable regardless of the
+// subnet mask size (/16, /24, etc.). Public IPv6, ULA, and relay addresses
+// are excluded: many routers block inter-client IPv6 (client isolation), and
+// relay addresses should never be used for direct LAN connects.
+func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	var lan []ma.Multiaddr
 	for _, addr := range addrs {
 		first, _ := ma.SplitFirst(addr)
-		if first == nil {
-			continue
-		}
-		if first.Protocol().Code != ma.P_IP4 {
+		if first == nil || first.Protocol().Code != ma.P_IP4 {
 			continue
 		}
 		ip := net.ParseIP(first.Value())
 		if ip == nil || ip.IsLoopback() {
 			continue
 		}
-		// Keep if the IPv4 is on any of our local subnets
-		for _, ln := range localNets {
-			if ln.Contains(ip) {
-				lan = append(lan, addr)
-				break
-			}
+		if isPrivateIPv4(ip) {
+			lan = append(lan, addr)
 		}
 	}
 	return lan
@@ -543,36 +816,78 @@ func filterTCPAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	return tcp
 }
 
-// localIPv4Subnets returns the CIDR networks of all private IPv4
-// addresses on active, non-loopback interfaces.
-func localIPv4Subnets() []*net.IPNet {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return nil
+// isStaleOnNetworkChange returns true if the address becomes stale after a
+// network switch and should be stripped from the peerstore. Covers:
+//   - RFC 1918 private IPv4 (10/8, 172.16/12, 192.168/16)
+//   - RFC 6598 CGNAT (100.64/10) - common with satellite ISP CGNAT, missed by manet.IsPrivateAddr
+//   - ULA IPv6 (fc00::/7), link-local IPv6 (fe80::/10), loopback
+//
+// Public IPs and relay circuit multiaddrs (which start with the relay's
+// public IP) are NOT stale - they survive network changes.
+func isStaleOnNetworkChange(a ma.Multiaddr) bool {
+	if manet.IsPrivateAddr(a) {
+		return true
 	}
-	var nets []*net.IPNet
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			ipNet, ok := a.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			ip4 := ipNet.IP.To4()
-			if ip4 == nil {
-				continue // IPv6, skip
-			}
-			if ip4.IsLinkLocalUnicast() || ip4.IsLoopback() {
-				continue
-			}
-			nets = append(nets, ipNet)
+	// manet.IsPrivateAddr misses CGNAT (100.64.0.0/10, RFC 6598).
+	// filterLANAddrs includes CGNAT via isPrivateIPv4 - must be consistent.
+	first, _ := ma.SplitFirst(a)
+	if first != nil && first.Protocol().Code == ma.P_IP4 {
+		if ip := net.ParseIP(first.Value()); ip != nil {
+			return isPrivateIPv4(ip)
 		}
 	}
-	return nets
+	return false
 }
+
+// probeAddr probes a single multiaddr for TCP reachability. Returns true if
+// the path is ready (or if the multiaddr can't be parsed - let DialPeer handle
+// malformed addrs). Logs the result with the peer short ID for diagnostics.
+func (md *MDNSDiscovery) probeAddr(addr ma.Multiaddr, short string) bool {
+	network, host, err := manet.DialArgs(addr)
+	if err != nil {
+		// Can't parse addr for probing - skip probe, let DialPeer handle it.
+		return true
+	}
+	if probeTCPReachable(md.ctx, network, host, 3*time.Second) {
+		return true
+	}
+	slog.Info("mdns: TCP probe failed (WiFi settling?)", "peer", short, "addr", host)
+	return false
+}
+
+// probeTCPReachable does a retrying TCP connect probe to verify network
+// reachability before involving libp2p's dial machinery. Returns true if
+// a TCP connection succeeds within the budget. Retries every 500ms because
+// macOS returns instant EHOSTUNREACH when WiFi is settling (the 3s budget
+// would be wasted on a single non-retrying DialTimeout). The probe prevents
+// poisoning the swarm dial worker's trackedDials cache with failures from
+// transient network states. Context-aware: returns false immediately on
+// cancellation (important for clean daemon shutdown - caller holds WaitGroup).
+func probeTCPReachable(ctx context.Context, network, addr string, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	dialer := net.Dialer{Timeout: 1 * time.Second}
+	for time.Now().Before(deadline) {
+		dialCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		conn, err := dialer.DialContext(dialCtx, network, addr)
+		cancel()
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		slog.Debug("mdns: probe attempt failed", "addr", addr, "error", err)
+		if ctx.Err() != nil {
+			return false
+		}
+		remaining := time.Until(deadline)
+		if remaining < 500*time.Millisecond {
+			return false
+		}
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return false
+}
+

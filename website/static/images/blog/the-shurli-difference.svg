@@ -1,176 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
+    <linearGradient id="bgSD" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
-    <linearGradient id="nodeFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2c2a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1e1d20;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="binaryFill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a3a2a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#122218;stop-opacity:1" />
-    </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
+  <rect width="1200" height="675" fill="url(#bgSD)"/>
 
-  <!-- Background -->
-  <rect width="900" height="400" rx="12" fill="url(#bgGrad)"/>
+  <!-- Top banner -->
+  <text x="600" y="60" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" fill="#c0caf5" font-weight="700">Your Devices. Direct. No Middleman.</text>
+  <text x="600" y="95" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#565f89">One binary. Zero cloud accounts. Your network, your rules.</text>
 
-  <!-- Title -->
-  <text x="450" y="32" font-family="system-ui, sans-serif" font-size="18" fill="#c0caf5" text-anchor="middle" font-weight="700">What Shurli Actually Does</text>
-  <text x="450" y="52" font-family="system-ui, sans-serif" font-size="11" fill="#565f89" text-anchor="middle">10 capabilities. 1 binary. 0 cloud accounts.</text>
+  <!-- Left: Cloud way (dim) -->
+  <rect x="80" y="130" width="460" height="320" rx="16" fill="#1e1d20" stroke="#565f89" stroke-width="1" opacity="0.5"/>
+  <text x="310" y="168" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" fill="#565f89" font-weight="600">The usual way</text>
 
-  <!-- ====== LEFT: 10 Capability cards (2 columns of 5) ====== -->
+  <!-- Central server -->
+  <rect x="275" y="200" width="70" height="50" rx="6" fill="#2a282c" stroke="#565f89" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="296" cy="218" r="3" fill="#565f89" opacity="0.4"/>
+  <circle cx="310" cy="218" r="3" fill="#565f89" opacity="0.4"/>
+  <circle cx="324" cy="218" r="3" fill="#565f89" opacity="0.4"/>
+  <text x="310" y="240" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" opacity="0.5">their server</text>
 
-  <!-- Column 1 -->
-  <!-- 1. NAT Traversal -->
-  <rect x="30" y="72" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="1"/>
-  <circle cx="46" cy="86" r="6" fill="none" stroke="#7aa2f7" stroke-width="1.2"/>
-  <path d="M43,86 L49,86 M46,83 L46,89" stroke="#7aa2f7" stroke-width="1"/>
-  <text x="58" y="90" font-family="system-ui, sans-serif" font-size="9" fill="#7aa2f7" font-weight="600">NAT Traversal + Path Selection</text>
+  <!-- Tethered devices -->
+  <circle cx="170" cy="290" r="16" fill="none" stroke="#565f89" stroke-width="1" opacity="0.4"/>
+  <line x1="186" y1="284" x2="275" y2="240" stroke="#565f89" stroke-width="1" opacity="0.2" stroke-dasharray="4,3"/>
+  <circle cx="450" cy="290" r="16" fill="none" stroke="#565f89" stroke-width="1" opacity="0.4"/>
+  <line x1="434" y1="284" x2="345" y2="240" stroke="#565f89" stroke-width="1" opacity="0.2" stroke-dasharray="4,3"/>
+  <circle cx="210" cy="370" r="16" fill="none" stroke="#565f89" stroke-width="1" opacity="0.4"/>
+  <line x1="222" y1="358" x2="285" y2="250" stroke="#565f89" stroke-width="1" opacity="0.2" stroke-dasharray="4,3"/>
+  <circle cx="410" cy="370" r="16" fill="none" stroke="#565f89" stroke-width="1" opacity="0.4"/>
+  <line x1="398" y1="358" x2="335" y2="250" stroke="#565f89" stroke-width="1" opacity="0.2" stroke-dasharray="4,3"/>
 
-  <!-- 2. Auth -->
-  <rect x="30" y="106" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="1"/>
-  <rect x="41" y="81" width="0" height="0" rx="0"/>
-  <path d="M41,117 L51,117 L51,122 L46,125 L41,122 Z" fill="none" stroke="#bb9af7" stroke-width="1.2"/>
-  <text x="58" y="124" font-family="system-ui, sans-serif" font-size="9" fill="#bb9af7" font-weight="600">Cryptographic Authorization</text>
+  <text x="310" y="430" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#f7768e" opacity="0.5">Account required</text>
 
-  <!-- 3. Sealed Vault -->
-  <rect x="30" y="140" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="1"/>
-  <rect x="42" y="150" width="10" height="8" rx="1.5" fill="none" stroke="#e0af68" stroke-width="1.2"/>
-  <path d="M44,150 L44,147 C44,144 50,144 50,147 L50,150" fill="none" stroke="#e0af68" stroke-width="1"/>
-  <text x="58" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#e0af68" font-weight="600">Sealed Vault + Remote Unseal</text>
+  <!-- Right: Shurli way (green) -->
+  <rect x="660" y="130" width="460" height="320" rx="16" fill="#1e1d20" stroke="#9ece6a" stroke-width="1.5" opacity="0.7"/>
+  <text x="890" y="168" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" fill="#9ece6a" font-weight="600">The Shurli way</text>
 
-  <!-- 4. Async Invites -->
-  <rect x="30" y="174" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="1"/>
-  <rect x="42" y="183" width="10" height="7" rx="1" fill="none" stroke="#9ece6a" stroke-width="1.2"/>
-  <line x1="42" y1="186" x2="52" y2="186" stroke="#9ece6a" stroke-width="0.8"/>
-  <text x="58" y="192" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" font-weight="600">Async Invite Deposits</text>
+  <!-- Mesh-connected devices -->
+  <circle cx="790" cy="250" r="18" fill="none" stroke="#9ece6a" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="790" cy="250" r="6" fill="#9ece6a" opacity="0.3"/>
+  <circle cx="990" cy="250" r="18" fill="none" stroke="#9ece6a" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="990" cy="250" r="6" fill="#9ece6a" opacity="0.3"/>
+  <circle cx="830" cy="360" r="18" fill="none" stroke="#9ece6a" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="830" cy="360" r="6" fill="#9ece6a" opacity="0.3"/>
+  <circle cx="950" cy="360" r="18" fill="none" stroke="#9ece6a" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="950" cy="360" r="6" fill="#9ece6a" opacity="0.3"/>
 
-  <!-- 5. 2FA -->
-  <rect x="30" y="208" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#f7768e" stroke-width="1"/>
-  <text x="43" y="226" font-family="SF Mono, monospace" font-size="9" fill="#f7768e" font-weight="700">2F</text>
-  <text x="58" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#f7768e" font-weight="600">Two-Factor Auth (time code + YubiKey)</text>
+  <!-- Direct connections -->
+  <line x1="808" y1="250" x2="972" y2="250" stroke="#9ece6a" stroke-width="1.5" opacity="0.3"/>
+  <line x1="800" y1="265" x2="822" y2="345" stroke="#9ece6a" stroke-width="1.5" opacity="0.3"/>
+  <line x1="800" y1="265" x2="940" y2="350" stroke="#9ece6a" stroke-width="1.5" opacity="0.2"/>
+  <line x1="980" y1="265" x2="958" y2="345" stroke="#9ece6a" stroke-width="1.5" opacity="0.3"/>
+  <line x1="980" y1="265" x2="840" y2="350" stroke="#9ece6a" stroke-width="1.5" opacity="0.2"/>
+  <line x1="848" y1="360" x2="932" y2="360" stroke="#9ece6a" stroke-width="1.5" opacity="0.3"/>
 
-  <!-- Column 2 -->
-  <!-- 6. ZKP -->
-  <rect x="230" y="72" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="1"/>
-  <text x="243" y="90" font-family="SF Mono, monospace" font-size="8" fill="#da1c5c" font-weight="700">ZK</text>
-  <text x="258" y="90" font-family="system-ui, sans-serif" font-size="9" fill="#da1c5c" font-weight="600">Zero-Knowledge Anonymous Auth</text>
+  <text x="890" y="430" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" opacity="0.6">No account. No middleman. Direct.</text>
 
-  <!-- 7. Reputation -->
-  <rect x="230" y="106" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#e8729a" stroke-width="1"/>
-  <text x="243" y="124" font-family="SF Mono, monospace" font-size="10" fill="#e8729a" font-weight="700">#</text>
-  <text x="258" y="124" font-family="system-ui, sans-serif" font-size="9" fill="#e8729a" font-weight="600">Private Reputation (Range Proofs)</text>
-
-  <!-- 8. BIP39 -->
-  <rect x="230" y="140" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#73daca" stroke-width="1"/>
-  <text x="243" y="158" font-family="SF Mono, monospace" font-size="7" fill="#73daca" font-weight="700">BIP</text>
-  <text x="262" y="158" font-family="system-ui, sans-serif" font-size="9" fill="#73daca" font-weight="600">Mnemonic Seed Key Management</text>
-
-  <!-- 9. Observability -->
-  <rect x="230" y="174" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#ff9e64" stroke-width="1"/>
-  <text x="258" y="192" font-family="system-ui, sans-serif" font-size="9" fill="#ff9e64" font-weight="600">44 Prometheus Metrics</text>
-  <rect x="242" y="183" width="3" height="6" fill="#ff9e64" opacity="0.8"/>
-  <rect x="246" y="181" width="3" height="8" fill="#ff9e64" opacity="0.8"/>
-  <rect x="250" y="184" width="3" height="5" fill="#ff9e64" opacity="0.8"/>
-
-  <!-- 10. Single Binary -->
-  <rect x="230" y="208" width="185" height="28" rx="6" fill="url(#nodeFill)" stroke="#00ff88" stroke-width="1"/>
-  <text x="243" y="226" font-family="SF Mono, monospace" font-size="7" fill="#00ff88" font-weight="700">$</text>
-  <text x="258" y="226" font-family="system-ui, sans-serif" font-size="9" fill="#00ff88" font-weight="600">Single Binary, Zero Cloud</text>
-
-  <!-- ====== CENTER: Convergence arrows ====== -->
-  <!-- Arrow lines from cards to binary -->
-  <line x1="415" y1="86" x2="530" y2="150" stroke="#565f89" stroke-width="0.8" opacity="0.4"/>
-  <line x1="415" y1="120" x2="530" y2="155" stroke="#565f89" stroke-width="0.8" opacity="0.4"/>
-  <line x1="415" y1="154" x2="530" y2="163" stroke="#565f89" stroke-width="0.8" opacity="0.4"/>
-  <line x1="415" y1="188" x2="530" y2="171" stroke="#565f89" stroke-width="0.8" opacity="0.4"/>
-  <line x1="415" y1="222" x2="530" y2="179" stroke="#565f89" stroke-width="0.8" opacity="0.4"/>
-
-  <!-- Convergence point glow -->
-  <circle cx="530" cy="165" r="20" fill="#00ff88" opacity="0.04"/>
-  <circle cx="530" cy="165" r="12" fill="#00ff88" opacity="0.06"/>
-
-  <!-- ====== RIGHT: Binary visualization ====== -->
-  <rect x="555" y="75" width="300" height="180" rx="12" fill="url(#binaryFill)" stroke="#00ff88" stroke-width="1.5"/>
-
-  <!-- Terminal-style header bar -->
-  <rect x="555" y="75" width="300" height="24" rx="12" fill="#1a1820"/>
-  <rect x="555" y="87" width="300" height="12" fill="#1a1820"/>
-  <circle cx="572" cy="87" r="4" fill="#f7768e" opacity="0.7"/>
-  <circle cx="584" cy="87" r="4" fill="#e0af68" opacity="0.7"/>
-  <circle cx="596" cy="87" r="4" fill="#9ece6a" opacity="0.7"/>
-  <text x="710" y="92" font-family="SF Mono, monospace" font-size="9" fill="#565f89" text-anchor="middle">shurli</text>
-
-  <!-- Binary content - monospace style -->
-  <text x="575" y="118" font-family="SF Mono, monospace" font-size="9" fill="#565f89">$ go build -ldflags="-s -w"</text>
-  <text x="575" y="134" font-family="SF Mono, monospace" font-size="9" fill="#565f89">$   -trimpath -o shurli ./cmd/shurli</text>
-
-  <text x="575" y="156" font-family="SF Mono, monospace" font-size="10" fill="#00ff88" font-weight="600">$ ls -lh shurli</text>
-  <text x="575" y="172" font-family="SF Mono, monospace" font-size="10" fill="#c0caf5">-rwxr-xr-x  37M  shurli</text>
-
-  <text x="575" y="194" font-family="SF Mono, monospace" font-size="9" fill="#565f89">16 subcommands</text>
-  <text x="575" y="208" font-family="SF Mono, monospace" font-size="9" fill="#565f89">5 P2P protocols</text>
-  <text x="575" y="222" font-family="SF Mono, monospace" font-size="9" fill="#565f89">200+ tests</text>
-  <text x="575" y="236" font-family="SF Mono, monospace" font-size="9" fill="#9ece6a" font-weight="600">0 cloud accounts</text>
-
-  <!-- ====== BOTTOM: "What doesn't exist elsewhere" bar ====== -->
-  <rect x="30" y="270" width="840" height="55" rx="8" fill="#1e1d20" stroke="#333" stroke-width="1"/>
-
-  <text x="50" y="289" font-family="system-ui, sans-serif" font-size="10" fill="#e0af68" font-weight="600">Each exists somewhere. The combination does not.</text>
-
-  <!-- Existing in isolation -->
-  <text x="50" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">P2P networking</text>
-  <text x="120" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="135" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Ed25519</text>
-  <text x="192" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="207" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Macaroons</text>
-  <text x="275" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="290" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Sealed vault</text>
-  <text x="365" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="380" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Zero-knowledge</text>
-  <text x="448" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="463" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Seed keys</text>
-  <text x="505" y="310" font-family="SF Mono, monospace" font-size="10" fill="#565f89">+</text>
-  <text x="520" y="310" font-family="SF Mono, monospace" font-size="8" fill="#565f89">Prometheus</text>
-
-  <text x="600" y="310" font-family="system-ui, sans-serif" font-size="10" fill="#00ff88" font-weight="700">= only in Shurli</text>
-
-  <!-- ====== VERY BOTTOM: Key metrics ====== -->
-  <rect x="30" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#7aa2f7" stroke-width="0.8"/>
-  <text x="88" y="358" font-family="SF Mono, monospace" font-size="11" fill="#7aa2f7" text-anchor="middle" font-weight="700">520 bytes</text>
-  <text x="88" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">proof size</text>
-
-  <rect x="155" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#da1c5c" stroke-width="0.8"/>
-  <text x="213" y="358" font-family="SF Mono, monospace" font-size="11" fill="#da1c5c" text-anchor="middle" font-weight="700">2-3ms</text>
-  <text x="213" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">proof verification</text>
-
-  <rect x="280" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#9ece6a" stroke-width="0.8"/>
-  <text x="338" y="358" font-family="SF Mono, monospace" font-size="11" fill="#9ece6a" text-anchor="middle" font-weight="700">44</text>
-  <text x="338" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Prometheus metrics</text>
-
-  <rect x="405" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#e0af68" stroke-width="0.8"/>
-  <text x="463" y="358" font-family="SF Mono, monospace" font-size="11" fill="#e0af68" text-anchor="middle" font-weight="700">7</text>
-  <text x="463" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">caveat types</text>
-
-  <rect x="530" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#bb9af7" stroke-width="0.8"/>
-  <text x="588" y="358" font-family="SF Mono, monospace" font-size="11" fill="#bb9af7" text-anchor="middle" font-weight="700">1M+</text>
-  <text x="588" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">peer tree capacity</text>
-
-  <rect x="655" y="340" width="115" height="44" rx="8" fill="url(#nodeFill)" stroke="#ff9e64" stroke-width="0.8"/>
-  <text x="713" y="358" font-family="SF Mono, monospace" font-size="11" fill="#ff9e64" text-anchor="middle" font-weight="700">200+</text>
-  <text x="713" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">tests passing</text>
-
-  <rect x="780" y="340" width="85" height="44" rx="8" fill="url(#nodeFill)" stroke="#00ff88" stroke-width="0.8"/>
-  <text x="823" y="358" font-family="SF Mono, monospace" font-size="11" fill="#00ff88" text-anchor="middle" font-weight="700">0</text>
-  <text x="823" y="373" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">cloud accounts</text>
+  <!-- Bottom -->
+  <text x="600" y="530" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" fill="#c0caf5" font-weight="600">NAT traversal, encryption, authentication, file transfer</text>
+  <text x="600" y="560" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" fill="#c0caf5" font-weight="600">All built in. Nothing to sign up for.</text>
 </svg>

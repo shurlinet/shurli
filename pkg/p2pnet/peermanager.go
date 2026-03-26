@@ -78,6 +78,86 @@ const (
 // serve_common.go wires it to PeerHistory.RecordConnection().
 type ConnectionRecorder func(peerID, pathType string, latencyMs float64)
 
+// connLogger implements network.Notifee to log every connection close
+// event for watched peers. This is the only way to capture the closing
+// connection's RemoteMultiaddr and direction before libp2p removes it
+// from ConnsToPeer. Used to diagnose why direct connections die unexpectedly
+// (flag #1: 13s direct connection death after mDNS upgrade).
+// Registered on Start(), deregistered on Close().
+type connLogger struct {
+	pm *PeerManager
+}
+
+func (cl *connLogger) Listen(n network.Network, addr ma.Multiaddr)      {}
+func (cl *connLogger) ListenClose(n network.Network, addr ma.Multiaddr) {}
+func (cl *connLogger) Connected(n network.Network, c network.Conn) {
+	cl.pm.mu.RLock()
+	_, watched := cl.pm.peers[c.RemotePeer()]
+	cl.pm.mu.RUnlock()
+	if !watched {
+		return
+	}
+	dir := "outbound"
+	if c.Stat().Direction == network.DirInbound {
+		dir = "inbound"
+	}
+	connType := "direct"
+	if c.Stat().Limited {
+		connType = "relay"
+	}
+	short := c.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: connection opened",
+		"peer", short,
+		"type", connType,
+		"direction", dir,
+		"remote", c.RemoteMultiaddr(),
+		"local", c.LocalMultiaddr())
+
+	// When a direct connection arrives (especially inbound from home-node
+	// after pathDialer already established relay), clean up the idle relay
+	// immediately. Without this, relay lingers until the 2-minute probe
+	// cycle catches it. The guard in startRelayCleanup prevents duplicates.
+	if !c.Stat().Limited {
+		pid := c.RemotePeer()
+		for _, existing := range n.ConnsToPeer(pid) {
+			if existing.Stat().Limited {
+				cl.pm.startRelayCleanup(pid)
+				break
+			}
+		}
+	}
+}
+func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
+	cl.pm.mu.RLock()
+	_, watched := cl.pm.peers[c.RemotePeer()]
+	cl.pm.mu.RUnlock()
+	if !watched {
+		return
+	}
+
+	dir := "outbound"
+	if c.Stat().Direction == network.DirInbound {
+		dir = "inbound"
+	}
+	connType := "direct"
+	if c.Stat().Limited {
+		connType = "relay"
+	}
+	short := c.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: connection closed",
+		"peer", short,
+		"type", connType,
+		"direction", dir,
+		"remote", c.RemoteMultiaddr(),
+		"local", c.LocalMultiaddr())
+}
+
 // ManagedPeer tracks the lifecycle state of a single watched peer.
 type ManagedPeer struct {
 	ID              peer.ID
@@ -113,9 +193,15 @@ type PeerManager struct {
 	pathDialer  *PathDialer
 	metrics     *Metrics
 	onReconnect ConnectionRecorder // nil-safe
+	connLog     *connLogger        // logs connection close events for watched peers
 
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
+
+	// relayCleanup tracks peers with an active closeRelayConns goroutine.
+	// Prevents duplicate 90-second sweep goroutines from stacking up when
+	// multiple triggers (connLogger, probeLoop) detect the same condition.
+	relayCleanup map[peer.ID]struct{}
 
 	// reconnectNow is a non-blocking trigger that causes the reconnect
 	// loop to run a cycle immediately instead of waiting for the next
@@ -136,6 +222,7 @@ func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect Connect
 		metrics:      m,
 		onReconnect:  onReconnect,
 		peers:        make(map[peer.ID]*ManagedPeer),
+		relayCleanup: make(map[peer.ID]struct{}),
 		reconnectNow: make(chan struct{}, 1),
 	}
 }
@@ -145,6 +232,9 @@ func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect Connect
 func (pm *PeerManager) Start(ctx context.Context) {
 	pm.ctx, pm.cancel = context.WithCancel(ctx)
 	pm.snapshotExisting()
+
+	pm.connLog = &connLogger{pm: pm}
+	pm.host.Network().Notify(pm.connLog)
 
 	pm.wg.Add(3)
 	go pm.eventLoop()
@@ -156,6 +246,9 @@ func (pm *PeerManager) Start(ctx context.Context) {
 
 // Close stops all background goroutines and waits for them to finish.
 func (pm *PeerManager) Close() {
+	if pm.connLog != nil {
+		pm.host.Network().StopNotify(pm.connLog)
+	}
 	pm.cancel()
 	pm.wg.Wait()
 }
@@ -222,6 +315,85 @@ func (pm *PeerManager) OnNetworkChange() {
 	case pm.reconnectNow <- struct{}{}:
 	default:
 		// Already pending, no need to queue another.
+	}
+}
+
+// ReconnectPeer clears internal backoff state for a single peer and triggers
+// an immediate reconnect cycle. This is the manual escape hatch for AI agents
+// and operators to recover a peer from backoff state without waiting for it
+// to expire naturally. Returns true if the peer was in the watchlist.
+func (pm *PeerManager) ReconnectPeer(pid peer.ID) bool {
+	pm.mu.Lock()
+	mp, ok := pm.peers[pid]
+	if ok {
+		mp.BackoffUntil = time.Time{}
+		mp.ConsecFailures = 0
+		mp.ProbeUntil = time.Time{}
+	}
+	pm.mu.Unlock()
+
+	if !ok {
+		return false
+	}
+
+	short := pid.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("peermanager: manual reconnect requested", "peer", short)
+
+	// Trigger immediate reconnect cycle (non-blocking send).
+	select {
+	case pm.reconnectNow <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// StripPrivateAddrs removes private/LAN addresses from the peerstore for
+// all watched peers. Called during network changes BEFORE triggering
+// reconnect or mDNS browse. This prevents the swarm dial worker from
+// caching stale LAN address failures that poison concurrent direct dials
+// (see libp2p-overrides.md section 6: dial worker deduplication race).
+// mDNS re-populates LAN addresses from fresh discovery after the strip.
+func (pm *PeerManager) StripPrivateAddrs() {
+	pm.mu.RLock()
+	var peerIDs []peer.ID
+	for pid := range pm.peers {
+		peerIDs = append(peerIDs, pid)
+	}
+	pm.mu.RUnlock()
+
+	ps := pm.host.Peerstore()
+	stripped := 0
+	for _, pid := range peerIDs {
+		addrs := ps.Addrs(pid)
+		// Count stale addrs first to avoid allocating keep slice when
+		// all addrs are public (common case for relay-connected peers).
+		staleCount := 0
+		for _, a := range addrs {
+			if isStaleOnNetworkChange(a) {
+				staleCount++
+			}
+		}
+		if staleCount == 0 {
+			continue
+		}
+		keep := make([]ma.Multiaddr, 0, len(addrs)-staleCount)
+		for _, a := range addrs {
+			if !isStaleOnNetworkChange(a) {
+				keep = append(keep, a)
+			}
+		}
+		ps.ClearAddrs(pid)
+		if len(keep) > 0 {
+			ps.AddAddrs(pid, keep, discoveredAddrTTL)
+		}
+		stripped += staleCount
+	}
+	if stripped > 0 {
+		slog.Debug("peermanager: stripped private addrs from peerstore",
+			"count", stripped, "peers", len(peerIDs))
 	}
 }
 
@@ -638,11 +810,20 @@ func (pm *PeerManager) incMetric(result string) {
 // direct connections intact. Runs periodically for the probe cooldown
 // duration to catch relay connections re-established by the remote
 // peer's reconnect loop.
+//
+// Guarded by relayCleanup map: only one goroutine runs per peer at a time.
+// Call via startRelayCleanup() which handles the guard check.
 func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 	short := pid.String()
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
+
+	defer func() {
+		pm.mu.Lock()
+		delete(pm.relayCleanup, pid)
+		pm.mu.Unlock()
+	}()
 
 	// Close immediately, then periodically for 90s.
 	// The remote peer's reconnect loop runs every 30s, so we need
@@ -656,8 +837,9 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 		for _, c := range pm.host.Network().ConnsToPeer(pid) {
 			if c.Stat().Limited {
 				c.Close()
-				slog.Debug("peermanager: closed relay conn (direct exists)",
-					"peer", short)
+				slog.Info("peermanager: closed relay conn (direct exists)",
+					"peer", short,
+					"remote", c.RemoteMultiaddr())
 			}
 		}
 	}
@@ -688,6 +870,21 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 			closeOnce()
 		}
 	}
+}
+
+// startRelayCleanup launches closeRelayConns for a peer if one isn't
+// already running. Returns true if a new goroutine was launched.
+func (pm *PeerManager) startRelayCleanup(pid peer.ID) bool {
+	pm.mu.Lock()
+	if _, running := pm.relayCleanup[pid]; running {
+		pm.mu.Unlock()
+		return false
+	}
+	pm.relayCleanup[pid] = struct{}{}
+	pm.mu.Unlock()
+
+	go pm.closeRelayConns(pid)
+	return true
 }
 
 // ProbeAndUpgradeRelayed checks if any watched peers currently connected
@@ -725,6 +922,18 @@ func (pm *PeerManager) ProbeAndUpgradeRelayed() {
 		}
 
 		if !relayed {
+			// Peer has a direct connection. Clean up any relay connections
+			// that accumulated alongside it — e.g., pathDialer established
+			// relay just before mDNS or home-node's inbound direct arrived.
+			// probeAndUpgrade normally skips non-relayed peers, so without
+			// this, idle relay connections linger indefinitely wasting relay
+			// server resources.
+			for _, c := range conns {
+				if c.Stat().Limited {
+					pm.startRelayCleanup(pid)
+					break
+				}
+			}
 			slog.Debug("peermanager: probe skip (direct)", "peer", short)
 			continue
 		}
@@ -761,7 +970,7 @@ func (pm *PeerManager) ProbeAndUpgradeRelayed() {
 				continue
 			}
 			// AddAddrs to peerstore so probeAndUpgrade can use them.
-			pm.host.Peerstore().AddAddrs(pid, pi.Addrs, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, pi.Addrs, discoveredAddrTTL)
 
 			slog.Debug("peermanager: DHT refreshed addrs", "peer", short,
 				"count", len(pi.Addrs))
@@ -888,7 +1097,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			// connections survive (they're independent of the peerstore).
 			allPeerAddrs := pm.host.Peerstore().Addrs(pid)
 			pm.host.Peerstore().ClearAddrs(pid)
-			pm.host.Peerstore().AddAddrs(pid, []ma.Multiaddr{confirmedTCP}, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, []ma.Multiaddr{confirmedTCP}, discoveredAddrTTL)
 
 			// Force a direct dial using only the confirmed address.
 			ctx, cancel := context.WithTimeout(pm.ctx, probeConnectTimeout)
@@ -897,7 +1106,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			cancel()
 
 			// Restore the full address set regardless of outcome.
-			pm.host.Peerstore().AddAddrs(pid, allPeerAddrs, 10*time.Minute)
+			pm.host.Peerstore().AddAddrs(pid, allPeerAddrs, discoveredAddrTTL)
 
 			if err != nil {
 				slog.Warn("peermanager: direct dial failed, relay stays",
@@ -925,7 +1134,7 @@ func (pm *PeerManager) probeAndUpgrade(pid peer.ID) {
 			// Close relay connections now that direct is established.
 			// Runs as goroutine to keep sweeping for 90s in case the
 			// remote peer's reconnect loop re-establishes relay.
-			go pm.closeRelayConns(pid)
+			pm.startRelayCleanup(pid)
 
 			pm.incMetric("probe_upgrade")
 			return
@@ -947,6 +1156,31 @@ func allConnsRelayed(conns []network.Conn) bool {
 		}
 	}
 	return true
+}
+
+// anyConnIsLAN returns true if at least one non-relay connection uses a
+// private IPv4 remote address (RFC 1918 / RFC 6598). This distinguishes
+// "direct via LAN" from "direct via internet IPv6". On networks with
+// client isolation (e.g. satellite routers), an IPv6 direct connection may be
+// silently dead while a private IPv4 LAN path works fine. mDNS should
+// establish a LAN connection even when a direct (but non-LAN) connection
+// already exists.
+func anyConnIsLAN(conns []network.Conn) bool {
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue
+		}
+		remoteMA := c.RemoteMultiaddr()
+		first, _ := ma.SplitFirst(remoteMA)
+		if first == nil || first.Protocol().Code != ma.P_IP4 {
+			continue
+		}
+		ip := net.ParseIP(first.Value())
+		if ip != nil && isPrivateIPv4(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasLiveDirectConnection returns true if the peer has at least one

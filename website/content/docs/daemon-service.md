@@ -1,6 +1,6 @@
 ---
 title: "Daemon Service Setup"
-weight: 4
+weight: 5
 description: "Run the Shurli daemon as a managed system service on Linux (systemd) or macOS (launchd). Auto-start on boot, crash recovery, and security hardening."
 ---
 
@@ -26,7 +26,7 @@ Run `shurli daemon` as a managed system service that starts on boot, restarts on
    sudo ln -sf "$(pwd)/shurli" /usr/local/bin/shurli
    ```
 
-2. **Config initialized** (creates `~/.config/shurli/` with identity key and config):
+2. **Config initialized** (creates `~/.shurli/` with identity key and config):
 
    ```bash
    shurli init
@@ -57,7 +57,7 @@ Initialize config as that user:
 sudo -u shurli shurli init
 ```
 
-This creates `/home/shurli/.config/shurli/` with identity key, config, and authorized_keys.
+This creates `/home/shurli/.shurli/` with identity key, config, and authorized_keys.
 
 ### 2. Install the service file
 
@@ -65,12 +65,12 @@ This creates `/home/shurli/.config/shurli/` with identity key, config, and autho
 sudo cp deploy/shurli-daemon.service /etc/systemd/system/shurli-daemon.service
 ```
 
-If your config directory is not `/home/shurli/.config/shurli`, edit the `ReadWritePaths` line:
+If your config directory is not `/home/shurli/.shurli`, edit the `ReadWritePaths` line:
 
 ```bash
 sudo nano /etc/systemd/system/shurli-daemon.service
-# Change: ReadWritePaths=/home/shurli/.config/shurli
-# To:     ReadWritePaths=/path/to/your/.config/shurli
+# Change: ReadWritePaths=/home/shurli/.shurli
+# To:     ReadWritePaths=/path/to/your/.shurli
 ```
 
 ### 3. Enable and start
@@ -123,7 +123,7 @@ shurli status
 cp deploy/com.shurli.daemon.plist ~/Library/LaunchAgents/
 ```
 
-This installs as a **user agent** (runs as your user, no sudo needed). The daemon has access to your user's config at `~/.config/shurli/`.
+This installs as a **user agent** (runs as your user, no sudo needed). The daemon has access to your user's config at `~/.shurli/`.
 
 ### 2. Load the service
 
@@ -258,7 +258,7 @@ Or keep the config and just remove the user:
 
 ```bash
 sudo userdel shurli
-# Config remains at /home/shurli/.config/shurli/
+# Config remains at /home/shurli/.shurli/
 ```
 
 ### macOS
@@ -271,7 +271,7 @@ rm ~/Library/LaunchAgents/com.shurli.daemon.plist
 Optionally remove config and logs:
 
 ```bash
-rm -rf ~/.config/shurli
+rm -rf ~/.shurli
 rm /tmp/shurli-daemon.log
 ```
 
@@ -282,7 +282,7 @@ rm /tmp/shurli-daemon.log
 | Issue | Cause | Solution |
 |-------|-------|----------|
 | Service fails to start | Binary not found | Verify `/usr/local/bin/shurli` exists and is executable |
-| "Permission denied" on config | Wrong ownership | `sudo chown -R shurli:shurli /home/shurli/.config/shurli` |
+| "Permission denied" on config | Wrong ownership | `sudo chown -R shurli:shurli /home/shurli/.shurli` |
 | Watchdog keeps restarting | Daemon hangs or crashes | `sudo journalctl -u shurli-daemon -n 50` for error logs |
 | Socket permission denied | Different user trying to access | `shurli status` must run as the same user that owns the socket |
 | launchctl: "service already loaded" | Plist already active | `launchctl unload` first, then `launchctl load` |
@@ -319,7 +319,7 @@ echo "0 4 * * * tail -10000 /tmp/shurli-daemon.log > /tmp/shurli-daemon.log.tmp 
 ```
 /etc/systemd/system/shurli-daemon.service   # service unit
 /usr/local/bin/shurli                        # binary (or symlink)
-/home/shurli/.config/shurli/
+/home/shurli/.shurli/
     config.yaml                              # daemon config
     node.key                                 # Ed25519 identity key
     authorized_keys                          # peer allowlist
@@ -332,7 +332,7 @@ echo "0 4 * * * tail -10000 /tmp/shurli-daemon.log > /tmp/shurli-daemon.log.tmp 
 ```
 ~/Library/LaunchAgents/com.shurli.daemon.plist   # launchd plist
 /usr/local/bin/shurli                            # binary (or symlink)
-~/.config/shurli/
+~/.shurli/
     config.yaml
     node.key
     authorized_keys

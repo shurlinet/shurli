@@ -153,6 +153,222 @@ func TestMakeIPSet_Nil(t *testing.T) {
 	}
 }
 
+func TestDiffSummaries_TunnelAdded(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::1"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun5"},
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when tunnel added, got nil")
+	}
+	if !change.TunnelChanged {
+		t.Error("expected TunnelChanged=true")
+	}
+	// Global IPs didn't change
+	if len(change.Added) != 0 || len(change.Removed) != 0 {
+		t.Errorf("expected no IP changes, got added=%v removed=%v", change.Added, change.Removed)
+	}
+}
+
+func TestDiffSummaries_TunnelRemoved(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun5"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::1"},
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when tunnel removed, got nil")
+	}
+	if !change.TunnelChanged {
+		t.Error("expected TunnelChanged=true")
+	}
+}
+
+func TestDiffSummaries_TunnelUnchanged(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun3"},
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:    true,
+		GlobalIPv6Addrs:  []string{"2001:db8::1"},
+		TunnelInterfaces: []string{"utun3"},
+	}
+
+	change := diffSummaries(old, current)
+	if change != nil {
+		t.Errorf("expected nil change when tunnel unchanged, got %+v", change)
+	}
+}
+
+func TestTunnelSetChanged(t *testing.T) {
+	tests := []struct {
+		name    string
+		a, b    []string
+		changed bool
+	}{
+		{"both empty", nil, nil, false},
+		{"same", []string{"utun3"}, []string{"utun3"}, false},
+		{"added", nil, []string{"utun5"}, true},
+		{"removed", []string{"utun5"}, nil, true},
+		{"different", []string{"utun3"}, []string{"utun5"}, true},
+		{"added second", []string{"utun3"}, []string{"utun3", "utun5"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tunnelSetChanged(tt.a, tt.b)
+			if got != tt.changed {
+				t.Errorf("tunnelSetChanged = %v, want %v", got, tt.changed)
+			}
+		})
+	}
+}
+
+func TestIsTunnelInterface(t *testing.T) {
+	tests := []struct {
+		name   string
+		iface  string
+		tunnel bool
+	}{
+		{"utun macOS", "utun5", true},
+		{"tun Linux", "tun0", true},
+		{"wg WireGuard", "wg0", true},
+		{"ppp L2TP", "ppp0", true},
+		{"en0 WiFi", "en0", false},
+		{"lo0 loopback", "lo0", false},
+		{"bridge", "bridge0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTunnelInterface(tt.iface)
+			if got != tt.tunnel {
+				t.Errorf("isTunnelInterface(%q) = %v, want %v", tt.iface, got, tt.tunnel)
+			}
+		})
+	}
+}
+
+func TestDiffSummaries_GatewayChanged(t *testing.T) {
+	old := &InterfaceSummary{
+		DefaultGateway: "192.168.99.1",
+	}
+	current := &InterfaceSummary{
+		DefaultGateway: "172.20.10.1",
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when gateway changed, got nil")
+	}
+	if !change.GatewayChanged {
+		t.Error("expected GatewayChanged=true")
+	}
+	if !change.IPv4Changed {
+		t.Error("expected IPv4Changed=true (gateway change implies IPv4 change)")
+	}
+	// No global IPs changed
+	if len(change.Added) != 0 || len(change.Removed) != 0 {
+		t.Errorf("expected no IP changes, got added=%v removed=%v", change.Added, change.Removed)
+	}
+}
+
+func TestDiffSummaries_GatewayUnchanged(t *testing.T) {
+	old := &InterfaceSummary{
+		DefaultGateway: "192.168.99.1",
+	}
+	current := &InterfaceSummary{
+		DefaultGateway: "192.168.99.1",
+	}
+
+	change := diffSummaries(old, current)
+	if change != nil {
+		t.Errorf("expected nil change when gateway unchanged, got %+v", change)
+	}
+}
+
+func TestDiffSummaries_GatewayEmptyCurrentIgnored(t *testing.T) {
+	// Empty current gateway (intermittent lookup failure) should NOT fire
+	tests := []struct {
+		name      string
+		oldGW     string
+		currentGW string
+	}{
+		{"current empty", "192.168.99.1", ""},
+		{"both empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := &InterfaceSummary{DefaultGateway: tt.oldGW}
+			current := &InterfaceSummary{DefaultGateway: tt.currentGW}
+
+			change := diffSummaries(old, current)
+			if change != nil {
+				t.Errorf("expected nil change, got %+v", change)
+			}
+		})
+	}
+}
+
+func TestDiffSummaries_GatewayEmptyOldFires(t *testing.T) {
+	// Empty old + non-empty current = genuine network appearance (e.g.,
+	// daemon booted without WiFi, then WiFi connects). Must fire to
+	// prevent permanent gateway blindness.
+	old := &InterfaceSummary{DefaultGateway: ""}
+	current := &InterfaceSummary{DefaultGateway: "192.168.99.1"}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change when gateway appears (empty old), got nil")
+	}
+	if !change.GatewayChanged {
+		t.Error("expected GatewayChanged=true")
+	}
+	if !change.IPv4Changed {
+		t.Error("expected IPv4Changed=true")
+	}
+}
+
+func TestDiffSummaries_GatewayWithGlobalIPChange(t *testing.T) {
+	old := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::1"},
+		DefaultGateway:  "192.168.99.1",
+	}
+	current := &InterfaceSummary{
+		HasGlobalIPv6:   true,
+		GlobalIPv6Addrs: []string{"2001:db8::2"},
+		DefaultGateway:  "172.20.10.1",
+	}
+
+	change := diffSummaries(old, current)
+	if change == nil {
+		t.Fatal("expected change, got nil")
+	}
+	if !change.GatewayChanged {
+		t.Error("expected GatewayChanged=true")
+	}
+	if !change.IPv6Changed {
+		t.Error("expected IPv6Changed=true")
+	}
+	if !change.IPv4Changed {
+		t.Error("expected IPv4Changed=true (gateway change)")
+	}
+}
+
 func TestIPVersionChanged(t *testing.T) {
 	tests := []struct {
 		name    string

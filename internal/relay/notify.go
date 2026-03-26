@@ -20,6 +20,12 @@ import (
 // Protocol ID for peer introduction delivery.
 const PeerNotifyProtocol = "/shurli/peer-notify/1.0.0"
 
+// GrantChangedProtocol is the legacy grant notification protocol (v1).
+// Sends a single version byte when a grant changes. Superseded by
+// GrantReceiptProtocol which carries the full receipt payload.
+// Kept for backward compatibility with older clients.
+const GrantChangedProtocol = "/shurli/grant-changed/1.0.0"
+
 // Wire format version.
 const notifyVersion byte = 0x01
 
@@ -262,11 +268,21 @@ func ReadPeerNotify(r io.Reader) (peers []NotifyPeerInfo, groupID string, groupS
 	return peers, groupID, groupSize, nil
 }
 
+// GrantReceiptDelivery holds the config for pushing grant receipts on reconnect.
+// If nil is passed to RunReconnectNotifier, receipt delivery is skipped.
+type GrantReceiptDelivery struct {
+	GrantStore       GrantChecker  // checks if peer has an active grant
+	HMACKey          []byte        // HKDF("grant-receipt/v1") dedicated key
+	SessionDataLimit int64         // from relay config (bytes, 0=unlimited)
+	SessionDuration  time.Duration // from relay config
+}
+
 // RunReconnectNotifier subscribes to peer identification events and pushes
 // introductions when an authorized peer with a group attribute reconnects.
+// If receiptCfg is non-nil, also pushes grant receipts to peers with active grants.
 // Uses EvtPeerIdentificationCompleted (not EvtPeerConnectednessChanged) so
 // the peer's supported protocols are known before opening a stream.
-func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifier, authKeysPath string) {
+func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifier, authKeysPath string, receiptCfg *GrantReceiptDelivery) {
 	sub, err := h.EventBus().Subscribe(new(event.EvtPeerIdentificationCompleted))
 	if err != nil {
 		slog.Error("reconnect-notifier: subscribe failed", "err", err)
@@ -324,6 +340,58 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 					break
 				}
 			}
+
+			// Push grant receipt if the peer has an active grant.
+			if receiptCfg != nil && receiptCfg.GrantStore != nil {
+				go func(pid peer.ID) {
+					g := receiptCfg.GrantStore.CheckAndGet(pid)
+					if g == nil {
+						return
+					}
+					if err := NotifyGrantReceipt(ctx, h, pid,
+						g, receiptCfg.SessionDataLimit, receiptCfg.SessionDuration,
+						receiptCfg.HMACKey); err != nil {
+						short := pid.String()
+						if len(short) > 16 {
+							short = short[:16] + "..."
+						}
+						slog.Debug("reconnect-notifier: grant receipt delivery failed",
+							"peer", short, "err", err)
+					}
+				}(e.Peer)
+			}
 		}
 	}
+}
+
+// NotifyGrantChanged sends a grant-changed signal to a connected peer.
+// The message is a single version byte (0x01). The client uses it as a
+// trigger to clear dial backoffs and retry disconnected peers.
+// Returns nil if the peer is not connected (nothing to notify).
+func NotifyGrantChanged(ctx context.Context, h host.Host, targetPeerID peer.ID) error {
+	if h.Network().Connectedness(targetPeerID) != network.Connected {
+		return nil // not connected, nothing to do
+	}
+
+	streamCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	streamCtx = network.WithAllowLimitedConn(streamCtx, GrantChangedProtocol)
+	s, err := h.NewStream(streamCtx, targetPeerID, protocol.ID(GrantChangedProtocol))
+	if err != nil {
+		return fmt.Errorf("grant-changed stream: %w", err)
+	}
+	defer s.Close()
+
+	// Single version byte is the entire message.
+	if _, err := s.Write([]byte{notifyVersion}); err != nil {
+		return fmt.Errorf("grant-changed write: %w", err)
+	}
+
+	short := targetPeerID.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Info("grant-changed: notified peer", "peer", short)
+	return nil
 }

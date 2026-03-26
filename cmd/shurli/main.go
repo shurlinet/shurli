@@ -5,9 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/shurlinet/shurli/internal/config"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/plugin"
+	"github.com/shurlinet/shurli/plugins"
 )
 
 // Set via -ldflags at build time:
@@ -26,6 +29,9 @@ func main() {
 
 	// Apply cli.color config setting (best-effort, no error on missing config).
 	applyColorConfig()
+
+	// Register plugin CLI commands (always compiled in).
+	plugins.RegisterCLI()
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -59,22 +65,6 @@ func main() {
 		runJoin(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
-	case "share":
-		runShare(os.Args[2:])
-	case "browse":
-		runBrowse(os.Args[2:])
-	case "download":
-		runDownload(os.Args[2:])
-	case "send":
-		runSend(os.Args[2:])
-	case "transfers":
-		runTransfers(os.Args[2:])
-	case "accept":
-		runAccept(os.Args[2:])
-	case "reject":
-		runReject(os.Args[2:])
-	case "cancel":
-		runCancel(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "status":
@@ -89,6 +79,12 @@ func main() {
 		runUnlock(os.Args[2:])
 	case "session":
 		runSession(os.Args[2:])
+	case "plugin":
+		runPlugin(os.Args[2:])
+	case "reconnect":
+		runReconnect(os.Args[2:])
+	case "notify":
+		runNotify(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "completion":
@@ -100,6 +96,16 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 	default:
+		// Check plugin commands.
+		if cmd, ok := plugin.FindCLICommand(os.Args[1]); ok {
+			if !isPluginEnabledInConfig(cmd.PluginName) {
+				fmt.Fprintf(os.Stderr, "Command %q is provided by plugin %q which is disabled.\n", os.Args[1], cmd.PluginName)
+				fmt.Fprintf(os.Stderr, "Enable it with: shurli plugin enable %s\n", cmd.PluginName)
+				osExit(1)
+			}
+			cmd.Run(os.Args[2:])
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", os.Args[1])
 		printUsage()
 		osExit(1)
@@ -138,130 +144,217 @@ func printUsage() {
 	fmt.Println("Usage: shurli <command> [options]")
 	fmt.Println()
 	fmt.Println("Daemon:")
-	fmt.Println("  daemon                                   Start daemon (P2P host + control API)")
-	fmt.Println("  daemon status [--json]                   Query running daemon")
-	fmt.Println("  daemon stop                              Graceful shutdown")
-	fmt.Println("  daemon ping <target> [-c N] [--json]     Ping via daemon")
-	fmt.Println("  daemon services [--json]                 List services via daemon")
-	fmt.Println("  daemon peers [--all] [--json]            List connected peers via daemon")
-	fmt.Println("  daemon paths [--json]                    Show connection paths")
+	fmt.Println("  daemon                                Start daemon (P2P host + control API)")
+	fmt.Println("  daemon status [--json]                Query running daemon")
+	fmt.Println("  daemon stop                           Graceful shutdown")
+	fmt.Println("  daemon ping <target> [-c N] [--json]  Ping via daemon")
+	fmt.Println("  daemon services [--json]              List services via daemon")
+	fmt.Println("  daemon peers [--all] [--json]         List connected peers via daemon")
+	fmt.Println("  daemon paths [--json]                 Show connection paths")
 	fmt.Println("  daemon connect --peer <p> --service <s> --listen <addr>")
-	fmt.Println("  daemon disconnect <id>                   Tear down proxy")
+	fmt.Println("  daemon disconnect <id>                Tear down proxy")
 	fmt.Println()
 	fmt.Println("Network tools:")
-	fmt.Println("  ping <target> [-c N] [--interval 1s] [--json]  P2P ping")
-	fmt.Println("  traceroute <target> [--json]                    P2P traceroute")
-	fmt.Println("  resolve <name> [--json]                         Resolve name to peer ID")
-	fmt.Println("  proxy <target> <service> <local-port>           Forward TCP port")
-	fmt.Println("  send <file> <peer> [--follow] [--no-compress] [--streams N] [--priority P] [--quiet] [--silent] [--json]")
-	fmt.Println("  share add <path> [--to peer] [--peers id1,id2] [--persist] [--json]  Share a file or directory")
-	fmt.Println("  share remove <path>                              Stop sharing a path")
-	fmt.Println("  share list [--json]                              List shared paths")
-	fmt.Println("  browse <peer> [--path /sub/dir] [--json]         Browse a peer's shared files")
-	fmt.Println("  download <peer>:<path> [--dest dir] [--follow] [--multi-peer] [--peers list] [--quiet] [--silent] [--json]")
-	fmt.Println("  transfers [--watch] [--history] [--max N] [--json]  List/watch file transfers")
-	fmt.Println("  accept <id|--all> [--dest /path/] [--json]      Accept a pending transfer")
-	fmt.Println("  reject <id|--all> [--reason space|busy|size] [--json]  Reject a pending transfer")
-	fmt.Println("  cancel <id> [--json]                                   Cancel a queued/active transfer")
+	fmt.Println("  ping <target> [-c N] [--json]         P2P ping")
+	fmt.Println("  traceroute <target> [--json]           P2P traceroute")
+	fmt.Println("  resolve <name> [--json]                Resolve name to peer ID")
+	fmt.Println("  proxy <target> <service> <local-port>  Forward TCP port")
+	fmt.Println("  reconnect <peer> [--json]              Clear backoffs and force redial")
 	fmt.Println()
 	fmt.Println("Identity & access:")
-	fmt.Println("  whoami                                  Show your peer ID")
-	fmt.Println("  auth add <peer-id> [--comment \"...\"]    Authorize a peer")
-	fmt.Println("  auth list                               List authorized peers")
-	fmt.Println("  auth remove <peer-id>                   Revoke a peer's access")
-	fmt.Println("  auth validate [file]                    Validate authorized_keys format")
+	fmt.Println("  whoami                                 Show your peer ID")
+	fmt.Println("  auth add <peer-id> [--comment \"...\"]   Authorize a peer")
+	fmt.Println("  auth list                              List authorized peers")
+	fmt.Println("  auth remove <peer-id>                  Revoke a peer's access")
+	fmt.Println("  auth validate [file]                   Validate authorized_keys format")
+	fmt.Println("  auth set-attr <peer> <key> <value>     Set peer attribute (e.g. bandwidth_budget 1GB)")
+	fmt.Println("  auth grant <peer-id> --duration 1h     Grant time-limited access")
+	fmt.Println("  auth grants                            List active grants")
+	fmt.Println("  auth revoke <peer-id>                  Revoke a grant")
+	fmt.Println("  auth extend <peer-id> --duration 2h    Extend a grant")
+	fmt.Println("  auth delegate <peer-id> [--restrict]   Delegate a grant to a peer")
+	fmt.Println("  auth pouch                             Show grant pouch contents")
+	fmt.Println("  auth audit [--verify]                  Audit grant log integrity")
 	fmt.Println()
 	fmt.Println("Configuration:")
-	fmt.Println("  init                                    Set up shurli configuration")
-	fmt.Println("  config validate [--config path]          Validate config")
-	fmt.Println("  config show     [--config path]          Show resolved config")
-	fmt.Println("  config set <key> <value> [--duration 10m] Set a config value")
-	fmt.Println("  config rollback [--config path]          Restore last-known-good config")
-	fmt.Println("  config apply <new> [--confirm-timeout]   Apply with auto-revert")
-	fmt.Println("  config confirm  [--config path]          Confirm applied config")
+	fmt.Println("  init                                   Set up shurli configuration")
+	fmt.Println("  config validate [--config path]        Validate config")
+	fmt.Println("  config show [--config path]            Show resolved config")
+	fmt.Println("  config set <key> <value>               Set a config value")
+	fmt.Println("  config reload [--json]                 Reload config into running daemon")
+	fmt.Println("  config rollback [--config path]        Restore last-known-good config")
+	fmt.Println("  config apply <new> [--confirm-timeout] Apply with auto-revert")
+	fmt.Println("  config confirm [--config path]         Confirm applied config")
 	fmt.Println()
-	fmt.Println("Relay client (manages shurli.yaml):")
-	fmt.Println("  relay add <address> [--peer-id <ID>]     Add a relay server")
-	fmt.Println("  relay list                              List relay servers")
-	fmt.Println("  relay remove <multiaddr>                Remove a relay server")
+	fmt.Println("Relay client:")
+	fmt.Println("  relay add <address> [--peer-id <ID>]   Add a relay server")
+	fmt.Println("  relay list                             List relay servers")
+	fmt.Println("  relay remove <multiaddr>               Remove a relay server")
+	fmt.Println("  relay seeds <add|remove>               Add/remove public seed nodes")
 	fmt.Println()
-	fmt.Println("Relay server (local or --remote for admin):")
-	fmt.Println("  relay authorize <peer-id> [comment]      Allow a peer")
-	fmt.Println("  relay deauthorize <peer-id>              Remove a peer's access")
-	fmt.Println("  relay list-peers                         List authorized peers")
-	fmt.Println("  relay invite create [--ttl 1h]           Generate an invite code")
-	fmt.Println("  relay invite list                        List active invites")
-	fmt.Println("  relay invite revoke <id>                 Revoke an invite")
-	fmt.Println()
-	fmt.Println("Relay server (local only):")
-	fmt.Println("  relay setup                              Initialize relay server config")
-	fmt.Println("  relay serve [--config path]              Start the relay server")
-	fmt.Println("  relay info                               Show peer ID and multiaddrs")
-	fmt.Println("  relay verify <peer-id>                   Verify peer identity (SAS)")
-	fmt.Println("  relay show                               Show resolved relay config")
-	fmt.Println("  relay config validate                    Validate relay config")
-	fmt.Println("  relay config rollback                    Restore last-known-good config")
-	fmt.Println("  relay recover                            Recover relay identity from seed")
-	fmt.Println("  relay version                            Show relay version")
+	fmt.Println("Relay server:")
+	fmt.Println("  relay setup                            Initialize relay server config")
+	fmt.Println("  relay serve [--config path]            Start the relay server")
+	fmt.Println("  relay info                             Show peer ID and multiaddrs")
+	fmt.Println("  relay authorize <peer-id> [comment]    Allow a peer")
+	fmt.Println("  relay deauthorize <peer-id>            Remove a peer's access")
+	fmt.Println("  relay set-attr <peer> <key> <value>    Set peer attribute (e.g. role admin)")
+	fmt.Println("  relay grant <peer-id> --duration 1h    Grant time-limited data relay access")
+	fmt.Println("  relay grants                           List active data relay grants")
+	fmt.Println("  relay revoke <peer-id>                 Revoke data relay access")
+	fmt.Println("  relay extend <peer-id> --duration 2h   Extend data relay grant")
+	fmt.Println("  relay list-peers                       List authorized peers")
+	fmt.Println("  relay verify <peer-id>                 Verify peer identity (SAS)")
+	fmt.Println("  relay show                             Show resolved relay config")
+	fmt.Println("  relay config validate                  Validate relay config")
+	fmt.Println("  relay config rollback                  Restore last-known-good config")
+	fmt.Println("  relay recover                          Recover relay identity from seed")
+	fmt.Println("  relay version                          Show relay server version")
 	fmt.Println()
 	fmt.Println("Relay vault:")
-	fmt.Println("  relay vault init [--totp] [--auto-seal]  Initialize vault")
-	fmt.Println("  relay vault seal                         Seal vault (watch-only mode)")
-	fmt.Println("  relay vault unseal [--remote <addr>]     Unseal vault")
-	fmt.Println("  relay vault status                       Show vault seal status")
-	fmt.Println("  relay vault change-password              Change vault password")
-	fmt.Println("  relay seal                               Shorthand for vault seal")
-	fmt.Println("  relay unseal [--remote <addr>]           Shorthand for vault unseal")
-	fmt.Println("  relay seal-status                        Shorthand for vault status")
+	fmt.Println("  relay vault init [--totp] [--auto-seal] Initialize vault")
+	fmt.Println("  relay vault seal                       Seal vault (watch-only mode)")
+	fmt.Println("  relay vault unseal [--remote <addr>]   Unseal vault")
+	fmt.Println("  relay vault status                     Show vault seal status")
+	fmt.Println("  relay vault change-password            Change vault password")
+	fmt.Println("  relay seal                             Shorthand for vault seal")
+	fmt.Println("  relay unseal [--remote <addr>]         Shorthand for vault unseal")
+	fmt.Println("  relay seal-status                      Shorthand for vault status")
 	fmt.Println()
-	fmt.Println("Relay invites (macaroon-backed deposits):")
-	fmt.Println("  relay invite create [--caveat ...] [--ttl N]")
-	fmt.Println("  relay invite list                        List invite deposits")
-	fmt.Println("  relay invite revoke <id>                 Revoke a pending invite")
+	fmt.Println("Relay invites:")
+	fmt.Println("  relay invite create [--ttl 1h]         Generate an invite code")
+	fmt.Println("  relay invite list                      List invite deposits")
+	fmt.Println("  relay invite revoke <id>               Revoke a pending invite")
 	fmt.Println()
-	fmt.Println("Operator announcements (MOTD / goodbye):")
-	fmt.Println("  relay motd set <message> [--remote ..]   Set message of the day")
-	fmt.Println("  relay motd clear [--remote ..]           Clear MOTD")
-	fmt.Println("  relay motd status [--remote ..]          Show MOTD and goodbye status")
-	fmt.Println("  relay goodbye set <message> [--remote ..]  Set goodbye (pushed to peers)")
-	fmt.Println("  relay goodbye retract [--remote ..]      Retract goodbye announcement")
-	fmt.Println("  relay goodbye shutdown [msg] [--remote ..]  Send goodbye and shut down")
+	fmt.Println("Operator announcements:")
+	fmt.Println("  relay motd set <message> [--remote]    Set message of the day")
+	fmt.Println("  relay motd clear [--remote]            Clear MOTD")
+	fmt.Println("  relay motd status [--remote]           Show MOTD and goodbye status")
+	fmt.Println("  relay goodbye set <msg> [--remote]     Set goodbye (pushed to peers)")
+	fmt.Println("  relay goodbye retract [--remote]       Retract goodbye announcement")
+	fmt.Println("  relay goodbye status [--remote]        Show goodbye status")
+	fmt.Println("  relay goodbye shutdown [msg] [--remote] Send goodbye and shut down")
 	fmt.Println()
-	fmt.Println("ZKP anonymous authentication:")
-	fmt.Println("  relay zkp-setup [--keys-dir path]        Generate PLONK circuit keys")
-	fmt.Println("  relay zkp-test [--auth-keys path]        End-to-end ZKP auth test")
+	fmt.Println("ZKP:")
+	fmt.Println("  relay zkp-setup [--keys-dir path]      Generate PLONK circuit keys")
+	fmt.Println("  relay zkp-test [--auth-keys path]      End-to-end ZKP auth test")
 	fmt.Println()
 	fmt.Println("Services:")
-	fmt.Println("  service add <name> <address>             Expose a local service")
-	fmt.Println("  service remove <name>                    Remove a service")
-	fmt.Println("  service enable <name>                    Enable a service")
-	fmt.Println("  service disable <name>                   Disable a service")
-	fmt.Println("  service list                             List configured services")
+	fmt.Println("  service add <name> <address>           Expose a local service")
+	fmt.Println("  service remove <name>                  Remove a service")
+	fmt.Println("  service enable <name>                  Enable a service")
+	fmt.Println("  service disable <name>                 Disable a service")
+	fmt.Println("  service list                           List configured services")
 	fmt.Println()
 	fmt.Println("Pairing:")
-	fmt.Println("  invite [--name \"home\"] [--non-interactive]")
-	fmt.Println("  join <code> [--name \"laptop\"] [--non-interactive]")
-	fmt.Println("  verify <peer>                           Verify a peer's identity (SAS)")
+	fmt.Println("  invite [--as \"home\"]                   Generate pairing invite")
+	fmt.Println("  join <code> [--as \"laptop\"]            Join with invite code")
+	fmt.Println("  verify <peer>                          Verify a peer's identity (SAS)")
 	fmt.Println()
 	fmt.Println("Identity security:")
-	fmt.Println("  recover [--relay] [--dir path]           Recover identity from seed phrase")
-	fmt.Println("  change-password                         Change identity password")
-	fmt.Println("  lock                                    Lock daemon (disable sensitive ops)")
-	fmt.Println("  unlock                                  Unlock daemon with password")
-	fmt.Println("  session refresh                         Rotate session token")
-	fmt.Println("  session destroy                         Delete session token")
+	fmt.Println("  recover [--relay] [--dir path]         Recover identity from seed phrase")
+	fmt.Println("  change-password                        Change identity password")
+	fmt.Println("  lock                                   Lock daemon (disable sensitive ops)")
+	fmt.Println("  unlock                                 Unlock daemon with password")
+	fmt.Println("  session refresh                        Rotate session token")
+	fmt.Println("  session destroy                        Delete session token")
+	fmt.Println()
+	fmt.Println("Notifications:")
+	fmt.Println("  notify list                            Show configured notification sinks")
+	fmt.Println("  notify test                            Send test notification to all sinks")
+	fmt.Println()
+	fmt.Println("Plugins:")
+	fmt.Println("  plugin list [--json]                   List all plugins")
+	fmt.Println("  plugin enable <name>                   Enable a plugin")
+	fmt.Println("  plugin disable <name>                  Disable a plugin")
+	fmt.Println("  plugin info <name> [--json]            Show plugin details")
+	fmt.Println("  plugin disable-all                     Emergency: disable all plugins")
 	fmt.Println()
 	fmt.Println("Other:")
-	fmt.Println("  status [--config path]                  Show local config and services")
-	fmt.Println("  doctor [--fix]                          Check installation health, fix issues")
-	fmt.Println("  completion <bash|zsh|fish>              Generate shell completion script")
-	fmt.Println("  man                                     Show manual page")
-	fmt.Println("  version                                 Show version information")
+	fmt.Println("  status [--config path]                 Show local config and services")
+	fmt.Println("  doctor [--fix]                         Check installation health")
+	fmt.Println("  completion <bash|zsh|fish>             Generate shell completion script")
+	fmt.Println("  man                                    Show manual page")
+	fmt.Println("  version                                Show version information")
 	fmt.Println()
+	// Plugin commands: only show if enabled in config.
+	cmds := plugin.CLICommandDescriptions()
+	if len(cmds) > 0 {
+		groups := make(map[string][]plugin.CLICommandEntry)
+		for _, cmd := range cmds {
+			if isPluginEnabledInConfig(cmd.PluginName) {
+				groups[cmd.PluginName] = append(groups[cmd.PluginName], cmd)
+			}
+		}
+		for pluginName, pluginCmds := range groups {
+			title := strings.ToUpper(pluginName[:1]) + pluginName[1:]
+			fmt.Printf("%s (plugin):\n", title)
+			for _, cmd := range pluginCmds {
+				fmt.Printf("  %-48s %s\n", cmd.Usage, cmd.Description)
+			}
+			fmt.Println()
+		}
+	}
+
 	fmt.Println("The <target> can be a peer ID or a name from the names section of your config.")
 	fmt.Println()
 	fmt.Println("All commands support --config <path> to specify a config file.")
-	fmt.Println("Without --config, shurli searches: ./shurli.yaml, ~/.config/shurli/config.yaml")
+	fmt.Println("Without --config, shurli searches: ./shurli.yaml, /etc/shurli/config.yaml, ~/.shurli/config.yaml")
 	fmt.Println()
 	fmt.Println("Get started:  shurli init")
+}
+
+// pluginEnabledCache caches plugin enabled state. Populated once per process
+// from daemon (preferred) or config file (fallback).
+var pluginEnabledCache struct {
+	loaded  bool
+	entries map[string]bool // plugin name -> enabled
+}
+
+// isPluginEnabledInConfig checks if a plugin is enabled.
+// Queries the running daemon first (runtime state reflects enable/disable commands).
+// Falls back to config file when daemon is not running.
+func isPluginEnabledInConfig(name string) bool {
+	if pluginEnabledCache.loaded {
+		enabled, ok := pluginEnabledCache.entries[name]
+		if !ok {
+			return true // not known = default enabled for built-in
+		}
+		return enabled
+	}
+
+	pluginEnabledCache.entries = make(map[string]bool)
+	pluginEnabledCache.loaded = true
+
+	// Try daemon first for runtime state.
+	if c := tryDaemonClient(); c != nil {
+		if plugins, err := c.PluginList(); err == nil {
+			for _, p := range plugins {
+				pluginEnabledCache.entries[p.Name] = (p.State == "active")
+			}
+			entry, ok := pluginEnabledCache.entries[name]
+			if !ok {
+				return true
+			}
+			return entry
+		}
+	}
+
+	// Fallback: read config file.
+	cfgFile, err := config.FindConfigFile("")
+	if err != nil {
+		return true // no config = default enabled
+	}
+	cfg, err := config.LoadNodeConfig(cfgFile)
+	if err != nil {
+		return true
+	}
+	for pname, entry := range cfg.Plugins.Entries {
+		pluginEnabledCache.entries[pname] = entry.Enabled
+	}
+	entry, ok := pluginEnabledCache.entries[name]
+	if !ok {
+		return true // not in config = default enabled for built-in
+	}
+	return entry
 }

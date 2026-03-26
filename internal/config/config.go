@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // CurrentConfigVersion is the latest configuration schema version.
@@ -22,7 +25,124 @@ type HomeNodeConfig struct {
 	CLI       CLIConfig       `yaml:"cli,omitempty"`
 	Telemetry TelemetryConfig `yaml:"telemetry,omitempty"`
 	PeerRelay PeerRelayConfig `yaml:"peer_relay,omitempty"`
-	Transfer  TransferConfig  `yaml:"transfer,omitempty"`
+	Transfer      TransferConfig      `yaml:"transfer,omitempty"`
+	Plugins       PluginsConfig       `yaml:"plugins,omitempty"`
+	Grants        GrantsConfig        `yaml:"grants,omitempty"`
+	Notifications NotificationsConfig `yaml:"notifications,omitempty"`
+}
+
+// GrantsConfig holds per-peer data access grant settings.
+type GrantsConfig struct {
+	DeliveryQueueTTL    string `yaml:"delivery_queue_ttl,omitempty"`    // e.g. "7d", "24h", "3d" (default: 7d)
+	AutoRefresh         bool   `yaml:"auto_refresh,omitempty"`          // global default for --auto-refresh (default: false)
+	MaxRefreshDuration  string `yaml:"max_refresh_duration,omitempty"`  // max total refresh duration, e.g. "3d" (default: 3d)
+	CleanupInterval     string `yaml:"cleanup_interval,omitempty"`      // expired grant cleanup interval, e.g. "30s" (default: 30s)
+}
+
+// NotificationsConfig holds notification subsystem settings (Phase C).
+type NotificationsConfig struct {
+	Desktop       *bool                   `yaml:"desktop,omitempty"`        // nil = auto-detect (default), true = force on, false = force off
+	ExpiryWarning string                  `yaml:"expiry_warning,omitempty"` // threshold for grant_expiring events, e.g. "10m" (default: 10m)
+	LogLevel      string                  `yaml:"log_level,omitempty"`      // min severity for log sink: "info" (default) or "warn"
+	Webhook       NotificationWebhookConfig `yaml:"webhook,omitempty"`
+}
+
+// IsDesktopEnabled returns whether desktop notifications are enabled.
+// nil (unset) defaults to true (auto-detect platform availability).
+func (c *NotificationsConfig) IsDesktopEnabled() bool {
+	if c.Desktop == nil {
+		return true
+	}
+	return *c.Desktop
+}
+
+// NotificationWebhookConfig holds webhook sink settings.
+type NotificationWebhookConfig struct {
+	URL     string            `yaml:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
+	Events  []string          `yaml:"events,omitempty"` // filter: only fire for these event types
+}
+
+// PluginsConfig holds per-plugin configuration.
+// Each key is a plugin name, the value contains an enabled flag and raw YAML
+// for the plugin's own settings.
+type PluginsConfig struct {
+	Entries map[string]*PluginConfigEntry `yaml:"-"` // populated by custom UnmarshalYAML
+}
+
+// PluginConfigEntry holds the framework-level and plugin-specific config for one plugin.
+type PluginConfigEntry struct {
+	Enabled bool   // extracted from "enabled" key
+	RawYAML []byte // remaining YAML bytes, passed to plugin for its own parsing
+}
+
+// UnmarshalYAML implements custom YAML parsing for the plugins section.
+// It extracts the "enabled" field from each plugin's config and preserves
+// the remaining fields as raw YAML bytes for the plugin to parse itself.
+func (pc *PluginsConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	pc.Entries = make(map[string]*PluginConfigEntry)
+
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		nameNode := value.Content[i]
+		valueNode := value.Content[i+1]
+
+		pluginName := nameNode.Value
+		if valueNode.Kind != yaml.MappingNode {
+			continue
+		}
+
+		entry := &PluginConfigEntry{Enabled: true} // default enabled for built-in
+
+		// Build a new mapping node without the "enabled" key for RawYAML.
+		var remaining []*yaml.Node
+		for j := 0; j+1 < len(valueNode.Content); j += 2 {
+			key := valueNode.Content[j]
+			val := valueNode.Content[j+1]
+			if key.Value == "enabled" {
+				// Parse the enabled flag.
+				var enabled bool
+				if err := val.Decode(&enabled); err != nil {
+					return fmt.Errorf("plugin %q: invalid enabled value: %w", pluginName, err)
+				}
+				entry.Enabled = enabled
+			} else {
+				remaining = append(remaining, key, val)
+			}
+		}
+
+		// Marshal remaining fields back to YAML bytes for the plugin.
+		if len(remaining) > 0 {
+			remainingNode := &yaml.Node{
+				Kind:    yaml.MappingNode,
+				Content: remaining,
+			}
+			raw, err := yaml.Marshal(remainingNode)
+			if err != nil {
+				return fmt.Errorf("plugin %q: marshal remaining config: %w", pluginName, err)
+			}
+			entry.RawYAML = raw
+		}
+
+		pc.Entries[pluginName] = entry
+	}
+
+	return nil
+}
+
+// PluginStates returns a map of plugin name -> enabled for use by the plugin registry.
+func (pc PluginsConfig) PluginStates() map[string]bool {
+	if pc.Entries == nil {
+		return nil
+	}
+	states := make(map[string]bool, len(pc.Entries))
+	for name, entry := range pc.Entries {
+		states[name] = entry.Enabled
+	}
+	return states
 }
 
 // TransferConfig controls peer-to-peer file transfer.
@@ -44,7 +164,7 @@ type TransferConfig struct {
 	Compress *bool `yaml:"compress,omitempty"`
 
 	// LogPath is the file path for structured transfer event logging.
-	// Default: ~/.config/shurli/logs/transfers.log
+	// Default: ~/.shurli/logs/transfers.log
 	// Set to empty string to disable transfer logging.
 	LogPath string `yaml:"log_path,omitempty"`
 
@@ -92,6 +212,68 @@ type TransferConfig struct {
 	// Peers exceeding this limit are silently rejected (stream reset).
 	// Default: 10.
 	RateLimit int `yaml:"rate_limit,omitempty"`
+
+	// --- DDoS defense settings ---
+
+	// BrowseRateLimit is the maximum number of browse requests per peer per minute.
+	// Peers exceeding this are silently rejected. Default: 10. 0 = disabled.
+	BrowseRateLimit int `yaml:"browse_rate_limit,omitempty"`
+
+	// GlobalRateLimit is the maximum total inbound transfer requests per minute
+	// across all peers. Protects against distributed flooding. Default: 30. 0 = disabled.
+	GlobalRateLimit int `yaml:"global_rate_limit,omitempty"`
+
+	// MaxQueuedPerPeer limits pending (ask-mode) + active transfers per peer.
+	// Prevents a single peer from monopolizing the receive queue. Default: 10.
+	MaxQueuedPerPeer int `yaml:"max_queued_per_peer,omitempty"`
+
+	// FailureBackoff configures automatic blocking of peers with repeated transfer failures.
+	// After threshold failures within the window, the peer is blocked for the block duration.
+	FailureBackoff FailureBackoffConfig `yaml:"failure_backoff,omitempty"`
+
+	// MinSpeedBytes is the minimum transfer speed in bytes/sec.
+	// If a transfer sustains below this speed for MinSpeedSeconds, it is killed.
+	// Default: 1024 (1 KB/s). 0 = disabled.
+	MinSpeedBytes int `yaml:"min_speed_bytes,omitempty"`
+
+	// MinSpeedSeconds is the observation window for minimum speed enforcement.
+	// Default: 30.
+	MinSpeedSeconds int `yaml:"min_speed_seconds,omitempty"`
+
+	// MaxTempSize is the maximum total size (bytes) of in-progress .tmp files
+	// in the receive directory. New transfers are rejected when the budget is exceeded.
+	// Default: 1073741824 (1 GB). 0 = unlimited.
+	MaxTempSize int64 `yaml:"max_temp_size,omitempty"`
+
+	// TempFileExpiry is how long incomplete .tmp files are kept before auto-cleanup.
+	// Expired files are removed to reclaim disk space and temp budget. Resume will
+	// re-download from scratch for expired transfers. Default: "1h". 0 = never expire.
+	TempFileExpiry string `yaml:"temp_file_expiry,omitempty"`
+
+	// BandwidthBudget is the maximum bytes a single peer can transfer per hour.
+	// Human-readable: "500MB", "1GB", "unlimited". Default: 100MB. Empty/omit = default.
+	BandwidthBudget string `yaml:"bandwidth_budget,omitempty"`
+
+	// --- Queue persistence ---
+
+	// QueueFile is the path for persisting queued transfers across daemon restarts.
+	// Default: ~/.shurli/queue.json. Set to empty string to disable.
+	QueueFile string `yaml:"queue_file,omitempty"`
+}
+
+// FailureBackoffConfig controls peer blocking after repeated transfer failures.
+type FailureBackoffConfig struct {
+	// Threshold is the number of failures within the window to trigger a block.
+	// Default: 3.
+	Threshold int `yaml:"threshold,omitempty"`
+
+	// Window is the time window for counting failures. Go duration string.
+	// Default: "5m".
+	Window string `yaml:"window,omitempty"`
+
+	// Block is the duration to block the peer after threshold is reached. Go duration string.
+	// Default: "60s".
+	Block string `yaml:"block,omitempty"`
 }
 
 // PeerRelayConfig controls whether this node acts as a circuit relay for

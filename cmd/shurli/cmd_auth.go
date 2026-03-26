@@ -12,7 +12,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
+	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 func runAuth(args []string) {
@@ -30,6 +33,22 @@ func runAuth(args []string) {
 		runAuthRemove(args[1:])
 	case "validate":
 		runAuthValidate(args[1:])
+	case "grant":
+		runAuthGrant(args[1:])
+	case "revoke":
+		runAuthRevoke(args[1:])
+	case "extend":
+		runAuthExtend(args[1:])
+	case "grants":
+		runAuthGrants(args[1:])
+	case "delegate":
+		runAuthDelegate(args[1:])
+	case "pouch":
+		runAuthPouch(args[1:])
+	case "set-attr":
+		runAuthSetAttr(args[1:])
+	case "audit":
+		runAuthAudit(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown auth command: %s\n\n", args[0])
 		printAuthUsage()
@@ -40,13 +59,24 @@ func runAuth(args []string) {
 func printAuthUsage() {
 	fmt.Println("Usage: shurli auth <command> [options]")
 	fmt.Println()
-	fmt.Println("Commands:")
+	fmt.Println("Peer authorization (authorized_keys):")
 	fmt.Println("  add      <peer-id> [--comment \"label\"] [--role admin|member]   Authorize a peer")
 	fmt.Println("  list                                                          List authorized peers")
 	fmt.Println("  remove   <peer-id>                                            Revoke a peer's access")
 	fmt.Println("  validate [file]                                               Validate authorized_keys format")
+	fmt.Println("  set-attr <peer-id> <key> <value>                              Set peer attribute")
 	fmt.Println()
-	fmt.Println("All commands support --config <path> and --file <path>.")
+	fmt.Println("Relay data access grants (macaroon capability tokens):")
+	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant relay data access")
+	fmt.Println("  grants                                                         List active grants")
+	fmt.Println("  revoke   <peer>                                                Revoke relay data access")
+	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
+	fmt.Println("  delegate <peer> --to <target> [--duration 30m] [--delegate N]  Delegate to another peer")
+	fmt.Println("  pouch                                                          List received grant tokens")
+	fmt.Println("  audit    [--verify] [--tail N]                                 View or verify audit log")
+	fmt.Println()
+	fmt.Println("Authorization commands support --config <path> and --file <path>.")
+	fmt.Println("Grant commands require a running daemon.")
 }
 
 // resolveAuthKeysPathErr finds the authorized_keys file path.
@@ -119,7 +149,32 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "  Role: %s\n", *roleFlag)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+
+	// Also add name mapping to config if a comment was provided.
+	if *commentFlag != "" && *fileFlag == "" {
+		cfgFile, cfgErr := config.FindConfigFile(*configFlag)
+		if cfgErr == nil {
+			name := sanitizeYAMLName(*commentFlag)
+			if name != "" {
+				updateConfigNames(cfgFile, filepath.Dir(cfgFile), name, peerIDStr)
+				fmt.Fprintf(stdout, "  Name: %s (added to config)\n", name)
+				// Trigger daemon config reload so the name is usable immediately.
+				tryDaemonConfigReload()
+			}
+		}
+	}
+
 	return nil
+}
+
+// tryDaemonConfigReload attempts to trigger a config reload on the running daemon.
+// Silently succeeds if the daemon is not running (name will load on next start).
+func tryDaemonConfigReload() {
+	c, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
+	if err != nil {
+		return // daemon not running
+	}
+	c.ConfigReload() // best-effort, ignore errors
 }
 
 func runAuthList(args []string) {
@@ -169,7 +224,7 @@ func doAuthList(args []string, stdout io.Writer) error {
 		}
 
 		if entry.Comment != "" {
-			fmt.Fprintf(stdout, "  %d. %s %s  # %s\n", i+1, short, roleBadge, entry.Comment)
+			fmt.Fprintf(stdout, "  %d. %s %s  # %s\n", i+1, short, roleBadge, validate.SanitizeForDisplay(entry.Comment))
 		} else {
 			fmt.Fprintf(stdout, "  %d. %s %s\n", i+1, short, roleBadge)
 		}
@@ -309,6 +364,70 @@ func doAuthValidate(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Validation passed")
 	fmt.Fprintf(stdout, "  Valid peer IDs: %d\n", validCount)
+	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+	return nil
+}
+
+func runAuthSetAttr(args []string) {
+	if err := doAuthSetAttr(args, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		osExit(1)
+	}
+}
+
+func doAuthSetAttr(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("auth set-attr", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	configFlag := fs.String("config", "", "path to config file")
+	fileFlag := fs.String("file", "", "path to authorized_keys file (overrides config)")
+	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
+		return err
+	}
+
+	if fs.NArg() != 3 {
+		return fmt.Errorf("usage: shurli auth set-attr <peer-id> <key> <value>")
+	}
+
+	peerIDStr := fs.Arg(0)
+	key := fs.Arg(1)
+	value := fs.Arg(2)
+
+	allowed := map[string]bool{
+		"role":             true,
+		"group":            true,
+		"verified":         true,
+		"bandwidth_budget": true,
+	}
+	if !allowed[key] {
+		return fmt.Errorf("attribute %q not allowed (allowed: role, group, verified, bandwidth_budget)", key)
+	}
+
+	// Validate bandwidth_budget values parse correctly.
+	if key == "bandwidth_budget" {
+		if _, err := p2pnet.ParseByteSize(value); err != nil {
+			return fmt.Errorf("invalid bandwidth_budget value %q: %w", value, err)
+		}
+	}
+
+	authKeysPath, err := resolveAuthKeysPathErr(*fileFlag, *configFlag)
+	if err != nil {
+		return err
+	}
+
+	if err := auth.SetPeerAttr(authKeysPath, peerIDStr, key, value); err != nil {
+		return fmt.Errorf("failed to set attribute: %w", err)
+	}
+
+	// Read back stored value (may differ from input due to sanitization).
+	stored := auth.GetPeerAttr(authKeysPath, peerIDStr, key)
+	if stored == "" {
+		stored = value
+	}
+	short := peerIDStr
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	termcolor.Green("Set %s=%s on peer %s", key, stored, short)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
 	return nil
 }

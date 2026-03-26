@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340">
+  <defs>
+    <linearGradient id="bgD" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#141316"/>
+      <stop offset="100%" style="stop-color:#1a191c"/>
+    </linearGradient>
+    <linearGradient id="nodeFillD" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c2a2e"/>
+      <stop offset="100%" style="stop-color:#1e1d20"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="340" fill="url(#bgD)" rx="8"/>
+
+  <text x="400" y="28" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#c0caf5">Seven Ways Your Node Protects Itself</text>
+  <text x="400" y="46" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#565f89">Even authorized peers can go rogue. Every layer catches what the others miss.</text>
+
+  <!-- Layer boxes -->
+  <rect x="80" y="62" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#da1c5c" stroke-width="1"/>
+  <text x="110" y="83" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#da1c5c">Browse limit</text>
+  <text x="310" y="83" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">10 requests/min per peer</text>
+  <text x="540" y="83" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Can't scan your shared files endlessly</text>
+
+  <rect x="80" y="100" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#e8729a" stroke-width="1"/>
+  <text x="110" y="121" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e8729a">Global limit</text>
+  <text x="310" y="121" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">30 requests/min total</text>
+  <text x="540" y="121" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Multiple peers can't gang up on you</text>
+
+  <rect x="80" y="138" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#bb9af7" stroke-width="1"/>
+  <text x="110" y="159" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#bb9af7">Queue depth</text>
+  <text x="310" y="159" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">10 pending per peer</text>
+  <text x="540" y="159" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">One peer can't hog the entire queue</text>
+
+  <rect x="80" y="176" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#fbb040" stroke-width="1"/>
+  <text x="110" y="197" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#fbb040">Auto-block</text>
+  <text x="310" y="197" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">3 failures = 60s cooldown</text>
+  <text x="540" y="197" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Bad requests get you timed out</text>
+
+  <rect x="80" y="214" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#9ece6a" stroke-width="1"/>
+  <text x="110" y="235" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#9ece6a">Speed floor</text>
+  <text x="310" y="235" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Minimum 10 KB/s for 30s</text>
+  <text x="540" y="235" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Can't stall to waste resources</text>
+
+  <rect x="80" y="252" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#e0af68" stroke-width="1"/>
+  <text x="110" y="273" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e0af68">Disk guard</text>
+  <text x="310" y="273" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Temp file budget enforced</text>
+  <text x="540" y="273" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Can't fill your disk with junk transfers</text>
+
+  <rect x="80" y="290" width="640" height="34" rx="6" fill="url(#nodeFillD)" stroke="#f7768e" stroke-width="1"/>
+  <text x="110" y="311" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#f7768e">Bandwidth cap</text>
+  <text x="310" y="311" font-family="system-ui, sans-serif" font-size="9" fill="#a9b1d6">Per peer, per hour</text>
+  <text x="540" y="311" font-family="system-ui, sans-serif" font-size="9" fill="#565f89">Can't consume all your bandwidth</text>
+</svg>
