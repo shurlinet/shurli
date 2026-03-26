@@ -402,6 +402,18 @@ func LoadGrantCache(path string, hmacKey []byte) (*GrantCache, error) {
 	return gc, nil
 }
 
+// GrantStatus returns grant info for a relay. ok=false if no cached/valid grant.
+// Budget is returned for "send" direction (used for pre-transfer logging).
+// Actual budget validation uses HasSufficientBudget with explicit direction.
+// Satisfies p2pnet.RelayGrantChecker via structural typing (no import needed).
+func (c *GrantCache) GrantStatus(relayID peer.ID) (remaining time.Duration, budget int64, sessionDuration time.Duration, ok bool) {
+	r := c.Get(relayID)
+	if r == nil || r.Expired() {
+		return 0, 0, 0, false
+	}
+	return r.Remaining(), r.RemainingBudget("send"), r.SessionDuration, true
+}
+
 // ClockDrift returns the estimated clock drift between local and relay clocks.
 // Positive means local clock is ahead. Returns zero if receipt is nil.
 func (r *GrantReceipt) ClockDrift() time.Duration {

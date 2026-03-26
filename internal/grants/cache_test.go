@@ -498,6 +498,73 @@ func TestGrantCacheConcurrentPutGet(t *testing.T) {
 	}
 }
 
+func TestGrantCacheGrantStatus(t *testing.T) {
+	gc := NewGrantCache(nil)
+	relay1 := genPeerID(t)
+
+	// No grant - should return ok=false.
+	_, _, _, ok := gc.GrantStatus(relay1)
+	if ok {
+		t.Error("should return ok=false for missing grant")
+	}
+
+	// Active grant.
+	gc.Put(&GrantReceipt{
+		RelayPeerID:      relay1,
+		GrantDuration:    2 * time.Hour,
+		SessionDataLimit: 2 << 30,
+		SessionDuration:  30 * time.Minute,
+		ReceivedAt:       time.Now(),
+		IssuedAt:         time.Now(),
+	})
+
+	rem, budget, sessDur, ok := gc.GrantStatus(relay1)
+	if !ok {
+		t.Fatal("should return ok=true for active grant")
+	}
+	if rem < 1*time.Hour || rem > 2*time.Hour+time.Second {
+		t.Errorf("remaining = %s, expected ~2h", rem)
+	}
+	if budget != 2<<30 {
+		t.Errorf("budget = %d, want %d", budget, 2<<30)
+	}
+	if sessDur != 30*time.Minute {
+		t.Errorf("sessionDuration = %s, want 30m", sessDur)
+	}
+
+	// Expired grant.
+	gc.Put(&GrantReceipt{
+		RelayPeerID:   relay1,
+		GrantDuration: 1 * time.Millisecond,
+		ReceivedAt:    time.Now().Add(-1 * time.Second), // already expired
+		IssuedAt:      time.Now().Add(-1 * time.Second),
+	})
+	_, _, _, ok = gc.GrantStatus(relay1)
+	if ok {
+		t.Error("should return ok=false for expired grant")
+	}
+
+	// Permanent grant.
+	gc.Put(&GrantReceipt{
+		RelayPeerID:      relay1,
+		Permanent:        true,
+		SessionDataLimit: 0, // unlimited
+		SessionDuration:  0,
+		ReceivedAt:       time.Now(),
+		IssuedAt:         time.Now(),
+	})
+	rem, budget, _, ok = gc.GrantStatus(relay1)
+	if !ok {
+		t.Fatal("should return ok=true for permanent grant")
+	}
+	if rem != time.Duration(math.MaxInt64) {
+		t.Errorf("permanent grant remaining = %s, want MaxInt64", rem)
+	}
+	if budget != math.MaxInt64 {
+		t.Errorf("permanent grant budget = %d, want MaxInt64", budget)
+	}
+}
+
 func TestGrantCacheCircuitBytesOverflowClamp(t *testing.T) {
 	gc := NewGrantCache(nil)
 	relay1 := genPeerID(t)

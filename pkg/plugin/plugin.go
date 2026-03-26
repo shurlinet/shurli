@@ -219,7 +219,8 @@ type PluginContext struct {
 	keyDeriver     func(domain string) []byte          // HKDF-SHA256 key derivation
 	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
 	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
-	peerAttrFunc   func(string, string) string        // peer attribute lookup (peerID, key) -> value
+	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
+	relayGrantChecker  p2pnet.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -333,6 +334,12 @@ func (c *PluginContext) PeerAttr(peerID string, key string) string {
 	return c.peerAttrFunc(peerID, key)
 }
 
+// RelayGrantChecker returns the relay grant checker for transfer budget/time checks (H7).
+// Returns nil if no grant cache is configured.
+func (c *PluginContext) RelayGrantChecker() p2pnet.RelayGrantChecker {
+	return c.relayGrantChecker
+}
+
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
 // Re-export when the reputation pipeline or metrics integration is built.
 // These were exported but had zero callers across the entire codebase.
@@ -394,7 +401,8 @@ type ContextProvider struct {
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
 	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
-	PeerAttrFunc    func(peerID string, key string) string     // peer attribute lookup from authorized_keys
+	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
+	RelayGrantChecker  p2pnet.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
 }
 
 // --- Info ---
