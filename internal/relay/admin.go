@@ -176,13 +176,29 @@ type AdminServer struct {
 	authToken    string
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
-	host         libp2phost.Host // set after host creation for connected-peers queries
-	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	host             libp2phost.Host // set after host creation for connected-peers queries
+	Metrics          *p2pnet.Metrics // nil-safe: metrics are optional
+	receiptHMACKey   []byte          // HKDF("grant-receipt/v1") - dedicated key for receipt HMAC
+	sessionDataLimit int64           // from relay config, bytes per session per direction (0=unlimited)
+	sessionDuration  time.Duration   // from relay config, max time per circuit session
 }
 
 // SetHost stores the libp2p host reference for connected-peers queries.
 func (s *AdminServer) SetHost(h libp2phost.Host) {
 	s.host = h
+}
+
+// SetReceiptHMACKey sets the dedicated HMAC key for grant receipt signing.
+// Must be derived via HKDF("grant-receipt/v1") - separate from grant store keys (H10).
+func (s *AdminServer) SetReceiptHMACKey(key []byte) {
+	s.receiptHMACKey = key
+}
+
+// SetSessionLimits stores the relay config session limits for receipt construction.
+// Session limits come from relay config, not grant store (H13).
+func (s *AdminServer) SetSessionLimits(dataLimit int64, duration time.Duration) {
+	s.sessionDataLimit = dataLimit
+	s.sessionDuration = duration
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -1759,9 +1775,21 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		"permanent", req.Permanent,
 		"duration_sec", req.DurationSec)
 
-	// Notify the grantee to clear dial backoffs and retry immediately.
-	// Fire-and-forget: if the peer isn't connected, this is a no-op.
-	if s.host != nil {
+	// Push grant receipt to the grantee (or legacy signal if no HMAC key).
+	// Fire-and-forget: if the peer isn't connected, receipt is delivered on reconnect.
+	// Use request parameters (req.Permanent, duration) instead of the Grant pointer
+	// to avoid a data race: grantStore.Grant() returns the same pointer stored in
+	// the map, and a concurrent Extend() could modify its fields.
+	if s.host != nil && s.receiptHMACKey != nil {
+		receiptData := EncodeGrantReceipt(duration, s.sessionDataLimit,
+			s.sessionDuration, req.Permanent, time.Now(), s.receiptHMACKey)
+		go func() {
+			if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
+				slog.Debug("relay grant: receipt notify failed",
+					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+			}
+		}()
+	} else if s.host != nil {
 		go func() {
 			if err := NotifyGrantChanged(context.Background(), s.host, pid); err != nil {
 				slog.Debug("relay grant: grant-changed notify failed",
@@ -1888,6 +1916,29 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 		"origin", origin,
 		"caller", caller.String(),
 		"duration_sec", req.DurationSec)
+
+	// Push updated grant receipt to the peer (H8 fix).
+	// Use CheckAndGet to get a safe clone of the extended grant.
+	if s.host != nil && s.receiptHMACKey != nil {
+		extGrant := s.grantStore.CheckAndGet(pid)
+		if extGrant != nil {
+			var grantDuration time.Duration
+			if !extGrant.Permanent {
+				grantDuration = time.Until(extGrant.ExpiresAt)
+				if grantDuration < 0 {
+					grantDuration = 0
+				}
+			}
+			receiptData := EncodeGrantReceipt(grantDuration, s.sessionDataLimit,
+				s.sessionDuration, extGrant.Permanent, time.Now(), s.receiptHMACKey)
+			go func() {
+				if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
+					slog.Debug("relay grant: extend receipt notify failed",
+						"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+				}
+			}()
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{

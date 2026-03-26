@@ -317,9 +317,11 @@ func runRelayServe(args []string) {
 	defer h.Close()
 
 	// Initialize relay grant store for time-limited per-peer data access.
-	// Uses HKDF-SHA256 to derive two keys from the relay identity:
-	// one for macaroon token creation/verification, one for grants.json file integrity.
+	// Uses HKDF-SHA256 to derive keys from the relay identity:
+	// rootKey for macaroon tokens, hmacKey for grants.json integrity,
+	// receiptKey for grant receipt HMAC (H10: dedicated domain separation).
 	var relayGrantStore *grants.Store
+	var receiptHMACKey []byte
 	if priv != nil {
 		raw, rawErr := priv.Raw()
 		if rawErr == nil && len(raw) >= 32 {
@@ -335,11 +337,12 @@ func runRelayServe(args []string) {
 			}
 			grantRootKey := deriveKey("shurli/relay/grants/root/v1")
 			grantHMACKey := deriveKey("shurli/relay/grants/hmac/v1")
+			receiptHMACKey = deriveKey("grant-receipt/v1")
 			// Zero seed after derivation (key material hygiene).
 			for i := range seed {
 				seed[i] = 0
 			}
-			if grantRootKey == nil || grantHMACKey == nil {
+			if grantRootKey == nil || grantHMACKey == nil || receiptHMACKey == nil {
 				slog.Error("relay grants: key derivation failed, grant store disabled")
 			} else {
 				grantsPath := filepath.Join(filepath.Dir(configFile), "grants.json")
@@ -464,6 +467,14 @@ func runRelayServe(args []string) {
 	if relayGrantStore != nil {
 		adminSrv.SetGrantStore(relayGrantStore)
 		defer relayGrantStore.Stop()
+	}
+	// Parse session limits once for both AdminServer and reconnect notifier (H13).
+	receiptSessionDuration, _ := time.ParseDuration(cfg.Resources.SessionDuration)
+	receiptSessionDataLimit, _ := config.ParseDataSize(cfg.Resources.SessionDataLimit)
+	// Wire grant receipt HMAC key and session limits for receipt push (H10, H13).
+	if receiptHMACKey != nil {
+		adminSrv.SetReceiptHMACKey(receiptHMACKey)
+		adminSrv.SetSessionLimits(receiptSessionDataLimit, receiptSessionDuration)
 	}
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
@@ -594,8 +605,17 @@ func runRelayServe(args []string) {
 		}()
 	}
 
-	// Reconnect notifier: push peer introductions when authorized peers reconnect.
-	go relay.RunReconnectNotifier(ctx, h, notifier, cfg.Security.AuthorizedKeysFile)
+	// Reconnect notifier: push peer introductions + grant receipts when authorized peers reconnect.
+	var receiptDelivery *relay.GrantReceiptDelivery
+	if relayGrantStore != nil && receiptHMACKey != nil {
+		receiptDelivery = &relay.GrantReceiptDelivery{
+			GrantStore:       relayGrantStore,
+			HMACKey:          receiptHMACKey,
+			SessionDataLimit: receiptSessionDataLimit,
+			SessionDuration:  receiptSessionDuration,
+		}
+	}
+	go relay.RunReconnectNotifier(ctx, h, notifier, cfg.Security.AuthorizedKeysFile, receiptDelivery)
 
 	// Token expiry cleanup goroutine.
 	go func() {
