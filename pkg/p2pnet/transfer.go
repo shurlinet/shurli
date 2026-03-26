@@ -2549,13 +2549,24 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 							slog.Info("relay-grant: new circuit established for fresh budget",
 								"relay", shortPeerStr(job.lastRelayPeerID))
 
-							// Re-check time after reopen (circuit setup consumed grant time).
+							// Re-check after reopen: both budget and time.
 							recheckInfo := ts.checkRelayGrant(newStream, fileSize, "send")
-							if recheckInfo.GrantActive && !recheckInfo.TimeOK {
+							if recheckInfo.GrantActive && !recheckInfo.BudgetOK {
 								stream.Close()
 								stream = nil
-								finalErr = fmt.Errorf("relay grant expires too soon after circuit reopen (remaining: %s)",
-									recheckInfo.GrantRemaining.Truncate(time.Second))
+								finalErr = fmt.Errorf("file size (%s) exceeds relay session limit (%s)",
+									FormatBytes(fileSize), FormatBytes(recheckInfo.SessionBudget))
+							} else if recheckInfo.GrantActive && !recheckInfo.TimeOK {
+								stream.Close()
+								stream = nil
+								if recheckInfo.SessionDuration > 0 && recheckInfo.SessionDuration < recheckInfo.GrantRemaining {
+									finalErr = fmt.Errorf("file too large for relay circuit session (%s session, need ~%ds at ~200KB/s)",
+										recheckInfo.SessionDuration.Truncate(time.Second),
+										fileSize/(200*1024))
+								} else {
+									finalErr = fmt.Errorf("relay grant expires too soon for transfer (remaining: %s)",
+										recheckInfo.GrantRemaining.Truncate(time.Second))
+								}
 							}
 						}
 					}
