@@ -54,6 +54,7 @@ func (m *mockRuntime) GrantsAutoRefresh() bool                      { return fal
 func (m *mockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 func (m *mockRuntime) NotifyRouter() *notify.Router                 { return nil }
 func (m *mockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *mockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{

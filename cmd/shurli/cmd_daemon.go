@@ -65,6 +65,12 @@ func (rt *serveRuntime) GrantsAutoRefresh() bool                { return rt.conf
 func (rt *serveRuntime) GrantsMaxRefreshDuration() string       { return rt.config.Grants.MaxRefreshDuration }
 func (rt *serveRuntime) NotifyRouter() *notify.Router            { return rt.notifyRouter }
 func (rt *serveRuntime) PeerManager() *p2pnet.PeerManager        { return rt.peerManager }
+func (rt *serveRuntime) GrantCacheSnapshot() []*grants.GrantReceipt {
+	if rt.grantCache == nil {
+		return nil
+	}
+	return rt.grantCache.All()
+}
 
 func (rt *serveRuntime) RelayMOTDs() []daemon.MOTDInfo {
 	if rt.motdClient == nil {

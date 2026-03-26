@@ -483,9 +483,9 @@ func TestFormatBytes(t *testing.T) {
 		{3 << 30, "3.0 GB"},
 	}
 	for _, tt := range tests {
-		got := formatBytes(tt.input)
+		got := FormatBytes(tt.input)
 		if got != tt.want {
-			t.Errorf("formatBytes(%d) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("FormatBytes(%d) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

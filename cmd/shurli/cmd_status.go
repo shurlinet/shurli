@@ -156,6 +156,43 @@ func doStatus(args []string, stdout io.Writer) error {
 	} else {
 		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
+	// Relay grants (client-side cached receipts from relays).
+	if daemonStatus != nil && len(daemonStatus.RelayGrants) > 0 {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Relay Grants:")
+		for _, rg := range daemonStatus.RelayGrants {
+			name := validate.SanitizeForDisplay(rg.RelayName)
+			if name == "" {
+				pid := rg.RelayPeerID
+				if len(pid) > 16 {
+					pid = pid[:16] + "..."
+				}
+				name = pid
+			}
+			// No cached grant for this relay - signaling only.
+			if rg.Remaining == "" && !rg.Permanent {
+				fmt.Fprint(stdout, "  ")
+				tc.Wfaint(stdout, "%s: no grant (signaling only)\n", name)
+				continue
+			}
+			fmt.Fprintf(stdout, "  %s: ", name)
+			if rg.Permanent {
+				tc.Wgreen(stdout, "permanent")
+			} else {
+				tc.Wgreen(stdout, "active")
+				fmt.Fprintf(stdout, ", expires in %s", rg.Remaining)
+			}
+			fmt.Fprintf(stdout, ", %s/session", rg.SessionBudget)
+			if rg.SessionUsed != "" {
+				tc.Wfaint(stdout, " (%s used)", rg.SessionUsed)
+			}
+			if rg.SessionDuration != "" {
+				fmt.Fprintf(stdout, ", %s/circuit", rg.SessionDuration)
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+
 	// Notifications section: configured sinks + expiring grants.
 	if daemonStatus != nil && (daemonStatus.Notifications != nil || len(daemonStatus.ExpiringGrants) > 0) {
 		fmt.Fprintln(stdout)
