@@ -659,6 +659,20 @@ func (s *Store) Check(peerID peer.ID, service string) bool {
 	return true
 }
 
+// CheckAndGet returns a clone of the grant for peerID if it exists and is not
+// expired, or nil otherwise. Used by the reconnect notifier to push grant
+// receipts without exposing internal grant state.
+func (s *Store) CheckAndGet(peerID peer.ID) *Grant {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	g, exists := s.grants[peerID]
+	if !exists || g.Expired() {
+		return nil
+	}
+	return g.clone()
+}
+
 // List returns copies of all non-expired grants. Safe for external use.
 func (s *Store) List() []*Grant {
 	s.mu.RLock()
