@@ -192,7 +192,7 @@ And the one that resonated most directly with "lead with outcomes":
 
 **Say no to 1,000 things.** Every feature request gets the same treatment: does it serve the core mission? Does it add onboarding friction? Can it be deferred? Shurli has a documented list of explicitly dismissed ideas, with reasoning for each.
 
-**End-to-end user experience.** The website [documentation](/docs/quick-start/) is designed as one flow: landing page to quick start to pairing to connected. Today, installation still requires building from source via GitHub. Automated release downloads and `get.shurli.io` install scripts are planned. The goal is that end users will never need to touch GitHub at all.
+**End-to-end user experience.** The website [documentation](/docs/quick-start/) is designed as one flow: landing page to quick start to pairing to connected. Installation is a single command: `curl -sSL get.shurli.io | sh` downloads a pre-built binary, verifies checksums, and walks through setup. End users never need to touch GitHub.
 
 **Details matter.** Jobs, recounting his father's lesson in a [1985 Playboy interview](https://allaboutstevejobs.com/verbatim/interviews/playboy_1985): "When you're a carpenter making a beautiful chest of drawers, you're not going to use a piece of plywood on the back, even though it faces the wall and nobody will ever see it. You'll know it's there." In Shurli, the post-phase security audits, the 41 architecture decision records, the privacy grep before every commit. That's the back of the chest of drawers.
 

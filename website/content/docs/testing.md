@@ -90,7 +90,7 @@ shurli relay serve
 ```
 
 The wizard will:
-1. Create `~/.config/shurli/` directory
+1. Create `~/.shurli/` directory
 2. Ask for your relay server address (accepts flexible formats):
    - Full multiaddr: `/ip4/1.2.3.4/tcp/7777/p2p/12D3KooW...`
    - IP and port: `1.2.3.4:7777` (then prompts for peer ID)
@@ -111,7 +111,7 @@ Add services via CLI (preferred) or by editing the config file:
 ./shurli service add ssh localhost:22
 ./shurli service add xrdp localhost:3389
 
-# Or edit ~/.config/shurli/config.yaml directly
+# Or edit ~/.shurli/config.yaml directly
 ```
 
 Ensure `force_private_reachability` is set for CGNAT:
@@ -130,7 +130,7 @@ network:
 
 **Expected output:**
 ```
-Loaded configuration from ~/.config/shurli/config.yaml
+Loaded configuration from ~/.shurli/config.yaml
 🏠 Peer ID: 12D3KooWHOME...ABC
 ✅ Connected to relay 12D3KooWABC...
 ✅ Relay address: /ip4/YOUR_VPS_IP/tcp/7777/p2p/12D3KooWABC.../p2p-circuit/p2p/12D3KooWHOME...ABC
@@ -155,13 +155,13 @@ Loaded configuration from ~/.config/shurli/config.yaml
 
 On the home server:
 ```bash
-./shurli invite --name home
+./shurli invite --as home
 # Displays an invite code + QR code. Share the code with the client.
 ```
 
 On the client:
 ```bash
-./shurli join <invite-code> --name laptop
+./shurli join <invite-code> --as laptop
 # Automatically: connects to inviter, exchanges peer IDs,
 # adds each other to authorized_keys, adds name mapping.
 ```
@@ -185,14 +185,14 @@ Verify with:
 
 **Option C: Manual file edit**
 ```bash
-# Edit ~/.config/shurli/authorized_keys
+# Edit ~/.shurli/authorized_keys
 # Add the peer ID (one per line):
 12D3KooWHOME...ABC  # home-server
 ```
 
 ### Add friendly name
 
-If you used the invite/join flow, names are added automatically. Otherwise, edit `~/.config/shurli/config.yaml` on the client:
+If you used the invite/join flow, names are added automatically. Otherwise, edit `~/.shurli/config.yaml` on the client:
 
 ```yaml
 # Map friendly names to peer IDs:

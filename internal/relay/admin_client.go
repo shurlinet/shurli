@@ -59,11 +59,33 @@ func (c *AdminClient) do(method, path string, body io.Reader) ([]byte, int, erro
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
 	return data, resp.StatusCode, nil
+}
+
+// RelayInfoResponse holds the relay's peer ID and multiaddrs.
+type RelayInfoResponse struct {
+	PeerID     string   `json:"peer_id"`
+	Multiaddrs []string `json:"multiaddrs"`
+}
+
+// GetInfo returns the relay's peer ID and multiaddrs from the running server.
+func (c *AdminClient) GetInfo() (*RelayInfoResponse, error) {
+	data, status, err := c.do("GET", "/v1/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("info failed (HTTP %d): %s", status, data)
+	}
+	var resp RelayInfoResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // CreateGroup creates a pairing group and returns the invite codes.
@@ -411,6 +433,23 @@ func (c *AdminClient) AuthorizePeer(peerID, comment string) error {
 	return nil
 }
 
+// SetPeerAttr sets a key=value attribute on a peer in the relay's authorized_keys.
+func (c *AdminClient) SetPeerAttr(peerID, key, value string) error {
+	reqBody, _ := json.Marshal(map[string]string{
+		"peer_id": peerID,
+		"key":     key,
+		"value":   value,
+	})
+	data, status, err := c.do("POST", "/v1/peers/set-attr", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
 // DeauthorizePeer removes a peer from the relay's authorized_keys and triggers reload.
 func (c *AdminClient) DeauthorizePeer(peerID string) error {
 	reqBody, _ := json.Marshal(map[string]string{
@@ -509,6 +548,75 @@ func (c *AdminClient) RetractGoodbye() error {
 func (c *AdminClient) GoodbyeShutdown(message string) error {
 	reqBody, _ := json.Marshal(map[string]string{"message": message})
 	data, status, err := c.do("POST", "/v1/goodbye/shutdown", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// --- Relay grant client methods ---
+
+// RelayGrant creates a time-limited data access grant for a peer.
+func (c *AdminClient) RelayGrant(peerID string, durationSecs int, services []string, permanent bool) (*RelayGrantInfo, error) {
+	reqBody, _ := json.Marshal(RelayGrantRequest{
+		PeerID:      peerID,
+		DurationSec: durationSecs,
+		Services:    services,
+		Permanent:   permanent,
+	})
+	data, status, err := c.do("POST", "/v1/relay-grant", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var info RelayGrantInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &info, nil
+}
+
+// RelayGrants lists all active relay data grants.
+func (c *AdminClient) RelayGrants() ([]RelayGrantInfo, error) {
+	data, status, err := c.do("GET", "/v1/relay-grants", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, parseAdminError(data, status)
+	}
+	var result []RelayGrantInfo
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return result, nil
+}
+
+// RelayRevoke revokes a relay data grant and terminates active circuits.
+func (c *AdminClient) RelayRevoke(peerID string) error {
+	reqBody, _ := json.Marshal(map[string]string{"peer_id": peerID})
+	data, status, err := c.do("POST", "/v1/relay-revoke", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return parseAdminError(data, status)
+	}
+	return nil
+}
+
+// RelayExtend extends an existing relay data grant.
+func (c *AdminClient) RelayExtend(peerID string, durationSecs int) error {
+	reqBody, _ := json.Marshal(RelayExtendRequest{
+		PeerID:      peerID,
+		DurationSec: durationSecs,
+	})
+	data, status, err := c.do("POST", "/v1/relay-extend", strings.NewReader(string(reqBody)))
 	if err != nil {
 		return err
 	}

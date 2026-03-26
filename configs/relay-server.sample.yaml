@@ -45,12 +45,14 @@ security:
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
-  # Data relay controls whether peers can forward data (SSH, XRDP, etc.)
-  # through this relay. When false (default), this relay is discovery-only:
-  # peers use it for signaling and finding each other, but data transfers
-  # must happen via direct connections or a separate full relay.
-  # Exceptions: admin peers and peers with relay_data=true attribute.
-  enable_data_relay: false
+  # Data relay: whether authorized peers can relay data through this server.
+  # Default: true (your relay, full capability for your peers).
+  # When true: all authorized peers can relay data (file transfer, SSH, etc.).
+  # When false: only admin peers and peers with active time-limited grants
+  # can establish data circuits. All peers can still use signaling protocols.
+  # For per-peer granular control, set to false and use:
+  #   shurli relay grant <peer-id> --duration 1h
+  enable_data_relay: true
 
 # Relay resource limits (defaults shown  - uncomment to customize)
 # These control how much relay capacity each peer and session can consume.

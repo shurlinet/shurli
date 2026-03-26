@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 )
 
 // InterfaceInfo describes a single network interface with its global unicast addresses.
@@ -23,6 +24,18 @@ type InterfaceSummary struct {
 	HasGlobalIPv4   bool           `json:"has_global_ipv4"`
 	GlobalIPv6Addrs []string       `json:"global_ipv6_addrs,omitempty"`
 	GlobalIPv4Addrs []string       `json:"global_ipv4_addrs,omitempty"`
+
+	// TunnelInterfaces lists names of active VPN/tunnel interfaces.
+	// Used by diffSummaries to detect VPN activation/deactivation even
+	// when global IPs don't change (VPN tunnels typically carry only
+	// private IPv4, invisible to the global IP diff).
+	TunnelInterfaces []string `json:"tunnel_interfaces,omitempty"`
+
+	// DefaultGateway is the IPv4 default gateway address. Used by
+	// diffSummaries to detect network switches between private-IPv4-only
+	// networks (e.g., two different CGNAT carriers) where no global IP
+	// changes occur. Platform-specific: parsed from route table.
+	DefaultGateway string `json:"default_gateway,omitempty"`
 }
 
 // DiscoverInterfaces enumerates all network interfaces, filters for global
@@ -30,7 +43,12 @@ type InterfaceSummary struct {
 // IPv4 addresses are excluded from the global lists but the interface itself
 // is still reported (for debugging).
 func DiscoverInterfaces() (*InterfaceSummary, error) {
-	return discoverInterfacesFrom(net.Interfaces)
+	s, err := discoverInterfacesFrom(net.Interfaces)
+	if err != nil {
+		return nil, err
+	}
+	s.DefaultGateway = defaultGateway()
+	return s, nil
 }
 
 // discoverInterfacesFrom is the testable core. It accepts a function matching
@@ -47,6 +65,14 @@ func discoverInterfacesFrom(listFn func() ([]net.Interface, error)) (*InterfaceS
 		// Skip interfaces that are down
 		if iface.Flags&net.FlagUp == 0 {
 			continue
+		}
+
+		// Track VPN/tunnel interfaces by name pattern. These often carry
+		// only private IPv4 (10.x, 100.64.x) so they're invisible to the
+		// global IP diff. Detecting their appearance/disappearance lets
+		// the network monitor fire events on VPN connect/disconnect.
+		if isTunnelInterface(iface.Name) {
+			summary.TunnelInterfaces = append(summary.TunnelInterfaces, iface.Name)
 		}
 
 		addrs, err := iface.Addrs()
@@ -99,6 +125,22 @@ func discoverInterfacesFrom(listFn func() ([]net.Interface, error)) (*InterfaceS
 	})
 
 	return summary, nil
+}
+
+// tunnelPrefixes are interface name prefixes that indicate VPN/tunnel
+// interfaces. On macOS: utun (WireGuard, IKEv2, LightWay, iCloud Private
+// Relay). On Linux: tun (OpenVPN, generic), wg (WireGuard), ppp (L2TP).
+var tunnelPrefixes = []string{"utun", "tun", "wg", "ppp"}
+
+// isTunnelInterface returns true if the interface name matches a known
+// VPN/tunnel naming pattern.
+func isTunnelInterface(name string) bool {
+	for _, prefix := range tunnelPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isGlobalIPv4 returns true if the IPv4 address is globally routable

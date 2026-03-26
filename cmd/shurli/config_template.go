@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
 )
 
 // nodeConfigTemplate returns the default config YAML for a new Shurli node.
@@ -38,6 +42,10 @@ network:
   # Set to true on nodes behind CGNAT (required for shurli daemon)
   force_private_reachability: false
 
+# Relay server addresses.
+# Own relay (option 1 in init) = full capability: data relay, file transfer, proxy.
+# Public seeds (option 2 in init) = discovery only, no data relay.
+# Deploy your own: https://shurli.io/docs/relay-setup/
 relay:
   addresses:
 %s  reservation_interval: "2m"
@@ -88,6 +96,58 @@ names: {}
 #   audit:
 #     enabled: true
 `, generator, addrLines, networkLine)
+}
+
+// defaultReceiveDir returns a platform-appropriate default receive directory.
+// macOS/Windows: ~/Downloads/shurli/  Linux: ~/shurli/received/
+func defaultReceiveDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return filepath.Join(home, "Downloads", "shurli")
+	}
+	return filepath.Join(home, "shurli", "received")
+}
+
+// createPluginDefaults creates the filetransfer plugin config directory and
+// a default config.yaml so new nodes have a working receive_dir and sensible
+// bandwidth_budget out of the box. Without this, every new node needs manual
+// plugin config creation before file transfer works.
+func createPluginDefaults(configDir string) {
+	pluginDir := filepath.Join(configDir, "plugins", "shurli.io", "official", "filetransfer")
+	if err := os.MkdirAll(pluginDir, 0700); err != nil {
+		slog.Debug("init: could not create plugin config dir", "error", err)
+		return
+	}
+	configPath := filepath.Join(pluginDir, "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return // already exists
+	}
+
+	recvDir := defaultReceiveDir()
+	if recvDir == "" {
+		return
+	}
+
+	content := fmt.Sprintf(`# File transfer plugin configuration
+# Generated automatically by shurli init/join
+
+# Directory where received files are saved.
+receive_dir: %q
+
+# Who can send you files: "contacts" (authorized peers only), "ask", "open", "off"
+receive_mode: "contacts"
+
+# Per-peer bandwidth budget per hour. "unlimited", "500MB", "1GB", etc.
+# LAN peers are always exempt regardless of this setting.
+bandwidth_budget: "unlimited"
+`, recvDir)
+
+	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+		slog.Debug("init: could not write plugin config", "error", err)
+	}
 }
 
 // relayServerConfigTemplate returns the default relay server config YAML.
@@ -141,15 +201,14 @@ security:
   # When false, any peer on the internet can relay through your VPS
   enable_connection_gating: true
 
-  # Data relay controls whether peers can forward data through this relay.
-  # When false (default): only admin peers and peers with relay_data=true
-  # attribute can establish data circuits. All peers can still use signaling
-  # protocols (pairing, peer-notify, admin, etc.) since those are direct
-  # streams, not relay circuits.
-  # When true: all authorized peers can relay data (SSH, XRDP, etc.).
-  # Per-peer exceptions: shurli relay authorize <peer-id> then
-  #   set relay_data=true in authorized_keys for that peer.
-  enable_data_relay: false
+  # Data relay: whether authorized peers can relay data through this server.
+  # Default: true (your relay, full capability for your peers).
+  # When true: all authorized peers can relay data (file transfer, SSH, etc.).
+  # When false: only admin peers and peers with active time-limited grants
+  # can establish data circuits. All peers can still use signaling protocols.
+  # For per-peer granular control, set to false and use:
+  #   shurli relay grant <peer-id> --duration 1h
+  enable_data_relay: true
 
   # Vault protects root key material. Created automatically on first run.
   vault_file: "relay_vault.json"
@@ -164,8 +223,12 @@ security:
 #   max_reservations_per_ip: 8   # Reservations per source IP
 #   max_reservations_per_asn: 32 # Reservations per AS number
 #   reservation_ttl: "1h"        # How long a reservation lasts
+#   # Session limits are tier-aware:
+#   #   Seed (enable_data_relay: false): 10m duration, 64MB data (painful default)
+#   #   Self-hosted relay (enable_data_relay: true): 2h duration, 2GB data
+#   # Override explicitly if needed:
 #   session_duration: "10m"      # Max duration per relayed session
-#   session_data_limit: "64MB"   # Max data per session per direction
+#   session_data_limit: "64MB"   # Max data per session per direction (cumulative)
 
 # Health check endpoint for monitoring (Prometheus, UptimeKuma, etc.)
 # Disabled by default. Binds to localhost only - not exposed to the internet.

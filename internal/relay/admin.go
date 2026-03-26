@@ -27,6 +27,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/deposit"
+	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/vault"
@@ -164,6 +165,7 @@ type AdminServer struct {
 	zkpAuth      *ZKPAuthHandler
 	motdHandler  *MOTDHandler
 	circuitACL   *CircuitACL     // refreshed on auth reload
+	grantStore   *grants.Store   // time-limited relay data grants
 	shutdownFunc func() // called by goodbye/shutdown endpoint
 	relayAddr    string
 	namespace    string
@@ -174,13 +176,29 @@ type AdminServer struct {
 	authToken    string
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
-	host         libp2phost.Host // set after host creation for connected-peers queries
-	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	host             libp2phost.Host // set after host creation for connected-peers queries
+	Metrics          *p2pnet.Metrics // nil-safe: metrics are optional
+	receiptHMACKey   []byte          // HKDF("grant-receipt/v1") - dedicated key for receipt HMAC
+	sessionDataLimit int64           // from relay config, bytes per session per direction (0=unlimited)
+	sessionDuration  time.Duration   // from relay config, max time per circuit session
 }
 
 // SetHost stores the libp2p host reference for connected-peers queries.
 func (s *AdminServer) SetHost(h libp2phost.Host) {
 	s.host = h
+}
+
+// SetReceiptHMACKey sets the dedicated HMAC key for grant receipt signing.
+// Must be derived via HKDF("grant-receipt/v1") - separate from grant store keys (H10).
+func (s *AdminServer) SetReceiptHMACKey(key []byte) {
+	s.receiptHMACKey = key
+}
+
+// SetSessionLimits stores the relay config session limits for receipt construction.
+// Session limits come from relay config, not grant store (H13).
+func (s *AdminServer) SetSessionLimits(dataLimit int64, duration time.Duration) {
+	s.sessionDataLimit = dataLimit
+	s.sessionDuration = duration
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -232,6 +250,11 @@ func (s *AdminServer) SetCircuitACL(acl *CircuitACL) {
 	s.circuitACL = acl
 }
 
+// SetGrantStore sets the relay grant store for time-limited data access control.
+func (s *AdminServer) SetGrantStore(gs *grants.Store) {
+	s.grantStore = gs
+}
+
 // buildMux creates the HTTP route table. Called once by Start() and reused
 // by HandleRemoteRequest so that the remote admin protocol dispatches to
 // the same handler functions as the local Unix socket.
@@ -259,6 +282,7 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/peers/connected", s.handleListConnectedPeers)
 	mux.HandleFunc("POST /v1/peers/authorize", s.handleAuthorizePeer)
 	mux.HandleFunc("POST /v1/peers/deauthorize", s.handleDeauthorizePeer)
+	mux.HandleFunc("POST /v1/peers/set-attr", s.handleSetPeerAttr)
 
 	// Auth hot-reload endpoint
 	mux.HandleFunc("POST /v1/auth/reload", s.handleAuthReload)
@@ -271,6 +295,15 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	// Clients fetch these to generate proofs locally.
 	mux.HandleFunc("GET /v1/zkp/proving-key", s.handleZKPProvingKey)
 	mux.HandleFunc("GET /v1/zkp/verifying-key", s.handleZKPVerifyingKey)
+
+	// Relay info endpoint (peer ID, multiaddrs)
+	mux.HandleFunc("GET /v1/info", s.handleInfo)
+
+	// Relay data grant endpoints (time-limited per-peer data access)
+	mux.HandleFunc("POST /v1/relay-grant", s.handleRelayGrant)
+	mux.HandleFunc("GET /v1/relay-grants", s.handleRelayGrants)
+	mux.HandleFunc("POST /v1/relay-revoke", s.handleRelayRevoke)
+	mux.HandleFunc("POST /v1/relay-extend", s.handleRelayExtend)
 
 	// MOTD and goodbye endpoints
 	mux.HandleFunc("GET /v1/motd", s.handleGetMOTD)
@@ -1044,12 +1077,11 @@ func (s *AdminServer) handleListPeers(w http.ResponseWriter, r *http.Request) {
 			role = "member"
 		}
 		result[i] = AuthorizedPeerInfo{
-			PeerID:    p.PeerID.String(),
-			Role:      role,
-			Comment:   p.Comment,
-			Verified:  p.Verified,
-			Group:     p.Group,
-			RelayData: p.RelayData,
+			PeerID:   p.PeerID.String(),
+			Role:     role,
+			Comment:  p.Comment,
+			Verified: p.Verified,
+			Group:    p.Group,
 		}
 		if !p.ExpiresAt.IsZero() {
 			result[i].ExpiresAt = p.ExpiresAt.Format(time.RFC3339)
@@ -1264,6 +1296,77 @@ func (s *AdminServer) handleDeauthorizePeer(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "deauthorized",
 		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.authKeysPath == "" {
+		respondAdminError(w, http.StatusBadRequest, "no authorized_keys path configured")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID string `json:"peer_id"`
+		Key    string `json:"key"`
+		Value  string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" || req.Key == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id and key are required")
+		return
+	}
+
+	// Whitelist of allowed attribute keys to prevent arbitrary writes.
+	allowed := map[string]bool{
+		"role":             true,
+		"group":            true,
+		"verified":         true,
+		"bandwidth_budget": true,
+	}
+	if !allowed[req.Key] {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("attribute %q not allowed (allowed: role, group, verified, bandwidth_budget)", req.Key))
+		return
+	}
+
+	// Validate bandwidth_budget values parse correctly before writing.
+	if req.Key == "bandwidth_budget" {
+		if _, err := p2pnet.ParseByteSize(req.Value); err != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid bandwidth_budget value %q: %v", req.Value, err))
+			return
+		}
+	}
+
+	if err := auth.SetPeerAttr(s.authKeysPath, req.PeerID, req.Key, req.Value); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("failed to set attribute: %v", err))
+		return
+	}
+
+	// Trigger auth reload (gater + circuit ACL).
+	s.reloadAuth()
+
+	short := req.PeerID
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	// Read back stored value (may differ from input due to sanitization).
+	stored := auth.GetPeerAttr(s.authKeysPath, req.PeerID, req.Key)
+	if stored == "" {
+		stored = req.Value
+	}
+	slog.Info("peer attribute set via admin", "peer_id", short, "key", req.Key, "value", stored)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "updated",
+		"peer_id": req.PeerID,
+		"key":     req.Key,
+		"value":   stored,
 	})
 }
 
@@ -1590,6 +1693,279 @@ func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// --- Relay grant handlers (time-limited per-peer data access) ---
+
+// RelayGrantRequest is the JSON body for POST /v1/relay-grant.
+type RelayGrantRequest struct {
+	PeerID      string   `json:"peer_id"`
+	DurationSec int      `json:"duration_secs"`
+	Services    []string `json:"services,omitempty"`
+	Permanent   bool     `json:"permanent,omitempty"`
+}
+
+// RelayGrantInfo is the JSON representation of a relay data grant.
+type RelayGrantInfo struct {
+	PeerID       string   `json:"peer_id"`
+	Services     []string `json:"services,omitempty"`
+	ExpiresAt    string   `json:"expires_at,omitempty"`
+	CreatedAt    string   `json:"created_at"`
+	Permanent    bool     `json:"permanent,omitempty"`
+	RemainingSec int      `json:"remaining_seconds"`
+}
+
+// RelayExtendRequest is the JSON body for POST /v1/relay-extend.
+type RelayExtendRequest struct {
+	PeerID      string `json:"peer_id"`
+	DurationSec int    `json:"duration_secs"`
+}
+
+// maxGrantDurationSec is the maximum grant duration (365 days) to prevent
+// time.Duration overflow. time.Duration is int64 nanoseconds; values above
+// ~292 years silently wrap negative, creating grants that expire immediately.
+const maxGrantDurationSec = 365 * 24 * 3600 // 31,536,000 seconds
+
+func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req RelayGrantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+	if !req.Permanent && req.DurationSec <= 0 {
+		respondAdminError(w, http.StatusBadRequest, "duration_secs must be positive (or set permanent=true)")
+		return
+	}
+	if req.DurationSec > maxGrantDurationSec {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("duration_secs exceeds maximum (%d seconds = 365 days), use --permanent for indefinite access", maxGrantDurationSec))
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	duration := time.Duration(req.DurationSec) * time.Second
+	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0)
+	if err != nil {
+		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
+		return
+	}
+
+	// Audit trail: log who created the grant (local admin socket or remote peer).
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: created via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String(),
+		"permanent", req.Permanent,
+		"duration_sec", req.DurationSec)
+
+	// Push grant receipt to the grantee (or legacy signal if no HMAC key).
+	// Fire-and-forget: if the peer isn't connected, receipt is delivered on reconnect.
+	// Use request parameters (req.Permanent, duration) instead of the Grant pointer
+	// to avoid a data race: grantStore.Grant() returns the same pointer stored in
+	// the map, and a concurrent Extend() could modify its fields.
+	if s.host != nil && s.receiptHMACKey != nil {
+		receiptData := EncodeGrantReceipt(duration, s.sessionDataLimit,
+			s.sessionDuration, req.Permanent, time.Now(), s.receiptHMACKey)
+		go func() {
+			if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
+				slog.Debug("relay grant: receipt notify failed",
+					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+			}
+		}()
+	} else if s.host != nil {
+		go func() {
+			if err := NotifyGrantChanged(context.Background(), s.host, pid); err != nil {
+				slog.Debug("relay grant: grant-changed notify failed",
+					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+			}
+		}()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(grantToInfo(g))
+}
+
+func (s *AdminServer) handleRelayGrants(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]RelayGrantInfo{})
+		return
+	}
+
+	all := s.grantStore.List()
+	result := make([]RelayGrantInfo, 0, len(all))
+	for _, g := range all {
+		result = append(result, grantToInfo(g))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *AdminServer) handleRelayRevoke(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		PeerID string `json:"peer_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	if err := s.grantStore.Revoke(pid); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("revoke failed: %v", err))
+		return
+	}
+
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: revoked via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String())
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "revoked",
+		"peer_id": req.PeerID,
+	})
+}
+
+func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if s.grantStore == nil {
+		respondAdminError(w, http.StatusServiceUnavailable, "grant store not initialized")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req RelayExtendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondAdminError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PeerID == "" {
+		respondAdminError(w, http.StatusBadRequest, "peer_id is required")
+		return
+	}
+	if req.DurationSec <= 0 {
+		respondAdminError(w, http.StatusBadRequest, "duration_secs must be positive")
+		return
+	}
+	if req.DurationSec > maxGrantDurationSec {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("duration_secs exceeds maximum (%d seconds = 365 days), use revoke + grant --permanent for indefinite access", maxGrantDurationSec))
+		return
+	}
+
+	pid, err := peer.Decode(req.PeerID)
+	if err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid peer ID: %v", err))
+		return
+	}
+
+	duration := time.Duration(req.DurationSec) * time.Second
+	if err := s.grantStore.Extend(pid, duration); err != nil {
+		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("extend failed: %v", err))
+		return
+	}
+
+	origin, _ := r.Context().Value(ctxOrigin).(string)
+	caller := callerPeerID(r)
+	slog.Info("relay grant: extended via admin API",
+		"peer", req.PeerID[:min(16, len(req.PeerID))],
+		"origin", origin,
+		"caller", caller.String(),
+		"duration_sec", req.DurationSec)
+
+	// Push updated grant receipt to the peer (H8 fix).
+	// Use CheckAndGet to get a safe clone of the extended grant.
+	if s.host != nil && s.receiptHMACKey != nil {
+		extGrant := s.grantStore.CheckAndGet(pid)
+		if extGrant != nil {
+			var grantDuration time.Duration
+			if !extGrant.Permanent {
+				grantDuration = time.Until(extGrant.ExpiresAt)
+				if grantDuration < 0 {
+					grantDuration = 0
+				}
+			}
+			receiptData := EncodeGrantReceipt(grantDuration, s.sessionDataLimit,
+				s.sessionDuration, extGrant.Permanent, time.Now(), s.receiptHMACKey)
+			go func() {
+				if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
+					slog.Debug("relay grant: extend receipt notify failed",
+						"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
+				}
+			}()
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "extended",
+		"peer_id": req.PeerID,
+	})
+}
+
+// grantToInfo converts a grants.Grant to the API response type.
+func grantToInfo(g *grants.Grant) RelayGrantInfo {
+	info := RelayGrantInfo{
+		PeerID:    g.PeerIDStr,
+		Services:  g.Services,
+		CreatedAt: g.CreatedAt.Format(time.RFC3339),
+		Permanent: g.Permanent,
+	}
+	if !g.Permanent {
+		info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
+		remaining := int(time.Until(g.ExpiresAt).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+		info.RemainingSec = remaining
+	}
+	return info
+}
+
 func respondAdminError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -1626,6 +2002,22 @@ func (s *AdminServer) recordVaultSealState(sealed bool) {
 			s.Metrics.VaultSealed.Set(0)
 		}
 	}
+}
+
+// handleInfo returns the relay's peer ID and public multiaddrs.
+func (s *AdminServer) handleInfo(w http.ResponseWriter, _ *http.Request) {
+	resp := struct {
+		PeerID     string   `json:"peer_id"`
+		Multiaddrs []string `json:"multiaddrs"`
+	}{}
+	if s.host != nil {
+		resp.PeerID = s.host.ID().String()
+		for _, addr := range s.host.Addrs() {
+			resp.Multiaddrs = append(resp.Multiaddrs, addr.String()+"/p2p/"+s.host.ID().String())
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func generateAdminCookie() (string, error) {

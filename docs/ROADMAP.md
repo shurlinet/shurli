@@ -93,7 +93,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 - [x] Tested: SSH, XRDP, generic TCP proxy all working across LAN and 5G
 - [x] **UX Streamlining**:
   - [x] Single binary - merged home-node into `shurli daemon`
-  - [x] Standard config path - auto-discovery (`./shurli.yaml` → `~/.config/shurli/config.yaml` → `/etc/shurli/config.yaml`)
+  - [x] Standard config path - auto-discovery (`./shurli.yaml` → `~/.shurli/config.yaml` → `/etc/shurli/config.yaml`)
   - [x] `shurli init` - interactive setup wizard (generates config, keys, authorized_keys)
   - [x] All commands support `--config <path>` flag
   - [x] Unified config type (one config format for all modes)
@@ -149,14 +149,14 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 **User Experience**:
 ```bash
 # Machine A (home server)
-$ shurli invite --name home
+$ shurli invite --as home
 === Invite Code (expires in 10m0s) ===
 AEQB-XJKZ-M4NP-...
 [QR code displayed]
 Waiting for peer to join...
 
 # Machine B (laptop)
-$ shurli join AEQB-XJKZ-M4NP-... --name laptop
+$ shurli join AEQB-XJKZ-M4NP-... --as laptop
 === Joined successfully! ===
 Peer "home" authorized and added to names.
 Try: shurli ping home
@@ -181,7 +181,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - All user-facing inputs sanitized before writing to files
 
 **Bug fixes (discovered during real-world testing)**:
-- [x] Fixed invite code corruption when `--name` flag follows positional arg (`shurli join CODE --name laptop` - Go's `flag.Parse` stops at first non-flag, concatenating `--name` and `laptop` into the base32 code)
+- [x] Fixed invite code corruption when flags follow positional arg (`shurli join CODE --as laptop` - Go's `flag.Parse` stops at first non-flag, concatenating flag and value into the base32 code)
 - [x] Added strict multihash length validation in invite decoder - Go's `base32.NoPadding` silently accepts trailing junk, so `Decode()` now re-encodes and compares multihash byte lengths
 - [x] Fixed stream reset during invite join - inviter now flushes the OK response through the relay circuit before closing the stream
 - [x] Added `reorderFlagsFirst()` to `runJoin()` so flags can appear after positional args (natural CLI usage)
@@ -223,7 +223,12 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 6** | **ACL + Relay Security** | Role-based access, macaroon capability tokens, passphrase-sealed vault, async invite deposits, remote unseal, TOTP + Yubikey 2FA | ✅ DONE |
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE. 9C-9E (discovery, Python SDK, Swift SDK) planned |
+| **Phase 8B** | **Per-Peer Data Grants** | Macaroon grants, token delivery, delegation, notifications, audit log, rate limiting. Core access control (not plugin-specific) | ✅ DONE |
+| **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). Replace all 5 ACL layers with capability tokens (M2-M5 planned) | ✅/📋 M1 DONE |
+| **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Reputation slot designed | 📋 Planned |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
+| Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
+| Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
 **Deliverables**:
 
@@ -263,7 +268,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] **Protocol versioning policy** - documented in engineering journal (ADR-D03). Wire protocols (`/shurli/proxy/1.0.0`) are backwards-compatible within major version. Version info exchanged via libp2p Identify UserAgent.
 
 **Automation & Integration**:
-- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.config/shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 23 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
+- [x] **Daemon mode** - `shurli daemon` runs in foreground (systemd/launchd managed), exposes Unix socket API (`~/.shurli/shurli.sock`) with cookie-based auth. JSON + plain text responses. 23 endpoints: status, peers, services, auth (add/remove/hot-reload), paths, ping, traceroute, resolve, connect/disconnect (dynamic proxies), expose/unexpose, shutdown, lock/unlock. CLI client auto-reads cookie. *(Batch F)*
 - [x] **Headless onboarding** - `shurli invite --non-interactive` skips QR, prints bare code to stdout, progress to stderr. `shurli join --non-interactive` reads invite code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin. No TTY prompts. Essential for containerized and automated deployments (Docker, systemd, scripts). *(Batch E)*
 
 **Reliability**:
@@ -923,6 +928,301 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 
 ---
 
+#### Post-9B: Network Transition Chaos Testing and Hardening (FT-K through FT-X)
+
+**Timeline**: 2026-03-11 to 2026-03-14
+**Status**: ✅ Complete. All flags resolved, physical retest PASS, merged to main.
+
+**Goal**: Physical chaos testing of all network transitions to verify the daemon handles real-world network switches without restarts. Regression found after Phase 9B bootstrap refactor, leading to 11 root cause fixes and 8 post-chaos investigation flags.
+
+**Chaos testing campaign (FT-K through FT-P)**:
+- [x] 16 test cases across 5 ISPs + 3 VPN providers
+- [x] Root cause #1: Black hole detector blocks valid transports after network switch (FT-K)
+- [x] Root cause #2: Probe targets relay server IP instead of peer IP (FT-K)
+- [x] Root cause #3: ForceDirectDial tries all peerstore addresses, cascade failure (FT-K)
+- [x] Root cause #4: mDNS relay cleanup fights remote PeerManager reconnect (FT-L)
+- [x] Root cause #5: CloseStaleConnections misses private IPs (FT-L)
+- [x] Root cause #6: Autorelay drops reservations on public networks (FT-L)
+- [x] Root cause #7: mDNS upgrade poisoned by UDP black hole state (FT-M)
+- [x] Root cause #8: CloseStaleConnections kills valid IPv6 during DAD window (FT-N)
+- [x] Root cause #9: Autorelay 1-hour backoff prevents re-reservation (FT-N)
+- [x] Root cause #10: ProbeUntil cooldown blocks reconnect after direct death (FT-O)
+- [x] Root cause #11: Swarm reports closed connection as live for 57s (FT-P)
+
+**Post-chaos investigation (FT-R through FT-X)**:
+- [x] Flag #1: TOCTOU race in mDNS + idle relay cleanup (FT-R, commit 2ee1dc2)
+- [x] Flag #7: Dial worker cache poisoning + mDNS TCP readiness probe (FT-T/FT-U, commit c497191)
+- [x] Flag #8: VPN tunnel interface detection + swarm backoff clear (FT-S, commit a0d606d)
+- [x] Flag #5: Default gateway tracking for private IPv4-only switches (FT-V, commit 45696ca)
+- [x] Flag #4: Investigated - cosmetic log, peer relay correctly disables without public IP
+- [x] Autorelay tuning for static relays - faster reconnection (FT-W, commit 459dc6a)
+- [x] ARCHITECTURE.md libp2p upstream overrides section (FT-X, commit c3e9140)
+- [x] Blog post + engineering journal ADR-S01 through ADR-S07 (FT-Y)
+- [x] sync-docs refactored to YAML config with validation
+
+**libp2p upstream overrides documented** (10 total):
+TCP source binding, black hole detector reset, autorelay backoff/minInterval/bootDelay/minCandidates, ForceReachabilityPrivate, global IPv6 address factory, custom mDNS, route socket expansion (macOS), VPN tunnel detection, default gateway tracking.
+
+---
+
+#### Post-9B: Transfer Speed Optimization (FT-Y)
+
+**Timeline**: Next iteration (high priority)
+**Status**: 📋 Planned
+
+**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync. Current baseline (2026-03-15, WiFi LAN, 500MB random data): Shurli 5 MB/s vs SCP 9 MB/s (55% of SCP). The 45% overhead comes from per-chunk processing (BLAKE3 hash + zstd compress + wire framing) across 2164 chunks.
+
+**Baseline measurements** (WiFi at distance - NOT protocol ceiling):
+- Client node -> server node, WiFi LAN
+- 500MB incompressible file (urandom)
+- SCP: 56s (~9 MB/s) | Shurli: 1m40s (~5 MB/s)
+- **Important**: Both numbers are constrained by the test environment (WiFi at distance), not protocol capability. Proper benchmarking requires wired gigabit LAN. Do not cite these as final performance numbers.
+
+**Optimization targets**:
+
+1. **Larger chunk sizes for LAN** - Current: 128K avg for <1GB files. LAN transfers benefit from fewer, larger chunks (less hash/frame overhead per byte). Adaptive: detect LAN path and use 1MB+ chunks.
+2. **Skip compression for incompressible data** - Detect in first chunk. If ratio < 1.05:1, disable for remaining chunks. Saves CPU on random/encrypted/pre-compressed data.
+3. **Streaming send** - Currently buffers all chunks in memory before sending. Stream chunks as they're produced (read -> hash -> compress -> send pipeline). Reduces memory and latency-to-first-byte.
+4. **Parallel chunk hashing** - BLAKE3 is already fast, but hashing can run on multiple cores while I/O waits.
+5. **Adaptive stream count** - Current: 1 stream for LAN. Test whether 2-4 streams improve WiFi throughput (WiFi benefits from parallel flows due to MAC-layer retransmits).
+
+**Target**: Match or exceed SCP speed on LAN transfers (>= 9 MB/s for 500MB). Accept ~10-15% overhead for integrity verification as the cost of doing business.
+
+**Exit criteria**: 500MB LAN transfer completes within 10% of SCP time. Benchmarks documented for LAN, WAN-direct, and relay paths.
+
+---
+
+#### Post-9B: Plugin Architecture Shift ✅ DONE
+
+**Timeline**: 2026-03-16 to 2026-03-20
+**Status**: ✅ Complete (5 batches, 4 audits, physical retest 11/11 PASS)
+
+**Goal**: Extract file transfer from inline code into a proper plugin, building a clean Plugin interface that all future features follow. The vision from day one: every feature should be a plugin.
+
+**What was built**:
+
+**Batch 1 - Plugin Framework** (`pkg/plugin/`):
+- [x] `Plugin` interface: Name, Version, Init, Start, Stop, Commands, Routes, Protocols, ConfigSection
+- [x] `PluginContext` with capability grants (no raw Network/Host/credential access)
+- [x] Registry: discovery, load, enable/disable, lifecycle state machine (LOADING -> READY -> ACTIVE -> DRAINING -> STOPPED)
+- [x] `shurli plugin list/enable/disable/info/disable-all` CLI commands
+- [x] Hot reload: enable/disable plugins without restarting daemon
+- [x] Kill switch: `shurli plugin disable-all` immediately stops all plugins
+- [x] Structured error codes (never raw strings to plugins)
+- [x] Plugin directory 0700 permission check at startup
+
+**Batch 2 - File Transfer Extraction** (`plugins/filetransfer/`):
+- [x] 9 CLI commands moved to plugin (send, download, browse, share, transfers, accept, reject, cancel, clean)
+- [x] 14 daemon API endpoints moved to plugin
+- [x] 12 types moved to plugin
+- [x] 4 P2P protocols registered through plugin Start()
+- [x] Plugin owns its config section, state files (queue.json, shares.json with HMAC)
+- [x] Plugin provides its own daemon client methods
+- [x] Core untouched: network, auth, identity, relay, ZKP all unchanged
+
+**Batch 2.5 - Fix Tracked Findings**:
+- [x] All 67 findings from 5 audit rounds resolved (none deferred)
+
+**Batch 3 - Tests + Supervisor + Checkpointer**:
+- [x] 81 test artifacts (unit + integration + fuzz)
+- [x] Supervisor auto-restart with circuit breaker (3 crashes = auto-disable)
+- [x] Transfer checkpoint/resume persistence
+- [x] 7 fuzz targets x 1 hour each, 209M total executions, zero crashes
+
+**Batch 4a - Security Hardening**:
+- [x] 43-vector threat analysis (3 rounds: traditional, build-time, AI-era)
+- [x] 4-round audit with 12 additional fixes
+- [x] Credential isolation verified (daemon keys, auth cookies, vault never in PluginContext)
+- [x] Plugins cannot install other plugins (propagation chain break, hard-coded)
+
+**Batch 4b - Physical Retest**:
+- [x] 11/11 physical tests PASS (LAN send, relay send, browse, download, transfers, share, plugin list/enable/disable/disable-all, protocol unregister)
+- [x] Smoke tests PASS (auth, resolve, traceroute, ping, services, plugins, status)
+- [x] Performance baselines: LAN 3.3 MB/s, relay 682 KB/s, ping 21ms LAN / 186ms relay
+
+**Architecture after shift**:
+```
+shurli binary
+├── core (network, auth, identity, daemon, CLI framework)
+├── pkg/plugin/          <- Plugin interface + registry + supervisor
+├── pkg/p2pnet/          <- Protocol library code (unchanged)
+└── plugins/
+    └── filetransfer/    <- First plugin (CLI commands, daemon handlers, P2P protocols)
+```
+
+**Three-layer evolution**: Layer 1 (compiled-in Go, NOW), Layer 2 (WASM via wazero, NEXT), Layer 3 (AI-driven plugin generation, FUTURE).
+
+**Key Files**:
+- `pkg/plugin/plugin.go` - Plugin interface contract
+- `pkg/plugin/registry.go` - Discovery, load, enable/disable
+- `pkg/plugin/supervisor.go` - Auto-restart with circuit breaker
+- `plugins/filetransfer/plugin.go` - File transfer plugin implementation
+- `cmd/shurli/cmd_plugin.go` - Plugin CLI commands
+
+#### E14: Relay-First Onboarding ✅ DONE
+
+**Timeline**: 2026-03-23
+
+Restructured onboarding so relay pairing is the primary path. Simplifies first-time setup.
+
+- [x] Relay-first onboarding flow (relay pairing before peer-to-peer)
+- [x] 12 commits on dev branch
+- [x] 5 ACL issues deferred to macaroon migration
+
+#### Per-Peer Bandwidth Budgets ✅ DONE
+
+**Timeline**: 2026-03-24
+
+Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers always exempt.
+
+- [x] `shurli auth set-attr <peer> bandwidth_budget <value>` (local + relay admin API)
+- [x] Pipeline: authorized_keys attr -> PeerAttrFunc -> PeerBudgetFunc -> bandwidthTracker override
+- [x] Values: `unlimited`, `500MB`, `1GB`, etc. Config accepts human-readable strings
+- [x] 3 audit rounds, 23 tests
+- [x] Docs: COMMANDS.md, managing-network.md updated
+
+---
+
+#### Phase 8B: Per-Peer Data Grants ✅ DONE
+
+**Timeline**: 2026-03-20 to 2026-03-22
+**Status**: ✅ Complete (5 phases: A, R, B, C, D - all physically tested and deployed)
+
+**Goal**: Replace binary `relay_data=true` with time-limited, per-peer capability grants using macaroon tokens. Node-level enforcement as the true security boundary (relay ACLs are defense-in-depth only).
+
+**Why this was needed**: First external user session revealed that relay-level ACLs alone are insufficient. In a multi-relay topology, a peer connecting through a permissive relay bypasses a strict relay's ACL entirely. 20-vector security thought experiment (5 categories, 1 CRITICAL, 4 HIGH) drove the design.
+
+**Phase A - Node-Level Grant Store**:
+- [x] `GrantStore` (`internal/grants/store.go`) with HMAC-integrity persistence
+- [x] Stream-level enforcement in `OpenPluginStream` (outbound) and `handleServiceStreamInner` (inbound)
+- [x] CLI: `shurli auth grant/revoke/extend/grants` with man pages and completions
+- [x] 30s re-verify during active transfers (B1 mitigation)
+- [x] Share-grant separation: `share add` warns when peer has no grant (confused deputy defense)
+- [x] MOTD: expiring grants shown in `shurli status`
+- [x] L4 audit (4 rounds, 12 fixes). Physical retest 10/10 PASS.
+
+**Phase R - Relay Time-Limited Grants**:
+- [x] Replaces binary `relay_data=true` with time-limited grant store on relay
+- [x] Physical retest 9/9 PASS
+
+**Phase B - Token Delivery + Presentation** (4 batches):
+- [x] B1: GrantPouch (holder-side token storage), P2P delivery protocol (`/shurli/grant/1.0.0`), offline delivery queue
+- [x] B2: Binary grant header on every plugin stream (4-byte overhead). Token presentation + cryptographic verification. Physical retest 12/12 PASS
+- [x] B3: Multi-hop delegation with attenuation-only model. `delegate_to` caveat chain for audit trail. Physical retest 8/8 PASS
+- [x] B4: Auto-refresh protocol (background refresh at 10% remaining). 5 rounds L4 audit, 14 findings fixed. Physical retest PASS
+
+**Phase C - Notification Subsystem**:
+- [x] `NotificationSink` interface with non-blocking router
+- [x] 8 event types (grant_created, grant_expiring, grant_expired, grant_revoked, grant_extended, grant_refreshed, grant_rate_limited, test)
+- [x] LogSink (always-on audit trail), DesktopSink (macOS/Linux), WebhookSink (HTTP POST with retry)
+- [x] Pre-expiry warnings with configurable threshold and dedup
+- [x] `shurli notify test/list` CLI commands
+
+**Phase D - Hardening + Operational Excellence**:
+- [x] Integrity-chained audit log (HMAC-SHA256 chain, tamper detection). `shurli auth audit [--verify] [--tail N]`
+- [x] Configurable cleanup interval (default 30s, min 5s)
+- [x] Per-peer ops rate limiter (10/min default, fires notification on violation)
+- [x] Protocol version on wire messages (downgrade protection)
+- [x] 3 rounds self-review, 8 bugs fixed. 25/25 PASS -race
+- [x] D1: Cancel propagation fix (physical test PASS) *(2026-03-24)*
+- [x] D3: `SanitizeForDisplay()` applied to 8 display points, `sanitizeComment`/`sanitizeAttrValue` hardened *(2026-03-24)*
+
+**Post-D UX + AI Agent CLI**:
+- [x] Rich notification messages (services/direction/peer name)
+- [x] `shurli auth pouch` (receiver-side grant visibility)
+- [x] `--json` on ALL grant + notify commands (AI agent integration)
+- [x] `shurli status` notifications section
+- [x] `shurli reconnect <peer> [--json]` (AI agent control - clears backoff, forces redial)
+- [x] Grant-aware backoff reset (relay notifies client on grant create, client clears all backoffs)
+- [x] Security fixes: AppleScript injection defense, Router thread safety, PeerIDStr bounds check
+
+**Key Files**:
+- `internal/grants/` - Store, Pouch, Protocol, DeliveryQueue, AuditLog, RateLimiter
+- `internal/notify/` - Router, Event, LogSink, DesktopSink, WebhookSink
+- `internal/macaroon/caveat.go` - 6 new caveat types (peer_id, delegate_to, max_delegations, auto_refresh, max_refreshes, max_refresh_duration)
+- `pkg/p2pnet/grant_header.go` - Binary token presentation header
+
+---
+
+#### Phase 8C: ACL-to-Macaroon Migration (M2-M5)
+
+**Status**: 📋 Planned (M1 complete, M2-M5 phased rollout)
+
+**Goal**: Replace all five layers of ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) proved the pattern with Phase 8B. Each subsequent phase migrates one authorization layer.
+
+**Why**: ACL entries sit in a single file (authorized_keys) - one point of compromise. Macaroon capability tokens are cryptographic, delegatable, attenuation-only, and verifiable offline with just a root key. The per-peer data grant system (M1) proved this works in production.
+
+| Phase | Layer | Current Mechanism | Macaroon Replacement | Risk | Effort |
+|-------|-------|-------------------|---------------------|------|--------|
+| **M1** | Plugin/Service | GrantStore + GrantPouch | `peer_id`, `service`, `expires` caveats | - | **DONE** |
+| **M2** | Share | `shares.json` peer lists | `share_id` caveat on grants | Low | Small |
+| **M3** | Relay | `relay_authorized_keys` | Token presented for circuit auth | Medium | Medium |
+| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** | Large |
+| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low | Small |
+
+**Migration strategy per phase**:
+1. Design caveats specific to the layer
+2. Build verification at the enforcement point
+3. Run both ACL and macaroon in parallel (macaroon takes priority)
+4. Once proven, deprecate ACL path
+5. Eventually remove ACL code
+
+**Order rationale**: M2 is a natural extension of M1 (share peer lists are adjacent to grants). M3 is medium risk but high value (relay token auth replaces flat-file attributes). M4 is saved for last (touches libp2p handshake, deepest change). M5 is trivial once M4 lands.
+
+---
+
+#### Phase 9F: Layer 2 WASM Runtime
+
+**Status**: 📋 Planned (research complete, design ready)
+
+**Goal**: Third-party developers and AI agents can write plugins in any language (Rust, Python, JS, C) and ship them as `.wasm` files. Drop into `/plugins/`, Shurli discovers and loads with hardware-level sandbox isolation.
+
+**Runtime**: wazero (pure Go, zero CGo, cross-platform). 3-5% overhead for I/O-bound work. Cold start 5-20ms, warm calls in microseconds. Industry convergence confirmed: Envoy, Traefik, Zed, Grafana all use compiled-in + WASM hybrid.
+
+**What gets built**:
+- [ ] WASM plugin loader: discover `.wasm` files, compile, instantiate with sandbox
+- [ ] Host function bridge: Plugin interface (Layer 1) becomes the host-side contract
+- [ ] Capability grants: plugins declare needed capabilities (network, filesystem, config)
+- [ ] Pre-opened directories: plugin config scoped to its own dir (Capsicum pattern)
+- [ ] Memory caps: `WithMemoryLimitPages` per plugin (e.g., 16 pages = 1MB)
+- [ ] Context timeout: every WASM call gets a deadline (infinite loop protection)
+- [ ] MessagePack or protobuf serialization across the boundary (not JSON)
+- [ ] Same CLI experience: `shurli plugin list` shows both compiled-in and WASM plugins
+
+**Critical dependency**: WASI 0.3 (async I/O) expected mid-2026. Required for file transfer plugins in WASM. Without it, WASM plugins block on every I/O operation. Layer 2 can ship for non-I/O plugins first, then expand when WASI 0.3 lands.
+
+**Framework**: knqyf263/go-plugin or Extism (both built on wazero). Final choice at implementation time.
+
+**What this enables**: Any developer can extend Shurli without writing Go. Same `.wasm` binary runs on Go CLI, Swift app (via wazero equivalent), and future Kotlin app. Plugin ecosystem opens to the broader developer community.
+
+---
+
+#### Phase 9G: Layer 3 AI Plugin Generation
+
+**Status**: 📋 Future (requires Layers 1-2 solid)
+
+**Goal**: Skills.md describes plugin behavior in natural language. AI agent reads the spec, writes code in any language, compiles to WASM, drops into `/plugins/`. Zero-Human Network: the network generates its own extensions.
+
+**Prerequisites**: Layer 2 must be production-stable. Plugin interface must be well-documented. Security sandbox must be proven against adversarial WASM.
+
+---
+
+#### Phase 8D: Module Slots
+
+**Status**: 📋 Planned (reputation slot designed, auth slot future)
+
+**Goal**: Certain system functions need swappable implementations without a full plugin. Module slots provide clean interfaces for operators to plug in custom algorithms.
+
+| Slot | Current | Next | Enterprise |
+|------|---------|------|------------|
+| **Reputation** | Heuristic scoring | Community Notes matrix factorization | Custom algorithms |
+| **Auth** | Macaroons + PAKE | (current is sufficient) | LDAP, SAML, OAuth2, client certs |
+| **Storage** | Local filesystem | (current is sufficient) | S3-compatible, distributed |
+
+The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic scores. Data collection and score consumption stay in core. The scoring algorithm is swappable. Community Notes matrix factorization is designed but not yet implemented.
+
+---
+
 #### Phase 9C: Service Discovery & Additional Plugins
 
 **Timeline**: 1-2 weeks
@@ -976,7 +1276,7 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 **Headless Onboarding Enhancements** (already complete):
 - [x] `shurli invite --non-interactive` - bare code to stdout, no QR, progress to stderr *(Phase 4C Batch E)*
 - [x] `shurli join --non-interactive` - reads code from CLI arg, `SHURLI_INVITE_CODE` env var, or stdin *(Phase 4C Batch E)*
-- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --name node-1` *(Phase 4C Batch E)*
+- [x] Docker-friendly: `SHURLI_INVITE_CODE=xxx shurli join --non-interactive --as node-1` *(Phase 4C Batch E)*
 
 **Exit Criteria**: SDK installable via pip, all examples runnable, docs reviewed for accuracy against current code.
 
@@ -1030,7 +1330,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 ### Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
-**Status**: 📋 Planned
+**Status**: ✅/📋 Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser, Homebrew, APT, auto-upgrade planned)
 
 **Goal**: Make Shurli installable without a Go toolchain, launch with compelling use-case content, and establish `shurli.io` as the stable distribution anchor - independent of any single hosting provider.
 
@@ -1046,7 +1346,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 - [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev/next-iteration` (see deployment note below)
 - [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS provider configured, CNAME deployed, site live *(2026-02-20)*
 - [x] DNS managed via DNS provider - A/AAAA records → GitHub Pages, CDN + DDoS protection enabled, SSL mode "Full" *(2026-02-20)*
-- [ ] CNAME `get.shurli.io` → serves install script
+- [x] CNAME `get.shurli.io` → serves install script *(2026-03-24, DNS redirect → shurli.io/install → tools/install.sh)*
 - [x] Landing page - hero section, feature grid (NAT traversal, single binary, SSH trust, 60s pairing, TCP proxy, self-healing) *(Batch G)*
 - [x] Existing docs rendered as site pages - `tools/sync-docs` transforms ARCHITECTURE, FAQ, TESTING, ROADMAP, DAEMON-API, NETWORK-TOOLS, ENGINEERING-JOURNAL into Hugo-ready content *(Batch G)*
 - [x] Custom blog listing template - image cards with title overlay, gradient, responsive grid *(post-Batch G)*
@@ -1127,10 +1427,10 @@ Deliverables:
 
 **Package Managers & Binaries**:
 - [ ] Set up [GoReleaser](https://goreleaser.com/) config (`.goreleaser.yaml`) - publish to GitHub Releases + GitLab Releases
-- [ ] GitHub Actions workflow: on tag push, build binaries for Linux/macOS/Windows (amd64 + arm64)
+- [x] GitHub Actions workflow: on tag push, build binaries for Linux/macOS (amd64 + arm64) *(2026-03-24, release.yml with .tar.gz archives)*
 - [ ] Publish to GitHub Releases with Ed25519-signed checksums (release key in repo)
 - [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
-- [ ] One-line install script: `curl -sSL get.shurli.io | sh` - fetches `releases/latest.json`, detects OS/arch, downloads binary (GitHub → GitLab → IPFS fallback), verifies checksum, installs to `~/.local/bin` or `/usr/local/bin`
+- [x] One-line install script: `curl -sSL get.shurli.io | sh` - detects OS/arch, downloads archive from GitHub Releases, verifies SHA256 checksum, installs to `/usr/local/bin`, walks through peer/relay setup *(2026-03-24)*
 - [ ] APT repository for Debian/Ubuntu
 - [ ] AUR package for Arch Linux
 - [ ] Docker image + `docker-compose.yml` for containerized deployment
@@ -1166,7 +1466,7 @@ Deliverables:
 - [ ] Guide: Game/media streaming (Moonlight/Sunshine tunneling, latency characteristics)
 - [ ] Latency/throughput benchmarks (relay vs direct via DCUtR)
 - [ ] Multi-GPU / distributed inference documentation (exo, llama.cpp RPC)
-- [ ] Blog post / demo: phone → relay → home 5090 → streaming LLM response
+- [ ] Blog post / demo: phone → relay → home GPU → streaming LLM response
 
 **Automation & Integration Guides**:
 - [ ] Guide: *"Scripting & Automation with Shurli"* - daemon API, headless onboarding, Python SDK usage
@@ -1454,7 +1754,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 1. **Hacker News post**: *"Show HN: Shurli - self-hosted P2P tunnels through Starlink CGNAT (no accounts, no vendor)"*
 2. **r/selfhosted post**: Focus on SSH + XRDP + GPU inference through CGNAT
 3. **Blog post**: *"Access your home GPU from anywhere through Starlink CGNAT"*
-4. **Demo video**: Phone → relay → home 5090 → streaming LLM response
+4. **Demo video**: Phone → relay → home GPU → streaming LLM response
 5. **Comparisons**: Honest architectural comparison posts
 
 ### Community Infrastructure (set up at or before launch)
@@ -1469,7 +1769,51 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 15+: Ecosystem & Polish
+### Phase 15: Interactive Console & Network Monitor
+
+**Timeline**: 2-3 weeks
+**Status**: 📋 Planned
+
+**Goal**: A Python-style interactive REPL (`shurli console`) and built-in terminal network monitor. The console removes the `shurli` prefix, adds tab completion, inline help with examples, and command history. The network monitor provides live terminal visualizations of peer connections, transfer throughput, bandwidth usage, and queue depth without requiring external tools (Prometheus/Grafana).
+
+**Why This Exists**: CLI power users shouldn't need to prefix every command with `shurli`. And operators shouldn't need a full metrics stack to see what their network is doing. Self-contained observability, zero external dependencies.
+
+**Dependency**: `charmbracelet/bubbletea` v2 (~15 new modules, ~1-2 MB binary increase on 39 MB baseline). Justified because both the REPL and monitor need proper TUI capabilities (line editing, in-place multi-line updates, key handling).
+
+**Deliverables**:
+
+**15A: Interactive Console (REPL)**
+- [ ] `shurli console` command launches interactive session
+- [ ] No `shurli` prefix needed inside console (e.g., `ping home-node` instead of `shurli ping home-node`)
+- [ ] Tab completion for subcommands, peer names, share IDs
+- [ ] Inline `help <command>` with man-page info and example commands
+- [ ] Command history (up/down arrows, persistent across sessions)
+- [ ] Prompt shows connection status (e.g., `shurli [3 peers] > `)
+
+**15B: Network Monitor**
+- [ ] `shurli top` or `shurli monitor` - live dashboard in terminal
+- [ ] Live peer connections: who, path (direct/relay), latency, uptime
+- [ ] Transfer throughput graph (bytes/sec over time, like `iftop`)
+- [ ] Per-peer bandwidth usage (like `nethogs` for P2P streams)
+- [ ] Queue depth, active/pending/failed transfers
+- [ ] Compression ratios, chunk delivery rates
+- [ ] Relay vs direct connection status per peer
+
+**15C: Multi-line Progress Bars** (deferred from file transfer)
+- [ ] Per-stream chunk progress bars during multi-stream transfers (S1, S2, S3, S4)
+- [ ] Proper TUI rendering with bubbletea (no cursor-up ANSI hacks)
+- [ ] Terminal resize handled correctly
+- [ ] Integrate into `shurli send --follow` and `shurli transfers --watch`
+
+**Design Inspiration**:
+- Python REPL (console UX)
+- `htop`, `iftop`, `nmon`, `bmon` (network monitor UX)
+- `tqdm` / HuggingFace (progress bar UX)
+- [33 CLI monitoring tools](https://www.logicweb.com/knowledge-base/linux-tips/33-command-line-tools-to-monitor-linux-performance) (feature reference)
+
+---
+
+## Phase 16+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -1610,15 +1954,19 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 6: ACL + Relay Security + Client Invites** | ✅ | Complete (Macaroons, passphrase-sealed vault, remote unseal, TOTP + Yubikey 2FA) |
 | **Phase 7: ZKP Privacy Layer** | ✅ | Complete (gnark PLONK + Ethereum KZG, anonymous auth, reputation proofs, namespace membership) |
 | **Phase 8: Identity Security + Remote Admin** | ✅ | Complete (Unified BIP39 seed, encrypted identity, remote admin over P2P, MOTD/goodbye, session tokens) |
-| Phase 9: Plugins, SDK & First Plugins | 📋 5-8 weeks | Planned (9A-9E sub-phases) |
-| Phase 10: Distribution & Launch | 📋 1-2 weeks | Planned |
+| **Phase 8B: Per-Peer Data Grants** | ✅ | Complete (macaroon grants, token delivery, delegation, notifications, audit log, rate limiting) |
+| **Phase 8C: ACL-to-Macaroon Migration** | ✅/📋 | M1 complete (Phase 8B). M2-M5 planned |
+| **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth DONE. 9C-9E planned, 9F-9G future |
+| Phase 10: Distribution & Launch | ✅/📋 | Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser/Homebrew/APT planned) |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
 | Phase 13: Federation | 📋 2-3 weeks | Planned |
 | Phase 14: Advanced Naming | 📋 2-3 weeks | Planned (Optional) |
-| Phase 15+: Ecosystem | 📋 Ongoing | Conceptual |
+| Phase 15: Interactive Console & Network Monitor | 📋 2-3 weeks | Planned (bubbletea TUI) |
+| Phase 16+: Ecosystem | 📋 Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (Go interfaces + Python SDK + Swift SDK) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy layer (done) -> identity security + remote admin (done) -> make it extensible with real plugins (plugin framework + file transfer extraction done, SDKs planned) -> distribute with use-case content (GPU, IoT, gaming) -> transparent access (gateway, DNS) -> expand (Apple app with visual pairing -> federation -> naming).
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. See "SDK & App Repository Strategy" section under Phase 9 for the full table.
 
@@ -1765,10 +2113,17 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Plugin API documented and usable
 - Migration path demonstrated when one backend fails
 
+**Phase 15 Success** (Interactive Console & Network Monitor):
+- `shurli console` launches REPL with tab completion and command history
+- All existing CLI commands work without `shurli` prefix inside console
+- `shurli top` shows live peer connections, transfer throughput, and queue status
+- Multi-stream progress bars render cleanly with terminal resize support
+- Zero external monitoring tools required for basic network observability
+
 ---
 
-**Last Updated**: 2026-03-08
-**Current Phase**: Phase 8 Complete. Phase 9 (Plugins, SDK & First Plugins) next.
-**Phases**: 1-8 (complete), 9-14 (planned), 15+ (ecosystem)
-**Next Milestone**: Phase 9 - Plugin Architecture, SDK & First Plugins (9A-9E: interfaces, file transfer, discovery, Python SDK, Swift SDK)
+**Last Updated**: 2026-03-20
+**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). 9C-9E planned.
+**Phases**: 1-8 (complete), 9 (in progress: 9A-9B2 done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
+**Next Milestone**: Phase 9C - Service Discovery & Additional Plugins (discovery protocol, service templates, Wake-on-LAN)
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

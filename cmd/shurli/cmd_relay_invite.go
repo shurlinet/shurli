@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -65,12 +66,19 @@ func doRelayInviteCreate(args []string, configFile string, stdout io.Writer) err
 		fmt.Fprintf(stdout, "Authorization expires after %s.\n\n", *expiresFlag)
 	}
 	fmt.Fprintf(stdout, "Group ID: %s\n\n", resp.GroupID)
+	// Build the join command with relay address for copy-paste.
+	relayIP, relayPort, relayPeerID := detectRelayEndpoint(configFile)
 	fmt.Fprintln(stdout, "--- Send this to the joining peer ---")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Install shurli: https://shurli.net/install")
+	fmt.Fprintln(stdout, "Install shurli: https://shurli.io/docs/quick-start/")
 	fmt.Fprintln(stdout, "Then run:")
-	fmt.Fprintln(stdout, "  shurli init")
-	fmt.Fprintf(stdout, "  shurli join %s\n", code)
+	if relayIP != "" {
+		fmt.Fprintf(stdout, "  shurli join %s --relay %s:%s\n", code, relayIP, relayPort)
+		fmt.Fprintf(stdout, "  Peer ID: %s\n", relayPeerID)
+	} else {
+		fmt.Fprintln(stdout, "  shurli init")
+		fmt.Fprintf(stdout, "  shurli join %s\n", code)
+	}
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "---")
 	return nil
@@ -171,5 +179,43 @@ func printRelayInviteUsage() {
 	fmt.Println()
 	fmt.Println("All commands accept: --remote <multiaddr|name|peer-id>")
 	fmt.Println()
-	fmt.Println("The joining peer uses: shurli join <code>")
+	fmt.Println("The joining peer uses: shurli join <code> --relay <addr>")
+}
+
+// detectRelayEndpoint queries the running relay's admin socket for its
+// public IP, port, and peer ID. Returns empty strings on failure.
+func detectRelayEndpoint(configFile string) (ip, port, peerIDStr string) {
+	client, cleanup, err := relayAdminClientOrRemote("", configFile)
+	if err != nil {
+		return "", "", ""
+	}
+	defer cleanup()
+
+	info, err := client.GetInfo()
+	if err != nil || info.PeerID == "" {
+		return "", "", ""
+	}
+
+	// Find public IPv4 multiaddr and extract IP:port.
+	for _, maddr := range info.Multiaddrs {
+		if strings.Contains(maddr, "/ip4/") && strings.Contains(maddr, "/tcp/") && !strings.Contains(maddr, "/ws") {
+			// Skip private/loopback.
+			if strings.Contains(maddr, "/ip4/127.") || strings.Contains(maddr, "/ip4/10.") || strings.Contains(maddr, "/ip4/192.168.") || strings.Contains(maddr, "/ip4/172.") {
+				continue
+			}
+			parts := strings.Split(maddr, "/")
+			for i, p := range parts {
+				if p == "ip4" && i+1 < len(parts) {
+					ip = parts[i+1]
+				}
+				if p == "tcp" && i+1 < len(parts) {
+					port = parts[i+1]
+				}
+			}
+			if ip != "" && port != "" {
+				return ip, port, info.PeerID
+			}
+		}
+	}
+	return "", "", ""
 }

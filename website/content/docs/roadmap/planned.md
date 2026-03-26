@@ -23,7 +23,35 @@ After Phase 5 PeerManager provides the data:
 
 **Rationale**: A solo developer can't build everything. Interfaces and hooks let the community add auth backends, name resolvers, service middleware, and monitoring - without forking. Shipping real plugins alongside the architecture validates the design immediately and catches interface mistakes before third parties discover them.
 
-Phase 9A (Core Interfaces) and Phase 9B (File Transfer) are complete. See [Completed Work](../completed/) for details.
+Phase 8B (Per-Peer Data Grants), Phase 9A (Core Interfaces), Phase 9B (File Transfer), and the Plugin Architecture Shift are complete. See [Completed Work](../completed/) for details.
+
+### Phase 8C: ACL-to-Macaroon Migration
+
+**Status**: M1 complete (Phase 8B). M2-M5 planned.
+
+Replace all five layers of ACL-based access control with macaroon capability tokens.
+
+| Phase | Layer | Current | Replacement | Risk |
+|-------|-------|---------|-------------|------|
+| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon caveats | **DONE** (Phase 8B) |
+| **M2** | Share | `shares.json` peer lists | `share_id` caveat | Low |
+| **M3** | Relay | `relay_authorized_keys` | Token for circuit auth | Medium |
+| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** |
+| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low |
+
+### Phase 8D: Module Slots
+
+**Status**: Planned (reputation slot designed)
+
+Swappable system algorithms without a full plugin.
+
+| Slot | Current | Next | Enterprise |
+|------|---------|------|------------|
+| **Reputation** | Heuristic scoring | Community Notes matrix factorization | Custom algorithms |
+| **Auth** | Macaroons + PAKE | (current is sufficient) | LDAP, SAML, OAuth2, client certs |
+| **Storage** | Local filesystem | (current is sufficient) | S3-compatible, distributed |
+
+---
 
 ### Phase 9C: Service Discovery & Additional Plugins
 
@@ -80,6 +108,25 @@ Ship a native Swift SDK that wraps the daemon API. This is the foundation the Ap
 
 **Design Constraints**: Zero external dependencies (Foundation + Network framework only). Strict concurrency from day one. Works in App Extension context (Network Extensions have restricted APIs).
 
+### Phase 9F: Layer 2 WASM Runtime
+
+**Status**: Planned (research complete, design ready)
+
+Third-party developers write plugins in any language (Rust, Python, JS, C), ship as `.wasm` files. wazero runtime (pure Go, zero CGo). Hardware-level sandbox isolation.
+
+- [ ] WASM plugin loader with capability grants
+- [ ] Host function bridge (Plugin interface becomes the host-side contract)
+- [ ] Memory caps, context timeouts, pre-opened directory scoping
+- [ ] Same CLI experience: `shurli plugin list` shows both compiled-in and WASM plugins
+
+**Critical dependency**: WASI 0.3 (async I/O) expected mid-2026.
+
+### Phase 9G: Layer 3 AI Plugin Generation
+
+**Status**: Future (requires Layers 1-2 solid)
+
+Skills.md describes plugin behavior in natural language. AI agent reads the spec, writes code, compiles to WASM. Zero-Human Network: the network generates its own extensions.
+
 ---
 
 ### SDK & App Repository Strategy
@@ -100,6 +147,7 @@ Different languages have different release cycles, CI pipelines, and dependency 
 ## Phase 10: Distribution & Launch
 
 **Timeline**: 1-2 weeks
+**Status**: Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser, Homebrew, APT planned)
 
 **Goal**: Make Shurli installable without a Go toolchain, launch with compelling use-case content, and establish `shurli.io` as the stable distribution anchor.
 
@@ -133,10 +181,13 @@ The domain (`shurli.io`) is the anchor. DNS is managed under our control. If any
 All documentation source references (code paths in engineering journal, architecture docs, etc.) link through `shurli.io/source/` instead of directly to any git host. When the primary moves, update one redirect config. Old search engine cached URLs and LLM training snapshots still resolve through the domain we control.
 
 **Package Managers & Binaries**:
+- [x] One-line install: `curl -sSL get.shurli.io | sh` *(2026-03-24)*
+- [x] Colored ANSI output, `--help`, `--yes`/`-y`, `--upgrade`, env vars *(2026-03-24)*
+- [x] Release archives (GitHub Actions, tar.gz per platform) *(2026-03-24)*
+- [x] `relay-setup.sh --prebuilt` (install from release archive) *(2026-03-24)*
 - [ ] GoReleaser: Linux/macOS/Windows (amd64 + arm64)
 - [ ] Ed25519-signed checksums
 - [ ] Homebrew tap: `brew install shurlinet/tap/shurli`
-- [ ] One-line install: `curl -sSL get.shurli.io | sh`
 - [ ] APT, AUR, Docker image
 
 **Embedded / Router Builds** (OpenWRT, Ubiquiti, GL.iNet, MikroTik):

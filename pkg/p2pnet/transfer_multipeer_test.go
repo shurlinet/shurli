@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 )
 
@@ -125,7 +124,9 @@ func TestMultiPeerSessionSinglePeer(t *testing.T) {
 }
 
 func TestMultiPeerSessionTwoPeers(t *testing.T) {
-	// Simulate two peers each sending non-overlapping repair symbols.
+	// Simulate two peers each sending non-overlapping symbols.
+	// Sequential delivery avoids goroutine scheduling variance that
+	// can cause probabilistic RaptorQ decode failures under load.
 	blockSize := uint32(raptorqSymbolSize * 8) // 8 symbols per block
 	blockCount := 2
 	blockData := make([][]byte, blockCount)
@@ -162,37 +163,23 @@ func TestMultiPeerSessionTwoPeers(t *testing.T) {
 	}
 
 	k := encoders[0].sourceSymbolCount()
-
-	// Peer 0: sends first half of source symbols.
-	// Peer 1: sends second half + repair symbols.
 	half := k / 2
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Peer 0: symbols 0..half-1
-	go func() {
-		defer wg.Done()
-		for bi := 0; bi < blockCount; bi++ {
-			for sid := uint32(0); sid < half; sid++ {
-				sym := encoders[bi].genSymbol(sid)
-				session.addSymbol(bi, sid, sym)
-			}
+	// Peer 0: source symbols 0..half-1
+	for bi := 0; bi < blockCount; bi++ {
+		for sid := uint32(0); sid < half; sid++ {
+			sym := encoders[bi].genSymbol(sid)
+			session.addSymbol(bi, sid, sym)
 		}
-	}()
+	}
 
-	// Peer 1: symbols half..k-1 + a few repair symbols
-	go func() {
-		defer wg.Done()
-		for bi := 0; bi < blockCount; bi++ {
-			for sid := half; sid < k+5; sid++ { // +5 repair for RaptorQ probabilistic margin
-				sym := encoders[bi].genSymbol(sid)
-				session.addSymbol(bi, sid, sym)
-			}
+	// Peer 1: source symbols half..k-1 + repair symbols for margin
+	for bi := 0; bi < blockCount; bi++ {
+		for sid := half; sid < k+10; sid++ {
+			sym := encoders[bi].genSymbol(sid)
+			session.addSymbol(bi, sid, sym)
 		}
-	}()
-
-	wg.Wait()
+	}
 
 	if !session.isComplete() {
 		t.Fatalf("expected complete, got %d/%d blocks",

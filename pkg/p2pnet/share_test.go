@@ -185,9 +185,9 @@ func TestTransferQueue(t *testing.T) {
 	q := NewTransferQueue(2)
 
 	// Enqueue three items with different priorities.
-	id1 := q.Enqueue("/file1", "peer1", "send", PriorityNormal)
-	id2 := q.Enqueue("/file2", "peer2", "send", PriorityHigh)
-	id3 := q.Enqueue("/file3", "peer3", "send", PriorityLow)
+	id1, _ := q.Enqueue("/file1", "peer1", "send", PriorityNormal)
+	id2, _ := q.Enqueue("/file2", "peer2", "send", PriorityHigh)
+	id3, _ := q.Enqueue("/file3", "peer3", "send", PriorityLow)
 
 	// Dequeue should return highest priority first.
 	qt := q.Dequeue()
@@ -214,7 +214,7 @@ func TestTransferQueue(t *testing.T) {
 	}
 
 	// Cancel a pending item.
-	id4 := q.Enqueue("/file4", "peer4", "send", PriorityNormal)
+	id4, _ := q.Enqueue("/file4", "peer4", "send", PriorityNormal)
 	if !q.Cancel(id4) {
 		t.Fatal("cancel should succeed")
 	}
@@ -228,8 +228,8 @@ func TestTransferQueue(t *testing.T) {
 
 func TestTransferQueuePending(t *testing.T) {
 	q := NewTransferQueue(5)
-	q.Enqueue("/a", "p1", "send", PriorityNormal)
-	q.Enqueue("/b", "p2", "send", PriorityHigh)
+	q.Enqueue("/a", "p1", "send", PriorityNormal) //nolint:errcheck
+	q.Enqueue("/b", "p2", "send", PriorityHigh)  //nolint:errcheck
 
 	pending := q.Pending()
 	if len(pending) != 2 {
@@ -239,6 +239,35 @@ func TestTransferQueuePending(t *testing.T) {
 	// High priority should be first.
 	if pending[0].Priority != PriorityHigh {
 		t.Error("expected high priority first in pending list")
+	}
+}
+
+func TestTransferQueueRequeue(t *testing.T) {
+	q := NewTransferQueue(1) // only 1 active at a time
+
+	id, _ := q.Enqueue("/a", "p1", "send", PriorityNormal)
+
+	// Dequeue makes it active.
+	qt := q.Dequeue()
+	if qt == nil || qt.ID != id {
+		t.Fatal("expected to dequeue the job")
+	}
+
+	// Queue is at capacity (1 active). Dequeue should return nil.
+	if q.Dequeue() != nil {
+		t.Fatal("expected nil dequeue at capacity")
+	}
+
+	// Requeue moves it from active back to pending.
+	q.Requeue(id, "/a", "p1", "send", PriorityNormal)
+
+	// Now it should be dequeue-able again.
+	qt2 := q.Dequeue()
+	if qt2 == nil {
+		t.Fatal("expected to dequeue requeued job")
+	}
+	if qt2.ID != id {
+		t.Errorf("requeued ID = %q, want %q", qt2.ID, id)
 	}
 }
 

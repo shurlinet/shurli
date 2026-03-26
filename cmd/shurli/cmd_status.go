@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -116,7 +118,7 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprint(stdout, "  ")
 			fmt.Fprint(stdout, r.Address)
 			if r.AgentVersion != "" {
-				tc.Wfaint(stdout, "  %s", r.AgentVersion)
+				tc.Wfaint(stdout, "  %s", validate.SanitizeForDisplay(r.AgentVersion))
 			}
 			fmt.Fprintln(stdout)
 		}
@@ -126,7 +128,7 @@ func doStatus(args []string, stdout io.Writer) error {
 			fmt.Fprintln(stdout)
 			fmt.Fprintln(stdout, "Messages:")
 			for _, m := range daemonStatus.MOTDs {
-				name := m.RelayName
+				name := validate.SanitizeForDisplay(m.RelayName)
 				if name == "" {
 					pid := m.RelayPeerID
 					if len(pid) > 16 {
@@ -154,6 +156,59 @@ func doStatus(args []string, stdout io.Writer) error {
 	} else {
 		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
+	// Relay grants (client-side cached receipts from relays).
+	if daemonStatus != nil && len(daemonStatus.RelayGrants) > 0 {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Relay Grants:")
+		for _, rg := range daemonStatus.RelayGrants {
+			name := validate.SanitizeForDisplay(rg.RelayName)
+			if name == "" {
+				pid := rg.RelayPeerID
+				if len(pid) > 16 {
+					pid = pid[:16] + "..."
+				}
+				name = pid
+			}
+			// No cached grant for this relay - signaling only.
+			if rg.Remaining == "" && !rg.Permanent {
+				fmt.Fprint(stdout, "  ")
+				tc.Wfaint(stdout, "%s: no grant (signaling only)\n", name)
+				continue
+			}
+			fmt.Fprintf(stdout, "  %s: ", name)
+			if rg.Permanent {
+				tc.Wgreen(stdout, "permanent")
+			} else {
+				tc.Wgreen(stdout, "active")
+				fmt.Fprintf(stdout, ", expires in %s", rg.Remaining)
+			}
+			fmt.Fprintf(stdout, ", %s/session", rg.SessionBudget)
+			if rg.SessionUsed != "" {
+				tc.Wfaint(stdout, " (%s used)", rg.SessionUsed)
+			}
+			if rg.SessionDuration != "" {
+				fmt.Fprintf(stdout, ", %s/circuit", rg.SessionDuration)
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+
+	// Notifications section: configured sinks + expiring grants.
+	if daemonStatus != nil && (daemonStatus.Notifications != nil || len(daemonStatus.ExpiringGrants) > 0) {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Notifications:")
+		if daemonStatus.Notifications != nil {
+			fmt.Fprintf(stdout, "  Sinks: %s\n", strings.Join(daemonStatus.Notifications.Sinks, ", "))
+		}
+		if len(daemonStatus.ExpiringGrants) > 0 {
+			tc.Wyellow(stdout, "  Expiring grants:\n")
+			for _, g := range daemonStatus.ExpiringGrants {
+				fmt.Fprintf(stdout, "    %s expires in %s. Extend: shurli auth extend %s --duration 1h\n",
+					g.Peer, g.Remaining, g.Peer)
+			}
+		}
+	}
+
 	fmt.Fprintln(stdout)
 
 	// Authorized peers
@@ -179,7 +234,7 @@ func doStatus(args []string, stdout io.Writer) error {
 				}
 				fmt.Fprint(stdout, short)
 				if p.Comment != "" {
-					tc.Wfaint(stdout, "  # %s", p.Comment)
+					tc.Wfaint(stdout, "  # %s", validate.SanitizeForDisplay(p.Comment))
 				}
 				fmt.Fprintln(stdout)
 			}

@@ -16,6 +16,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
@@ -44,9 +46,15 @@ func (m *mockRuntime) IsRelaying() bool                            { return fals
 func (m *mockRuntime) RelayAddresses() []string                    { return nil }
 func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
-func (m *mockRuntime) TransferService() *p2pnet.TransferService    { return nil }
-func (m *mockRuntime) ShareRegistry() *p2pnet.ShareRegistry        { return nil }
 func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil }
+func (m *mockRuntime) GrantStore() *grants.Store                    { return nil }
+func (m *mockRuntime) GrantPouch() *grants.Pouch                    { return nil }
+func (m *mockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil }
+func (m *mockRuntime) GrantsAutoRefresh() bool                      { return false }
+func (m *mockRuntime) GrantsMaxRefreshDuration() string             { return "" }
+func (m *mockRuntime) NotifyRouter() *notify.Router                 { return nil }
+func (m *mockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *mockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 func newMockRuntime() *mockRuntime {
 	return &mockRuntime{
@@ -161,7 +169,7 @@ func TestAuthMiddleware_WrongToken(t *testing.T) {
 
 func TestRespondJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondJSON(rec, http.StatusOK, map[string]string{"hello": "world"})
+	RespondJSON(rec, http.StatusOK, map[string]string{"hello": "world"})
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
@@ -184,7 +192,7 @@ func TestRespondJSON(t *testing.T) {
 
 func TestRespondText(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondText(rec, http.StatusOK, "hello world\n")
+	RespondText(rec, http.StatusOK, "hello world\n")
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
@@ -199,7 +207,7 @@ func TestRespondText(t *testing.T) {
 
 func TestRespondError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	respondError(rec, http.StatusBadRequest, "something went wrong")
+	RespondError(rec, http.StatusBadRequest, "something went wrong")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rec.Code)
@@ -214,7 +222,7 @@ func TestRespondError(t *testing.T) {
 
 func TestWantsText_QueryParam(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status?format=text", nil)
-	if !wantsText(req) {
+	if !WantsText(req) {
 		t.Error("expected wantsText=true for ?format=text")
 	}
 }
@@ -222,14 +230,14 @@ func TestWantsText_QueryParam(t *testing.T) {
 func TestWantsText_AcceptHeader(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status", nil)
 	req.Header.Set("Accept", "text/plain")
-	if !wantsText(req) {
+	if !WantsText(req) {
 		t.Error("expected wantsText=true for Accept: text/plain")
 	}
 }
 
 func TestWantsText_Default(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/status", nil)
-	if wantsText(req) {
+	if WantsText(req) {
 		t.Error("expected wantsText=false for default request")
 	}
 }

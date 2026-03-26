@@ -27,6 +27,7 @@ type RelayAdminAPI interface {
 	ListConnectedPeers() ([]ConnectedPeerInfo, error)
 	AuthorizePeer(peerID, comment string) error
 	DeauthorizePeer(peerID string) error
+	SetPeerAttr(peerID, key, value string) error
 	AuthReload() error
 	ZKPTreeRebuild() (map[string]any, error)
 	ZKPTreeInfo() (*ZKPTreeInfoResponse, error)
@@ -36,6 +37,15 @@ type RelayAdminAPI interface {
 	SetGoodbye(message string) error
 	RetractGoodbye() error
 	GoodbyeShutdown(message string) error
+
+	// Relay data grant management (time-limited per-peer data access)
+	RelayGrant(peerID string, durationSecs int, services []string, permanent bool) (*RelayGrantInfo, error)
+	RelayGrants() ([]RelayGrantInfo, error)
+	RelayRevoke(peerID string) error
+	RelayExtend(peerID string, durationSecs int) error
+
+	// Relay info (peer ID, multiaddrs)
+	GetInfo() (*RelayInfoResponse, error)
 }
 
 // AuthorizedPeerInfo is the JSON representation of an authorized peer
@@ -47,7 +57,6 @@ type AuthorizedPeerInfo struct {
 	Verified  string `json:"verified,omitempty"`
 	Group     string `json:"group,omitempty"`
 	ExpiresAt string `json:"expires_at,omitempty"`
-	RelayData bool   `json:"relay_data,omitempty"`
 }
 
 // ConnectedPeerInfo describes a currently connected peer with network details.

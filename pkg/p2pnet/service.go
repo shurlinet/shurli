@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -55,13 +56,42 @@ type ServiceConn interface {
 	CloseWrite() error
 }
 
-// ServiceRegistry manages service registration and connections
+// GrantChecker is a function that checks whether a peer has a valid
+// data access grant for a given service. Injected by the daemon from
+// the grant store. When set and returns true, relay transport is allowed
+// for that peer+service even if the plugin policy doesn't allow relay.
+// This is the node-level security boundary (C2 mitigation).
+type GrantChecker func(peerID peer.ID, service string) bool
+
+// TokenVerifier verifies a presented grant token (base64-encoded macaroon).
+// Returns true if the token is valid for the given peer and service.
+// Injected by the daemon. Must do constant-time work on all code paths
+// (valid, invalid, malformed) for D1 timing oracle mitigation.
+type TokenVerifier func(tokenBase64 string, peerID peer.ID, service string) bool
+
+// TokenLookup retrieves a grant token from the GrantPouch for outbound
+// presentation. Returns the base64-encoded token, or empty string if no
+// token is available for the given peer and service.
+type TokenLookup func(peerID peer.ID, service string) string
+
+// ServiceRegistry manages service registration and connections.
+//
+// The callback fields (grantChecker, tokenVerifier, tokenLookup) follow a
+// set-once-at-startup contract: they are configured via their Set* methods
+// during daemon initialization, before any streams are handled. After setup,
+// call Seal() to enforce the contract. The stream handler hot path reads
+// callbacks without acquiring mu to avoid per-stream lock overhead. This is
+// safe because the fields are never modified after Seal().
 type ServiceRegistry struct {
-	host       host.Host
-	services   map[string]*Service
-	metrics    *Metrics // nil when metrics disabled
-	middleware []StreamMiddleware
-	mu         sync.RWMutex
+	host          host.Host
+	services      map[string]*Service
+	metrics       *Metrics // nil when metrics disabled
+	middleware    []StreamMiddleware
+	grantChecker  GrantChecker  // set once at startup; nil = no grant checking (Phase A)
+	tokenVerifier TokenVerifier // set once at startup; nil = no token verification (Phase B)
+	tokenLookup   TokenLookup   // set once at startup; nil = no token presentation (Phase B)
+	sealed        int32         // atomic; 1 after Seal() - Set* panics if sealed
+	mu            sync.RWMutex  // protects services and middleware; NOT callbacks (set-once)
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -151,15 +181,56 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	short := remotePeer.String()[:16] + "..."
 	slog.Info("incoming connection", "path", tag, "service", svc.Name, "peer", short)
 
+	// Phase B: read grant header on plugin services.
+	// The remote side (OpenPluginStream) always writes a header for plugin streams.
+	var presentedToken string
+	if svc.Policy != nil {
+		var err error
+		presentedToken, err = ReadGrantHeader(s)
+		if err != nil {
+			slog.Warn("grant header read failed", "service", svc.Name, "peer", short, "error", err)
+			s.Reset()
+			return
+		}
+	}
+
 	// Plugin policy enforcement (transport + peer restrictions).
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
+		if presentedToken != "" && transport != TransportRelay {
+			slog.Debug("grant token presented on non-relay transport, not needed",
+				"service", svc.Name, "peer", short, "transport", transport)
+		}
 		if !svc.Policy.TransportAllowed(transport) {
-			slog.Warn("plugin transport not allowed",
-				"service", svc.Name, "peer", short,
-				"transport", transport, "allowed", svc.Policy.AllowedTransports)
-			s.Reset()
-			return
+			// Grant override: if transport is relay, verify authorization.
+			// D1 timing: when a token is presented, ONLY use the token path
+			// (tokenVerifier does constant-time HMAC on all outcomes).
+			// When no token, fall back to grantChecker (Phase A, has its own
+			// D1 dummy). Never run both - that creates a timing distinguisher.
+			granted := false
+			if transport == TransportRelay {
+				if presentedToken != "" && r.tokenVerifier != nil {
+					// Phase B: verify presented token cryptographically.
+					granted = r.tokenVerifier(presentedToken, remotePeer, svc.Name)
+					if granted {
+						slog.Info("relay allowed via presented token", "service", svc.Name, "peer", short)
+					}
+				} else if r.grantChecker != nil {
+					// Phase A fallback: no token presented, check local grant store.
+					granted = r.grantChecker(remotePeer, svc.Name)
+					if granted {
+						slog.Info("relay allowed via grant store", "service", svc.Name, "peer", short)
+					}
+				}
+			}
+			if !granted {
+				slog.Warn("plugin transport not allowed",
+					"service", svc.Name, "peer", short,
+					"transport", transport, "allowed", svc.Policy.AllowedTransports,
+					"token_presented", presentedToken != "")
+				s.Reset()
+				return
+			}
 		}
 		if !svc.Policy.PeerAllowed(remotePeer) {
 			slog.Warn("peer denied by plugin policy", "service", svc.Name, "peer", short)
@@ -265,7 +336,7 @@ No SSH, XRDP, or other data is forwarded through it.
 To transfer data between your devices:
   1. Both peers must connect directly (check firewall/NAT settings)
   2. Or deploy your own relay for full data relay: https://shurli.io/docs/relay-setup/
-  3. Or ask the relay admin to grant relay_data access for your peer`
+  3. Or ask the relay admin: shurli relay grant <your-peer-id> --duration 1h`
 
 // UnregisterService removes a service and its stream handler.
 func (r *ServiceRegistry) UnregisterService(name string) error {
@@ -294,6 +365,51 @@ func (r *ServiceRegistry) GetService(name string) (*Service, bool) {
 
 	svc, exists := r.services[name]
 	return svc, exists
+}
+
+// Seal marks the registry as fully configured. After Seal(), calling any
+// Set* method panics. Call this after daemon initialization completes,
+// before streams are handled. This enforces the set-once-at-startup contract.
+func (r *ServiceRegistry) Seal() {
+	atomic.StoreInt32(&r.sealed, 1)
+}
+
+// SetGrantChecker sets the grant checker function used for relay authorization.
+// When a peer has a valid grant, relay transport is allowed for that peer+service
+// even if the plugin's default policy is LAN+Direct only.
+// Must be called before Seal().
+func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetGrantChecker called after Seal()")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.grantChecker = checker
+}
+
+// SetTokenVerifier sets the function used to verify presented grant tokens
+// on inbound plugin streams (Phase B). The verifier decodes the base64 token
+// and checks the macaroon HMAC chain + caveats.
+// Must be called before Seal().
+func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetTokenVerifier called after Seal()")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tokenVerifier = v
+}
+
+// SetTokenLookup sets the function used to retrieve grant tokens from the
+// GrantPouch for outbound plugin streams (Phase B).
+// Must be called before Seal().
+func (r *ServiceRegistry) SetTokenLookup(l TokenLookup) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetTokenLookup called after Seal()")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tokenLookup = l
 }
 
 // Use adds stream middleware that wraps every inbound stream handler.

@@ -1,6 +1,6 @@
 ---
 title: "Network Tools"
-weight: 2
+weight: 3
 description: "P2P network diagnostic commands: ping, traceroute, and resolve. Works standalone or through the daemon API."
 ---
 <!-- Auto-synced from docs/NETWORK-TOOLS.md by sync-docs - do not edit directly -->
@@ -156,9 +156,9 @@ P2P `nslookup` - resolves peer names to peer IDs.
 shurli resolve <name> [--json] [--config path]
 
 # Via daemon API
-curl -X POST -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
+curl -X POST -H "Authorization: Bearer $(cat ~/.shurli/.daemon-cookie)" \
      -d '{"name":"home-server"}' \
-     --unix-socket ~/.config/shurli/shurli.sock \
+     --unix-socket ~/.shurli/shurli.sock \
      http://localhost/v1/resolve
 ```
 

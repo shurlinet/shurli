@@ -3,9 +3,12 @@ package p2pnet
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +19,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Transfer protocol constants.
@@ -59,7 +64,6 @@ const (
 	maxManifestSize        = 64 << 20   // 64 MB max manifest wire size
 	maxChunkWireSize       = 4 << 20    // 4 MB max single chunk on wire (compressed)
 	maxDecompressedChunk   = 8 << 20    // 8 MB max decompressed chunk
-	maxDecompressRatio     = 10         // abort if decompressed > 10x compressed
 	maxConcurrentTransfers = 10         // global inbound transfer limit
 	maxPerPeerTransfers    = 3          // per-peer inbound limit
 	maxTrackedTransfers    = 10000      // max tracked transfer entries
@@ -141,6 +145,215 @@ func (rl *transferRateLimiter) cleanup() {
 	}
 }
 
+// failureTracker tracks per-peer transfer failure counts for backoff enforcement.
+type failureTracker struct {
+	mu        sync.Mutex
+	peers     map[string]*failureRecord
+	threshold int
+	window    time.Duration
+	block     time.Duration
+}
+
+type failureRecord struct {
+	failures  []time.Time // timestamps of recent failures
+	blockedUntil time.Time
+}
+
+func newFailureTracker(threshold int, window, block time.Duration) *failureTracker {
+	return &failureTracker{
+		peers:     make(map[string]*failureRecord),
+		threshold: threshold,
+		window:    window,
+		block:     block,
+	}
+}
+
+// recordFailure records a transfer failure for a peer.
+func (ft *failureTracker) recordFailure(peerID string) {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	rec, ok := ft.peers[peerID]
+	if !ok {
+		rec = &failureRecord{}
+		ft.peers[peerID] = rec
+	}
+
+	now := time.Now()
+	rec.failures = append(rec.failures, now)
+
+	// Trim failures outside the window.
+	cutoff := now.Add(-ft.window)
+	start := 0
+	for start < len(rec.failures) && rec.failures[start].Before(cutoff) {
+		start++
+	}
+	if start > 0 {
+		rec.failures = rec.failures[start:]
+	}
+
+	// Check threshold.
+	if len(rec.failures) >= ft.threshold {
+		rec.blockedUntil = now.Add(ft.block)
+		rec.failures = nil // reset after blocking
+	}
+}
+
+// isBlocked returns true if a peer is currently blocked due to failure backoff.
+func (ft *failureTracker) isBlocked(peerID string) bool {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	rec, ok := ft.peers[peerID]
+	if !ok {
+		return false
+	}
+	if time.Now().Before(rec.blockedUntil) {
+		return true
+	}
+	return false
+}
+
+// cleanup removes stale failure records.
+func (ft *failureTracker) cleanup() {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	now := time.Now()
+	for k, rec := range ft.peers {
+		if now.After(rec.blockedUntil) && len(rec.failures) == 0 {
+			delete(ft.peers, k)
+		}
+	}
+}
+
+// bandwidthTracker tracks per-peer bytes transferred per hour.
+type bandwidthTracker struct {
+	mu     sync.Mutex
+	peers  map[string]*bandwidthRecord
+	budget int64 // max bytes per peer per hour
+}
+
+type bandwidthRecord struct {
+	bytes     int64
+	windowEnd time.Time
+}
+
+func newBandwidthTracker(budget int64) *bandwidthTracker {
+	return &bandwidthTracker{
+		peers:  make(map[string]*bandwidthRecord),
+		budget: budget,
+	}
+}
+
+// check returns true if the peer has budget remaining for the given size.
+// peerBudget overrides the global budget: -1 = unlimited, 0 = use global, >0 = per-peer limit.
+func (bt *bandwidthTracker) check(peerID string, size int64, peerBudget int64) bool {
+	if peerBudget < 0 {
+		return true // unlimited
+	}
+
+	budget := bt.budget
+	if peerBudget > 0 {
+		budget = peerBudget
+	}
+
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
+
+	now := time.Now()
+	rec, ok := bt.peers[peerID]
+	if !ok || now.After(rec.windowEnd) {
+		return size <= budget
+	}
+	return (rec.bytes + size) <= budget
+}
+
+// record adds bytes to a peer's usage in the current hour window.
+func (bt *bandwidthTracker) record(peerID string, bytes int64) {
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
+
+	now := time.Now()
+	rec, ok := bt.peers[peerID]
+	if !ok || now.After(rec.windowEnd) {
+		bt.peers[peerID] = &bandwidthRecord{
+			bytes:     bytes,
+			windowEnd: now.Add(1 * time.Hour),
+		}
+		return
+	}
+	rec.bytes += bytes
+}
+
+// cleanup removes stale bandwidth records.
+func (bt *bandwidthTracker) cleanup() {
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
+
+	now := time.Now()
+	for k, rec := range bt.peers {
+		if now.After(rec.windowEnd) {
+			delete(bt.peers, k)
+		}
+	}
+}
+
+// ParseByteSize parses a human-readable byte size string into bytes.
+// Supports: "unlimited" (returns -1), plain numbers, and suffixes
+// KB, MB, GB, TB (case-insensitive, binary: 1MB = 1048576).
+func ParseByteSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "unlimited") {
+		return -1, nil
+	}
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+
+	// Scan digits only (no dots, no signs).
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	numStr := s[:i]
+	suffix := strings.TrimSpace(s[i:])
+
+	if numStr == "" {
+		return 0, fmt.Errorf("no numeric value in %q", s)
+	}
+
+	var num int64
+	if _, err := fmt.Sscanf(numStr, "%d", &num); err != nil {
+		return 0, fmt.Errorf("invalid number %q: %w", numStr, err)
+	}
+	if num < 0 {
+		return 0, fmt.Errorf("negative size not allowed: %d", num)
+	}
+
+	var multiplier int64
+	switch strings.ToUpper(suffix) {
+	case "", "B":
+		multiplier = 1
+	case "KB", "K":
+		multiplier = 1024
+	case "MB", "M":
+		multiplier = 1024 * 1024
+	case "GB", "G":
+		multiplier = 1024 * 1024 * 1024
+	case "TB", "T":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown suffix %q", suffix)
+	}
+
+	result := num * multiplier
+	if num != 0 && result/num != multiplier {
+		return 0, fmt.Errorf("value overflows int64: %d%s", num, suffix)
+	}
+	return result, nil
+}
+
 // StreamInfo tracks per-stream progress for parallel transfers.
 type StreamInfo struct {
 	ChunksDone int   `json:"chunks_done"`
@@ -167,7 +380,9 @@ type TransferProgress struct {
 	Done        bool      `json:"done"`
 	Error       string    `json:"error,omitempty"`
 
-	mu sync.Mutex
+	mu           sync.Mutex
+	cancelFunc   func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
+	relayTracker func(int64) // per-chunk relay grant byte tracking (H7)
 }
 
 func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
@@ -200,9 +415,29 @@ func (p *TransferProgress) updateStream(streamIdx int, chunkBytes int64) {
 }
 
 // addWireBytes adds n bytes to CompressedSize (tracks compressed wire bytes).
+// Also calls relayTracker for grant circuit byte tracking (H7).
 func (p *TransferProgress) addWireBytes(n int64) {
 	p.mu.Lock()
 	p.CompressedSize += n
+	tracker := p.relayTracker
+	p.mu.Unlock()
+	if tracker != nil {
+		tracker(n)
+	}
+}
+
+// setRelayTracker registers a per-chunk relay grant byte tracker (H7).
+func (p *TransferProgress) setRelayTracker(f func(int64)) {
+	p.mu.Lock()
+	p.relayTracker = f
+	p.mu.Unlock()
+}
+
+// setCancelFunc registers a function that CancelTransfer will call to stop the
+// underlying I/O for this transfer (e.g. stream.Reset for receive transfers).
+func (p *TransferProgress) setCancelFunc(f func()) {
+	p.mu.Lock()
+	p.cancelFunc = f
 	p.mu.Unlock()
 }
 
@@ -214,14 +449,20 @@ func (p *TransferProgress) setStatus(status string) {
 
 func (p *TransferProgress) finish(err error) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	// D1 fix: idempotent - first completion wins. Prevents a late success from
+	// overwriting an earlier cancel (CancelTransfer + executeQueuedJob race).
+	if p.Done {
+		return
+	}
 	p.Done = true
+	p.cancelFunc = nil // release stream reference
 	if err != nil {
 		p.Error = err.Error()
 		p.Status = "failed"
 	} else {
 		p.Status = "complete"
 	}
-	p.mu.Unlock()
 }
 
 // TransferSnapshot is a mutex-free copy of TransferProgress, safe for JSON
@@ -307,7 +548,33 @@ type TransferConfig struct {
 	MultiPeerMaxPeers int   // max peers to download from simultaneously (default: 4)
 	MultiPeerMinSize  int64 // min file size for multi-peer (default: 10 MB)
 
-	RateLimit int // max transfer requests per peer per minute (default: 10, 0 = disabled)
+	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
+
+	// DDoS defense settings.
+	GlobalRateLimit  int   // max total inbound transfer requests per minute (default: 600, 0 = disabled)
+	MaxQueuedPerPeer int   // max pending+active transfers per peer (default: 10)
+	MinSpeedBytes    int   // minimum transfer speed bytes/sec (default: 1024, 0 = disabled)
+	MinSpeedSeconds  int   // speed check window seconds (default: 30)
+	MaxTempSize      int64         // max total .tmp file size bytes (default: 1GB, 0 = unlimited)
+	TempFileExpiry   time.Duration // auto-expire .tmp files older than this (default: 1h, 0 = never)
+	BandwidthBudget  int64 // max bytes per peer per hour (default: 100MB, 0 = unlimited)
+
+	// PeerBudgetFunc returns the per-peer bandwidth budget override for a peer.
+	// Returns: -1 = unlimited, 0 = use global default, >0 = bytes per hour.
+	// If nil, global BandwidthBudget is used for all peers.
+	PeerBudgetFunc func(peerID string) int64
+
+	// Failure backoff.
+	FailureBackoffThreshold int           // fails within window to trigger block (default: 3)
+	FailureBackoffWindow    time.Duration // failure counting window (default: 5m)
+	FailureBackoffBlock     time.Duration // block duration (default: 60s)
+
+	// Queue persistence.
+	QueueFile    string // path for persisted queue (empty = disabled)
+	QueueHMACKey []byte // 32-byte HMAC key for queue file integrity
+
+	// Relay grant checker for pre-transfer budget/time checks and per-chunk tracking.
+	GrantChecker RelayGrantChecker
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -358,8 +625,12 @@ type TransferService struct {
 	inboundSem chan struct{}
 
 	// Outbound transfer queue with priority ordering and concurrency limit.
-	queue      *TransferQueue
-	queueReady chan struct{} // signaled when a queue slot frees up
+	queue         *TransferQueue
+	queueReady    chan struct{}          // signaled when a new job is enqueued or a slot frees up
+	pendingJobs   map[string]*queuedJob // queueID -> job, consumed by queue processor
+	pendingJobsMu sync.Mutex
+	queueCtx      context.Context
+	queueCancel   context.CancelFunc
 
 	mu          sync.RWMutex
 	transfers   map[string]*TransferProgress
@@ -386,6 +657,32 @@ type TransferService struct {
 	// Per-peer transfer request rate limiter (nil = disabled).
 	rateLimiter   *transferRateLimiter
 	rateLimiterStop context.CancelFunc
+
+	// DDoS defense subsystems (nil = disabled).
+	globalRateLimiter *transferRateLimiter // single-key rate limiter for all inbound
+	failureTracker    *failureTracker      // per-peer failure backoff
+	bandwidthTracker  *bandwidthTracker    // per-peer hourly bandwidth budget
+	peerBudgetFunc    func(string) int64   // per-peer budget override lookup
+	maxQueuedPerPeer  int                  // max pending+active per peer (0 = no limit)
+	minSpeedBytes     int                  // minimum transfer speed bytes/sec
+	minSpeedSeconds   int                  // speed check window
+	maxTempSize       int64                // max total .tmp file size (0 = unlimited)
+	tempFileExpiry    time.Duration        // auto-expire stale .tmp files (0 = never)
+	defenseCleanupStop context.CancelFunc  // stops the defense cleanup goroutine
+
+	// Per-job cancel functions (D1 fix: CancelTransfer context propagation).
+	// Keyed by transfer/queue ID. executeQueuedJob stores its cancel func here;
+	// CancelTransfer calls it to propagate cancellation to the running goroutine.
+	jobCancelMu sync.Mutex
+	jobCancels  map[string]context.CancelFunc
+
+	// Queue persistence.
+	queueFile    string     // path for persisted queue file
+	queueHMACKey []byte     // HMAC key for queue integrity
+	persistMu    sync.Mutex // P7 fix: serializes persistQueue writes
+
+	// Relay grant checker for budget/time checks and per-chunk tracking (H7).
+	grantChecker RelayGrantChecker
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -456,7 +753,8 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		notifier:          notifier,
 		inboundSem:        make(chan struct{}, maxConcurrentTransfers),
 		queue:             NewTransferQueue(maxConcurrent),
-		queueReady:        make(chan struct{}, 1),
+		queueReady:        make(chan struct{}, 10),
+		pendingJobs:       make(map[string]*queuedJob),
 		transfers:         make(map[string]*TransferProgress),
 		peerInbound:       make(map[string]int),
 		pending:           make(map[string]*PendingTransfer),
@@ -464,12 +762,19 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		multiPeerMaxPeers: multiPeerMaxPeers,
 		multiPeerMinSize:  multiPeerMinSize,
 		hashRegistry:      make(map[[32]byte]string),
+		jobCancels:        make(map[string]context.CancelFunc),
+		grantChecker:      cfg.GrantChecker,
 	}
 
-	// Per-peer rate limiter (default 10/min, negative = disabled).
+	// Start the single queue processor goroutine.
+	ts.queueCtx, ts.queueCancel = context.WithCancel(context.Background())
+	go ts.runQueueProcessor()
+
+	// Per-peer rate limiter (default 600/min = 10/sec, negative = disabled).
+	// Must be high enough for directory transfers (one stream per file).
 	rateLimit := cfg.RateLimit
 	if rateLimit == 0 {
-		rateLimit = 10 // default
+		rateLimit = 600 // default: 10/sec handles directories with hundreds of files
 	}
 	if rateLimit > 0 {
 		ts.rateLimiter = newTransferRateLimiter(rateLimit)
@@ -488,6 +793,106 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 			}
 		}()
 	}
+
+	// Global inbound rate limiter (default 30/min).
+	globalLimit := cfg.GlobalRateLimit
+	if globalLimit == 0 {
+		globalLimit = 600 // default: matches per-peer limit for directory transfers
+	}
+	if globalLimit > 0 {
+		ts.globalRateLimiter = newTransferRateLimiter(globalLimit)
+	}
+
+	// Per-peer queue depth limit (default 10).
+	maxQueued := cfg.MaxQueuedPerPeer
+	if maxQueued == 0 {
+		maxQueued = 10
+	}
+	ts.maxQueuedPerPeer = maxQueued
+
+	// Failure backoff (default: 3 fails in 5m = 60s block).
+	fbThreshold := cfg.FailureBackoffThreshold
+	if fbThreshold == 0 {
+		fbThreshold = 3
+	}
+	fbWindow := cfg.FailureBackoffWindow
+	if fbWindow == 0 {
+		fbWindow = 5 * time.Minute
+	}
+	fbBlock := cfg.FailureBackoffBlock
+	if fbBlock == 0 {
+		fbBlock = 60 * time.Second
+	}
+	if fbThreshold > 0 {
+		ts.failureTracker = newFailureTracker(fbThreshold, fbWindow, fbBlock)
+	}
+
+	// Minimum speed enforcement (default: 1024 bytes/sec, 30s window).
+	ts.minSpeedBytes = cfg.MinSpeedBytes
+	if ts.minSpeedBytes == 0 {
+		ts.minSpeedBytes = 1024
+	}
+	ts.minSpeedSeconds = cfg.MinSpeedSeconds
+	if ts.minSpeedSeconds == 0 {
+		ts.minSpeedSeconds = 30
+	}
+
+	// Temp file size budget (default: 1 GB).
+	ts.maxTempSize = cfg.MaxTempSize
+	if ts.maxTempSize == 0 {
+		ts.maxTempSize = 1 << 30 // 1 GB
+	}
+
+	// Temp file expiry (default: 1 hour).
+	ts.tempFileExpiry = cfg.TempFileExpiry
+	if ts.tempFileExpiry == 0 {
+		ts.tempFileExpiry = time.Hour
+	}
+
+	// Bandwidth budget per peer (default: 100 MB/hour).
+	// -1 = unlimited globally (but per-peer overrides still apply if PeerBudgetFunc is set).
+	bwBudget := cfg.BandwidthBudget
+	if bwBudget == 0 {
+		bwBudget = 100 * 1024 * 1024
+	}
+	ts.peerBudgetFunc = cfg.PeerBudgetFunc
+	if bwBudget > 0 || ts.peerBudgetFunc != nil {
+		if bwBudget < 0 {
+			// Global unlimited, but tracker needed for per-peer overrides.
+			// Use max int64 as global budget (effectively unlimited).
+			bwBudget = 1<<63 - 1
+		}
+		ts.bandwidthTracker = newBandwidthTracker(bwBudget)
+	}
+
+	// Queue persistence.
+	ts.queueFile = cfg.QueueFile
+	ts.queueHMACKey = cfg.QueueHMACKey
+
+	// Defense cleanup goroutine (handles all periodic cleanup).
+	defenseCtx, defenseCancel := context.WithCancel(context.Background())
+	ts.defenseCleanupStop = defenseCancel
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if ts.failureTracker != nil {
+					ts.failureTracker.cleanup()
+				}
+				if ts.bandwidthTracker != nil {
+					ts.bandwidthTracker.cleanup()
+				}
+				if ts.globalRateLimiter != nil {
+					ts.globalRateLimiter.cleanup()
+				}
+				ts.cleanExpiredTempFiles()
+			case <-defenseCtx.Done():
+				return
+			}
+		}
+	}()
 
 	return ts, nil
 }
@@ -608,8 +1013,8 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 	if m.FileSize < 0 || m.FileSize > maxFileSize {
 		return nil, fmt.Errorf("invalid file size: %d", m.FileSize)
 	}
-	if m.ChunkCount <= 0 || m.ChunkCount > maxChunkCount {
-		return nil, fmt.Errorf("invalid chunk count: %d", m.ChunkCount)
+	if m.ChunkCount < 0 || (m.ChunkCount == 0 && m.FileSize > 0) || m.ChunkCount > maxChunkCount {
+		return nil, fmt.Errorf("invalid chunk count: %d (file size: %d)", m.ChunkCount, m.FileSize)
 	}
 
 	// Sanitize filename: preserve relative paths but strip traversal attacks.
@@ -651,23 +1056,98 @@ func readManifest(r io.Reader) (*transferManifest, error) {
 	return m, nil
 }
 
-// sanitizeFilename removes null bytes and control characters from a filename.
+// isDangerousRune returns true for characters that are dangerous in filenames:
+// terminal escape sequences, invisible Unicode, BiDi overrides, and variation selectors.
+// These can cause terminal injection (OSC 52 clipboard RCE), AI prompt injection
+// (ASCII smuggling via Unicode Tags), or extension spoofing (BiDi RLO).
+// See: CVE-2024-50349, CVE-2022-45872, CVE-2021-42574, OWASP LLM01:2025.
+// NOTE: isUnsafeDisplayRune in internal/validate/display.go mirrors this logic
+// for terminal display sanitization. Keep both in sync when adding new ranges.
+func isDangerousRune(r rune) bool {
+	// C0 control chars (U+0000-U+001F) - includes ESC (0x1b).
+	if r <= 0x1F {
+		return true
+	}
+	// DEL and C1 control chars (U+007F-U+009F).
+	if r >= 0x7F && r <= 0x9F {
+		return true
+	}
+	// Zero-width and invisible formatting characters.
+	switch r {
+	case 0x200B, // Zero Width Space
+		0x200C, // Zero Width Non-Joiner
+		0x200D, // Zero Width Joiner
+		0x200E, // Left-to-Right Mark
+		0x200F, // Right-to-Left Mark
+		0x2060, // Word Joiner
+		0x2062, // Invisible Times (Sneaky Bits encoding)
+		0x2064, // Invisible Plus (Sneaky Bits encoding)
+		0xFEFF, // Zero Width No-Break Space / BOM
+		0x180E: // Mongolian Vowel Separator
+		return true
+	}
+	// BiDi control characters (extension spoofing via RLO U+202E).
+	if r >= 0x202A && r <= 0x202E {
+		return true
+	}
+	if r >= 0x2066 && r <= 0x2069 {
+		return true
+	}
+	// Unicode Tags block (ASCII smuggling for LLM prompt injection).
+	if r >= 0xE0000 && r <= 0xE007F {
+		return true
+	}
+	// Variation selectors (Sneaky Bits binary encoding).
+	if r >= 0xFE00 && r <= 0xFE0F {
+		return true
+	}
+	if r >= 0xE0100 && r <= 0xE01EF {
+		return true
+	}
+	return false
+}
+
+// sanitizeFilename removes dangerous characters from a filename for filesystem safety.
+// Strips control chars, terminal escapes, invisible Unicode, BiDi overrides,
+// and variation selectors. Safe Unicode (Japanese, Arabic, emoji) passes through.
 func sanitizeFilename(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))
 	for _, r := range name {
-		if r == 0 || r < 32 {
-			continue // strip null bytes and control chars
+		if !isDangerousRune(r) {
+			b.WriteRune(r)
 		}
-		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// SanitizeDisplayName removes dangerous characters from a filename for safe terminal
+// display and AI agent consumption. Exported for use in CLI display code.
+// This is the display-layer defense against:
+//   - Terminal injection: ANSI/OSC escape sequences (clipboard RCE via OSC 52)
+//   - AI prompt injection: Unicode Tags (invisible to humans, interpreted by LLM tokenizers)
+//   - Extension spoofing: BiDi overrides (U+202E makes text render reversed)
+//   - Invisible payloads: zero-width characters, variation selectors
+func SanitizeDisplayName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		if !isDangerousRune(r) {
+			b.WriteRune(r)
+		}
 	}
 	return b.String()
 }
 
 // sanitizeRelativePath cleans a relative path for safe use under a destination directory.
 // It strips leading slashes, ".." components, empty segments, and backslashes.
+// Applies NFKC normalization to prevent homoglyph path confusion (Cyrillic 'о' vs Latin 'o').
+// Strips dangerous Unicode from each component (terminal escapes, invisible chars, BiDi).
 // Returns only the base filename if the path resolves to something unsafe.
 func sanitizeRelativePath(name string) string {
+	// NFKC normalization: collapses compatibility equivalents, prevents homoglyph attacks.
+	name = norm.NFKC.String(name)
+
 	// Normalize backslashes to forward slashes (Windows compat).
 	name = strings.ReplaceAll(name, "\\", "/")
 
@@ -681,7 +1161,8 @@ func sanitizeRelativePath(name string) string {
 		if part == ".." {
 			continue
 		}
-		// Strip null bytes and control characters from each component.
+		// Strip dangerous characters from each component (control chars,
+		// terminal escapes, invisible Unicode, BiDi overrides).
 		part = sanitizeFilename(part)
 		if part != "" {
 			parts = append(parts, part)
@@ -915,6 +1396,13 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
+	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
+	progress.setCancelFunc(func() { s.Reset() })
+
+	// H7: set per-chunk relay grant byte tracker if stream goes through a relay.
+	if tracker := ts.makeChunkTracker(s, "send"); tracker != nil {
+		progress.setRelayTracker(tracker)
+	}
 
 	// Set erasure info on progress for CLI display.
 	if useErasure && len(parityEntries) > 0 {
@@ -1170,6 +1658,29 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 	}
 }
 
+// sendChunksOnly sends all data chunks + parity + done on an already-accepted stream.
+// Used by sendParallel when worker stream creation fails and we fall back to single-stream.
+// The manifest has already been sent and accepted, so we skip the handshake.
+func (ts *TransferService) sendChunksOnly(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, parity []parityChunk, progress *TransferProgress) error {
+	progress.setStatus("active")
+
+	var totalSent int64
+	for i, c := range chunks {
+		if err := writeChunkFrame(w, i, c.data); err != nil {
+			return fmt.Errorf("send chunk %d: %w", i, err)
+		}
+		totalSent += int64(len(c.data))
+		progress.updateChunks(totalSent, i+1)
+		progress.addWireBytes(int64(len(c.data)))
+	}
+
+	if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
+		return err
+	}
+
+	return writeMsg(w, msgTransferDone)
+}
+
 // sendParityChunks sends parity chunks with indices starting at dataCount.
 func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
 	for i, p := range parity {
@@ -1185,9 +1696,6 @@ func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
 // HandleInbound returns a StreamHandler for receiving chunked files.
 func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
-		// Peek the first byte to detect parallel worker streams.
-		// Worker streams start with msgWorkerHello and are ancillary to an
-		// already-accepted control stream, so they skip all normal checks.
 		// Peek the first byte to detect parallel worker streams.
 		// Worker streams start with msgWorkerHello and are ancillary to an
 		// already-accepted control stream, so they skip all normal checks.
@@ -1221,6 +1729,23 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
+		// Failure backoff check (before any resource allocation).
+		if ts.failureTracker != nil && ts.failureTracker.isBlocked(peerKey) {
+			slog.Warn("file-transfer: peer blocked (failure backoff)",
+				"peer", short)
+			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, "", 0, 0, "failure backoff", "")
+			s.Reset()
+			return
+		}
+
+		// Global rate limit (all peers combined).
+		if ts.globalRateLimiter != nil && !ts.globalRateLimiter.allow("_global_") {
+			slog.Warn("file-transfer: global rate limit exceeded")
+			ts.logEvent(EventLogSpamBlocked, "receive", "", "", 0, 0, "global rate limit exceeded", "")
+			writeRejectWithReason(s, RejectReasonBusy)
+			return
+		}
+
 		// Global capacity check.
 		select {
 		case ts.inboundSem <- struct{}{}:
@@ -1232,8 +1757,18 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
-		// Per-peer limit.
+		// Per-peer queue depth limit (pending + active).
 		ts.mu.Lock()
+		peerTotal := ts.peerInbound[peerKey] + ts.countPeerPending(peerKey)
+		if ts.maxQueuedPerPeer > 0 && peerTotal >= ts.maxQueuedPerPeer {
+			ts.mu.Unlock()
+			slog.Warn("file-transfer: per-peer queue depth exceeded",
+				"peer", short, "total", peerTotal, "max", ts.maxQueuedPerPeer)
+			writeRejectWithReason(s, RejectReasonBusy)
+			return
+		}
+
+		// Per-peer concurrent limit.
 		if ts.peerInbound[peerKey] >= maxPerPeerTransfers {
 			ts.mu.Unlock()
 			slog.Warn("file-transfer: per-peer limit reached",
@@ -1290,6 +1825,31 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			return
 		}
 
+		// Per-peer bandwidth budget check (WAN only - LAN peers are local, no throttle).
+		transport := ClassifyTransport(s)
+		if transport != TransportLAN && ts.bandwidthTracker != nil {
+			var peerBudget int64
+			if ts.peerBudgetFunc != nil {
+				peerBudget = ts.peerBudgetFunc(peerKey)
+			}
+			if !ts.bandwidthTracker.check(peerKey, manifest.FileSize, peerBudget) {
+				slog.Warn("file-transfer: bandwidth budget exceeded",
+					"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
+				writeRejectWithReason(s, RejectReasonBusy)
+				ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "bandwidth budget exceeded", "")
+				return
+			}
+		}
+
+		// Temp file budget check.
+		if err := ts.checkTempBudget(); err != nil {
+			slog.Warn("file-transfer: temp budget exceeded",
+				"peer", short, "file", manifest.Filename, "error", err)
+			writeRejectWithReason(s, RejectReasonBusy)
+			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "temp file budget exceeded", "")
+			return
+		}
+
 		// Pre-accept disk space check.
 		if err := ts.checkDiskSpace(manifest.FileSize); err != nil {
 			slog.Warn("file-transfer: insufficient disk space",
@@ -1306,6 +1866,9 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			writeMsg(s, msgReject)
 			return
 		}
+
+		// NEW-1 fix: destDir defaults to receiveDir, overridden by accept dest.
+		destDir := ts.receiveDir
 
 		// Check for existing checkpoint (resume support).
 		var ckpt *transferCheckpoint
@@ -1408,7 +1971,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				return
 			}
 
-			// Override receive dir if specified.
+			// NEW-1 fix: override receive dir if specified in accept decision.
 			if decision.dest != "" {
 				// Validate the override directory exists.
 				if info, err := os.Stat(decision.dest); err != nil || !info.IsDir() {
@@ -1416,6 +1979,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 					writeMsg(s, msgReject)
 					return
 				}
+				destDir = decision.dest
 			}
 
 			slog.Info("file-transfer: approved",
@@ -1443,6 +2007,12 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 			peerKey, "receive", manifest.ChunkCount, compressed)
 		progress.setStatus("active")
+
+		// H7: set per-chunk relay grant byte tracker if receiving through a relay.
+		if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
+			progress.setRelayTracker(tracker)
+		}
+
 		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 		// Set up parallel receive session so worker streams can deliver chunks.
@@ -1477,7 +2047,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		if ckpt == nil {
 			have = newBitfield(manifest.ChunkCount)
 			var createErr error
-			tmpPath, tmpFile, createErr = ts.createTempFile(manifest.Filename)
+			// NEW-1 fix: use destDir (may be overridden by accept dest).
+			tmpPath, tmpFile, createErr = createTempFileIn(destDir, manifest.Filename)
 			if createErr != nil {
 				slog.Error("file-transfer: create temp file failed", "error", createErr)
 				return
@@ -1507,6 +2078,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			session.parityData = make(map[int][]byte, manifest.ParityCount)
 		}
 
+		// D1 fix: register cancel func that resets control + all worker streams.
+		// Set after session creation so workers attached later are included.
+		progress.setCancelFunc(func() {
+			s.Reset()
+			session.resetWorkerStreams()
+		})
+
 		ts.registerParallelSession(manifest.RootHash, session)
 
 		err = ts.receiveParallel(rw, session, ckpt)
@@ -1516,7 +2094,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		// Post-receive: finalize file or save checkpoint.
 		if err != nil && have.count() > 0 {
 			cp := &transferCheckpoint{manifest: manifest, have: have, tmpPath: tmpPath}
-			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
+			if saveErr := cp.save(destDir); saveErr != nil {
 				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
 			}
 			tmpFile.Close()
@@ -1530,14 +2108,24 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				tmpFile.Close()
 			} else {
 				tmpFile.Close()
-				finalPath, fpErr := ts.finalPath(manifest.Filename)
+				// NEW-1 fix: use destDir for final path (may be overridden by accept dest).
+				fp := filepath.Join(destDir, manifest.Filename)
+				// Create parent directories BEFORE collision check (directory transfers
+				// have relative paths like "mydir/subdir/file.txt" and the parent dirs
+				// may not exist yet).
+				if dir := filepath.Dir(fp); dir != destDir {
+					os.MkdirAll(dir, 0755)
+				}
+				fp, fpErr := nonCollidingPath(fp)
 				if fpErr != nil {
 					err = fmt.Errorf("determine final path: %w", fpErr)
-				} else if renameErr := os.Rename(tmpPath, finalPath); renameErr != nil {
-					err = fmt.Errorf("rename temp to final: %w", renameErr)
 				} else {
-					os.Chmod(finalPath, 0644)
-					removeCheckpoint(ts.receiveDir, manifest.RootHash)
+					if renameErr := os.Rename(tmpPath, fp); renameErr != nil {
+						err = fmt.Errorf("rename temp to final: %w", renameErr)
+					} else {
+						os.Chmod(fp, 0644)
+						removeCheckpoint(destDir, manifest.RootHash)
+					}
 				}
 			}
 		}
@@ -1549,16 +2137,21 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			slog.Error("file-transfer: receive failed",
 				"peer", short, "file", manifest.Filename, "error", err)
 			ts.logEvent(EventLogFailed, "receive", peerKey, manifest.Filename, manifest.FileSize, progress.Sent(), err.Error(), dur)
+			ts.recordTransferFailure(peerKey)
 		} else {
 			slog.Info("file-transfer: received",
 				"peer", short, "file", manifest.Filename,
 				"size", manifest.FileSize,
-				"path", filepath.Join(ts.receiveDir, manifest.Filename))
+				"path", filepath.Join(destDir, manifest.Filename))
 			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
+			// Record bandwidth usage for budget tracking (WAN only).
+			if transport != TransportLAN && ts.bandwidthTracker != nil {
+				ts.bandwidthTracker.record(peerKey, manifest.FileSize)
+			}
 			// Register hash so this node can serve multi-peer requests for this file.
-			finalPath, _ := ts.finalPath(manifest.Filename)
-			if finalPath != "" {
-				ts.RegisterHash(manifest.RootHash, finalPath)
+			regPath := filepath.Join(destDir, manifest.Filename)
+			if regPath != "" {
+				ts.RegisterHash(manifest.RootHash, regPath)
 			}
 		}
 
@@ -1570,265 +2163,6 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			})
 		}
 	}
-}
-
-// receiveChunked reads chunks, verifies each hash, and assembles the file.
-// Supports both fresh transfers and resume from a checkpoint.
-// Chunks may arrive out of order; writes use WriteAt with precomputed offsets.
-// On interruption, a checkpoint is saved for later resume.
-func (ts *TransferService) receiveChunked(r io.Reader, m *transferManifest, progress *TransferProgress, ckpt *transferCheckpoint) error {
-	offsets := buildOffsetTable(m.ChunkSizes)
-
-	var tmpPath string
-	var tmpFile *os.File
-	var have *bitfield
-	var transferErr error
-
-	if ckpt != nil {
-		// Resume from checkpoint.
-		tmpPath = ckpt.tmpPath
-		have = ckpt.have
-		var err error
-		tmpFile, err = os.OpenFile(tmpPath, os.O_WRONLY, 0600)
-		if err != nil {
-			// Tmp file gone despite earlier stat check (race). Start fresh.
-			ckpt = nil
-		}
-	}
-
-	if ckpt == nil {
-		// Fresh transfer.
-		var err error
-		tmpPath, tmpFile, err = ts.createTempFile(m.Filename)
-		if err != nil {
-			return fmt.Errorf("create temp file: %w", err)
-		}
-		have = newBitfield(m.ChunkCount)
-
-		// Pre-allocate file to full size for sparse writes.
-		if err := tmpFile.Truncate(m.FileSize); err != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-			return fmt.Errorf("pre-allocate file: %w", err)
-		}
-	}
-
-	// On exit: save checkpoint on error, clean up on success.
-	defer func() {
-		tmpFile.Close()
-		if transferErr != nil && have.count() > 0 {
-			// Save checkpoint so we can resume later.
-			cp := &transferCheckpoint{
-				manifest: m,
-				have:     have,
-				tmpPath:  tmpPath,
-			}
-			if saveErr := cp.save(ts.receiveDir); saveErr != nil {
-				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
-			} else {
-				slog.Info("file-transfer: checkpoint saved",
-					"file", m.Filename,
-					"have", have.count(), "total", m.ChunkCount)
-			}
-		} else if transferErr != nil {
-			// Error before any chunks received. Clean up temp file.
-			os.Remove(tmpPath)
-		} else {
-			// Success. Temp file already renamed; remove checkpoint.
-			removeCheckpoint(ts.receiveDir, m.RootHash)
-		}
-	}()
-
-	compressed := m.Flags&flagCompressed != 0
-	hasErasure := m.Flags&flagErasureCoded != 0
-	totalExpected := m.ChunkCount + m.ParityCount // data + parity frames on wire
-
-	// Parity chunk storage (in memory, not written to file).
-	var parityData map[int][]byte
-	if hasErasure && m.ParityCount > 0 {
-		parityData = make(map[int][]byte, m.ParityCount)
-	}
-
-	// Track corrupted data chunks (for RS reconstruction).
-	var corrupted []int
-
-	// Seed progress with already-received data from checkpoint.
-	var totalWritten int64
-	if have.count() > 0 {
-		for i := 0; i < m.ChunkCount; i++ {
-			if have.has(i) {
-				totalWritten += int64(m.ChunkSizes[i])
-			}
-		}
-		progress.updateChunks(totalWritten, have.count())
-	}
-
-	// Receive data + parity chunks.
-	// Compute remaining frames once: live have.count() changes each iteration.
-	framesRemaining := totalExpected - have.count()
-	framesRead := 0
-	for framesRead < framesRemaining {
-		index, wireData, err := readChunkFrame(r)
-		if err != nil {
-			transferErr = fmt.Errorf("read chunk: %w", err)
-			return transferErr
-		}
-		if index == -1 {
-			break // done signal
-		}
-		progress.addWireBytes(int64(len(wireData)))
-
-		// Parity chunk (index >= ChunkCount).
-		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
-			parityIdx := index - m.ChunkCount
-			hash := blake3Sum(wireData)
-			if hash != m.ParityHashes[parityIdx] {
-				slog.Warn("file-transfer: parity chunk hash mismatch, skipping",
-					"index", parityIdx)
-			} else {
-				parityData[parityIdx] = wireData
-			}
-			framesRead++
-			continue
-		}
-
-		// Validate data chunk index bounds.
-		if index < 0 || index >= m.ChunkCount {
-			transferErr = fmt.Errorf("chunk index out of range: %d", index)
-			return transferErr
-		}
-		if have.has(index) {
-			framesRead++
-			continue // duplicate, skip
-		}
-
-		// Decompress if needed.
-		chunkData := wireData
-		if compressed {
-			maxDecomp := len(wireData) * maxDecompressRatio
-			if maxDecomp > maxDecompressedChunk {
-				maxDecomp = maxDecompressedChunk
-			}
-			decompressed, decErr := decompressChunk(wireData, maxDecomp)
-			if decErr != nil {
-				chunkData = wireData
-			} else {
-				chunkData = decompressed
-			}
-		}
-
-		// Verify chunk hash BEFORE writing to disk.
-		hash := blake3Hash(chunkData)
-		if hash != m.ChunkHashes[index] {
-			if hasErasure {
-				// With erasure: note corruption, attempt RS reconstruction later.
-				corrupted = append(corrupted, index)
-				framesRead++
-				continue
-			}
-			transferErr = fmt.Errorf("chunk %d hash mismatch: corrupted", index)
-			return transferErr
-		}
-
-		// Verify size matches manifest.
-		if uint32(len(chunkData)) != m.ChunkSizes[index] {
-			transferErr = fmt.Errorf("chunk %d size mismatch: got %d, expected %d",
-				index, len(chunkData), m.ChunkSizes[index])
-			return transferErr
-		}
-
-		// Re-check disk space periodically (every 64 chunks).
-		if framesRead%64 == 0 && framesRead > 0 {
-			remaining := m.FileSize - totalWritten
-			if err := ts.checkDiskSpace(remaining); err != nil {
-				transferErr = fmt.Errorf("disk space check at chunk %d: %w", index, err)
-				return transferErr
-			}
-		}
-
-		// Write at correct offset (sparse write).
-		if _, err := tmpFile.WriteAt(chunkData, offsets[index]); err != nil {
-			transferErr = fmt.Errorf("write chunk %d at offset %d: %w", index, offsets[index], err)
-			return transferErr
-		}
-
-		have.set(index)
-		framesRead++
-		totalWritten += int64(len(chunkData))
-		progress.updateChunks(totalWritten, have.count())
-
-		// Log progress milestones at 25%, 50%, 75%.
-		if m.FileSize > 0 {
-			pct := int(totalWritten * 100 / m.FileSize)
-			prevPct := int((totalWritten - int64(len(chunkData))) * 100 / m.FileSize)
-			peerID := progress.PeerID
-			switch {
-			case pct >= 75 && prevPct < 75:
-				ts.logEvent(EventLogProgress75, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			case pct >= 50 && prevPct < 50:
-				ts.logEvent(EventLogProgress50, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			case pct >= 25 && prevPct < 25:
-				ts.logEvent(EventLogProgress25, "receive", peerID, m.Filename, m.FileSize, totalWritten, "", "")
-			}
-		}
-	}
-
-	// Read the done message (if not already consumed by the loop).
-	if framesRead > 0 {
-		doneIdx, _, err := readChunkFrame(r)
-		if err != nil {
-			transferErr = fmt.Errorf("read done signal: %w", err)
-			return transferErr
-		}
-		if doneIdx != -1 {
-			transferErr = fmt.Errorf("expected done signal, got chunk %d", doneIdx)
-			return transferErr
-		}
-	}
-
-	// RS reconstruction for corrupted/missing data chunks.
-	if len(corrupted) > 0 && hasErasure {
-		slog.Info("file-transfer: attempting RS reconstruction",
-			"corrupted", len(corrupted), "parity_available", len(parityData))
-
-		if err := ts.rsReconstruct(tmpFile, m, offsets, corrupted, parityData); err != nil {
-			transferErr = fmt.Errorf("RS reconstruction: %w", err)
-			return transferErr
-		}
-
-		// Mark reconstructed chunks as received.
-		for _, idx := range corrupted {
-			have.set(idx)
-			totalWritten += int64(m.ChunkSizes[idx])
-		}
-		progress.updateChunks(totalWritten, have.count())
-	} else if have.missing() > 0 {
-		transferErr = fmt.Errorf("transfer incomplete: %d chunks missing", have.missing())
-		return transferErr
-	}
-
-	// Flush to disk.
-	if err := tmpFile.Sync(); err != nil {
-		transferErr = fmt.Errorf("sync file: %w", err)
-		return transferErr
-	}
-	tmpFile.Close()
-
-	// Atomic rename to final path.
-	finalPath, err := ts.finalPath(m.Filename)
-	if err != nil {
-		transferErr = fmt.Errorf("determine final path: %w", err)
-		return transferErr
-	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		transferErr = fmt.Errorf("rename temp to final: %w", err)
-		return transferErr
-	}
-
-	// Set file permissions.
-	os.Chmod(finalPath, 0644)
-
-	return nil
 }
 
 // blake3Hash computes BLAKE3-256 of data.
@@ -1985,6 +2319,12 @@ func (ts *TransferService) ListTransfers() []TransferSnapshot {
 	return result
 }
 
+// Retry constants for transient failures (e.g., receiver busy).
+const (
+	maxSendRetries    = 5
+	initialRetryDelay = 2 * time.Second
+)
+
 // queuedJob holds everything needed to execute a queued transfer.
 type queuedJob struct {
 	queueID    string
@@ -1995,6 +2335,9 @@ type queuedJob struct {
 	opts       SendOptions
 	openStream streamOpener
 	progress   *TransferProgress // synthetic "queued" progress visible to CLI
+	retryCount         int     // number of retries so far
+	relayReconnects    int     // relay session expiry reconnection attempts (H11)
+	lastRelayPeerID    peer.ID // relay peer from last attempt (for session expiry detection)
 }
 
 // SubmitSend enqueues an outbound transfer. If a slot is available it starts
@@ -2007,7 +2350,10 @@ func (ts *TransferService) SubmitSend(filePath, peerID string, priority Transfer
 		return nil, fmt.Errorf("cannot access path: %w", err)
 	}
 
-	queueID := ts.queue.Enqueue(filePath, peerID, "send", priority)
+	queueID, err := ts.queue.Enqueue(filePath, peerID, "send", priority)
+	if err != nil {
+		return nil, fmt.Errorf("queue full: %w", err)
+	}
 
 	progress := &TransferProgress{
 		ID:        queueID,
@@ -2034,68 +2380,283 @@ func (ts *TransferService) SubmitSend(filePath, peerID string, priority Transfer
 		progress:   progress,
 	}
 
-	go ts.processQueuedJob(job)
+	// Store job for the queue processor to pick up.
+	ts.pendingJobsMu.Lock()
+	ts.pendingJobs[queueID] = job
+	ts.pendingJobsMu.Unlock()
+
+	// Signal the queue processor that a new job is available.
+	select {
+	case ts.queueReady <- struct{}{}:
+	default:
+	}
+
+	ts.persistQueue()
 
 	return progress, nil
 }
 
-// processQueuedJob waits for a queue slot, then executes the transfer.
-func (ts *TransferService) processQueuedJob(job *queuedJob) {
-	// Spin-wait on the queue until this job is dequeued (has a slot).
+// runQueueProcessor is the single goroutine that dequeues jobs and dispatches
+// them for execution. This replaces the old per-job goroutine spin-wait which
+// had a bug where goroutines could steal and complete each other's queue items.
+func (ts *TransferService) runQueueProcessor() {
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	for {
-		qt := ts.queue.Dequeue()
-		if qt != nil && qt.ID == job.queueID {
-			// This job got a slot.
-			break
-		}
-		if qt != nil {
-			// Put it back - different job got dequeued. This shouldn't happen
-			// because each job has its own goroutine, but be safe.
-			ts.queue.Complete(qt.ID)
-		}
-		// Wait for a signal that a slot freed up, or poll.
 		select {
+		case <-ts.queueCtx.Done():
+			return
 		case <-ts.queueReady:
+		case <-cleanupTicker.C:
+			// Evict stale pendingJobs entries (older than 24h).
+			ts.pendingJobsMu.Lock()
+			for id, job := range ts.pendingJobs {
+				if time.Since(job.progress.StartTime) > 24*time.Hour {
+					delete(ts.pendingJobs, id)
+					job.progress.finish(fmt.Errorf("expired: queued for over 24 hours"))
+				}
+			}
+			ts.pendingJobsMu.Unlock()
+			continue
 		case <-time.After(500 * time.Millisecond):
 		}
+
+		// Drain all available slots.
+		for {
+			qt := ts.queue.Dequeue()
+			if qt == nil {
+				break // no items or at capacity
+			}
+
+			// Look up the job.
+			ts.pendingJobsMu.Lock()
+			job, ok := ts.pendingJobs[qt.ID]
+			if ok {
+				delete(ts.pendingJobs, qt.ID)
+			}
+			ts.pendingJobsMu.Unlock()
+
+			if !ok {
+				// Job was cancelled before processor got to it.
+				ts.queue.Complete(qt.ID)
+				continue
+			}
+
+			go ts.executeQueuedJob(job)
+		}
 	}
+}
+
+// executeQueuedJob runs a single queued transfer to completion.
+// D1 fix: creates a per-job context derived from queueCtx so CancelTransfer
+// can propagate cancellation to the running goroutine and underlying I/O.
+func (ts *TransferService) executeQueuedJob(job *queuedJob) {
+	// D1 fix: if already cancelled between dequeue and goroutine start, skip work.
+	if job.progress.Snapshot().Done {
+		ts.queue.Complete(job.queueID)
+		select {
+		case ts.queueReady <- struct{}{}:
+		default:
+		}
+		return
+	}
+
+	// Create per-job context so CancelTransfer can cancel this specific job.
+	jobCtx, jobCancel := context.WithCancel(ts.queueCtx)
+	defer jobCancel()
+
+	// Register the cancel func so CancelTransfer can call it.
+	ts.jobCancelMu.Lock()
+	ts.jobCancels[job.queueID] = jobCancel
+	ts.jobCancelMu.Unlock()
+	defer func() {
+		ts.jobCancelMu.Lock()
+		delete(ts.jobCancels, job.queueID)
+		ts.jobCancelMu.Unlock()
+	}()
 
 	job.progress.setStatus("active")
 
 	var finalErr error
 	if job.isDir {
-		_, finalErr = ts.SendDirectory(context.Background(), job.filePath, job.openStream, job.opts)
+		// Pre-transfer relay grant check for directory sends.
+		// Open a probe stream to detect relay and check grant, then close it.
+		// SendDirectory opens fresh streams per-file; this is just for the check.
+		if ts.grantChecker != nil {
+			probeStream, probeErr := job.openStream()
+			if probeErr == nil {
+				relayID := relayPeerFromStream(probeStream)
+				job.lastRelayPeerID = relayID
+				if relayID != "" {
+					dirSize := int64(0)
+					// Walk directory to get total size for grant check.
+					filepath.WalkDir(job.filePath, func(_ string, d os.DirEntry, _ error) error {
+						if d != nil && d.Type().IsRegular() {
+							if fi, err := d.Info(); err == nil {
+								dirSize += fi.Size()
+							}
+						}
+						return nil
+					})
+					grantInfo := ts.checkRelayGrant(probeStream, dirSize, "send")
+
+					if grantInfo.GrantActive && !grantInfo.TimeOK {
+						probeStream.Close()
+						finalErr = fmt.Errorf("relay grant expires too soon for directory transfer (remaining: %s)",
+							grantInfo.GrantRemaining.Truncate(time.Second))
+					}
+				}
+				if finalErr == nil {
+					probeStream.Close()
+				}
+			}
+		}
+		if finalErr == nil {
+			_, finalErr = ts.SendDirectory(jobCtx, job.filePath, job.openStream, job.opts)
+		}
 	} else {
 		stream, err := job.openStream()
 		if err != nil {
 			finalErr = fmt.Errorf("open stream: %w", err)
 		} else {
-			// SendFile runs in background and updates progress internally.
-			// We need to wait for it to complete.
-			sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
-			if sendErr != nil {
-				finalErr = sendErr
-			} else {
-				// Copy the real transfer's progress into our queued progress tracker.
-				// Poll until send completes.
-				for {
-					snap := sendProgress.Snapshot()
-					job.progress.mu.Lock()
-					job.progress.Size = snap.Size
-					job.progress.Transferred = snap.Transferred
-					job.progress.ChunksTotal = snap.ChunksTotal
-					job.progress.ChunksDone = snap.ChunksDone
-					job.progress.Compressed = snap.Compressed
-					job.progress.mu.Unlock()
-					if snap.Done {
-						if snap.Error != "" {
-							finalErr = fmt.Errorf("%s", snap.Error)
-						}
-						break
+			// Pre-transfer relay grant check: budget + time (H7).
+			if ts.grantChecker != nil {
+				relayID := relayPeerFromStream(stream)
+				job.lastRelayPeerID = relayID
+				if relayID != "" {
+					fileSize := int64(0)
+					if fi, statErr := os.Stat(job.filePath); statErr == nil {
+						fileSize = fi.Size()
 					}
-					time.Sleep(200 * time.Millisecond)
+					grantInfo := ts.checkRelayGrant(stream, fileSize, "send")
+
+					// Budget insufficient: close stream and reopen for fresh circuit.
+					if grantInfo.GrantActive && !grantInfo.BudgetOK {
+						stream.Close()
+						ts.grantChecker.ResetCircuitCounters(relayID)
+						newStream, reopenErr := job.openStream()
+						if reopenErr != nil {
+							finalErr = fmt.Errorf("relay reconnect for fresh budget: %w", reopenErr)
+							stream = nil
+						} else {
+							stream = newStream
+							// Re-verify relay on new stream (may route through different relay).
+							newRelayID := relayPeerFromStream(newStream)
+							if newRelayID != "" {
+								job.lastRelayPeerID = newRelayID
+							}
+							slog.Info("relay-grant: new circuit established for fresh budget",
+								"relay", shortPeerStr(job.lastRelayPeerID))
+
+							// Re-check after reopen: both budget and time.
+							recheckInfo := ts.checkRelayGrant(newStream, fileSize, "send")
+							if recheckInfo.GrantActive && !recheckInfo.BudgetOK {
+								stream.Close()
+								stream = nil
+								finalErr = fmt.Errorf("file size (%s) exceeds relay session limit (%s)",
+									FormatBytes(fileSize), FormatBytes(recheckInfo.SessionBudget))
+							} else if recheckInfo.GrantActive && !recheckInfo.TimeOK {
+								stream.Close()
+								stream = nil
+								if recheckInfo.SessionDuration > 0 && recheckInfo.SessionDuration < recheckInfo.GrantRemaining {
+									finalErr = fmt.Errorf("file too large for relay circuit session (%s session, need ~%ds at ~200KB/s)",
+										recheckInfo.SessionDuration.Truncate(time.Second),
+										fileSize/(200*1024))
+								} else {
+									finalErr = fmt.Errorf("relay grant expires too soon for transfer (remaining: %s)",
+										recheckInfo.GrantRemaining.Truncate(time.Second))
+								}
+							}
+						}
+					}
+
+					// Time insufficient on original check: abort (don't waste relay bandwidth).
+					if grantInfo.GrantActive && !grantInfo.TimeOK && finalErr == nil {
+						if stream != nil {
+							stream.Close()
+						}
+						finalErr = fmt.Errorf("relay grant expires too soon for transfer (remaining: %s)",
+							grantInfo.GrantRemaining.Truncate(time.Second))
+					}
 				}
 			}
+
+			if finalErr == nil && stream != nil {
+				// SendFile runs in background and updates progress internally.
+				// We need to wait for it to complete.
+				sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
+				if sendErr != nil {
+					finalErr = sendErr
+				} else {
+					// Copy the real transfer's progress into our queued progress tracker.
+					// D1 fix: check jobCtx.Done() so cancel propagates to the polling loop.
+					// When cancelled, reset the stream to stop the underlying SendFile goroutine.
+					finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress)
+				}
+			}
+		}
+	}
+
+	// H11: Relay session expiry reconnection. If a relayed transfer failed and the
+	// grant is still active, the failure was likely a session expiry. Retry with
+	// exponential backoff (new circuit = fresh session budget + reset counters).
+	if finalErr != nil && !isRetryableReject(finalErr) &&
+		job.lastRelayPeerID != "" && job.relayReconnects < relayReconnectMaxAttempts &&
+		ts.isRelaySessionExpiry(job.lastRelayPeerID, finalErr) {
+
+		job.relayReconnects++
+		delay := relayReconnectDelay(job.relayReconnects - 1)
+		slog.Info("relay-grant: session likely expired, reconnecting with fresh circuit",
+			"id", job.queueID, "relay", shortPeerStr(job.lastRelayPeerID),
+			"attempt", job.relayReconnects, "delay", delay)
+
+		if ts.grantChecker != nil {
+			ts.grantChecker.ResetCircuitCounters(job.lastRelayPeerID)
+		}
+		job.progress.setStatus("relay-reconnecting")
+
+		select {
+		case <-jobCtx.Done():
+			job.progress.finish(fmt.Errorf("cancelled during relay reconnect backoff"))
+		case <-time.After(delay):
+			job.progress.setStatus("queued")
+			ts.pendingJobsMu.Lock()
+			ts.pendingJobs[job.queueID] = job
+			ts.pendingJobsMu.Unlock()
+			ts.queue.Requeue(job.queueID, job.filePath, job.peerID, "send", job.priority)
+			select {
+			case ts.queueReady <- struct{}{}:
+			default:
+			}
+			return
+		}
+	}
+
+	// Retry on transient "receiver busy" rejection.
+	if finalErr != nil && isRetryableReject(finalErr) && job.retryCount < maxSendRetries {
+		job.retryCount++
+		delay := initialRetryDelay * time.Duration(1<<(job.retryCount-1)) // 2s, 4s, 8s, 16s, 32s
+		slog.Info("queued transfer: receiver busy, retrying",
+			"id", job.queueID, "peer", job.peerID, "attempt", job.retryCount, "delay", delay)
+		job.progress.setStatus("retrying")
+
+		select {
+		case <-jobCtx.Done():
+			job.progress.finish(fmt.Errorf("cancelled during retry backoff"))
+		case <-time.After(delay):
+			// Re-queue: put job back and signal processor.
+			job.progress.setStatus("queued")
+			ts.pendingJobsMu.Lock()
+			ts.pendingJobs[job.queueID] = job
+			ts.pendingJobsMu.Unlock()
+			// Re-enqueue in the priority queue so the processor picks it up.
+			ts.queue.Requeue(job.queueID, job.filePath, job.peerID, "send", job.priority)
+			select {
+			case ts.queueReady <- struct{}{}:
+			default:
+			}
+			return // Don't complete or finish - the job will be retried.
 		}
 	}
 
@@ -2109,43 +2670,182 @@ func (ts *TransferService) processQueuedJob(job *queuedJob) {
 			"id", job.queueID, "path", job.filePath, "peer", job.peerID)
 	}
 
-	// Free the queue slot and notify waiting jobs.
+	// Free the queue slot and signal the processor to dispatch more.
 	ts.queue.Complete(job.queueID)
 	select {
 	case ts.queueReady <- struct{}{}:
 	default:
 	}
+	ts.persistQueue()
 }
 
-// CancelTransfer cancels a queued or active transfer by ID.
-// Returns true if the transfer was found and cancelled.
-func (ts *TransferService) CancelTransfer(id string) bool {
+// isRetryableReject returns true if the error indicates a transient rejection
+// that should be retried (receiver busy, rate limit, etc.).
+func isRetryableReject(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "receiver busy")
+}
+
+// pollSendProgress copies progress from a SendFile operation into the queued job's
+// progress tracker. Exits when the send completes or the context is cancelled.
+// On cancel, resets the stream to stop the underlying SendFile goroutine.
+func pollSendProgress(ctx context.Context, stream network.Stream, sendProgress, jobProgress *TransferProgress) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		snap := sendProgress.Snapshot()
+		jobProgress.mu.Lock()
+		jobProgress.Size = snap.Size
+		jobProgress.Transferred = snap.Transferred
+		jobProgress.ChunksTotal = snap.ChunksTotal
+		jobProgress.ChunksDone = snap.ChunksDone
+		jobProgress.Compressed = snap.Compressed
+		jobProgress.CompressedSize = snap.CompressedSize
+		jobProgress.ErasureParity = snap.ErasureParity
+		jobProgress.ErasureOverhead = snap.ErasureOverhead
+		if len(snap.StreamProgress) > 0 {
+			jobProgress.StreamProgress = make([]StreamInfo, len(snap.StreamProgress))
+			copy(jobProgress.StreamProgress, snap.StreamProgress)
+		}
+		jobProgress.mu.Unlock()
+
+		if snap.Done {
+			if snap.Error != "" {
+				return fmt.Errorf("%s", snap.Error)
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			stream.Reset()
+			return fmt.Errorf("cancelled")
+		case <-ticker.C:
+		}
+	}
+}
+
+// CancelTransfer cancels a queued or active transfer by ID or unique prefix.
+// Returns nil on success, error if not found, ambiguous, or pending (use reject instead).
+func (ts *TransferService) CancelTransfer(id string) error {
+	// Resolve prefix to full ID.
+	resolved, err := ts.resolveTransferID(id)
+	if err != nil {
+		// Check if this ID matches a pending approval transfer (ask mode).
+		// If so, guide the user to use reject instead of cancel.
+		ts.mu.RLock()
+		for pid := range ts.pending {
+			if pid == id || strings.HasPrefix(pid, id) {
+				ts.mu.RUnlock()
+				return fmt.Errorf("transfer %q is awaiting approval; use 'shurli reject %s' instead", id, id)
+			}
+		}
+		ts.mu.RUnlock()
+		return err
+	}
+
 	// Try queue first (pending items).
-	if ts.queue.Cancel(id) {
+	if ts.queue.Cancel(resolved) {
+		// Remove from pending jobs map so processor doesn't pick it up.
+		ts.pendingJobsMu.Lock()
+		delete(ts.pendingJobs, resolved)
+		ts.pendingJobsMu.Unlock()
+
 		// Mark progress as failed/cancelled.
 		ts.mu.Lock()
-		if p, ok := ts.transfers[id]; ok {
+		if p, ok := ts.transfers[resolved]; ok {
 			p.finish(fmt.Errorf("cancelled"))
 		}
 		ts.mu.Unlock()
 
-		// Notify waiters that a slot freed up.
+		// Notify processor that a slot freed up.
 		select {
 		case ts.queueReady <- struct{}{}:
 		default:
 		}
-		return true
+		ts.persistQueue()
+		return nil
 	}
 
-	// For active transfers, mark as cancelled (best effort - the goroutine
-	// will see the status change on next progress check).
+	// D1 fix: for active transfers, cancel the per-job context and progress-level
+	// cancel func to propagate cancellation to the running goroutine.
+	// Collect cancel actions under lock, execute outside - stream.Reset() (called
+	// by progressCancel) could block on network I/O and must not hold locks.
+	ts.jobCancelMu.Lock()
+	jobCancel, hasJobCancel := ts.jobCancels[resolved]
+	ts.jobCancelMu.Unlock()
+
+	var progressCancel func()
+	found := false
+
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if p, ok := ts.transfers[id]; ok && !p.Done {
-		p.finish(fmt.Errorf("cancelled"))
-		return true
+	if p, ok := ts.transfers[resolved]; ok {
+		// Read p.Done and p.cancelFunc under p.mu (they are protected by p.mu, not ts.mu).
+		p.mu.Lock()
+		done := p.Done
+		if !done {
+			found = true
+			progressCancel = p.cancelFunc
+		}
+		p.mu.Unlock()
+		if !done {
+			p.finish(fmt.Errorf("cancelled"))
+		}
 	}
-	return false
+	ts.mu.Unlock()
+
+	if !found {
+		return fmt.Errorf("transfer %q not found or already completed", id)
+	}
+
+	// Execute cancel actions outside all locks.
+	if hasJobCancel {
+		jobCancel()
+	}
+	if progressCancel != nil {
+		progressCancel()
+	}
+	return nil
+}
+
+// resolveTransferID resolves an exact ID or unique prefix to the full transfer ID.
+// Searches both active transfers and queued items.
+func (ts *TransferService) resolveTransferID(prefix string) (string, error) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	// Exact match first.
+	if _, ok := ts.transfers[prefix]; ok {
+		return prefix, nil
+	}
+
+	// Prefix match across active transfers.
+	var matches []string
+	for id := range ts.transfers {
+		if strings.HasPrefix(id, prefix) {
+			matches = append(matches, id)
+		}
+	}
+
+	// Also check queue IDs.
+	for _, qt := range ts.queue.Pending() {
+		if qt.ID == prefix {
+			return prefix, nil
+		}
+		if strings.HasPrefix(qt.ID, prefix) {
+			matches = append(matches, qt.ID)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("transfer %q not found", prefix)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("ambiguous prefix %q, matches: %s", prefix, strings.Join(matches, ", "))
+	}
 }
 
 // SetReceiveMode changes the receive mode at runtime.
@@ -2322,11 +3022,349 @@ func (ts *TransferService) LogPath() string {
 	return ts.logger.path
 }
 
+// --- Queue persistence ---
+
+const (
+	queueFileVersion = 1
+	queueMaxEntries  = 1000
+	queueMaxFileSize = 10 << 20 // 10 MB max queue file
+	queueEntryTTL    = 24 * time.Hour
+)
+
+// persistedQueue is the JSON structure written to disk.
+type persistedQueue struct {
+	Version int                  `json:"version"`
+	HMAC    string               `json:"hmac"` // hex-encoded HMAC-SHA256 of entries JSON
+	Entries []persistedQueueEntry `json:"entries"`
+}
+
+// persistedQueueEntry is a single queued transfer entry.
+type persistedQueueEntry struct {
+	ID       string           `json:"id"`
+	FilePath string           `json:"file_path"`
+	PeerID   string           `json:"peer_id"`
+	Priority TransferPriority `json:"priority"`
+	QueuedAt time.Time        `json:"queued_at"`
+	Nonce    string           `json:"nonce"` // random per-entry, prevents replay
+}
+
+// FlushQueue persists the current outbound queue to disk. Called by plugin Stop()
+// to ensure queue state survives daemon shutdown (P3 fix).
+func (ts *TransferService) FlushQueue() {
+	ts.persistQueue()
+}
+
+// persistQueue writes the current outbound queue to disk with HMAC integrity.
+// P7 fix: serialized by persistMu to prevent concurrent writes.
+func (ts *TransferService) persistQueue() {
+	ts.persistMu.Lock()
+	defer ts.persistMu.Unlock()
+
+	if ts.queueFile == "" || len(ts.queueHMACKey) == 0 {
+		return
+	}
+
+	// Gather pending queue items.
+	pending := ts.queue.Pending()
+
+	entries := make([]persistedQueueEntry, 0, len(pending))
+	for _, qt := range pending {
+		entries = append(entries, persistedQueueEntry{
+			ID:       qt.ID,
+			FilePath: qt.FilePath,
+			PeerID:   qt.PeerID,
+			Priority: qt.Priority,
+			QueuedAt: qt.QueuedAt,
+			Nonce:    randomHex(8),
+		})
+	}
+
+	// Truncate to max entries (keep newest).
+	if len(entries) > queueMaxEntries {
+		entries = entries[len(entries)-queueMaxEntries:]
+	}
+
+	// Compute HMAC over entries JSON.
+	entriesJSON, err := json.Marshal(entries)
+	if err != nil {
+		slog.Warn("queue-persist: marshal failed", "error", err)
+		return
+	}
+
+	mac := hmac.New(sha256.New, ts.queueHMACKey)
+	mac.Write(entriesJSON)
+	macSum := hex.EncodeToString(mac.Sum(nil))
+
+	pq := persistedQueue{
+		Version: queueFileVersion,
+		HMAC:    macSum,
+		Entries: entries,
+	}
+
+	data, err := json.MarshalIndent(pq, "", "  ")
+	if err != nil {
+		slog.Warn("queue-persist: marshal failed", "error", err)
+		return
+	}
+
+	// Atomic write: tmp + rename, 0600 permissions.
+	dir := filepath.Dir(ts.queueFile)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		slog.Warn("queue-persist: create dir failed", "error", err)
+		return
+	}
+
+	tmp := ts.queueFile + ".tmp"
+	// P5 fix: write + fsync + rename for crash-safe persistence.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		slog.Warn("queue-persist: create failed", "error", err)
+		return
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		slog.Warn("queue-persist: write failed", "error", err)
+		return
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		slog.Warn("queue-persist: fsync failed", "error", err)
+		return
+	}
+	f.Close()
+	if err := os.Rename(tmp, ts.queueFile); err != nil {
+		os.Remove(tmp)
+		slog.Warn("queue-persist: rename failed", "error", err)
+		return
+	}
+
+	slog.Debug("queue-persist: saved", "entries", len(entries))
+}
+
+// loadPersistedQueue reads and validates the persisted queue file.
+// Returns valid entries (TTL-checked, path-validated, HMAC-verified).
+func (ts *TransferService) loadPersistedQueue() []persistedQueueEntry {
+	if ts.queueFile == "" || len(ts.queueHMACKey) == 0 {
+		return nil
+	}
+
+	data, err := os.ReadFile(ts.queueFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("queue-persist: read failed", "error", err)
+		}
+		return nil
+	}
+
+	if int64(len(data)) > queueMaxFileSize {
+		slog.Warn("queue-persist: file too large, ignoring", "size", len(data))
+		return nil
+	}
+
+	var pq persistedQueue
+	if err := json.Unmarshal(data, &pq); err != nil {
+		slog.Warn("queue-persist: parse failed", "error", err)
+		return nil
+	}
+
+	if pq.Version != queueFileVersion {
+		slog.Warn("queue-persist: unknown version", "version", pq.Version)
+		return nil
+	}
+
+	// Verify HMAC.
+	entriesJSON, err := json.Marshal(pq.Entries)
+	if err != nil {
+		slog.Warn("queue-persist: re-marshal failed", "error", err)
+		return nil
+	}
+
+	mac := hmac.New(sha256.New, ts.queueHMACKey)
+	mac.Write(entriesJSON)
+	expectedMAC := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(pq.HMAC), []byte(expectedMAC)) {
+		slog.Warn("queue-persist: HMAC verification failed, ignoring queue file")
+		return nil
+	}
+
+	// Filter: TTL check, path validation, bounded count.
+	now := time.Now()
+	var valid []persistedQueueEntry
+	for _, e := range pq.Entries {
+		if now.Sub(e.QueuedAt) > queueEntryTTL {
+			slog.Debug("queue-persist: entry expired", "id", e.ID, "age", now.Sub(e.QueuedAt))
+			continue
+		}
+		if e.PeerID == "" || len(e.PeerID) < 10 {
+			slog.Debug("queue-persist: invalid peer ID", "id", e.ID)
+			continue
+		}
+		if _, err := os.Stat(e.FilePath); err != nil {
+			slog.Debug("queue-persist: path gone", "id", e.ID, "path", e.FilePath)
+			continue
+		}
+		valid = append(valid, e)
+		if len(valid) >= queueMaxEntries {
+			break
+		}
+	}
+
+	slog.Info("queue-persist: loaded entries", "total", len(pq.Entries), "valid", len(valid))
+	return valid
+}
+
+// RequeuePersisted reloads persisted queue entries and re-submits them.
+// Must be called AFTER the network is ready (stream openers need working connections).
+// streamFactory creates a stream opener for a given peer ID.
+func (ts *TransferService) RequeuePersisted(streamFactory func(peerID string) func() (network.Stream, error)) {
+	entries := ts.loadPersistedQueue()
+	if len(entries) == 0 {
+		return
+	}
+
+	for _, e := range entries {
+		opener := streamFactory(e.PeerID)
+		_, err := ts.SubmitSend(e.FilePath, e.PeerID, e.Priority, opener, SendOptions{})
+		if err != nil {
+			slog.Warn("queue-persist: re-enqueue failed",
+				"id", e.ID, "file", filepath.Base(e.FilePath), "error", err)
+		} else {
+			slog.Info("queue-persist: re-enqueued",
+				"file", filepath.Base(e.FilePath), "peer", e.PeerID[:16]+"...")
+		}
+	}
+
+	// Remove the old queue file since entries are now in the live queue.
+	os.Remove(ts.queueFile)
+}
+
+// countPeerPending returns the number of pending (ask-mode) transfers for a peer.
+// Caller must hold ts.mu (read or write).
+func (ts *TransferService) countPeerPending(peerKey string) int {
+	count := 0
+	for _, p := range ts.pending {
+		if p.PeerID == peerKey {
+			count++
+		}
+	}
+	return count
+}
+
+// checkTempBudget returns an error if the total size of .tmp files in the
+// receive directory exceeds the configured budget.
+func (ts *TransferService) checkTempBudget() error {
+	if ts.maxTempSize <= 0 {
+		return nil
+	}
+
+	entries, err := os.ReadDir(ts.receiveDir)
+	if err != nil {
+		return nil // can't read dir, don't block transfer
+	}
+
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
+	}
+
+	if total >= ts.maxTempSize {
+		return fmt.Errorf("temp file budget exceeded: %d bytes (limit %d)", total, ts.maxTempSize)
+	}
+	return nil
+}
+
+// cleanExpiredTempFiles removes .tmp files older than the configured expiry.
+func (ts *TransferService) cleanExpiredTempFiles() {
+	if ts.tempFileExpiry <= 0 {
+		return
+	}
+
+	entries, err := os.ReadDir(ts.receiveDir)
+	if err != nil {
+		return
+	}
+
+	cutoff := time.Now().Add(-ts.tempFileExpiry)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			path := filepath.Join(ts.receiveDir, e.Name())
+			if err := os.Remove(path); err == nil {
+				slog.Info("file-transfer: expired temp file removed", "file", e.Name(), "age", time.Since(info.ModTime()).Truncate(time.Second))
+			}
+		}
+	}
+}
+
+// CleanTempFiles removes all .tmp files in the receive directory and returns
+// the number of files removed and total bytes reclaimed.
+func (ts *TransferService) CleanTempFiles() (int, int64) {
+	entries, err := os.ReadDir(ts.receiveDir)
+	if err != nil {
+		return 0, 0
+	}
+
+	var count int
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(ts.receiveDir, e.Name())
+		if err := os.Remove(path); err == nil {
+			count++
+			total += info.Size()
+		}
+	}
+	return count, total
+}
+
+// recordTransferFailure records a transfer failure for backoff tracking.
+func (ts *TransferService) recordTransferFailure(peerKey string) {
+	if ts.failureTracker != nil {
+		ts.failureTracker.recordFailure(peerKey)
+	}
+}
+
 // Close releases resources held by the transfer service, including
 // closing the transfer log file. Should be called during daemon shutdown.
 func (ts *TransferService) Close() error {
+	// Stop the queue processor goroutine.
+	if ts.queueCancel != nil {
+		ts.queueCancel()
+	}
+
+	// Clean up stale pendingJobs (processor may not have drained them all).
+	ts.pendingJobsMu.Lock()
+	for id := range ts.pendingJobs {
+		delete(ts.pendingJobs, id)
+	}
+	ts.pendingJobsMu.Unlock()
+
 	if ts.rateLimiterStop != nil {
 		ts.rateLimiterStop()
+	}
+	if ts.defenseCleanupStop != nil {
+		ts.defenseCleanupStop()
 	}
 	if ts.logger != nil {
 		return ts.logger.Close()
@@ -2527,6 +3565,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
 		peerKey, "download", manifest.ChunkCount, compressed)
 	progress.setStatus("active")
+
+	// H7: set per-chunk relay grant byte tracker if downloading through a relay.
+	if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
+		progress.setRelayTracker(tracker)
+	}
+
 	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
 
 	// Receive chunks (reuses the parallel receive path).
@@ -2578,6 +3622,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		if hasErasure && manifest.ParityCount > 0 {
 			session.parityData = make(map[int][]byte, manifest.ParityCount)
 		}
+
+		// D1 fix: register cancel func that resets control + all worker streams.
+		progress.setCancelFunc(func() {
+			s.Reset()
+			session.resetWorkerStreams()
+		})
 
 		ts.registerParallelSession(manifest.RootHash, session)
 		recvErr := ts.receiveParallel(rw, session, nil)

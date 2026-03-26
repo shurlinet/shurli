@@ -15,8 +15,11 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/shurlinet/shurli/internal/grants"
+	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/platform"
 	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 // RuntimeInfo provides the daemon server with access to the P2P runtime.
@@ -39,9 +42,15 @@ type RuntimeInfo interface {
 	RelayAddresses() []string                                // relay multiaddrs from config
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
-	TransferService() *p2pnet.TransferService                // nil if transfer disabled
-	ShareRegistry() *p2pnet.ShareRegistry                    // nil if sharing disabled
 	ConfigReloader() ConfigReloader                          // nil if reload not supported
+	GrantStore() *grants.Store                                // nil before initialization
+	GrantPouch() *grants.Pouch                                // nil before initialization
+	GrantProtocol() *grants.GrantProtocol                     // nil before initialization
+	GrantsAutoRefresh() bool                                  // config default for auto-refresh
+	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
+	NotifyRouter() *notify.Router                             // nil before initialization
+	PeerManager() *p2pnet.PeerManager                         // nil before initialization
+	GrantCacheSnapshot() []*grants.GrantReceipt               // nil if no grant cache
 }
 
 // GaterReloader allows hot-reloading the authorized peers list.
@@ -102,6 +111,9 @@ type Server struct {
 	version    string
 	shutdownCh chan struct{} // closed to signal shutdown to the daemon main loop
 
+	// Optional plugin registry (nil if plugin system not initialized)
+	registry *plugin.Registry
+
 	// Optional observability (nil when telemetry disabled)
 	metrics *p2pnet.Metrics
 	audit   *p2pnet.AuditLogger
@@ -134,6 +146,12 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 func (s *Server) SetInstrumentation(metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) {
 	s.metrics = metrics
 	s.audit = audit
+}
+
+// SetRegistry configures the plugin registry for plugin management API endpoints.
+// Must be called before Start(). Nil-safe (plugin endpoints return 503 if nil).
+func (s *Server) SetRegistry(r *plugin.Registry) {
+	s.registry = r
 }
 
 // ShutdownCh returns a channel that is closed when a shutdown is requested
@@ -272,7 +290,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		expected := "Bearer " + s.authToken
 
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
-			respondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
+			RespondError(w, http.StatusUnauthorized, "unauthorized: invalid or missing auth token")
 			return
 		}
 

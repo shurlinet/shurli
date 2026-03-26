@@ -24,17 +24,27 @@ func main() {
 	}
 }
 
+// cfg is the loaded configuration. Set once at the start of run().
+var cfg *syncConfig
+
 func run(args []string) error {
-	fs := flag.NewFlagSet("sync-docs", flag.ContinueOnError)
-	rootDir := fs.String("root-dir", "", "project root directory (default: auto-detect from go.mod)")
-	dryRun := fs.Bool("dry-run", false, "show what would be synced without writing")
-	if err := fs.Parse(args); err != nil {
+	flags := flag.NewFlagSet("sync-docs", flag.ContinueOnError)
+	rootDir := flags.String("root-dir", "", "project root directory (default: auto-detect from go.mod)")
+	dryRun := flags.Bool("dry-run", false, "show what would be synced without writing")
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
 	root, err := resolveRoot(*rootDir)
 	if err != nil {
 		return err
+	}
+
+	// Load config from sync-docs.yaml (lives next to the Go source).
+	toolDir := filepath.Join(root, "tools", "sync-docs")
+	cfg, err = loadConfig(toolDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	docsDir := filepath.Join(root, "docs")
@@ -55,7 +65,7 @@ func run(args []string) error {
 
 	// 2. Sync main docs
 	fmt.Println("Syncing docs/ -> website/content/docs/")
-	for _, entry := range docEntries {
+	for _, entry := range cfg.Docs {
 		if syncMainDoc(docsDir, outDir, entry, *dryRun) {
 			count++
 		}
@@ -73,7 +83,7 @@ func run(args []string) error {
 
 	// 5. Sync FAQ sub-pages
 	faqOutDir := filepath.Join(outDir, "faq")
-	for _, entry := range faqEntries {
+	for _, entry := range cfg.FAQ {
 		if syncFaqEntry(docsDir, faqOutDir, entry, *dryRun) {
 			count++
 		}
@@ -81,7 +91,7 @@ func run(args []string) error {
 
 	// 6. Sync engineering journal
 	journalOutDir := filepath.Join(outDir, "engineering-journal")
-	for _, entry := range journalEntries {
+	for _, entry := range cfg.Journal {
 		if syncJournalEntry(docsDir, journalOutDir, entry, *dryRun) {
 			count++
 		}
@@ -92,8 +102,63 @@ func run(args []string) error {
 		count++
 	}
 
+	// 8. Warn about orphan files in output dirs (synced files that are no longer in config)
+	if !*dryRun {
+		warnOrphans(outDir, cfg)
+	}
+
 	fmt.Printf("Done. %d files synced.\n", count)
 	return nil
+}
+
+// warnOrphans checks output directories for files not listed in config.
+func warnOrphans(outDir string, c *syncConfig) {
+	// Build set of expected output filenames per directory.
+	expectedDocs := make(map[string]bool)
+	for _, e := range c.Docs {
+		expectedDocs[e.Output] = true
+	}
+	expectedDocs[c.QuickStart.Output] = true
+	expectedDocs[c.RelaySetup.Output] = true
+
+	expectedJournal := make(map[string]bool)
+	for _, e := range c.Journal {
+		name := e.Source
+		if name == "README.md" {
+			name = "_index.md"
+		}
+		expectedJournal[name] = true
+	}
+
+	expectedFaq := make(map[string]bool)
+	for _, e := range c.FAQ {
+		name := e.Source
+		if name == "README.md" {
+			name = "_index.md"
+		}
+		expectedFaq[name] = true
+	}
+
+	// Only warn in subdirectories (journal, faq) where ALL content is synced.
+	// The top-level docs/ dir has manually-created pages (user journey guides,
+	// roadmap split pages, etc.) that are not synced from docs/.
+	checkDir := func(dir string, expected map[string]bool, section string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() || e.Name() == "_index.md" {
+				continue
+			}
+			if !expected[e.Name()] {
+				fmt.Printf("  WARN orphan %s/%s (not in sync-docs.yaml, may be stale)\n", section, e.Name())
+			}
+		}
+	}
+
+	checkDir(filepath.Join(outDir, "engineering-journal"), expectedJournal, "engineering-journal")
+	checkDir(filepath.Join(outDir, "faq"), expectedFaq, "faq")
 }
 
 // resolveRoot finds the project root by looking for go.mod.
@@ -147,12 +212,18 @@ func syncImages(docsDir, websiteDir string, dryRun bool) int {
 			return nil
 		}
 
-		os.MkdirAll(filepath.Dir(dstPath), 0755)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			fmt.Printf("  ERROR mkdir %s: %v\n", filepath.Dir(dstPath), err)
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
 		}
-		os.WriteFile(dstPath, data, 0644)
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			fmt.Printf("  ERROR write %s: %v\n", rel, err)
+			return nil
+		}
 		count++
 		return nil
 	})
@@ -225,7 +296,7 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 	body = promoteHeadings(body)
 	body = rewriteQuickStartLinks(body)
 
-	output := buildFrontMatter(quickStartMeta.Title, quickStartMeta.Weight, quickStartMeta.Description)
+	output := buildFrontMatter(cfg.QuickStart.Title, cfg.QuickStart.Weight, cfg.QuickStart.Description)
 	output += buildSyncComment("README.md")
 	output += "\n" + body
 
@@ -246,21 +317,21 @@ func syncQuickStart(root, outDir string, dryRun bool) bool {
 // syncRelaySetup syncs docs/RELAY-SETUP.md.
 func syncRelaySetup(root, outDir string, dryRun bool) bool {
 	docsDir := filepath.Join(root, "docs")
-	srcPath := filepath.Join(docsDir, relaySetupMeta.Source)
+	srcPath := filepath.Join(docsDir, cfg.RelaySetup.Source)
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		fmt.Printf("  SKIP relay-setup (%s not found)\n", relaySetupMeta.Source)
+		fmt.Printf("  SKIP relay-setup (%s not found)\n", cfg.RelaySetup.Source)
 		return false
 	}
 
 	body := stripFirstHeading(string(data))
 
-	output := buildFrontMatter(relaySetupMeta.Title, relaySetupMeta.Weight, relaySetupMeta.Description)
-	output += buildSyncComment(relaySetupMeta.Source)
+	output := buildFrontMatter(cfg.RelaySetup.Title, cfg.RelaySetup.Weight, cfg.RelaySetup.Description)
+	output += buildSyncComment(cfg.RelaySetup.Source)
 	output += "\n" + body
 
 	if dryRun {
-		fmt.Printf("  WOULD SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
+		fmt.Printf("  WOULD SYNC %s -> relay-setup.md\n", cfg.RelaySetup.Source)
 		return true
 	}
 
@@ -269,7 +340,7 @@ func syncRelaySetup(root, outDir string, dryRun bool) bool {
 		fmt.Printf("  ERROR relay-setup.md: %v\n", err)
 		return false
 	}
-	fmt.Printf("  SYNC %s -> relay-setup.md\n", relaySetupMeta.Source)
+	fmt.Printf("  SYNC %s -> relay-setup.md\n", cfg.RelaySetup.Source)
 	return true
 }
 
@@ -362,22 +433,22 @@ func generateLLMSFull(root, docsDir, websiteDir string, dryRun bool) bool {
 	appendFile(&b, filepath.Join(root, "README.md"), separator)
 
 	// Docs in user-journey order
-	for _, entry := range docEntries {
+	for _, entry := range cfg.Docs {
 		appendFile(&b, filepath.Join(docsDir, entry.Source), separator)
 	}
 
 	// FAQ sub-pages in order
-	for _, entry := range faqEntries {
+	for _, entry := range cfg.FAQ {
 		appendFile(&b, filepath.Join(docsDir, "faq", entry.Source), separator)
 	}
 
 	// Engineering journal in order
-	for _, entry := range journalEntries {
+	for _, entry := range cfg.Journal {
 		appendFile(&b, filepath.Join(docsDir, "engineering-journal", entry.Source), separator)
 	}
 
 	// Relay setup last
-	appendFile(&b, filepath.Join(docsDir, relaySetupMeta.Source), separator)
+	appendFile(&b, filepath.Join(docsDir, cfg.RelaySetup.Source), separator)
 
 	outPath := filepath.Join(websiteDir, "static", "llms-full.txt")
 	content := b.String()

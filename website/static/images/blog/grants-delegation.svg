@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes shrinkBar { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
+    @keyframes hopCount { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+    @keyframes arrowPulse { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.8s both; }
+    .f3 { animation: fadeIn 0.5s ease-out 1.3s both; }
+    .f4 { animation: fadeIn 0.5s ease-out 1.8s both; }
+    .f5 { animation: fadeIn 0.5s ease-out 2.3s both; }
+    .shrink { animation: shrinkBar 3s ease-in-out infinite; }
+    .hop { animation: hopCount 2s ease-in-out infinite; }
+    .arr { stroke-dasharray: 8 8; animation: arrowPulse 1.5s linear infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="900" height="420" fill="#0a0a1a"/>
+  <text x="450" y="32" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">DELEGATION - EACH HOP CAN ONLY NARROW</text>
+
+  <!-- Admin (origin) -->
+  <g class="f1">
+    <circle cx="95" cy="200" r="48" stroke="#00d4aa" stroke-width="2" fill="#00d4aa" fill-opacity="0.06"/>
+    <text x="95" y="195" text-anchor="middle" font-size="16" font-weight="700" fill="#00d4aa">Admin</text>
+    <text x="95" y="214" text-anchor="middle" font-size="12" fill="#00d4aa" opacity="0.6">root key</text>
+  </g>
+
+  <!-- Peer B -->
+  <g class="f2">
+    <circle cx="320" cy="200" r="42" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.06"/>
+    <text x="320" y="195" text-anchor="middle" font-size="15" font-weight="600" fill="#ffb347">Peer B</text>
+    <text x="320" y="214" text-anchor="middle" font-size="11" fill="#ffb347" opacity="0.6">granted</text>
+  </g>
+
+  <!-- Peer C -->
+  <g class="f3">
+    <circle cx="560" cy="200" r="42" stroke="#4488ff" stroke-width="1.5" fill="#4488ff" fill-opacity="0.06"/>
+    <text x="560" y="195" text-anchor="middle" font-size="15" font-weight="600" fill="#4488ff">Peer C</text>
+    <text x="560" y="214" text-anchor="middle" font-size="11" fill="#4488ff" opacity="0.6">delegated</text>
+  </g>
+
+  <!-- Peer D -->
+  <g class="f4">
+    <circle cx="790" cy="200" r="48" stroke="#9966ff" stroke-width="1.5" fill="#9966ff" fill-opacity="0.06"/>
+    <text x="790" y="193" text-anchor="middle" font-size="15" font-weight="600" fill="#9966ff">Peer D</text>
+    <text x="790" y="212" text-anchor="middle" font-size="10" fill="#9966ff" opacity="0.6">sub-delegated</text>
+  </g>
+
+  <!-- Arrows between nodes -->
+  <line x1="143" y1="195" x2="278" y2="195" stroke="#00d4aa" stroke-width="1.5" class="arr"/>
+  <polygon points="273,191 283,195 273,199" fill="#00d4aa" opacity="0.5"/>
+
+  <line x1="362" y1="195" x2="518" y2="195" stroke="#ffb347" stroke-width="1.5" class="arr"/>
+  <polygon points="513,191 523,195 513,199" fill="#ffb347" opacity="0.5"/>
+
+  <line x1="602" y1="195" x2="742" y2="195" stroke="#4488ff" stroke-width="1.5" class="arr"/>
+  <polygon points="737,191 747,195 737,199" fill="#4488ff" opacity="0.5"/>
+
+  <!-- Permission bars (shrinking at each hop) -->
+  <g class="f1">
+    <text x="95" y="272" text-anchor="middle" font-size="11" fill="#888">permissions</text>
+    <rect x="20" y="280" width="150" height="10" rx="5" fill="#00d4aa" opacity="0.5" class="shrink"/>
+    <text x="95" y="308" text-anchor="middle" font-size="12" fill="#00d4aa" class="mono hop">3 hops</text>
+    <text x="95" y="325" text-anchor="middle" font-size="11" fill="#888">all services, 24h</text>
+  </g>
+
+  <g class="f2">
+    <rect x="255" y="280" width="130" height="10" rx="5" fill="#ffb347" opacity="0.5" class="shrink"/>
+    <text x="320" y="308" text-anchor="middle" font-size="12" fill="#ffb347" class="mono hop">2 hops</text>
+    <text x="320" y="325" text-anchor="middle" font-size="11" fill="#888">browse+download, 12h</text>
+  </g>
+
+  <g class="f3">
+    <rect x="500" y="280" width="110" height="10" rx="5" fill="#4488ff" opacity="0.5" class="shrink"/>
+    <text x="560" y="308" text-anchor="middle" font-size="12" fill="#4488ff" class="mono hop">1 hop</text>
+    <text x="560" y="325" text-anchor="middle" font-size="11" fill="#888">browse only, 4h</text>
+  </g>
+
+  <g class="f4">
+    <rect x="740" y="280" width="90" height="10" rx="5" fill="#9966ff" opacity="0.5" class="shrink"/>
+    <text x="790" y="308" text-anchor="middle" font-size="12" fill="#9966ff" class="mono hop">0 hops</text>
+    <text x="790" y="325" text-anchor="middle" font-size="11" fill="#888">browse only, 2h</text>
+  </g>
+
+  <!-- Verification arrow back to admin -->
+  <g class="f5">
+    <path d="M790,248 L790,360 L95,360 L95,250" stroke="#00d4aa" stroke-width="1" stroke-dasharray="4 4" opacity="0.3"/>
+    <polygon points="91,255 95,245 99,255" fill="#00d4aa" opacity="0.3"/>
+    <text x="450" y="382" text-anchor="middle" font-size="12" fill="#00d4aa" opacity="0.5">D presents token to Admin - HMAC chain verifies with root key</text>
+  </g>
+
+  <!-- Caveat chain labels -->
+  <g class="f1">
+    <text x="210" y="82" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.5" class="mono">peer_id=B</text>
+    <text x="210" y="98" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.5" class="mono">max_delegations=3</text>
+  </g>
+  <g class="f2">
+    <text x="440" y="82" text-anchor="middle" font-size="10" fill="#ffb347" opacity="0.5" class="mono">+ delegate_to=C</text>
+    <text x="440" y="98" text-anchor="middle" font-size="10" fill="#ffb347" opacity="0.5" class="mono">+ max_delegations=2</text>
+  </g>
+  <g class="f3">
+    <text x="680" y="82" text-anchor="middle" font-size="10" fill="#4488ff" opacity="0.5" class="mono">+ delegate_to=D</text>
+    <text x="680" y="98" text-anchor="middle" font-size="10" fill="#4488ff" opacity="0.5" class="mono">+ max_delegations=1</text>
+  </g>
+
+  <!-- Arrow labels -->
+  <text x="210" y="186" text-anchor="middle" font-size="11" fill="#00d4aa" opacity="0.5">grant</text>
+  <text x="440" y="186" text-anchor="middle" font-size="11" fill="#ffb347" opacity="0.5">delegate</text>
+  <text x="680" y="186" text-anchor="middle" font-size="11" fill="#4488ff" opacity="0.5">sub-delegate</text>
+</svg>

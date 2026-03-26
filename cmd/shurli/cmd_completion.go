@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 func runCompletion(args []string) {
@@ -53,12 +56,70 @@ func runCompletion(args []string) {
 	// Default: print script to stdout.
 	switch shell {
 	case "bash":
-		fmt.Print(completionBash)
+		fmt.Print(buildCompletionBash())
 	case "zsh":
-		fmt.Print(completionZsh)
+		fmt.Print(buildCompletionZsh())
 	case "fish":
-		fmt.Print(completionFish)
+		fmt.Print(buildCompletionFish())
 	}
+}
+
+// buildCompletionBash returns the bash completion script with plugin commands injected.
+// enabledPluginCommands returns only commands from enabled plugins.
+func enabledPluginCommands() []plugin.CLICommandEntry {
+	all := plugin.CLICommandDescriptions()
+	var enabled []plugin.CLICommandEntry
+	for _, cmd := range all {
+		if isPluginEnabledInConfig(cmd.PluginName) {
+			enabled = append(enabled, cmd)
+		}
+	}
+	return enabled
+}
+
+func buildCompletionBash() string {
+	cmds := enabledPluginCommands()
+	if len(cmds) == 0 {
+		return completionBash
+	}
+	// Inject plugin command names into the top-level commands= string.
+	var names []string
+	for _, cmd := range cmds {
+		names = append(names, cmd.Name)
+	}
+	extra := strings.Join(names, " ")
+	s := strings.Replace(completionBash, "PLUGIN_COMMANDS_PLACEHOLDER", extra, 1)
+	// Inject plugin case branches.
+	s = strings.Replace(s, "# PLUGIN_CASES_PLACEHOLDER", plugin.GenerateBashCompletion(cmds), 1)
+	return s
+}
+
+// buildCompletionZsh returns the zsh completion script with plugin commands injected.
+func buildCompletionZsh() string {
+	cmds := enabledPluginCommands()
+	if len(cmds) == 0 {
+		return completionZsh
+	}
+	// Inject plugin command descriptions.
+	var entries []string
+	for _, cmd := range cmds {
+		desc := strings.ReplaceAll(cmd.Description, "'", "'\\''")
+		entries = append(entries, fmt.Sprintf("        '%s:%s'", cmd.Name, desc))
+	}
+	s := strings.Replace(completionZsh, "        # PLUGIN_COMMANDS_PLACEHOLDER", strings.Join(entries, "\n"), 1)
+	// Inject plugin case branches.
+	s = strings.Replace(s, "        # PLUGIN_CASES_PLACEHOLDER", plugin.GenerateZshCompletion(cmds), 1)
+	return s
+}
+
+// buildCompletionFish returns the fish completion script with plugin commands injected.
+func buildCompletionFish() string {
+	cmds := enabledPluginCommands()
+	if len(cmds) == 0 {
+		return completionFish
+	}
+	s := strings.Replace(completionFish, "# PLUGIN_COMMANDS_PLACEHOLDER\n", plugin.GenerateFishCompletion(cmds), 1)
+	return s
 }
 
 // completionInstallPath returns the install path for a given shell.
@@ -98,11 +159,11 @@ func installCompletion(shell string) {
 	var content string
 	switch shell {
 	case "bash":
-		content = completionBash
+		content = buildCompletionBash()
 	case "zsh":
-		content = completionZsh
+		content = buildCompletionZsh()
 	case "fish":
-		content = completionFish
+		content = buildCompletionFish()
 	}
 
 	// Create parent directory.
@@ -167,19 +228,20 @@ _shurli_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init daemon proxy ping traceroute resolve send download share browse transfers accept reject cancel whoami auth relay config invite join verify service status recover change-password lock unlock session doctor completion man version help"
+    local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify reconnect status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
-    local auth_cmds="add list remove validate"
-    local share_cmds="add remove list"
-    local config_cmds="validate show set rollback apply confirm"
-    local relay_cmds="add list remove show setup serve authorize deauthorize list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
+    local auth_cmds="add list remove validate set-attr grant grants revoke extend delegate pouch audit"
+    local config_cmds="validate show set reload rollback apply confirm"
+    local relay_cmds="add list remove seeds show setup serve authorize deauthorize set-attr grant grants revoke extend list-peers verify info invite vault seal unseal seal-status config version zkp-setup zkp-test motd goodbye recover"
     local relay_invite_cmds="create list revoke"
     local relay_vault_cmds="init seal unseal status change-password"
     local relay_motd_cmds="set clear status"
     local relay_goodbye_cmds="set retract shutdown status"
     local relay_config_cmds="show validate rollback"
     local service_cmds="add list remove enable disable"
+    local plugin_cmds="list enable disable info disable-all"
+    local notify_cmds="test list"
     local completion_shells="bash zsh fish"
 
     case "${words[1]}" in
@@ -210,6 +272,17 @@ _shurli_completions() {
                 list|remove|validate)
                     COMPREPLY=($(compgen -W "--config --file" -- "$cur"))
                     return ;;
+                grant)
+                    COMPREPLY=($(compgen -W "--duration --services --permanent --delegate" -- "$cur"))
+                    return ;;
+                extend)
+                    COMPREPLY=($(compgen -W "--duration" -- "$cur"))
+                    return ;;
+                delegate)
+                    COMPREPLY=($(compgen -W "--to --duration --services --delegate" -- "$cur"))
+                    return ;;
+                grants|revoke)
+                    return ;;
                 *)
                     COMPREPLY=($(compgen -W "$auth_cmds" -- "$cur"))
                     return ;;
@@ -239,8 +312,17 @@ _shurli_completions() {
                 list|info|seal|seal-status|version)
                     COMPREPLY=($(compgen -W "--config" -- "$cur"))
                     return ;;
-                authorize|deauthorize|list-peers)
+                authorize|deauthorize|list-peers|grants)
                     COMPREPLY=($(compgen -W "--config --remote" -- "$cur"))
+                    return ;;
+                grant)
+                    COMPREPLY=($(compgen -W "--duration --services --permanent --remote" -- "$cur"))
+                    return ;;
+                revoke)
+                    COMPREPLY=($(compgen -W "--remote" -- "$cur"))
+                    return ;;
+                extend)
+                    COMPREPLY=($(compgen -W "--duration --remote" -- "$cur"))
                     return ;;
                 remove)
                     COMPREPLY=($(compgen -W "--config --force -f" -- "$cur"))
@@ -324,6 +406,22 @@ _shurli_completions() {
                     return ;;
             esac
             ;;
+        plugin)
+            case "${words[2]}" in
+                list|info)
+                    COMPREPLY=($(compgen -W "--json" -- "$cur"))
+                    return ;;
+                *)
+                    COMPREPLY=($(compgen -W "$plugin_cmds" -- "$cur"))
+                    return ;;
+            esac
+            ;;
+        notify)
+            COMPREPLY=($(compgen -W "$notify_cmds" -- "$cur"))
+            return ;;
+        reconnect)
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
+            return ;;
         recover)
             COMPREPLY=($(compgen -W "--relay --dir" -- "$cur"))
             return ;;
@@ -342,34 +440,7 @@ _shurli_completions() {
         resolve)
             COMPREPLY=($(compgen -W "--config --json" -- "$cur"))
             return ;;
-        share)
-            if [[ $COMP_CWORD -eq 2 ]]; then
-                COMPREPLY=($(compgen -W "$share_cmds" -- "$cur"))
-            else
-                COMPREPLY=($(compgen -W "--to --peers --persist --json" -- "$cur"))
-            fi
-            return ;;
-        browse)
-            COMPREPLY=($(compgen -W "--json --path" -- "$cur"))
-            return ;;
-        download)
-            COMPREPLY=($(compgen -W "--json --dest --follow --quiet --silent --multi-peer --peers" -- "$cur"))
-            return ;;
-        send)
-            COMPREPLY=($(compgen -W "--json --follow --no-compress --streams --priority --quiet --silent" -- "$cur"))
-            return ;;
-        transfers)
-            COMPREPLY=($(compgen -W "--json --watch --history --max" -- "$cur"))
-            return ;;
-        accept)
-            COMPREPLY=($(compgen -W "--json --dest --all" -- "$cur"))
-            return ;;
-        reject)
-            COMPREPLY=($(compgen -W "--json --reason --all" -- "$cur"))
-            return ;;
-        cancel)
-            COMPREPLY=($(compgen -W "--json" -- "$cur"))
-            return ;;
+        # PLUGIN_CASES_PLACEHOLDER
         proxy)
             COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
             return ;;
@@ -377,10 +448,10 @@ _shurli_completions() {
             COMPREPLY=($(compgen -W "--config" -- "$cur"))
             return ;;
         invite)
-            COMPREPLY=($(compgen -W "--config --name --ttl --non-interactive" -- "$cur"))
+            COMPREPLY=($(compgen -W "--config --as --ttl --non-interactive" -- "$cur"))
             return ;;
         join)
-            COMPREPLY=($(compgen -W "--config --name --non-interactive" -- "$cur"))
+            COMPREPLY=($(compgen -W "--config --as --non-interactive" -- "$cur"))
             return ;;
         init)
             COMPREPLY=($(compgen -W "--dir --network" -- "$cur"))
@@ -425,14 +496,7 @@ _shurli() {
         'ping:P2P ping'
         'traceroute:P2P traceroute'
         'resolve:Resolve name to peer ID'
-        'send:Send file to peer'
-        'download:Download from a peer'"'"'s shares'
-        'share:Share files and directories'
-        'browse:Browse a peer'"'"'s shared files'
-        'transfers:List/watch file transfers'
-        'accept:Accept a pending transfer'
-        'reject:Reject a pending transfer'
-        'cancel:Cancel a queued or active transfer'
+        # PLUGIN_COMMANDS_PLACEHOLDER
         'whoami:Show your peer ID'
         'auth:Identity and access management'
         'relay:Relay client and server commands'
@@ -441,6 +505,9 @@ _shurli() {
         'join:Join using an invite code'
         'verify:Verify a peer identity (SAS)'
         'service:Manage local services'
+        'plugin:Manage plugins'
+        'notify:Notification management'
+        'reconnect:Clear backoffs and force redial'
         'status:Show local config and services'
         'recover:Recover identity from seed phrase'
         'change-password:Change identity password'
@@ -473,6 +540,14 @@ _shurli() {
         'list:List authorized peers'
         'remove:Revoke a peer'
         'validate:Validate authorized_keys format'
+        'set-attr:Set peer attribute'
+        'grant:Grant relay data access'
+        'grants:List active grants'
+        'revoke:Revoke relay data access'
+        'extend:Extend a grant'
+        'delegate:Delegate a grant to another peer'
+        'pouch:List received grant tokens'
+        'audit:View or verify audit log'
     )
 
     local -a config_cmds
@@ -480,6 +555,7 @@ _shurli() {
         'validate:Validate config'
         'show:Show resolved config'
         'set:Set a config value'
+        'reload:Reload config into running daemon'
         'rollback:Restore last-known-good config'
         'apply:Apply config with auto-revert'
         'confirm:Confirm applied config'
@@ -490,11 +566,13 @@ _shurli() {
         'add:Add a relay server'
         'list:List relay servers'
         'remove:Remove a relay server'
+        'seeds:Add or remove public seed nodes'
         'show:Show resolved relay config'
         'setup:Initialize relay server config'
         'serve:Start the relay server'
         'authorize:Allow a peer'
         'deauthorize:Remove peer access'
+        'set-attr:Set peer attribute'
         'list-peers:List authorized peers'
         'verify:Verify a peer identity (SAS)'
         'info:Show peer ID and multiaddrs'
@@ -510,6 +588,10 @@ _shurli() {
         'motd:Manage relay MOTD'
         'goodbye:Manage goodbye announcements'
         'recover:Recover relay identity from seed'
+        'grant:Grant time-limited data relay access'
+        'grants:List active data relay grants'
+        'revoke:Revoke data relay access'
+        'extend:Extend data relay grant'
     )
 
     local -a relay_invite_cmds
@@ -559,6 +641,21 @@ _shurli() {
         'disable:Disable a service'
     )
 
+    local -a plugin_cmds
+    plugin_cmds=(
+        'list:List all plugins'
+        'enable:Enable a plugin'
+        'disable:Disable a plugin'
+        'info:Show plugin details'
+        'disable-all:Emergency disable all plugins'
+    )
+
+    local -a notify_cmds
+    notify_cmds=(
+        'test:Send test notification to all sinks'
+        'list:Show configured notification sinks'
+    )
+
     local -a completion_shells
     completion_shells=('bash' 'zsh' 'fish')
 
@@ -589,7 +686,18 @@ _shurli() {
             if (( CURRENT == 3 )); then
                 _describe -t auth_cmds 'auth subcommand' auth_cmds
             else
-                _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' '--comment[Peer comment]:comment' '--role[Peer role (admin/member)]:role:(admin member)'
+                case "${words[3]}" in
+                    grant)
+                        _arguments '--duration[Grant duration]:duration' '--services[Comma-separated services]:services' '--permanent[Permanent grant]' '--delegate[Delegation hops (0=none, N=limited, -1=unlimited)]:hops' ;;
+                    extend)
+                        _arguments '--duration[Extension duration]:duration' ;;
+                    delegate)
+                        _arguments '--to[Target peer]:peer' '--duration[Shorter duration]:duration' '--services[Fewer services]:services' '--delegate[Further delegation hops]:hops' ;;
+                    add)
+                        _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' '--comment[Peer comment]:comment' '--role[Peer role (admin/member)]:role:(admin member)' ;;
+                    *)
+                        _arguments '--config[Config file]:file:_files' '--file[authorized_keys path]:file:_files' ;;
+                esac
             fi
             ;;
         config)
@@ -619,8 +727,14 @@ _shurli() {
                         _arguments '--config[Config file]:file:_files' ;;
                     setup)
                         _arguments '--dir[Relay directory]:dir:_directories' '--fresh[Non-interactive fresh setup]' '--non-interactive[Fail if prompts needed]' ;;
-                    authorize|deauthorize|list-peers)
+                    authorize|deauthorize|list-peers|grants)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' ;;
+                    grant)
+                        _arguments '--duration[Grant duration]:duration' '--services[Service names]:services' '--permanent[No expiry]' '--remote[Relay multiaddr]:addr' ;;
+                    revoke)
+                        _arguments '--remote[Relay multiaddr]:addr' ;;
+                    extend)
+                        _arguments '--duration[New duration]:duration' '--remote[Relay multiaddr]:addr' ;;
                     unseal)
                         _arguments '--config[Config file]:file:_files' '--remote[Relay multiaddr]:addr' '--totp[Prompt for TOTP code]' ;;
                     invite)
@@ -678,43 +792,38 @@ _shurli() {
                 _arguments '--config[Config file]:file:_files' '--protocol[Custom protocol ID]:protocol'
             fi
             ;;
+        plugin)
+            if (( CURRENT == 3 )); then
+                _describe -t plugin_cmds 'plugin subcommand' plugin_cmds
+            else
+                case "${words[3]}" in
+                    list|info)
+                        _arguments '--json[Output as JSON]' ;;
+                esac
+            fi
+            ;;
+        notify)
+            if (( CURRENT == 3 )); then
+                _describe -t notify_cmds 'notify subcommand' notify_cmds
+            fi
+            ;;
         ping)
             _arguments '--config[Config file]:file:_files' '-c[Number of pings]:count' '-n[Number of pings]:count' '--interval[Ping interval]:interval' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         traceroute)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' '--standalone[Direct P2P mode]' ;;
         resolve)
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
-        share)
-            if (( CURRENT == 3 )); then
-                local -a share_cmds
-                share_cmds=('add:Share a file or directory' 'remove:Stop sharing a path' 'list:List shared paths')
-                _describe -t share_cmds 'share subcommand' share_cmds
-            else
-                _arguments '--to[Share with a single peer]:peer' '--peers[Comma-separated peer IDs]:peers' '--persist[Survive daemon restart]' '--json[Output as JSON]' '*:path:_files'
-            fi
-            ;;
-        browse)
-            _arguments '--json[Output as JSON]' '--path[Browse within a shared directory]:path' ;;
-        download)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--follow[Follow transfer progress]' '--quiet[Single progress bar]' '--silent[No progress output]' '--multi-peer[Download from multiple peers (RaptorQ)]' '--peers[Extra peer names for multi-peer]:peers' ;;
-        send)
-            _arguments '--json[Output as JSON]' '--follow[Follow transfer progress]' '--no-compress[Disable zstd compression]' '--streams[Parallel stream count]:count' '--priority[Queue priority (low|normal|high)]:priority:(low normal high)' '--quiet[Single progress bar]' '--silent[No progress output]' '*:file:_files' ;;
-        transfers)
-            _arguments '--json[Output as JSON]' '--watch[Live feed (refreshes every 2s)]' '--history[Show transfer event history]' '--max[Max history events]:count' ;;
-        accept)
-            _arguments '--json[Output as JSON]' '--dest[Save to specific directory]:directory:_directories' '--all[Accept all pending transfers]' ;;
-        reject)
-            _arguments '--json[Output as JSON]' '--reason[Reject reason]:reason:(space busy size)' '--all[Reject all pending transfers]' ;;
-        cancel)
-            _arguments '--json[Output as JSON]' ;;
+        # PLUGIN_CASES_PLACEHOLDER
         proxy)
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
             _arguments '--config[Config file]:file:_files' ;;
         invite)
-            _arguments '--config[Config file]:file:_files' '--name[Peer name]:name' '--ttl[Invite TTL]:duration' '--non-interactive[Machine-friendly output]' ;;
+            _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--ttl[Invite TTL]:duration' '--non-interactive[Machine-friendly output]' ;;
         join)
-            _arguments '--config[Config file]:file:_files' '--name[Peer name]:name' '--non-interactive[Machine-friendly output]' ;;
+            _arguments '--config[Config file]:file:_files' '--as[Your node name]:name' '--non-interactive[Machine-friendly output]' ;;
+        reconnect)
+            _arguments '--json[Output as JSON]' ;;
         recover)
             _arguments '--relay[Also recover relay vault]' '--dir[Config directory]:dir:_directories' ;;
         change-password)
@@ -781,14 +890,7 @@ complete -c shurli -n __shurli_no_subcommand -a proxy       -d 'Forward TCP port
 complete -c shurli -n __shurli_no_subcommand -a ping        -d 'P2P ping'
 complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
-complete -c shurli -n __shurli_no_subcommand -a send        -d 'Send file to peer'
-complete -c shurli -n __shurli_no_subcommand -a download    -d 'Download from a peer'"'"'s shares'
-complete -c shurli -n __shurli_no_subcommand -a share       -d 'Share files and directories'
-complete -c shurli -n __shurli_no_subcommand -a browse      -d 'Browse a peer'"'"'s shared files'
-complete -c shurli -n __shurli_no_subcommand -a transfers   -d 'List/watch file transfers'
-complete -c shurli -n __shurli_no_subcommand -a accept      -d 'Accept a pending transfer'
-complete -c shurli -n __shurli_no_subcommand -a reject      -d 'Reject a pending transfer'
-complete -c shurli -n __shurli_no_subcommand -a cancel      -d 'Cancel a queued or active transfer'
+# PLUGIN_COMMANDS_PLACEHOLDER
 complete -c shurli -n __shurli_no_subcommand -a whoami      -d 'Show your peer ID'
 complete -c shurli -n __shurli_no_subcommand -a auth        -d 'Identity and access management'
 complete -c shurli -n __shurli_no_subcommand -a relay       -d 'Relay client and server'
@@ -797,6 +899,9 @@ complete -c shurli -n __shurli_no_subcommand -a invite      -d 'Create an invite
 complete -c shurli -n __shurli_no_subcommand -a join        -d 'Join using an invite code'
 complete -c shurli -n __shurli_no_subcommand -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n __shurli_no_subcommand -a service     -d 'Manage local services'
+complete -c shurli -n __shurli_no_subcommand -a plugin      -d 'Manage plugins'
+complete -c shurli -n __shurli_no_subcommand -a notify      -d 'Notification management'
+complete -c shurli -n __shurli_no_subcommand -a reconnect   -d 'Clear backoffs and force redial'
 complete -c shurli -n __shurli_no_subcommand -a status      -d 'Show local config and services'
 complete -c shurli -n __shurli_no_subcommand -a recover         -d 'Recover identity from seed phrase'
 complete -c shurli -n __shurli_no_subcommand -a change-password -d 'Change identity password'
@@ -842,6 +947,7 @@ complete -c shurli -n '__shurli_using_command auth' -a add      -d 'Authorize a 
 complete -c shurli -n '__shurli_using_command auth' -a list     -d 'List authorized peers'
 complete -c shurli -n '__shurli_using_command auth' -a remove   -d 'Revoke a peer'
 complete -c shurli -n '__shurli_using_command auth' -a validate -d 'Validate authorized_keys'
+complete -c shurli -n '__shurli_using_command auth' -a set-attr -d 'Set peer attribute'
 
 complete -c shurli -n '__shurli_using_subcommand auth add'      -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand auth add'      -l file    -d 'authorized_keys path'
@@ -853,11 +959,31 @@ complete -c shurli -n '__shurli_using_subcommand auth remove'   -l config  -d 'C
 complete -c shurli -n '__shurli_using_subcommand auth remove'   -l file    -d 'authorized_keys path'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand auth validate' -l file    -d 'authorized_keys path'
+complete -c shurli -n '__shurli_using_command auth' -a grant    -d 'Grant relay data access'
+complete -c shurli -n '__shurli_using_command auth' -a grants   -d 'List active grants'
+complete -c shurli -n '__shurli_using_command auth' -a revoke   -d 'Revoke relay data access'
+complete -c shurli -n '__shurli_using_command auth' -a extend   -d 'Extend a grant'
+complete -c shurli -n '__shurli_using_command auth' -a delegate -d 'Delegate a grant to another peer'
+complete -c shurli -n '__shurli_using_command auth' -a pouch    -d 'List received grant tokens'
+complete -c shurli -n '__shurli_using_command auth' -a audit    -d 'View or verify audit log'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l duration  -d 'Grant duration (e.g. 1h, 7d)'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l services  -d 'Comma-separated services'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l permanent -d 'Permanent grant'
+complete -c shurli -n '__shurli_using_subcommand auth grant'    -l delegate  -d 'Delegation hops (0=none, N, -1=unlimited)'
+complete -c shurli -n '__shurli_using_subcommand auth extend'   -l duration  -d 'Extension duration'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l to        -d 'Target peer'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l duration  -d 'Shorter duration'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l services  -d 'Fewer services'
+complete -c shurli -n '__shurli_using_subcommand auth delegate' -l delegate  -d 'Further delegation hops'
+complete -c shurli -n '__shurli_using_subcommand auth pouch'    -l json      -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_subcommand auth audit'    -l verify    -d 'Verify chain integrity'
+complete -c shurli -n '__shurli_using_subcommand auth audit'    -l tail      -d 'Recent entries to show'
 
 # --- config subcommands ---
 complete -c shurli -n '__shurli_using_command config' -a validate -d 'Validate config'
 complete -c shurli -n '__shurli_using_command config' -a show     -d 'Show resolved config'
 complete -c shurli -n '__shurli_using_command config' -a set      -d 'Set a config value'
+complete -c shurli -n '__shurli_using_command config' -a reload   -d 'Reload config into running daemon'
 complete -c shurli -n '__shurli_using_command config' -a rollback -d 'Restore last-known-good config'
 complete -c shurli -n '__shurli_using_command config' -a apply    -d 'Apply config with auto-revert'
 complete -c shurli -n '__shurli_using_command config' -a confirm  -d 'Confirm applied config'
@@ -875,11 +1001,13 @@ complete -c shurli -n '__shurli_using_subcommand config confirm'  -l config -d '
 complete -c shurli -n '__shurli_using_command relay' -a add         -d 'Add a relay server'
 complete -c shurli -n '__shurli_using_command relay' -a list        -d 'List relay servers'
 complete -c shurli -n '__shurli_using_command relay' -a remove      -d 'Remove a relay server'
+complete -c shurli -n '__shurli_using_command relay' -a seeds       -d 'Add or remove public seed nodes'
 complete -c shurli -n '__shurli_using_command relay' -a show        -d 'Show resolved relay config'
 complete -c shurli -n '__shurli_using_command relay' -a setup       -d 'Initialize relay server config'
 complete -c shurli -n '__shurli_using_command relay' -a serve       -d 'Start the relay server'
 complete -c shurli -n '__shurli_using_command relay' -a authorize   -d 'Allow a peer'
 complete -c shurli -n '__shurli_using_command relay' -a deauthorize -d 'Remove peer access'
+complete -c shurli -n '__shurli_using_command relay' -a set-attr    -d 'Set peer attribute'
 complete -c shurli -n '__shurli_using_command relay' -a list-peers  -d 'List authorized peers'
 complete -c shurli -n '__shurli_using_command relay' -a verify      -d 'Verify a peer identity (SAS)'
 complete -c shurli -n '__shurli_using_command relay' -a info        -d 'Show peer ID and multiaddrs'
@@ -895,6 +1023,10 @@ complete -c shurli -n '__shurli_using_command relay' -a zkp-test    -d 'End-to-e
 complete -c shurli -n '__shurli_using_command relay' -a motd        -d 'Manage relay MOTD'
 complete -c shurli -n '__shurli_using_command relay' -a goodbye     -d 'Manage goodbye announcements'
 complete -c shurli -n '__shurli_using_command relay' -a recover     -d 'Recover relay identity from seed'
+complete -c shurli -n '__shurli_using_command relay' -a grant       -d 'Grant time-limited data relay access'
+complete -c shurli -n '__shurli_using_command relay' -a grants      -d 'List active data relay grants'
+complete -c shurli -n '__shurli_using_command relay' -a revoke      -d 'Revoke data relay access'
+complete -c shurli -n '__shurli_using_command relay' -a extend      -d 'Extend data relay grant'
 
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay add'    -l peer-id -d 'Relay peer ID'
@@ -907,6 +1039,14 @@ complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l config -d
 complete -c shurli -n '__shurli_using_subcommand relay deauthorize' -l remote -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l config -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay list-peers'  -l remote -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l duration  -d 'Grant duration'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l services  -d 'Comma-separated services'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l permanent -d 'Permanent grant'
+complete -c shurli -n '__shurli_using_subcommand relay grant'       -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay grants'      -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay revoke'      -l remote    -d 'Relay multiaddr'
+complete -c shurli -n '__shurli_using_subcommand relay extend'      -l duration  -d 'New duration'
+complete -c shurli -n '__shurli_using_subcommand relay extend'      -l remote    -d 'Relay multiaddr'
 complete -c shurli -n '__shurli_using_subcommand relay serve'  -l config  -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l dir     -d 'Relay directory'
 complete -c shurli -n '__shurli_using_subcommand relay setup'  -l fresh   -d 'Non-interactive fresh setup'
@@ -968,6 +1108,23 @@ complete -c shurli -n '__shurli_using_subcommand service remove'  -l config   -d
 complete -c shurli -n '__shurli_using_subcommand service enable'  -l config   -d 'Config file'
 complete -c shurli -n '__shurli_using_subcommand service disable' -l config   -d 'Config file'
 
+# --- plugin subcommands ---
+complete -c shurli -n '__shurli_using_command plugin' -a list        -d 'List all plugins'
+complete -c shurli -n '__shurli_using_command plugin' -a enable      -d 'Enable a plugin'
+complete -c shurli -n '__shurli_using_command plugin' -a disable     -d 'Disable a plugin'
+complete -c shurli -n '__shurli_using_command plugin' -a info        -d 'Show plugin details'
+complete -c shurli -n '__shurli_using_command plugin' -a disable-all -d 'Emergency disable all plugins'
+
+complete -c shurli -n '__shurli_using_subcommand plugin list' -l json -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_subcommand plugin info' -l json -d 'Output as JSON'
+
+# --- notify subcommands ---
+complete -c shurli -n '__shurli_using_command notify' -a test -d 'Send test notification'
+complete -c shurli -n '__shurli_using_command notify' -a list -d 'Show configured sinks'
+
+# --- reconnect ---
+complete -c shurli -n '__shurli_using_command reconnect'   -l json       -d 'Output as JSON'
+
 # --- standalone commands with flags ---
 complete -c shurli -n '__shurli_using_command ping'       -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command ping'       -s c          -d 'Number of pings'
@@ -980,40 +1137,6 @@ complete -c shurli -n '__shurli_using_command traceroute' -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command traceroute' -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command resolve'    -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command send'       -l follow       -d 'Follow transfer progress'
-complete -c shurli -n '__shurli_using_command send'       -l no-compress  -d 'Disable zstd compression'
-complete -c shurli -n '__shurli_using_command send'       -l streams      -d 'Parallel stream count' -r
-complete -c shurli -n '__shurli_using_command send'       -l quiet        -d 'Single progress bar'
-complete -c shurli -n '__shurli_using_command send'       -l priority     -d 'Queue priority (low|normal|high)' -r
-complete -c shurli -n '__shurli_using_command send'       -l silent       -d 'No progress output'
-complete -c shurli -n '__shurli_using_command share'      -a 'add remove list' -d 'Share subcommand'
-complete -c shurli -n '__shurli_using_subcommand share add'    -l to      -d 'Share with a single peer' -r
-complete -c shurli -n '__shurli_using_subcommand share add'    -l peers   -d 'Comma-separated peer IDs' -r
-complete -c shurli -n '__shurli_using_subcommand share add'    -l persist -d 'Survive daemon restart'
-complete -c shurli -n '__shurli_using_subcommand share add'    -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_subcommand share remove' -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_subcommand share list'   -l json    -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command browse'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command browse'     -l path         -d 'Browse within a shared directory'
-complete -c shurli -n '__shurli_using_command download'   -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command download'   -l dest         -d 'Save to specific directory' -r
-complete -c shurli -n '__shurli_using_command download'   -l follow       -d 'Follow transfer progress'
-complete -c shurli -n '__shurli_using_command download'   -l quiet        -d 'Single progress bar'
-complete -c shurli -n '__shurli_using_command download'   -l silent       -d 'No progress output'
-complete -c shurli -n '__shurli_using_command download'   -l multi-peer   -d 'Download from multiple peers (RaptorQ)'
-complete -c shurli -n '__shurli_using_command download'   -l peers        -d 'Extra peer names for multi-peer' -r
-complete -c shurli -n '__shurli_using_command transfers'  -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command transfers'  -l watch        -d 'Live feed (refreshes every 2s)'
-complete -c shurli -n '__shurli_using_command transfers'  -l history      -d 'Show transfer event history'
-complete -c shurli -n '__shurli_using_command transfers'  -l max          -d 'Max history events' -r
-complete -c shurli -n '__shurli_using_command accept'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command accept'     -l dest         -d 'Save to specific directory'
-complete -c shurli -n '__shurli_using_command accept'     -l all          -d 'Accept all pending transfers'
-complete -c shurli -n '__shurli_using_command reject'     -l json         -d 'Output as JSON'
-complete -c shurli -n '__shurli_using_command reject'     -l reason       -d 'Reject reason (space, busy, size)'
-complete -c shurli -n '__shurli_using_command reject'     -l all          -d 'Reject all pending transfers'
-complete -c shurli -n '__shurli_using_command cancel'     -l json         -d 'Output as JSON'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'

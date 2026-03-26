@@ -51,11 +51,17 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;6** | **ACL&nbsp;+&nbsp;Relay&nbsp;Security** | Macaroon tokens, sealed vault, async invites, roles | **Done** |
 | **Phase&nbsp;7** | **ZKP&nbsp;Privacy** | Anonymous auth, Poseidon2 Merkle tree, range proofs | **Done** |
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
+| **Phase&nbsp;8B** | **Per-Peer&nbsp;Data&nbsp;Grants** | Macaroon grants, token delivery, delegation, notifications, audit log | **Done** |
+| **Phase&nbsp;8C** | **ACL-to-Macaroon** | Replace all 5 ACL layers with capability tokens (M1 done, M2-M5 planned) | Partial |
+| **Phase&nbsp;8D** | **Module&nbsp;Slots** | Swappable system algorithms (reputation, auth, storage) | Planned |
 | 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | **Done** |
 | 9B | **File&nbsp;Transfer** | Chunked P2P transfer, erasure coding, multi-source download | **Done** |
+| Post-9B | **Plugin&nbsp;Architecture** | Plugin framework, file transfer extraction, supervisor, security hardening, physical retest | **Done** |
 | 9C | **Discovery&nbsp;&&nbsp;Plugins** | Service discovery, service templates, Wake-on-LAN | Planned |
 | 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK (separate repo), SDK documentation | Planned |
 | 9E | **Swift&nbsp;SDK** | Swift SDK for Apple platforms (separate repo, SPM) | Planned |
+| 9F | **Layer&nbsp;2&nbsp;WASM** | Third-party plugins in any language via wazero sandbox | Planned |
+| 9G | **Layer&nbsp;3&nbsp;AI** | AI-driven plugin generation from Skills.md specs | Future |
 
 ---
 
@@ -75,11 +81,18 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 6: ACL + Relay Security + Client Invites** | 1 day | **Complete** |
 | **Phase 7: ZKP Privacy Layer** | 1 day | **Complete** |
 | **Phase 8: Identity Security + Remote Admin** | 1 day | **Complete** |
+| **Phase 8B: Per-Peer Data Grants** | 3 days | **Complete** |
+| **Phase 8C: ACL-to-Macaroon Migration** | - | M1 complete, M2-M5 planned |
+| **Phase 8D: Module Slots** | - | Planned |
 | **Phase 9A: Core Interfaces & Library** | 1 week | **Complete** |
 | **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
+| **Post-9B: Chaos Testing + Network Hardening** | 4 days | **Complete** |
+| **Post-9B: Plugin Architecture Shift** | 5 days | **Complete** |
 | Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
 | Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
 | Phase 9E: Swift SDK | 1-2 weeks | Planned |
+| Phase 9F: Layer 2 WASM Runtime | - | Planned |
+| Phase 9G: Layer 3 AI Plugin Generation | - | Future |
 | Phase 10: Distribution & Launch | 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 3-4 weeks | Planned (separate repo: shurli-ios) |
@@ -87,7 +100,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces and file transfer (9A-9B done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces, file transfer, and plugin architecture (9A-9B + plugin shift done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/p2pnet`) stays in this repo.
 
@@ -105,4 +118,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-11. Current: Phase 9B complete (File Transfer). Next: Phase 9C-9E (Discovery, Python SDK, Swift SDK).*
+*Last updated: 2026-03-23. Current: Phase 8B (per-peer data grants) complete, plugin architecture complete. Next: Phase 8C-8D (ACL migration, module slots), Phase 9C-9G (discovery, SDKs, WASM, AI).*

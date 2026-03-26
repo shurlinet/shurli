@@ -4,45 +4,65 @@
       <stop offset="0%" style="stop-color:#141316"/>
       <stop offset="100%" style="stop-color:#1a191c"/>
     </linearGradient>
+    <linearGradient id="messGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a1e1e"/>
+      <stop offset="100%" style="stop-color:#251515"/>
+    </linearGradient>
+    <linearGradient id="cleanGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a2f"/>
+      <stop offset="100%" style="stop-color:#152a22"/>
+    </linearGradient>
   </defs>
   <rect width="1200" height="400" fill="url(#bgB)"/>
-  <!-- Abstract code structure - clean blocks representing deduplicated, well-structured code -->
-  <!-- Before: scattered blocks (left side) -->
-  <rect x="80" y="60" width="180" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <rect x="80" y="92" width="140" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <rect x="80" y="124" width="180" height="24" rx="4" fill="#f7768e" opacity="0.15"/>
-  <rect x="80" y="168" width="180" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <rect x="80" y="200" width="140" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <rect x="80" y="232" width="180" height="24" rx="4" fill="#f7768e" opacity="0.15"/>
-  <rect x="80" y="276" width="180" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <rect x="80" y="308" width="140" height="24" rx="4" fill="#f7768e" opacity="0.2"/>
-  <text x="170" y="365" font-family="SF Mono, monospace" font-size="12" fill="#f7768e" text-anchor="middle" opacity="0.5">4x duplication</text>
-  <!-- Arrow -->
-  <path d="M 420 200 L 520 200" stroke="#565f89" stroke-width="2" marker-end="url(#arrowB)"/>
-  <defs>
-    <marker id="arrowB" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#565f89"/>
-    </marker>
-  </defs>
-  <text x="470" y="185" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">deduplicate</text>
-  <!-- After: clean single block (right side) -->
-  <rect x="580" y="120" width="240" height="160" rx="8" fill="none" stroke="#9ece6a" stroke-width="2" opacity="0.6"/>
-  <rect x="600" y="140" width="200" height="20" rx="3" fill="#9ece6a" opacity="0.2"/>
-  <rect x="600" y="168" width="160" height="20" rx="3" fill="#9ece6a" opacity="0.15"/>
-  <rect x="600" y="196" width="200" height="20" rx="3" fill="#9ece6a" opacity="0.2"/>
-  <rect x="600" y="224" width="140" height="20" rx="3" fill="#9ece6a" opacity="0.15"/>
-  <text x="700" y="310" font-family="SF Mono, monospace" font-size="12" fill="#9ece6a" text-anchor="middle" opacity="0.5">BidirectionalProxy()</text>
-  <!-- Error categorization - sentinel errors as labeled nodes -->
-  <circle cx="960" cy="100" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>
-  <text x="960" y="105" font-family="SF Mono, monospace" font-size="9" fill="#bb9af7" text-anchor="middle">ErrNotFound</text>
-  <circle cx="1060" cy="140" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>
-  <text x="1060" y="145" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">ErrInvalid</text>
-  <circle cx="960" cy="200" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>
-  <text x="960" y="205" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">ErrExists</text>
-  <circle cx="1060" cy="260" r="28" fill="none" stroke="#bb9af7" stroke-width="1.5" opacity="0.6"/>
-  <text x="1060" y="265" font-family="SF Mono, monospace" font-size="8" fill="#bb9af7" text-anchor="middle">ErrConfig</text>
-  <!-- Connecting lines between error nodes -->
-  <line x1="980" y1="120" x2="1040" y2="130" stroke="#bb9af7" stroke-width="1" opacity="0.3"/>
-  <line x1="980" y1="190" x2="1040" y2="250" stroke="#bb9af7" stroke-width="1" opacity="0.3"/>
-  <text x="1010" y="340" font-family="SF Mono, monospace" font-size="12" fill="#bb9af7" text-anchor="middle" opacity="0.5">sentinel errors</text>
+
+  <!-- Left: Tangled mess of wires -->
+  <rect x="60" y="50" width="460" height="300" rx="16" fill="url(#messGrad)" stroke="#f7768e" stroke-width="1.5" opacity="0.8"/>
+  <text x="290" y="90" font-family="system-ui, sans-serif" font-size="16" fill="#f7768e" text-anchor="middle" font-weight="600">Before</text>
+
+  <!-- Tangled cables visual - overlapping curved lines -->
+  <path d="M 100 140 Q 200 120 180 200 Q 160 280 300 260 Q 440 240 400 180" fill="none" stroke="#f7768e" stroke-width="2.5" opacity="0.5"/>
+  <path d="M 140 280 Q 250 200 200 160 Q 150 120 280 130 Q 410 140 380 240" fill="none" stroke="#e8729a" stroke-width="2.5" opacity="0.4"/>
+  <path d="M 120 180 Q 180 300 300 180 Q 420 60 460 200" fill="none" stroke="#f7768e" stroke-width="2" opacity="0.35"/>
+  <path d="M 380 120 Q 200 180 220 260 Q 240 340 100 300" fill="none" stroke="#e8729a" stroke-width="2" opacity="0.4"/>
+  <path d="M 160 130 Q 300 300 460 170" fill="none" stroke="#f7768e" stroke-width="1.8" opacity="0.3"/>
+  <path d="M 460 280 Q 300 150 120 250" fill="none" stroke="#e8729a" stroke-width="2" opacity="0.35"/>
+
+  <!-- Duplicate labels scattered -->
+  <rect x="130" y="155" width="80" height="20" rx="4" fill="#f7768e" opacity="0.15"/>
+  <rect x="300" y="200" width="80" height="20" rx="4" fill="#f7768e" opacity="0.15"/>
+  <rect x="200" y="270" width="80" height="20" rx="4" fill="#f7768e" opacity="0.15"/>
+  <rect x="370" y="140" width="80" height="20" rx="4" fill="#f7768e" opacity="0.15"/>
+
+  <text x="290" y="340" font-family="system-ui, sans-serif" font-size="13" fill="#f7768e" text-anchor="middle" opacity="0.7">Same thing copied 4 times</text>
+
+  <!-- Center arrow -->
+  <line x1="550" y1="200" x2="630" y2="200" stroke="#565f89" stroke-width="2.5"/>
+  <polygon points="625,192 640,200 625,208" fill="#565f89"/>
+  <text x="595" y="230" font-family="system-ui, sans-serif" font-size="12" fill="#565f89" text-anchor="middle">cleaned up</text>
+
+  <!-- Right: Clean organized cables -->
+  <rect x="660" y="50" width="480" height="300" rx="16" fill="url(#cleanGrad)" stroke="#9ece6a" stroke-width="1.5" opacity="0.8"/>
+  <text x="900" y="90" font-family="system-ui, sans-serif" font-size="16" fill="#9ece6a" text-anchor="middle" font-weight="600">After</text>
+
+  <!-- Clean parallel lines -->
+  <line x1="720" y1="140" x2="1080" y2="140" stroke="#9ece6a" stroke-width="2.5" opacity="0.5"/>
+  <line x1="720" y1="180" x2="1080" y2="180" stroke="#9ece6a" stroke-width="2.5" opacity="0.5"/>
+  <line x1="720" y1="220" x2="1080" y2="220" stroke="#9ece6a" stroke-width="2.5" opacity="0.5"/>
+  <line x1="720" y1="260" x2="1080" y2="260" stroke="#9ece6a" stroke-width="2.5" opacity="0.5"/>
+
+  <!-- Clean connection nodes -->
+  <circle cx="720" cy="140" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="720" cy="180" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="720" cy="220" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="720" cy="260" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="1080" cy="140" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="1080" cy="180" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="1080" cy="220" r="5" fill="#9ece6a" opacity="0.7"/>
+  <circle cx="1080" cy="260" r="5" fill="#9ece6a" opacity="0.7"/>
+
+  <!-- Single source label -->
+  <rect x="850" y="290" width="100" height="24" rx="6" fill="#9ece6a" opacity="0.15" stroke="#9ece6a" stroke-width="1"/>
+  <text x="900" y="307" font-family="system-ui, sans-serif" font-size="11" fill="#9ece6a" text-anchor="middle">One source</text>
+
+  <text x="900" y="340" font-family="system-ui, sans-serif" font-size="13" fill="#9ece6a" text-anchor="middle" opacity="0.7">Each wire does one thing</text>
 </svg>

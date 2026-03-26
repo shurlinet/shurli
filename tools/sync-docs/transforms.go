@@ -18,14 +18,15 @@ func stripFirstHeading(body string) string {
 	return body
 }
 
-// buildDocLinkMap builds the source->slug mapping from docEntries and linkOnlyEntries.
+// buildDocLinkMap builds the source->slug mapping from cfg.Docs and cfg.LinkOnly.
 func buildDocLinkMap() map[string]string {
-	m := make(map[string]string, len(docEntries)+len(linkOnlyEntries))
-	for _, e := range docEntries {
+	loEntries := cfg.linkOnlyDocEntries()
+	m := make(map[string]string, len(cfg.Docs)+len(loEntries))
+	for _, e := range cfg.Docs {
 		slug := strings.TrimSuffix(e.Output, ".md")
 		m[e.Source] = slug
 	}
-	for _, e := range linkOnlyEntries {
+	for _, e := range loEntries {
 		slug := strings.TrimSuffix(e.Output, ".md")
 		m[e.Source] = slug
 	}
@@ -126,9 +127,9 @@ func rewriteSpecialLinks(body string) string {
 // rewriteGitHubSourceLinks rewrites relative source paths like (../cmd/...)
 // to full GitHub URLs.
 func rewriteGitHubSourceLinks(body string) string {
-	for _, dir := range githubSourceDirs {
+	for _, dir := range cfg.GithubSourceDirs {
 		old := "(../" + dir
-		new := "(" + githubBase + "/" + dir
+		new := "(" + cfg.GithubBase + "/" + dir
 		body = strings.ReplaceAll(body, old, new)
 	}
 	return body
@@ -140,9 +141,9 @@ func rewriteQuickStartLinks(body string) string {
 	body = strings.ReplaceAll(body,
 		"[docs/RELAY-SETUP.md](docs/RELAY-SETUP.md)",
 		"[Relay Setup guide](../relay-setup/)")
-	for _, dir := range quickStartLinkDirs {
+	for _, dir := range cfg.QuickStartLinkDirs {
 		old := "(" + dir
-		new := "(" + githubBase + "/" + dir
+		new := "(" + cfg.GithubBase + "/" + dir
 		body = strings.ReplaceAll(body, old, new)
 	}
 	return body
@@ -152,7 +153,7 @@ func rewriteQuickStartLinks(body string) string {
 // e.g., `pkg/p2pnet/foo.go` -> `https://github.com/.../pkg/p2pnet/foo.go`
 func rewriteJournalBackticks(body string) string {
 	for _, prefix := range []string{"cmd/shurli/", "pkg/p2pnet/", "internal/"} {
-		body = strings.ReplaceAll(body, "`"+prefix, "`"+githubBase+"/"+prefix)
+		body = strings.ReplaceAll(body, "`"+prefix, "`"+cfg.GithubBase+"/"+prefix)
 	}
 	return body
 }

@@ -37,8 +37,8 @@ The daemon runs the full P2P lifecycle (relay connection, DHT bootstrap, service
 ![Daemon architecture: P2P Runtime (relay, DHT, services, watchdog) connected bidirectionally to Unix Socket API (HTTP/1.1, cookie auth, 15 endpoints), with P2P Network below left and CLI/Scripts below right](images/daemon-api-architecture.svg)
 
 **Default paths**:
-- Socket: `~/.config/shurli/shurli.sock` (permissions `0600`)
-- Cookie: `~/.config/shurli/.daemon-cookie` (permissions `0600`)
+- Socket: `~/.shurli/shurli.sock` (permissions `0600`)
+- Cookie: `~/.shurli/.daemon-cookie` (permissions `0600`)
 
 ---
 
@@ -49,7 +49,7 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 ### How It Works
 
 1. On startup, the daemon generates a 32-byte random hex token
-2. Token is written to `~/.config/shurli/.daemon-cookie` with `0600` permissions
+2. Token is written to `~/.shurli/.daemon-cookie` with `0600` permissions
 3. Every API request must include `Authorization: Bearer <token>` header
 4. Token is validated on every request - `401 Unauthorized` if missing or wrong
 5. Cookie file is deleted on clean shutdown
@@ -65,14 +65,14 @@ The daemon uses cookie-based authentication (same pattern as Bitcoin Core, Docke
 ### Example
 
 ```bash
-curl -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     --unix-socket ~/.config/shurli/shurli.sock \
+curl -H "Authorization: Bearer $(cat ~/.shurli/.daemon-cookie)" \
+     --unix-socket ~/.shurli/shurli.sock \
      http://localhost/v1/status
 ```
 
 The CLI client (`shurli daemon status`, etc.) reads the cookie file automatically - no manual auth needed.
 
-> **Tip**: All curl examples in this document use inline `$(cat ~/.config/shurli/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable - see [Integration Examples](#integration-examples).
+> **Tip**: All curl examples in this document use inline `$(cat ~/.shurli/.daemon-cookie)` so they work as-is when copy-pasted. For scripts that make multiple API calls, read the token once into a variable - see [Integration Examples](#integration-examples).
 
 ### Unauthorized Response
 
@@ -176,8 +176,8 @@ relay_addresses: 1
 **curl**:
 
 ```bash
-curl -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     --unix-socket ~/.config/shurli/shurli.sock \
+curl -H "Authorization: Bearer $(cat ~/.shurli/.daemon-cookie)" \
+     --unix-socket ~/.shurli/shurli.sock \
      http://localhost/v1/status
 ```
 
@@ -384,8 +384,8 @@ Removes a peer from `authorized_keys` and hot-reloads the connection gater. Acce
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     --unix-socket ~/.config/shurli/shurli.sock \
+     -H "Authorization: Bearer $(cat ~/.shurli/.daemon-cookie)" \
+     --unix-socket ~/.shurli/shurli.sock \
      http://localhost/v1/auth/12D3KooWNq8c1fNjXwhRoWxSXT419bumWQFoTbowCwHEa96RJRg6
 ```
 
@@ -599,8 +599,8 @@ Tears down an active proxy by ID.
 
 ```bash
 curl -X DELETE \
-     -H "Authorization: Bearer $(cat ~/.config/shurli/.daemon-cookie)" \
-     --unix-socket ~/.config/shurli/shurli.sock \
+     -H "Authorization: Bearer $(cat ~/.shurli/.daemon-cookie)" \
+     --unix-socket ~/.shurli/shurli.sock \
      http://localhost/v1/connect/proxy-1
 ```
 
@@ -749,8 +749,8 @@ shurli daemon stop          # Graceful shutdown via API
 
 ```bash
 #!/bin/bash
-SOCKET=~/.config/shurli/shurli.sock
-TOKEN=$(cat ~/.config/shurli/.daemon-cookie)
+SOCKET=~/.shurli/shurli.sock
+TOKEN=$(cat ~/.shurli/.daemon-cookie)
 
 # Check if daemon is running
 if [ ! -S "$SOCKET" ]; then
@@ -782,8 +782,8 @@ import http.client
 import json
 import socket
 
-SOCKET_PATH = os.path.expanduser("~/.config/shurli/shurli.sock")
-COOKIE_PATH = os.path.expanduser("~/.config/shurli/.daemon-cookie")
+SOCKET_PATH = os.path.expanduser("~/.shurli/shurli.sock")
+COOKIE_PATH = os.path.expanduser("~/.shurli/.daemon-cookie")
 
 # Read auth token
 with open(COOKIE_PATH) as f:
@@ -811,11 +811,11 @@ print(f"Peers: {data['data']['connected_peers']}")
 ### Startup
 
 1. Generate 32-byte random hex token
-2. Write token to `~/.config/shurli/.daemon-cookie` (`0600`)
+2. Write token to `~/.shurli/.daemon-cookie` (`0600`)
 3. Check for stale socket - dial the existing socket:
    - Connection succeeds → another daemon is alive → return `ErrDaemonAlreadyRunning`
    - Connection fails → stale socket → remove it and proceed
-4. Create Unix socket at `~/.config/shurli/shurli.sock`
+4. Create Unix socket at `~/.shurli/shurli.sock`
 5. Set socket permissions to `0600`
 6. Start HTTP server on the socket
 
