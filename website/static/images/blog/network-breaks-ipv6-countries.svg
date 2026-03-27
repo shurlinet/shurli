@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes barGrow { from { width: 0; } to { width: attr(width); } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.2s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.4s both; }
+    .f3 { animation: fadeIn 0.5s ease-out 0.6s both; }
+    .f4 { animation: fadeIn 0.5s ease-out 0.8s both; }
+    .f5 { animation: fadeIn 0.5s ease-out 1.0s both; }
+    .f6 { animation: fadeIn 0.5s ease-out 1.2s both; }
+    .f7 { animation: fadeIn 0.5s ease-out 1.4s both; }
+    .f8 { animation: fadeIn 0.5s ease-out 1.6s both; }
+    .f9 { animation: fadeIn 0.5s ease-out 1.8s both; }
+    .f10 { animation: fadeIn 0.5s ease-out 2.0s both; }
+    .f11 { animation: fadeIn 0.5s ease-out 2.2s both; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="800" height="380" fill="#0a0a1a"/>
+
+  <text x="400" y="30" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">IPv6 ADOPTION BY COUNTRY (2026)</text>
+
+  <!-- Bar chart: country name on left, bar, percentage on right -->
+  <!-- Bar area: x=140..700 (560px = 100%) -->
+
+  <!-- France 87% -->
+  <g class="f1">
+    <text x="130" y="65" text-anchor="end" font-size="12" fill="#e0e0e0">France</text>
+    <rect x="140" y="54" width="487" height="16" rx="3" fill="#00d4aa" fill-opacity="0.6"/>
+    <text x="634" y="67" font-size="11" fill="#00d4aa" class="mono" font-weight="600">87%</text>
+  </g>
+
+  <!-- Germany 78% -->
+  <g class="f2">
+    <text x="130" y="93" text-anchor="end" font-size="12" fill="#e0e0e0">Germany</text>
+    <rect x="140" y="82" width="437" height="16" rx="3" fill="#00d4aa" fill-opacity="0.5"/>
+    <text x="584" y="95" font-size="11" fill="#00d4aa" class="mono">78%</text>
+  </g>
+
+  <!-- India 76% -->
+  <g class="f3">
+    <text x="130" y="121" text-anchor="end" font-size="12" fill="#e0e0e0">India</text>
+    <rect x="140" y="110" width="426" height="16" rx="3" fill="#00d4aa" fill-opacity="0.45"/>
+    <text x="572" y="123" font-size="11" fill="#00d4aa" class="mono">76%</text>
+  </g>
+
+  <!-- Japan 58% -->
+  <g class="f4">
+    <text x="130" y="149" text-anchor="end" font-size="12" fill="#e0e0e0">Japan</text>
+    <rect x="140" y="138" width="325" height="16" rx="3" fill="#ffb347" fill-opacity="0.45"/>
+    <text x="472" y="151" font-size="11" fill="#ffb347" class="mono">58%</text>
+  </g>
+
+  <!-- USA 54% -->
+  <g class="f5">
+    <text x="130" y="177" text-anchor="end" font-size="12" fill="#e0e0e0">USA</text>
+    <rect x="140" y="166" width="302" height="16" rx="3" fill="#ffb347" fill-opacity="0.4"/>
+    <text x="449" y="179" font-size="11" fill="#ffb347" class="mono">54%</text>
+  </g>
+
+  <!-- Brazil 55% -->
+  <g class="f6">
+    <text x="130" y="205" text-anchor="end" font-size="12" fill="#e0e0e0">Brazil</text>
+    <rect x="140" y="194" width="308" height="16" rx="3" fill="#ffb347" fill-opacity="0.4"/>
+    <text x="454" y="207" font-size="11" fill="#ffb347" class="mono">55%</text>
+  </g>
+
+  <!-- Australia 36% -->
+  <g class="f7">
+    <text x="130" y="233" text-anchor="end" font-size="12" fill="#e0e0e0">Australia</text>
+    <rect x="140" y="222" width="202" height="16" rx="3" fill="#ffb347" fill-opacity="0.3"/>
+    <text x="348" y="235" font-size="11" fill="#ffb347" class="mono">36%</text>
+  </g>
+
+  <!-- S. Korea 19% -->
+  <g class="f8">
+    <text x="130" y="261" text-anchor="end" font-size="12" fill="#e0e0e0">S. Korea</text>
+    <rect x="140" y="250" width="106" height="16" rx="3" fill="#ff6b6b" fill-opacity="0.35"/>
+    <text x="253" y="263" font-size="11" fill="#ff6b6b" class="mono">19%</text>
+  </g>
+
+  <!-- Spain 11% -->
+  <g class="f9">
+    <text x="130" y="289" text-anchor="end" font-size="12" fill="#e0e0e0">Spain</text>
+    <rect x="140" y="278" width="62" height="16" rx="3" fill="#ff6b6b" fill-opacity="0.3"/>
+    <text x="208" y="291" font-size="11" fill="#ff6b6b" class="mono">11%</text>
+  </g>
+
+  <!-- Nigeria 5% -->
+  <g class="f10">
+    <text x="130" y="317" text-anchor="end" font-size="12" fill="#e0e0e0">Nigeria</text>
+    <rect x="140" y="306" width="28" height="16" rx="3" fill="#ff6b6b" fill-opacity="0.25"/>
+    <text x="174" y="319" font-size="11" fill="#ff6b6b" class="mono">5%</text>
+  </g>
+
+  <!-- S. Africa 2% -->
+  <g class="f11">
+    <text x="130" y="345" text-anchor="end" font-size="12" fill="#e0e0e0">S. Africa</text>
+    <rect x="140" y="334" width="11" height="16" rx="3" fill="#ff6b6b" fill-opacity="0.2"/>
+    <text x="158" y="347" font-size="11" fill="#ff6b6b" class="mono">2%</text>
+  </g>
+
+  <!-- Source -->
+  <text x="400" y="372" text-anchor="middle" font-size="10" fill="#666">Source: Google IPv6 Statistics, APNIC Labs (March 2026)</text>
+</svg>
