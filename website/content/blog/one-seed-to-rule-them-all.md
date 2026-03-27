@@ -3,7 +3,7 @@ title: "Phase 8: One Seed to Rule Them All"
 date: 2026-03-02T14:00:00+13:00
 tags: [release, phase-8]
 description: "Unified BIP39 seed, encrypted identity, full remote relay admin over P2P, signed operator announcements, session tokens. 24 new files, 56 tests. One backup covers everything."
-image: /images/blog/phase8-identity-remote-admin.svg
+image: /images/blog/phase8-identity-remote-admin.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

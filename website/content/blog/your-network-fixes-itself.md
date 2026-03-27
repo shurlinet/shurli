@@ -2,7 +2,7 @@
 title: "Your Network Fixes Itself"
 date: 2026-02-13
 tags: [release, batch-c]
-image: /images/blog/batch-c-self-healing.svg
+image: /images/blog/batch-c-self-healing.png
 description: "Automatic config rollback, commit-confirmed pattern, and systemd watchdog integration for unattended recovery."
 authors:
   - name: Satinder Grewal

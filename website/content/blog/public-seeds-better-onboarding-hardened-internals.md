@@ -3,7 +3,7 @@ title: "Post-Phase 8: Public Seeds, Better Onboarding, Hardened Internals"
 date: 2026-03-06T10:00:00+13:00
 tags: [release, security, onboarding]
 description: "Public seed relays live, async invite flow, relay naming, vault auto-init, 14 security fixes, remote unseal protocol, and DNSSEC. 38 commits, 122 files."
-image: /images/blog/post-phase8-hardening.svg
+image: /images/blog/post-phase8-hardening.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

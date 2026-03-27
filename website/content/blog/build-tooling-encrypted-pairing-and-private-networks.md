@@ -3,7 +3,7 @@ title: "Build Tooling, Encrypted Pairing, and Private Networks"
 date: 2026-02-21
 tags: [release, pre-batch-i]
 description: "Makefile automation, PAKE-secured invite/join handshake, and protocol-level DHT namespace isolation. Three foundational items shipped before Batch I."
-image: /images/blog/pre-batch-i-foundations.svg
+image: /images/blog/pre-batch-i-foundations.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
