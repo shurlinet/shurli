@@ -10,7 +10,7 @@ The principles, inspirations, and decision-making framework behind Shurli's deve
 
 Shurli started when Satinder wanted to access OpenClaw from outside his home network. Every alternative meant routing through someone else's infrastructure to reach his own data. A centralized VPN tool would have worked, but it requires an online account and free tiers have limits. So he tried a different approach: "I'll just code the simplest silly tool using AI and see if it works." It worked. Features grew naturally from real needs, one at a time. The principles emerged from development conversations, not a predetermined manifesto.
 
-For the full origin story, see the [blog post](/blog/development-philosophy/).
+For the full origin story, see the [blog post](/blog/how-we-build-shurli/).
 
 ---
 
@@ -186,4 +186,4 @@ Shurli is built with AI assistance (Claude, by Anthropic). The architecture, des
 
 We believe in transparency about this. The quality of the code speaks for itself. Every line is reviewed, tested, and shipped with the same rigor regardless of who wrote the first draft.
 
-For the full narrative of how these principles evolved and how they're applied in practice, see the [blog post](/blog/development-philosophy/).
+For the full narrative of how these principles evolved and how they're applied in practice, see the [blog post](/blog/how-we-build-shurli/).

@@ -13,11 +13,11 @@ Today it connects your devices. Tomorrow it connects your agents. The same encry
 
 Zero-human companies are coming. They need a network that operates itself, where agents connect, negotiate, and transact directly. Intelligence at every node, not at a central server.
 
-Shurli is being built as that network. Read more about [the vision](/blog/development-philosophy/#the-zero-human-network).
+Shurli is being built as that network. Read more about [the vision](/blog/how-we-build-shurli/#the-zero-human-network).
 
 ## Engineering Philosophy
 
-Shurli follows a few core principles. For the full story, including how these principles evolved and their intellectual lineage, see the [Development Philosophy](/docs/development-philosophy/) page and the [blog post on how we build](/blog/development-philosophy/).
+Shurli follows a few core principles. For the full story, including how these principles evolved and their intellectual lineage, see the [Development Philosophy](/docs/development-philosophy/) page and the [blog post on how we build](/blog/how-we-build-shurli/).
 
 {{< cards >}}
   {{< card title="Self-Sovereignty First" icon="key" subtitle="Your keys, your peers, your network. No accounts to create, no services to subscribe to, no data leaving your control. The trust model is SSH-style: an authorized_keys file that you manage directly." >}}
