@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes flowDash { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
+    @keyframes nodePulse { 0%, 100% { stroke-opacity: 0.4; fill-opacity: 0.04; } 50% { stroke-opacity: 0.9; fill-opacity: 0.1; } }
+    @keyframes syncDot { 0%, 20% { opacity: 0; } 30% { opacity: 0.8; } 80% { opacity: 0.8; } 100% { opacity: 0; } }
+    @keyframes statusGlow { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .f1 { animation: fadeIn 0.6s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.8s both; }
+    .f3 { animation: fadeIn 0.6s ease-out 1.3s both; }
+    .f4 { animation: fadeIn 0.6s ease-out 1.8s both; }
+    .f5 { animation: fadeIn 0.6s ease-out 2.3s both; }
+    .f6 { animation: fadeIn 0.6s ease-out 2.8s both; }
+    .flow { stroke-dasharray: 8 8; animation: flowDash 2s linear infinite; }
+    .node { animation: nodePulse 3s ease-in-out infinite; }
+    .sync1 { animation: syncDot 4s ease-in-out infinite; }
+    .sync2 { animation: syncDot 4s ease-in-out infinite 1s; }
+    .sync3 { animation: syncDot 4s ease-in-out infinite 2s; }
+    .sync4 { animation: syncDot 4s ease-in-out infinite 3s; }
+    .status { animation: statusGlow 2s ease-in-out infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="900" height="440" fill="#0a0a1a"/>
+  <text x="450" y="30" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">A TUESDAY MORNING</text>
+
+  <!-- Timeline line -->
+  <line x1="80" y1="70" x2="820" y2="70" stroke="#333" stroke-width="1" class="f1"/>
+
+  <!-- Time markers -->
+  <g class="f1">
+    <circle cx="130" cy="70" r="5" fill="#00d4aa" opacity="0.6"/>
+    <text x="130" y="58" text-anchor="middle" font-size="11" fill="#888">8am</text>
+  </g>
+  <g class="f2">
+    <circle cx="310" cy="70" r="5" fill="#ffb347" opacity="0.6"/>
+    <text x="310" y="58" text-anchor="middle" font-size="11" fill="#888">9am</text>
+  </g>
+  <g class="f3">
+    <circle cx="490" cy="70" r="5" fill="#4488ff" opacity="0.6"/>
+    <text x="490" y="58" text-anchor="middle" font-size="11" fill="#888">10am</text>
+  </g>
+  <g class="f4">
+    <circle cx="630" cy="70" r="5" fill="#9966ff" opacity="0.6"/>
+    <text x="630" y="58" text-anchor="middle" font-size="11" fill="#888">12pm</text>
+  </g>
+  <g class="f5">
+    <circle cx="770" cy="70" r="5" fill="#00d4aa" opacity="0.6"/>
+    <text x="770" y="58" text-anchor="middle" font-size="11" fill="#888">6pm</text>
+  </g>
+
+  <!-- Scene 1: Home WiFi -->
+  <g class="f1">
+    <rect x="55" y="90" width="150" height="130" rx="8" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+    <!-- WiFi icon (proper arcs) -->
+    <path d="M82,108 A24,24 0 0,1 118,108" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M88,114 A16,16 0 0,1 112,114" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <circle cx="100" cy="122" r="3" fill="#00d4aa"/>
+    <text x="130" y="118" font-size="11" fill="#00d4aa" font-weight="500">Home WiFi</text>
+    <text x="80" y="145" font-size="11" fill="#888">Agent syncing</text>
+    <text x="80" y="160" font-size="11" fill="#888">photos to your</text>
+    <text x="80" y="175" font-size="11" fill="#888">home server</text>
+    <!-- Sync dots -->
+    <circle cx="170" cy="155" r="3" fill="#00d4aa" class="sync1"/>
+    <circle cx="180" cy="155" r="3" fill="#00d4aa" class="sync2"/>
+    <circle cx="190" cy="155" r="3" fill="#00d4aa" class="sync3"/>
+    <text x="130" y="205" text-anchor="middle" font-size="10" fill="#00d4aa" class="status">DIRECT</text>
+  </g>
+
+  <!-- Arrow 1->2 -->
+  <line x1="210" y1="155" x2="232" y2="155" stroke="#888" stroke-width="1" class="flow f2"/>
+
+  <!-- Scene 2: Commute - cellular -->
+  <g class="f2">
+    <rect x="237" y="90" width="150" height="130" rx="8" stroke="#ffb347" stroke-width="1" fill="#ffb347" fill-opacity="0.03"/>
+    <!-- Cell bars -->
+    <rect x="262" y="116" width="3" height="8" rx="1" fill="#ffb347" opacity="0.7"/>
+    <rect x="268" y="112" width="3" height="12" rx="1" fill="#ffb347" opacity="0.7"/>
+    <rect x="274" y="108" width="3" height="16" rx="1" fill="#ffb347" opacity="0.7"/>
+    <text x="290" y="118" font-size="11" fill="#ffb347" font-weight="500">Cellular</text>
+    <text x="260" y="145" font-size="11" fill="#888">You head out.</text>
+    <text x="260" y="160" font-size="11" fill="#888">WiFi drops.</text>
+    <text x="260" y="175" font-size="11" fill="#888">Agent reroutes</text>
+    <text x="260" y="190" font-size="11" fill="#888">through relay.</text>
+    <text x="312" y="205" text-anchor="middle" font-size="10" fill="#ffb347" class="status">RELAYED</text>
+  </g>
+
+  <!-- Arrow 2->3 -->
+  <line x1="392" y1="155" x2="414" y2="155" stroke="#888" stroke-width="1" class="flow f3"/>
+
+  <!-- Scene 3: Office - ethernet -->
+  <g class="f3">
+    <rect x="419" y="90" width="130" height="130" rx="8" stroke="#4488ff" stroke-width="1" fill="#4488ff" fill-opacity="0.03"/>
+    <!-- Ethernet icon -->
+    <rect x="440" y="106" width="16" height="18" rx="2" stroke="#4488ff" stroke-width="1.2" fill="none"/>
+    <line x1="448" y1="124" x2="448" y2="130" stroke="#4488ff" stroke-width="1.2"/>
+    <text x="464" y="118" font-size="11" fill="#4488ff" font-weight="500">Wired LAN</text>
+    <text x="432" y="145" font-size="10" fill="#888">Plug in a cable.</text>
+    <text x="432" y="159" font-size="10" fill="#888">Faster path found.</text>
+    <text x="432" y="173" font-size="10" fill="#888">Agent upgrades.</text>
+    <text x="484" y="205" text-anchor="middle" font-size="10" fill="#4488ff" class="status">DIRECT</text>
+  </g>
+
+  <!-- Arrow 3->4 -->
+  <line x1="554" y1="155" x2="572" y2="155" stroke="#888" stroke-width="1" class="flow f4"/>
+
+  <!-- Scene 4: VPN -->
+  <g class="f4">
+    <rect x="578" y="90" width="120" height="130" rx="8" stroke="#9966ff" stroke-width="1" fill="#9966ff" fill-opacity="0.03"/>
+    <!-- Lock icon -->
+    <rect x="598" y="106" width="14" height="11" rx="2" stroke="#9966ff" stroke-width="1.2" fill="none"/>
+    <path d="M601,106 L601,102 C601,97 609,97 609,102 L609,106" stroke="#9966ff" stroke-width="1.2" fill="none"/>
+    <text x="620" y="114" font-size="11" fill="#9966ff" font-weight="500">VPN on</text>
+    <text x="592" y="140" font-size="10" fill="#888">Tunnel changes</text>
+    <text x="592" y="154" font-size="10" fill="#888">every path.</text>
+    <text x="592" y="168" font-size="10" fill="#888">Agent adapts.</text>
+    <text x="638" y="205" text-anchor="middle" font-size="10" fill="#9966ff" class="status">RELAYED</text>
+  </g>
+
+  <!-- Arrow 4->5 -->
+  <line x1="703" y1="155" x2="721" y2="155" stroke="#888" stroke-width="1" class="flow f5"/>
+
+  <!-- Scene 5: Back home -->
+  <g class="f5">
+    <rect x="727" y="90" width="130" height="130" rx="8" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+    <!-- Home WiFi icon (proper arcs) -->
+    <path d="M774,108 A24,24 0 0,1 810,108" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M780,114 A16,16 0 0,1 804,114" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <circle cx="792" cy="122" r="3" fill="#00d4aa"/>
+    <text x="745" y="145" font-size="10" fill="#888">Back home.</text>
+    <text x="745" y="159" font-size="10" fill="#888">LAN reconnects.</text>
+    <text x="745" y="173" font-size="10" fill="#888">Full circle.</text>
+    <text x="792" y="205" text-anchor="middle" font-size="10" fill="#00d4aa" class="status">DIRECT</text>
+  </g>
+
+  <!-- Continuous connection line below all scenes -->
+  <g class="f6">
+    <line x1="55" y1="240" x2="840" y2="240" stroke="#00d4aa" stroke-width="2" opacity="0.25"/>
+  </g>
+
+  <!-- Bottom summary -->
+  <g class="f6">
+    <rect x="150" y="270" width="600" height="140" rx="12" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+
+    <text x="450" y="300" text-anchor="middle" font-size="15" fill="#e0e0e0" font-weight="600">5 network changes. Zero restarts.</text>
+    <text x="450" y="325" text-anchor="middle" font-size="13" fill="#888">Zero notifications. Zero human intervention.</text>
+
+    <text x="450" y="360" text-anchor="middle" font-size="14" fill="#00d4aa" opacity="0.7">The agent never stopped working.</text>
+    <text x="450" y="380" text-anchor="middle" font-size="14" fill="#00d4aa" opacity="0.7">Neither did you.</text>
+  </g>
+</svg>

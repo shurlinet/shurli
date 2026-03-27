@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes breakPulse { 0%, 100% { opacity: 0.8; } 50% { opacity: 0.3; } }
+    @keyframes layerReveal { 0% { opacity: 0; transform: translateY(5px); } 100% { opacity: 1; transform: translateY(0); } }
+    @keyframes xFlash { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.9; } }
+    .f1 { animation: fadeIn 0.6s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.7s both; }
+    .f3 { animation: fadeIn 0.6s ease-out 1.1s both; }
+    .f4 { animation: fadeIn 0.6s ease-out 1.5s both; }
+    .f5 { animation: fadeIn 0.6s ease-out 1.9s both; }
+    .bp { animation: breakPulse 2.5s ease-in-out infinite; }
+    .xf { animation: xFlash 2s ease-in-out infinite; }
+    .l1 { animation: layerReveal 0.5s ease-out 0.5s both; }
+    .l2 { animation: layerReveal 0.5s ease-out 0.9s both; }
+    .l3 { animation: layerReveal 0.5s ease-out 1.3s both; }
+    .l4 { animation: layerReveal 0.5s ease-out 1.7s both; }
+    .l5 { animation: layerReveal 0.5s ease-out 2.1s both; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="420" fill="#0a0a1a"/>
+  <text x="400" y="32" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">CONNECTED vs STAYS CONNECTED</text>
+
+  <!-- LEFT: Quick solution - connection breaks -->
+  <g class="f1">
+    <text x="200" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#ffb347">Quick Solution</text>
+    <rect x="60" y="80" width="280" height="200" rx="10" stroke="#ffb347" stroke-width="1" fill="#ffb347" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Two nodes with a broken connection -->
+  <g class="f2">
+    <!-- Node A -->
+    <circle cx="120" cy="135" r="20" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.06"/>
+    <text x="120" y="139" text-anchor="middle" font-size="10" fill="#ffb347">Node A</text>
+
+    <!-- Node B -->
+    <circle cx="280" cy="135" r="20" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.06"/>
+    <text x="280" y="139" text-anchor="middle" font-size="10" fill="#ffb347">Node B</text>
+
+    <!-- Connection line - left half -->
+    <line x1="142" y1="135" x2="185" y2="135" stroke="#ffb347" stroke-width="2" opacity="0.5" class="bp"/>
+    <!-- Gap in the middle (the break) -->
+    <!-- Connection line - right half -->
+    <line x1="215" y1="135" x2="258" y2="135" stroke="#ffb347" stroke-width="2" opacity="0.5" class="bp"/>
+
+    <!-- X mark in the gap -->
+    <g class="xf">
+      <line x1="193" y1="128" x2="207" y2="142" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="207" y1="128" x2="193" y2="142" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- Failure labels -->
+  <g class="f3">
+    <text x="200" y="185" text-anchor="middle" font-size="11" fill="#ff6b6b" opacity="0.6">WiFi switch? breaks.</text>
+    <text x="200" y="203" text-anchor="middle" font-size="11" fill="#ff6b6b" opacity="0.6">VPN tunnel? breaks.</text>
+    <text x="200" y="221" text-anchor="middle" font-size="11" fill="#ff6b6b" opacity="0.6">Carrier switch? breaks.</text>
+    <text x="200" y="260" text-anchor="middle" font-size="12" fill="#888">Works on a demo stage.</text>
+  </g>
+
+  <!-- Divider -->
+  <line x1="400" y1="65" x2="400" y2="290" stroke="#333" stroke-width="1" stroke-dasharray="4 4" class="f1"/>
+
+  <!-- RIGHT: Shurli - layered resilience -->
+  <g class="f2">
+    <text x="600" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#00d4aa">Focused Solution</text>
+    <rect x="460" y="80" width="280" height="200" rx="10" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Stacked resilience layers -->
+  <g class="l1">
+    <rect x="480" y="98" width="240" height="28" rx="6" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.08"/>
+    <text x="600" y="116" text-anchor="middle" font-size="11" fill="#00d4aa">detect every network change</text>
+  </g>
+  <g class="l2">
+    <rect x="480" y="132" width="240" height="28" rx="6" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.06"/>
+    <text x="600" y="150" text-anchor="middle" font-size="11" fill="#00d4aa" opacity="0.85">clean stale connections</text>
+  </g>
+  <g class="l3">
+    <rect x="480" y="166" width="240" height="28" rx="6" stroke="#ffb347" stroke-width="1" fill="#ffb347" fill-opacity="0.06"/>
+    <text x="600" y="184" text-anchor="middle" font-size="11" fill="#ffb347" opacity="0.85">reset transport state</text>
+  </g>
+  <g class="l4">
+    <rect x="480" y="200" width="240" height="28" rx="6" stroke="#4488ff" stroke-width="1" fill="#4488ff" fill-opacity="0.06"/>
+    <text x="600" y="218" text-anchor="middle" font-size="11" fill="#4488ff" opacity="0.85">reconnect via best path</text>
+  </g>
+  <g class="l5">
+    <rect x="480" y="234" width="240" height="28" rx="6" stroke="#9966ff" stroke-width="1" fill="#9966ff" fill-opacity="0.06"/>
+    <text x="600" y="252" text-anchor="middle" font-size="11" fill="#9966ff" opacity="0.85">upgrade when faster path appears</text>
+  </g>
+
+  <!-- Bottom text -->
+  <g class="f5">
+    <rect x="120" y="310" width="560" height="85" rx="10" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.02"/>
+    <text x="400" y="340" text-anchor="middle" font-size="14" fill="#e0e0e0" font-weight="500">The gap between "connected" and "stays connected"</text>
+    <text x="400" y="362" text-anchor="middle" font-size="14" fill="#e0e0e0" font-weight="500">is where most P2P tools stop. Shurli lives there.</text>
+    <text x="400" y="385" text-anchor="middle" font-size="12" fill="#888">Every layer exists because real testing found a real failure.</text>
+  </g>
+</svg>

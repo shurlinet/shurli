@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes checkPop { 0% { opacity: 0; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1); } }
+    @keyframes lineDraw { from { stroke-dashoffset: 600; } to { stroke-dashoffset: 0; } }
+    @keyframes countPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.6s both; }
+    .f3 { animation: fadeIn 0.5s ease-out 0.9s both; }
+    .f4 { animation: fadeIn 0.5s ease-out 1.2s both; }
+    .f5 { animation: fadeIn 0.5s ease-out 1.5s both; }
+    .f6 { animation: fadeIn 0.5s ease-out 1.8s both; }
+    .ch1 { animation: checkPop 0.4s ease-out 0.8s both; }
+    .ch2 { animation: checkPop 0.4s ease-out 1.1s both; }
+    .ch3 { animation: checkPop 0.4s ease-out 1.4s both; }
+    .ch4 { animation: checkPop 0.4s ease-out 1.7s both; }
+    .timeline { stroke-dasharray: 600; animation: lineDraw 2s ease-out 0.3s both; }
+    .count { animation: countPulse 2.5s ease-in-out infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="800" height="400" fill="#0a0a1a"/>
+  <text x="400" y="30" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">WHAT CHANGED SINCE THE FIRST BLOG</text>
+
+  <!-- Timeline -->
+  <line x1="100" y1="65" x2="700" y2="65" stroke="#333" stroke-width="2" class="timeline"/>
+
+  <!-- Date markers -->
+  <g class="f1">
+    <circle cx="150" cy="65" r="6" fill="#ffb347" fill-opacity="0.3" stroke="#ffb347" stroke-width="1.5"/>
+    <text x="150" y="55" text-anchor="middle" font-size="11" fill="#ffb347">Mar 14</text>
+    <text x="150" y="90" text-anchor="middle" font-size="10" fill="#888">first blog</text>
+  </g>
+  <g class="f3">
+    <circle cx="550" cy="65" r="6" fill="#00d4aa" fill-opacity="0.3" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="550" y="55" text-anchor="middle" font-size="11" fill="#00d4aa">Mar 26</text>
+    <text x="550" y="90" text-anchor="middle" font-size="10" fill="#888">v0.3.0</text>
+  </g>
+  <g class="f5">
+    <circle cx="680" cy="65" r="6" fill="#00d4aa" fill-opacity="0.5" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="680" y="55" text-anchor="middle" font-size="11" fill="#00d4aa">today</text>
+    <text x="680" y="90" text-anchor="middle" font-size="10" fill="#888">this blog</text>
+  </g>
+
+  <!-- Big number: 148 commits -->
+  <g class="f2">
+    <text x="350" y="55" text-anchor="middle" font-size="13" fill="#888">between these two dates</text>
+    <text x="350" y="90" text-anchor="middle" font-size="28" fill="#00d4aa" font-weight="700" class="count">164 commits</text>
+  </g>
+
+  <!-- What was resolved -->
+  <g class="f3">
+    <text x="60" y="135" font-size="13" fill="#666" font-weight="600" letter-spacing="0.5">OPEN FLAGS RESOLVED</text>
+  </g>
+
+  <!-- Flag items with checkmarks -->
+  <g class="ch1">
+    <rect x="60" y="148" width="320" height="36" rx="6" fill="#00d4aa" fill-opacity="0.04" stroke="#00d4aa" stroke-width="0.5"/>
+    <path d="M78,166 L82,170 L90,162" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="100" y="170" font-size="12" fill="#e0e0e0">Gateway detection for invisible switches</text>
+  </g>
+  <g class="ch2">
+    <rect x="60" y="190" width="320" height="36" rx="6" fill="#00d4aa" fill-opacity="0.04" stroke="#00d4aa" stroke-width="0.5"/>
+    <path d="M78,208 L82,212 L90,204" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="100" y="212" font-size="12" fill="#e0e0e0">VPN tunnel interface detection</text>
+  </g>
+  <g class="ch3">
+    <rect x="60" y="232" width="320" height="36" rx="6" fill="#00d4aa" fill-opacity="0.04" stroke="#00d4aa" stroke-width="0.5"/>
+    <path d="M78,250 L82,254 L90,246" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="100" y="254" font-size="12" fill="#e0e0e0">TCP readiness probe for WiFi settling</text>
+  </g>
+  <g class="ch4">
+    <rect x="60" y="274" width="320" height="36" rx="6" fill="#00d4aa" fill-opacity="0.04" stroke="#00d4aa" stroke-width="0.5"/>
+    <path d="M78,292 L82,296 L90,288" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="100" y="296" font-size="12" fill="#e0e0e0">"Relay disabled" message stopped reproducing</text>
+  </g>
+
+  <!-- What was built on top -->
+  <g class="f4">
+    <text x="440" y="135" font-size="13" fill="#666" font-weight="600" letter-spacing="0.5">BUILT ON TOP OF THIS FOUNDATION</text>
+  </g>
+
+  <g class="f4">
+    <rect x="440" y="148" width="310" height="36" rx="6" fill="#ffb347" fill-opacity="0.04" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="460" y="170" font-size="12" fill="#ffb347">Plugin architecture</text>
+    <text x="740" y="170" font-size="10" fill="#888" text-anchor="end">survived</text>
+  </g>
+  <g class="f5">
+    <rect x="440" y="190" width="310" height="36" rx="6" fill="#ffb347" fill-opacity="0.04" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="460" y="212" font-size="12" fill="#ffb347">Grant system</text>
+    <text x="740" y="212" font-size="10" fill="#888" text-anchor="end">survived</text>
+  </g>
+  <g class="f5">
+    <rect x="440" y="232" width="310" height="36" rx="6" fill="#ffb347" fill-opacity="0.04" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="460" y="254" font-size="12" fill="#ffb347">Bandwidth budgets</text>
+    <text x="740" y="254" font-size="10" fill="#888" text-anchor="end">survived</text>
+  </g>
+  <g class="f6">
+    <rect x="440" y="274" width="310" height="36" rx="6" fill="#ffb347" fill-opacity="0.04" stroke="#ffb347" stroke-width="0.5"/>
+    <text x="460" y="296" font-size="12" fill="#ffb347">Relay-first onboarding</text>
+    <text x="740" y="296" font-size="10" fill="#888" text-anchor="end">survived</text>
+  </g>
+
+  <!-- Bottom -->
+  <g class="f6">
+    <text x="400" y="350" text-anchor="middle" font-size="14" fill="#e0e0e0" font-weight="500">The network layer held. Everything built on top of it held too.</text>
+    <text x="400" y="375" text-anchor="middle" font-size="13" fill="#888">That is the point of solving the hard problem first.</text>
+  </g>
+</svg>

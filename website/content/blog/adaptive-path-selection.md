@@ -102,7 +102,7 @@ The network change monitor detects interface changes and triggers three things:
 2. **STUN re-probe** - determines reachability on the new network
 3. **Path re-evaluation** - if the current path is dead, falls back to relay immediately
 
-~~The known gap: plugging or unplugging a wired Ethernet adapter killed the daemon.~~ **Fixed in Phase 5**: PeerManager's `CloseStaleConnections()` handles interface addition/removal gracefully. See [Phase 5: Automatic WiFi Transition](/blog/phase5-network-resilience/).
+~~The known gap: plugging or unplugging a wired Ethernet adapter killed the daemon.~~ **Fixed in Phase 5**: PeerManager's `CloseStaleConnections()` handles interface addition/removal gracefully. See [Phase 5: Automatic WiFi Transition](/blog/automatic-wifi-transition/).
 
 ## Every peer is a relay
 
@@ -167,4 +167,4 @@ Honesty about failures matters more than marketing about successes. Here's what 
 
 Six components shipped in Batch I: interface discovery, parallel dial racing, STUN NAT detection, path quality tracking, network change monitoring, and every-peer-is-a-relay. Zero new dependencies. Tested on real networks with real measurements, including the failures.
 
-**Update**: Phase 5 shipped. mDNS native discovery, PeerManager lifecycle management, and automatic WiFi transition are all live. See [Phase 5: Automatic WiFi Transition](/blog/phase5-network-resilience/) for the full results.
+**Update**: Phase 5 shipped. mDNS native discovery, PeerManager lifecycle management, and automatic WiFi transition are all live. See [Phase 5: Automatic WiFi Transition](/blog/automatic-wifi-transition/) for the full results.

@@ -268,7 +268,7 @@ Future:    authorized_keys becomes optional.
            Macaroons (or UCANs) carry everything.
 ```
 
-**Update**: Phase 7 (ZKP anonymous auth) and [per-peer data access grants](/blog/per-peer-data-grants/) are both shipped. Macaroon tokens now carry time-limited, delegatable permissions verified per-stream. The progression held exactly as designed: each phase built on the last without tearing anything out.
+**Update**: Phase 7 (ZKP anonymous auth) and [per-peer data access grants](/blog/who-gets-in/) are both shipped. Macaroon tokens now carry time-limited, delegatable permissions verified per-stream. The progression held exactly as designed: each phase built on the last without tearing anything out.
 
 ## Impact
 

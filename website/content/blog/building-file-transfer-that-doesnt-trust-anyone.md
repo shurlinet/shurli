@@ -142,7 +142,7 @@ And this is just one direction. The P2P foundation opens doors we haven't fully 
 
 **Since this post was published**:
 
-- [Per-peer data access control](/blog/per-peer-data-grants/) is now live - time-limited macaroon capability grants with delegation, notifications, and tamper-evident audit logs. Share management (add/remove peers) and human-readable error messages are also shipped.
+- [Per-peer data access control](/blog/who-gets-in/) is now live - time-limited macaroon capability grants with delegation, notifications, and tamper-evident audit logs. Share management (add/remove peers) and human-readable error messages are also shipped.
 - **Grant Receipt Protocol**: Relay circuits now issue cryptographic receipts with session data limits, duration, and per-chunk byte tracking. The client caches these receipts and runs smart pre-transfer checks before sending: if the file exceeds the relay's session budget, the transfer is blocked before wasting bandwidth. Smart reconnection retries transport failures with exponential backoff while excluding application-level errors (rejections, disk space, access denied).
 - **Per-peer bandwidth budgets**: Admins can set per-peer transfer limits (`shurli auth set-attr <peer> bandwidth_budget 500MB`). LAN peers are always exempt. The budget overrides the global default, and the value is enforced at the transfer layer.
 - **Relay-first onboarding**: `shurli init` now defaults to relay mode. Every new node connects through a relay immediately. Direct connections upgrade automatically when NAT traversal succeeds. This means file transfer works for CGNAT users (roughly half the internet) out of the box.

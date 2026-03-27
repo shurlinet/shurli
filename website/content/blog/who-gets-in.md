@@ -181,4 +181,4 @@ This is one layer of what a self-sovereign P2P network needs. The grant system j
 
 ---
 
-*Built with [Claude Code](https://claude.com/claude-code) by Anthropic - intent-based development where the direction is the hard part, and the code follows. [Read more about the philosophy](/blog/development-philosophy/).*
+*Built with [Claude Code](https://claude.com/claude-code) by Anthropic - intent-based development where the direction is the hard part, and the code follows. [Read more about the philosophy](/blog/how-we-build-shurli/).*

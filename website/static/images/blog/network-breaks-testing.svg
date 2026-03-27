@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes checkPop { 0% { opacity: 0; transform: scale(0.5); } 100% { opacity: 1; transform: scale(1); } }
+    @keyframes rowGlow { 0%, 100% { fill-opacity: 0.03; } 50% { fill-opacity: 0.08; } }
+    .f1 { animation: fadeIn 0.6s ease-out 0.2s both; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.5s both; }
+    .f3 { animation: fadeIn 0.6s ease-out 0.8s both; }
+    .f4 { animation: fadeIn 0.6s ease-out 1.1s both; }
+    .f5 { animation: fadeIn 0.6s ease-out 1.4s both; }
+    .f6 { animation: fadeIn 0.6s ease-out 1.7s both; }
+    .f7 { animation: fadeIn 0.6s ease-out 2.0s both; }
+    .c1 { animation: checkPop 0.4s ease-out 0.8s both; }
+    .c2 { animation: checkPop 0.4s ease-out 1.1s both; }
+    .c3 { animation: checkPop 0.4s ease-out 1.4s both; }
+    .c4 { animation: checkPop 0.4s ease-out 1.7s both; }
+    .c5 { animation: checkPop 0.4s ease-out 2.0s both; }
+    .rg1 { animation: rowGlow 4s ease-in-out infinite; }
+    .rg2 { animation: rowGlow 4s ease-in-out infinite 0.8s; }
+    .rg3 { animation: rowGlow 4s ease-in-out infinite 1.6s; }
+    .rg4 { animation: rowGlow 4s ease-in-out infinite 2.4s; }
+    .rg5 { animation: rowGlow 4s ease-in-out infinite 3.2s; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="420" fill="#0a0a1a"/>
+  <text x="400" y="32" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">REAL HARDWARE, REAL NETWORKS, REAL SWITCHES</text>
+
+  <!-- Column headers -->
+  <g class="f1">
+    <text x="60" y="72" font-size="12" fill="#666" font-weight="600" letter-spacing="0.5">NETWORK TYPE</text>
+    <text x="680" y="72" font-size="12" fill="#666" font-weight="600" letter-spacing="0.5">RESULT</text>
+  </g>
+
+  <!-- Row 1: Satellite WiFi -->
+  <g class="f2">
+    <rect x="40" y="82" width="720" height="44" rx="6" fill="#00d4aa" class="rg1"/>
+    <path d="M60,98 A16,16 0 0,1 84,98" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M65,104 A10,10 0 0,1 79,104" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <circle cx="72" cy="110" r="2.5" fill="#00d4aa"/>
+    <text x="100" y="108" font-size="13" fill="#00d4aa">Satellite WiFi</text>
+    <text x="300" y="108" font-size="11" fill="#888">local LAN, high latency</text>
+  </g>
+  <g class="c1">
+    <circle cx="690" cy="104" r="12" fill="#00d4aa" fill-opacity="0.12" stroke="#00d4aa" stroke-width="1"/>
+    <path d="M684,104 L688,108 L697,99" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="712" y="108" font-size="12" fill="#00d4aa">passed</text>
+  </g>
+
+  <!-- Row 2: Cellular -->
+  <g class="f3">
+    <rect x="40" y="132" width="720" height="44" rx="6" fill="#ffb347" class="rg2"/>
+    <rect x="58" y="150" width="3" height="8" rx="1" fill="#ffb347" opacity="0.7"/>
+    <rect x="64" y="146" width="3" height="12" rx="1" fill="#ffb347" opacity="0.7"/>
+    <rect x="70" y="142" width="3" height="16" rx="1" fill="#ffb347" opacity="0.7"/>
+    <text x="100" y="158" font-size="13" fill="#ffb347">Cellular Hotspot</text>
+    <text x="300" y="158" font-size="11" fill="#888">CGNAT, no public IP</text>
+  </g>
+  <g class="c2">
+    <circle cx="690" cy="154" r="12" fill="#00d4aa" fill-opacity="0.12" stroke="#00d4aa" stroke-width="1"/>
+    <path d="M684,154 L688,158 L697,149" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="712" y="158" font-size="12" fill="#00d4aa">passed</text>
+  </g>
+
+  <!-- Row 3: Wired LAN -->
+  <g class="f4">
+    <rect x="40" y="182" width="720" height="44" rx="6" fill="#4488ff" class="rg3"/>
+    <rect x="58" y="196" width="14" height="16" rx="2" stroke="#4488ff" stroke-width="1.2" fill="none"/>
+    <line x1="65" y1="212" x2="65" y2="218" stroke="#4488ff" stroke-width="1.2"/>
+    <text x="100" y="208" font-size="13" fill="#4488ff">Wired LAN</text>
+    <text x="300" y="208" font-size="11" fill="#888">terrestrial ISP, IPv6</text>
+  </g>
+  <g class="c3">
+    <circle cx="690" cy="204" r="12" fill="#00d4aa" fill-opacity="0.12" stroke="#00d4aa" stroke-width="1"/>
+    <path d="M684,204 L688,208 L697,199" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="712" y="208" font-size="12" fill="#00d4aa">passed</text>
+  </g>
+
+  <!-- Row 4: Mobile hotspot -->
+  <g class="f5">
+    <rect x="40" y="232" width="720" height="44" rx="6" fill="#ffb347" class="rg4"/>
+    <rect x="58" y="244" width="3" height="8" rx="1" fill="#ffb347" opacity="0.5"/>
+    <rect x="64" y="240" width="3" height="12" rx="1" fill="#ffb347" opacity="0.5"/>
+    <rect x="70" y="236" width="3" height="16" rx="1" fill="#ffb347" opacity="0.5"/>
+    <rect x="76" y="240" width="3" height="12" rx="1" fill="#ffb347" opacity="0.3"/>
+    <text x="100" y="258" font-size="13" fill="#ffb347">5G Hotspot</text>
+    <text x="300" y="258" font-size="11" fill="#888">carrier NAT, variable IPv6</text>
+  </g>
+  <g class="c4">
+    <circle cx="690" cy="254" r="12" fill="#00d4aa" fill-opacity="0.12" stroke="#00d4aa" stroke-width="1"/>
+    <path d="M684,254 L688,258 L697,249" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="712" y="258" font-size="12" fill="#00d4aa">passed</text>
+  </g>
+
+  <!-- Row 5: VPN tunnels -->
+  <g class="f6">
+    <rect x="40" y="282" width="720" height="44" rx="6" fill="#9966ff" class="rg5"/>
+    <rect x="58" y="296" width="14" height="11" rx="2" stroke="#9966ff" stroke-width="1.2" fill="none"/>
+    <path d="M61,296 L61,292 C61,287 69,287 69,292 L69,296" stroke="#9966ff" stroke-width="1.2" fill="none"/>
+    <text x="100" y="308" font-size="13" fill="#9966ff">VPN Tunnels</text>
+    <text x="300" y="308" font-size="11" fill="#888">3 providers tested</text>
+  </g>
+  <g class="c5">
+    <circle cx="690" cy="304" r="12" fill="#00d4aa" fill-opacity="0.12" stroke="#00d4aa" stroke-width="1"/>
+    <path d="M684,304 L688,308 L697,299" stroke="#00d4aa" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="712" y="308" font-size="12" fill="#00d4aa">passed</text>
+  </g>
+
+  <!-- Bottom summary -->
+  <g class="f7">
+    <rect x="40" y="350" width="720" height="50" rx="10" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+    <text x="400" y="373" text-anchor="middle" font-size="13" fill="#888">No simulations. Real hardware switching between real networks.</text>
+    <text x="400" y="391" text-anchor="middle" font-size="13" fill="#00d4aa" opacity="0.6">Every transition tested physically. Every fix verified by hand.</text>
+  </g>
+</svg>
