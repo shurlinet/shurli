@@ -3,7 +3,7 @@ title: "Phase 7: Prove You Belong Without Saying Who You Are"
 date: 2026-03-01T12:00:00+13:00
 tags: [release, phase-7]
 description: "Zero-knowledge membership proofs, private reputation scores, BIP39 key management. 27 new files, 91 tests, 14 Prometheus metrics. L2 blockchain cryptography applied to P2P networking."
-image: /images/blog/phase7-zkp-privacy.svg
+image: /images/blog/phase7-zkp-privacy.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

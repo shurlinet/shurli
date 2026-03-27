@@ -2,7 +2,7 @@
 title: "Building File Transfer That Doesn't Trust Anyone"
 date: 2026-03-15
 tags: [release, file-transfer, security, architecture]
-image: /images/blog/file-transfer-hero.svg
+image: /images/blog/file-transfer-hero.png
 description: "How Shurli's file transfer handles integrity, privacy, DDoS defense, and resume - and what we learned from the gaps in existing tools."
 authors:
   - name: Satinder Grewal

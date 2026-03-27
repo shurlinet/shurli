@@ -2,7 +2,7 @@
 title: "First External Connection: NZ to AU Over Relay"
 date: 2026-03-15
 tags: [milestone, relay, testing]
-image: /images/blog/first-user-hero.svg
+image: /images/blog/first-user-hero.png
 description: "Shurli's first external user connected from Australia to New Zealand through a relay circuit. Here's what worked, what broke, and what we fixed."
 authors:
   - name: Satinder Grewal

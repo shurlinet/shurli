@@ -2,7 +2,7 @@
 title: "Who Gets In: Building Per-Peer Access Control with Macaroon Tokens"
 date: 2026-03-22
 tags: [release, security, architecture, grants, macaroons]
-image: /images/blog/grants-hero.svg
+image: /images/blog/grants-hero.png
 description: "How Shurli controls exactly who can access what, for how long, with cryptographic capability tokens that can be delegated but never widened."
 authors:
   - name: Satinder Grewal

@@ -3,7 +3,7 @@ title: "Phase 6: Your Relay Is Now a Fortress"
 date: 2026-03-01T00:00:00+13:00
 tags: [release, phase-6]
 description: "Role-based access, HMAC-chain macaroon tokens, async invite deposits, passphrase-sealed vault, remote unseal over P2P, and two-factor auth. 19 new files, 3,655 lines, zero new dependencies."
-image: /images/blog/phase6-acl-relay-security.svg
+image: /images/blog/phase6-acl-relay-security.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

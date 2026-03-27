@@ -2,7 +2,7 @@
 title: "From Broken to Bulletproof: How Chaos Testing Transformed Shurli's Network Layer"
 date: 2026-03-14
 tags: [release, network, chaos-testing]
-image: /images/blog/chaos-testing-hero.svg
+image: /images/blog/chaos-testing-hero.png
 description: "4 days of physical chaos testing across 5 ISPs and 3 VPNs. 11 root causes found and fixed. The daemon now handles every network transition automatically."
 authors:
   - name: Satinder Grewal

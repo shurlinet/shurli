@@ -2,7 +2,7 @@
 title: "We Broke Shurli's Network 16 Times. It Kept Running."
 date: 2026-03-26
 tags: [network, resilience, testing, AI-agents]
-image: /images/blog/network-breaks-hero.svg
+image: /images/blog/network-breaks-hero.png
 description: "We switched WiFi, tethered phones, plugged in cables, and connected VPNs. 16 physical network transitions across 5 network types. Shurli survived all of them without a single restart."
 authors:
   - name: Satinder Grewal

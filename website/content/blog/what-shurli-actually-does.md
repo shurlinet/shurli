@@ -7,7 +7,7 @@ description: "A factual inventory of what ships in the Shurli binary today: P2P 
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal
-image: /images/blog/the-shurli-difference.svg
+image: /images/blog/the-shurli-difference.png
 ---
 
 ![What Shurli Actually Does](/images/blog/the-shurli-difference.svg)
