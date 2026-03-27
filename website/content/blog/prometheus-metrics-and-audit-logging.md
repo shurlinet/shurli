@@ -107,7 +107,7 @@ The Prometheus bridge (`go.opentelemetry.io/contrib/bridges/prometheus`) can for
 
 - **Isolated registry**: Each `Metrics` instance uses `prometheus.NewRegistry()`, not the global default. Tests get their own registry. No collision with other Prometheus users in the same process.
 - **Nil-safe everywhere**: Every call site checks for nil metrics/audit. `InstrumentHandler` returns the handler unchanged when both are nil. Zero overhead when disabled.
-- **Callback pattern for auth**: `internal/auth` can't import `pkg/p2pnet` (circular import). An `AuthDecisionFunc` callback is wired in the startup code to feed both metrics counters and audit events.
+- **Callback pattern for auth**: `internal/auth` can't import `pkg/sdk` (circular import). An `AuthDecisionFunc` callback is wired in the startup code to feed both metrics counters and audit events.
 - **Path sanitization**: `/v1/auth/12D3KooW...` becomes `/v1/auth/:id` in metrics labels to prevent high cardinality (label explosion).
 
 ## Impact

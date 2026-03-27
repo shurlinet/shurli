@@ -410,13 +410,13 @@ go test -race -v ./internal/auth/
 | `internal/validate` | `service_test.go` | Service name validation (valid/invalid cases, max length) |
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
 | `cmd/shurli` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
-| `pkg/p2pnet` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
-| `pkg/p2pnet` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
-| `pkg/p2pnet` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
-| `pkg/p2pnet` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
-| `pkg/p2pnet` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
-| `pkg/p2pnet` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
-| `pkg/p2pnet` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
+| `pkg/sdk` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
+| `pkg/sdk` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
+| `pkg/sdk` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
+| `pkg/sdk` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
+| `pkg/sdk` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
+| `pkg/sdk` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
+| `pkg/sdk` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
 
 ---
 
@@ -431,7 +431,7 @@ Performance benchmarks establish baselines for hot-path and cold-path functions.
 go test -bench=. -benchmem ./internal/auth/
 go test -bench=. -benchmem ./internal/invite/
 go test -bench=. -benchmem ./internal/config/
-go test -bench=. -benchmem ./pkg/p2pnet/
+go test -bench=. -benchmem ./pkg/sdk/
 
 # For statistical comparison (3+ runs recommended)
 go test -bench=. -benchmem -count=3 ./internal/auth/
@@ -452,7 +452,7 @@ benchstat old.txt new.txt
 | `internal/auth/authorized_keys_bench_test.go` | `LoadAuthorizedKeys5`, `LoadAuthorizedKeys50` | Cold (startup/reload) | File parse + peer ID decode |
 | `internal/invite/code_bench_test.go` | `Encode`, `Decode` | Mixed (per-invite) | Base32 + multihash + multiaddr ops |
 | `internal/config/loader_bench_test.go` | `LoadNodeConfig`, `ValidateNodeConfig` | Cold (startup) | YAML parse, validation |
-| `pkg/p2pnet/naming_bench_test.go` | `ResolveByName`, `ResolveByPeerID` | Hot (per-proxy) | Map lookup vs peer.Decode fallback |
+| `pkg/sdk/naming_bench_test.go` | `ResolveByName`, `ResolveByPeerID` | Hot (per-proxy) | Map lookup vs peer.Decode fallback |
 
 ---
 

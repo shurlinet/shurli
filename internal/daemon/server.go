@@ -18,14 +18,14 @@ import (
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/platform"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 // RuntimeInfo provides the daemon server with access to the P2P runtime.
 // This interface decouples the daemon package from the cmd/shurli serveRuntime struct.
 type RuntimeInfo interface {
-	Network() *p2pnet.Network
+	Network() *sdk.Network
 	ConfigFile() string
 	AuthKeysPath() string
 	GaterForHotReload() GaterReloader // nil if gating disabled
@@ -33,11 +33,11 @@ type RuntimeInfo interface {
 	StartTime() time.Time
 	PingProtocolID() string
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
-	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
-	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
-	BandwidthTracker() *p2pnet.BandwidthTracker              // nil when disabled
-	RelayHealth() *p2pnet.RelayHealth                        // nil when disabled
-	STUNResult() *p2pnet.STUNResult                          // nil before probe
+	Interfaces() *sdk.InterfaceSummary                    // nil before discovery
+	PathTracker() *sdk.PathTracker                        // nil before bootstrap
+	BandwidthTracker() *sdk.BandwidthTracker              // nil when disabled
+	RelayHealth() *sdk.RelayHealth                        // nil when disabled
+	STUNResult() *sdk.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
 	RelayAddresses() []string                                // relay multiaddrs from config
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
@@ -49,7 +49,7 @@ type RuntimeInfo interface {
 	GrantsAutoRefresh() bool                                  // config default for auto-refresh
 	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
 	NotifyRouter() *notify.Router                             // nil before initialization
-	PeerManager() *p2pnet.PeerManager                         // nil before initialization
+	PeerManager() *sdk.PeerManager                         // nil before initialization
 	GrantCacheSnapshot() []*grants.GrantReceipt               // nil if no grant cache
 }
 
@@ -95,7 +95,7 @@ type activeProxy struct {
 	Peer     string
 	Service  string
 	Listen   string
-	listener *p2pnet.TCPListener
+	listener *sdk.TCPListener
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the proxy goroutine exits
 }
@@ -115,8 +115,8 @@ type Server struct {
 	registry *plugin.Registry
 
 	// Optional observability (nil when telemetry disabled)
-	metrics *p2pnet.Metrics
-	audit   *p2pnet.AuditLogger
+	metrics *sdk.Metrics
+	audit   *sdk.AuditLogger
 
 	mu           sync.Mutex
 	proxies      map[string]*activeProxy
@@ -143,7 +143,7 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 
 // SetInstrumentation configures optional metrics and audit logging.
 // Must be called before Start(). Both parameters are nil-safe.
-func (s *Server) SetInstrumentation(metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) {
+func (s *Server) SetInstrumentation(metrics *sdk.Metrics, audit *sdk.AuditLogger) {
 	s.metrics = metrics
 	s.audit = audit
 }

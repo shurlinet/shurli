@@ -15,7 +15,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Clean relay configuration. Users can list multiple addresses for the same relay (e.g., IPv4 and IPv6) without issues.
 
-**Reference**: `pkg/p2pnet/network.go:280-309`
+**Reference**: `pkg/sdk/network.go:280-309`
 
 ---
 
@@ -46,9 +46,9 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Decision**: Package-level sentinel errors using `errors.New()`: `ErrServiceNotFound`, `ErrNameNotFound`, `ErrConfigNotFound`, `ErrNoArchive`, `ErrCommitConfirmedPending`, `ErrNoPending`, `ErrDaemonAlreadyRunning`, `ErrProxyNotFound`. Callers use `errors.Is()` to check.
 
-**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `pkg/p2pnet/errors.go` and `internal/config/errors.go`.
+**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `pkg/sdk/errors.go` and `internal/config/errors.go`.
 
-**Reference**: `pkg/p2pnet/errors.go`, `internal/config/errors.go`, `internal/daemon/errors.go`
+**Reference**: `pkg/sdk/errors.go`, `internal/config/errors.go`, `internal/daemon/errors.go`
 
 ---
 
@@ -64,4 +64,4 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Every binary is self-identifying. `shurli version` shows exact build info. The UserAgent appears in `shurli daemon peers --all`, making it easy to verify what version each peer runs.
 
-**Reference**: `cmd/shurli/main.go:10-17`, `pkg/p2pnet/network.go:121-123`
+**Reference**: `cmd/shurli/main.go:10-17`, `pkg/sdk/network.go:121-123`

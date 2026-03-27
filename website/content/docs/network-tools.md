@@ -243,9 +243,9 @@ Or use --standalone flag for direct P2P (debug):
 ### Shared Logic
 
 Both modes use the same underlying functions:
-- `p2pnet.PingPeer()` - streaming ping with configurable count and interval
-- `p2pnet.ComputePingStats()` - min/avg/max/loss statistics
-- `p2pnet.TracePeer()` - connection path analysis
+- `sdk.PingPeer()` - streaming ping with configurable count and interval
+- `sdk.ComputePingStats()` - min/avg/max/loss statistics
+- `sdk.TracePeer()` - connection path analysis
 
 ### Known Limitation
 

@@ -14,7 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // mockPlugin is a minimal Plugin implementation for testing.
@@ -619,7 +619,7 @@ func TestEnableRegistersProtocolsAfterStart(t *testing.T) {
 	}
 	defer h.Close()
 
-	svcReg := p2pnet.NewServiceRegistry(h, nil)
+	svcReg := sdk.NewServiceRegistry(h, nil)
 
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: svcReg,

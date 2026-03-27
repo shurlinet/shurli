@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/shurlinet/shurli/pkg/p2pnet"
+import "github.com/shurlinet/shurli/pkg/sdk"
 
 // StatusResponse is returned by GET /v1/status.
 type StatusResponse struct {
@@ -16,7 +16,7 @@ type StatusResponse struct {
 	NATType           string   `json:"nat_type,omitempty"`
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 	IsRelaying        bool     `json:"is_relaying"`
-	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
+	Reachability      *sdk.ReachabilityGrade `json:"reachability,omitempty"`
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
 	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
@@ -60,7 +60,7 @@ type PeerInfo struct {
 	AgentVersion string   `json:"agent_version,omitempty"`
 }
 
-// PathInfo is returned by GET /v1/paths. Mirrors p2pnet.PeerPathInfo JSON tags.
+// PathInfo is returned by GET /v1/paths. Mirrors sdk.PeerPathInfo JSON tags.
 type PathInfo struct {
 	PeerID      string `json:"peer_id"`
 	PathType    string `json:"path_type"`
@@ -97,8 +97,8 @@ type PingRequest struct {
 
 // PingResponse wraps ping results for non-streaming responses.
 type PingResponse struct {
-	Results []p2pnet.PingResult `json:"results"`
-	Stats   p2pnet.PingStats   `json:"stats"`
+	Results []sdk.PingResult `json:"results"`
+	Stats   sdk.PingStats   `json:"stats"`
 }
 
 // TraceRequest is the body for POST /v1/traceroute.
@@ -201,7 +201,7 @@ type RemoteServiceRequest struct {
 
 // RemoteServiceResponse is returned by POST /v1/services/remote.
 type RemoteServiceResponse struct {
-	Services []p2pnet.RemoteServiceInfo `json:"services"`
+	Services []sdk.RemoteServiceInfo `json:"services"`
 }
 
 

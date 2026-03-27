@@ -405,7 +405,7 @@ func LoadGrantCache(path string, hmacKey []byte) (*GrantCache, error) {
 // GrantStatus returns grant info for a relay. ok=false if no cached/valid grant.
 // Budget is returned for "send" direction (used for pre-transfer logging).
 // Actual budget validation uses HasSufficientBudget with explicit direction.
-// Satisfies p2pnet.RelayGrantChecker via structural typing (no import needed).
+// Satisfies sdk.RelayGrantChecker via structural typing (no import needed).
 func (c *GrantCache) GrantStatus(relayID peer.ID) (remaining time.Duration, budget int64, sessionDuration time.Duration, ok bool) {
 	r := c.Get(relayID)
 	if r == nil || r.Expired() {

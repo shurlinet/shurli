@@ -19,7 +19,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/vault"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // UnsealProtocol is the libp2p protocol ID for remote vault unseal.
@@ -94,7 +94,7 @@ type UnsealHandler struct {
 	Vault        *vault.Vault
 	AuthKeysPath string
 	StateFile    string          // path to lockout state file (empty = no persistence)
-	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	Metrics      *sdk.Metrics // nil-safe: metrics are optional
 
 	mu       sync.Mutex
 	lockouts map[peer.ID]*peerLockout

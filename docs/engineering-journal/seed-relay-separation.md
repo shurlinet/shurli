@@ -96,7 +96,7 @@ This is **UX only**. The client does not make any enforcement decisions. Even if
 
 **Why "discovery node" language**: Design directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
 
-**Reference**: `pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
+**Reference**: `pkg/sdk/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
 
 ---
 

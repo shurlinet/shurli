@@ -13,7 +13,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/termcolor"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runVerify(args []string) {
@@ -80,8 +80,8 @@ func runVerify(args []string) {
 	}
 
 	// Compute fingerprint.
-	emoji, numeric := p2pnet.ComputeFingerprint(ourPeerID, targetPeerID)
-	prefix := p2pnet.FingerprintPrefix(ourPeerID, targetPeerID)
+	emoji, numeric := sdk.ComputeFingerprint(ourPeerID, targetPeerID)
+	prefix := sdk.FingerprintPrefix(ourPeerID, targetPeerID)
 
 	// Display.
 	fmt.Println()

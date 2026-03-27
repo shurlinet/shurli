@@ -23,7 +23,7 @@ import (
 	libp2pnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -35,9 +35,9 @@ type FileTransferPlugin struct {
 	// mu protects all mutable fields below (P1 fix: zero synchronization).
 	// Handlers take RLock, Stop() takes full Lock when nilling fields.
 	mu              sync.RWMutex
-	network         *p2pnet.Network
-	transferService *p2pnet.TransferService
-	shareRegistry   *p2pnet.ShareRegistry
+	network         *sdk.Network
+	transferService *sdk.TransferService
+	shareRegistry   *sdk.ShareRegistry
 	config          TransferConfig
 
 	// Drain mechanism (Finding 52 - CRITICAL).
@@ -182,10 +182,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		queueFile = filepath.Join(p.configDir, "queue.json")
 	}
 
-	cfg := p2pnet.TransferConfig{
+	cfg := sdk.TransferConfig{
 		ReceiveDir:        p.config.ReceiveDir,
 		MaxSize:           p.config.MaxFileSize,
-		ReceiveMode:       p2pnet.ReceiveMode(p.config.ReceiveMode),
+		ReceiveMode:       sdk.ReceiveMode(p.config.ReceiveMode),
 		Compress:          compress,
 		ErasureOverhead:   erasureOverhead,
 		LogPath:           logPath,
@@ -218,14 +218,14 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		GrantChecker: p.ctx.RelayGrantChecker(),
 	}
 
-	ts, err := p2pnet.NewTransferService(cfg, nil, p.network.Events())
+	ts, err := sdk.NewTransferService(cfg, nil, p.network.Events())
 	if err != nil {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
 	p.transferService = ts
 
 	// If config specifies timed mode at startup, activate the timer.
-	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
+	if cfg.ReceiveMode == sdk.ReceiveModeTimed {
 		durStr := p.config.TimedDuration
 		if durStr == "" {
 			durStr = "10m"
@@ -240,10 +240,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// Load/create share registry.
 	if p.configDir != "" {
 		persistPath := filepath.Join(p.configDir, "shares.json")
-		reg, loadErr := p2pnet.LoadShareRegistry(persistPath)
+		reg, loadErr := sdk.LoadShareRegistry(persistPath)
 		if loadErr != nil {
 			slog.Warn("plugin.filetransfer: failed to load shares", "error", loadErr)
-			reg = p2pnet.NewShareRegistry()
+			reg = sdk.NewShareRegistry()
 			reg.SetPersistPath(persistPath)
 		}
 
@@ -344,7 +344,7 @@ func parseBandwidthBudget(s string) int64 {
 	if s == "" {
 		return 0
 	}
-	v, err := p2pnet.ParseByteSize(s)
+	v, err := sdk.ParseByteSize(s)
 	if err != nil {
 		slog.Warn("plugin.filetransfer: invalid bandwidth_budget config, using default",
 			"value", s, "error", err)
@@ -364,7 +364,7 @@ func (p *FileTransferPlugin) makePeerBudgetFunc() func(string) int64 {
 		if v == "" {
 			return 0 // use global default
 		}
-		bytes, err := p2pnet.ParseByteSize(v)
+		bytes, err := sdk.ParseByteSize(v)
 		if err != nil {
 			short := peerID
 			if len(short) > 16 {
@@ -559,7 +559,7 @@ func (p *FileTransferPlugin) Restore(data []byte) error {
 
 // checkpointState is the JSON structure saved by Checkpoint/Restore.
 type checkpointState struct {
-	Transfers []p2pnet.TransferSnapshot `json:"transfers,omitempty"`
+	Transfers []sdk.TransferSnapshot `json:"transfers,omitempty"`
 	HasShares bool                      `json:"has_shares,omitempty"`
 }
 

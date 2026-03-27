@@ -17,7 +17,7 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: No distributed tracing (deferred). No OTLP export (can be added via bridge later). Binary size increase: ~1MB (28MB total). Any Prometheus-compatible tool (Grafana, Datadog, etc.) works out of the box.
 
-**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/network.go`
+**Reference**: `pkg/sdk/metrics.go`, `pkg/sdk/network.go`
 
 ---
 
@@ -34,16 +34,16 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
 
-**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`
 
 ---
 
 ### ADR-H03: Auth Decision Callback (Avoiding Circular Imports)
 
-**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/p2pnet/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/p2pnet`.
+**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/sdk/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/sdk`.
 
 **Alternatives considered**:
-- **Move gater to pkg/p2pnet** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
+- **Move gater to pkg/sdk** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
 - **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
 
 **Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/shurli/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.

@@ -85,7 +85,7 @@ Protocol IDs (`/shurli/<name>/<version>`) were string literals scattered across 
 
 ### Decision
 
-Add `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/protocolid.go`:
+Add `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/protocolid.go`:
 - `ProtocolID(name, version)` - constructor that panics on empty, slash, or whitespace
 - `ValidateProtocolID(id)` - runtime validation
 - `MustValidateProtocolIDs(ids...)` - batch validation for `init()` blocks
@@ -107,7 +107,7 @@ Standalone CLI commands (ping, traceroute) duplicated ~50 lines of DHT bootstrap
 
 ### Decision
 
-Extract to `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/bootstrap.go`:
+Extract to `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/bootstrap.go`:
 - `BootstrapConfig` struct (namespace, bootstrap peers, relay addrs)
 - `BootstrapAndConnect()` function: DHT client mode, connect to bootstrap peers, connect to relays, find peer via DHT, fallback to relay circuit
 
@@ -128,7 +128,7 @@ File transfer is the first concrete plugin built on the Phase 9A service infrast
 
 ### Decision
 
-`https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` implements:
+`https://github.com/shurlinet/shurli/blob/main/pkg/sdk/transfer.go` implements:
 - Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
 - `TransferService` with `HandleInbound()` returning a `StreamHandler`
 - `SendFile()` for outbound transfers with background progress tracking

@@ -18,7 +18,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/notify"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Mock runtime ---
@@ -29,7 +29,7 @@ type mockRuntime struct {
 	pingProto string
 }
 
-func (m *mockRuntime) Network() *p2pnet.Network       { return nil }
+func (m *mockRuntime) Network() *sdk.Network       { return nil }
 func (m *mockRuntime) ConfigFile() string              { return "/mock/config.yaml" }
 func (m *mockRuntime) AuthKeysPath() string            { return "" }
 func (m *mockRuntime) GaterForHotReload() GaterReloader { return nil }
@@ -37,11 +37,11 @@ func (m *mockRuntime) Version() string                 { return m.version }
 func (m *mockRuntime) StartTime() time.Time            { return m.startTime }
 func (m *mockRuntime) PingProtocolID() string          { return m.pingProto }
 func (m *mockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error { return nil }
-func (m *mockRuntime) Interfaces() *p2pnet.InterfaceSummary             { return nil }
-func (m *mockRuntime) PathTracker() *p2pnet.PathTracker           { return nil }
-func (m *mockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return nil }
-func (m *mockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
-func (m *mockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
+func (m *mockRuntime) Interfaces() *sdk.InterfaceSummary             { return nil }
+func (m *mockRuntime) PathTracker() *sdk.PathTracker           { return nil }
+func (m *mockRuntime) BandwidthTracker() *sdk.BandwidthTracker { return nil }
+func (m *mockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
+func (m *mockRuntime) STUNResult() *sdk.STUNResult             { return nil }
 func (m *mockRuntime) IsRelaying() bool                            { return false }
 func (m *mockRuntime) RelayAddresses() []string                    { return nil }
 func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
@@ -53,7 +53,7 @@ func (m *mockRuntime) GrantProtocol() *grants.GrantProtocol         { return nil
 func (m *mockRuntime) GrantsAutoRefresh() bool                      { return false }
 func (m *mockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 func (m *mockRuntime) NotifyRouter() *notify.Router                 { return nil }
-func (m *mockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *mockRuntime) PeerManager() *sdk.PeerManager             { return nil }
 func (m *mockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 func newMockRuntime() *mockRuntime {
@@ -430,7 +430,7 @@ func TestHandlerShutdown_Response(t *testing.T) {
 	}
 }
 
-// TestNetworkClientIntegration creates a real server+client with a p2pnet.Network
+// TestNetworkClientIntegration creates a real server+client with a sdk.Network
 // and exercises every client method end-to-end. This covers all client methods
 // (Status, Services, Peers, AuthList, Resolve, Expose, Unexpose, etc.) at ~100%.
 func TestNetworkClientIntegration(t *testing.T) {
@@ -721,7 +721,7 @@ func TestNetworkClientIntegration(t *testing.T) {
 }
 
 // TestP2PHandlerIntegration tests the P2P-dependent daemon handlers
-// (ping, traceroute, connect) using two real p2pnet.Network instances
+// (ping, traceroute, connect) using two real sdk.Network instances
 // connected on localhost. This covers the code paths that can't be
 // reached with a single isolated host.
 func TestP2PHandlerIntegration(t *testing.T) {
@@ -729,7 +729,7 @@ func TestP2PHandlerIntegration(t *testing.T) {
 	socketPath := filepath.Join(dir, "test.sock")
 	cookiePath := filepath.Join(dir, ".test-cookie")
 
-	// Create two p2pnet.Network instances with localhost listen addresses
+	// Create two sdk.Network instances with localhost listen addresses
 	// so they can dial each other directly.
 	netA := newListeningTestNetwork(t)
 	netB := newListeningTestNetwork(t)
@@ -832,7 +832,7 @@ func TestP2PHandlerIntegration(t *testing.T) {
 		// Use doJSON directly since TracerouteText only returns text
 		req := TraceRequest{Peer: "remote"}
 		body, _ := json.Marshal(req)
-		var result p2pnet.TraceResult
+		var result sdk.TraceResult
 		reqData, status, doErr := client.do("POST", "/v1/traceroute", strings.NewReader(string(body)), nil)
 		if doErr != nil {
 			t.Fatalf("traceroute request: %v", doErr)
@@ -911,20 +911,20 @@ func TestP2PHandlerIntegration(t *testing.T) {
 }
 
 func TestComputePingStats_Empty(t *testing.T) {
-	stats := p2pnet.ComputePingStats(nil)
+	stats := sdk.ComputePingStats(nil)
 	if stats.Sent != 0 || stats.Received != 0 || stats.Lost != 0 {
 		t.Errorf("empty stats should be all zeros, got %+v", stats)
 	}
 }
 
 func TestComputePingStats_AllSuccess(t *testing.T) {
-	results := []p2pnet.PingResult{
+	results := []sdk.PingResult{
 		{Seq: 1, RttMs: 10.0, Path: "DIRECT"},
 		{Seq: 2, RttMs: 20.0, Path: "DIRECT"},
 		{Seq: 3, RttMs: 30.0, Path: "RELAYED"},
 	}
 
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 	if stats.Sent != 3 {
 		t.Errorf("expected Sent=3, got %d", stats.Sent)
 	}
@@ -949,13 +949,13 @@ func TestComputePingStats_AllSuccess(t *testing.T) {
 }
 
 func TestComputePingStats_WithErrors(t *testing.T) {
-	results := []p2pnet.PingResult{
+	results := []sdk.PingResult{
 		{Seq: 1, RttMs: 10.0, Path: "DIRECT"},
 		{Seq: 2, Error: "timeout"},
 		{Seq: 3, RttMs: 30.0, Path: "RELAYED"},
 	}
 
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 	if stats.Sent != 3 {
 		t.Errorf("expected Sent=3, got %d", stats.Sent)
 	}
@@ -972,12 +972,12 @@ func TestComputePingStats_WithErrors(t *testing.T) {
 }
 
 func TestComputePingStats_AllErrors(t *testing.T) {
-	results := []p2pnet.PingResult{
+	results := []sdk.PingResult{
 		{Seq: 1, Error: "timeout"},
 		{Seq: 2, Error: "connection refused"},
 	}
 
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 	if stats.Received != 0 {
 		t.Errorf("expected Received=0, got %d", stats.Received)
 	}

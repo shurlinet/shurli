@@ -13,7 +13,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/termcolor"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runAuthAudit(args []string) {
@@ -63,7 +63,7 @@ func doAuthAudit(args []string, stdout io.Writer) error {
 		return errOut(fmt.Errorf("cannot resolve identity password: %w", err))
 	}
 
-	privKey, err := p2pnet.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
+	privKey, err := sdk.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		return errOut(fmt.Errorf("cannot load identity key: %w", err))
 	}

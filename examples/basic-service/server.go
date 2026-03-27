@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func main() {
@@ -42,7 +42,7 @@ func main() {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create P2P network
-	net, err := p2pnet.New(&p2pnet.Config{
+	net, err := sdk.New(&sdk.Config{
 		KeyFile: "server.key",
 		Config: &config.Config{
 			Network: config.NetworkConfig{

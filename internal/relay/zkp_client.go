@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/zkp"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // ZKPAuthClient handles client-side ZKP anonymous authentication with a relay.
@@ -20,7 +20,7 @@ type ZKPAuthClient struct {
 	Host    host.Host
 	Prover  *zkp.Prover
 	Tree    *zkp.MerkleTree
-	Metrics *p2pnet.Metrics // nil-safe
+	Metrics *sdk.Metrics // nil-safe
 }
 
 // Authenticate opens a stream to the relay and proves membership anonymously.

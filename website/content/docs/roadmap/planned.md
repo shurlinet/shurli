@@ -87,7 +87,7 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 - [ ] Example: connect to a remote service in <10 lines of Python
 
 **SDK Documentation**:
-- [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
+- [ ] `docs/SDK.md` - guide for building on `pkg/sdk`
 - [ ] Example walkthroughs: file transfer, service templates, custom resolver, auth middleware
 
 ### Phase 9E: Swift SDK
@@ -131,7 +131,7 @@ Skills.md describes plugin behavior in natural language. AI agent reads the spec
 
 ### SDK & App Repository Strategy
 
-Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/p2pnet`) stays in this repo since it IS the core library.
+Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/sdk`) stays in this repo since it IS the core library.
 
 | Repository | What | Ships To |
 |-----------|------|----------|
@@ -157,7 +157,7 @@ Different languages have different release cycles, CI pipelines, and dependency 
 - [x] Hugo + Hextra site, automated docs sync, landing page, blog, CI/CD deploy
 - [x] GitHub Pages hosting with custom domain, DNS provider + CDN + DDoS protection
 - [x] AI-Agent discoverability: `/llms.txt` and `/llms-full.txt`
-- [ ] `pkg/p2pnet` library reference (godoc-style)
+- [ ] `pkg/sdk` library reference (godoc-style)
 - [ ] Use-case guides (GPU inference, IoT, game servers)
 - [ ] Install page with platform-specific instructions
 

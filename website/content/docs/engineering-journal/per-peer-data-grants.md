@@ -37,7 +37,7 @@ The NODE is the only enforcement point that sees all traffic regardless of relay
 - Node can operate with any number of relays, none of which need grant awareness
 - Relay ACLs can be relaxed without compromising node security
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/service.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/service.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go`
 
 ---
 
@@ -147,7 +147,7 @@ Binary (not JSON) because this is the hot path. Stack-allocated 4-byte fast path
 - Token-from-header verification is pure math (no disk I/O) - the Phase B performance win
 - Constant-time HMAC work on all paths (valid, invalid, malformed) prevents timing oracles (D1 mitigation)
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/grant_header.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/grant_header.go`
 
 ---
 
@@ -348,4 +348,4 @@ Two mechanisms:
 - Grants take effect immediately (no waiting for backoff timers)
 - AI agents can programmatically trigger reconnection after granting access
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/peermanager.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/peermanager.go`

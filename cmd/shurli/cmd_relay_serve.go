@@ -46,7 +46,7 @@ import (
 	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 const relayConfigFile = "relay-server.yaml"
@@ -399,7 +399,7 @@ func runRelayServe(args []string) {
 	// Bootstrap into the private shurli DHT as a server.
 	// The relay is the primary bootstrap peer - all shurli nodes connect here first
 	// and use this DHT for peer discovery.
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	dhtPrefix := sdk.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeServer),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
@@ -713,9 +713,9 @@ func runRelayServe(args []string) {
 	})
 
 	// Initialize relay observability (opt-in)
-	var relayMetrics *p2pnet.Metrics
+	var relayMetrics *sdk.Metrics
 	if cfg.Telemetry.Metrics.Enabled {
-		relayMetrics = p2pnet.NewMetrics(version, runtime.Version())
+		relayMetrics = sdk.NewMetrics(version, runtime.Version())
 		slog.Info("telemetry: metrics enabled", "addr", cfg.Telemetry.Metrics.ListenAddress)
 	}
 	// Wire metrics to Phase 6 components (nil-safe: if metrics disabled, handlers work without them).
@@ -741,9 +741,9 @@ func runRelayServe(args []string) {
 		}
 	}
 
-	var relayAudit *p2pnet.AuditLogger
+	var relayAudit *sdk.AuditLogger
 	if cfg.Telemetry.Audit.Enabled {
-		relayAudit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		relayAudit = sdk.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
 		slog.Info("telemetry: audit logging enabled")
 	}
 
@@ -1711,8 +1711,8 @@ func doRelayVerify(args []string, configFile string, stdout io.Writer) error {
 	}
 
 	// Compute fingerprint.
-	emoji, numeric := p2pnet.ComputeFingerprint(ourPeerID, targetPeerID)
-	prefix := p2pnet.FingerprintPrefix(ourPeerID, targetPeerID)
+	emoji, numeric := sdk.ComputeFingerprint(ourPeerID, targetPeerID)
+	prefix := sdk.FingerprintPrefix(ourPeerID, targetPeerID)
 
 	// Display.
 	fmt.Fprintln(stdout)

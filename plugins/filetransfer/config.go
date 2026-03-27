@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // containsShellMeta returns true if the string contains shell metacharacters
@@ -163,11 +163,11 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 				rollbackAll()
 				return
 			}
-			ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			ts.SetReceiveMode(sdk.ReceiveMode(newMode))
 		}
 		applied = append(applied, rollbackEntry{
 			field:   "receive_mode",
-			restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
+			restore: func() { ts.SetReceiveMode(sdk.ReceiveMode(oldMode)) },
 		})
 	}
 

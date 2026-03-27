@@ -33,7 +33,7 @@ Foundational technology choices made before the batch system.
 
 **Consequences**: Large dependency tree (100+ transitive deps). The binary includes WebRTC and other transports we don't directly use. Accepted because reliability > binary size, and we actively track CVEs in dependencies.
 
-**Reference**: `go.mod`, `pkg/p2pnet/network.go`
+**Reference**: `go.mod`, `pkg/sdk/network.go`
 
 ---
 
@@ -46,11 +46,11 @@ Foundational technology choices made before the batch system.
 - **No DHT, relay-only** - Simpler. Rejected because DHT enables peer discovery without centralized infrastructure.
 - **mDNS only** - Local network discovery. Rejected because it doesn't work across networks.
 
-**Decision**: Private Kademlia DHT with protocol prefix `/shurli/kad/1.0.0` (constant `p2pnet.DHTProtocolPrefix`). Shurli peers only discover and route to other shurli peers.
+**Decision**: Private Kademlia DHT with protocol prefix `/shurli/kad/1.0.0` (constant `sdk.DHTProtocolPrefix`). Shurli peers only discover and route to other shurli peers.
 
 **Consequences**: Smaller routing table (only shurli peers), no IPFS bootstrap dependency, but requires at least one known peer (relay) to bootstrap into the DHT.
 
-**Reference**: `pkg/p2pnet/network.go:27` (`DHTProtocolPrefix` constant), commit `d1d4336`
+**Reference**: `pkg/sdk/network.go:27` (`DHTProtocolPrefix` constant), commit `d1d4336`
 
 ---
 
@@ -67,7 +67,7 @@ Foundational technology choices made before the batch system.
 
 **Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant. Batch I shipped every-peer-is-a-relay (I-f), beginning the path to relay VPS elimination.
 
-**Reference**: `pkg/p2pnet/network.go:140`, `cmd/relay-server/`
+**Reference**: `pkg/sdk/network.go:140`, `cmd/relay-server/`
 
 ---
 
