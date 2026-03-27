@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes flowRight { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
+    @keyframes blockPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.7s both; }
+    .f3 { animation: fadeIn 0.5s ease-out 1.1s both; }
+    .f4 { animation: fadeIn 0.5s ease-out 1.5s both; }
+    .f5 { animation: fadeIn 0.5s ease-out 1.9s both; }
+    .flow { stroke-dasharray: 8 8; animation: flowRight 1.5s linear infinite; }
+    .block { animation: blockPulse 2s ease-in-out infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="420" fill="#0a0a1a"/>
+  <text x="400" y="28" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">REACHING YOUR HOME SERVER FROM OUTSIDE</text>
+
+  <!-- TOP: With IPv6 - direct, simple -->
+  <g class="f1">
+    <text x="400" y="60" text-anchor="middle" font-size="14" fill="#00d4aa" font-weight="600">With IPv6: direct connection</text>
+  </g>
+
+  <g class="f1">
+    <!-- You (phone/laptop) -->
+    <rect x="40" y="80" width="150" height="70" rx="8" stroke="#00d4aa" stroke-width="1.5" fill="#00d4aa" fill-opacity="0.06"/>
+    <text x="115" y="102" text-anchor="middle" font-size="12" fill="#00d4aa" font-weight="500">You (at a cafe)</text>
+    <text x="115" y="120" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.5">reachable from</text>
+    <text x="115" y="133" text-anchor="middle" font-size="10" fill="#00d4aa" opacity="0.5">anywhere</text>
+  </g>
+
+  <!-- Arrow: direct connection -->
+  <line x1="195" y1="115" x2="580" y2="115" stroke="#00d4aa" stroke-width="2" class="flow f2"/>
+
+  <g class="f2">
+    <!-- Home server -->
+    <rect x="585" y="80" width="155" height="70" rx="8" stroke="#00d4aa" stroke-width="1.5" fill="#00d4aa" fill-opacity="0.06"/>
+    <text x="662" y="105" text-anchor="middle" font-size="12" fill="#00d4aa" font-weight="500">Home Server</text>
+    <text x="662" y="120" text-anchor="middle" font-size="10" fill="#888">(your house)</text>
+    <text x="662" y="138" text-anchor="middle" font-size="9" fill="#00d4aa" opacity="0.5">reachable from anywhere</text>
+  </g>
+
+  <!-- Green check (above the line) -->
+  <g class="f2">
+    <text x="375" y="100" text-anchor="middle" font-size="11" fill="#00d4aa" font-weight="500">direct connection</text>
+  </g>
+
+  <!-- Divider -->
+  <line x1="40" y1="180" x2="760" y2="180" stroke="#333" stroke-width="1" stroke-dasharray="4 4" class="f2"/>
+
+  <!-- BOTTOM: Without IPv6 (CGNAT) - blocked -->
+  <g class="f3">
+    <text x="400" y="210" text-anchor="middle" font-size="14" fill="#ff6b6b" font-weight="600">Without IPv6: you are hidden behind your ISP</text>
+  </g>
+
+  <g class="f3">
+    <!-- You (phone/laptop) -->
+    <rect x="40" y="230" width="150" height="70" rx="8" stroke="#ff6b6b" stroke-width="1.5" fill="#ff6b6b" fill-opacity="0.06"/>
+    <text x="115" y="252" text-anchor="middle" font-size="12" fill="#ff6b6b" font-weight="500">You (at a cafe)</text>
+    <text x="115" y="270" text-anchor="middle" font-size="10" fill="#ff6b6b" opacity="0.5">hidden behind ISP</text>
+  </g>
+
+  <!-- Arrow to ISP wall -->
+  <line x1="195" y1="265" x2="260" y2="265" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4" class="f3"/>
+
+  <!-- ISP NAT wall -->
+  <g class="f4">
+    <rect x="265" y="225" width="90" height="80" rx="6" stroke="#ff6b6b" stroke-width="2" fill="#ff6b6b" fill-opacity="0.08" class="block"/>
+    <text x="310" y="255" text-anchor="middle" font-size="11" fill="#ff6b6b" font-weight="600">ISP</text>
+    <text x="310" y="270" text-anchor="middle" font-size="10" fill="#ff6b6b" opacity="0.7">shares 1 address</text>
+    <text x="310" y="284" text-anchor="middle" font-size="10" fill="#ff6b6b" opacity="0.7">with 1000+ users</text>
+  </g>
+
+  <!-- Blocked arrow -->
+  <line x1="360" y1="265" x2="430" y2="265" stroke="#ff6b6b" stroke-width="1.5" opacity="0.3" stroke-dasharray="4 4" class="f4"/>
+
+  <!-- X mark (blocked) -->
+  <g class="f4 block">
+    <line x1="423" y1="255" x2="437" y2="275" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round"/>
+    <line x1="437" y1="255" x2="423" y2="275" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Faded home server (unreachable) -->
+  <g class="f4" opacity="0.3">
+    <rect x="585" y="230" width="155" height="70" rx="8" stroke="#ff6b6b" stroke-width="1.5" fill="#ff6b6b" fill-opacity="0.04" stroke-dasharray="6 4"/>
+    <text x="662" y="255" text-anchor="middle" font-size="12" fill="#ff6b6b">Home Server</text>
+    <text x="662" y="272" text-anchor="middle" font-size="10" fill="#888">(unreachable)</text>
+  </g>
+
+  <!-- "No incoming connections" label -->
+  <g class="f5">
+    <text x="500" y="258" text-anchor="middle" font-size="11" fill="#ff6b6b" opacity="0.6">no incoming</text>
+    <text x="500" y="274" text-anchor="middle" font-size="11" fill="#ff6b6b" opacity="0.6">connections allowed</text>
+  </g>
+
+  <!-- Bottom context -->
+  <g class="f5">
+    <rect x="60" y="330" width="680" height="70" rx="10" stroke="#ffb347" stroke-width="1" fill="#ffb347" fill-opacity="0.03"/>
+    <text x="400" y="355" text-anchor="middle" font-size="13" fill="#e0e0e0">Half the internet is in the bottom scenario. Shurli works in both.</text>
+    <text x="400" y="378" text-anchor="middle" font-size="12" fill="#888">Relays bridge the gap until direct connections are possible.</text>
+  </g>
+</svg>
