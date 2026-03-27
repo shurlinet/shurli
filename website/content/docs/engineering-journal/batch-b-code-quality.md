@@ -21,7 +21,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Clean relay configuration. Users can list multiple addresses for the same relay (e.g., IPv4 and IPv6) without issues.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:280-309`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:280-309`
 
 ---
 
@@ -52,9 +52,9 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Decision**: Package-level sentinel errors using `errors.New()`: `ErrServiceNotFound`, `ErrNameNotFound`, `ErrConfigNotFound`, `ErrNoArchive`, `ErrCommitConfirmedPending`, `ErrNoPending`, `ErrDaemonAlreadyRunning`, `ErrProxyNotFound`. Callers use `errors.Is()` to check.
 
-**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/errors.go` and `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`.
+**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/errors.go` and `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/errors.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/config/errors.go`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/errors.go`
 
 ---
 
@@ -70,4 +70,4 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Every binary is self-identifying. `shurli version` shows exact build info. The UserAgent appears in `shurli daemon peers --all`, making it easy to verify what version each peer runs.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/main.go:10-17`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:121-123`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/main.go:10-17`, `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:121-123`

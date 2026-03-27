@@ -20,7 +20,7 @@ import (
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // MaxRequestBodySize limits the size of JSON request bodies to prevent
@@ -211,7 +211,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	resp.IsRelaying = rt.IsRelaying()
 
 	// Reachability grade
-	grade := p2pnet.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
+	grade := sdk.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
 	resp.Reachability = &grade
 
 	// Relay connectivity status
@@ -328,7 +328,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			if r.SessionDataLimit == 0 {
 				rgi.SessionBudget = "unlimited"
 			} else {
-				rgi.SessionBudget = p2pnet.FormatBytes(r.SessionDataLimit)
+				rgi.SessionBudget = sdk.FormatBytes(r.SessionDataLimit)
 			}
 			// Clamp sum to prevent int64 overflow (both counters are individually
 			// clamped to MaxInt64 by TrackCircuitBytes).
@@ -338,7 +338,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			used := sent + recv
 			if used > 0 {
-				rgi.SessionUsed = p2pnet.FormatBytes(used)
+				rgi.SessionUsed = sdk.FormatBytes(used)
 			}
 			if r.SessionDuration > 0 {
 				rgi.SessionDuration = formatDuration(r.SessionDuration)
@@ -478,7 +478,7 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -489,7 +489,7 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 	}
 	defer stream.Close()
 
-	services, err := p2pnet.QueryPeerServices(stream)
+	services, err := sdk.QueryPeerServices(stream)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("service query failed: %v", err))
 		return
@@ -559,7 +559,7 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 	tracker := s.runtime.PathTracker()
 	if tracker == nil {
-		RespondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
+		RespondJSON(w, http.StatusOK, []*sdk.PeerPathInfo{})
 		return
 	}
 
@@ -743,7 +743,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -758,14 +758,14 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(count)*interval+30*time.Second)
 	defer cancel()
 
-	ch := p2pnet.PingPeer(ctx, net.Host(), targetPeerID, protocolID, count, interval)
+	ch := sdk.PingPeer(ctx, net.Host(), targetPeerID, protocolID, count, interval)
 
-	var results []p2pnet.PingResult
+	var results []sdk.PingResult
 	for result := range ch {
 		results = append(results, result)
 	}
 
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 
 	if WantsText(r) {
 		var sb strings.Builder
@@ -807,11 +807,11 @@ func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
-	result, err := p2pnet.TracePeer(r.Context(), net.Host(), targetPeerID)
+	result, err := sdk.TracePeer(r.Context(), net.Host(), targetPeerID)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -907,17 +907,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
 	// Create dial function with retry
-	dialFunc := p2pnet.DialWithRetry(func() (p2pnet.ServiceConn, error) {
+	dialFunc := sdk.DialWithRetry(func() (sdk.ServiceConn, error) {
 		return pnet.ConnectToService(targetPeerID, req.Service)
 	}, 3)
 
 	// Create TCP listener
-	listener, err := p2pnet.NewTCPListener(req.Listen, dialFunc)
+	listener, err := sdk.NewTCPListener(req.Listen, dialFunc)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create listener: %v", err))
 		return
@@ -962,7 +962,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Detect connection path type for the response
 	h := pnet.Host()
-	pathType, addr := p2pnet.PeerConnInfo(h, targetPeerID)
+	pathType, addr := sdk.PeerConnInfo(h, targetPeerID)
 
 	slog.Info("proxy created via API", "id", id, "peer", req.Peer, "service", req.Service, "listen", proxy.Listen, "path", pathType)
 	RespondJSON(w, http.StatusOK, ConnectResponse{
@@ -1305,7 +1305,7 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Connect to relay and create pairing group
 	h := rt.Network().Host()
-	relayInfos, err := p2pnet.ParseRelayAddrs(relayAddrs)
+	relayInfos, err := sdk.ParseRelayAddrs(relayAddrs)
 	if err != nil || len(relayInfos) == 0 {
 		RespondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
 		return
@@ -1369,7 +1369,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	rt := s.runtime
 	h := rt.Network().Host()
 	relayAddrs := rt.RelayAddresses()
-	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+	relayInfos, _ := sdk.ParseRelayAddrs(relayAddrs)
 	if len(relayInfos) == 0 {
 		RespondError(w, http.StatusInternalServerError, "no relay addresses available; add one with 'shurli relay add <address>'")
 		return
@@ -1450,7 +1450,7 @@ func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
 		rt := s.runtime
 		h := rt.Network().Host()
 		relayAddrs := rt.RelayAddresses()
-		relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+		relayInfos, _ := sdk.ParseRelayAddrs(relayAddrs)
 		if len(relayInfos) > 0 {
 			relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
 			if err := relayClient.RevokeGroup(inv.groupID); err != nil {

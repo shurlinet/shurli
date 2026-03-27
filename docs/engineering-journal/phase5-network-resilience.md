@@ -17,7 +17,7 @@ mDNS native discovery, PeerManager lifecycle management, IPv6 path probing, stal
 
 **Consequences**: Native browse cooperates with mDNSResponder/avahi via IPC instead of competing for port 5353. Requires `libavahi-compat-libdnssd-dev` on Linux (CI updated). Cross-compilation without CGo falls back to zeroconf. Platform-specific code isolated behind build tags.
 
-**Reference**: `pkg/p2pnet/mdns_browse_native.go`, `pkg/p2pnet/mdns_browse_fallback.go`, `pkg/p2pnet/mdns.go`
+**Reference**: `pkg/sdk/mdns_browse_native.go`, `pkg/sdk/mdns_browse_fallback.go`, `pkg/sdk/mdns.go`
 
 ---
 
@@ -34,11 +34,11 @@ mDNS native discovery, PeerManager lifecycle management, IPv6 path probing, stal
 Key design choices:
 - **Watchlist, not all peers**: only authorized peers get reconnected. Relay, bootstrap, and DHT peers are transient.
 - **Event-driven state**: `EvtPeerConnectednessChanged` updates `ManagedPeer.Connected` immediately, no polling.
-- **Callback bridge**: `ConnectionRecorder` callback bridges `pkg/p2pnet` to `internal/reputation` without import cycles.
+- **Callback bridge**: `ConnectionRecorder` callback bridges `pkg/sdk` to `internal/reputation` without import cycles.
 
 **Consequences**: Automatic reconnection to all authorized peers. Backoff prevents network flooding. Reconnect time: 3-10 seconds for relay, 5-15 seconds for direct via probing.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (constants, `PeerManager`, `ManagedPeer`, `reconnectLoop`, `attemptReconnect`)
+**Reference**: `pkg/sdk/peermanager.go` (constants, `PeerManager`, `ManagedPeer`, `reconnectLoop`, `attemptReconnect`)
 
 ---
 
@@ -55,7 +55,7 @@ Key design choices:
 
 **Consequences**: Dead connections are removed within 500ms of interface disappearance (network change debounce time). The subsequent `OnNetworkChange()` triggers immediate reconnect through the new active interface. Tested: WiFi switch from DIRECT to RELAYED completes in ~5 seconds.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`CloseStaleConnections`, `extractIPFromMultiaddrObj`), `cmd/shurli/serve_common.go` (wiring)
+**Reference**: `pkg/sdk/peermanager.go` (`CloseStaleConnections`, `extractIPFromMultiaddrObj`), `cmd/shurli/serve_common.go` (wiring)
 
 ---
 
@@ -67,7 +67,7 @@ Key design choices:
 
 **Consequences**: Reconnection starts within milliseconds of network change detection instead of waiting for the next 30s tick. Combined with stale connection cleanup, the full WiFi-switch-to-reconnect cycle completes in 5-15 seconds.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`reconnectNow` field, `OnNetworkChange`, `reconnectLoop`)
+**Reference**: `pkg/sdk/peermanager.go` (`reconnectNow` field, `OnNetworkChange`, `reconnectLoop`)
 
 ---
 
@@ -93,7 +93,7 @@ DHT `FindPeer` refreshes addresses for peers missing IPv6 in the peerstore.
 
 **Consequences**: Cross-ISP DIRECT connections via secondary interfaces. Tested: USB LAN (IPv6) to satellite home-node, RELAYED 180ms to DIRECT 23ms via IPv6 QUIC. Source binding bypasses macOS utun route hijacking.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`ProbeAndUpgradeRelayed`, `probeAndUpgrade`, `probeLoop`, `closeRelayConns`)
+**Reference**: `pkg/sdk/peermanager.go` (`ProbeAndUpgradeRelayed`, `probeAndUpgrade`, `probeLoop`, `closeRelayConns`)
 
 ---
 
@@ -114,7 +114,7 @@ Why IPv4 only: many consumer routers (satellite ISPs, etc.) give all WiFi client
 
 **Consequences**: mDNS connect drops from 14 addresses (60+ second timeout budget) to 2 addresses (~2 second budget). LAN connection at 23ms in testing. Full address set still available after connect for identify exchange.
 
-**Reference**: `pkg/p2pnet/mdns.go` (`filterLANAddrs`, `localIPv4Subnets`, `HandlePeerFound`)
+**Reference**: `pkg/sdk/mdns.go` (`filterLANAddrs`, `localIPv4Subnets`, `HandlePeerFound`)
 
 ---
 
@@ -135,7 +135,7 @@ Combined with mDNS's 30-second relay sweep and `ForceDirectDial`, this eliminate
 
 **Consequences**: On a LAN with both mDNS direct and relay available, the pattern is: PeerManager tries relay, gets it, sees direct exists, discards relay. Logs show "peermanager: discarded relay (direct already active)" every ~30 seconds. Correct behavior: direct is stable, relay attempts are harmless.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`attemptReconnect` relay-discard block), `pkg/p2pnet/mdns.go` (relay sweep goroutine)
+**Reference**: `pkg/sdk/peermanager.go` (`attemptReconnect` relay-discard block), `pkg/sdk/mdns.go` (relay sweep goroutine)
 
 ---
 
@@ -207,7 +207,7 @@ cli:
 - Standalone code preserved behind config gate for debugging the daemon itself
 - Continuous ping (count=0) still requires standalone because daemon HTTP API can't stream
 
-**Reference**: `cmd/shurli/cmd_proxy.go` (daemon-first pattern), `internal/daemon/handlers.go` (path info in ConnectResponse), `internal/config/config.go` (CLIConfig), `pkg/p2pnet/pathdialer.go` (PeerConnInfo helper)
+**Reference**: `cmd/shurli/cmd_proxy.go` (daemon-first pattern), `internal/daemon/handlers.go` (path info in ConnectResponse), `internal/config/config.go` (CLIConfig), `pkg/sdk/pathdialer.go` (PeerConnInfo helper)
 
 ---
 
@@ -247,4 +247,4 @@ network:
 
 **Consequences**: Users on RFC 1918 mobile carriers can correctly signal their CGNAT status. Reachability grade accurately reflects Grade D. Hole-punch attempts are skipped. The node goes straight to relay, saving connection time. Auto-detection still works for RFC 6598 carriers when the flag is false (default).
 
-**Reference**: `pkg/p2pnet/stunprober.go` (`DetectCGNAT`), `cmd/shurli/serve_common.go` (passes config flag), `internal/config/config.go` (`NetworkConfig.ForceCGNAT`)
+**Reference**: `pkg/sdk/stunprober.go` (`DetectCGNAT`), `cmd/shurli/serve_common.go` (passes config flag), `internal/config/config.go` (`NetworkConfig.ForceCGNAT`)

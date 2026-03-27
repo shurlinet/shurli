@@ -47,7 +47,7 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 ### Strengths of the decentralized approach
 
 - **No central authority** - No account, no coordination server, no vendor dependency
-- **Importable library** - `pkg/p2pnet` can be embedded into any Go application
+- **Importable library** - `pkg/sdk` can be embedded into any Go application
 - **CGNAT/Starlink proven** - Relay-based architecture works through symmetric NAT
 - **Self-hosted relay** - You run your own relay on a $5 VPS
 - **GPU inference use case** - Purpose-built for exposing Ollama/vLLM through CGNAT

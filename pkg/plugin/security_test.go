@@ -12,7 +12,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // S1: Cross-plugin isolation - Plugin A can't reach Plugin B's internals.
@@ -261,7 +261,7 @@ func TestSecurity_RoutePathTraversal(t *testing.T) {
 
 // S9: Protocol policy enforcement - verifies policy wiring at plugin layer.
 // Full enforcement (denied peer, relay-only vs direct-only) is tested in
-// pkg/p2pnet/service_test.go where two real peers can connect. Here we verify:
+// pkg/sdk/service_test.go where two real peers can connect. Here we verify:
 // 1. nil policy -> default policy applied at registration
 // 2. explicit policy -> carried through to ServiceRegistry
 func TestSecurity_ProtocolPolicyEnforcement(t *testing.T) {
@@ -271,7 +271,7 @@ func TestSecurity_ProtocolPolicyEnforcement(t *testing.T) {
 	}
 	defer h.Close()
 
-	sr := p2pnet.NewServiceRegistry(h, nil)
+	sr := sdk.NewServiceRegistry(h, nil)
 
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,
@@ -301,7 +301,7 @@ func TestSecurity_ProtocolPolicyEnforcement(t *testing.T) {
 	p2 := newMinimalPlugin("policy-lan")
 	p2.protocols = []Protocol{
 		{Name: "pol-lan", Version: "1.0.0", Handler: noopStreamHandler(),
-			Policy: &p2pnet.PluginPolicy{AllowedTransports: p2pnet.TransportLAN}},
+			Policy: &sdk.PluginPolicy{AllowedTransports: sdk.TransportLAN}},
 	}
 
 	r.Register(p2)
@@ -313,7 +313,7 @@ func TestSecurity_ProtocolPolicyEnforcement(t *testing.T) {
 	if !ok {
 		t.Fatal("LAN-only protocol should be registered")
 	}
-	if svc2.Policy == nil || svc2.Policy.AllowedTransports != p2pnet.TransportLAN {
+	if svc2.Policy == nil || svc2.Policy.AllowedTransports != sdk.TransportLAN {
 		t.Error("explicit LAN-only policy should be preserved in ServiceRegistry")
 	}
 }

@@ -48,11 +48,11 @@ Makefile and build tooling, PAKE-secured invite/join, and private DHT namespace 
 
 **Decision**: Derive the DHT protocol prefix from an optional namespace: `/shurli/<namespace>/kad/1.0.0`. Empty namespace preserves the existing `/shurli/kad/1.0.0` prefix. Nodes on different namespaces speak entirely different DHT protocols and cannot discover each other. This is protocol-level isolation, not a filter.
 
-**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/p2pnet/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `shurli init --network` and `shurli status` expose the namespace in the CLI.
+**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/sdk/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `shurli init --network` and `shurli status` expose the namespace in the CLI.
 
 **Consequences**: Each private network needs its own relay (or a relay configured with the matching namespace). This is intentional: isolation means isolation. Multi-namespace relay support is deferred. Zero backward compatibility impact (empty namespace = global DHT).
 
-**Reference**: `pkg/p2pnet/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`
+**Reference**: `pkg/sdk/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`
 
 ---
 

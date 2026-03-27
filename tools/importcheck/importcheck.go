@@ -1,6 +1,6 @@
 // Package importcheck provides a go/analysis analyzer that flags direct imports
 // of internal/ packages from plugins/. Plugins should only depend on pkg/plugin,
-// pkg/p2pnet, and a small set of allowed internal helpers.
+// pkg/sdk, and a small set of allowed internal helpers.
 //
 // Allowed internal packages (Layer 1 compiled-in plugins only):
 //   - internal/config    - shared config types
@@ -49,7 +49,7 @@ func run(pass *analysis.Pass) (any, error) {
 			if isAllowed(importPath) {
 				continue
 			}
-			pass.Reportf(imp.Pos(), "plugin %q must not import internal package %q; use pkg/plugin or pkg/p2pnet interfaces instead",
+			pass.Reportf(imp.Pos(), "plugin %q must not import internal package %q; use pkg/plugin or pkg/sdk interfaces instead",
 				pkgPath, importPath)
 		}
 	}

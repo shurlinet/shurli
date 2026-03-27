@@ -75,7 +75,7 @@ The transfer queue now distinguishes "receiver busy" from other rejections:
 - Max 5 attempts prevents infinite retry loops
 - Works for both direct and relayed transfers
 
-**Reference**: `pkg/p2pnet/transfer.go`
+**Reference**: `pkg/sdk/transfer.go`
 
 ---
 
@@ -108,4 +108,4 @@ Budget-aware relay *selection* (choosing the best relay before dialing) is track
 - The optimization (proactive relay selection) is deferred to FT-Y #7
 - No relay protocol changes were needed; the solution is entirely client-side
 
-**Reference**: `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`
+**Reference**: `internal/grants/cache.go`, `pkg/sdk/transfer_grants.go`

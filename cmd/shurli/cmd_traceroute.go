@@ -10,7 +10,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runTraceroute(args []string) {
@@ -58,7 +58,7 @@ func runTraceroute(args []string) {
 
 	// Create standalone P2P host, resolve target, bootstrap, and connect.
 	pw, _ := resolvePasswordFromConfig(*configFlag)
-	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+	standalone, err := sdk.NewStandaloneHost(sdk.StandaloneConfig{
 		ConfigPath: *configFlag,
 		Password:   pw,
 		UserAgent:  "shurli/" + version,
@@ -79,7 +79,7 @@ func runTraceroute(args []string) {
 	}
 
 	// Run traceroute
-	result, err := p2pnet.TracePeer(ctx, standalone.Network.Host(), targetPeerID)
+	result, err := sdk.TracePeer(ctx, standalone.Network.Host(), targetPeerID)
 	if err != nil {
 		fatal("Traceroute failed: %v", err)
 	}

@@ -126,7 +126,7 @@ Performance (benchmarked on M-series Apple Silicon):
 | QUIC + Protobuf + DNS + Metrics | 1.9 MB (3%) | QUIC transport, protobuf serialization, DNS resolution, Prometheus |
 | libp2p ecosystem | 1.8 MB (3%) | go-libp2p core, Kademlia DHT, yamux multiplexer, routing helpers. The entire P2P networking stack |
 | WebRTC (pion) | 1.3 MB (2%) | ICE, DTLS, SCTP, SRTP. Required for browser-compatible NAT traversal |
-| **Shurli application code** | **0.4 MB (0.8%)** | **p2pnet, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon, etc.** |
+| **Shurli application code** | **0.4 MB (0.8%)** | **sdk, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon, etc.** |
 
 **Key insight**: ~88% of binary size is Go stdlib (FIPS crypto + runtime). This grew significantly from Go 1.24 (40 MB debug) to Go 1.26 (54 MB debug) due to FIPS 140 module expansion. gnark adds 3.8 MB debug (~2 MB stripped) - a reasonable cost for a full ZKP proving system. Shurli's own code is under 1%.
 
@@ -276,7 +276,7 @@ Tree is also auto-built on relay startup when `security.zkp.enabled: true`.
 
 **Context**: ZKP operations are computationally expensive (prove ~1.8s, verify ~2-3ms). Observability is critical for detecting performance regressions, failed auth attempts, and tree staleness.
 
-**Decision**: 9 new Prometheus metrics added to `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go`:
+**Decision**: 9 new Prometheus metrics added to `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/metrics.go`:
 
 | Metric | Type | Labels | Purpose |
 |--------|------|--------|---------|
@@ -294,7 +294,7 @@ All metrics are nil-safe: handlers work with or without metrics enabled.
 
 **Consequences**: Total metric footprint is 9 collectors. Histogram buckets are tuned to expected latencies: prove buckets 100ms-12s, verify buckets 1ms-128ms, rebuild buckets 1ms-1s.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/metrics.go`
 
 ---
 
@@ -326,7 +326,7 @@ internal/relay: +8 wire protocol tests
 | `https://github.com/shurlinet/shurli/blob/main/internal/relay/zkp_client.go` | 100 | Client-side ZKP auth (stream-based proof generation) |
 
 **Modified files**:
-- `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go` - 9 new ZKP metrics
+- `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/metrics.go` - 9 new ZKP metrics
 - `https://github.com/shurlinet/shurli/blob/main/internal/relay/admin.go` - 2 new endpoints, `SetZKPAuth`, `ZKPTreeInfoResponse`
 - `https://github.com/shurlinet/shurli/blob/main/internal/relay/admin_client.go` - `ZKPTreeRebuild`, `ZKPTreeInfo` methods
 - `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/cmd_relay_serve.go` - ZKP handler init, stream registration, metrics wiring
@@ -393,7 +393,7 @@ When `AnonymousMode` is true, recipients verify the ZKP proof against the curren
 
 **Consequences**: Zero impact on current functionality. Anonymous mode is opt-in per announcement. The gossip forwarding layer (Layer 2) works unchanged because forwarded messages already carry `From` for the originator.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/netintel.go` (NodeAnnouncement struct)
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/netintel.go` (NodeAnnouncement struct)
 
 ---
 
@@ -428,7 +428,7 @@ When `AnonymousMode` is true, recipients verify the ZKP proof against the curren
 
 **Consequences**: Total Phase 7 metric count: 14 collectors (9 from 7-B + 5 from 7-C).
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/metrics.go`
 
 ---
 
@@ -460,8 +460,8 @@ internal/zkp: 48 tests in ~21.8s (37 from 7-A + 11 from 7-C)
 | `https://github.com/shurlinet/shurli/blob/main/internal/zkp/rln_seam.go` | 52 | RLN types + interface (extension point) |
 
 **Modified files**:
-- `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/netintel.go` - `AnonymousMode` + `ZKPProof` fields on `NodeAnnouncement`
-- `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/metrics.go` - 5 new range proof / anonymous metrics
+- `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/netintel.go` - `AnonymousMode` + `ZKPProof` fields on `NodeAnnouncement`
+- `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/metrics.go` - 5 new range proof / anonymous metrics
 
 **Total**: 5 new files (~844 lines), 2 modified files (~60 lines added).
 

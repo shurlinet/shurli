@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Enable starts a plugin, registering its protocols with the service registry.
@@ -118,7 +118,7 @@ func (r *Registry) Enable(name string) error {
 	// X4 fix: Rebuild declaredProtos AFTER Start() so OpenStream accepts plugin's protocols.
 	declaredProtos := make(map[string]bool)
 	for _, proto := range entry.plugin.Protocols() {
-		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
+		pid := sdk.ProtocolID(proto.Name, proto.Version)
 		declaredProtos[pid] = true
 	}
 	entry.ctx.declaredProtos = declaredProtos

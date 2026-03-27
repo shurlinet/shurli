@@ -15,7 +15,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runProxy(args []string) {
@@ -122,7 +122,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, allow
 
 	// Create standalone P2P host from config.
 	pw, _ := resolvePasswordFromConfig(configPath)
-	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+	standalone, err := sdk.NewStandaloneHost(sdk.StandaloneConfig{
 		ConfigPath: configPath,
 		Password:   pw,
 		UserAgent:  "shurli/" + version,
@@ -156,7 +156,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, allow
 
 	// Bootstrap DHT for peer discovery
 	fmt.Println("Bootstrapping DHT...")
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	dhtPrefix := sdk.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	var kdht *dht.IpfsDHT
 	kdht, err = dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
@@ -175,7 +175,7 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, allow
 
 	// Connect to target using parallel path racing (DHT + relay simultaneously)
 	fmt.Println("Connecting to target peer...")
-	pd := p2pnet.NewPathDialer(h, kdht, &p2pnet.StaticRelaySource{Addrs: cfg.Relay.Addresses}, nil)
+	pd := sdk.NewPathDialer(h, kdht, &sdk.StaticRelaySource{Addrs: cfg.Relay.Addresses}, nil)
 	connectCtx, connectCancel := context.WithTimeout(ctx, 45*time.Second)
 	result, err := pd.DialPeer(connectCtx, homePeerID)
 	connectCancel()
@@ -192,10 +192,10 @@ func runProxyStandalone(target, serviceName, localPort, configPath string, allow
 	// exponential backoff (3 retries: 1s, 2s, 4s) to handle transient
 	// relay disconnections without failing the user's connection.
 	localAddr := fmt.Sprintf("localhost:%s", localPort)
-	dialFunc := p2pnet.DialWithRetry(func() (p2pnet.ServiceConn, error) {
+	dialFunc := sdk.DialWithRetry(func() (sdk.ServiceConn, error) {
 		return p2pNetwork.ConnectToService(homePeerID, serviceName)
 	}, 3)
-	listener, err := p2pnet.NewTCPListener(localAddr, dialFunc)
+	listener, err := sdk.NewTCPListener(localAddr, dialFunc)
 	if err != nil {
 		fatal("Failed to create listener: %v", err)
 	}

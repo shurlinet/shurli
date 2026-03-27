@@ -66,14 +66,14 @@
   <rect x="280" y="130" width="200" height="80" rx="8" fill="url(#metricsFill)" stroke="#73daca" stroke-width="1.5"/>
   <text x="380" y="156" font-family="system-ui, sans-serif" font-size="12" fill="#73daca" text-anchor="middle" font-weight="700">prometheus.Registry</text>
   <text x="380" y="172" font-family="system-ui, sans-serif" font-size="9" fill="#9ece6a" text-anchor="middle">Isolated (not global default)</text>
-  <text x="380" y="186" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/p2pnet/metrics.go</text>
+  <text x="380" y="186" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/sdk/metrics.go</text>
   <text x="380" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#565f89" text-anchor="middle">+ Go runtime + process collectors</text>
 
   <!-- Central: Audit Logger -->
   <rect x="280" y="240" width="200" height="64" rx="8" fill="url(#auditFill)" stroke="#bb9af7" stroke-width="1.5"/>
   <text x="380" y="262" font-family="system-ui, sans-serif" font-size="12" fill="#bb9af7" text-anchor="middle" font-weight="700">AuditLogger</text>
   <text x="380" y="278" font-family="system-ui, sans-serif" font-size="9" fill="#9d7cd8" text-anchor="middle">Structured JSON via slog</text>
-  <text x="380" y="292" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/p2pnet/audit.go</text>
+  <text x="380" y="292" font-family="ui-monospace, monospace" font-size="8" fill="#565f89" text-anchor="middle">pkg/sdk/audit.go</text>
 
   <!-- Arrows: Sources to Registry -->
   <line x1="220" y1="118" x2="280" y2="155" stroke="#3d59a1" stroke-width="1" marker-end="url(#arrowBlue)"/>
@@ -108,7 +108,7 @@
   <!-- Callback pattern label -->
   <rect x="200" y="385" width="360" height="75" rx="6" fill="#1e1d20" stroke="#414868" stroke-width="1"/>
   <text x="380" y="404" font-family="system-ui, sans-serif" font-size="10" fill="#c0caf5" text-anchor="middle" font-weight="600">Callback Pattern (no circular imports)</text>
-  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/shurli --(closure)--> pkg/p2pnet</text>
+  <text x="380" y="420" font-family="ui-monospace, monospace" font-size="8" fill="#73daca" text-anchor="middle">internal/auth --(callback)--> cmd/shurli --(closure)--> pkg/sdk</text>
   <text x="380" y="436" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">AuthDecisionFunc(peerID, result) feeds both metrics + audit</text>
   <text x="380" y="450" font-family="system-ui, sans-serif" font-size="8" fill="#565f89" text-anchor="middle">Wired in serve_common.go before network creation</text>
 

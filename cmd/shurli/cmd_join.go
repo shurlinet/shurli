@@ -29,7 +29,7 @@ import (
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runJoin(args []string) {
@@ -129,7 +129,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 	pw, _ := resolvePassword(configDir)
 
 	// Create P2P network.
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
+	p2pNetwork, err := sdk.New(&sdk.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
@@ -155,7 +155,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 
 	// Connect to relay.
 	outln("Connecting to relay...")
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	relayInfos, err := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
 	if err != nil {
 		fatal("Failed to parse relay addresses: %v", err)
 	}
@@ -291,7 +291,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 
 		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
 
-		emoji, numeric := p2pnet.ComputeFingerprint(h.ID(), p.PeerID)
+		emoji, numeric := sdk.ComputeFingerprint(h.ID(), p.PeerID)
 		out("Peer \"%s\" authorized. [UNVERIFIED]\n", finalName)
 		out("  Verification code: %s  (%s)\n", emoji, numeric)
 		out("  Verify with: shurli verify %s\n", finalName)

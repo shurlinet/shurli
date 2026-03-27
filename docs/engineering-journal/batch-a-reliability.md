@@ -16,7 +16,7 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 
 **Consequences**: Long-lived connections are supported, but a peer that disappears without closing the stream will hold resources until the relay's session duration limit (default 10 minutes) kicks in.
 
-**Reference**: `pkg/p2pnet/proxy.go:66`
+**Reference**: `pkg/sdk/proxy.go:66`
 
 ---
 
@@ -32,7 +32,7 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 
 **Consequences**: A failing connection takes up to ~7 seconds before giving up (1+2+4), which is acceptable for interactive use. The cap at 60s prevents runaway delays.
 
-**Reference**: `pkg/p2pnet/proxy.go:130-155`
+**Reference**: `pkg/sdk/proxy.go:130-155`
 
 ---
 
@@ -60,8 +60,8 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 - **Docker-only tests** - Realistic but slow and requires Docker installed. Added later as a complement (Batch G), not a replacement.
 - **Mock libp2p hosts** - Too much mocking makes tests unreliable.
 
-**Decision**: Create real libp2p hosts in the same process, connecting through an in-process relay. Tests in `pkg/p2pnet/` create 2-3 hosts that communicate through circuit relay within a single test binary.
+**Decision**: Create real libp2p hosts in the same process, connecting through an in-process relay. Tests in `pkg/sdk/` create 2-3 hosts that communicate through circuit relay within a single test binary.
 
 **Consequences**: Tests are fast (~2s) and run anywhere (`go test ./...`). They don't test actual network conditions (latency, packet loss), which is why Docker integration tests were added later as a complement.
 
-**Reference**: `pkg/p2pnet/network_test.go`, `pkg/p2pnet/service_test.go`
+**Reference**: `pkg/sdk/network_test.go`, `pkg/sdk/service_test.go`

@@ -15,7 +15,7 @@ import (
 
 // AuthDecisionFunc is called on every inbound auth decision with the peer ID
 // (truncated) and result ("allow" or "deny"). Used for metrics and audit logging
-// without creating a circular dependency on pkg/p2pnet.
+// without creating a circular dependency on pkg/sdk.
 type AuthDecisionFunc func(peerID, result string)
 
 // AuthorizedPeerGater implements the ConnectionGater interface.
@@ -203,7 +203,7 @@ func (g *AuthorizedPeerGater) GetAuthorizedPeerIDs() []peer.ID {
 
 // SetDecisionCallback sets a callback invoked on every inbound auth decision.
 // This is used by the observability layer to record metrics and audit events
-// without creating a circular import from internal/auth to pkg/p2pnet.
+// without creating a circular import from internal/auth to pkg/sdk.
 func (g *AuthorizedPeerGater) SetDecisionCallback(fn AuthDecisionFunc) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

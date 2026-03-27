@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // daemonClient connects to a running daemon via its Unix socket.
@@ -242,8 +242,8 @@ func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int,
 }
 
 // TransferStatus returns the progress of a transfer by ID.
-func (c *daemonClient) TransferStatus(id string) (*p2pnet.TransferProgress, error) {
-	var resp p2pnet.TransferProgress
+func (c *daemonClient) TransferStatus(id string) (*sdk.TransferProgress, error) {
+	var resp sdk.TransferProgress
 	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
 		return nil, err
 	}
@@ -251,8 +251,8 @@ func (c *daemonClient) TransferStatus(id string) (*p2pnet.TransferProgress, erro
 }
 
 // TransferList returns all tracked transfers.
-func (c *daemonClient) TransferList() ([]p2pnet.TransferSnapshot, error) {
-	var resp []p2pnet.TransferSnapshot
+func (c *daemonClient) TransferList() ([]sdk.TransferSnapshot, error) {
+	var resp []sdk.TransferSnapshot
 	if err := c.doJSON("GET", "/v1/transfers", nil, &resp); err != nil {
 		return nil, err
 	}
@@ -260,9 +260,9 @@ func (c *daemonClient) TransferList() ([]p2pnet.TransferSnapshot, error) {
 }
 
 // TransferHistory returns recent transfer events from the log file.
-func (c *daemonClient) TransferHistory(max int) ([]p2pnet.TransferEvent, error) {
+func (c *daemonClient) TransferHistory(max int) ([]sdk.TransferEvent, error) {
 	path := fmt.Sprintf("/v1/transfers/history?max=%d", max)
-	var resp []p2pnet.TransferEvent
+	var resp []sdk.TransferEvent
 	if err := c.doJSON("GET", path, nil, &resp); err != nil {
 		return nil, err
 	}

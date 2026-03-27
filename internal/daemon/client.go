@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Client connects to a running daemon via its Unix socket.
@@ -258,10 +258,10 @@ func (c *Client) PingText(peer string, count, intervalMs int) (string, error) {
 }
 
 // Traceroute traces the path to a peer and returns the result as JSON.
-func (c *Client) Traceroute(peer string) (*p2pnet.TraceResult, error) {
+func (c *Client) Traceroute(peer string) (*sdk.TraceResult, error) {
 	req := TraceRequest{Peer: peer}
 	body, _ := json.Marshal(req)
-	var resp p2pnet.TraceResult
+	var resp sdk.TraceResult
 	if err := c.doJSON("POST", "/v1/traceroute", strings.NewReader(string(body)), &resp); err != nil {
 		return nil, err
 	}

@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/daemon"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Request) {
@@ -268,18 +268,18 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", sdk.HumanizeError(err.Error())))
 		return
 	}
 	defer stream.Close()
 
-	result, err := p2pnet.BrowsePeer(stream, req.SubPath)
+	result, err := sdk.BrowsePeer(stream, req.SubPath)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
@@ -304,10 +304,10 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 				kind = "[dir]"
 			}
 			// D3 fix: sanitize remote-controlled strings for display (terminal injection).
-			displayName := p2pnet.SanitizeDisplayName(e.Name)
-			downloadPath := p2pnet.SanitizeDisplayName(e.Path)
+			displayName := sdk.SanitizeDisplayName(e.Name)
+			downloadPath := sdk.SanitizeDisplayName(e.Path)
 			if e.ShareID != "" {
-				downloadPath = p2pnet.SanitizeDisplayName(e.ShareID) + "/" + downloadPath
+				downloadPath = sdk.SanitizeDisplayName(e.ShareID) + "/" + downloadPath
 			}
 			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, displayName, humanSize(e.Size), downloadPath)
 		}
@@ -357,7 +357,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -431,7 +431,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	// Single-peer download. Use r.Context() so drain cancellation propagates (F2 fix).
 	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -471,7 +471,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		activeCtx := p.activeCtx
 		p.mu.RUnlock()
 		if activeCtx != nil {
-			go func(ctx context.Context, id, dir string, prog *p2pnet.TransferProgress) {
+			go func(ctx context.Context, id, dir string, prog *sdk.TransferProgress) {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
 				for {
@@ -539,7 +539,7 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -556,18 +556,18 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 	opener := func() (network.Stream, error) {
 		return pnet.OpenPluginStream(ctx, targetPeerID, "file-transfer")
 	}
-	sendOpts := p2pnet.SendOptions{
+	sendOpts := sdk.SendOptions{
 		NoCompress:   req.NoCompress,
 		Streams:      req.Streams,
 		StreamOpener: opener,
 	}
 
-	priority := p2pnet.PriorityNormal
+	priority := sdk.PriorityNormal
 	switch strings.ToLower(req.Priority) {
 	case "low":
-		priority = p2pnet.PriorityLow
+		priority = sdk.PriorityLow
 	case "high":
-		priority = p2pnet.PriorityHigh
+		priority = sdk.PriorityHigh
 	}
 
 	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
@@ -593,7 +593,7 @@ func (p *FileTransferPlugin) handleTransferList(w http.ResponseWriter, r *http.R
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
+		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferSnapshot{})
 		return
 	}
 	daemon.RespondJSON(w, http.StatusOK, ts.ListTransfers())
@@ -604,13 +604,13 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferEvent{})
 		return
 	}
 
 	logPath := ts.LogPath()
 	if logPath == "" {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferEvent{})
 		return
 	}
 
@@ -628,14 +628,14 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 		}
 	}
 
-	events, err := p2pnet.ReadTransferEvents(logPath, max)
+	events, err := sdk.ReadTransferEvents(logPath, max)
 	if err != nil {
 		slog.Warn("plugin.filetransfer: read transfer log failed", "path", logPath, "error", err)
 		daemon.RespondError(w, http.StatusInternalServerError, "transfer history unavailable")
 		return
 	}
 	if events == nil {
-		events = []p2pnet.TransferEvent{}
+		events = []sdk.TransferEvent{}
 	}
 	daemon.RespondJSON(w, http.StatusOK, events)
 }
@@ -741,14 +741,14 @@ func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http
 		}
 	}
 
-	reason := p2pnet.RejectReasonNone
+	reason := sdk.RejectReasonNone
 	switch req.Reason {
 	case "space":
-		reason = p2pnet.RejectReasonSpace
+		reason = sdk.RejectReasonSpace
 	case "busy":
-		reason = p2pnet.RejectReasonBusy
+		reason = sdk.RejectReasonBusy
 	case "size":
-		reason = p2pnet.RejectReasonSize
+		reason = sdk.RejectReasonSize
 	}
 
 	if err := ts.RejectTransfer(id, reason); err != nil {
