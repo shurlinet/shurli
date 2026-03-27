@@ -41,6 +41,36 @@ The proper solution is not to make agents smarter about networking. It is to mak
 
 The network layer handles detection, cleanup, reconnection, and path upgrades. The agent just talks to it. As a direct consequence, humans building applications on top of Shurli get the same reliability for free.
 
+## Not a VPN. A seamless internet for agents.
+
+![With IPv6 you can reach your home server directly. Without it, your ISP hides you behind a shared address and blocks incoming connections.](/images/blog/network-breaks-ipv6-vs-cgnat.svg)
+
+What Shurli does might sound similar to what a VPN does: it connects your devices across networks, finds paths through firewalls and restrictive [internet service providers](https://grokipedia.com/page/Internet_service_provider) (ISPs), and keeps connections alive. And for simple private networks, that comparison is fair.
+
+But the moment your network needs to talk to AI agents on the public internet, VPNs fall apart. You have to configure port forwarding, manage firewall rules, set up split tunneling, handle DNS leaks, deal with double NAT. Every new agent, every new service, every new peer requires manual configuration. For a tech enthusiast, that is a weekend project. For a network with dozens of AI agents operating autonomously, it is unworkable.
+
+Shurli is not replacing your VPN. It is building a seamless internet for AI agents operating on the toughest, most restrictive networks around the globe. Home networks where your internet service provider hides you behind a shared address. Mobile devices on cellular. Regions where ISPs have to stack workarounds on top of workarounds because there are not enough internet addresses to go around.
+
+Here is the reality of the internet AI agents are inheriting.
+
+### The address problem
+
+When you connect to the internet, your device needs its own address so other devices can reach it. The older system ([IPv4](https://grokipedia.com/page/IPv4Global)) ran out of addresses years ago. Every regional registry on earth is [exhausted](https://grokipedia.com/page/IPv4_address_exhaustion). The solution ISPs use: put thousands of customers behind a single shared address using something called [carrier-grade NAT](https://grokipedia.com/page/Carrier-grade_NAT) (CGNAT). Your ISP gives you a private address that only works inside their network. From the outside, you are invisible. Nobody can connect to you directly. No incoming connections allowed.
+
+The newer system ([IPv6](https://grokipedia.com/page/IPv6)) gives every device its own globally unique address. Direct connections work. No sharing, no hiding, no middleman.
+
+The problem: half the world does not have IPv6 yet.
+
+![Global IPv6 adoption climbing from 6% in 2015 to 49% in 2026, crossing 50% this year](/images/blog/network-breaks-ipv6-adoption.svg)
+
+Global IPv6 adoption is at [49% and climbing](https://www.google.com/intl/en/ipv6/statistics.html), crossing 50% this year. But the distribution is wildly uneven.
+
+![IPv6 adoption by country: France 87%, Germany 78%, India 76%, but Spain 11%, Nigeria 5%, South Africa 2%](/images/blog/network-breaks-ipv6-countries.svg)
+
+France leads at [87%](https://stats.labs.apnic.net/ipv6). India and Germany are above 76%. But South Korea is at 19%. Spain is at 11%. Nigeria and South Africa sit below 5%. Billions of users are behind shared addresses with no direct connectivity. According to [Cloudflare's research](https://blog.cloudflare.com/detecting-cgn-to-reduce-collateral-damage/), [76% of surveyed ISPs](https://www.theregister.com/2025/11/03/cloudflare_cgnat_bias_research/) deploy carrier-grade NAT, and those users get rate-limited and throttled more often despite being legitimate traffic.
+
+This is the internet AI agents are born into. Half can connect directly, half cannot. Shurli works in both halves. When direct connections are possible, Shurli uses them. When they are not, relays bridge the gap. The agent does not need to know which half of the internet it is on. Shurli figures it out.
+
 ## A Tuesday morning
 
 ![A day in the life: five network changes from home WiFi to cellular to wired LAN to VPN and back, with zero restarts and zero human intervention](/images/blog/network-breaks-tuesday.svg)
