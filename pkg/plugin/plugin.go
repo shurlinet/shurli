@@ -37,7 +37,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Checkpointer is optionally implemented by plugins that want state preserved
@@ -129,8 +129,8 @@ type Route struct {
 type Protocol struct {
 	Name    string               // e.g. "file-transfer" (a-z, 0-9, hyphens only, max 64 chars)
 	Version string               // e.g. "2.0.0" - exact match, no semver negotiation
-	Handler p2pnet.StreamHandler // func(serviceName string, s network.Stream)
-	Policy  *p2pnet.PluginPolicy // transport + peer restrictions (nil = default)
+	Handler sdk.StreamHandler // func(serviceName string, s network.Stream)
+	Policy  *sdk.PluginPolicy // transport + peer restrictions (nil = default)
 }
 
 // --- State machine ---
@@ -209,7 +209,7 @@ func newPluginError(code int, msg string) *PluginError {
 type PluginContext struct {
 	pluginName     string
 	logger         *slog.Logger
-	network        *p2pnet.Network
+	network        *sdk.Network
 	nameResolver   func(string) (peer.ID, error)
 	peerConnector  func(context.Context, peer.ID) error // DHT + relay fallback
 	configBytes    []byte
@@ -220,7 +220,7 @@ type PluginContext struct {
 	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
 	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
 	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
-	relayGrantChecker  p2pnet.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
+	relayGrantChecker  sdk.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -289,11 +289,11 @@ func (c *PluginContext) OnConfigReload(callback func([]byte)) {
 	c.configReloadCb = callback
 }
 
-// EngineHost returns the p2pnet.Network for protocol engine initialization.
+// EngineHost returns the sdk.Network for protocol engine initialization.
 // LAYER 1 ONLY: compiled-in plugins use this to create their protocol engines
 // AND for request-time stream operations (OpenPluginStream, ResolveName, etc.).
 // Layer 2 WASM plugins will NOT have this - they use host functions instead.
-func (c *PluginContext) EngineHost() *p2pnet.Network {
+func (c *PluginContext) EngineHost() *sdk.Network {
 	return c.network
 }
 
@@ -336,7 +336,7 @@ func (c *PluginContext) PeerAttr(peerID string, key string) string {
 
 // RelayGrantChecker returns the relay grant checker for transfer budget/time checks (H7).
 // Returns nil if no grant cache is configured.
-func (c *PluginContext) RelayGrantChecker() p2pnet.RelayGrantChecker {
+func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker {
 	return c.relayGrantChecker
 }
 
@@ -393,8 +393,8 @@ type interactionReport struct {
 // Constructed in cmd_daemon.go where all runtime components are available.
 // ServiceRegistry is held by the Registry for protocol registration, NOT passed to PluginContext.
 type ContextProvider struct {
-	Network         *p2pnet.Network
-	ServiceRegistry *p2pnet.ServiceRegistry
+	Network         *sdk.Network
+	ServiceRegistry *sdk.ServiceRegistry
 	ConfigDir       string                                      // base config dir (~/.shurli/)
 	NameResolver    func(name string) (peer.ID, error)
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
@@ -402,7 +402,7 @@ type ContextProvider struct {
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
 	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
 	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
-	RelayGrantChecker  p2pnet.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
+	RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
 }
 
 // --- Info ---

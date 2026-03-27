@@ -1,6 +1,6 @@
 # Basic Service Example
 
-This example demonstrates the core functionality of the `pkg/p2pnet` library:
+This example demonstrates the core functionality of the `pkg/sdk` library:
 - Exposing a local HTTP service through the P2P network
 - Connecting to a remote peer's service
 - Bidirectional data transfer

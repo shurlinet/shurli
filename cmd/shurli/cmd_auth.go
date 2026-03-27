@@ -15,7 +15,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runAuth(args []string) {
@@ -404,7 +404,7 @@ func doAuthSetAttr(args []string, stdout io.Writer) error {
 
 	// Validate bandwidth_budget values parse correctly.
 	if key == "bandwidth_budget" {
-		if _, err := p2pnet.ParseByteSize(value); err != nil {
+		if _, err := sdk.ParseByteSize(value); err != nil {
 			return fmt.Errorf("invalid bandwidth_budget value %q: %w", value, err)
 		}
 	}

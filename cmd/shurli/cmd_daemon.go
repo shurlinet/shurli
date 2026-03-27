@@ -26,24 +26,24 @@ import (
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 	"github.com/shurlinet/shurli/plugins"
 )
 
 // --- RuntimeInfo adapter (implements daemon.RuntimeInfo on serveRuntime) ---
 
-func (rt *serveRuntime) Network() *p2pnet.Network            { return rt.network }
+func (rt *serveRuntime) Network() *sdk.Network            { return rt.network }
 func (rt *serveRuntime) ConfigFile() string                   { return rt.configFile }
 func (rt *serveRuntime) AuthKeysPath() string                 { return rt.authKeys }
 func (rt *serveRuntime) Version() string                      { return rt.version }
 func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
-func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
-func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker         { return rt.pathTracker }
-func (rt *serveRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return rt.bwTracker }
-func (rt *serveRuntime) RelayHealth() *p2pnet.RelayHealth           { return rt.relayHealth }
-func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
+func (rt *serveRuntime) Interfaces() *sdk.InterfaceSummary { return rt.ifSummary }
+func (rt *serveRuntime) PathTracker() *sdk.PathTracker         { return rt.pathTracker }
+func (rt *serveRuntime) BandwidthTracker() *sdk.BandwidthTracker { return rt.bwTracker }
+func (rt *serveRuntime) RelayHealth() *sdk.RelayHealth           { return rt.relayHealth }
+func (rt *serveRuntime) STUNResult() *sdk.STUNResult {
 	if rt.stunProber == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.gran
 func (rt *serveRuntime) GrantsAutoRefresh() bool                { return rt.config.Grants.AutoRefresh }
 func (rt *serveRuntime) GrantsMaxRefreshDuration() string       { return rt.config.Grants.MaxRefreshDuration }
 func (rt *serveRuntime) NotifyRouter() *notify.Router            { return rt.notifyRouter }
-func (rt *serveRuntime) PeerManager() *p2pnet.PeerManager        { return rt.peerManager }
+func (rt *serveRuntime) PeerManager() *sdk.PeerManager        { return rt.peerManager }
 func (rt *serveRuntime) GrantCacheSnapshot() []*grants.GrantReceipt {
 	if rt.grantCache == nil {
 		return nil
@@ -157,7 +157,7 @@ func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 type gaterReloader struct {
 	gater        *auth.AuthorizedPeerGater
 	authKeysPath string
-	peerManager  *p2pnet.PeerManager // nil-safe
+	peerManager  *sdk.PeerManager // nil-safe
 }
 
 func (g *gaterReloader) ReloadFromFile() error {

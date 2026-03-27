@@ -22,7 +22,7 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 **Consequences**: Clean cold starts on all tested networks. Startup race eliminated. CGNAT detection works for RFC 6598 addresses. Limitation: mobile carriers that use RFC 1918 addresses (172.20.x.x, 10.x.x.x) for CGNAT cannot be distinguished from home networks. This is a fundamental limitation, not a bug - the address ranges overlap.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/stunprober.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/reachability.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/stunprober.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/reachability.go`
 
 ---
 
@@ -38,7 +38,7 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 **Consequences**: Users can see stale addresses in status output and understand why connections stay on relay. The diagnostic log helps debugging. Does not fix the underlying problem (PeerManager will). Avoids premature complexity that would need to be rewritten in Phase 5-L anyway.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/netmonitor.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/netmonitor.go`, `https://github.com/shurlinet/shurli/blob/main/cmd/shurli/serve_common.go`
 
 ---
 

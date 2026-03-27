@@ -22,7 +22,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Slightly more network chatter (AutoNAT probes), but more accurate reachability detection. The manual `force_private_reachability` flag remains as an override for cases where AutoNAT can't determine the correct state.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:118`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:118`
 
 ---
 
@@ -38,7 +38,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Environments that block UDP (some corporate networks) will fall back to TCP automatically. The ordering is declarative in `New()` - first transport to succeed wins.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:113-117`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:113-117`
 
 ---
 
@@ -53,7 +53,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Version info is visible to any connected peer (including non-shurli peers). Accepted because version strings are not sensitive - they aid debugging and interoperability.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:121-123`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/handlers.go:78-80`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:121-123`, `https://github.com/shurlinet/shurli/blob/main/internal/daemon/handlers.go:78-80`
 
 ---
 
@@ -68,4 +68,4 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Batch I added explicit address ranking via `PathDialer` (direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay) and parallel dial racing.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go:260-270`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go:260-270`

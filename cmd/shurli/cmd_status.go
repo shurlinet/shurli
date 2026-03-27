@@ -14,7 +14,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runStatus(args []string) {
@@ -53,7 +53,7 @@ func doStatus(args []string, stdout io.Writer) error {
 
 	// Peer ID
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
+	peerID, err := sdk.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	tc.Wblue(stdout, "Peer ID:  ")
 	if err != nil {
 		fmt.Fprintf(stdout, "error (%v)\n", err)
@@ -279,7 +279,7 @@ func doStatus(args []string, stdout io.Writer) error {
 }
 
 // writeReachabilityGrade writes a colorized reachability grade (e.g., "A Excellent").
-func writeReachabilityGrade(w io.Writer, r *p2pnet.ReachabilityGrade) {
+func writeReachabilityGrade(w io.Writer, r *sdk.ReachabilityGrade) {
 	grade := r.Grade + " " + r.Label
 	switch r.Grade {
 	case "A":

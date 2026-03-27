@@ -32,7 +32,7 @@ import (
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/zkp"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Context keys for caller identity and request origin.
@@ -177,7 +177,7 @@ type AdminServer struct {
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
 	host             libp2phost.Host // set after host creation for connected-peers queries
-	Metrics          *p2pnet.Metrics // nil-safe: metrics are optional
+	Metrics          *sdk.Metrics // nil-safe: metrics are optional
 	receiptHMACKey   []byte          // HKDF("grant-receipt/v1") - dedicated key for receipt HMAC
 	sessionDataLimit int64           // from relay config, bytes per session per direction (0=unlimited)
 	sessionDuration  time.Duration   // from relay config, max time per circuit session
@@ -1337,7 +1337,7 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 
 	// Validate bandwidth_budget values parse correctly before writing.
 	if req.Key == "bandwidth_budget" {
-		if _, err := p2pnet.ParseByteSize(req.Value); err != nil {
+		if _, err := sdk.ParseByteSize(req.Value); err != nil {
 			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid bandwidth_budget value %q: %v", req.Value, err))
 			return
 		}

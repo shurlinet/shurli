@@ -35,12 +35,12 @@ import (
 	"github.com/shurlinet/shurli/internal/reputation"
 	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // serveRuntime holds the shared P2P lifecycle state for the daemon command.
 type serveRuntime struct {
-	network    *p2pnet.Network
+	network    *sdk.Network
 	config     *config.HomeNodeConfig
 	configFile string
 	gater      *auth.AuthorizedPeerGater // nil if connection gating disabled
@@ -52,41 +52,41 @@ type serveRuntime struct {
 	kdht       *dht.IpfsDHT // stored for peer discovery from daemon API
 
 	// Interface discovery (populated at startup)
-	ifSummary *p2pnet.InterfaceSummary
+	ifSummary *sdk.InterfaceSummary
 
 	// Path dialer for parallel connection racing
-	pathDialer *p2pnet.PathDialer
+	pathDialer *sdk.PathDialer
 
 	// Path tracker for per-peer connection visibility
-	pathTracker *p2pnet.PathTracker
+	pathTracker *sdk.PathTracker
 
 	// STUN prober for NAT type detection and external address discovery
-	stunProber *p2pnet.STUNProber
+	stunProber *sdk.STUNProber
 
 	// mDNS local discovery (nil when disabled)
-	mdnsDiscovery *p2pnet.MDNSDiscovery
+	mdnsDiscovery *sdk.MDNSDiscovery
 
 	// Peer lifecycle management (background reconnection with backoff)
-	peerManager *p2pnet.PeerManager
+	peerManager *sdk.PeerManager
 
 	// Network intelligence presence protocol (nil when disabled)
-	netIntel *p2pnet.NetIntel
+	netIntel *sdk.NetIntel
 
 	// Routing discovery for DHT re-advertising on network change
 	routingDiscovery *drouting.RoutingDiscovery
 
 	// Peer relay (auto-enabled when public IP detected)
-	peerRelay *p2pnet.PeerRelay
+	peerRelay *sdk.PeerRelay
 
 	// Relay discovery (static + DHT-discovered relays)
-	relayDiscovery *p2pnet.RelayDiscovery
+	relayDiscovery *sdk.RelayDiscovery
 
 	// Observability (nil when telemetry disabled)
-	metrics       *p2pnet.Metrics
-	audit         *p2pnet.AuditLogger
+	metrics       *sdk.Metrics
+	audit         *sdk.AuditLogger
 	metricsServer *http.Server
-	bwTracker     *p2pnet.BandwidthTracker
-	relayHealth   *p2pnet.RelayHealth
+	bwTracker     *sdk.BandwidthTracker
+	relayHealth   *sdk.RelayHealth
 
 	// Sovereign per-peer interaction history
 	peerHistory *reputation.PeerHistory
@@ -175,21 +175,21 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 
 	// Initialize observability (opt-in)
 	if cfg.Telemetry.Metrics.Enabled {
-		rt.metrics = p2pnet.NewMetrics(ver, runtime.Version())
+		rt.metrics = sdk.NewMetrics(ver, runtime.Version())
 		fmt.Printf("Telemetry: metrics enabled on %s\n", cfg.Telemetry.Metrics.ListenAddress)
 	}
 	if cfg.Telemetry.Audit.Enabled {
-		rt.audit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		rt.audit = sdk.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
 		fmt.Println("Telemetry: audit logging enabled")
 	}
 
 	// Initialize bandwidth tracker (always on; nil metrics = stats-only, no Prometheus)
-	rt.bwTracker = p2pnet.NewBandwidthTracker(rt.metrics)
+	rt.bwTracker = sdk.NewBandwidthTracker(rt.metrics)
 
 	// Initialize relay discovery with static relays from config.
 	// DHT discovery is enabled later in Bootstrap() after DHT creation.
-	staticRelayInfos, _ := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
-	rt.relayDiscovery = p2pnet.NewRelayDiscovery(staticRelayInfos, cfg.Discovery.Network, rt.metrics)
+	staticRelayInfos, _ := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
+	rt.relayDiscovery = sdk.NewRelayDiscovery(staticRelayInfos, cfg.Discovery.Network, rt.metrics)
 
 	// Wire auth decision callback (metrics + audit)
 	if rt.gater != nil && (rt.metrics != nil || rt.audit != nil) {
@@ -220,7 +220,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	}
 
 	// Create P2P network
-	netCfg := &p2pnet.Config{
+	netCfg := &sdk.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		KeyPassword:        pw,
 		Gater:              rt.gater,
@@ -237,7 +237,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
 	}
 
-	net, err := p2pnet.New(netCfg)
+	net, err := sdk.New(netCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create P2P network: %w", err)
 	}
@@ -267,7 +267,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	cfg := rt.config
 
 	// Discover network interfaces and log IPv6/IPv4 availability
-	ifSummary, err := p2pnet.DiscoverInterfaces()
+	ifSummary, err := sdk.DiscoverInterfaces()
 	if err != nil {
 		fmt.Printf("Warning: interface discovery failed: %v\n", err)
 	} else {
@@ -298,7 +298,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Parse relay addresses for manual connection
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	relayInfos, err := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
 	if err != nil {
 		return fmt.Errorf("failed to parse relay addresses: %w", err)
 	}
@@ -354,7 +354,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Bootstrap the DHT
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	dhtPrefix := sdk.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	if cfg.Discovery.Network != "" {
 		fmt.Printf("DHT network: %s (protocol: %s/kad/1.0.0)\n", cfg.Discovery.Network, dhtPrefix)
 	} else {
@@ -405,7 +405,7 @@ func (rt *serveRuntime) Bootstrap() error {
 		if dnsDomain == "" {
 			dnsDomain = DNSSeedDomain
 		}
-		dnsInfos := p2pnet.ResolveDNSSeeds(rt.ctx, dnsDomain)
+		dnsInfos := sdk.ResolveDNSSeeds(rt.ctx, dnsDomain)
 		for _, ai := range dnsInfos {
 			for _, addr := range ai.Addrs {
 				full := addr.Encapsulate(ma.StringCast("/p2p/" + ai.ID.String()))
@@ -488,14 +488,14 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Initialize path dialer for parallel connection racing
-	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, rt.relayDiscovery, rt.metrics)
+	rt.pathDialer = sdk.NewPathDialer(h, kdht, rt.relayDiscovery, rt.metrics)
 
 	// Initialize path tracker for per-peer connection visibility
-	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
+	rt.pathTracker = sdk.NewPathTracker(h, rt.metrics)
 	go rt.pathTracker.Start(rt.ctx)
 
 	// Initialize PeerManager for background reconnection of authorized peers.
-	rt.peerManager = p2pnet.NewPeerManager(h, rt.pathDialer, rt.metrics,
+	rt.peerManager = sdk.NewPeerManager(h, rt.pathDialer, rt.metrics,
 		func(peerID, pathType string, latencyMs float64) {
 			if rt.peerHistory != nil {
 				rt.peerHistory.RecordConnection(peerID, pathType, latencyMs)
@@ -512,7 +512,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	// via direct push + gossip forwarding (Layer 1 + Layer 2 transport).
 	if cfg.Discovery.IsNetIntelEnabled() {
 		announceInterval := cfg.Discovery.AnnounceInterval // 0 = default
-		rt.netIntel = p2pnet.NewNetIntel(h, rt.metrics,
+		rt.netIntel = sdk.NewNetIntel(h, rt.metrics,
 			// PeerFilter: only share with and cache from authorized peers.
 			// When public network mode lands, this callback gets a second
 			// branch for open-network peers. No change to NetIntel itself.
@@ -523,8 +523,8 @@ func (rt *serveRuntime) Bootstrap() error {
 				return rt.gater.IsAuthorized(pid)
 			},
 			// NodeStateProvider: build announcement from current runtime state.
-			func() *p2pnet.NodeAnnouncement {
-				ann := &p2pnet.NodeAnnouncement{
+			func() *sdk.NodeAnnouncement {
+				ann := &sdk.NodeAnnouncement{
 					Version:   1,
 					UptimeSec: int64(time.Since(rt.startTime).Seconds()),
 					PeerCount: len(h.Network().Peers()),
@@ -534,7 +534,7 @@ func (rt *serveRuntime) Bootstrap() error {
 					ann.HasIPv4 = rt.ifSummary.HasGlobalIPv4
 					ann.HasIPv6 = rt.ifSummary.HasGlobalIPv6
 				}
-				var stunResult *p2pnet.STUNResult
+				var stunResult *sdk.STUNResult
 				if rt.stunProber != nil {
 					stunResult = rt.stunProber.Result()
 					if stunResult != nil {
@@ -542,7 +542,7 @@ func (rt *serveRuntime) Bootstrap() error {
 						ann.BehindCGNAT = stunResult.BehindCGNAT
 					}
 				}
-				grade := p2pnet.ComputeReachabilityGrade(rt.ifSummary, stunResult)
+				grade := sdk.ComputeReachabilityGrade(rt.ifSummary, stunResult)
 				ann.Grade = grade.Grade
 				return ann
 			},
@@ -553,9 +553,9 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
-	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
+	netmon := sdk.NewNetworkMonitor(func(change *sdk.NetworkChange) {
 		// Update interface summary
-		newSummary, err := p2pnet.DiscoverInterfaces()
+		newSummary, err := sdk.DiscoverInterfaces()
 		if err != nil {
 			fmt.Printf("Warning: interface re-discovery failed: %v\n", err)
 			return
@@ -717,7 +717,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// STUN probe for NAT type detection and external address discovery.
 	// Run in background so it doesn't block startup.
-	rt.stunProber = p2pnet.NewSTUNProber(nil, rt.metrics) // default STUN servers
+	rt.stunProber = sdk.NewSTUNProber(nil, rt.metrics) // default STUN servers
 	go func() {
 		probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
 		defer probeCancel()
@@ -750,7 +750,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Start mDNS local discovery (default: enabled).
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
-		rt.mdnsDiscovery = p2pnet.NewMDNSDiscovery(h, rt.metrics)
+		rt.mdnsDiscovery = sdk.NewMDNSDiscovery(h, rt.metrics)
 		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
 			slog.Warn("mdns: failed to start", "error", err)
 			rt.mdnsDiscovery = nil
@@ -761,7 +761,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Initialize peer relay (auto-enables if this host has a public IP).
 	// The existing ConnectionGater restricts who can use this relay.
-	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics, peerRelayConfigFromYAML(cfg.PeerRelay))
+	rt.peerRelay = sdk.NewPeerRelay(h, rt.metrics, peerRelayConfigFromYAML(cfg.PeerRelay))
 
 	// When peer relay enables/disables, start/stop DHT relay advertisement
 	rt.peerRelay.OnStateChange(func(enabled bool) {
@@ -775,7 +775,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Initialize relay health tracker and wire into discovery
-	relayHealth := p2pnet.NewRelayHealth(h, rt.metrics)
+	relayHealth := sdk.NewRelayHealth(h, rt.metrics)
 	rt.relayHealth = relayHealth
 	rt.relayDiscovery.SetHealth(relayHealth)
 
@@ -1529,10 +1529,10 @@ func (rt *serveRuntime) Shutdown() {
 	rt.network.Close()
 }
 
-// peerRelayConfigFromYAML converts the YAML peer relay config to p2pnet's config type.
+// peerRelayConfigFromYAML converts the YAML peer relay config to sdk's config type.
 // Zero values are handled by applyDefaults inside NewPeerRelay.
-func peerRelayConfigFromYAML(cfg config.PeerRelayConfig) p2pnet.PeerRelayConfig {
-	c := p2pnet.PeerRelayConfig{
+func peerRelayConfigFromYAML(cfg config.PeerRelayConfig) sdk.PeerRelayConfig {
+	c := sdk.PeerRelayConfig{
 		Enabled:                cfg.Enabled,
 		MaxReservations:        cfg.Resources.MaxReservations,
 		MaxCircuits:            cfg.Resources.MaxCircuits,
@@ -1606,7 +1606,7 @@ func waitForIPv6BindReady(ctx context.Context, timeout time.Duration) bool {
 			slog.Warn("waitForIPv6BindReady: timed out waiting for DAD")
 			return false
 		case <-ticker.C:
-			summary, err := p2pnet.DiscoverInterfaces()
+			summary, err := sdk.DiscoverInterfaces()
 			if err != nil || summary == nil || len(summary.GlobalIPv6Addrs) == 0 {
 				continue
 			}

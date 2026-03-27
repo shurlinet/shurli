@@ -17,7 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // MOTDProtocol is the libp2p protocol ID for relay MOTD and goodbye messages.
@@ -46,7 +46,7 @@ type persistedGoodbye struct {
 type MOTDHandler struct {
 	host    host.Host
 	privKey crypto.PrivKey
-	metrics *p2pnet.Metrics
+	metrics *sdk.Metrics
 
 	mu          sync.RWMutex
 	motd        string
@@ -69,7 +69,7 @@ func NewMOTDHandler(h host.Host, privKey crypto.PrivKey, goodbyeFile string) *MO
 }
 
 // SetMetrics attaches metrics to the handler.
-func (h *MOTDHandler) SetMetrics(m *p2pnet.Metrics) {
+func (h *MOTDHandler) SetMetrics(m *sdk.Metrics) {
 	h.metrics = m
 }
 

@@ -127,7 +127,7 @@ func TestRewriteGitHubSourceLinks(t *testing.T) {
 		name, input, want string
 	}{
 		{"cmd link", "[x](../cmd/shurli/main.go)", "[x](" + cfg.GithubBase + "/cmd/shurli/main.go)"},
-		{"pkg link", "[x](../pkg/p2pnet/foo.go)", "[x](" + cfg.GithubBase + "/pkg/p2pnet/foo.go)"},
+		{"pkg link", "[x](../pkg/sdk/foo.go)", "[x](" + cfg.GithubBase + "/pkg/sdk/foo.go)"},
 		{"internal link", "[x](../internal/config/)", "[x](" + cfg.GithubBase + "/internal/config/)"},
 		{"github link", "[ci](../.github/workflows/ci.yml)", "[ci](" + cfg.GithubBase + "/.github/workflows/ci.yml)"},
 		{"not relative", "[x](cmd/shurli/main.go)", "[x](cmd/shurli/main.go)"},
@@ -170,10 +170,10 @@ func TestRewriteJournalBackticks(t *testing.T) {
 	tests := []struct {
 		name, input, want string
 	}{
-		{"pkg ref", "`pkg/p2pnet/interfaces.go`", "`" + cfg.GithubBase + "/pkg/p2pnet/interfaces.go`"},
+		{"pkg ref", "`pkg/sdk/interfaces.go`", "`" + cfg.GithubBase + "/pkg/sdk/interfaces.go`"},
 		{"cmd ref", "`cmd/shurli/main.go`", "`" + cfg.GithubBase + "/cmd/shurli/main.go`"},
 		{"internal ref", "`internal/config/loader.go`", "`" + cfg.GithubBase + "/internal/config/loader.go`"},
-		{"no backtick", "pkg/p2pnet/interfaces.go", "pkg/p2pnet/interfaces.go"},
+		{"no backtick", "pkg/sdk/interfaces.go", "pkg/sdk/interfaces.go"},
 		{"other prefix", "`test/docker/file.go`", "`test/docker/file.go`"},
 	}
 	for _, tt := range tests {
@@ -403,7 +403,7 @@ Feature list.
 
 	// Create engineering journal
 	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "README.md"), []byte("# Engineering Journal\n\n| [Core](core-architecture.md) |\n"), 0644)
-	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "core-architecture.md"), []byte("# Core Architecture\n\n**Reference**: `pkg/p2pnet/network.go`\n"), 0644)
+	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "core-architecture.md"), []byte("# Core Architecture\n\n**Reference**: `pkg/sdk/network.go`\n"), 0644)
 
 	// Create docs/RELAY-SETUP.md
 	os.WriteFile(filepath.Join(docsDir, "RELAY-SETUP.md"), []byte("# Relay Setup\n\nSetup instructions.\n"), 0644)
@@ -459,7 +459,7 @@ Feature list.
 
 	// Verify Journal entry backtick rewriting
 	coreContent := readFile(t, filepath.Join(root, "website", "content", "docs", "engineering-journal", "core-architecture.md"))
-	assertContains(t, coreContent, "`"+cfg.GithubBase+"/pkg/p2pnet/network.go`", "Journal should rewrite backtick refs")
+	assertContains(t, coreContent, "`"+cfg.GithubBase+"/pkg/sdk/network.go`", "Journal should rewrite backtick refs")
 }
 
 func TestRun_DryRun(t *testing.T) {

@@ -317,7 +317,7 @@ Shurli uses a different model. Devices connect outbound to a lightweight relay f
 | **Single Binary** | One `shurli` binary with 33 subcommands. No runtime dependencies |
 | **Cross-Platform** | Linux, macOS, Windows, ARM |
 | **systemd + launchd** | Service files included for both Linux and macOS |
-| **Reusable Library** | `pkg/p2pnet` - import into your own Go projects |
+| **Reusable Library** | `pkg/sdk` - import into your own Go projects |
 
 ## Security
 
@@ -649,9 +649,9 @@ Or use --standalone flag for direct P2P (debug):
 ### Shared Logic
 
 Both modes use the same underlying functions:
-- `p2pnet.PingPeer()` - streaming ping with configurable count and interval
-- `p2pnet.ComputePingStats()` - min/avg/max/loss statistics
-- `p2pnet.TracePeer()` - connection path analysis
+- `sdk.PingPeer()` - streaming ping with configurable count and interval
+- `sdk.ComputePingStats()` - min/avg/max/loss statistics
+- `sdk.TracePeer()` - connection path analysis
 
 ### Known Limitation
 
@@ -786,7 +786,7 @@ Shurli/
 │   │   ├── flagorder.go     # Flag reordering (positional args after flags)
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
-├── pkg/p2pnet/              # Importable P2P library
+├── pkg/sdk/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
 │   ├── service_query.go     # Service query protocol (/shurli/service-query/1.0.0)
@@ -1067,7 +1067,7 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
 │   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
-├── pkg/p2pnet/              # ✅ Core library (importable) - transfer engine, chunking,
+├── pkg/sdk/              # ✅ Core library (importable) - transfer engine, chunking,
 │   │                        #   Merkle, compression, erasure, share registry, plugin policy
 │   ├── ...existing...
 │   └── federation.go        # 🆕 Phase 13: Network peering
@@ -1121,7 +1121,7 @@ To avoid code duplication, the P2P lifecycle is extracted into `serve_common.go`
 ```go
 // serveRuntime holds the shared P2P lifecycle state.
 type serveRuntime struct {
-    network          *p2pnet.Network
+    network          *sdk.Network
     config           *config.HomeNodeConfig
     configFile       string
     gater            *auth.AuthorizedPeerGater // nil if gating disabled
@@ -1131,18 +1131,18 @@ type serveRuntime struct {
     version          string
     startTime        time.Time
     kdht             *dht.IpfsDHT             // peer discovery from daemon API
-    ifSummary        *p2pnet.InterfaceSummary  // interface discovery (IPv4/IPv6)
-    pathDialer       *p2pnet.PathDialer        // parallel dial racing
-    pathTracker      *p2pnet.PathTracker       // per-peer path quality tracking
-    stunProber       *p2pnet.STUNProber        // NAT type detection
-    mdnsDiscovery    *p2pnet.MDNSDiscovery     // LAN discovery (nil when disabled)
-    peerManager      *p2pnet.PeerManager       // background reconnection with backoff
-    netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
-    peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
-    relayDiscovery   *p2pnet.RelayDiscovery    // static + DHT relay discovery
-    metrics          *p2pnet.Metrics           // nil when telemetry disabled
-    bwTracker        *p2pnet.BandwidthTracker  // per-peer bandwidth stats
-    relayHealth      *p2pnet.RelayHealth       // EWMA relay health scoring
+    ifSummary        *sdk.InterfaceSummary  // interface discovery (IPv4/IPv6)
+    pathDialer       *sdk.PathDialer        // parallel dial racing
+    pathTracker      *sdk.PathTracker       // per-peer path quality tracking
+    stunProber       *sdk.STUNProber        // NAT type detection
+    mdnsDiscovery    *sdk.MDNSDiscovery     // LAN discovery (nil when disabled)
+    peerManager      *sdk.PeerManager       // background reconnection with backoff
+    netIntel         *sdk.NetIntel          // presence protocol (nil when disabled)
+    peerRelay        *sdk.PeerRelay         // auto-enabled with public IP
+    relayDiscovery   *sdk.RelayDiscovery    // static + DHT relay discovery
+    metrics          *sdk.Metrics           // nil when telemetry disabled
+    bwTracker        *sdk.BandwidthTracker  // per-peer bandwidth stats
+    relayHealth      *sdk.RelayHealth       // EWMA relay health scoring
     peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
@@ -1155,7 +1155,7 @@ The daemon server (`internal/daemon/`) is decoupled from the CLI via the `Runtim
 
 ```go
 type RuntimeInfo interface {
-    Network() *p2pnet.Network
+    Network() *sdk.Network
     ConfigFile() string
     AuthKeysPath() string
     GaterForHotReload() GaterReloader            // nil if gating disabled
@@ -1163,11 +1163,11 @@ type RuntimeInfo interface {
     StartTime() time.Time
     PingProtocolID() string
     ConnectToPeer(ctx context.Context, peerID peer.ID) error
-    Interfaces() *p2pnet.InterfaceSummary        // nil before discovery
-    PathTracker() *p2pnet.PathTracker             // nil before bootstrap
-    STUNResult() *p2pnet.STUNResult               // nil before probe
+    Interfaces() *sdk.InterfaceSummary        // nil before discovery
+    PathTracker() *sdk.PathTracker             // nil before bootstrap
+    STUNResult() *sdk.STUNResult               // nil before probe
     IsRelaying() bool                             // true if peer relay enabled
-    TransferService() *p2pnet.TransferService     // file transfer service (nil if not configured)
+    TransferService() *sdk.TransferService     // file transfer service (nil if not configured)
 }
 ```
 
@@ -1274,7 +1274,7 @@ telemetry:
     enabled: true
 ```
 
-**Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
+**Prometheus Metrics** (`pkg/sdk/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
 Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
@@ -1322,17 +1322,17 @@ Custom shurli metrics (50 total):
 - `shurli_zkp_range_verify_duration_seconds` - range proof verification timing
 - `shurli_zkp_anon_announcements_total` - anonymous NetIntel announcements
 
-**Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
+**Audit Logger** (`pkg/sdk/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
 
 **Daemon Middleware** (`internal/daemon/middleware.go`): Wraps the HTTP handler chain (outside auth middleware) to capture request timing and status codes. Path parameters are sanitized (e.g., `/v1/auth/12D3KooW...` becomes `/v1/auth/:id`) to prevent high cardinality in metrics labels.
 
-**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/p2pnet`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
+**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/sdk`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
 **Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, ZKP operations, and system metrics. 56 panels (45 visualizations + 11 row headers) across 11 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, and ZKP Tree Operations.
 
-**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
+**Reference**: `pkg/sdk/metrics.go`, `pkg/sdk/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
 ### Adaptive Path Selection (Batch I)
 
@@ -1342,19 +1342,19 @@ Custom shurli metrics (50 total):
 
 Six components work together to find and maintain the best connection path to each peer:
 
-**Interface Discovery** (`pkg/p2pnet/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+**Interface Discovery** (`pkg/sdk/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
-**Parallel Dial Racing** (`pkg/p2pnet/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
+**Parallel Dial Racing** (`pkg/sdk/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
 
 ![Dial Racing Flow: entry point checks if already connected (instant return), otherwise launches DHT discovery and relay circuit in parallel, first success wins with path classification](images/arch-dial-racing.svg)
 
-**Path Quality Tracking** (`pkg/p2pnet/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
+**Path Quality Tracking** (`pkg/sdk/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
 
-**Network Change Monitoring** (`pkg/p2pnet/netmonitor.go`, `netmonitor_darwin.go`, `netmonitor_linux.go`): Event-driven on macOS (BSD route socket) and Linux (Netlink), polling fallback on other platforms. Detects three types of changes: global IP address changes, VPN tunnel interface appearance/disappearance, and default gateway changes (private IPv4 network switches). On change, fires the full recovery chain: strip stale LAN addresses, reset black hole detectors, clear dial backoffs, close stale connections, trigger reconnect, re-browse mDNS.
+**Network Change Monitoring** (`pkg/sdk/netmonitor.go`, `netmonitor_darwin.go`, `netmonitor_linux.go`): Event-driven on macOS (BSD route socket) and Linux (Netlink), polling fallback on other platforms. Detects three types of changes: global IP address changes, VPN tunnel interface appearance/disappearance, and default gateway changes (private IPv4 network switches). On change, fires the full recovery chain: strip stale LAN addresses, reset black hole detectors, clear dial backoffs, close stale connections, trigger reconnect, re-browse mDNS.
 
-**STUN NAT Detection** (`pkg/p2pnet/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
+**STUN NAT Detection** (`pkg/sdk/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
 
-**Every-Peer-Is-A-Relay** (`pkg/p2pnet/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
+**Every-Peer-Is-A-Relay** (`pkg/sdk/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
 
 **Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
@@ -1374,7 +1374,7 @@ Chaos testing on satellite WiFi, terrestrial WiFi, 5G hotspot, and USB LAN (with
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops that need deterministic reconnection.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peermanager.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/pathdialer.go`, `pkg/sdk/pathtracker.go`, `pkg/sdk/netmonitor.go`, `pkg/sdk/stunprober.go`, `pkg/sdk/peerrelay.go`, `pkg/sdk/peermanager.go`, `cmd/shurli/serve_common.go`
 
 ### libp2p Upstream Overrides
 
@@ -1664,7 +1664,7 @@ Bytes 4-N:  Base64-encoded macaroon token (only if flags & 0x01)
 - Token presented on non-relay transport: logged but not required (relay transport is where grants matter)
 - Constant-time rejection: HMAC work on all paths (valid, invalid, malformed) prevents timing oracles
 
-**Reference**: `pkg/p2pnet/grant_header.go`
+**Reference**: `pkg/sdk/grant_header.go`
 
 #### P2P Grant Delivery Protocol
 
@@ -1786,7 +1786,7 @@ When the relay creates or extends a grant, it pushes a grant receipt via `/shurl
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
 
-**Reference**: `pkg/p2pnet/peermanager.go`
+**Reference**: `pkg/sdk/peermanager.go`
 
 #### Grant Receipt Protocol
 
@@ -1817,7 +1817,7 @@ The HMAC key is derived via HKDF from the relay's identity with context `"grant-
 - Background cleanup goroutine removes expired entries on a configurable interval.
 - `GrantStatus()` satisfies the `RelayGrantChecker` interface via structural typing (no import cycle).
 
-**Smart pre-transfer checks** (`pkg/p2pnet/transfer_grants.go`):
+**Smart pre-transfer checks** (`pkg/sdk/transfer_grants.go`):
 
 Before a relay-mediated file transfer, the transfer service checks the cached receipt:
 
@@ -1849,7 +1849,7 @@ The `Relay Grants:` section in `shurli status` displays per-relay grant info fro
 - Relays running the new code send receipts to new clients and 1-byte signals to old clients (protocol negotiation).
 - New clients with old relays never receive receipts (no handler registered on the relay). The cache stays empty and pre-transfer checks are skipped (graceful degradation).
 
-**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`, `cmd/shurli/serve_common.go`
+**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/sdk/transfer_grants.go`, `cmd/shurli/serve_common.go`
 
 #### Security Thought Experiment
 
@@ -1996,7 +1996,7 @@ Range proofs on peer reputation scores. Prove "my score is above threshold X" wi
 
 **RLN extension point**: `RLNIdentity`, `RLNProof`, `RLNVerifier` interface defined (types only, no circuit). Composable with existing membership proof for future anonymous rate limiting.
 
-**Reference**: `internal/reputation/score.go`, `internal/zkp/range_proof.go`, `internal/zkp/rln_seam.go`, `pkg/p2pnet/netintel.go`
+**Reference**: `internal/reputation/score.go`, `internal/zkp/range_proof.go`, `internal/zkp/rln_seam.go`, `pkg/sdk/netintel.go`
 
 ### BIP39 Key Management (Phase 7)
 
@@ -2100,7 +2100,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### File Transfer (Phase 9B)
 
-> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/p2pnet/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
+> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/sdk/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
 
 Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay transport is allowed (relay-side bandwidth limits enforce conservation). Seven-layer DDoS defense protects all transfer endpoints.
 
@@ -2211,7 +2211,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 | klauspost/reedsolomon | MIT | Erasure coding |
 | xssnick/raptorq | MIT | Fountain codes (multi-source) |
 
-**Reference**: `pkg/p2pnet/transfer.go`, `pkg/p2pnet/chunker.go`, `pkg/p2pnet/merkle.go`, `pkg/p2pnet/compress.go`, `pkg/p2pnet/share.go`, `pkg/p2pnet/transfer_erasure.go`, `pkg/p2pnet/transfer_multipeer.go`, `pkg/p2pnet/transfer_raptorq.go`, `pkg/p2pnet/transfer_parallel.go`, `pkg/p2pnet/transfer_resume.go`, `pkg/p2pnet/transfer_log.go`, `pkg/p2pnet/transfer_notify.go`, `pkg/p2pnet/plugin_policy.go`
+**Reference**: `pkg/sdk/transfer.go`, `pkg/sdk/chunker.go`, `pkg/sdk/merkle.go`, `pkg/sdk/compress.go`, `pkg/sdk/share.go`, `pkg/sdk/transfer_erasure.go`, `pkg/sdk/transfer_multipeer.go`, `pkg/sdk/transfer_raptorq.go`, `pkg/sdk/transfer_parallel.go`, `pkg/sdk/transfer_resume.go`, `pkg/sdk/transfer_log.go`, `pkg/sdk/transfer_notify.go`, `pkg/sdk/plugin_policy.go`
 
 ### Plugin System
 
@@ -2348,7 +2348,7 @@ The per-peer data grant system (Phase 8B) proved that macaroon capability tokens
 
 **Why this order**: M2 (share) is low risk and a natural extension. M3 (relay) is medium risk but high value. M4 (connection) is the highest risk because it touches the libp2p handshake path - saved for last. M5 is trivial once M4 lands because roles are just caveats on the connection token.
 
-**Reference**: `internal/grants/`, `internal/macaroon/`, `pkg/p2pnet/grant_header.go`
+**Reference**: `internal/grants/`, `internal/macaroon/`, `pkg/sdk/grant_header.go`
 
 ### Federation Trust Model
 
@@ -2465,7 +2465,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
 | QUIC + Protobuf + DNS + Metrics | 1.9 MB (3%) | Transport, serialization, resolution, Prometheus |
 | libp2p ecosystem | 1.8 MB (3%) | go-libp2p core, Kademlia DHT, yamux, routing helpers |
 | WebRTC (pion) | 1.3 MB (2%) | ICE, DTLS, SCTP, SRTP for browser-compatible NAT traversal |
-| **Shurli application code** | **0.4 MB (0.8%)** | **p2pnet, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon** |
+| **Shurli application code** | **0.4 MB (0.8%)** | **sdk, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon** |
 
 ~88% is Go stdlib (FIPS crypto + runtime). gnark adds 3.8 MB for the full ZKP proving system. Shurli's own code is under 1%. Every dependency serves a specific function: libp2p for P2P networking, pion for NAT traversal, gnark for zero-knowledge proofs, Prometheus for observability. Nothing to cut.
 
@@ -4257,13 +4257,13 @@ go test -race -v ./internal/auth/
 | `internal/validate` | `service_test.go` | Service name validation (valid/invalid cases, max length) |
 | `internal/invite` | `code_test.go` | Encode/decode round-trip, invalid codes, trailing junk rejection |
 | `cmd/shurli` | `relay_input_test.go` | Relay address parsing (IPv4, IPv6, multiaddr detection, port validation) |
-| `pkg/p2pnet` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
-| `pkg/p2pnet` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
-| `pkg/p2pnet` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
-| `pkg/p2pnet` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
-| `pkg/p2pnet` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
-| `pkg/p2pnet` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
-| `pkg/p2pnet` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
+| `pkg/sdk` | `integration_test.go` | In-process libp2p host-to-host streaming, half-close semantics, P2P-to-TCP proxy, DialWithRetry retry/backoff, UserAgent exchange via Identify protocol |
+| `pkg/sdk` | `interfaces_test.go` | Interface discovery, IPv6/IPv4 classification, global unicast detection |
+| `pkg/sdk` | `pathdialer_test.go` | Parallel dial racing, already-connected fast path, path type classification |
+| `pkg/sdk` | `pathtracker_test.go` | Path quality tracking, event-bus subscription, per-peer path info |
+| `pkg/sdk` | `netmonitor_test.go` | Network change monitoring, interface diff detection, callback firing |
+| `pkg/sdk` | `stunprober_test.go` | STUN probing, NAT type classification, multi-server concurrent probing |
+| `pkg/sdk` | `peerrelay_test.go` | Peer relay auto-enable/disable, global IP detection, resource limits |
 
 ---
 
@@ -4278,7 +4278,7 @@ Performance benchmarks establish baselines for hot-path and cold-path functions.
 go test -bench=. -benchmem ./internal/auth/
 go test -bench=. -benchmem ./internal/invite/
 go test -bench=. -benchmem ./internal/config/
-go test -bench=. -benchmem ./pkg/p2pnet/
+go test -bench=. -benchmem ./pkg/sdk/
 
 # For statistical comparison (3+ runs recommended)
 go test -bench=. -benchmem -count=3 ./internal/auth/
@@ -4299,7 +4299,7 @@ benchstat old.txt new.txt
 | `internal/auth/authorized_keys_bench_test.go` | `LoadAuthorizedKeys5`, `LoadAuthorizedKeys50` | Cold (startup/reload) | File parse + peer ID decode |
 | `internal/invite/code_bench_test.go` | `Encode`, `Decode` | Mixed (per-invite) | Base32 + multihash + multiaddr ops |
 | `internal/config/loader_bench_test.go` | `LoadNodeConfig`, `ValidateNodeConfig` | Cold (startup) | YAML parse, validation |
-| `pkg/p2pnet/naming_bench_test.go` | `ResolveByName`, `ResolveByPeerID` | Hot (per-proxy) | Map lookup vs peer.Decode fallback |
+| `pkg/sdk/naming_bench_test.go` | `ResolveByName`, `ResolveByPeerID` | Hot (per-proxy) | Map lookup vs peer.Decode fallback |
 
 ---
 
@@ -4464,7 +4464,7 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 ### Strengths of the decentralized approach
 
 - **No central authority** - No account, no coordination server, no vendor dependency
-- **Importable library** - `pkg/p2pnet` can be embedded into any Go application
+- **Importable library** - `pkg/sdk` can be embedded into any Go application
 - **CGNAT/Starlink proven** - Relay-based architecture works through symmetric NAT
 - **Self-hosted relay** - You run your own relay on a $5 VPS
 - **GPU inference use case** - Purpose-built for exposing Ollama/vLLM through CGNAT
@@ -5684,7 +5684,7 @@ Foundational technology choices made before the batch system.
 
 **Consequences**: Large dependency tree (100+ transitive deps). The binary includes WebRTC and other transports we don't directly use. Accepted because reliability > binary size, and we actively track CVEs in dependencies.
 
-**Reference**: `go.mod`, `pkg/p2pnet/network.go`
+**Reference**: `go.mod`, `pkg/sdk/network.go`
 
 ---
 
@@ -5697,11 +5697,11 @@ Foundational technology choices made before the batch system.
 - **No DHT, relay-only** - Simpler. Rejected because DHT enables peer discovery without centralized infrastructure.
 - **mDNS only** - Local network discovery. Rejected because it doesn't work across networks.
 
-**Decision**: Private Kademlia DHT with protocol prefix `/shurli/kad/1.0.0` (constant `p2pnet.DHTProtocolPrefix`). Shurli peers only discover and route to other shurli peers.
+**Decision**: Private Kademlia DHT with protocol prefix `/shurli/kad/1.0.0` (constant `sdk.DHTProtocolPrefix`). Shurli peers only discover and route to other shurli peers.
 
 **Consequences**: Smaller routing table (only shurli peers), no IPFS bootstrap dependency, but requires at least one known peer (relay) to bootstrap into the DHT.
 
-**Reference**: `pkg/p2pnet/network.go:27` (`DHTProtocolPrefix` constant), commit `d1d4336`
+**Reference**: `pkg/sdk/network.go:27` (`DHTProtocolPrefix` constant), commit `d1d4336`
 
 ---
 
@@ -5718,7 +5718,7 @@ Foundational technology choices made before the batch system.
 
 **Consequences**: All traffic flows through the relay when direct connection fails. Relay becomes a critical infrastructure component - must be hardened, monitored, and eventually made redundant. Batch I shipped every-peer-is-a-relay (I-f), beginning the path to relay VPS elimination.
 
-**Reference**: `pkg/p2pnet/network.go:140`, `cmd/relay-server/`
+**Reference**: `pkg/sdk/network.go:140`, `cmd/relay-server/`
 
 ---
 
@@ -5806,7 +5806,7 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 
 **Consequences**: Long-lived connections are supported, but a peer that disappears without closing the stream will hold resources until the relay's session duration limit (default 10 minutes) kicks in.
 
-**Reference**: `pkg/p2pnet/proxy.go:66`
+**Reference**: `pkg/sdk/proxy.go:66`
 
 ---
 
@@ -5822,7 +5822,7 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 
 **Consequences**: A failing connection takes up to ~7 seconds before giving up (1+2+4), which is acceptable for interactive use. The cap at 60s prevents runaway delays.
 
-**Reference**: `pkg/p2pnet/proxy.go:130-155`
+**Reference**: `pkg/sdk/proxy.go:130-155`
 
 ---
 
@@ -5850,11 +5850,11 @@ Timeouts, retries, DHT in the proxy path, and in-process integration tests.
 - **Docker-only tests** - Realistic but slow and requires Docker installed. Added later as a complement (Batch G), not a replacement.
 - **Mock libp2p hosts** - Too much mocking makes tests unreliable.
 
-**Decision**: Create real libp2p hosts in the same process, connecting through an in-process relay. Tests in `pkg/p2pnet/` create 2-3 hosts that communicate through circuit relay within a single test binary.
+**Decision**: Create real libp2p hosts in the same process, connecting through an in-process relay. Tests in `pkg/sdk/` create 2-3 hosts that communicate through circuit relay within a single test binary.
 
 **Consequences**: Tests are fast (~2s) and run anywhere (`go test ./...`). They don't test actual network conditions (latency, packet loss), which is why Docker integration tests were added later as a complement.
 
-**Reference**: `pkg/p2pnet/network_test.go`, `pkg/p2pnet/service_test.go`
+**Reference**: `pkg/sdk/network_test.go`, `pkg/sdk/service_test.go`
 
 
 ---
@@ -5876,7 +5876,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Clean relay configuration. Users can list multiple addresses for the same relay (e.g., IPv4 and IPv6) without issues.
 
-**Reference**: `pkg/p2pnet/network.go:280-309`
+**Reference**: `pkg/sdk/network.go:280-309`
 
 ---
 
@@ -5907,9 +5907,9 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Decision**: Package-level sentinel errors using `errors.New()`: `ErrServiceNotFound`, `ErrNameNotFound`, `ErrConfigNotFound`, `ErrNoArchive`, `ErrCommitConfirmedPending`, `ErrNoPending`, `ErrDaemonAlreadyRunning`, `ErrProxyNotFound`. Callers use `errors.Is()` to check.
 
-**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `pkg/p2pnet/errors.go` and `internal/config/errors.go`.
+**Consequences**: Clean error checking, wrappable with `fmt.Errorf("%w: ...", ErrFoo)`. Error messages in two packages: `pkg/sdk/errors.go` and `internal/config/errors.go`.
 
-**Reference**: `pkg/p2pnet/errors.go`, `internal/config/errors.go`, `internal/daemon/errors.go`
+**Reference**: `pkg/sdk/errors.go`, `internal/config/errors.go`, `internal/daemon/errors.go`
 
 ---
 
@@ -5925,7 +5925,7 @@ Relay address deduplication, structured logging, sentinel errors, and build vers
 
 **Consequences**: Every binary is self-identifying. `shurli version` shows exact build info. The UserAgent appears in `shurli daemon peers --all`, making it easy to verify what version each peer runs.
 
-**Reference**: `cmd/shurli/main.go:10-17`, `pkg/p2pnet/network.go:121-123`
+**Reference**: `cmd/shurli/main.go:10-17`, `pkg/sdk/network.go:121-123`
 
 
 ---
@@ -6005,7 +6005,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Slightly more network chatter (AutoNAT probes), but more accurate reachability detection. The manual `force_private_reachability` flag remains as an override for cases where AutoNAT can't determine the correct state.
 
-**Reference**: `pkg/p2pnet/network.go:118`
+**Reference**: `pkg/sdk/network.go:118`
 
 ---
 
@@ -6021,7 +6021,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Environments that block UDP (some corporate networks) will fall back to TCP automatically. The ordering is declarative in `New()` - first transport to succeed wins.
 
-**Reference**: `pkg/p2pnet/network.go:113-117`
+**Reference**: `pkg/sdk/network.go:113-117`
 
 ---
 
@@ -6036,7 +6036,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Version info is visible to any connected peer (including non-shurli peers). Accepted because version strings are not sensitive - they aid debugging and interoperability.
 
-**Reference**: `pkg/p2pnet/network.go:121-123`, `internal/daemon/handlers.go:78-80`
+**Reference**: `pkg/sdk/network.go:121-123`, `internal/daemon/handlers.go:78-80`
 
 ---
 
@@ -6051,7 +6051,7 @@ AutoNAT v2, QUIC transport ordering, Identify UserAgent, and smart dialing.
 
 **Consequences**: Relies on libp2p's dialing heuristics, which generally prefer direct connections. Batch I added explicit address ranking via `PathDialer` (direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay) and parallel dial racing.
 
-**Reference**: `pkg/p2pnet/network.go:260-270`
+**Reference**: `pkg/sdk/network.go:260-270`
 
 
 ---
@@ -6260,7 +6260,7 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: No distributed tracing (deferred). No OTLP export (can be added via bridge later). Binary size increase: ~1MB (28MB total). Any Prometheus-compatible tool (Grafana, Datadog, etc.) works out of the box.
 
-**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/network.go`
+**Reference**: `pkg/sdk/metrics.go`, `pkg/sdk/network.go`
 
 ---
 
@@ -6277,16 +6277,16 @@ Prometheus metrics, nil-safe observability pattern, and auth decision callback.
 
 **Consequences**: Slightly verbose call sites (`if m != nil { m.Counter.Inc() }`). But: zero allocations when disabled, zero interface overhead, testable with isolated registries, and trivially verifiable (grep for nil checks).
 
-**Reference**: `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`
 
 ---
 
 ### ADR-H03: Auth Decision Callback (Avoiding Circular Imports)
 
-**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/p2pnet/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/p2pnet`.
+**Context**: Auth decisions happen in `internal/auth/gater.go`. Metrics live in `pkg/sdk/metrics.go`. Go forbids circular imports: `internal/auth` cannot import `pkg/sdk`.
 
 **Alternatives considered**:
-- **Move gater to pkg/p2pnet** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
+- **Move gater to pkg/sdk** - Would work but breaks the `internal/` boundary. The gater is an internal implementation detail.
 - **Shared interface package** - Create a `pkg/observe` package with metric recording interfaces. Adds complexity for a single callback.
 
 **Decision**: Define `AuthDecisionFunc func(peerID, result string)` as a callback type in `internal/auth`. The gater calls this callback on every inbound decision. The wiring layer (`cmd/shurli/serve_common.go`) creates a closure that feeds both the Prometheus counter and the audit logger.
@@ -6348,11 +6348,11 @@ Makefile and build tooling, PAKE-secured invite/join, and private DHT namespace 
 
 **Decision**: Derive the DHT protocol prefix from an optional namespace: `/shurli/<namespace>/kad/1.0.0`. Empty namespace preserves the existing `/shurli/kad/1.0.0` prefix. Nodes on different namespaces speak entirely different DHT protocols and cannot discover each other. This is protocol-level isolation, not a filter.
 
-**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/p2pnet/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `shurli init --network` and `shurli status` expose the namespace in the CLI.
+**Implementation**: `DHTProtocolPrefixForNamespace()` function in `pkg/sdk/network.go` replaces direct use of the `DHTProtocolPrefix` constant at all 4 DHT bootstrap call sites. Config field: `discovery.network` (optional, validated as DNS-label format). `shurli init --network` and `shurli status` expose the namespace in the CLI.
 
 **Consequences**: Each private network needs its own relay (or a relay configured with the matching namespace). This is intentional: isolation means isolation. Multi-namespace relay support is deferred. Zero backward compatibility impact (empty namespace = global DHT).
 
-**Reference**: `pkg/p2pnet/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`
+**Reference**: `pkg/sdk/network.go:DHTProtocolPrefixForNamespace`, `internal/config/config.go:DiscoveryConfig.Network`, `internal/validate/network.go`
 
 ---
 
@@ -6414,11 +6414,11 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 - **Rely on libp2p's address reporting** - libp2p reports listen addresses but doesn't classify them by interface or IP version. Insufficient for path ranking decisions.
 - **Platform-specific APIs** (macOS SCDynamicStore, Linux netlink) - More detailed but requires platform-specific code for a cross-platform tool.
 
-**Decision**: `DiscoverInterfaces()` in `pkg/p2pnet/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+**Decision**: `DiscoverInterfaces()` in `pkg/sdk/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
 **Consequences**: Cross-platform (Go stdlib). Slightly less detailed than platform-native APIs but sufficient for path ranking. Prometheus `interface_count` gauge tracks interface availability.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/interfaces_test.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/interfaces_test.go`
 
 ---
 
@@ -6435,7 +6435,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Connection time drops from 45s worst-case to the faster of DHT or relay (typically 3-10s). Slightly more goroutines spawned per connection attempt, but context cancellation ensures clean cleanup.
 
-**Reference**: `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathdialer_test.go`
+**Reference**: `pkg/sdk/pathdialer.go`, `pkg/sdk/pathdialer_test.go`
 
 ---
 
@@ -6451,7 +6451,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Zero polling overhead. Event-driven means path info updates immediately on connection state changes. Adds a dependency on libp2p's event bus API stability.
 
-**Reference**: `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/pathtracker_test.go`
+**Reference**: `pkg/sdk/pathtracker.go`, `pkg/sdk/pathtracker_test.go`
 
 ---
 
@@ -6467,7 +6467,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Polling introduces a detection delay (up to the poll interval). Acceptable because network changes are rare events and the poll interval is configurable. Platform-native event-driven detection can be added later as an optimization without changing the callback API.
 
-**Reference**: `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/netmonitor_test.go`
+**Reference**: `pkg/sdk/netmonitor.go`, `pkg/sdk/netmonitor_test.go`
 
 ---
 
@@ -6479,11 +6479,11 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 - **pion/stun** - Mature, widely used. Rejected because it pulls in the entire pion dependency tree (already have pion/dtls as a transitive dep of libp2p, but adding pion/stun directly increases attack surface and binary size).
 - **Skip STUN entirely** - Rely on AutoNAT v2 only. AutoNAT gives reachability but not NAT type classification (full-cone vs symmetric matters for hole-punch prediction).
 
-**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `pkg/p2pnet/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
+**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `pkg/sdk/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
 
 **Consequences**: Zero new dependencies. Binary size unchanged. The STUN client only implements Binding Request (the simplest STUN transaction). Does NOT implement TURN or ICE. Runs in background at startup (non-blocking) and re-probes on network change.
 
-**Reference**: `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/stunprober_test.go`
+**Reference**: `pkg/sdk/stunprober.go`, `pkg/sdk/stunprober_test.go`
 
 ---
 
@@ -6500,7 +6500,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Peers behind NAT never become relays (correct). Peers with public IPs silently become relays for their authorized peers. The conservative limits prevent resource exhaustion on home machines. DHT-based relay discovery (so peers can find each other's relays) is deferred to Post-I.
 
-**Reference**: `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peerrelay_test.go`
+**Reference**: `pkg/sdk/peerrelay.go`, `pkg/sdk/peerrelay_test.go`
 
 
 ---
@@ -6575,7 +6575,7 @@ Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verif
 
 **Consequences**: Verification is optional but visible. The persistent `[UNVERIFIED]` badge serves as a constant reminder without blocking functionality. 4-emoji comparison is quick and engaging. Entropy: 4 emoji from 256 = 2^32 possibilities, sufficient for active MITM detection in the private-network threat model.
 
-**Reference**: `pkg/p2pnet/verify.go`, `pkg/p2pnet/verify_test.go`, `cmd/shurli/cmd_verify.go`
+**Reference**: `pkg/sdk/verify.go`, `pkg/sdk/verify_test.go`, `cmd/shurli/cmd_verify.go`
 
 ---
 
@@ -6592,7 +6592,7 @@ Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verif
 
 **Consequences**: Users get honest, actionable information. "Grade D - CGNAT detected, hole-punch unlikely" is more useful than "hole-punchable: yes" when CGNAT will actually block it. The grade informs path selection decisions in future phases (Phase 5-L PeerManager). CGNAT detection is limited to RFC 6598 (100.64.0.0/10) on local interfaces - mobile CGNAT using RFC 1918 addresses (172.20.x.x) cannot be distinguished from home networks.
 
-**Reference**: `pkg/p2pnet/reachability.go`, `pkg/p2pnet/reachability_test.go`
+**Reference**: `pkg/sdk/reachability.go`, `pkg/sdk/reachability_test.go`
 
 ---
 
@@ -6632,7 +6632,7 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 **Consequences**: Clean cold starts on all tested networks. Startup race eliminated. CGNAT detection works for RFC 6598 addresses. Limitation: mobile carriers that use RFC 1918 addresses (172.20.x.x, 10.x.x.x) for CGNAT cannot be distinguished from home networks. This is a fundamental limitation, not a bug - the address ranges overlap.
 
-**Reference**: `cmd/shurli/serve_common.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/reachability.go`
+**Reference**: `cmd/shurli/serve_common.go`, `pkg/sdk/stunprober.go`, `pkg/sdk/reachability.go`
 
 ---
 
@@ -6648,7 +6648,7 @@ Bug 2: RFC 6598 CGNAT addresses (100.64.0.0/10) on local interfaces were not bei
 
 **Consequences**: Users can see stale addresses in status output and understand why connections stay on relay. The diagnostic log helps debugging. Does not fix the underlying problem (PeerManager will). Avoids premature complexity that would need to be rewritten in Phase 5-L anyway.
 
-**Reference**: `pkg/p2pnet/netmonitor.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/netmonitor.go`, `cmd/shurli/serve_common.go`
 
 ---
 
@@ -6689,7 +6689,7 @@ mDNS native discovery, PeerManager lifecycle management, IPv6 path probing, stal
 
 **Consequences**: Native browse cooperates with mDNSResponder/avahi via IPC instead of competing for port 5353. Requires `libavahi-compat-libdnssd-dev` on Linux (CI updated). Cross-compilation without CGo falls back to zeroconf. Platform-specific code isolated behind build tags.
 
-**Reference**: `pkg/p2pnet/mdns_browse_native.go`, `pkg/p2pnet/mdns_browse_fallback.go`, `pkg/p2pnet/mdns.go`
+**Reference**: `pkg/sdk/mdns_browse_native.go`, `pkg/sdk/mdns_browse_fallback.go`, `pkg/sdk/mdns.go`
 
 ---
 
@@ -6706,11 +6706,11 @@ mDNS native discovery, PeerManager lifecycle management, IPv6 path probing, stal
 Key design choices:
 - **Watchlist, not all peers**: only authorized peers get reconnected. Relay, bootstrap, and DHT peers are transient.
 - **Event-driven state**: `EvtPeerConnectednessChanged` updates `ManagedPeer.Connected` immediately, no polling.
-- **Callback bridge**: `ConnectionRecorder` callback bridges `pkg/p2pnet` to `internal/reputation` without import cycles.
+- **Callback bridge**: `ConnectionRecorder` callback bridges `pkg/sdk` to `internal/reputation` without import cycles.
 
 **Consequences**: Automatic reconnection to all authorized peers. Backoff prevents network flooding. Reconnect time: 3-10 seconds for relay, 5-15 seconds for direct via probing.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (constants, `PeerManager`, `ManagedPeer`, `reconnectLoop`, `attemptReconnect`)
+**Reference**: `pkg/sdk/peermanager.go` (constants, `PeerManager`, `ManagedPeer`, `reconnectLoop`, `attemptReconnect`)
 
 ---
 
@@ -6727,7 +6727,7 @@ Key design choices:
 
 **Consequences**: Dead connections are removed within 500ms of interface disappearance (network change debounce time). The subsequent `OnNetworkChange()` triggers immediate reconnect through the new active interface. Tested: WiFi switch from DIRECT to RELAYED completes in ~5 seconds.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`CloseStaleConnections`, `extractIPFromMultiaddrObj`), `cmd/shurli/serve_common.go` (wiring)
+**Reference**: `pkg/sdk/peermanager.go` (`CloseStaleConnections`, `extractIPFromMultiaddrObj`), `cmd/shurli/serve_common.go` (wiring)
 
 ---
 
@@ -6739,7 +6739,7 @@ Key design choices:
 
 **Consequences**: Reconnection starts within milliseconds of network change detection instead of waiting for the next 30s tick. Combined with stale connection cleanup, the full WiFi-switch-to-reconnect cycle completes in 5-15 seconds.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`reconnectNow` field, `OnNetworkChange`, `reconnectLoop`)
+**Reference**: `pkg/sdk/peermanager.go` (`reconnectNow` field, `OnNetworkChange`, `reconnectLoop`)
 
 ---
 
@@ -6765,7 +6765,7 @@ DHT `FindPeer` refreshes addresses for peers missing IPv6 in the peerstore.
 
 **Consequences**: Cross-ISP DIRECT connections via secondary interfaces. Tested: USB LAN (IPv6) to satellite home-node, RELAYED 180ms to DIRECT 23ms via IPv6 QUIC. Source binding bypasses macOS utun route hijacking.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`ProbeAndUpgradeRelayed`, `probeAndUpgrade`, `probeLoop`, `closeRelayConns`)
+**Reference**: `pkg/sdk/peermanager.go` (`ProbeAndUpgradeRelayed`, `probeAndUpgrade`, `probeLoop`, `closeRelayConns`)
 
 ---
 
@@ -6786,7 +6786,7 @@ Why IPv4 only: many consumer routers (satellite ISPs, etc.) give all WiFi client
 
 **Consequences**: mDNS connect drops from 14 addresses (60+ second timeout budget) to 2 addresses (~2 second budget). LAN connection at 23ms in testing. Full address set still available after connect for identify exchange.
 
-**Reference**: `pkg/p2pnet/mdns.go` (`filterLANAddrs`, `localIPv4Subnets`, `HandlePeerFound`)
+**Reference**: `pkg/sdk/mdns.go` (`filterLANAddrs`, `localIPv4Subnets`, `HandlePeerFound`)
 
 ---
 
@@ -6807,7 +6807,7 @@ Combined with mDNS's 30-second relay sweep and `ForceDirectDial`, this eliminate
 
 **Consequences**: On a LAN with both mDNS direct and relay available, the pattern is: PeerManager tries relay, gets it, sees direct exists, discards relay. Logs show "peermanager: discarded relay (direct already active)" every ~30 seconds. Correct behavior: direct is stable, relay attempts are harmless.
 
-**Reference**: `pkg/p2pnet/peermanager.go` (`attemptReconnect` relay-discard block), `pkg/p2pnet/mdns.go` (relay sweep goroutine)
+**Reference**: `pkg/sdk/peermanager.go` (`attemptReconnect` relay-discard block), `pkg/sdk/mdns.go` (relay sweep goroutine)
 
 ---
 
@@ -6879,7 +6879,7 @@ cli:
 - Standalone code preserved behind config gate for debugging the daemon itself
 - Continuous ping (count=0) still requires standalone because daemon HTTP API can't stream
 
-**Reference**: `cmd/shurli/cmd_proxy.go` (daemon-first pattern), `internal/daemon/handlers.go` (path info in ConnectResponse), `internal/config/config.go` (CLIConfig), `pkg/p2pnet/pathdialer.go` (PeerConnInfo helper)
+**Reference**: `cmd/shurli/cmd_proxy.go` (daemon-first pattern), `internal/daemon/handlers.go` (path info in ConnectResponse), `internal/config/config.go` (CLIConfig), `pkg/sdk/pathdialer.go` (PeerConnInfo helper)
 
 ---
 
@@ -6919,7 +6919,7 @@ network:
 
 **Consequences**: Users on RFC 1918 mobile carriers can correctly signal their CGNAT status. Reachability grade accurately reflects Grade D. Hole-punch attempts are skipped. The node goes straight to relay, saving connection time. Auto-detection still works for RFC 6598 carriers when the flag is false (default).
 
-**Reference**: `pkg/p2pnet/stunprober.go` (`DetectCGNAT`), `cmd/shurli/serve_common.go` (passes config flag), `internal/config/config.go` (`NetworkConfig.ForceCGNAT`)
+**Reference**: `pkg/sdk/stunprober.go` (`DetectCGNAT`), `cmd/shurli/serve_common.go` (passes config flag), `internal/config/config.go` (`NetworkConfig.ForceCGNAT`)
 
 
 ---
@@ -6939,13 +6939,13 @@ Peer relay service, DHT-based relay discovery, health-aware selection, per-peer 
 - **Multiple VPS relays** - Better availability but still central infrastructure. Operator cost scales linearly.
 - **Auto-enable relay on peers with public IP** - Zero operator overhead. Every peer with a routable address contributes relay capacity. The existing ConnectionGater enforces auth before relay protocol runs.
 
-**Decision**: `PeerRelay` in `pkg/p2pnet/peerrelay.go`. Three modes via `peer_relay.enabled` config: `"auto"` (default), `"true"`, `"false"`. Auto mode calls `AutoDetect()` after interface discovery: if `InterfaceSummary.HasGlobalIPv4` or `HasGlobalIPv6`, the relay enables. Resource limits are configurable: `MaxReservations` (4), `MaxCircuits` (16), `CircuitDuration` (10 min), `CircuitDataLimit` (128KB). `OnStateChange` callback bridges to RelayDiscovery for DHT advertisement.
+**Decision**: `PeerRelay` in `pkg/sdk/peerrelay.go`. Three modes via `peer_relay.enabled` config: `"auto"` (default), `"true"`, `"false"`. Auto mode calls `AutoDetect()` after interface discovery: if `InterfaceSummary.HasGlobalIPv4` or `HasGlobalIPv6`, the relay enables. Resource limits are configurable: `MaxReservations` (4), `MaxCircuits` (16), `CircuitDuration` (10 min), `CircuitDataLimit` (128KB). `OnStateChange` callback bridges to RelayDiscovery for DHT advertisement.
 
 Security: ConnectionGater applies to relay protocol. Only peers in `authorized_keys` can make reservations or create circuits. No anonymous relay traffic.
 
 **Consequences**: Every peer with a public IP becomes a relay automatically. The VPS relay transitions from "required infrastructure" to "bootstrap convenience." Resource limits prevent abuse. Config knobs allow operators to tune or disable.
 
-**Reference**: `pkg/p2pnet/peerrelay.go`, `internal/config/config.go` (PeerRelayConfig)
+**Reference**: `pkg/sdk/peerrelay.go`, `internal/config/config.go` (PeerRelayConfig)
 
 ---
 
@@ -6958,7 +6958,7 @@ Security: ConnectionGater applies to relay protocol. Only peers in `authorized_k
 - **Central registry API** - Defeats the purpose of decentralization.
 - **DHT provider records** - Standard libp2p pattern. Relay peers call `dht.Provide()`, NATted nodes call `FindProvidersAsync()`. Namespace-aware via deterministic CID derivation. Zero new dependencies.
 
-**Decision**: `RelayDiscovery` in `pkg/p2pnet/relaydiscovery.go`. Three components:
+**Decision**: `RelayDiscovery` in `pkg/sdk/relaydiscovery.go`. Three components:
 
 1. **RelaySource interface** - `RelayAddrs() []string`. Abstracts static vs dynamic relay sources. `StaticRelaySource` wraps a fixed list for backward compatibility. `RelayDiscovery` implements `RelaySource` with combined static + DHT results.
 
@@ -6970,7 +6970,7 @@ Security: ConnectionGater applies to relay protocol. Only peers in `authorized_k
 
 **Consequences**: NATted nodes automatically discover relay peers through the DHT. No static config needed beyond bootstrap. Namespace isolation prevents cross-network relay discovery. AllRelays() deduplicates by peer ID (static relays take priority over DHT-discovered duplicates).
 
-**Reference**: `pkg/p2pnet/relaydiscovery.go`, `pkg/p2pnet/relaydiscovery_test.go`
+**Reference**: `pkg/sdk/relaydiscovery.go`, `pkg/sdk/relaydiscovery_test.go`
 
 ---
 
@@ -6983,7 +6983,7 @@ Security: ConnectionGater applies to relay protocol. Only peers in `authorized_k
 - **Latency-only ranking** - Misses reliability. A relay with 20ms latency that fails 50% of the time is worse than one at 100ms with 99% success.
 - **Composite EWMA score** - Weights success rate (reliability), RTT (latency), and freshness (recency). EWMA smooths outliers while tracking trends.
 
-**Decision**: `RelayHealth` in `pkg/p2pnet/relayhealth.go`. Per-relay `RelayHealthScore` tracks:
+**Decision**: `RelayHealth` in `pkg/sdk/relayhealth.go`. Per-relay `RelayHealthScore` tracks:
 
 - **Score**: composite 0.0-1.0 from `computeScore(successRate, rttMs, now, lastProbe)`
 - **Formula**: `successRate * 0.6 + latencyFactor * 0.3 + freshness * 0.1`
@@ -6999,7 +6999,7 @@ Prometheus: `shurli_relay_health_score` gauge (per relay, labeled static/dynamic
 
 **Consequences**: Relays are ranked by measured quality. Degraded relays drop in ranking automatically. New relays start at 0.5 (neutral) and converge after 3-4 probes. Stale relays decay via freshness factor. Zero manual intervention.
 
-**Reference**: `pkg/p2pnet/relayhealth.go`, `pkg/p2pnet/metrics.go`
+**Reference**: `pkg/sdk/relayhealth.go`, `pkg/sdk/metrics.go`
 
 ---
 
@@ -7007,7 +7007,7 @@ Prometheus: `shurli_relay_health_score` gauge (per relay, labeled static/dynamic
 
 **Context**: Observability gap: no visibility into how much data flows through each peer or protocol. Without bandwidth data, operators cannot identify heavy consumers, detect anomalies, or tune resource limits.
 
-**Decision**: `BandwidthTracker` in `pkg/p2pnet/bandwidth.go`. Wraps libp2p's `metrics.BandwidthCounter` (wired via `libp2p.BandwidthReporter()`). Exposes:
+**Decision**: `BandwidthTracker` in `pkg/sdk/bandwidth.go`. Wraps libp2p's `metrics.BandwidthCounter` (wired via `libp2p.BandwidthReporter()`). Exposes:
 
 - `PeerStats(peer.ID)` - per-peer bytes in/out, rates
 - `AllPeerStats()` - all peers keyed by ID
@@ -7026,7 +7026,7 @@ Daemon API: `GET /v1/bandwidth` returns aggregate + per-peer + per-protocol stat
 
 **Consequences**: Full bandwidth visibility. Prometheus dashboards show traffic patterns. Idle trimming prevents unbounded memory growth. Daemon API exposes stats for CLI tooling.
 
-**Reference**: `pkg/p2pnet/bandwidth.go`, `pkg/p2pnet/bandwidth_test.go`, `internal/daemon/handlers.go`
+**Reference**: `pkg/sdk/bandwidth.go`, `pkg/sdk/bandwidth_test.go`, `internal/daemon/handlers.go`
 
 ---
 
@@ -7038,7 +7038,7 @@ Daemon API: `GET /v1/bandwidth` returns aggregate + per-peer + per-protocol stat
 
 1. **Config peers** (`bootstrap_peers` in config.yaml) - highest priority. User-specified, always tried first. If set, DNS seeds are skipped (user knows what they want).
 
-2. **DNS seeds** (`_dnsaddr.<domain>` TXT records) - default: `seeds.shurli.io`. Uses the dnsaddr multiaddr convention from IPFS. `ResolveDNSSeeds()` in `pkg/p2pnet/dnsseed.go` queries TXT records with 10s timeout. Records format: `dnsaddr=/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...`. Merges addresses for same peer ID. DNS failures are logged but not fatal.
+2. **DNS seeds** (`_dnsaddr.<domain>` TXT records) - default: `seeds.shurli.io`. Uses the dnsaddr multiaddr convention from IPFS. `ResolveDNSSeeds()` in `pkg/sdk/dnsseed.go` queries TXT records with 10s timeout. Records format: `dnsaddr=/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...`. Merges addresses for same peer ID. DNS failures are logged but not fatal.
 
 3. **Hardcoded seeds** (`cmd/shurli/seeds.go`) - compiled into the binary. Ultimate fallback when DNS is unavailable (censorship, network partition, misconfigured DNS). Populated after seed node VPS setup with actual multiaddrs.
 
@@ -7048,7 +7048,7 @@ Config overrides: `dns_seed_domain` changes the DNS lookup domain. Users running
 
 **Consequences**: New users need zero config - DNS seeds resolve automatically. DNS update is a Cloudflare TXT record change (seconds to propagate). Hardcoded seeds survive DNS failure. Private networks override with their own domain. Four layers, four levels of staleness, four levels of availability. Same pattern that keeps Bitcoin running since 2009.
 
-**Reference**: `pkg/p2pnet/dnsseed.go`, `pkg/p2pnet/dnsseed_test.go`, `cmd/shurli/seeds.go`, `cmd/shurli/cmd_seed_helpers.go`
+**Reference**: `pkg/sdk/dnsseed.go`, `pkg/sdk/dnsseed_test.go`, `cmd/shurli/seeds.go`, `cmd/shurli/cmd_seed_helpers.go`
 
 
 ---
@@ -7431,7 +7431,7 @@ Performance (benchmarked on M-series Apple Silicon):
 | QUIC + Protobuf + DNS + Metrics | 1.9 MB (3%) | QUIC transport, protobuf serialization, DNS resolution, Prometheus |
 | libp2p ecosystem | 1.8 MB (3%) | go-libp2p core, Kademlia DHT, yamux multiplexer, routing helpers. The entire P2P networking stack |
 | WebRTC (pion) | 1.3 MB (2%) | ICE, DTLS, SCTP, SRTP. Required for browser-compatible NAT traversal |
-| **Shurli application code** | **0.4 MB (0.8%)** | **p2pnet, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon, etc.** |
+| **Shurli application code** | **0.4 MB (0.8%)** | **sdk, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon, etc.** |
 
 **Key insight**: ~88% of binary size is Go stdlib (FIPS crypto + runtime). This grew significantly from Go 1.24 (40 MB debug) to Go 1.26 (54 MB debug) due to FIPS 140 module expansion. gnark adds 3.8 MB debug (~2 MB stripped) - a reasonable cost for a full ZKP proving system. Shurli's own code is under 1%.
 
@@ -7581,7 +7581,7 @@ Tree is also auto-built on relay startup when `security.zkp.enabled: true`.
 
 **Context**: ZKP operations are computationally expensive (prove ~1.8s, verify ~2-3ms). Observability is critical for detecting performance regressions, failed auth attempts, and tree staleness.
 
-**Decision**: 9 new Prometheus metrics added to `pkg/p2pnet/metrics.go`:
+**Decision**: 9 new Prometheus metrics added to `pkg/sdk/metrics.go`:
 
 | Metric | Type | Labels | Purpose |
 |--------|------|--------|---------|
@@ -7599,7 +7599,7 @@ All metrics are nil-safe: handlers work with or without metrics enabled.
 
 **Consequences**: Total metric footprint is 9 collectors. Histogram buckets are tuned to expected latencies: prove buckets 100ms-12s, verify buckets 1ms-128ms, rebuild buckets 1ms-1s.
 
-**Reference**: `pkg/p2pnet/metrics.go`
+**Reference**: `pkg/sdk/metrics.go`
 
 ---
 
@@ -7631,7 +7631,7 @@ internal/relay: +8 wire protocol tests
 | `internal/relay/zkp_client.go` | 100 | Client-side ZKP auth (stream-based proof generation) |
 
 **Modified files**:
-- `pkg/p2pnet/metrics.go` - 9 new ZKP metrics
+- `pkg/sdk/metrics.go` - 9 new ZKP metrics
 - `internal/relay/admin.go` - 2 new endpoints, `SetZKPAuth`, `ZKPTreeInfoResponse`
 - `internal/relay/admin_client.go` - `ZKPTreeRebuild`, `ZKPTreeInfo` methods
 - `cmd/shurli/cmd_relay_serve.go` - ZKP handler init, stream registration, metrics wiring
@@ -7698,7 +7698,7 @@ When `AnonymousMode` is true, recipients verify the ZKP proof against the curren
 
 **Consequences**: Zero impact on current functionality. Anonymous mode is opt-in per announcement. The gossip forwarding layer (Layer 2) works unchanged because forwarded messages already carry `From` for the originator.
 
-**Reference**: `pkg/p2pnet/netintel.go` (NodeAnnouncement struct)
+**Reference**: `pkg/sdk/netintel.go` (NodeAnnouncement struct)
 
 ---
 
@@ -7733,7 +7733,7 @@ When `AnonymousMode` is true, recipients verify the ZKP proof against the curren
 
 **Consequences**: Total Phase 7 metric count: 14 collectors (9 from 7-B + 5 from 7-C).
 
-**Reference**: `pkg/p2pnet/metrics.go`
+**Reference**: `pkg/sdk/metrics.go`
 
 ---
 
@@ -7765,8 +7765,8 @@ internal/zkp: 48 tests in ~21.8s (37 from 7-A + 11 from 7-C)
 | `internal/zkp/rln_seam.go` | 52 | RLN types + interface (extension point) |
 
 **Modified files**:
-- `pkg/p2pnet/netintel.go` - `AnonymousMode` + `ZKPProof` fields on `NodeAnnouncement`
-- `pkg/p2pnet/metrics.go` - 5 new range proof / anonymous metrics
+- `pkg/sdk/netintel.go` - `AnonymousMode` + `ZKPProof` fields on `NodeAnnouncement`
+- `pkg/sdk/metrics.go` - 5 new range proof / anonymous metrics
 
 **Total**: 5 new files (~844 lines), 2 modified files (~60 lines added).
 
@@ -8283,7 +8283,7 @@ This is **UX only**. The client does not make any enforcement decisions. Even if
 
 **Why "discovery node" language**: Design directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
 
-**Reference**: `pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
+**Reference**: `pkg/sdk/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
 
 ---
 
@@ -8422,7 +8422,7 @@ Protocol IDs (`/shurli/<name>/<version>`) were string literals scattered across 
 
 ### Decision
 
-Add `pkg/p2pnet/protocolid.go`:
+Add `pkg/sdk/protocolid.go`:
 - `ProtocolID(name, version)` - constructor that panics on empty, slash, or whitespace
 - `ValidateProtocolID(id)` - runtime validation
 - `MustValidateProtocolIDs(ids...)` - batch validation for `init()` blocks
@@ -8444,7 +8444,7 @@ Standalone CLI commands (ping, traceroute) duplicated ~50 lines of DHT bootstrap
 
 ### Decision
 
-Extract to `pkg/p2pnet/bootstrap.go`:
+Extract to `pkg/sdk/bootstrap.go`:
 - `BootstrapConfig` struct (namespace, bootstrap peers, relay addrs)
 - `BootstrapAndConnect()` function: DHT client mode, connect to bootstrap peers, connect to relays, find peer via DHT, fallback to relay circuit
 
@@ -8465,7 +8465,7 @@ File transfer is the first concrete plugin built on the Phase 9A service infrast
 
 ### Decision
 
-`pkg/p2pnet/transfer.go` implements:
+`pkg/sdk/transfer.go` implements:
 - Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
 - `TransferService` with `HandleInbound()` returning a `StreamHandler`
 - `SendFile()` for outbound transfers with background progress tracking
@@ -8493,7 +8493,7 @@ Daemon integration:
 | **Status** | Complete |
 | **ADRs** | ADR-R01 to ADR-R09 |
 
-File transfer is the first production plugin built on the Phase 9A service infrastructure. It spans ~6,100 lines across 10 source files in `pkg/p2pnet/`, with full daemon integration, CLI commands, and a management API.
+File transfer is the first production plugin built on the Phase 9A service infrastructure. It spans ~6,100 lines across 10 source files in `pkg/sdk/`, with full daemon integration, CLI commands, and a management API.
 
 ---
 
@@ -8510,7 +8510,7 @@ Content-defined chunking (CDC) is required for deduplication and resumable trans
 
 ### Decision
 
-Write our own FastCDC in `pkg/p2pnet/chunker.go` (180 lines). Single-pass streaming: each byte is hashed with BLAKE3 as the chunk boundary is found, so the chunk hash is available the moment the boundary is detected. No second pass.
+Write our own FastCDC in `pkg/sdk/chunker.go` (180 lines). Single-pass streaming: each byte is hashed with BLAKE3 as the chunk boundary is found, so the chunk hash is available the moment the boundary is detected. No second pass.
 
 Chunk sizes are adaptive based on file size:
 
@@ -8525,7 +8525,7 @@ Chunk sizes are adaptive based on file size:
 
 Every Go CDC library we evaluated either required a second pass for hashing, pulled in unnecessary dependencies, or didn't support adaptive chunk sizes. 180 lines of self-contained code with zero dependencies (beyond BLAKE3 which we already use for Merkle) is simpler than managing an external dependency for marginal benefit.
 
-**Reference**: `pkg/p2pnet/chunker.go`
+**Reference**: `pkg/sdk/chunker.go`
 
 ---
 
@@ -8544,14 +8544,14 @@ File transfer needs hashing for: per-chunk integrity, Merkle tree root verificat
 
 BLAKE3 everywhere. `zeebo/blake3` (CC0/public domain). Used for:
 - Per-chunk hash during FastCDC (single-pass, computed as chunks are cut)
-- Merkle tree nodes (`pkg/p2pnet/merkle.go`, 48 lines, binary tree with odd-node promotion)
+- Merkle tree nodes (`pkg/sdk/merkle.go`, 48 lines, binary tree with odd-node promotion)
 - Transfer checkpoint filenames (`.shurli-ckpt-<root-hash>`)
 
 ### Why Not SHA-256
 
 BLAKE3 is ~3-5x faster than SHA-256 on modern hardware. For large file transfers where every chunk is hashed, this matters. The CC0 license means zero legal overhead. SHA-256 would work correctly but slower for no benefit.
 
-**Reference**: `pkg/p2pnet/merkle.go`, `pkg/p2pnet/chunker.go`
+**Reference**: `pkg/sdk/merkle.go`, `pkg/sdk/chunker.go`
 
 ---
 
@@ -8578,7 +8578,7 @@ Bomb protection: `maxDecompressRatio = 10`. If decompressed output exceeds 10x c
 
 95%+ of real files (documents, source code, logs, databases) compress well. The 5% that don't (JPEG, MP4, ZIP) are detected automatically and sent uncompressed. The cost of attempting compression on incompressible data is negligible (one comparison). The benefit of not requiring users to remember a flag is significant.
 
-**Reference**: `pkg/p2pnet/compress.go` (41 lines), `pkg/p2pnet/transfer.go` (maxDecompressRatio)
+**Reference**: `pkg/sdk/compress.go` (41 lines), `pkg/sdk/transfer.go` (maxDecompressRatio)
 
 ---
 
@@ -8607,7 +8607,7 @@ Key constraints:
 
 The alternative is whole-file RS encoding, which requires holding the entire file's chunk set in memory. Stripe-based encoding bounds memory to one stripe (100 chunks) regardless of file size. A 100 GB file uses the same memory as a 100 MB file.
 
-**Reference**: `pkg/p2pnet/transfer_erasure.go` (384 lines)
+**Reference**: `pkg/sdk/transfer_erasure.go` (384 lines)
 
 ---
 
@@ -8628,13 +8628,13 @@ RaptorQ via `xssnick/raptorq` (MIT). Constants:
 - `raptorqSymbolSize = 1024` bytes
 - `raptorqRepairRatio = 0.2` (20% repair symbols per peer)
 
-Wire protocol: `/shurli/file-multi-peer/1.0.0` (`pkg/p2pnet/transfer_multipeer.go`, 874 lines). Requesting peer sends a manifest to each source, each source encodes independently and streams symbols back. The receiver collects symbols from all sources and decodes when it has enough.
+Wire protocol: `/shurli/file-multi-peer/1.0.0` (`pkg/sdk/transfer_multipeer.go`, 874 lines). Requesting peer sends a manifest to each source, each source encodes independently and streams symbols back. The receiver collects symbols from all sources and decodes when it has enough.
 
 ### Why RaptorQ Over Plain Multi-Source
 
 Plain multi-source (each peer sends different chunks) requires a coordinator to prevent duplicates and handle stragglers. RaptorQ eliminates coordination entirely: symbols are statistically independent, so peers can encode at their own pace. The receiver just needs "enough" symbols from any combination. This is the same approach TON uses for its DHT, battle-tested at scale.
 
-**Reference**: `pkg/p2pnet/transfer_raptorq.go` (105 lines), `pkg/p2pnet/transfer_multipeer.go`
+**Reference**: `pkg/sdk/transfer_raptorq.go` (105 lines), `pkg/sdk/transfer_multipeer.go`
 
 ---
 
@@ -8651,7 +8651,7 @@ A single QUIC stream underutilizes available bandwidth on high-BDP (bandwidth-de
 
 ### Decision
 
-Parallel chunk transfer with transport-aware defaults (`pkg/p2pnet/transfer_parallel.go`, 592 lines):
+Parallel chunk transfer with transport-aware defaults (`pkg/sdk/transfer_parallel.go`, 592 lines):
 
 | Transport | Default Streams | Max Streams |
 |-----------|----------------|-------------|
@@ -8665,7 +8665,7 @@ Auto-reduction: if chunks < `minChunksPerStream * streamCount` (minimum 4 chunks
 
 LAN has near-zero latency and high bandwidth. 8 streams is conservative for gigabit+. WAN has higher latency and congestion is likelier; 4 streams balances throughput against congestion. Relay is already bandwidth-limited (signaling-only by default); parallel streams through relay would multiply relay load for minimal gain.
 
-**Reference**: `pkg/p2pnet/transfer_parallel.go`
+**Reference**: `pkg/sdk/transfer_parallel.go`
 
 ---
 
@@ -8698,7 +8698,7 @@ The `contacts` default means: if a peer passed the connection gater (is in `auth
 
 Apple's AirDrop proved this UX works: most users want "contacts only" and occasionally switch to "everyone" for a specific situation. The `timed` mode handles the "open for 10 minutes" scenario without forgetting to turn it off. Silent rejection for unauthorized peers follows the same principle as the connection gater: don't reveal your existence to strangers.
 
-**Reference**: `pkg/p2pnet/transfer.go` (ReceiveMode constants)
+**Reference**: `pkg/sdk/transfer.go` (ReceiveMode constants)
 
 ---
 
@@ -8717,7 +8717,7 @@ A malicious or buggy peer could flood transfer requests. Rate limiting is needed
 
 Fixed-window rate limiter: 10 transfer requests per minute per peer. 60-second window. Excess requests are silently rejected (stream reset, no error message).
 
-Implementation: `transferRateLimiter` struct in `pkg/p2pnet/transfer.go`. Per-peer counters with periodic cleanup of stale entries.
+Implementation: `transferRateLimiter` struct in `pkg/sdk/transfer.go`. Per-peer counters with periodic cleanup of stale entries.
 
 Also applied to multi-peer requests in `HandleMultiPeerRequest` (same limiter instance).
 
@@ -8729,7 +8729,7 @@ Fixed-window is simpler (a counter and a timestamp per peer) and sufficient for 
 
 Informative error messages ("rate limited, try again in X seconds") help attackers calibrate their request rate. Silent stream resets are indistinguishable from network failures. The legitimate peer experience is unaffected: 10 transfers per minute is generous for real use.
 
-**Reference**: `pkg/p2pnet/transfer.go` (transferRateLimiter)
+**Reference**: `pkg/sdk/transfer.go` (transferRateLimiter)
 
 ---
 
@@ -8766,7 +8766,7 @@ Until then, zstd's combination of speed, ratio, and universality is unmatched fo
 
 ## Summary: Transport Policy
 
-All file transfer operations are gated by `PluginPolicy` (`pkg/p2pnet/plugin_policy.go`, 106 lines):
+All file transfer operations are gated by `PluginPolicy` (`pkg/sdk/plugin_policy.go`, 106 lines):
 
 | Transport | Bitmask | File Transfer |
 |-----------|---------|---------------|
@@ -8832,7 +8832,7 @@ Self-recovery requires 5 successful probes out of 100 attempts. At 1 probe per 1
 - Black hole state resets within 500ms of any network change (debounce delay)
 - False positives possible: a brief network flicker resets the detector, allowing a burst of UDP/IPv6 dials that will fail. The detector re-learns within 100 dials. Acceptable: the burst is short and bounded.
 
-**Reference**: `pkg/p2pnet/network.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/network.go`, `cmd/shurli/serve_common.go`
 
 ---
 
@@ -8886,7 +8886,7 @@ Before `DialPeer`, save all peerstore addresses, `ClearAddrs`, add ONLY the conf
 - `DialPeer` only sees the confirmed address, no cascade failures
 - Brief peerstore manipulation window during which other subsystems see reduced addresses. Acceptable: the existing relay connection is unaffected, and the window is bounded by the 10s dial timeout.
 
-**Reference**: `pkg/p2pnet/peermanager.go`
+**Reference**: `pkg/sdk/peermanager.go`
 
 ---
 
@@ -8912,7 +8912,7 @@ Interface name patterns: `utun[0-9]+` (macOS: WireGuard, IKEv2, LightWay), `tun[
 - VPN connect/disconnect fires network change events, triggering the full recovery chain
 - Edge case: VPN setting changes without interface add/remove (e.g., toggling local network sharing) are not detected. Acceptable: the connection state doesn't change in this case.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/netmonitor.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/netmonitor.go`
 
 ---
 
@@ -8951,7 +8951,7 @@ Option 2 in the original plan. Rejected: higher false-positive rate from DHCP re
 - Platform-specific exec (`route`/`ip`) adds ~10-20ms per check. Acceptable: runs at most once per debounced network event.
 - Feature degrades gracefully on unsupported platforms (returns empty string, gateway detection disabled, other detection methods still work)
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/gateway_darwin.go`, `pkg/p2pnet/gateway_linux.go`, `pkg/p2pnet/gateway_other.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/netmonitor_darwin.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/gateway_darwin.go`, `pkg/sdk/gateway_linux.go`, `pkg/sdk/gateway_other.go`, `pkg/sdk/netmonitor.go`, `pkg/sdk/netmonitor_darwin.go`
 
 ---
 
@@ -8989,7 +8989,7 @@ Three-part fix (all three required - removing any one re-opens the cache poisoni
 - Additional 3s worst-case delay on first mDNS upgrade attempt (probe timeout). Acceptable: the alternative is a 30s+ wait for the next mDNS browse cycle.
 - Probe TCP connection creates a brief aborted Noise handshake on the target peer. No backoff impact (outbound-only, peer sees it as a normal failed connection attempt).
 
-**Reference**: `pkg/p2pnet/peermanager.go`, `pkg/p2pnet/mdns.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/peermanager.go`, `pkg/sdk/mdns.go`, `cmd/shurli/serve_common.go`
 
 ---
 
@@ -9026,7 +9026,7 @@ Add three options alongside the existing `WithBackoff(30s)`:
 - If DHT-discovered relays are added later, these values should be reviewed (minCandidates=1 skips quality selection)
 - No relay VPS overload risk: `backoff=30s` still rate-limits actual reservation attempts per relay
 
-**Reference**: `pkg/p2pnet/network.go`
+**Reference**: `pkg/sdk/network.go`
 
 
 ---
@@ -9076,7 +9076,7 @@ All rejections are silent (stream reset, no error message). Silent rejection pre
 
 No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Queue depth doesn't prevent bandwidth exhaustion. Temp budget doesn't prevent in-memory queue flooding. Each layer catches what the others miss. The configuration defaults are tuned for a personal network (3-20 peers) but scale to larger deployments.
 
-**Reference**: `pkg/p2pnet/transfer.go` (defense subsystem initialization, lines 660-780)
+**Reference**: `pkg/sdk/transfer.go` (defense subsystem initialization, lines 660-780)
 
 ---
 
@@ -9112,7 +9112,7 @@ The queue file contains file paths. Without integrity verification, a tampered q
 
 Encryption would hide the file paths, but the daemon needs to read them to re-submit. The paths are local-only (never sent to peers). HMAC integrity is the right tool: verify authenticity without hiding content from the legitimate reader.
 
-**Reference**: `pkg/p2pnet/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
+**Reference**: `pkg/sdk/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
 
 ---
 
@@ -9149,7 +9149,7 @@ Any single control could have a bypass. The combination of five controls means a
 
 Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
 
-**Reference**: `pkg/p2pnet/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
+**Reference**: `pkg/sdk/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
 
 ---
 
@@ -9178,7 +9178,7 @@ Bitfield-based checkpoint tracking:
 
 Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allows out-of-order chunk delivery, which is essential for: parallel streams (ADR-R06), multi-peer download (ADR-R05), and network-interrupted transfers where chunks arrive from different paths at different times.
 
-**Reference**: `pkg/p2pnet/transfer_resume.go` (bitfield), `pkg/p2pnet/transfer.go` (checkpoint save/load)
+**Reference**: `pkg/sdk/transfer_resume.go` (bitfield), `pkg/sdk/transfer.go` (checkpoint save/load)
 
 ---
 
@@ -9209,7 +9209,7 @@ Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pen
 
 100 queued transfers to a single peer is generous for real use (batch file operations) but prevents one peer from consuming all 1000 slots. Other peers can always enqueue their transfers.
 
-**Reference**: `pkg/p2pnet/share.go` (TransferQueue.Enqueue), `pkg/p2pnet/transfer.go` (runQueueProcessor cleanup ticker)
+**Reference**: `pkg/sdk/share.go` (TransferQueue.Enqueue), `pkg/sdk/transfer.go` (runQueueProcessor cleanup ticker)
 
 ---
 
@@ -9239,7 +9239,7 @@ This prevents duplicate map entries (`"Home"` and `"home"` as separate keys) and
 
 The first attempt normalized only on lookup (case-insensitive iteration). This allowed `Register("Home")` followed by `Register("home")` to create two map entries. The audit caught this: normalize on store makes the map key canonical, and all operations become O(1) direct lookups instead of O(n) iterations.
 
-**Reference**: `pkg/p2pnet/naming.go`
+**Reference**: `pkg/sdk/naming.go`
 
 ---
 
@@ -9266,7 +9266,7 @@ Additionally, the relay ACL requires an active time-limited grant for at least o
 
 Auto-granting relay data access to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer, and for what duration. Time-limited grants enforce this without requiring manual revocation.
 
-**Reference**: `pkg/p2pnet/share.go` (plugin registration), `internal/relay/circuit_acl.go` (AllowConnect)
+**Reference**: `pkg/sdk/share.go` (plugin registration), `internal/relay/circuit_acl.go` (AllowConnect)
 
 ---
 
@@ -9316,7 +9316,7 @@ The NODE is the only enforcement point that sees all traffic regardless of relay
 - Node can operate with any number of relays, none of which need grant awareness
 - Relay ACLs can be relaxed without compromising node security
 
-**Reference**: `pkg/p2pnet/service.go`, `pkg/p2pnet/network.go`
+**Reference**: `pkg/sdk/service.go`, `pkg/sdk/network.go`
 
 ---
 
@@ -9426,7 +9426,7 @@ Binary (not JSON) because this is the hot path. Stack-allocated 4-byte fast path
 - Token-from-header verification is pure math (no disk I/O) - the Phase B performance win
 - Constant-time HMAC work on all paths (valid, invalid, malformed) prevents timing oracles (D1 mitigation)
 
-**Reference**: `pkg/p2pnet/grant_header.go`
+**Reference**: `pkg/sdk/grant_header.go`
 
 ---
 
@@ -9627,7 +9627,7 @@ Two mechanisms:
 - Grants take effect immediately (no waiting for backoff timers)
 - AI agents can programmatically trigger reconnection after granting access
 
-**Reference**: `pkg/p2pnet/peermanager.go`
+**Reference**: `pkg/sdk/peermanager.go`
 
 
 ---
@@ -9968,7 +9968,7 @@ Clients should not attempt transfers that will exceed the relay's session budget
 
 ### Decision
 
-`checkRelayGrant()` (`pkg/p2pnet/transfer_grants.go`) runs before every relay transfer:
+`checkRelayGrant()` (`pkg/sdk/transfer_grants.go`) runs before every relay transfer:
 
 1. Extract relay peer ID from the circuit multiaddr
 2. Query grant cache for receipt: `GrantStatus(relayID)`
@@ -9986,7 +9986,7 @@ Returns a `relayTransferInfo` struct with: `IsRelayed`, `RelayPeerID`, `GrantAct
 - Conservative 200 KB/s estimate means the check errs on the side of caution
 - Session duration check (H11) ensures the transfer fits within a single circuit session, not just the grant lifetime
 
-**Reference**: `pkg/p2pnet/transfer_grants.go`
+**Reference**: `pkg/sdk/transfer_grants.go`
 
 ---
 
@@ -10003,7 +10003,7 @@ Pre-transfer checks validate the total file size against the budget, but the act
 
 ### Decision
 
-`makeChunkTracker()` (`pkg/p2pnet/transfer_grants.go`) creates a callback function for relayed streams:
+`makeChunkTracker()` (`pkg/sdk/transfer_grants.go`) creates a callback function for relayed streams:
 
 1. For direct connections: returns nil (no tracking needed)
 2. For relayed streams: extracts relay peer ID from circuit multiaddr
@@ -10019,7 +10019,7 @@ The progress tracker calls `tracker(n)` for every chunk frame written, counting 
 - Tracking happens at the chunk level, not file level, so budget overruns are caught within one chunk of the limit
 - Zero overhead for direct connections (nil tracker)
 
-**Reference**: `pkg/p2pnet/transfer_grants.go`, `pkg/p2pnet/transfer.go`
+**Reference**: `pkg/sdk/transfer_grants.go`, `pkg/sdk/transfer.go`
 
 ---
 
@@ -10036,7 +10036,7 @@ Relay sessions expire. When a transfer fails mid-stream due to session expiry, t
 
 ### Decision
 
-`isRelaySessionExpiry()` (`pkg/p2pnet/transfer_grants.go`) classifies transfer errors:
+`isRelaySessionExpiry()` (`pkg/sdk/transfer_grants.go`) classifies transfer errors:
 
 **Do not retry** (application errors):
 - "rejected", "file too large", "disk space"
@@ -10060,7 +10060,7 @@ Reconnection flow:
 - Budget counters reset per circuit (each session gets its own budget)
 - Max 5 reconnection attempts prevents infinite loops
 
-**Reference**: `pkg/p2pnet/transfer_grants.go`, `pkg/p2pnet/transfer.go`
+**Reference**: `pkg/sdk/transfer_grants.go`, `pkg/sdk/transfer.go`
 
 
 ---
@@ -10142,7 +10142,7 @@ The transfer queue now distinguishes "receiver busy" from other rejections:
 - Max 5 attempts prevents infinite retry loops
 - Works for both direct and relayed transfers
 
-**Reference**: `pkg/p2pnet/transfer.go`
+**Reference**: `pkg/sdk/transfer.go`
 
 ---
 
@@ -10175,7 +10175,7 @@ Budget-aware relay *selection* (choosing the best relay before dialing) is track
 - The optimization (proactive relay selection) is deferred to FT-Y #7
 - No relay protocol changes were needed; the solution is entirely client-side
 
-**Reference**: `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`
+**Reference**: `internal/grants/cache.go`, `pkg/sdk/transfer_grants.go`
 
 
 ---

@@ -317,7 +317,7 @@ Shurli uses a different model. Devices connect outbound to a lightweight relay f
 | **Single Binary** | One `shurli` binary with 33 subcommands. No runtime dependencies |
 | **Cross-Platform** | Linux, macOS, Windows, ARM |
 | **systemd + launchd** | Service files included for both Linux and macOS |
-| **Reusable Library** | `pkg/p2pnet` - import into your own Go projects |
+| **Reusable Library** | `pkg/sdk` - import into your own Go projects |
 
 ## Security
 

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -147,9 +147,9 @@ func TestReloadConfigRollbackOnInvalidMode(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: sdk.ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -187,9 +187,9 @@ func TestReloadConfigSuccessfulChange(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: sdk.ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -430,9 +430,9 @@ func TestConcurrentStopAndStatusFields(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: sdk.ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -468,7 +468,7 @@ func TestConcurrentStopAndStatusFields(t *testing.T) {
 func TestC2_NilNetworkDerefInHandlers(t *testing.T) {
 	p := New()
 	// shareRegistry non-nil (so handler passes the nil check), network nil.
-	p.shareRegistry = p2pnet.NewShareRegistry()
+	p.shareRegistry = sdk.NewShareRegistry()
 
 	// handleShareAdd with peers list triggers p.network.ResolveName() on nil.
 	w := httptest.NewRecorder()
@@ -676,9 +676,9 @@ func TestP4_DownloadDestPathTraversal(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeOpen,
+		ReceiveMode: sdk.ReceiveModeOpen,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -721,9 +721,9 @@ func TestP11_SendPathNoConfinement(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeOpen,
+		ReceiveMode: sdk.ReceiveModeOpen,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -862,9 +862,9 @@ func TestAllHandlersSurviveConcurrentStop(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: sdk.ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -1085,9 +1085,9 @@ func TestProtocolCountAfterStart(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := sdk.NewTransferService(sdk.TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: sdk.ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -1097,7 +1097,7 @@ func TestProtocolCountAfterStart(t *testing.T) {
 	p := New()
 	p.transferService = ts
 	persistPath := filepath.Join(tmpDir, "shares.json")
-	p.shareRegistry = p2pnet.NewShareRegistry()
+	p.shareRegistry = sdk.NewShareRegistry()
 	p.shareRegistry.SetPersistPath(persistPath)
 
 	protos := p.Protocols()

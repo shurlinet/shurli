@@ -114,7 +114,7 @@ Shurli/
 │   │   ├── flagorder.go     # Flag reordering (positional args after flags)
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
-├── pkg/p2pnet/              # Importable P2P library
+├── pkg/sdk/              # Importable P2P library
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
 │   ├── service_query.go     # Service query protocol (/shurli/service-query/1.0.0)
@@ -395,7 +395,7 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
 │   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
-├── pkg/p2pnet/              # ✅ Core library (importable) - transfer engine, chunking,
+├── pkg/sdk/              # ✅ Core library (importable) - transfer engine, chunking,
 │   │                        #   Merkle, compression, erasure, share registry, plugin policy
 │   ├── ...existing...
 │   └── federation.go        # 🆕 Phase 13: Network peering
@@ -449,7 +449,7 @@ To avoid code duplication, the P2P lifecycle is extracted into `serve_common.go`
 ```go
 // serveRuntime holds the shared P2P lifecycle state.
 type serveRuntime struct {
-    network          *p2pnet.Network
+    network          *sdk.Network
     config           *config.HomeNodeConfig
     configFile       string
     gater            *auth.AuthorizedPeerGater // nil if gating disabled
@@ -459,18 +459,18 @@ type serveRuntime struct {
     version          string
     startTime        time.Time
     kdht             *dht.IpfsDHT             // peer discovery from daemon API
-    ifSummary        *p2pnet.InterfaceSummary  // interface discovery (IPv4/IPv6)
-    pathDialer       *p2pnet.PathDialer        // parallel dial racing
-    pathTracker      *p2pnet.PathTracker       // per-peer path quality tracking
-    stunProber       *p2pnet.STUNProber        // NAT type detection
-    mdnsDiscovery    *p2pnet.MDNSDiscovery     // LAN discovery (nil when disabled)
-    peerManager      *p2pnet.PeerManager       // background reconnection with backoff
-    netIntel         *p2pnet.NetIntel          // presence protocol (nil when disabled)
-    peerRelay        *p2pnet.PeerRelay         // auto-enabled with public IP
-    relayDiscovery   *p2pnet.RelayDiscovery    // static + DHT relay discovery
-    metrics          *p2pnet.Metrics           // nil when telemetry disabled
-    bwTracker        *p2pnet.BandwidthTracker  // per-peer bandwidth stats
-    relayHealth      *p2pnet.RelayHealth       // EWMA relay health scoring
+    ifSummary        *sdk.InterfaceSummary  // interface discovery (IPv4/IPv6)
+    pathDialer       *sdk.PathDialer        // parallel dial racing
+    pathTracker      *sdk.PathTracker       // per-peer path quality tracking
+    stunProber       *sdk.STUNProber        // NAT type detection
+    mdnsDiscovery    *sdk.MDNSDiscovery     // LAN discovery (nil when disabled)
+    peerManager      *sdk.PeerManager       // background reconnection with backoff
+    netIntel         *sdk.NetIntel          // presence protocol (nil when disabled)
+    peerRelay        *sdk.PeerRelay         // auto-enabled with public IP
+    relayDiscovery   *sdk.RelayDiscovery    // static + DHT relay discovery
+    metrics          *sdk.Metrics           // nil when telemetry disabled
+    bwTracker        *sdk.BandwidthTracker  // per-peer bandwidth stats
+    relayHealth      *sdk.RelayHealth       // EWMA relay health scoring
     peerHistory      *reputation.PeerHistory   // per-peer interaction tracking
 }
 ```
@@ -483,7 +483,7 @@ The daemon server (`internal/daemon/`) is decoupled from the CLI via the `Runtim
 
 ```go
 type RuntimeInfo interface {
-    Network() *p2pnet.Network
+    Network() *sdk.Network
     ConfigFile() string
     AuthKeysPath() string
     GaterForHotReload() GaterReloader            // nil if gating disabled
@@ -491,11 +491,11 @@ type RuntimeInfo interface {
     StartTime() time.Time
     PingProtocolID() string
     ConnectToPeer(ctx context.Context, peerID peer.ID) error
-    Interfaces() *p2pnet.InterfaceSummary        // nil before discovery
-    PathTracker() *p2pnet.PathTracker             // nil before bootstrap
-    STUNResult() *p2pnet.STUNResult               // nil before probe
+    Interfaces() *sdk.InterfaceSummary        // nil before discovery
+    PathTracker() *sdk.PathTracker             // nil before bootstrap
+    STUNResult() *sdk.STUNResult               // nil before probe
     IsRelaying() bool                             // true if peer relay enabled
-    TransferService() *p2pnet.TransferService     // file transfer service (nil if not configured)
+    TransferService() *sdk.TransferService     // file transfer service (nil if not configured)
 }
 ```
 
@@ -602,7 +602,7 @@ telemetry:
     enabled: true
 ```
 
-**Prometheus Metrics** (`pkg/p2pnet/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
+**Prometheus Metrics** (`pkg/sdk/metrics.go`): Uses an isolated `prometheus.Registry` (not the global default) for testability and collision-free operation. When enabled, `libp2p.PrometheusRegisterer(reg)` exposes all built-in libp2p metrics (swarm, holepunch, autonat, rcmgr, relay) alongside custom shurli metrics. When disabled, `libp2p.DisableMetrics()` is called for zero CPU overhead.
 
 Custom shurli metrics (50 total):
 - `shurli_proxy_bytes_total{direction, service}` - bytes transferred through proxy
@@ -650,17 +650,17 @@ Custom shurli metrics (50 total):
 - `shurli_zkp_range_verify_duration_seconds` - range proof verification timing
 - `shurli_zkp_anon_announcements_total` - anonymous NetIntel announcements
 
-**Audit Logger** (`pkg/p2pnet/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
+**Audit Logger** (`pkg/sdk/audit.go`): Structured JSON events via `log/slog` with an `audit` group. All methods are nil-safe (no-op when audit is disabled). Events: auth decisions, service ACL denials, daemon API access, auth changes.
 
 **Daemon Middleware** (`internal/daemon/middleware.go`): Wraps the HTTP handler chain (outside auth middleware) to capture request timing and status codes. Path parameters are sanitized (e.g., `/v1/auth/12D3KooW...` becomes `/v1/auth/:id`) to prevent high cardinality in metrics labels.
 
-**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/p2pnet`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
+**Auth Decision Callback**: Uses a callback pattern (`auth.AuthDecisionFunc`) to decouple `internal/auth` from `pkg/sdk`, avoiding circular imports. The callback is wired in `serve_common.go` to feed both metrics counters and audit events.
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
 **Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, ZKP operations, and system metrics. 56 panels (45 visualizations + 11 row headers) across 11 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, and ZKP Tree Operations.
 
-**Reference**: `pkg/p2pnet/metrics.go`, `pkg/p2pnet/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
+**Reference**: `pkg/sdk/metrics.go`, `pkg/sdk/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
 ### Adaptive Path Selection (Batch I)
 
@@ -670,19 +670,19 @@ Custom shurli metrics (50 total):
 
 Six components work together to find and maintain the best connection path to each peer:
 
-**Interface Discovery** (`pkg/p2pnet/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+**Interface Discovery** (`pkg/sdk/interfaces.go`): `DiscoverInterfaces()` enumerates all network interfaces and classifies addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
-**Parallel Dial Racing** (`pkg/p2pnet/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
+**Parallel Dial Racing** (`pkg/sdk/pathdialer.go`): `PathDialer.DialPeer()` replaces the old sequential connect (DHT 15s then relay 30s = 45s worst case) with parallel racing. If the peer is already connected, returns immediately. Otherwise fires DHT and relay strategies concurrently; first success wins, loser is cancelled. Classifies winning path as `DIRECT` or `RELAYED` based on multiaddr inspection.
 
 ![Dial Racing Flow: entry point checks if already connected (instant return), otherwise launches DHT discovery and relay circuit in parallel, first success wins with path classification](/images/docs/arch-dial-racing.svg)
 
-**Path Quality Tracking** (`pkg/p2pnet/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
+**Path Quality Tracking** (`pkg/sdk/pathtracker.go`): `PathTracker` subscribes to libp2p's event bus (`EvtPeerConnectednessChanged`) for connect/disconnect events. Maintains per-peer path info: path type, transport (quic/tcp), IP version, connected time, last RTT. Exposed via `GET /v1/paths` daemon API. Prometheus labels: `path_type`, `transport`, `ip_version`.
 
-**Network Change Monitoring** (`pkg/p2pnet/netmonitor.go`, `netmonitor_darwin.go`, `netmonitor_linux.go`): Event-driven on macOS (BSD route socket) and Linux (Netlink), polling fallback on other platforms. Detects three types of changes: global IP address changes, VPN tunnel interface appearance/disappearance, and default gateway changes (private IPv4 network switches). On change, fires the full recovery chain: strip stale LAN addresses, reset black hole detectors, clear dial backoffs, close stale connections, trigger reconnect, re-browse mDNS.
+**Network Change Monitoring** (`pkg/sdk/netmonitor.go`, `netmonitor_darwin.go`, `netmonitor_linux.go`): Event-driven on macOS (BSD route socket) and Linux (Netlink), polling fallback on other platforms. Detects three types of changes: global IP address changes, VPN tunnel interface appearance/disappearance, and default gateway changes (private IPv4 network switches). On change, fires the full recovery chain: strip stale LAN addresses, reset black hole detectors, clear dial backoffs, close stale connections, trigger reconnect, re-browse mDNS.
 
-**STUN NAT Detection** (`pkg/p2pnet/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
+**STUN NAT Detection** (`pkg/sdk/stunprober.go`): Zero-dependency RFC 5389 STUN client. Probes multiple STUN servers concurrently, collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` indicates whether DCUtR hole-punching is likely to succeed. Runs in background at startup (non-blocking) and re-probes on network change.
 
-**Every-Peer-Is-A-Relay** (`pkg/p2pnet/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
+**Every-Peer-Is-A-Relay** (`pkg/sdk/peerrelay.go`): Any peer with a detected global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Uses the existing `ConnectionGater` for authorization (no new ACL needed). Auto-detects on startup and network changes. Disables when public IP is lost.
 
 **Path Ranking**: direct IPv6 > direct IPv4 > STUN-punched > peer relay > VPS relay. If all paths fail, the system falls back to relay and tells the user honestly.
 
@@ -702,7 +702,7 @@ Chaos testing on satellite WiFi, terrestrial WiFi, 5G hotspot, and USB LAN (with
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops that need deterministic reconnection.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peermanager.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/pathdialer.go`, `pkg/sdk/pathtracker.go`, `pkg/sdk/netmonitor.go`, `pkg/sdk/stunprober.go`, `pkg/sdk/peerrelay.go`, `pkg/sdk/peermanager.go`, `cmd/shurli/serve_common.go`
 
 ### libp2p Upstream Overrides
 
@@ -992,7 +992,7 @@ Bytes 4-N:  Base64-encoded macaroon token (only if flags & 0x01)
 - Token presented on non-relay transport: logged but not required (relay transport is where grants matter)
 - Constant-time rejection: HMAC work on all paths (valid, invalid, malformed) prevents timing oracles
 
-**Reference**: `pkg/p2pnet/grant_header.go`
+**Reference**: `pkg/sdk/grant_header.go`
 
 #### P2P Grant Delivery Protocol
 
@@ -1114,7 +1114,7 @@ When the relay creates or extends a grant, it pushes a grant receipt via `/shurl
 
 **Manual override**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces an immediate redial. Designed for AI agent control loops.
 
-**Reference**: `pkg/p2pnet/peermanager.go`
+**Reference**: `pkg/sdk/peermanager.go`
 
 #### Grant Receipt Protocol
 
@@ -1145,7 +1145,7 @@ The HMAC key is derived via HKDF from the relay's identity with context `"grant-
 - Background cleanup goroutine removes expired entries on a configurable interval.
 - `GrantStatus()` satisfies the `RelayGrantChecker` interface via structural typing (no import cycle).
 
-**Smart pre-transfer checks** (`pkg/p2pnet/transfer_grants.go`):
+**Smart pre-transfer checks** (`pkg/sdk/transfer_grants.go`):
 
 Before a relay-mediated file transfer, the transfer service checks the cached receipt:
 
@@ -1177,7 +1177,7 @@ The `Relay Grants:` section in `shurli status` displays per-relay grant info fro
 - Relays running the new code send receipts to new clients and 1-byte signals to old clients (protocol negotiation).
 - New clients with old relays never receive receipts (no handler registered on the relay). The cache stays empty and pre-transfer checks are skipped (graceful degradation).
 
-**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/p2pnet/transfer_grants.go`, `cmd/shurli/serve_common.go`
+**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/sdk/transfer_grants.go`, `cmd/shurli/serve_common.go`
 
 #### Security Thought Experiment
 
@@ -1324,7 +1324,7 @@ Range proofs on peer reputation scores. Prove "my score is above threshold X" wi
 
 **RLN extension point**: `RLNIdentity`, `RLNProof`, `RLNVerifier` interface defined (types only, no circuit). Composable with existing membership proof for future anonymous rate limiting.
 
-**Reference**: `internal/reputation/score.go`, `internal/zkp/range_proof.go`, `internal/zkp/rln_seam.go`, `pkg/p2pnet/netintel.go`
+**Reference**: `internal/reputation/score.go`, `internal/zkp/range_proof.go`, `internal/zkp/rln_seam.go`, `pkg/sdk/netintel.go`
 
 ### BIP39 Key Management (Phase 7)
 
@@ -1428,7 +1428,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### File Transfer (Phase 9B)
 
-> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/p2pnet/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
+> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/sdk/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
 
 Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay transport is allowed (relay-side bandwidth limits enforce conservation). Seven-layer DDoS defense protects all transfer endpoints.
 
@@ -1539,7 +1539,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 | klauspost/reedsolomon | MIT | Erasure coding |
 | xssnick/raptorq | MIT | Fountain codes (multi-source) |
 
-**Reference**: `pkg/p2pnet/transfer.go`, `pkg/p2pnet/chunker.go`, `pkg/p2pnet/merkle.go`, `pkg/p2pnet/compress.go`, `pkg/p2pnet/share.go`, `pkg/p2pnet/transfer_erasure.go`, `pkg/p2pnet/transfer_multipeer.go`, `pkg/p2pnet/transfer_raptorq.go`, `pkg/p2pnet/transfer_parallel.go`, `pkg/p2pnet/transfer_resume.go`, `pkg/p2pnet/transfer_log.go`, `pkg/p2pnet/transfer_notify.go`, `pkg/p2pnet/plugin_policy.go`
+**Reference**: `pkg/sdk/transfer.go`, `pkg/sdk/chunker.go`, `pkg/sdk/merkle.go`, `pkg/sdk/compress.go`, `pkg/sdk/share.go`, `pkg/sdk/transfer_erasure.go`, `pkg/sdk/transfer_multipeer.go`, `pkg/sdk/transfer_raptorq.go`, `pkg/sdk/transfer_parallel.go`, `pkg/sdk/transfer_resume.go`, `pkg/sdk/transfer_log.go`, `pkg/sdk/transfer_notify.go`, `pkg/sdk/plugin_policy.go`
 
 ### Plugin System
 
@@ -1676,7 +1676,7 @@ The per-peer data grant system (Phase 8B) proved that macaroon capability tokens
 
 **Why this order**: M2 (share) is low risk and a natural extension. M3 (relay) is medium risk but high value. M4 (connection) is the highest risk because it touches the libp2p handshake path - saved for last. M5 is trivial once M4 lands because roles are just caveats on the connection token.
 
-**Reference**: `internal/grants/`, `internal/macaroon/`, `pkg/p2pnet/grant_header.go`
+**Reference**: `internal/grants/`, `internal/macaroon/`, `pkg/sdk/grant_header.go`
 
 ### Federation Trust Model
 
@@ -1793,7 +1793,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
 | QUIC + Protobuf + DNS + Metrics | 1.9 MB (3%) | Transport, serialization, resolution, Prometheus |
 | libp2p ecosystem | 1.8 MB (3%) | go-libp2p core, Kademlia DHT, yamux, routing helpers |
 | WebRTC (pion) | 1.3 MB (2%) | ICE, DTLS, SCTP, SRTP for browser-compatible NAT traversal |
-| **Shurli application code** | **0.4 MB (0.8%)** | **p2pnet, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon** |
+| **Shurli application code** | **0.4 MB (0.8%)** | **sdk, relay, daemon, auth, config, invite, vault, zkp, reputation, macaroon** |
 
 ~88% is Go stdlib (FIPS crypto + runtime). gnark adds 3.8 MB for the full ZKP proving system. Shurli's own code is under 1%. Every dependency serves a specific function: libp2p for P2P networking, pion for NAT traversal, gnark for zero-knowledge proofs, Prometheus for observability. Nothing to cut.
 

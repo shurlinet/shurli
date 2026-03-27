@@ -14,7 +14,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // I1: Full lifecycle Register -> Enable -> verify -> Disable -> verify empty.
@@ -89,7 +89,7 @@ func TestAcceptance_ProtocolRegistrationWithServiceRegistry(t *testing.T) {
 	}
 	defer h.Close()
 
-	sr := p2pnet.NewServiceRegistry(h, nil)
+	sr := sdk.NewServiceRegistry(h, nil)
 
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,

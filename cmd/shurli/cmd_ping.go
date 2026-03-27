@@ -12,7 +12,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runPing(args []string) {
@@ -92,7 +92,7 @@ func runPing(args []string) {
 
 	// Create standalone P2P host, resolve target, bootstrap, and connect.
 	pw, _ := resolvePasswordFromConfig(*configFlag)
-	standalone, err := p2pnet.NewStandaloneHost(p2pnet.StandaloneConfig{
+	standalone, err := sdk.NewStandaloneHost(sdk.StandaloneConfig{
 		ConfigPath: *configFlag,
 		Password:   pw,
 		UserAgent:  "shurli/" + version,
@@ -118,9 +118,9 @@ func runPing(args []string) {
 
 	// Ping loop using shared logic
 	protocolID := standalone.NodeConfig.Protocols.PingPong.ID
-	ch := p2pnet.PingPeer(ctx, standalone.Network.Host(), targetPeerID, protocolID, *count, interval)
+	ch := sdk.PingPeer(ctx, standalone.Network.Host(), targetPeerID, protocolID, *count, interval)
 
-	var results []p2pnet.PingResult
+	var results []sdk.PingResult
 	for result := range ch {
 		results = append(results, result)
 
@@ -142,7 +142,7 @@ func runPing(args []string) {
 	}
 
 	// Print summary
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 
 	if *jsonFlag {
 		summary, _ := json.Marshal(stats)
@@ -196,7 +196,7 @@ func runPingViaDaemonContinuous(client *daemon.Client, target string, intervalMs
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	var results []p2pnet.PingResult
+	var results []sdk.PingResult
 	seq := 0
 
 	if !jsonOutput {
@@ -246,7 +246,7 @@ func runPingViaDaemonContinuous(client *daemon.Client, target string, intervalMs
 	}
 
 done:
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 	if jsonOutput {
 		summary, _ := json.Marshal(stats)
 		fmt.Println(string(summary))

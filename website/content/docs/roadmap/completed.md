@@ -53,7 +53,7 @@ All keytool functionality now lives in `shurli` subcommands: `shurli whoami` (pe
 **Goal**: Transform Shurli into a reusable library and enable exposing local services through P2P connections.
 
 **Deliverables**:
-- [x] Create `pkg/p2pnet/` as importable package
+- [x] Create `pkg/sdk/` as importable package
   - [x] `network.go` - Core P2P network setup, relay helpers, name resolution
   - [x] `service.go` - Service registry and management
   - [x] `proxy.go` - Bidirectional TCP-to-Stream proxy with half-close
@@ -584,7 +584,7 @@ Replaced binary `relay_data=true` with time-limited, per-peer capability grants 
 
 **Goal**: Define public API contracts for third-party extensibility. Design-first: get interfaces right before building implementations.
 
-**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+**Core Interfaces** (`pkg/sdk/contracts.go`):
 - [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
 - [x] `Resolver` - interface for name resolution with fallback chaining
 - [x] `ServiceManager` - interface for service registration and dialing, with middleware support
@@ -600,9 +600,9 @@ Replaced binary `relay_data=true` with time-limited, per-peer capability grants 
 - [x] Protocol ID formatter - `ProtocolID()` + `MustValidateProtocolIDs()` for init-time validation
 
 **Library Consolidation** (completed in 9B):
-- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go`
+- [x] `BootstrapAndConnect()` extracted to `pkg/sdk/bootstrap.go`
 - [x] Centralized orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
-- [x] Package-level documentation in `pkg/p2pnet/doc.go`
+- [x] Package-level documentation in `pkg/sdk/doc.go`
 
 ---
 
@@ -772,7 +772,7 @@ This was a foundational restructuring. Every future feature (service discovery, 
 shurli binary
   core (network, auth, identity, daemon, CLI framework)
   pkg/plugin/          - Plugin interface + registry + supervisor
-  pkg/p2pnet/          - Protocol library code (unchanged)
+  pkg/sdk/          - Protocol library code (unchanged)
   plugins/filetransfer/ - First plugin (CLI, handlers, protocols)
 ```
 

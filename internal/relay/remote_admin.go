@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/auth"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // RemoteAdminProtocol is the libp2p protocol ID for remote relay administration.
@@ -58,7 +58,7 @@ type RemoteAdminHandler struct {
 	admin        *AdminServer
 	authKeysPath string
 	invitePolicy string // "admin-only" or "open" (default when empty)
-	metrics      *p2pnet.Metrics
+	metrics      *sdk.Metrics
 }
 
 // NewRemoteAdminHandler creates a handler for the remote admin protocol.
@@ -273,7 +273,7 @@ func isLocalOnlyPath(path string) bool {
 }
 
 // SetMetrics attaches metrics to the handler.
-func (h *RemoteAdminHandler) SetMetrics(m *p2pnet.Metrics) {
+func (h *RemoteAdminHandler) SetMetrics(m *sdk.Metrics) {
 	h.metrics = m
 }
 

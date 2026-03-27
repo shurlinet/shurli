@@ -27,7 +27,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase&nbsp;1 | **Configuration** | YAML config, sample files | Done |
 | Phase&nbsp;2 | **Authentication** | ConnectionGater, authorized_keys | Done |
 | Phase&nbsp;3 | **keytool&nbsp;CLI** | Key management (now shurli subcommands) | Done |
-| Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/p2pnet/`, single binary, init wizard | Done |
+| Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/sdk/`, single binary, init wizard | Done |
 | Phase&nbsp;4B | **Onboarding** | invite/join, QR codes, auth + relay CLI | Done |
 | A | **Reliability** | Reconnection with backoff, dial timeout, DHT in proxy | Done |
 | B | **Code&nbsp;Quality** | Proxy dedup, `log/slog`, sentinel errors, version embedding | Done |
@@ -102,7 +102,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 
 **Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces, file transfer, and plugin architecture (9A-9B + plugin shift done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
 
-**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/p2pnet`) stays in this repo.
+**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/sdk`) stays in this repo.
 
 ---
 

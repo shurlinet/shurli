@@ -6,6 +6,7 @@ description: "Everything you need to know about Shurli: quick start guide, archi
 Everything you need to know about Shurli, from getting started to deep architecture details.
 
 {{< cards >}}
+  {{< card link="sdk" title="Go SDK" subtitle="Build on Shurli's P2P network in Go" icon="code" >}}
   {{< card link="relay-setup" title="Relay Setup" subtitle="Deploy your own relay (recommended first step)" icon="server" >}}
   {{< card link="quick-start" title="Quick Start" subtitle="Initialize and connect your devices" icon="play" >}}
   {{< card link="network-tools" title="Network Tools" subtitle="Ping, traceroute, and resolve" icon="wifi" >}}
