@@ -2,7 +2,7 @@
 title: "Prometheus Metrics and Audit Logging"
 date: 2026-02-21
 tags: [release, batch-h]
-image: /images/blog/batch-h-observability.svg
+image: /images/blog/batch-h-observability.png
 description: "Opt-in Prometheus metrics endpoint, 30 custom shurli metrics, structured audit logging, and free libp2p built-in metrics. Zero overhead when disabled."
 authors:
   - name: Satinder Grewal

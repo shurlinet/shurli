@@ -3,7 +3,7 @@ title: "Adaptive Path Selection: Real Numbers from 4 Networks"
 date: 2026-02-25
 tags: [release, batch-i]
 description: "Parallel dial racing, zero-dependency STUN, reachability grades, and graceful network switching. Tested on satellite, terrestrial, 5G CGNAT, and wired Ethernet with real latency data."
-image: /images/blog/batch-i-hero.svg
+image: /images/blog/batch-i-hero.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

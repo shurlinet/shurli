@@ -2,7 +2,7 @@
 title: "How We Build Shurli"
 date: 2026-02-20
 tags: [philosophy, engineering, zero-human-network, ai-native]
-image: /images/blog/philosophy-three-layers.svg
+image: /images/blog/philosophy-three-layers.png
 pinned: true
 description: "How Shurli's engineering principles emerged from real development conversations. The Zero-Human Network vision, AI-native P2P infrastructure, lessons from SuperMesh, and why Shurli was intent-based before the term existed."
 authors:

@@ -2,7 +2,7 @@
 title: "Clean Code, Clear Errors"
 date: 2026-02-12
 tags: [release, batch-b]
-image: /images/blog/batch-b-code-quality.svg
+image: /images/blog/batch-b-code-quality.png
 description: "Named sentinel errors, structured logging with log/slog, and build version identification across all binaries."
 authors:
   - name: Satinder Grewal

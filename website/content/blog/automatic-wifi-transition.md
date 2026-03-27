@@ -3,7 +3,7 @@ title: "Automatic WiFi Transition: Real Hardware, Real Networks, Zero Restarts"
 date: 2026-02-27
 tags: [release, phase-5]
 description: "Switch WiFi, unplug cables, hop between 5G and satellite. Shurli detects the change and reconnects in seconds. Tested on 5 physical networks with 7 transition scenarios."
-image: /images/blog/phase5-network-resilience.svg
+image: /images/blog/phase5-network-resilience.png
 authors:
   - name: Satinder Grewal
     link: https://github.com/satindergrewal

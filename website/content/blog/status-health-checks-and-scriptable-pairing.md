@@ -2,7 +2,7 @@
 title: "Status, Health Checks, and Scriptable Pairing"
 date: 2026-02-15
 tags: [release, batch-e]
-image: /images/blog/batch-e-capabilities.svg
+image: /images/blog/batch-e-capabilities.png
 description: "Local status command, relay health check endpoint, and non-interactive pairing for Docker and CI/CD pipelines."
 authors:
   - name: Satinder Grewal
