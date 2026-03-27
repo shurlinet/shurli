@@ -47,15 +47,15 @@ The network layer handles detection, cleanup, reconnection, and path upgrades. T
 
 An AI agent on your home server manages your photo backups. It is syncing files from your laptop over your home WiFi. Direct connection, local network, fast.
 
-You grab your laptop and head out. WiFi drops. Your phone's cellular hotspot picks up. The agent does not notice the switch. It reroutes through a relay server automatically. The sync continues, a little slower, but uninterrupted.
+You grab your laptop and head out. WiFi drops. Your phone's cellular hotspot picks up. Shurli detects the network change, cleans up the dead connection, and reroutes through a relay server automatically. The sync continues, a little slower, but uninterrupted. The agent did not notice anything.
 
-You arrive at the office. Plug in an ethernet cable. The agent detects a faster path. It upgrades from the relay to a direct connection through the wired LAN. Sync speeds up. You did not do anything.
+You arrive at the office. Plug in an ethernet cable. Shurli detects the faster path and upgrades from the relay to a direct connection through the wired LAN. Sync speeds up. You did not do anything. The agent did not do anything. Shurli handled it.
 
-Lunchtime, you connect a VPN for privacy. The tunnel changes every network path on your machine. The agent detects the tunnel interface, adapts its connections in seconds. VPN off when you are done. Adapts again.
+Lunchtime, you connect a VPN for privacy. The tunnel changes every network path on your machine. Shurli detects the tunnel interface, adapts its connections in seconds. VPN off when you are done. Shurli adapts again.
 
-Evening, you are back home. WiFi reconnects. The agent finds your home server on the local network. Direct connection, no internet needed. Exactly where the morning started.
+Evening, you are back home. WiFi reconnects. Shurli finds your home server on the local network. Direct connection, no internet needed. Exactly where the morning started.
 
-Five network changes. Zero restarts. Zero notifications. Zero human intervention. The agent never stopped working. Neither did you.
+Five network changes. Zero restarts. Zero notifications. Zero human intervention. Shurli handled every transition. The agent never stopped working. Neither did you.
 
 That is the target. Here is how we proved it works.
 
