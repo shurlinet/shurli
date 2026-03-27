@@ -38,8 +38,12 @@ menu:
       weight: 4
       params:
         icon: github
-    - name: Theme
+    - name: Search
       weight: 5
+      params:
+        type: search
+    - name: Theme
+      weight: 6
       params:
         type: theme-toggle
 
