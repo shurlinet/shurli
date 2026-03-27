@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- LEFT SIDE: broken connection (red) -->
+
+  <!-- WiFi icon 1 - connected (proper concentric arcs) -->
+  <g opacity="0.35">
+    <path d="M148,190 A45,45 0 0,1 212,190" stroke="#ff6b6b" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M156,198 A32,32 0 0,1 204,198" stroke="#ff6b6b" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M164,206 A20,20 0 0,1 196,206" stroke="#ff6b6b" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <circle cx="180" cy="215" r="5" fill="#ff6b6b"/>
+  </g>
+
+  <!-- Zigzag break -->
+  <path d="M240,185 L252,170 L264,190 L276,175" stroke="#ff6b6b" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.3"/>
+
+  <!-- WiFi icon 2 - broken, faded (proper concentric arcs, dashed) -->
+  <g opacity="0.12">
+    <path d="M298,190 A45,45 0 0,1 362,190" stroke="#ff6b6b" stroke-width="3" fill="none" stroke-linecap="round" stroke-dasharray="6 4"/>
+    <path d="M306,198 A32,32 0 0,1 354,198" stroke="#ff6b6b" stroke-width="3" fill="none" stroke-linecap="round" stroke-dasharray="6 4"/>
+    <circle cx="330" cy="215" r="5" fill="#ff6b6b" opacity="0.5"/>
+  </g>
+
+  <!-- X mark over broken -->
+  <g opacity="0.25">
+    <line x1="318" y1="198" x2="342" y2="222" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round"/>
+    <line x1="342" y1="198" x2="318" y2="222" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <text x="255" y="265" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#ff6b6b" opacity="0.4">disconnected</text>
+
+  <!-- Divider -->
+  <line x1="480" y1="120" x2="480" y2="290" stroke="#333" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- RIGHT SIDE: Shurli surviving through 4 network types -->
+
+  <!-- WiFi (teal, proper concentric arcs) -->
+  <g opacity="0.55">
+    <path d="M548,190 A45,45 0 0,1 612,190" stroke="#00d4aa" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M556,198 A32,32 0 0,1 604,198" stroke="#00d4aa" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M564,206 A20,20 0 0,1 596,206" stroke="#00d4aa" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <circle cx="580" cy="215" r="4.5" fill="#00d4aa"/>
+  </g>
+
+  <!-- Arrow -->
+  <line x1="630" y1="205" x2="672" y2="205" stroke="#00d4aa" stroke-width="1.5" opacity="0.35"/>
+  <polygon points="668,201 678,205 668,209" fill="#00d4aa" opacity="0.35"/>
+
+  <!-- Cellular bars (amber) -->
+  <g opacity="0.55">
+    <rect x="698" y="200" width="4" height="16" rx="1" fill="#ffb347"/>
+    <rect x="706" y="194" width="4" height="22" rx="1" fill="#ffb347"/>
+    <rect x="714" y="187" width="4" height="29" rx="1" fill="#ffb347"/>
+    <rect x="722" y="180" width="4" height="36" rx="1" fill="#ffb347"/>
+  </g>
+
+  <!-- Arrow -->
+  <line x1="742" y1="205" x2="784" y2="205" stroke="#ffb347" stroke-width="1.5" opacity="0.35"/>
+  <polygon points="780,201 790,205 780,209" fill="#ffb347" opacity="0.35"/>
+
+  <!-- Ethernet (blue) -->
+  <g opacity="0.55">
+    <rect x="808" y="188" width="30" height="34" rx="3" stroke="#4488ff" stroke-width="1.8" fill="none"/>
+    <line x1="815" y1="205" x2="831" y2="205" stroke="#4488ff" stroke-width="1.5"/>
+    <line x1="815" y1="212" x2="831" y2="212" stroke="#4488ff" stroke-width="1.5"/>
+    <line x1="823" y1="222" x2="823" y2="238" stroke="#4488ff" stroke-width="1.5"/>
+  </g>
+
+  <!-- Arrow -->
+  <line x1="852" y1="205" x2="894" y2="205" stroke="#4488ff" stroke-width="1.5" opacity="0.35"/>
+  <polygon points="890,201 900,205 890,209" fill="#4488ff" opacity="0.35"/>
+
+  <!-- VPN lock (purple) -->
+  <g opacity="0.55">
+    <rect x="918" y="198" width="24" height="18" rx="3" stroke="#9966ff" stroke-width="1.8" fill="none"/>
+    <path d="M922,198 L922,192 C922,185 938,185 938,192 L938,198" stroke="#9966ff" stroke-width="1.8" fill="none"/>
+  </g>
+
+  <!-- Unbroken line under the right side -->
+  <line x1="570" y1="250" x2="950" y2="250" stroke="#00d4aa" stroke-width="2" opacity="0.25"/>
+  <text x="760" y="272" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#00d4aa" opacity="0.45">connection maintained through every switch</text>
+
+  <!-- Central message -->
+  <text x="600" y="390" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="600" fill="#e0e0e0">
+    16 Network Breaks. Zero Restarts.
+  </text>
+  <text x="600" y="430" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#888">
+    We broke Shurli's network on purpose, across real hardware and real ISPs.
+  </text>
+  <text x="600" y="455" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#888">
+    It kept running through all of it.
+  </text>
+
+  <!-- Bottom stats -->
+  <g opacity="0.5">
+    <text x="225" y="545" text-anchor="middle" font-family="system-ui, sans-serif" font-size="38" font-weight="700" fill="#00d4aa">5</text>
+    <text x="225" y="572" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">network types</text>
+
+    <text x="450" y="545" text-anchor="middle" font-family="system-ui, sans-serif" font-size="38" font-weight="700" fill="#ffb347">11</text>
+    <text x="450" y="572" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">root causes fixed</text>
+
+    <text x="725" y="545" text-anchor="middle" font-family="system-ui, sans-serif" font-size="38" font-weight="700" fill="#4488ff">16</text>
+    <text x="725" y="572" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">physical tests</text>
+
+    <text x="975" y="545" text-anchor="middle" font-family="system-ui, sans-serif" font-size="38" font-weight="700" fill="#00d4aa">0</text>
+    <text x="975" y="572" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#888">restarts needed</text>
+  </g>
+</svg>

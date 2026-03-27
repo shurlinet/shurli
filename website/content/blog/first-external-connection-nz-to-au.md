@@ -120,7 +120,7 @@ This single session surfaced 11 UX gaps. Four were fixed during the session itse
 - ~~Naming UX during invite/join~~ - `--as` flag for both invite and join
 - ~~Share management needs per-peer add/remove/update~~ - `share add` appends peers, `share deny` removes individual peers
 - ~~Browse with no visible shares~~ - Now returns "no shares visible" instead of a cryptic stream reset
-- ~~Per-peer, time-limited data access grants~~ - Full [macaroon capability token system](/blog/per-peer-data-grants/) with delegation, notifications, audit logs, and per-peer bandwidth budgets
+- ~~Per-peer, time-limited data access grants~~ - Full [macaroon capability token system](/blog/who-gets-in/) with delegation, notifications, audit logs, and per-peer bandwidth budgets
 
 ![The full stack: every step from invite to download, with performance numbers](/images/blog/first-user-flow.svg)
 
@@ -140,7 +140,7 @@ Every gap found by an external user in 30 minutes would have taken weeks to disc
 
 ## How this gets built {#how}
 
-*See also: [Development Philosophy](/blog/development-philosophy/) - the principles behind every decision in this project.*
+*See also: [Development Philosophy](/blog/how-we-build-shurli/) - the principles behind every decision in this project.*
 
 This is worth saying: Shurli has no VC funding, no team of engineers, no marketing department. It's being built by one person with a Claude Max subscription ($200/month). That's the entire budget.
 
