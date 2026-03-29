@@ -67,7 +67,7 @@ func printAuthUsage() {
 	fmt.Println("  set-attr <peer-id> <key> <value>                              Set peer attribute")
 	fmt.Println()
 	fmt.Println("Relay data access grants (macaroon capability tokens):")
-	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant relay data access")
+	fmt.Println("  grant    <peer> --duration 1h [--bandwidth 1GB] [--delegate N]  Grant relay data access")
 	fmt.Println("  grants                                                         List active grants")
 	fmt.Println("  revoke   <peer>                                                Revoke relay data access")
 	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
@@ -429,5 +429,9 @@ func doAuthSetAttr(args []string, stdout io.Writer) error {
 	}
 	termcolor.Green("Set %s=%s on peer %s", key, stored, short)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+	fmt.Fprintln(stdout)
+	termcolor.Wfaint(stdout, "This modifies LOCAL authorized_keys only.\n")
+	termcolor.Wfaint(stdout, "It only affects connections handled by THIS node.\n")
+	termcolor.Wfaint(stdout, "To set on a relay: shurli relay set-attr %s %s %s --remote <relay-addr>\n", peerIDStr, key, value)
 	return nil
 }

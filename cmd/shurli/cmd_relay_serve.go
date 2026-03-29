@@ -187,6 +187,9 @@ func runRelayServe(args []string) {
 			fmt.Println()
 			fmt.Print(formatSeedGrid(words))
 			fmt.Println()
+			fmt.Println("Plain text (for copy/paste):")
+			fmt.Println(strings.Join(words, " "))
+			fmt.Println()
 			fmt.Println("===========================")
 			fmt.Println()
 
@@ -673,7 +676,7 @@ func runRelayServe(args []string) {
 	}
 
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(cfg.Logging.PeerListIntervalDuration())
 		defer ticker.Stop()
 		for {
 			select {
@@ -1813,4 +1816,9 @@ func printRelayServeUsage() {
 	fmt.Println()
 	fmt.Println("Server commands use relay-server.yaml in the working directory by default.")
 	fmt.Println("Local commands support --config <path>.")
+	fmt.Println()
+	fmt.Println("Signaling vs Data Grants:")
+	fmt.Println("  By default, relays provide signaling only (peer discovery, ping, hole-punching).")
+	fmt.Println("  Data transfer (browse, download, send, proxy) requires an active data grant.")
+	fmt.Println("  Use 'shurli relay grant' to enable data relay for specific peers.")
 }

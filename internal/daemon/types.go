@@ -24,6 +24,14 @@ type StatusResponse struct {
 	Notifications     *NotificationsStatus `json:"notifications,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
+	PeerPaths         map[string]PeerPathSummary `json:"peer_paths,omitempty"` // peer ID -> connection summary
+}
+
+// PeerPathSummary describes how a peer is connected (for status display).
+type PeerPathSummary struct {
+	PathType     string `json:"path_type"`                // "DIRECT" or "RELAYED"
+	RelayPeerID  string `json:"relay_peer_id,omitempty"`  // relay peer ID if relayed
+	RelayName    string `json:"relay_name,omitempty"`     // relay name if known
 }
 
 // RelayStatus describes a configured relay's connection state.
@@ -176,6 +184,7 @@ type InviteCreateRequest struct {
 	Name       string `json:"name,omitempty"`
 	Count      int    `json:"count,omitempty"`        // default 1
 	TTLSeconds int    `json:"ttl_seconds,omitempty"`  // default 86400 (24h)
+	Relay      string `json:"relay,omitempty"`         // specific relay address to store invite on
 }
 
 // InviteCreateResponse is returned by POST /v1/invite.

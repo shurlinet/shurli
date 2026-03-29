@@ -2178,7 +2178,12 @@ func (ts *TransferService) createTempFile(filename string) (string, *os.File, er
 	tmpPath := filepath.Join(ts.receiveDir, ".shurli-tmp-"+randomHex(8)+"-"+base)
 	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return "", nil, err
+		hint := fmt.Sprintf("cannot create file in download directory: %s", ts.receiveDir)
+		if os.IsPermission(err) || strings.Contains(err.Error(), "read-only") {
+			hint += "\nIf the directory was created after the daemon started, restart the daemon:" +
+				"\n  sudo systemctl restart shurli-daemon"
+		}
+		return "", nil, fmt.Errorf("%s: %w", hint, err)
 	}
 	return tmpPath, f, nil
 }

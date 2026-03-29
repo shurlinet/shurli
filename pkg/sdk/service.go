@@ -74,6 +74,7 @@ type TokenVerifier func(tokenBase64 string, peerID peer.ID, service string) bool
 // token is available for the given peer and service.
 type TokenLookup func(peerID peer.ID, service string) string
 
+
 // ServiceRegistry manages service registration and connections.
 //
 // The callback fields (grantChecker, tokenVerifier, tokenLookup) follow a
@@ -87,11 +88,12 @@ type ServiceRegistry struct {
 	services      map[string]*Service
 	metrics       *Metrics // nil when metrics disabled
 	middleware    []StreamMiddleware
-	grantChecker  GrantChecker  // set once at startup; nil = no grant checking (Phase A)
-	tokenVerifier TokenVerifier // set once at startup; nil = no token verification (Phase B)
-	tokenLookup   TokenLookup   // set once at startup; nil = no token presentation (Phase B)
-	sealed        int32         // atomic; 1 after Seal() - Set* panics if sealed
-	mu            sync.RWMutex  // protects services and middleware; NOT callbacks (set-once)
+	grantChecker      GrantChecker      // set once at startup; nil = no grant checking (Phase A)
+	relayGrantChecker RelayGrantChecker // set once at startup; nil = no relay grant cache check
+	tokenVerifier     TokenVerifier     // set once at startup; nil = no token verification (Phase B)
+	tokenLookup       TokenLookup       // set once at startup; nil = no token presentation (Phase B)
+	sealed            int32             // atomic; 1 after Seal() - Set* panics if sealed
+	mu                sync.RWMutex      // protects services and middleware; NOT callbacks (set-once)
 }
 
 // NewServiceRegistry creates a new service registry.
@@ -329,6 +331,53 @@ func isRelayOnlyPeer(h host.Host, p peer.ID) bool {
 	return true
 }
 
+// peerRelayFromConns returns the relay peer ID from the first limited (relay)
+// connection to the given peer. Returns empty if no relay connections exist.
+func peerRelayFromConns(h host.Host, p peer.ID) peer.ID {
+	for _, c := range h.Network().ConnsToPeer(p) {
+		if c.Stat().Limited {
+			rid := relayPeerFromAddr(c.RemoteMultiaddr())
+			if rid != "" {
+				return rid
+			}
+		}
+	}
+	return ""
+}
+
+// hasAnyActiveRelayGrant checks if any relay the peer is connected through
+// has an active grant receipt in our cache. This enables outbound plugin
+// streams to use relay transport when a relay admin has granted data access.
+func hasAnyActiveRelayGrant(checker RelayGrantChecker, h host.Host, peerID peer.ID) bool {
+	// Find relay peer IDs from the peer's limited (relay) connections.
+	conns := h.Network().ConnsToPeer(peerID)
+	for _, c := range conns {
+		if !c.Stat().Limited {
+			continue // direct connection, not relayed
+		}
+		rid := relayPeerFromAddr(c.RemoteMultiaddr())
+		if rid != "" {
+			if _, _, _, ok := checker.GrantStatus(rid); ok {
+				return true
+			}
+		}
+	}
+	// Also check peerstore addresses if no active connections exist.
+	// The dial will establish a relay connection; the relay enforces the grant.
+	// Post-dial verification re-checks the actual connection's relay.
+	if len(conns) == 0 {
+		for _, addr := range h.Peerstore().Addrs(peerID) {
+			rid := relayPeerFromAddr(addr)
+			if rid != "" {
+				if _, _, _, ok := checker.GrantStatus(rid); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 const relayDataHint = `This relay is a discovery node, NOT a full data relay.
 It enables peer discovery and direct connections only.
 No SSH, XRDP, or other data is forwarded through it.
@@ -385,6 +434,19 @@ func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.grantChecker = checker
+}
+
+// SetRelayGrantChecker sets the relay grant cache checker for outbound streams.
+// When set and any relay has an active grant receipt, relay transport is allowed
+// for outbound plugin streams. Bridges relay-side grants to client-side policy.
+// Must be called before Seal().
+func (r *ServiceRegistry) SetRelayGrantChecker(checker RelayGrantChecker) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetRelayGrantChecker called after Seal()")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.relayGrantChecker = checker
 }
 
 // SetTokenVerifier sets the function used to verify presented grant tokens

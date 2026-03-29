@@ -56,8 +56,9 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string    { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string     { return rt.config.Discovery.Network }
+func (rt *serveRuntime) RelayAddresses() []string        { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) RelayNameFromConfig(peerID string) string { return rt.config.Relay.RelayName(peerID) }
+func (rt *serveRuntime) DiscoveryNetwork() string         { return rt.config.Discovery.Network }
 func (rt *serveRuntime) GrantStore() *grants.Store              { return rt.grantStore }
 func (rt *serveRuntime) GrantPouch() *grants.Pouch              { return rt.grantPouch }
 func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.grantProtocol }
@@ -682,6 +683,13 @@ func runDaemonStart(args []string) {
 			}
 			router.Emit(event)
 		})
+	}
+
+	// Wire relay grant cache into service registry for outbound relay authorization.
+	// When a relay admin grants data access, the receipt is cached locally. This
+	// lets OpenPluginStream allow relay transport for browse/download/send.
+	if rt.grantCache != nil {
+		rt.network.ServiceRegistry().SetRelayGrantChecker(rt.grantCache)
 	}
 
 	// All Set* callbacks configured. Seal the registry to enforce the

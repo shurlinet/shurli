@@ -40,6 +40,7 @@ type RuntimeInfo interface {
 	STUNResult() *sdk.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
 	RelayAddresses() []string                                // relay multiaddrs from config
+	RelayNameFromConfig(peerID string) string                // config-based relay name lookup
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	ConfigReloader() ConfigReloader                          // nil if reload not supported

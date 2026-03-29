@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/termcolor"
@@ -125,18 +128,37 @@ func doRelayGrants(args []string, configFile string, stdout io.Writer) error {
 		return nil
 	}
 
+	// Build peer ID -> name map from authorized_keys (local relay only).
+	// When using --remote, we can't access the remote relay's authorized_keys.
+	peerNames := make(map[string]string)
+	if *remoteFlag == "" && configFile != "" {
+		if relayCfg, loadErr := config.LoadRelayServerConfig(configFile); loadErr == nil {
+			config.ResolveRelayConfigPaths(relayCfg, filepath.Dir(configFile))
+			if peers, listErr := auth.ListPeers(relayCfg.Security.AuthorizedKeysFile); listErr == nil {
+				for _, p := range peers {
+					if p.Comment != "" {
+						peerNames[p.PeerID.String()] = p.Comment
+					}
+				}
+			}
+		}
+	}
+
 	fmt.Fprintf(stdout, "Relay data grants (%d):\n\n", len(grantList))
 	for _, g := range grantList {
-		printRelayGrantInfo(stdout, g)
+		printRelayGrantInfo(stdout, g, peerNames)
 	}
 	return nil
 }
 
-func printRelayGrantInfo(stdout io.Writer, g relay.RelayGrantInfo) {
+func printRelayGrantInfo(stdout io.Writer, g relay.RelayGrantInfo, peerNames map[string]string) {
 	pid := g.PeerID
 	if len(pid) > 16 {
 		pid = pid[:16] + "..."
 	}
+
+	// Show peer name from authorized_keys if available.
+	name := peerNames[g.PeerID]
 
 	scope := "[all]"
 	if len(g.Services) > 0 {
@@ -144,10 +166,14 @@ func printRelayGrantInfo(stdout io.Writer, g relay.RelayGrantInfo) {
 	}
 
 	if g.Permanent {
-		fmt.Fprintf(stdout, "  %s  %s  permanent\n", pid, scope)
+		fmt.Fprintf(stdout, "  %s  %s  permanent", pid, scope)
 	} else {
-		fmt.Fprintf(stdout, "  %s  %s  %s remaining\n", pid, scope, formatRemainingTime(g.RemainingSec))
+		fmt.Fprintf(stdout, "  %s  %s  %s remaining", pid, scope, formatRemainingTime(g.RemainingSec))
 	}
+	if name != "" {
+		termcolor.Wfaint(stdout, "  # %s", name)
+	}
+	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "    Full ID: %s\n", g.PeerID)
 }
 

@@ -44,6 +44,7 @@ func (m *mockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
 func (m *mockRuntime) STUNResult() *sdk.STUNResult             { return nil }
 func (m *mockRuntime) IsRelaying() bool                            { return false }
 func (m *mockRuntime) RelayAddresses() []string                    { return nil }
+func (m *mockRuntime) RelayNameFromConfig(string) string           { return "" }
 func (m *mockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *mockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *mockRuntime) ConfigReloader() ConfigReloader               { return nil }
