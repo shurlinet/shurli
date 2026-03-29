@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes pulseCore {
+        0%, 100% { stroke-opacity: 0.6; }
+        50% { stroke-opacity: 1; }
+      }
+      @keyframes pluginGlow {
+        0%, 100% { stroke-opacity: 0.5; }
+        50% { stroke-opacity: 1; }
+      }
+      @keyframes dashFlow {
+        0% { stroke-dashoffset: 16; }
+        100% { stroke-dashoffset: 0; }
+      }
+      .title { font-family: system-ui, -apple-system, sans-serif; font-size: 30px; font-weight: 600; fill: #e0e0e0; text-anchor: middle; }
+      .subtitle { font-family: system-ui, -apple-system, sans-serif; font-size: 16px; fill: #bbb; text-anchor: middle; }
+      .core { animation: pulseCore 3s ease-in-out infinite; }
+      .pg1 { animation: pluginGlow 3s ease-in-out infinite; }
+      .pg2 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 0.8s; }
+      .pg3 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 1.6s; }
+      .pg4 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 2.4s; }
+      .connector { stroke-dasharray: 6 4; animation: dashFlow 2s linear infinite; }
+    </style>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle glow behind core -->
+  <circle cx="600" cy="220" r="90" fill="#00d4aa" opacity="0.06"/>
+
+  <!-- CORE block (center) -->
+  <rect x="530" y="165" width="140" height="110" rx="12" fill="#1a1a2e" stroke="#e0e0e0" stroke-width="2.5" class="core"/>
+  <text x="600" y="200" font-family="system-ui" font-size="18" fill="#e0e0e0" text-anchor="middle" font-weight="600">Core</text>
+  <text x="600" y="223" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">Identity</text>
+  <text x="600" y="239" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">Networking</text>
+  <text x="600" y="255" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">Security</text>
+
+  <!-- Plugin A: top-left (teal, file transfer) -->
+  <rect x="330" y="105" width="150" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="pg1"/>
+  <circle cx="348" cy="123" r="5" fill="#00d4aa" opacity="0.7"/>
+  <text x="362" y="127" font-family="system-ui" font-size="13" fill="#00d4aa" font-weight="600">File Transfer</text>
+  <text x="348" y="147" font-family="system-ui" font-size="10" fill="#bbb">9 commands, 4 protocols</text>
+  <text x="348" y="163" font-family="system-ui" font-size="10" fill="#bbb">checkpoint/restore</text>
+
+  <!-- Plugin B: top-right (amber) -->
+  <rect x="720" y="105" width="150" height="80" rx="10" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" class="pg2"/>
+  <circle cx="738" cy="123" r="5" fill="#ffb347" opacity="0.7"/>
+  <text x="752" y="127" font-family="system-ui" font-size="13" fill="#ffb347" font-weight="600">Wake-on-LAN</text>
+  <text x="738" y="147" font-family="system-ui" font-size="10" fill="#bbb">2 commands, LAN only</text>
+  <text x="738" y="163" font-family="system-ui" font-size="10" fill="#bbb">own crash recovery</text>
+
+  <!-- Plugin C: bottom-left (blue) -->
+  <rect x="340" y="260" width="150" height="80" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2" class="pg3"/>
+  <circle cx="358" cy="278" r="5" fill="#4488ff" opacity="0.7"/>
+  <text x="372" y="282" font-family="system-ui" font-size="13" fill="#4488ff" font-weight="600">Discovery</text>
+  <text x="358" y="302" font-family="system-ui" font-size="10" fill="#bbb">auto-find peers</text>
+  <text x="358" y="318" font-family="system-ui" font-size="10" fill="#bbb">mDNS + DHT</text>
+
+  <!-- Plugin D: bottom-right (teal, dashed = future) -->
+  <rect x="710" y="260" width="150" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" stroke-dasharray="6 3" class="pg4"/>
+  <circle cx="728" cy="278" r="5" fill="#00d4aa" opacity="0.4"/>
+  <text x="742" y="282" font-family="system-ui" font-size="13" fill="#00d4aa" font-weight="600" opacity="0.6">AI-Generated</text>
+  <text x="728" y="302" font-family="system-ui" font-size="10" fill="#999">WASM sandbox</text>
+  <text x="728" y="318" font-family="system-ui" font-size="10" fill="#999">future: Layer 3</text>
+
+  <!-- Connecting lines from core to plugins -->
+  <line x1="535" y1="200" x2="480" y2="165" class="connector" stroke="#00d4aa" stroke-width="1.5" opacity="0.4"/>
+  <line x1="665" y1="200" x2="720" y2="165" class="connector" stroke="#ffb347" stroke-width="1.5" opacity="0.4"/>
+  <line x1="540" y1="260" x2="490" y2="280" class="connector" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="660" y1="260" x2="710" y2="280" class="connector" stroke="#00d4aa" stroke-width="1.5" opacity="0.3"/>
+
+  <!-- Title -->
+  <text x="600" y="420" class="title">Rebuilding the Engine While It Runs</text>
+  <text x="600" y="452" class="subtitle">From monolith to modular platform, without breaking a single connection</text>
+</svg>

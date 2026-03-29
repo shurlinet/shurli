@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      @keyframes tangleGrow {
+        0% { stroke-dashoffset: 200; }
+        100% { stroke-dashoffset: 0; }
+      }
+      @keyframes blockSlide {
+        0% { transform: translateY(10px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+      .label { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #bbb; }
+      .path-label { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 600; text-anchor: middle; }
+      .tangle { stroke-dasharray: 200; animation: tangleGrow 3s ease-out forwards; }
+      .block { animation: blockSlide 0.5s ease-out forwards; }
+      .b1 { animation-delay: 0.3s; opacity: 0; }
+      .b2 { animation-delay: 0.6s; opacity: 0; }
+      .b3 { animation-delay: 0.9s; opacity: 0; }
+      .b4 { animation-delay: 1.2s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="420" fill="url(#bg)"/>
+
+  <!-- Left path: "Add Features" -->
+  <g transform="translate(60, 60)">
+    <text x="150" y="0" class="path-label" fill="#ff6b6b">Add Features</text>
+
+    <!-- Starting simple box -->
+    <rect x="100" y="20" width="100" height="60" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1.5"/>
+    <text x="150" y="55" font-family="system-ui" font-size="11" fill="#999" text-anchor="middle">v1.0</text>
+
+    <!-- Arrow down -->
+    <line x1="150" y1="80" x2="150" y2="110" stroke="#666" stroke-width="1"/>
+    <polygon points="145,107 155,107 150,115" fill="#999"/>
+
+    <!-- Tangled ball -->
+    <g transform="translate(150, 200)">
+      <circle cx="0" cy="0" r="65" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1" opacity="0.3"/>
+      <path d="M-40,-20 C-10,-50 30,10 0,-30 S-20,20 30,-10 S-30,30 10,20 S20,-40 -20,10" class="tangle" fill="none" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+      <path d="M-30,10 C10,40 -20,-30 20,20 S-10,-20 30,0 S-40,10 0,-20" class="tangle" fill="none" stroke="#ffb347" stroke-width="1.5" opacity="0.35" style="animation-delay: 0.5s"/>
+      <path d="M10,-30 C40,0 -30,20 20,-10 S0,30 -20,-5" class="tangle" fill="none" stroke="#4488ff" stroke-width="1.5" opacity="0.35" style="animation-delay: 1s"/>
+      <!-- Background rect for readability -->
+      <rect x="-35" y="-10" width="70" height="22" rx="4" fill="#0a0a1a" opacity="0.8"/>
+      <text x="0" y="7" font-family="system-ui" font-size="14" fill="#ff6b6b" text-anchor="middle" font-weight="600">tangled</text>
+    </g>
+
+    <text x="150" y="290" font-family="system-ui" font-size="11" fill="#ff6b6b" text-anchor="middle" opacity="0.7">Everything depends on everything</text>
+  </g>
+
+  <!-- Right path: "Add Boundaries" -->
+  <g transform="translate(440, 60)">
+    <text x="150" y="0" class="path-label" fill="#00d4aa">Add Boundaries</text>
+
+    <!-- Starting simple box -->
+    <rect x="100" y="20" width="100" height="60" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1.5"/>
+    <text x="150" y="55" font-family="system-ui" font-size="11" fill="#999" text-anchor="middle">v1.0</text>
+
+    <!-- Arrow down -->
+    <line x1="150" y1="80" x2="150" y2="110" stroke="#666" stroke-width="1"/>
+    <polygon points="145,107 155,107 150,115" fill="#999"/>
+
+    <!-- Clean separated blocks -->
+    <g transform="translate(70, 120)">
+      <rect class="block b1" x="0" y="0" width="70" height="45" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+      <text class="block b1" x="35" y="27" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle">Core</text>
+
+      <rect class="block b2" x="85" y="0" width="70" height="45" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5"/>
+      <text class="block b2" x="120" y="27" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle">Plugin A</text>
+
+      <rect class="block b3" x="0" y="60" width="70" height="45" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+      <text class="block b3" x="35" y="87" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle">Plugin B</text>
+
+      <rect class="block b4" x="85" y="60" width="70" height="45" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+      <text class="block b4" x="120" y="87" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle">Plugin C</text>
+    </g>
+
+    <text x="150" y="290" font-family="system-ui" font-size="11" fill="#00d4aa" text-anchor="middle" opacity="0.7">Each piece independent and isolated</text>
+  </g>
+
+  <!-- Dividing line -->
+  <line x1="400" y1="50" x2="400" y2="370" stroke="#333" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <text x="400" y="400" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">More features or clearer boundaries. One scales. The other tangles.</text>
+</svg>

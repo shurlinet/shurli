@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      .flow { stroke-dasharray: 5 3; animation: dashFlow 2s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+      .f1 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.3s; opacity: 0; }
+      .f2 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.8s; opacity: 0; }
+      .f3 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 1.3s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="300" fill="url(#bg)"/>
+
+  <!-- Person sleeping (left side) -->
+  <g class="f1" transform="translate(50, 80)">
+    <rect x="0" y="40" width="100" height="50" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1.5"/>
+    <text x="50" y="70" font-family="system-ui" font-size="11" fill="#bbb" text-anchor="middle">You (asleep)</text>
+    <!-- Zzz -->
+    <text x="80" y="35" font-family="system-ui" font-size="14" fill="#666" opacity="0.6">z</text>
+    <text x="95" y="22" font-family="system-ui" font-size="18" fill="#666" opacity="0.4">z</text>
+    <text x="112" y="10" font-family="system-ui" font-size="22" fill="#666" opacity="0.3">z</text>
+  </g>
+
+  <!-- Home server with AI Agent (center) -->
+  <g transform="translate(280, 60)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="28" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Home Server</text>
+    <text x="90" y="48" font-family="system-ui" font-size="11" fill="#bbb" text-anchor="middle">AI Agent running</text>
+    <text x="90" y="66" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle" opacity="0.7">managing everything</text>
+  </g>
+
+  <!-- Devices being managed (right side) -->
+  <g class="f2" transform="translate(560, 40)">
+    <rect x="0" y="0" width="120" height="35" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1"/>
+    <text x="60" y="22" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle">Phone photos</text>
+  </g>
+  <g class="f2" transform="translate(560, 50)">
+    <rect x="0" y="40" width="120" height="35" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1"/>
+    <text x="60" y="62" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle">Laptop docs</text>
+  </g>
+  <g class="f3" transform="translate(560, 100)">
+    <rect x="0" y="40" width="120" height="35" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1"/>
+    <text x="60" y="62" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle">Family access</text>
+  </g>
+
+  <!-- Flow lines -->
+  <line x1="460" y1="85" x2="555" y2="58" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="460" y1="100" x2="555" y2="108" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.4"/>
+  <line x1="460" y1="110" x2="555" y2="155" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Bottom message -->
+  <g class="f3" transform="translate(50, 200)">
+    <rect x="0" y="0" width="700" height="55" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="350" y="22" font-family="system-ui" font-size="12" fill="#e0e0e0" text-anchor="middle" font-weight="600">You said: "keep my photos backed up and let my family browse them"</text>
+    <text x="350" y="42" font-family="system-ui" font-size="11" fill="#bbb" text-anchor="middle">The agent did the rest. You did not configure anything.</text>
+  </g>
+
+  <text x="400" y="288" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">The agent set up plugins, issued grant tokens, configured shares. All while you slept.</text>
+</svg>

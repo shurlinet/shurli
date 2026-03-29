@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes alertPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .alert { animation: alertPulse 1.5s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="260" fill="url(#bg)"/>
+
+  <!-- Camera (left) -->
+  <g transform="translate(80, 40)">
+    <rect x="0" y="0" width="150" height="75" rx="10" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="2"/>
+    <!-- Camera icon -->
+    <g transform="translate(15, 20)">
+      <rect x="0" y="5" width="24" height="16" rx="3" fill="none" stroke="#ff6b6b" stroke-width="1.5"/>
+      <polygon points="24,8 33,4 33,24 24,20" fill="none" stroke="#ff6b6b" stroke-width="1.2"/>
+      <circle cx="11" cy="13" r="3.5" fill="none" stroke="#ff6b6b" stroke-width="1" opacity="0.6"/>
+    </g>
+    <!-- Alert indicator -->
+    <circle cx="133" cy="15" r="6" fill="#ff6b6b" opacity="0.2" class="alert" stroke="#ff6b6b" stroke-width="1"/>
+    <text x="133" y="19" font-family="system-ui" font-size="8" fill="#ff6b6b" text-anchor="middle">!</text>
+    <text x="75" y="20" font-family="system-ui" font-size="13" fill="#ff6b6b" text-anchor="middle" font-weight="600">Camera</text>
+    <text x="75" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">IoT device</text>
+    <text x="75" y="62" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle">motion detected</text>
+  </g>
+
+  <!-- Arrow: camera -> agent -->
+  <line x1="235" y1="77" x2="298" y2="77" class="flow" stroke="#ff6b6b" stroke-width="2" opacity="0.5"/>
+  <polygon points="295,72 305,77 295,82" fill="#ff6b6b" opacity="0.5"/>
+
+  <!-- AI Agent (center) -->
+  <g transform="translate(310, 40)">
+    <rect x="0" y="0" width="160" height="75" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+    <text x="80" y="25" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">AI Agent</text>
+    <text x="80" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">evaluates event</text>
+    <text x="80" y="62" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle">triggers backup</text>
+  </g>
+
+  <!-- Arrow: agent -> backup -->
+  <line x1="475" y1="77" x2="538" y2="77" class="flow" stroke="#00d4aa" stroke-width="2" opacity="0.5"/>
+  <polygon points="535,72 545,77 535,82" fill="#00d4aa" opacity="0.5"/>
+
+  <!-- Off-site backup (right) -->
+  <g transform="translate(550, 40)">
+    <rect x="0" y="0" width="170" height="75" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2"/>
+    <text x="85" y="25" font-family="system-ui" font-size="13" fill="#4488ff" text-anchor="middle" font-weight="600">Off-Site Node</text>
+    <text x="85" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">footage arrives</text>
+    <text x="85" y="62" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle">before you check</text>
+  </g>
+
+  <!-- Plugin labels centered -->
+  <g transform="translate(130, 145)">
+    <rect x="0" y="0" width="140" height="26" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="70" y="17" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle">IoT Bridge Plugin</text>
+  </g>
+  <g transform="translate(500, 145)">
+    <rect x="0" y="0" width="160" height="26" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1" opacity="0.6"/>
+    <text x="80" y="17" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle">File Transfer Plugin</text>
+  </g>
+
+  <!-- Bracket connecting both plugins -->
+  <line x1="200" y1="178" x2="580" y2="178" stroke="#666" stroke-width="1" opacity="0.3"/>
+  <text x="400" y="202" font-family="system-ui" font-size="11" fill="#bbb" text-anchor="middle">Two plugins cooperating. Zero humans involved.</text>
+
+  <text x="400" y="242" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">The footage arrives at your backup before you even check the notification.</text>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="280" fill="url(#bg)"/>
+
+  <!-- Your node (left) -->
+  <g transform="translate(60, 50)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="25" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Your Node</text>
+    <text x="90" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">AI Agent A</text>
+    <text x="90" y="62" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">has the draft files</text>
+  </g>
+
+  <!-- Friend's node (right) -->
+  <g transform="translate(530, 50)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2" class="glow"/>
+    <text x="90" y="25" font-family="system-ui" font-size="13" fill="#4488ff" text-anchor="middle" font-weight="600">Friend's Node</text>
+    <text x="90" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">AI Agent B</text>
+    <text x="90" y="62" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">needs the draft files</text>
+  </g>
+
+  <!-- Request arrow (top, right to left) -->
+  <line x1="530" y1="75" x2="245" y2="75" stroke="#4488ff" stroke-width="1.5" opacity="0.5" stroke-dasharray="4 3"/>
+  <polygon points="248,70 238,75 248,80" fill="#4488ff" opacity="0.5"/>
+  <rect x="310" y="60" width="150" height="22" rx="4" fill="#1a1a2e" stroke="#4488ff" stroke-width="1" opacity="0.6"/>
+  <text x="385" y="75" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle">"I need the draft files"</text>
+
+  <!-- Transfer arrow (bottom, left to right) -->
+  <line x1="245" y1="100" x2="530" y2="100" class="flow" stroke="#00d4aa" stroke-width="2.5" opacity="0.7"/>
+  <polygon points="527,95 537,100 527,105" fill="#00d4aa" opacity="0.7"/>
+  <rect x="320" y="106" width="130" height="22" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1" opacity="0.6"/>
+  <text x="385" y="121" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">grant verified, sending</text>
+
+  <!-- Humans absent -->
+  <g transform="translate(150, 165)">
+    <rect x="0" y="0" width="470" height="65" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="235" y="22" font-family="system-ui" font-size="12" fill="#e0e0e0" text-anchor="middle" font-weight="600">No human on either end</text>
+    <text x="235" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Agent B requested. Agent A checked the grant. Transfer happened.</text>
+    <text x="235" y="56" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">File transfer is the first agent-to-agent protocol.</text>
+  </g>
+
+  <text x="400" y="268" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Agents negotiate trust, verify permissions, and move data. You were at work.</text>
+</svg>
