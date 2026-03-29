@@ -50,6 +50,7 @@ func (m *networkMockRuntime) RelayHealth() *sdk.RelayHealth           { return n
 func (m *networkMockRuntime) STUNResult() *sdk.STUNResult             { return nil }
 func (m *networkMockRuntime) IsRelaying() bool                            { return false }
 func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
+func (m *networkMockRuntime) RelayNameFromConfig(string) string           { return "" }
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *networkMockRuntime) ConfigReloader() ConfigReloader               { return nil }

@@ -303,6 +303,12 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 		outln()
 	}
 
+	// Note: the relay used for pairing is already in the joiner's config
+	// (cfg.Relay.Addresses) since v3 invite codes don't carry relay addresses.
+	// The joiner always pairs through one of their own configured relays.
+	// Future: PairingResponse should include the inviter's relay list so the
+	// joiner can add relays they don't have yet. This requires protocol changes.
+
 	out("Config: %s\n", cfgFile)
 	out("Authorized keys: %s\n", authKeysPath)
 	outln()
@@ -653,6 +659,9 @@ func bootstrapForJoin(relayInput string, userMode bool, stdin io.Reader, stdout 
 		fmt.Fprintln(stdout, "recover your identity if you lose this device.")
 		fmt.Fprintln(stdout)
 		fmt.Fprint(stdout, formatSeedGrid(words))
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Plain text (for copy/paste):")
+		fmt.Fprintln(stdout, strings.Join(words, " "))
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "===========================")
 		fmt.Fprintln(stdout)

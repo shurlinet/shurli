@@ -263,6 +263,13 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		}
 	}
 
+	// Ensure receive directory exists on startup (before systemd locks mount namespace).
+	if cfg.ReceiveDir != "" {
+		if err := os.MkdirAll(cfg.ReceiveDir, 0700); err != nil {
+			slog.Warn("plugin.filetransfer: failed to create receive_dir", "path", cfg.ReceiveDir, "error", err)
+		}
+	}
+
 	slog.Info("plugin.filetransfer: started", "receive_dir", cfg.ReceiveDir, "receive_mode", string(cfg.ReceiveMode))
 	return nil
 }

@@ -332,6 +332,15 @@ func runDownload(args []string) {
 	}
 
 	arg := remaining[0]
+	if len(remaining) > 1 {
+		// Extra args may be a path with spaces that wasn't quoted.
+		next := remaining[1]
+		if !strings.HasPrefix(next, "-") {
+			fmt.Fprintf(os.Stderr, "Warning: path appears to contain spaces. Use quotes:\n")
+			fmt.Fprintf(os.Stderr, "  shurli download '%s'\n", strings.Join(remaining, " "))
+			osExit(1)
+		}
+	}
 	peerArg, remotePath := parsePeerPath(arg)
 	if peerArg == "" || remotePath == "" {
 		fatal("Invalid format. Use: <peer>:<shareID/filename>")

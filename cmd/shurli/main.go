@@ -67,6 +67,14 @@ func main() {
 		runVerify(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
+	case "services":
+		// Convenience: "shurli services <peer>" → "shurli service list --peer <peer>"
+		// Without args, equivalent to "shurli service list"
+		if len(os.Args) > 2 {
+			runService(append([]string{"list", "--peer"}, os.Args[2:]...))
+		} else {
+			runService([]string{"list"})
+		}
 	case "status":
 		runStatus(os.Args[2:])
 	case "recover":
