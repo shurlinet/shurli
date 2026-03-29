@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="280" fill="url(#bg)"/>
+
+  <!-- Your agent (left) -->
+  <g transform="translate(50, 55)">
+    <rect x="0" y="0" width="160" height="70" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="80" y="25" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Your Agent</text>
+    <text x="80" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">needs relay bandwidth</text>
+    <text x="80" y="60" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">for a large backup</text>
+  </g>
+
+  <!-- Grant token with payment (center) -->
+  <g transform="translate(280, 45)">
+    <rect x="0" y="0" width="200" height="90" rx="10" fill="#1a1a2e" stroke="#ffb347" stroke-width="2"/>
+    <text x="100" y="22" font-family="system-ui" font-size="12" fill="#ffb347" text-anchor="middle" font-weight="600">Grant Token</text>
+    <line x1="15" y1="30" x2="185" y2="30" stroke="#ffb347" stroke-width="0.5" opacity="0.3"/>
+    <text x="100" y="48" font-family="'SF Mono', monospace" font-size="9" fill="#bbb" text-anchor="middle">bandwidth: 50MB</text>
+    <text x="100" y="62" font-family="'SF Mono', monospace" font-size="9" fill="#bbb" text-anchor="middle">expires: 2h</text>
+    <text x="100" y="78" font-family="'SF Mono', monospace" font-size="9" fill="#ffb347" text-anchor="middle">payment: attached &#10003;</text>
+  </g>
+
+  <!-- Relay node (right) -->
+  <g transform="translate(560, 55)">
+    <rect x="0" y="0" width="160" height="70" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2" class="glow"/>
+    <text x="80" y="25" font-family="system-ui" font-size="13" fill="#4488ff" text-anchor="middle" font-weight="600">Relay Node</text>
+    <text x="80" y="45" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">verifies payment</text>
+    <text x="80" y="60" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">opens circuit</text>
+  </g>
+
+  <!-- Flow arrows -->
+  <line x1="215" y1="85" x2="275" y2="85" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.5"/>
+  <line x1="485" y1="85" x2="555" y2="85" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Bottom message -->
+  <g transform="translate(120, 170)">
+    <rect x="0" y="0" width="530" height="60" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="265" y="22" font-family="system-ui" font-size="12" fill="#e0e0e0" text-anchor="middle" font-weight="600">The network is not just sovereign. It has an economy.</text>
+    <text x="265" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Agents negotiate resources, pay for what they use, settle without humans.</text>
+  </g>
+
+  <text x="400" y="268" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Microtransactions between nodes. No billing dashboard. No subscription. Just agents trading resources.</text>
+</svg>

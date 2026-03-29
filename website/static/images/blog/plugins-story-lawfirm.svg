@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 5 3; animation: dashFlow 2s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="260" fill="url(#bg)"/>
+
+  <!-- Client (left) -->
+  <g transform="translate(40, 45)">
+    <rect x="0" y="0" width="140" height="65" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="70" y="22" font-family="system-ui" font-size="12" fill="#4488ff" text-anchor="middle" font-weight="600">Client</text>
+    <text x="70" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">sends case files</text>
+    <text x="70" y="56" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">via Shurli</text>
+  </g>
+
+  <!-- Grant token flow -->
+  <line x1="185" y1="75" x2="270" y2="75" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.5"/>
+  <g transform="translate(275, 55)">
+    <rect x="0" y="0" width="110" height="40" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1"/>
+    <text x="55" y="16" font-family="'SF Mono', monospace" font-size="8" fill="#ffb347" text-anchor="middle">grant token</text>
+    <text x="55" y="30" font-family="'SF Mono', monospace" font-size="8" fill="#bbb" text-anchor="middle">case #4721, 30d</text>
+  </g>
+  <line x1="390" y1="75" x2="450" y2="75" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Law firm server (center-right) -->
+  <g transform="translate(455, 30)">
+    <rect x="0" y="0" width="180" height="95" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="22" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Law Firm Server</text>
+    <text x="90" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">AI Agent manages access</text>
+    <line x1="15" y1="52" x2="165" y2="52" stroke="#00d4aa" stroke-width="0.5" opacity="0.2"/>
+    <text x="90" y="68" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">files stored locally</text>
+    <text x="90" y="82" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">compliance logged</text>
+    <text x="90" y="92" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">no cloud dependency</text>
+  </g>
+
+  <!-- Case closes: revoke -->
+  <g transform="translate(660, 50)">
+    <rect x="0" y="0" width="110" height="55" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1.5"/>
+    <text x="55" y="20" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle" font-weight="600">Case Closes</text>
+    <text x="55" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">grant revoked</text>
+    <text x="55" y="50" font-family="system-ui" font-size="9" fill="#ff6b6b" text-anchor="middle">access ends &#10003;</text>
+  </g>
+
+  <!-- Bottom -->
+  <g transform="translate(80, 155)">
+    <rect x="0" y="0" width="610" height="55" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="305" y="20" font-family="system-ui" font-size="11" fill="#e0e0e0" text-anchor="middle" font-weight="600">No cloud provider to notify. No shared folder to unshare.</text>
+    <text x="305" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Client data on the firm's hardware. Access controlled cryptographically.</text>
+  </g>
+
+  <text x="400" y="248" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Two partners, one server, zero IT staff. The agent handles everything.</text>
+</svg>

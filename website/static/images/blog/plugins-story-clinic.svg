@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="260" fill="url(#bg)"/>
+
+  <!-- Main office (left) -->
+  <g transform="translate(40, 35)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">Main Office</text>
+    <text x="90" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">AI Agent orchestrates</text>
+    <text x="90" y="58" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">patient imaging stored</text>
+    <text x="90" y="72" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">compliance logging &#10003;</text>
+  </g>
+
+  <!-- Direct transfer line -->
+  <line x1="225" y1="75" x2="430" y2="75" class="flow" stroke="#00d4aa" stroke-width="2.5" opacity="0.6"/>
+
+  <!-- Grant token on the line -->
+  <g transform="translate(285, 50)">
+    <rect x="0" y="0" width="100" height="22" rx="4" fill="#1a1a2e" stroke="#ffb347" stroke-width="1"/>
+    <text x="50" y="15" font-family="'SF Mono', monospace" font-size="8" fill="#ffb347" text-anchor="middle">grant: 1 visit</text>
+  </g>
+
+  <!-- Satellite office (right) -->
+  <g transform="translate(435, 35)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#4488ff" text-anchor="middle" font-weight="600">Satellite Office</text>
+    <text x="90" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">patient visits here</text>
+    <text x="90" y="58" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">imaging accessed</text>
+    <text x="90" y="72" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle">time-limited access</text>
+  </g>
+
+  <!-- No cloud in middle -->
+  <g transform="translate(640, 45)">
+    <rect x="0" y="0" width="130" height="60" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1.5" opacity="0.5"/>
+    <text x="65" y="20" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle">Cloud Server</text>
+    <!-- X through it -->
+    <line x1="20" y1="30" x2="110" y2="55" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <line x1="110" y1="30" x2="20" y2="55" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <text x="65" y="48" font-family="system-ui" font-size="9" fill="#ff6b6b" text-anchor="middle">not needed</text>
+  </g>
+
+  <!-- Bottom -->
+  <g transform="translate(60, 145)">
+    <rect x="0" y="0" width="650" height="60" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="325" y="20" font-family="system-ui" font-size="11" fill="#e0e0e0" text-anchor="middle" font-weight="600">No cloud intermediary touches patient data.</text>
+    <text x="325" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Direct node-to-node. Compliance logged. Access expires after the appointment.</text>
+  </g>
+
+  <text x="400" y="248" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Three locations, regulated data, zero third-party exposure.</text>
+</svg>

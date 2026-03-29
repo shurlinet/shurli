@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 460">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      @keyframes pluginGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      .header { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; fill: #bbb; text-anchor: middle; letter-spacing: 1px; text-transform: uppercase; }
+      .audience { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 600; }
+      .plugin-name { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; fill: #ccc; }
+      .connector { stroke-dasharray: 5 3; animation: dashFlow 2s linear infinite; }
+      .g1 { animation: pluginGlow 3s ease-in-out infinite; }
+      .g2 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 0.7s; }
+      .g3 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 1.4s; }
+      .g4 { animation: pluginGlow 3s ease-in-out infinite; animation-delay: 2.1s; }
+      .f1 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.2s; opacity: 0; }
+      .f2 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.5s; opacity: 0; }
+      .f3 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.8s; opacity: 0; }
+      .f4 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 1.1s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="460" fill="url(#bg)"/>
+
+  <text x="400" y="25" class="header">one interface, four audiences</text>
+
+  <!-- Central Plugin System -->
+  <rect x="320" y="175" width="160" height="70" rx="10" fill="#1a1a2e" stroke="#e0e0e0" stroke-width="2"/>
+  <text x="400" y="203" font-family="system-ui" font-size="14" fill="#e0e0e0" text-anchor="middle" font-weight="600">Plugin System</text>
+  <text x="400" y="222" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">11 methods, 1 interface</text>
+
+  <!-- Connectors -->
+  <line x1="320" y1="195" x2="220" y2="115" class="connector" stroke="#00d4aa" stroke-width="1.5" opacity="0.4"/>
+  <line x1="480" y1="195" x2="580" y2="115" class="connector" stroke="#ffb347" stroke-width="1.5" opacity="0.4"/>
+  <line x1="320" y1="230" x2="220" y2="320" class="connector" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="480" y1="230" x2="580" y2="320" class="connector" stroke="#00d4aa" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- AI Agents (top-left) -->
+  <g class="f1">
+    <rect x="30" y="45" width="200" height="140" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="g1"/>
+    <text x="130" y="72" class="audience" fill="#00d4aa" text-anchor="middle">AI Agents</text>
+    <line x1="45" y1="82" x2="215" y2="82" stroke="#00d4aa" stroke-width="0.5" opacity="0.2"/>
+
+    <circle cx="50" cy="100" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="60" y="104" class="plugin-name">Backup scheduler</text>
+
+    <circle cx="50" cy="120" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="60" y="124" class="plugin-name">Model distribution</text>
+
+    <circle cx="50" cy="140" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="60" y="144" class="plugin-name">Autonomous diagnostics</text>
+
+    <circle cx="50" cy="160" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="60" y="164" class="plugin-name">Task delegation</text>
+  </g>
+
+  <!-- Enterprise (top-right) -->
+  <g class="f2">
+    <rect x="570" y="45" width="200" height="140" rx="10" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" class="g2"/>
+    <text x="670" y="72" class="audience" fill="#ffb347" text-anchor="middle">Enterprise</text>
+    <line x1="585" y1="82" x2="755" y2="82" stroke="#ffb347" stroke-width="0.5" opacity="0.2"/>
+
+    <circle cx="590" cy="100" r="3" fill="#ffb347" opacity="0.6"/>
+    <text x="600" y="104" class="plugin-name">Compliance logger</text>
+
+    <circle cx="590" cy="120" r="3" fill="#ffb347" opacity="0.6"/>
+    <text x="600" y="124" class="plugin-name">Fleet management</text>
+
+    <circle cx="590" cy="140" r="3" fill="#ffb347" opacity="0.6"/>
+    <text x="600" y="144" class="plugin-name">Data loss prevention</text>
+
+    <circle cx="590" cy="160" r="3" fill="#ffb347" opacity="0.6"/>
+    <text x="600" y="164" class="plugin-name">SSO / LDAP auth</text>
+  </g>
+
+  <!-- Open Source (bottom-left) -->
+  <g class="f3">
+    <rect x="30" y="265" width="200" height="140" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2" class="g3"/>
+    <text x="130" y="292" class="audience" fill="#4488ff" text-anchor="middle">Open Source</text>
+    <line x1="45" y1="302" x2="215" y2="302" stroke="#4488ff" stroke-width="0.5" opacity="0.2"/>
+
+    <circle cx="50" cy="320" r="3" fill="#4488ff" opacity="0.6"/>
+    <text x="60" y="324" class="plugin-name">Git mirror (P2P repos)</text>
+
+    <circle cx="50" cy="340" r="3" fill="#4488ff" opacity="0.6"/>
+    <text x="60" y="344" class="plugin-name">Package registry</text>
+
+    <circle cx="50" cy="360" r="3" fill="#4488ff" opacity="0.6"/>
+    <text x="60" y="364" class="plugin-name">Collaborative sync</text>
+
+    <circle cx="50" cy="380" r="3" fill="#4488ff" opacity="0.6"/>
+    <text x="60" y="384" class="plugin-name">Community relay pools</text>
+  </g>
+
+  <!-- Self-Hosters (bottom-right) -->
+  <g class="f4">
+    <rect x="570" y="265" width="200" height="140" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="g4"/>
+    <text x="670" y="292" class="audience" fill="#00d4aa" text-anchor="middle">Self-Hosters</text>
+    <line x1="585" y1="302" x2="755" y2="302" stroke="#00d4aa" stroke-width="0.5" opacity="0.2"/>
+
+    <circle cx="590" cy="320" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="600" y="324" class="plugin-name">Wake-on-LAN</text>
+
+    <circle cx="590" cy="340" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="600" y="344" class="plugin-name">Media streaming</text>
+
+    <circle cx="590" cy="360" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="600" y="364" class="plugin-name">Home automation bridge</text>
+
+    <circle cx="590" cy="380" r="3" fill="#00d4aa" opacity="0.6"/>
+    <text x="600" y="384" class="plugin-name">NAS sync</text>
+  </g>
+
+  <text x="400" y="440" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">None of these plugins exist yet. All of them are possible with the interface that does.</text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 5 3; animation: dashFlow 2s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="300" fill="url(#bg)"/>
+
+  <!-- HQ (left) -->
+  <g transform="translate(40, 50)">
+    <rect x="0" y="0" width="180" height="85" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="22" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Headquarters</text>
+    <text x="90" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">AI Agent monitors</text>
+    <text x="90" y="58" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">blueprint repository</text>
+    <text x="90" y="74" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">new revision detected</text>
+  </g>
+
+  <!-- Job sites (right, stacked) -->
+  <g transform="translate(520, 15)">
+    <rect x="0" y="0" width="180" height="42" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="90" y="17" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle" font-weight="600">Site 1 (LAN)</text>
+    <text x="90" y="33" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">direct transfer &#10003;</text>
+  </g>
+  <g transform="translate(520, 65)">
+    <rect x="0" y="0" width="180" height="42" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="90" y="17" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle" font-weight="600">Site 2 (LAN)</text>
+    <text x="90" y="33" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">direct transfer &#10003;</text>
+  </g>
+  <g transform="translate(520, 115)">
+    <rect x="0" y="0" width="180" height="42" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5"/>
+    <text x="90" y="17" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle" font-weight="600">Site 3 (cellular)</text>
+    <text x="90" y="33" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">relay-assisted &#10003;</text>
+  </g>
+  <g transform="translate(520, 165)">
+    <rect x="0" y="0" width="180" height="42" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5"/>
+    <text x="90" y="17" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle" font-weight="600">Site 4 (spotty)</text>
+    <text x="90" y="33" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">retry on reconnect &#10003;</text>
+  </g>
+
+  <!-- Flow arrows from HQ to each site -->
+  <line x1="225" y1="70" x2="515" y2="36" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="225" y1="80" x2="515" y2="86" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.5"/>
+  <line x1="225" y1="95" x2="515" y2="136" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.4"/>
+  <line x1="225" y1="105" x2="515" y2="186" class="flow" stroke="#ffb347" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Blueprint badge on lines -->
+  <g transform="translate(320, 60)">
+    <rect x="0" y="0" width="110" height="22" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1" opacity="0.6"/>
+    <text x="55" y="15" font-family="'SF Mono', monospace" font-size="8" fill="#00d4aa" text-anchor="middle">blueprint v3.2</text>
+  </g>
+
+  <!-- Bottom -->
+  <g transform="translate(60, 230)">
+    <rect x="0" y="0" width="650" height="40" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="325" y="16" font-family="system-ui" font-size="11" fill="#e0e0e0" text-anchor="middle" font-weight="600">The foreman opens the file. He does not know or care how it got there.</text>
+    <text x="325" y="33" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Agent tracked revisions per site, retried failures, confirmed delivery.</text>
+  </g>
+
+  <text x="400" y="290" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Four job sites, different connectivity, one agent handling all of it.</text>
+</svg>

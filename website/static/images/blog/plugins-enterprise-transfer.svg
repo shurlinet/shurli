@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      @keyframes scanPulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+      .scan { animation: scanPulse 2s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="320" fill="url(#bg)"/>
+
+  <!-- London node (left) -->
+  <g transform="translate(30, 30)">
+    <rect x="0" y="0" width="160" height="80" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2"/>
+    <text x="80" y="22" font-family="system-ui" font-size="12" fill="#4488ff" text-anchor="middle" font-weight="600">London</text>
+    <text x="80" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Analyst's agent</text>
+    <text x="80" y="56" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle">"I need that dataset"</text>
+    <text x="80" y="72" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">60 nodes</text>
+  </g>
+
+  <!-- Request arrow London -> Singapore -->
+  <line x1="195" y1="60" x2="345" y2="60" class="flow" stroke="#4488ff" stroke-width="2" opacity="0.5"/>
+  <polygon points="342,55 352,60 342,65" fill="#4488ff" opacity="0.5"/>
+
+  <!-- DLP scan gate (center) -->
+  <g transform="translate(355, 20)">
+    <rect x="0" y="0" width="120" height="100" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" class="glow"/>
+    <text x="60" y="20" font-family="system-ui" font-size="11" fill="#ffb347" text-anchor="middle" font-weight="600">DLP Plugin</text>
+    <line x1="10" y1="28" x2="110" y2="28" stroke="#ffb347" stroke-width="0.5" opacity="0.3"/>
+    <!-- Scan lines animation -->
+    <line x1="15" y1="42" x2="105" y2="42" stroke="#ffb347" stroke-width="1" opacity="0.4" class="scan"/>
+    <line x1="15" y1="52" x2="105" y2="52" stroke="#ffb347" stroke-width="1" opacity="0.4" class="scan"/>
+    <line x1="15" y1="62" x2="105" y2="62" stroke="#ffb347" stroke-width="1" opacity="0.4" class="scan"/>
+    <text x="60" y="80" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">scans outbound</text>
+    <text x="60" y="93" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">policy: PASS</text>
+  </g>
+
+  <!-- Arrow DLP -> Singapore -->
+  <line x1="480" y1="60" x2="570" y2="60" class="flow" stroke="#00d4aa" stroke-width="2" opacity="0.5"/>
+  <polygon points="567,55 577,60 567,65" fill="#00d4aa" opacity="0.5"/>
+
+  <!-- Singapore node (right) -->
+  <g transform="translate(580, 30)">
+    <rect x="0" y="0" width="180" height="80" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">Singapore</text>
+    <text x="90" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">checks grant, verifies DLP</text>
+    <text x="90" y="56" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">initiates transfer</text>
+    <text x="90" y="72" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">80 nodes</text>
+  </g>
+
+  <!-- Three plugin badges at bottom -->
+  <g transform="translate(50, 150)">
+    <rect x="0" y="0" width="180" height="50" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="90" y="20" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle" font-weight="600">File Transfer Plugin</text>
+    <text x="90" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">handles P2P stream</text>
+  </g>
+  <g transform="translate(290, 150)">
+    <rect x="0" y="0" width="180" height="50" rx="6" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5"/>
+    <text x="90" y="20" font-family="system-ui" font-size="10" fill="#ffb347" text-anchor="middle" font-weight="600">DLP Plugin</text>
+    <text x="90" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">scans before sending</text>
+  </g>
+  <g transform="translate(530, 150)">
+    <rect x="0" y="0" width="180" height="50" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="90" y="20" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle" font-weight="600">Compliance Plugin</text>
+    <text x="90" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">logs every transfer</text>
+  </g>
+
+  <!-- Connecting line across all three -->
+  <line x1="140" y1="210" x2="620" y2="210" stroke="#666" stroke-width="1" opacity="0.3"/>
+
+  <!-- Bottom summary -->
+  <g transform="translate(80, 225)">
+    <rect x="0" y="0" width="620" height="55" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="310" y="20" font-family="system-ui" font-size="11" fill="#e0e0e0" text-anchor="middle" font-weight="600">Three plugins, three independent concerns, zero coordination required.</text>
+    <text x="310" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">If the DLP plugin crashes mid-scan, the transfer pauses (not leaks) until the supervisor restarts it.</text>
+  </g>
+
+  <text x="400" y="308" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">200 nodes. Three cities. Same plugin interface.</text>
+</svg>

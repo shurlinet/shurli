@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      @keyframes fadeIn { 0% { opacity: 0.2; } 50% { opacity: 1; } 100% { opacity: 0.2; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+      .appear { animation: fadeIn 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="300" fill="url(#bg)"/>
+
+  <!-- Central admin node (left) -->
+  <g transform="translate(30, 55)">
+    <rect x="0" y="0" width="180" height="90" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">Central Admin</text>
+    <text x="90" y="42" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Fleet Management Plugin</text>
+    <text x="90" y="58" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">detects new nodes</text>
+    <text x="90" y="74" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">pushes standard plugin set</text>
+  </g>
+
+  <!-- Existing offices (top right) -->
+  <g transform="translate(450, 15)">
+    <rect x="0" y="0" width="140" height="38" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="70" y="16" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle" font-weight="600">London (60)</text>
+    <text x="70" y="30" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">all plugins active</text>
+  </g>
+  <g transform="translate(620, 15)">
+    <rect x="0" y="0" width="150" height="38" rx="6" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="75" y="16" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle" font-weight="600">Singapore (80)</text>
+    <text x="75" y="30" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">all plugins active</text>
+  </g>
+
+  <!-- Arrows to existing -->
+  <line x1="215" y1="80" x2="445" y2="34" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+  <line x1="215" y1="85" x2="615" y2="34" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- New Tokyo office (right, animated appearance) -->
+  <g transform="translate(480, 75)">
+    <rect x="0" y="0" width="280" height="100" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="appear"/>
+    <text x="140" y="22" font-family="system-ui" font-size="13" fill="#00d4aa" text-anchor="middle" font-weight="600">Tokyo (new office)</text>
+    <line x1="15" y1="30" x2="265" y2="30" stroke="#00d4aa" stroke-width="0.5" opacity="0.3"/>
+    <!-- Plugin install list -->
+    <text x="25" y="48" font-family="system-ui" font-size="9" fill="#00d4aa">&#10003;</text>
+    <text x="40" y="48" font-family="system-ui" font-size="9" fill="#bbb">File Transfer Plugin installed</text>
+    <text x="25" y="63" font-family="system-ui" font-size="9" fill="#00d4aa">&#10003;</text>
+    <text x="40" y="63" font-family="system-ui" font-size="9" fill="#bbb">DLP Plugin installed</text>
+    <text x="25" y="78" font-family="system-ui" font-size="9" fill="#00d4aa">&#10003;</text>
+    <text x="40" y="78" font-family="system-ui" font-size="9" fill="#bbb">Compliance Plugin logging</text>
+    <text x="25" y="93" font-family="system-ui" font-size="9" fill="#00d4aa">&#10003;</text>
+    <text x="40" y="93" font-family="system-ui" font-size="9" fill="#bbb">Fleet Plugin reporting</text>
+  </g>
+
+  <!-- Arrow from admin to Tokyo -->
+  <line x1="215" y1="100" x2="475" y2="115" class="flow" stroke="#00d4aa" stroke-width="2" opacity="0.6"/>
+  <polygon points="472,110 482,115 472,120" fill="#00d4aa" opacity="0.6"/>
+
+  <!-- Plugin set badge on arrow -->
+  <g transform="translate(290, 90)">
+    <rect x="0" y="0" width="130" height="22" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1" opacity="0.6"/>
+    <text x="65" y="15" font-family="'SF Mono', monospace" font-size="8" fill="#00d4aa" text-anchor="middle">standard plugin set</text>
+  </g>
+
+  <!-- Bottom summary -->
+  <g transform="translate(60, 205)">
+    <rect x="0" y="0" width="660" height="55" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.4"/>
+    <text x="330" y="20" font-family="system-ui" font-size="11" fill="#e0e0e0" text-anchor="middle" font-weight="600">Nobody touched a config file on any Tokyo machine.</text>
+    <text x="330" y="40" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">New nodes join. Fleet plugin pushes plugins. Compliance starts logging. The agents handled it.</text>
+  </g>
+
+  <text x="400" y="288" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">One node or five hundred. A law firm or a multinational. The architecture does not change.</text>
+</svg>

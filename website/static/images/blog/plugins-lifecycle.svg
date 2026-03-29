@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      @keyframes pulseState { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      .state-label { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; text-anchor: middle; font-weight: 600; }
+      .arrow-label { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; fill: #bbb; text-anchor: middle; }
+      .note { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #bbb; text-anchor: middle; }
+      .s1 { animation: pulseState 3s ease-in-out infinite; }
+      .s2 { animation: pulseState 3s ease-in-out infinite; animation-delay: 0.6s; }
+      .s3 { animation: pulseState 3s ease-in-out infinite; animation-delay: 1.2s; }
+      .s4 { animation: pulseState 3s ease-in-out infinite; animation-delay: 1.8s; }
+      .s5 { animation: pulseState 3s ease-in-out infinite; animation-delay: 2.4s; }
+      .flow { stroke-dasharray: 6 3; animation: dashFlow 1.5s linear infinite; }
+      .f1 { animation: fadeIn 0.4s ease-out forwards; animation-delay: 0.2s; opacity: 0; }
+      .f2 { animation: fadeIn 0.4s ease-out forwards; animation-delay: 0.5s; opacity: 0; }
+      .f3 { animation: fadeIn 0.4s ease-out forwards; animation-delay: 0.8s; opacity: 0; }
+      .f4 { animation: fadeIn 0.4s ease-out forwards; animation-delay: 1.1s; opacity: 0; }
+      .f5 { animation: fadeIn 0.4s ease-out forwards; animation-delay: 1.4s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+
+  <!-- State: LOADING -->
+  <g class="f1" transform="translate(80, 120)">
+    <rect x="-50" y="-20" width="100" height="40" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="2" class="s1"/>
+    <text x="0" y="5" class="state-label" fill="#999">LOADING</text>
+  </g>
+
+  <!-- Arrow: LOADING -> READY -->
+  <g class="f1">
+    <line x1="135" y1="120" x2="215" y2="120" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="175" y="110" class="arrow-label">Init()</text>
+  </g>
+
+  <!-- State: READY -->
+  <g class="f2" transform="translate(270, 120)">
+    <rect x="-50" y="-20" width="100" height="40" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" class="s2"/>
+    <text x="0" y="5" class="state-label" fill="#ffb347">READY</text>
+  </g>
+
+  <!-- Arrow: READY -> ACTIVE -->
+  <g class="f2">
+    <line x1="325" y1="120" x2="405" y2="120" stroke="#ffb347" stroke-width="1.5"/>
+    <polygon points="402,115 412,120 402,125" fill="#ffb347"/>
+    <text x="365" y="110" class="arrow-label">Start()</text>
+  </g>
+
+  <!-- State: ACTIVE -->
+  <g class="f3" transform="translate(460, 120)">
+    <rect x="-50" y="-20" width="100" height="40" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2.5" class="s3"/>
+    <text x="0" y="5" class="state-label" fill="#00d4aa">ACTIVE</text>
+  </g>
+
+  <!-- Arrow: ACTIVE -> DRAINING -->
+  <g class="f3">
+    <line x1="515" y1="120" x2="595" y2="120" stroke="#00d4aa" stroke-width="1.5"/>
+    <polygon points="592,115 602,120 592,125" fill="#00d4aa"/>
+    <text x="555" y="110" class="arrow-label">Stop()</text>
+  </g>
+
+  <!-- State: DRAINING -->
+  <g class="f4" transform="translate(650, 120)">
+    <rect x="-50" y="-20" width="100" height="40" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" class="s4" stroke-dasharray="6 3"/>
+    <text x="0" y="5" class="state-label" fill="#ffb347">DRAINING</text>
+  </g>
+
+  <!-- Arrow: DRAINING -> STOPPED (down) -->
+  <g class="f4">
+    <line x1="650" y1="145" x2="650" y2="215" stroke="#ffb347" stroke-width="1.5"/>
+    <polygon points="645,212 655,212 650,222" fill="#ffb347"/>
+    <text x="700" y="185" class="arrow-label">drain done</text>
+  </g>
+
+  <!-- State: STOPPED -->
+  <g class="f5" transform="translate(650, 250)">
+    <rect x="-50" y="-20" width="100" height="40" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="2" class="s5"/>
+    <text x="0" y="5" class="state-label" fill="#ff6b6b">STOPPED</text>
+  </g>
+
+  <!-- Arrow: STOPPED -> ACTIVE (re-enable, curved back) -->
+  <g class="f5">
+    <path d="M600,250 C400,310 350,250 410,135" fill="none" stroke="#00d4aa" stroke-width="1.5" class="flow"/>
+    <text x="420" y="300" class="arrow-label" fill="#00d4aa">re-enable</text>
+  </g>
+
+  <!-- Drain detail box -->
+  <g transform="translate(60, 280)">
+    <rect x="0" y="0" width="440" height="100" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.5"/>
+    <text x="220" y="22" font-family="system-ui" font-size="12" fill="#e0e0e0" text-anchor="middle" font-weight="600">Draining</text>
+    <text x="15" y="45" font-family="system-ui" font-size="11" fill="#bbb">New requests rejected (drain gate)</text>
+    <text x="15" y="62" font-family="system-ui" font-size="11" fill="#bbb">Active operations finish or timeout (25s)</text>
+    <text x="15" y="79" font-family="system-ui" font-size="11" fill="#bbb">State persisted. Temporary files cleaned.</text>
+    <text x="15" y="96" font-family="system-ui" font-size="11" fill="#ffb347">5s cooldown between enable/disable cycles</text>
+  </g>
+
+  <!-- Arrow marker definition -->
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0,0 8,3 0,6" fill="#999"/>
+    </marker>
+  </defs>
+
+  <text x="400" y="430" class="note">Five states. No shortcuts. Every transition validated.</text>
+</svg>

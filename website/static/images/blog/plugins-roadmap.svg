@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      @keyframes dashFlow { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.4; } 50% { stroke-opacity: 1; } }
+      .header { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; fill: #999; text-anchor: middle; letter-spacing: 1px; text-transform: uppercase; }
+      .phase-title { font-family: system-ui, -apple-system, sans-serif; font-size: 15px; font-weight: 600; }
+      .phase-desc { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #bbb; }
+      .phase-detail { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; fill: #999; }
+      .badge { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 10px; font-weight: 600; text-anchor: middle; }
+      .timeline { stroke-dasharray: 8 4; animation: dashFlow 3s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+      .g1 { animation-delay: 0s; }
+      .g2 { animation-delay: 1s; }
+      .g3 { animation-delay: 2s; }
+      .f1 { animation: fadeIn 0.6s ease-out forwards; animation-delay: 0.2s; opacity: 0; }
+      .f2 { animation: fadeIn 0.6s ease-out forwards; animation-delay: 0.7s; opacity: 0; }
+      .f3 { animation: fadeIn 0.6s ease-out forwards; animation-delay: 1.2s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="420" fill="url(#bg)"/>
+
+  <text x="400" y="28" class="header">the plugin roadmap</text>
+
+  <!-- Timeline line -->
+  <line x1="100" y1="80" x2="700" y2="80" class="timeline" stroke="#666" stroke-width="2"/>
+
+  <!-- Timeline dots -->
+  <circle cx="200" cy="80" r="8" fill="#00d4aa" class="glow g1"/>
+  <circle cx="400" cy="80" r="8" fill="#ffb347" class="glow g2"/>
+  <circle cx="600" cy="80" r="8" fill="#4488ff" class="glow g3"/>
+
+  <!-- Labels above timeline -->
+  <text x="200" y="65" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">NOW</text>
+  <text x="400" y="65" font-family="system-ui" font-size="12" fill="#ffb347" text-anchor="middle" font-weight="600">NEXT</text>
+  <text x="600" y="65" font-family="system-ui" font-size="12" fill="#4488ff" text-anchor="middle" font-weight="600">TRAJECTORY</text>
+
+  <!-- Layer 1 card -->
+  <g class="f1" transform="translate(80, 105)">
+    <rect x="0" y="0" width="240" height="260" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow g1"/>
+
+    <!-- Badge -->
+    <rect x="160" y="10" width="65" height="20" rx="4" fill="#00d4aa" opacity="0.2"/>
+    <text x="192" y="24" class="badge" fill="#00d4aa">SHIPPED</text>
+
+    <text x="20" y="30" class="phase-title" fill="#00d4aa">Layer 1</text>
+    <text x="20" y="48" class="phase-desc">Compiled Go Plugins</text>
+
+    <line x1="15" y1="58" x2="225" y2="58" stroke="#00d4aa" stroke-width="0.5" opacity="0.2"/>
+
+    <text x="20" y="78" class="phase-detail">&#10003; Plugin interface (9 methods)</text>
+    <text x="20" y="96" class="phase-detail">&#10003; 5-state lifecycle machine</text>
+    <text x="20" y="114" class="phase-detail">&#10003; Erlang-style supervisor</text>
+    <text x="20" y="132" class="phase-detail">&#10003; Checkpoint / restore + HMAC</text>
+    <text x="20" y="150" class="phase-detail">&#10003; Credential isolation</text>
+    <text x="20" y="168" class="phase-detail">&#10003; Transport policy (3 types)</text>
+    <text x="20" y="186" class="phase-detail">&#10003; Namespace validation</text>
+    <text x="20" y="204" class="phase-detail">&#10003; Kill switch (DisableAll)</text>
+    <text x="20" y="222" class="phase-detail">&#10003; File transfer plugin (reference)</text>
+    <text x="20" y="240" class="phase-detail">&#10003; 43-vector threat analysis</text>
+    <text x="20" y="252" class="phase-detail" fill="#00d4aa">&#10003; Fuzz: 209M execs, 0 crashes</text>
+  </g>
+
+  <!-- Layer 2 card -->
+  <g class="f2" transform="translate(340, 105)">
+    <rect x="0" y="0" width="200" height="260" rx="10" fill="#1a1a2e" stroke="#ffb347" stroke-width="2" stroke-dasharray="8 4" class="glow g2"/>
+
+    <!-- Badge -->
+    <rect x="125" y="10" width="60" height="20" rx="4" fill="#ffb347" opacity="0.2"/>
+    <text x="155" y="24" class="badge" fill="#ffb347">PLANNED</text>
+
+    <text x="20" y="30" class="phase-title" fill="#ffb347">Layer 2</text>
+    <text x="20" y="48" class="phase-desc">WASM Sandbox</text>
+
+    <line x1="15" y1="58" x2="185" y2="58" stroke="#ffb347" stroke-width="0.5" opacity="0.2"/>
+
+    <text x="20" y="78" class="phase-detail">&#9675; wazero runtime (zero deps)</text>
+    <text x="20" y="96" class="phase-detail">&#9675; Memory isolation per plugin</text>
+    <text x="20" y="114" class="phase-detail">&#9675; Fuel metering (CPU caps)</text>
+    <text x="20" y="132" class="phase-detail">&#9675; Host function bridge</text>
+    <text x="20" y="150" class="phase-detail">&#9675; Any language to WASM</text>
+    <text x="20" y="168" class="phase-detail">&#9675; Same Plugin interface</text>
+    <text x="20" y="186" class="phase-detail">&#9675; Third-party plugins</text>
+    <text x="20" y="210" class="phase-detail" fill="#ffb347">Waiting: WASI 0.3 async I/O</text>
+  </g>
+
+  <!-- Layer 3 card -->
+  <g class="f3" transform="translate(560, 105)">
+    <rect x="0" y="0" width="200" height="260" rx="10" fill="#1a1a2e" stroke="#4488ff" stroke-width="2" stroke-dasharray="8 4" class="glow g3"/>
+
+    <!-- Badge -->
+    <rect x="125" y="10" width="60" height="20" rx="4" fill="#4488ff" opacity="0.2"/>
+    <text x="155" y="24" class="badge" fill="#4488ff">VISION</text>
+
+    <text x="20" y="30" class="phase-title" fill="#4488ff">Layer 3</text>
+    <text x="20" y="48" class="phase-desc">AI-Generated Plugins</text>
+
+    <line x1="15" y1="58" x2="185" y2="58" stroke="#4488ff" stroke-width="0.5" opacity="0.2"/>
+
+    <text x="20" y="78" class="phase-detail">&#9675; Skills.md descriptions</text>
+    <text x="20" y="96" class="phase-detail">&#9675; Agent generates WASM</text>
+    <text x="20" y="114" class="phase-detail">&#9675; Auto-deploy to network</text>
+    <text x="20" y="132" class="phase-detail">&#9675; Layer 2 sandbox = safe</text>
+    <text x="20" y="150" class="phase-detail">&#9675; Zero-Human Network</text>
+    <text x="20" y="175" class="phase-detail" fill="#4488ff">The network grows itself</text>
+  </g>
+
+  <text x="400" y="400" font-family="system-ui" font-size="12" fill="#bbb" text-anchor="middle">Layer 1 proves the interface. Layer 2 proves the sandbox. Layer 3 proves the vision.</text>
+</svg>
