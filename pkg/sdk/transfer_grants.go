@@ -46,23 +46,23 @@ const (
 
 // relayPeerFromStream extracts the relay peer ID from a relayed connection.
 // Returns empty peer.ID if the stream is not relayed.
-//
-// Circuit multiaddr format: /ip4/.../tcp/.../p2p/<relay-id>/p2p-circuit/p2p/<target-id>
-// Walks the multiaddr components to find the /p2p/ component before /p2p-circuit.
 func relayPeerFromStream(s network.Stream) peer.ID {
 	if !s.Conn().Stat().Limited {
 		return ""
 	}
-	addr := s.Conn().RemoteMultiaddr()
+	return relayPeerFromAddr(s.Conn().RemoteMultiaddr())
+}
 
-	// Walk components to find the last /p2p/ before /p2p-circuit.
+// relayPeerFromAddr extracts the relay peer ID from a circuit relay multiaddr.
+// Returns empty peer.ID if the address is not a circuit relay address.
+// Used by hasAnyActiveRelayGrant to check connections and peerstore addresses.
+func relayPeerFromAddr(addr ma.Multiaddr) peer.ID {
 	var lastP2P peer.ID
 	foundCircuit := false
 	ma.ForEach(addr, func(c ma.Component) bool {
 		switch c.Protocol().Code {
 		case ma.P_P2P:
 			if !foundCircuit {
-				// This is the relay's peer ID (before /p2p-circuit).
 				pid, err := peer.Decode(c.Value())
 				if err == nil {
 					lastP2P = pid
@@ -71,13 +71,26 @@ func relayPeerFromStream(s network.Stream) peer.ID {
 		case ma.P_CIRCUIT:
 			foundCircuit = true
 		}
-		return true // continue walking
+		return true
 	})
-
 	if !foundCircuit {
-		return "" // not a circuit address
+		return ""
 	}
 	return lastP2P
+}
+
+// RelayPeerFromAddrStr extracts the relay peer ID string from a circuit relay
+// multiaddr string. Returns empty string if the address is not a relay circuit.
+func RelayPeerFromAddrStr(addrStr string) string {
+	maddr, err := ma.NewMultiaddr(addrStr)
+	if err != nil {
+		return ""
+	}
+	pid := relayPeerFromAddr(maddr)
+	if pid == "" {
+		return ""
+	}
+	return pid.String()
 }
 
 // checkRelayGrant performs pre-transfer grant checks for a relayed connection.

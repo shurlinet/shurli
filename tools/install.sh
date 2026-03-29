@@ -890,6 +890,39 @@ setup_relay() {
         return
     fi
 
+    # NAT/private IP detection: relay servers need a public IP to function.
+    local has_public_ip=false
+    if has_cmd curl; then
+        local ext_ip
+        ext_ip="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+        if [ -n "$ext_ip" ]; then
+            # Check if any local interface has this IP (means it's directly assigned, not NAT'd)
+            if ip addr 2>/dev/null | grep -q "$ext_ip"; then
+                has_public_ip=true
+            fi
+        fi
+    fi
+
+    if [ "$has_public_ip" = "false" ]; then
+        warn "This machine does not appear to have a public IP address."
+        log "Relay servers are designed for PUBLIC servers (VPS, cloud instances)."
+        log "For home hosting behind NAT, you need:"
+        log "  - Port forwarding on your router (TCP + UDP ports 7777)"
+        log "  - Dynamic DNS if your IP changes"
+        log "  - This is an ADVANCED setup"
+        log ""
+        if [ "${SHURLI_YES:-}" = "1" ]; then
+            log "Continuing (non-interactive mode)."
+        else
+            printf '%s' "Continue with relay setup anyway? [y/N] "
+            read -r nat_confirm </dev/tty
+            case "$nat_confirm" in
+                y|Y) log "Continuing with relay setup..." ;;
+                *)   log "Cancelled. Choose 'Peer node' role instead for home use."; return ;;
+            esac
+        fi
+    fi
+
     # Check for backup to restore before running fresh setup
     if [ ! -f /etc/shurli/relay/relay-server.yaml ]; then
         if offer_restore "relay"; then
@@ -1353,7 +1386,49 @@ main() {
         esac
     fi
 
-    # 8. Run role setup
+    # 8. Confirm before proceeding (skip in non-interactive and upgrade modes)
+    # Binary is already installed at this point, so only role can be changed.
+    if [ "${SHURLI_YES:-}" != "1" ] && [ -z "${UPGRADE_MODE:-}" ]; then
+        local method_label="Download pre-built binary"
+        [ "$METHOD" = "build" ] && method_label="Build from source"
+        local role_label="Peer node"
+        [ "$ROLE" = "relay" ] && role_label="Relay server"
+        [ "$ROLE" = "binary" ] && role_label="Binary only"
+        printf '\n'
+        bold "> Install summary"
+        printf "  Method:  %s\n" "$method_label"
+        printf "  Role:    %s\n" "$role_label"
+        printf "  Version: %s (%s/%s)\n" "${VERSION:-latest}" "$GOOS" "$GOARCH"
+        printf '\n'
+        printf "  ${C_MAGENTA}1)${C_NC} Continue\n"
+        printf "  ${C_MAGENTA}2)${C_NC} Change role\n"
+        printf "  ${C_MAGENTA}3)${C_NC} Cancel\n"
+        printf '\n'
+        local confirm_choice
+        confirm_choice=$(prompt "Choice [1]: " "1")
+        case "$confirm_choice" in
+            2)
+                ROLE=""
+                printf '\n'
+                bold "What would you like to set up?"
+                printf "  ${C_MAGENTA}1)${C_NC} Peer node ${C_DIM}(home server, desktop, Raspberry Pi)${C_NC}\n"
+                printf "  ${C_MAGENTA}2)${C_NC} Relay server ${C_DIM}(VPS, cloud server)${C_NC}\n"
+                printf "  ${C_MAGENTA}3)${C_NC} Binary only ${C_DIM}(skip setup)${C_NC}\n"
+                printf '\n'
+                ROLE=$(prompt "Choice [1]: " "1")
+                case "$ROLE" in
+                    1|peer)   ROLE="peer" ;;
+                    2|relay)  ROLE="relay" ;;
+                    3|binary) ROLE="binary" ;;
+                    *)        ROLE="peer" ;;
+                esac
+                ;;
+            3) log "Cancelled."; exit 0 ;;
+            *) ;; # Continue
+        esac
+    fi
+
+    # 9. Run role setup
     case "$ROLE" in
         peer)   setup_peer ;;
         relay)  setup_relay ;;

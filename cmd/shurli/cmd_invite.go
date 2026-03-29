@@ -26,7 +26,7 @@ func runInvite(args []string) {
 
 	// If a daemon is running, delegate to it
 	if client := tryDaemonClient(); client != nil {
-		runInviteViaDaemon(client, *nameFlag, *ttlFlag, *countFlag, *nonInteractive)
+		runInviteViaDaemon(client, *nameFlag, *ttlFlag, *countFlag, *remoteFlag, *nonInteractive)
 		return
 	}
 
@@ -89,7 +89,7 @@ func runInviteStandalone(configFlag, name string, ttl time.Duration, count int, 
 }
 
 // runInviteViaDaemon delegates the invite flow to a running daemon.
-func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, count int, nonInteractive bool) {
+func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, count int, relayAddr string, nonInteractive bool) {
 	out := fmt.Printf
 	outln := fmt.Println
 	if nonInteractive {
@@ -97,7 +97,7 @@ func runInviteViaDaemon(client *daemon.Client, name string, ttl time.Duration, c
 		outln = func(a ...any) (int, error) { return fmt.Fprintln(os.Stderr, a...) }
 	}
 
-	resp, err := client.InviteCreate(name, int(ttl.Seconds()), count)
+	resp, err := client.InviteCreate(name, int(ttl.Seconds()), count, relayAddr)
 	if err != nil {
 		fatal("Failed to create invite: %v", err)
 	}

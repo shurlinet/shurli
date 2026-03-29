@@ -248,7 +248,42 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// Fall back to config-based relay name if agent version didn't provide one.
+		if rs.RelayName == "" {
+			rs.RelayName = rt.RelayNameFromConfig(pidStr)
+		}
+		// Sanitize relay name: may come from untrusted agent version or config.
+		rs.RelayName = validate.SanitizeForDisplay(rs.RelayName)
 		resp.Relays = append(resp.Relays, rs)
+	}
+
+	// Per-peer connection path summaries (for status display).
+	if tracker := rt.PathTracker(); tracker != nil {
+		paths := tracker.ListPeerPaths()
+		if len(paths) > 0 {
+			resp.PeerPaths = make(map[string]PeerPathSummary, len(paths))
+			// Build relay name lookup from the relays we just populated.
+			relayNames := make(map[string]string)
+			for _, rs := range resp.Relays {
+				if rs.RelayName != "" {
+					relayNames[rs.PeerID] = rs.RelayName
+				}
+			}
+			for _, p := range paths {
+				summary := PeerPathSummary{PathType: string(p.PathType)}
+				if p.PathType == "RELAYED" {
+					rid := sdk.RelayPeerFromAddrStr(p.Address)
+					if rid != "" {
+						summary.RelayPeerID = rid
+						summary.RelayName = relayNames[rid]
+						if summary.RelayName == "" {
+							summary.RelayName = validate.SanitizeForDisplay(rt.RelayNameFromConfig(rid))
+						}
+					}
+				}
+				resp.PeerPaths[p.PeerID] = summary
+			}
+		}
 	}
 
 	// MOTD/goodbye messages from relays
@@ -1303,9 +1338,44 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connect to relay and create pairing group
+	// Connect to relay and create pairing group.
+	// If a specific relay was requested, resolve it; otherwise pick the first.
 	h := rt.Network().Host()
-	relayInfos, err := sdk.ParseRelayAddrs(relayAddrs)
+	var targetAddrs []string
+	if req.Relay != "" {
+		// req.Relay may be a full multiaddr, a peer ID (or prefix), or a relay name.
+		// Try as multiaddr first, then match by peer ID, then by config name.
+		if _, parseErr := sdk.ParseRelayAddrs([]string{req.Relay}); parseErr == nil {
+			targetAddrs = []string{req.Relay}
+		} else {
+			// Parse all configured relays and match by peer ID or name.
+			for _, addr := range relayAddrs {
+				addrInfo, e := sdk.ParseRelayAddrs([]string{addr})
+				if e != nil || len(addrInfo) == 0 {
+					continue
+				}
+				pidStr := addrInfo[0].ID.String()
+				// Match by peer ID: exact match or prefix (min 8 chars to avoid collisions).
+				if pidStr == req.Relay || (len(req.Relay) >= 8 && strings.HasPrefix(pidStr, req.Relay)) {
+					targetAddrs = []string{addr}
+					break
+				}
+				// Match by config-based relay name (case-insensitive).
+				name := rt.RelayNameFromConfig(pidStr)
+				if name != "" && strings.EqualFold(name, req.Relay) {
+					targetAddrs = []string{addr}
+					break
+				}
+			}
+			if len(targetAddrs) == 0 {
+				RespondError(w, http.StatusBadRequest, fmt.Sprintf("relay %q not found in config (try a full multiaddr, peer ID prefix, or configured relay name)", req.Relay))
+				return
+			}
+		}
+	} else {
+		targetAddrs = relayAddrs
+	}
+	relayInfos, err := sdk.ParseRelayAddrs(targetAddrs)
 	if err != nil || len(relayInfos) == 0 {
 		RespondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
 		return

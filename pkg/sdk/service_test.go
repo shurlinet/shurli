@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 func newTestHost(t *testing.T) *ServiceRegistry {
@@ -190,6 +192,69 @@ func TestListServices(t *testing.T) {
 	}
 	if !names["ssh"] || !names["xrdp"] {
 		t.Errorf("missing services: %v", names)
+	}
+}
+
+func TestRelayPeerFromAddr(t *testing.T) {
+	// Use real peer IDs for valid multiaddr parsing.
+	// These are deterministic test peer IDs (base58btc-encoded Ed25519 public keys).
+	relayID := "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+	targetID := "12D3KooWGC5CAhVgwBCupPqrNd83VKHHhR4ghtNvxqaXG4NVbKR1"
+
+	tests := []struct {
+		name    string
+		addr    string
+		wantID  string
+		wantErr bool // if true, addr is invalid multiaddr (skip)
+	}{
+		{
+			"full circuit relay addr",
+			"/ip4/1.2.3.4/udp/4001/quic-v1/p2p/" + relayID + "/p2p-circuit/p2p/" + targetID,
+			relayID, false,
+		},
+		{
+			"circuit relay without trailing peer",
+			"/ip4/1.2.3.4/udp/4001/quic-v1/p2p/" + relayID + "/p2p-circuit",
+			relayID, false,
+		},
+		{
+			"direct addr no circuit",
+			"/ip4/1.2.3.4/udp/4001/quic-v1/p2p/" + relayID,
+			"", false,
+		},
+		{
+			"circuit but no p2p before it",
+			"/ip4/1.2.3.4/udp/4001/quic-v1/p2p-circuit",
+			"", false,
+		},
+		{
+			"ipv6 circuit relay",
+			"/ip6/2001:db8::1/udp/4001/quic-v1/p2p/" + relayID + "/p2p-circuit/p2p/" + targetID,
+			relayID, false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			maddr, err := ma.NewMultiaddr(tt.addr)
+			if err != nil {
+				if tt.wantErr {
+					return
+				}
+				t.Fatalf("invalid test multiaddr %q: %v", tt.addr, err)
+			}
+			got := relayPeerFromAddr(maddr)
+			if tt.wantID == "" {
+				if got != "" {
+					t.Errorf("relayPeerFromAddr(%q) = %s, want empty", tt.addr, got)
+				}
+			} else {
+				wantPeer, _ := peer.Decode(tt.wantID)
+				if got != wantPeer {
+					t.Errorf("relayPeerFromAddr(%q) = %s, want %s", tt.addr, got, wantPeer)
+				}
+			}
+		})
 	}
 }
 

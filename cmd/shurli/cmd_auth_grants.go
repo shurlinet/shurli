@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // writeJSON encodes v as indented JSON to w, wrapped in the standard
@@ -134,6 +136,7 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	delegateStr := fs.String("delegate", "0", "delegation hops: 0=none (default), N=limited, unlimited")
 	autoRefresh := fs.Bool("auto-refresh", false, "enable automatic token refresh before expiry")
 	maxRefreshes := fs.Int("max-refreshes", 3, "max number of refreshes (requires --auto-refresh)")
+	bandwidth := fs.String("bandwidth", "", "also set bandwidth_budget on the peer (e.g. 500MB, 1GB, unlimited)")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
@@ -204,6 +207,22 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		return errOut(err)
 	}
 
+	// If --bandwidth was specified, also set the bandwidth_budget attribute.
+	// Use the resolved peer ID from the grant response (not the input name).
+	if *bandwidth != "" {
+		if _, err := sdk.ParseByteSize(*bandwidth); err != nil {
+			return errOut(fmt.Errorf("invalid --bandwidth value %q: %w", *bandwidth, err))
+		}
+		if setErr := doAuthSetAttr([]string{info.PeerID, "bandwidth_budget", *bandwidth}, io.Discard); setErr != nil {
+			if *jsonFlag {
+				// Don't contaminate JSON output with plain-text warnings.
+				slog.Warn("grant created but failed to set bandwidth_budget", "peer", info.PeerID, "error", setErr)
+			} else {
+				fmt.Fprintf(stdout, "Warning: grant created but failed to set bandwidth_budget: %v\n", setErr)
+			}
+		}
+	}
+
 	if *jsonFlag {
 		return writeJSON(stdout, info)
 	}
@@ -220,6 +239,9 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  Expires:    %s (%s remaining)\n", info.ExpiresAt, info.Remaining)
 	}
 	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(info.MaxDelegations))
+	if *bandwidth != "" {
+		fmt.Fprintf(stdout, "  Bandwidth:  %s per peer\n", *bandwidth)
+	}
 	if *autoRefresh {
 		effectiveDur, _ := time.ParseDuration(*duration)
 		effectiveMax := effectiveDur * time.Duration(*maxRefreshes+1)

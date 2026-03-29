@@ -660,13 +660,20 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 		pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
 	}
 
-	// Check if relay is allowed: by policy, local grant store, or pouch token.
+	// Check if relay is allowed: by policy, local grant store, pouch token,
+	// or relay grant cache (receipts from relays confirming data access).
 	relayAllowed := svc.Policy == nil || svc.Policy.RelayAllowed()
 	if !relayAllowed && n.serviceRegistry.grantChecker != nil {
 		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName)
 	}
 	if !relayAllowed && pouchToken != "" {
 		relayAllowed = true
+	}
+	// Check relay grant receipt cache: if any relay has granted us data access,
+	// allow relay transport for outbound streams. This bridges relay-side grants
+	// (admin runs "relay grant") to client-side transport policy decisions.
+	if !relayAllowed && n.serviceRegistry.relayGrantChecker != nil {
+		relayAllowed = hasAnyActiveRelayGrant(n.serviceRegistry.relayGrantChecker, n.host, peerID)
 	}
 
 	// Respect transport policy: only use WithAllowLimitedConn if relay is permitted.
@@ -679,8 +686,42 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	if err != nil {
 		// Helpful error when relay-only peer + relay not allowed.
 		if !relayAllowed && isRelayOnlyPeer(n.host, peerID) {
-			return nil, fmt.Errorf("plugin %q does not allow relay, and peer is only reachable via relay. "+
-				"Grant data access: shurli auth grant <peer> --duration 1h: %w", serviceName, err)
+			hint := "no active relay data grant for this connection.\n\n" +
+				"Relay connections require an active data grant from the relay admin.\n" +
+				"Ping works (signaling only) but browse/download/send need a data grant.\n\n" +
+				"Ask the relay admin to run:\n" +
+				fmt.Sprintf("  shurli relay grant %s --duration 1h --remote <relay-addr>\n\n", peerID.String()[:16]+"...") +
+				"Check your grant status: shurli status"
+
+			// Check if we have grants for OTHER relays but not the one this peer uses.
+			if n.serviceRegistry.relayGrantChecker != nil {
+				peerRelay := peerRelayFromConns(n.host, peerID)
+				if peerRelay != "" {
+					if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(peerRelay); !ok {
+						// No grant for the peer's relay. Check if we have grants for any
+						// OTHER relay (which means wrong relay, not no grants at all).
+						// Only check peers we have relay reservations through (not all peers).
+						hasOtherGrant := false
+						for _, c := range n.host.Network().Conns() {
+							remotePeer := c.RemotePeer()
+							if remotePeer == peerID || remotePeer == peerRelay {
+								continue
+							}
+							if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(remotePeer); ok {
+								hasOtherGrant = true
+								break
+							}
+						}
+						if hasOtherGrant {
+							hint = "you have relay grants, but not for the relay this peer routes through.\n\n" +
+								"The peer connects via a relay you don't have a data grant for.\n" +
+								"Ask the relay admin to grant access on the correct relay,\n" +
+								"or check which relays you have grants for: shurli status"
+						}
+					}
+				}
+			}
+			return nil, fmt.Errorf("%s\n\nOriginal error: %w", hint, err)
 		}
 		return nil, fmt.Errorf("open stream: %w", err)
 	}
@@ -697,6 +738,9 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 				}
 				if !relayGranted && pouchToken != "" {
 					relayGranted = true
+				}
+				if !relayGranted && n.serviceRegistry.relayGrantChecker != nil {
+					relayGranted = hasAnyActiveRelayGrant(n.serviceRegistry.relayGrantChecker, n.host, peerID)
 				}
 			}
 			if !relayGranted {

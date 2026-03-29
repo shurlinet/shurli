@@ -300,10 +300,11 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/info", s.handleInfo)
 
 	// Relay data grant endpoints (time-limited per-peer data access)
-	mux.HandleFunc("POST /v1/relay-grant", s.handleRelayGrant)
+	// Mutations require unsealed vault; read-only grants listing does not.
+	mux.HandleFunc("POST /v1/relay-grant", s.requireUnsealedOr(s.handleRelayGrant))
 	mux.HandleFunc("GET /v1/relay-grants", s.handleRelayGrants)
-	mux.HandleFunc("POST /v1/relay-revoke", s.handleRelayRevoke)
-	mux.HandleFunc("POST /v1/relay-extend", s.handleRelayExtend)
+	mux.HandleFunc("POST /v1/relay-revoke", s.requireUnsealedOr(s.handleRelayRevoke))
+	mux.HandleFunc("POST /v1/relay-extend", s.requireUnsealedOr(s.handleRelayExtend))
 
 	// MOTD and goodbye endpoints
 	mux.HandleFunc("GET /v1/motd", s.handleGetMOTD)

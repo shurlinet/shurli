@@ -211,6 +211,9 @@ func doInit(args []string, stdin io.Reader, stdout io.Writer) error {
 		fmt.Fprintln(stdout)
 		fmt.Fprint(stdout, formatSeedGrid(words))
 		fmt.Fprintln(stdout)
+		tc.Wfaint(stdout, "Plain text (for copy/paste):\n")
+		fmt.Fprintln(stdout, strings.Join(words, " "))
+		fmt.Fprintln(stdout)
 		tc.Wyellow(stdout, "===========================\n")
 		fmt.Fprintln(stdout)
 

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -347,6 +349,31 @@ type RelayServerConfig struct {
 	Health    HealthConfig         `yaml:"health,omitempty"`
 	Telemetry TelemetryConfig      `yaml:"telemetry,omitempty"`
 	CLI       CLIConfig            `yaml:"cli,omitempty"`
+	Logging   RelayLoggingConfig   `yaml:"logging,omitempty"`
+}
+
+// RelayLoggingConfig holds relay server logging settings.
+type RelayLoggingConfig struct {
+	PeerListInterval string `yaml:"peer_list_interval,omitempty"` // default: "60s" (was 15s)
+}
+
+// PeerListIntervalDuration returns the peer list logging interval.
+// Defaults to 60 seconds if not configured. Minimum: 5 seconds.
+// Invalid or too-small values are clamped to 60 seconds with a log warning.
+func (c *RelayLoggingConfig) PeerListIntervalDuration() time.Duration {
+	if c.PeerListInterval == "" {
+		return 60 * time.Second
+	}
+	d, err := time.ParseDuration(c.PeerListInterval)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: invalid logging.peer_list_interval %q, using 60s default\n", c.PeerListInterval)
+		return 60 * time.Second
+	}
+	if d < 5*time.Second {
+		fmt.Fprintf(os.Stderr, "Warning: logging.peer_list_interval %s is below 5s minimum, using 60s default\n", c.PeerListInterval)
+		return 60 * time.Second
+	}
+	return d
 }
 
 // TelemetryConfig holds observability settings.
@@ -393,8 +420,29 @@ type RelayNetworkConfig struct {
 
 // RelayConfig holds relay-related configuration
 type RelayConfig struct {
-	Addresses           []string      `yaml:"addresses"`
-	ReservationInterval time.Duration `yaml:"reservation_interval"`
+	Addresses           []string          `yaml:"addresses"`
+	ReservationInterval time.Duration     `yaml:"reservation_interval"`
+	Names               map[string]string `yaml:"names,omitempty"` // peer ID (or prefix) -> friendly name
+}
+
+// RelayName returns the friendly name for a relay peer ID.
+// Matches full peer ID first, then prefix (first 16 chars).
+// Returns empty string if no name is configured.
+func (rc *RelayConfig) RelayName(peerID string) string {
+	if rc.Names == nil {
+		return ""
+	}
+	// Exact match first.
+	if name, ok := rc.Names[peerID]; ok {
+		return name
+	}
+	// Prefix match (peer ID prefix -> name).
+	for prefix, name := range rc.Names {
+		if len(prefix) >= 8 && strings.HasPrefix(peerID, prefix) {
+			return name
+		}
+	}
+	return ""
 }
 
 // DiscoveryConfig holds DHT discovery configuration

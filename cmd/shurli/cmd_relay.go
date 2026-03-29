@@ -39,6 +39,7 @@ func runRelay(args []string) {
 	// --- Server-side commands below (manage relay-server.yaml) ---
 
 	// Extract --config flag for server-side commands (relay serve, authorize, etc.)
+	// Then strip it from args so subcommand FlagSets don't reject it.
 	var explicitConfig string
 	for i, arg := range args {
 		if (arg == "--config" || arg == "-config") && i+1 < len(args) {
@@ -49,6 +50,31 @@ func runRelay(args []string) {
 			explicitConfig = strings.TrimPrefix(arg, "--config=")
 			break
 		}
+	}
+
+	// Strip --config (and its value) from args before passing to subcommands.
+	// Subcommand FlagSets don't define --config and will reject it otherwise.
+	{
+		var stripped []string
+		for i := 0; i < len(args); i++ {
+			arg := args[i]
+			if arg == "--config" || arg == "-config" {
+				if i+1 < len(args) {
+					i++ // skip value
+				}
+				continue
+			}
+			if strings.HasPrefix(arg, "--config=") {
+				continue
+			}
+			stripped = append(stripped, arg)
+		}
+		args = stripped
+	}
+
+	if len(args) < 1 {
+		printRelayServeUsage()
+		osExit(1)
 	}
 
 	// Search standard locations: ./relay-server.yaml, /etc/shurli/relay/relay-server.yaml
@@ -96,11 +122,11 @@ func runRelay(args []string) {
 	case "vault":
 		runRelayVault(args[1:], serverConfigFile)
 	case "seal":
-		runRelaySeal(nil, serverConfigFile)
+		runRelaySeal(args[1:], serverConfigFile)
 	case "unseal":
 		runRelayUnseal(args[1:], serverConfigFile)
 	case "seal-status":
-		runRelaySealStatus(nil, serverConfigFile)
+		runRelaySealStatus(args[1:], serverConfigFile)
 	case "config":
 		runRelayServerConfig(args[1:], serverConfigFile)
 	case "version":
