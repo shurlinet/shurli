@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="220" fill="url(#bg)"/>
+
+  <!-- Central admin (left) -->
+  <g transform="translate(30, 35)">
+    <rect x="0" y="0" width="180" height="85" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">Central Admin</text>
+    <line x1="15" y1="30" x2="165" y2="30" stroke="#00d4aa" stroke-width="0.5" opacity="0.3"/>
+    <text x="90" y="46" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">bulk configuration</text>
+    <text x="90" y="60" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">coordinated upgrades</text>
+    <text x="90" y="74" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">health monitoring</text>
+  </g>
+
+  <!-- Fan-out arrows -->
+  <line x1="215" y1="55" x2="388" y2="25" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="215" y1="65" x2="388" y2="62" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="215" y1="75" x2="388" y2="100" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="215" y1="85" x2="388" y2="138" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Config badge -->
+  <g transform="translate(260, 48)">
+    <rect x="0" y="0" width="90" height="20" rx="4" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="45" y="14" font-family="'SF Mono', monospace" font-size="8" fill="#ffb347" text-anchor="middle">config push</text>
+  </g>
+
+  <!-- Remote nodes (right) -->
+  <g transform="translate(395, 10)">
+    <rect x="0" y="0" width="160" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="80" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Office A (45 nodes)</text>
+    <text x="80" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">config applied &#10003;</text>
+  </g>
+  <g transform="translate(395, 48)">
+    <rect x="0" y="0" width="160" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="80" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Office B (30 nodes)</text>
+    <text x="80" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">config applied &#10003;</text>
+  </g>
+  <g transform="translate(395, 86)">
+    <rect x="0" y="0" width="160" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="80" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Office C (60 nodes)</text>
+    <text x="80" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">upgrading...</text>
+  </g>
+  <g transform="translate(395, 124)">
+    <rect x="0" y="0" width="160" height="32" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5"/>
+    <text x="80" y="13" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle" font-weight="600">Remote (15 nodes)</text>
+    <text x="80" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">health: reporting</text>
+  </g>
+
+  <!-- Status aggregation -->
+  <g transform="translate(600, 45)">
+    <rect x="0" y="0" width="160" height="65" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="80" y="20" font-family="system-ui" font-size="10" fill="#00d4aa" text-anchor="middle" font-weight="600">Aggregated Status</text>
+    <text x="80" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">150 nodes healthy</text>
+    <text x="80" y="52" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle">1 office upgrading</text>
+  </g>
+
+  <line x1="560" y1="50" x2="595" y2="65" stroke="#4488ff" stroke-width="1" opacity="0.3"/>
+  <line x1="560" y1="80" x2="595" y2="72" stroke="#4488ff" stroke-width="1" opacity="0.3"/>
+  <line x1="560" y1="110" x2="595" y2="78" stroke="#ffb347" stroke-width="1" opacity="0.3"/>
+
+  <text x="400" y="195" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Hundreds of nodes managed from one place. Each runs independently.</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="200" fill="url(#bg)"/>
+
+  <!-- Publisher nodes (left) -->
+  <g transform="translate(30, 15)">
+    <rect x="0" y="0" width="140" height="32" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="70" y="13" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle" font-weight="600">Dev A publishes</text>
+    <text x="70" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">mylib v2.1.0</text>
+  </g>
+  <g transform="translate(30, 55)">
+    <rect x="0" y="0" width="140" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="70" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Dev B publishes</text>
+    <text x="70" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">toolkit v1.3.0</text>
+  </g>
+
+  <!-- P2P network mesh (center) -->
+  <g transform="translate(250, 15)">
+    <rect x="0" y="0" width="250" height="90" rx="10" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="125" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">P2P Package Network</text>
+    <line x1="15" y1="30" x2="235" y2="30" stroke="#00d4aa" stroke-width="0.5" opacity="0.3"/>
+    <text x="125" y="48" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">discovery across peers</text>
+    <text x="125" y="62" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">integrity verification</text>
+    <text x="125" y="78" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">versioned downloads</text>
+  </g>
+
+  <!-- Arrows in -->
+  <line x1="175" y1="31" x2="245" y2="45" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="175" y1="71" x2="245" y2="65" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Arrow out -->
+  <line x1="505" y1="60" x2="578" y2="60" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <polygon points="575,55 585,60 575,65" fill="#00d4aa" opacity="0.5"/>
+
+  <!-- Consumer -->
+  <g transform="translate(590, 25)">
+    <rect x="0" y="0" width="170" height="70" rx="8" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="85" y="20" font-family="system-ui" font-size="10" fill="#4488ff" text-anchor="middle" font-weight="600">Any Developer</text>
+    <text x="85" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">resolves dependencies</text>
+    <text x="85" y="54" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle">from the P2P network</text>
+  </g>
+
+  <text x="400" y="145" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">No central registry that can go down or be compromised. Dependencies resolve across peers.</text>
+
+  <g transform="translate(305, 160)">
+    <rect x="0" y="0" width="160" height="24" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="80" y="16" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle">Package Registry Plugin</text>
+  </g>
+</svg>
