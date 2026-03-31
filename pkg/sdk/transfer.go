@@ -575,6 +575,11 @@ type TransferConfig struct {
 
 	// Relay grant checker for pre-transfer budget/time checks and per-chunk tracking.
 	GrantChecker RelayGrantChecker
+
+	// ConnsToPeer returns all connections to a peer. Used by SendFile to check
+	// if a peer has any LAN connection when deciding whether to enable erasure
+	// coding. If nil, only the stream's own connection is checked.
+	ConnsToPeer func(peer.ID) []network.Conn
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -683,6 +688,9 @@ type TransferService struct {
 
 	// Relay grant checker for budget/time checks and per-chunk tracking (H7).
 	grantChecker RelayGrantChecker
+
+	// connsToPeer returns all connections to a peer (for LAN detection across connections).
+	connsToPeer func(peer.ID) []network.Conn
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -764,6 +772,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		hashRegistry:      make(map[[32]byte]string),
 		jobCancels:        make(map[string]context.CancelFunc),
 		grantChecker:      cfg.GrantChecker,
+		connsToPeer:       cfg.ConnsToPeer,
 	}
 
 	// Start the single queue processor goroutine.
@@ -1254,11 +1263,11 @@ func writeRejectWithReason(w io.Writer, reason byte) error {
 
 // --- TransferService: Send ---
 
-// chunkEntry holds a chunk's hash and wire data for sending.
-type chunkEntry struct {
-	hash       [32]byte
-	data       []byte // possibly compressed
-	compressed bool
+// rawChunk holds a chunk's hash and wire data for sending.
+// Data is pre-compressed during chunking (if compression is enabled).
+type rawChunk struct {
+	hash [32]byte
+	data []byte // wire data (possibly compressed)
 }
 
 // SendOptions configures a single send operation.
@@ -1271,6 +1280,9 @@ type SendOptions struct {
 
 // SendFile chunks, compresses, and sends a file over a libp2p stream.
 // Runs in background; returns a progress tracker immediately.
+//
+// Incompressible detection: if the first 3 chunks fail to compress
+// (ratio >= 0.95), compression is disabled for remaining chunks.
 func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...SendOptions) (*TransferProgress, error) {
 	remotePeer := s.Conn().RemotePeer()
 
@@ -1294,7 +1306,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	}
 
 	// Phase 1: Chunk the file and collect hashes + data + sizes.
-	var chunks []chunkEntry
+	var chunks []rawChunk
 	var chunkHashes [][32]byte
 	var chunkSizes []uint32
 
@@ -1303,18 +1315,29 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		useCompression = false
 	}
 
+	incompressibleCount := 0
+
+	anyCompressed := false
+
 	err = ChunkReader(f, stat.Size(), func(c Chunk) error {
 		wireData := c.Data
 		if useCompression {
 			compressed, ok := compressChunk(c.Data)
 			if ok {
 				wireData = compressed
+				anyCompressed = true
+			} else {
+				incompressibleCount++
+			}
+			// After first 3 chunks: if none compressed, disable for rest.
+			if len(chunkHashes) == 2 && incompressibleCount == 3 {
+				useCompression = false
+				slog.Debug("file-transfer: compression disabled (incompressible data detected)")
 			}
 		}
-		chunks = append(chunks, chunkEntry{
-			hash:       c.Hash,
-			data:       wireData,
-			compressed: useCompression && len(wireData) < len(c.Data),
+		chunks = append(chunks, rawChunk{
+			hash: c.Hash,
+			data: wireData,
 		})
 		chunkHashes = append(chunkHashes, c.Hash)
 		chunkSizes = append(chunkSizes, uint32(len(c.Data)))
@@ -1329,7 +1352,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	rootHash := MerkleRoot(chunkHashes)
 
 	var flags uint8
-	if useCompression {
+	if anyCompressed || useCompression {
 		flags |= flagCompressed
 	}
 
@@ -1356,6 +1379,13 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		transport := ClassifyTransport(s)
 		if transport == TransportLAN {
 			useErasure = false // LAN is reliable, skip erasure overhead
+		} else if transport == TransportDirect && ts.connsToPeer != nil {
+			// Stream is on a public IP (e.g. IPv6), but the peer may still be
+			// on the same LAN (connected via both private IPv4 and public IPv6).
+			// Check all connections to this peer for any LAN path.
+			if anyConnIsLAN(ts.connsToPeer(s.Conn().RemotePeer())) {
+				useErasure = false
+			}
 		}
 	}
 	if useErasure && len(chunks) > 0 {
@@ -1395,7 +1425,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	}
 
 	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
-		remotePeer.String(), "send", manifest.ChunkCount, useCompression)
+		remotePeer.String(), "send", manifest.ChunkCount, anyCompressed || useCompression)
 	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
 	progress.setCancelFunc(func() { s.Reset() })
 
@@ -1559,8 +1589,9 @@ func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, op
 	return allProgress, nil
 }
 
-// sendChunked sends the manifest, waits for accept or resume, then streams chunks.
-func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, parity []parityChunk, progress *TransferProgress) error {
+// sendChunked sends the manifest, waits for accept or resume, then sends
+// pre-compressed chunks sequentially on a single stream.
+func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []rawChunk, parity []parityChunk, progress *TransferProgress) error {
 	// Send manifest.
 	if err := writeManifest(w, m); err != nil {
 		return fmt.Errorf("send manifest: %w", err)
@@ -1577,7 +1608,6 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 		return fmt.Errorf("peer rejected transfer")
 
 	case msgRejectReason:
-		// Announced reject: read the reason byte.
 		reasonByte, err := readMsg(w)
 		if err != nil {
 			return fmt.Errorf("peer rejected transfer (could not read reason)")
@@ -1585,7 +1615,6 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
 
 	case msgResumeRequest:
-		// Peer has a partial checkpoint. Read the bitfield and send only missing chunks.
 		bfData, err := readResumePayload(w)
 		if err != nil {
 			return fmt.Errorf("read resume payload: %w", err)
@@ -1597,7 +1626,6 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 		}
 		copy(have.bits, bfData)
 
-		// Acknowledge the resume.
 		if err := writeMsg(w, msgResumeResponse); err != nil {
 			return fmt.Errorf("send resume response: %w", err)
 		}
@@ -1625,15 +1653,12 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			progress.addWireBytes(int64(len(c.data)))
 		}
 
-		// Send parity chunks (always resent on resume for reconstruction).
 		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
 			return err
 		}
-
 		return writeMsg(w, msgTransferDone)
 
 	case msgAccept:
-		// Normal: send all data chunks.
 		progress.setStatus("active")
 
 		var totalSent int64
@@ -1646,39 +1671,14 @@ func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chu
 			progress.addWireBytes(int64(len(c.data)))
 		}
 
-		// Send parity chunks after data chunks.
 		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
 			return err
 		}
-
 		return writeMsg(w, msgTransferDone)
 
 	default:
 		return fmt.Errorf("unexpected response: %d", resp)
 	}
-}
-
-// sendChunksOnly sends all data chunks + parity + done on an already-accepted stream.
-// Used by sendParallel when worker stream creation fails and we fall back to single-stream.
-// The manifest has already been sent and accepted, so we skip the handshake.
-func (ts *TransferService) sendChunksOnly(w io.ReadWriter, m *transferManifest, chunks []chunkEntry, parity []parityChunk, progress *TransferProgress) error {
-	progress.setStatus("active")
-
-	var totalSent int64
-	for i, c := range chunks {
-		if err := writeChunkFrame(w, i, c.data); err != nil {
-			return fmt.Errorf("send chunk %d: %w", i, err)
-		}
-		totalSent += int64(len(c.data))
-		progress.updateChunks(totalSent, i+1)
-		progress.addWireBytes(int64(len(c.data)))
-	}
-
-	if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
-		return err
-	}
-
-	return writeMsg(w, msgTransferDone)
 }
 
 // sendParityChunks sends parity chunks with indices starting at dataCount.

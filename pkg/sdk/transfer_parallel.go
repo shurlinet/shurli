@@ -80,19 +80,17 @@ func clampStreams(n int, transport TransportType) int {
 // --- Parallel send ---
 
 // sendParallel opens N-1 worker streams and distributes chunks across all streams.
-// The control stream (w) carries stream 0's chunk range + msgTransferDone.
-// Each worker stream sends msgWorkerHello + rootHash, then its chunk frames, then closes.
+// Each stream sends its own partition of pre-compressed chunks concurrently.
 func (ts *TransferService) sendParallel(
 	controlRW io.ReadWriter,
 	openStream streamOpener,
 	m *transferManifest,
-	chunks []chunkEntry,
+	chunks []rawChunk,
 	parity []parityChunk,
 	progress *TransferProgress,
 	numStreams int,
 ) error {
 	if numStreams <= 1 {
-		// Fallback to sequential.
 		return ts.sendChunked(controlRW, m, chunks, parity, progress)
 	}
 
@@ -115,7 +113,6 @@ func (ts *TransferService) sendParallel(
 		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
 	case msgResumeRequest:
 		// Resume not supported in parallel mode; fall back to sequential.
-		// Read the bitfield, send ResumeResponse, then send missing chunks single-stream.
 		slog.Info("file-transfer: resume requested during parallel send, falling back to sequential")
 		bfData, bfErr := readResumePayload(controlRW)
 		if bfErr != nil {
@@ -127,6 +124,7 @@ func (ts *TransferService) sendParallel(
 			return fmt.Errorf("send resume response: %w", wErr)
 		}
 		progress.setStatus("active")
+		skipped := have.count()
 		var totalSent int64
 		sent := 0
 		for i, c := range chunks {
@@ -138,7 +136,7 @@ func (ts *TransferService) sendParallel(
 			}
 			totalSent += int64(len(c.data))
 			sent++
-			progress.updateChunks(totalSent, sent+have.count())
+			progress.updateChunks(totalSent, sent+skipped)
 			progress.addWireBytes(int64(len(c.data)))
 		}
 		if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
@@ -161,8 +159,6 @@ func (ts *TransferService) sendParallel(
 		partitions[slot] = append(partitions[slot], i)
 	}
 
-	// All parity chunks go on stream 0 (control) after data.
-
 	// Track progress atomically across goroutines.
 	var totalSent atomic.Int64
 	var chunksDone atomic.Int32
@@ -172,31 +168,41 @@ func (ts *TransferService) sendParallel(
 	for i := 0; i < numStreams-1; i++ {
 		ws, err := openStream()
 		if err != nil {
-			// Close already-opened workers.
 			for j := 0; j < i; j++ {
 				workers[j].Close()
 			}
 			slog.Warn("file-transfer: parallel stream open failed, falling back to sequential",
 				"error", err, "attempted", i+1, "total", numStreams)
-			// Fallback: send all chunks on control stream (manifest already sent + accepted).
-			return ts.sendChunksOnly(controlRW, m, chunks, parity, progress)
+			// Fallback: send all chunks on control stream (manifest already accepted).
+			progress.setStatus("active")
+			var fallbackSent int64
+			for idx, c := range chunks {
+				if wErr := writeChunkFrame(controlRW, idx, c.data); wErr != nil {
+					return fmt.Errorf("send chunk %d: %w", idx, wErr)
+				}
+				fallbackSent += int64(len(c.data))
+				progress.updateChunks(fallbackSent, idx+1)
+				progress.addWireBytes(int64(len(c.data)))
+			}
+			if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
+				return pErr
+			}
+			return writeMsg(controlRW, msgTransferDone)
 		}
 		workers[i] = ws
 		ws.SetDeadline(time.Now().Add(transferStreamDeadline))
 	}
 
 	// D1 fix: compose cancel func to reset workers AND preserve control stream reset.
-	// The caller (SendFile) already set cancelFunc to s.Reset() for the control stream.
-	// We must not drop that - capture it and call both on cancel.
 	progress.mu.Lock()
 	prevCancel := progress.cancelFunc
 	progress.mu.Unlock()
 	progress.setCancelFunc(func() {
 		if prevCancel != nil {
-			prevCancel() // reset control stream
+			prevCancel()
 		}
 		for _, ws := range workers {
-			ws.Reset() // reset worker streams
+			ws.Reset()
 		}
 	})
 
@@ -209,20 +215,18 @@ func (ts *TransferService) sendParallel(
 		}
 	}
 
-	// Worker goroutines (streams 1..N-1).
+	// Worker goroutines (streams 1..N-1): each sends its partition.
 	for i, ws := range workers {
 		wg.Add(1)
 		go func(streamIdx int, s network.Stream, partition []int) {
 			defer wg.Done()
 			defer s.Close()
 
-			// Send worker hello: msgWorkerHello + rootHash(32).
 			if err := writeWorkerHello(s, m.RootHash); err != nil {
 				recordErr(fmt.Errorf("worker %d hello: %w", streamIdx, err))
 				return
 			}
 
-			// Send assigned chunks.
 			for _, idx := range partition {
 				if err := writeChunkFrame(s, idx, chunks[idx].data); err != nil {
 					recordErr(fmt.Errorf("worker %d chunk %d: %w", streamIdx, idx, err))
@@ -238,7 +242,7 @@ func (ts *TransferService) sendParallel(
 		}(i+1, ws, partitions[i+1])
 	}
 
-	// Stream 0 (control): send its chunk partition.
+	// Stream 0 (control): send its partition.
 	for _, idx := range partitions[0] {
 		if err := writeChunkFrame(controlRW, idx, chunks[idx].data); err != nil {
 			recordErr(fmt.Errorf("control chunk %d: %w", idx, err))
@@ -252,7 +256,6 @@ func (ts *TransferService) sendParallel(
 		progress.updateStream(0, wireBytes)
 	}
 
-	// Wait for all workers to finish.
 	wg.Wait()
 
 	if errVal := firstErr.Load(); errVal != nil {
@@ -264,7 +267,6 @@ func (ts *TransferService) sendParallel(
 		return err
 	}
 
-	// Signal done.
 	return writeMsg(controlRW, msgTransferDone)
 }
 
