@@ -87,6 +87,10 @@ func (p *PluginPolicy) TransportAllowed(t TransportType) bool {
 //   - Limited connections (Stat().Limited) are classified as TransportRelay.
 //   - Private, loopback, or link-local IPs are classified as TransportLAN.
 //   - Everything else is TransportDirect.
+//
+// Note: two LAN machines connected via public IPv6 will be classified as
+// TransportDirect. Use ClassifyPeerTransport when you have access to the
+// host network and need LAN detection across all connections to a peer.
 func ClassifyTransport(s network.Stream) TransportType {
 	if s.Conn().Stat().Limited {
 		return TransportRelay
@@ -102,5 +106,23 @@ func ClassifyTransport(s network.Stream) TransportType {
 		}
 	}
 
+	return TransportDirect
+}
+
+// ClassifyPeerTransport is like ClassifyTransport but also checks all other
+// connections to the same peer. If any connection uses a private IPv4 address
+// (i.e. the peer is on the same LAN), the result is TransportLAN even if the
+// stream itself uses a public IPv6 address. This prevents erasure coding and
+// other WAN-only behaviors between two LAN machines connected via public IPv6.
+func ClassifyPeerTransport(s network.Stream, net network.Network) TransportType {
+	t := ClassifyTransport(s)
+	if t != TransportDirect {
+		return t
+	}
+
+	// Stream is on a public IP. Check if the peer has any LAN connection.
+	if anyConnIsLAN(net.ConnsToPeer(s.Conn().RemotePeer())) {
+		return TransportLAN
+	}
 	return TransportDirect
 }

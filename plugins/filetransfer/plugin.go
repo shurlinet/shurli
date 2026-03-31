@@ -216,6 +216,11 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 
 		// Relay grant checker for transfer budget/time checks (H7).
 		GrantChecker: p.ctx.RelayGrantChecker(),
+
+		// LAN detection across all connections to a peer (handles public IPv6 between LAN machines).
+		ConnsToPeer: func(pid peer.ID) []libp2pnet.Conn {
+			return p.network.Host().Network().ConnsToPeer(pid)
+		},
 	}
 
 	ts, err := sdk.NewTransferService(cfg, nil, p.network.Events())

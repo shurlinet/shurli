@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -253,7 +255,8 @@ func daemonConfigDir() string {
 
 func runDaemon(args []string) {
 	// If no subcommand or "start", run the daemon foreground.
-	if len(args) == 0 {
+	// Flags (--pprof, --config) are passed through to runDaemonStart.
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		runDaemonStart(args)
 		return
 	}
@@ -304,10 +307,20 @@ func printDaemonUsage() {
 func runDaemonStart(args []string) {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
+	pprofAddr := fs.String("pprof", "", "enable pprof HTTP server (e.g. localhost:6060)")
 	fs.Parse(reorderFlags(fs, args))
 
 	fmt.Printf("shurli daemon %s (%s)\n", version, commit)
 	fmt.Println()
+
+	if *pprofAddr != "" {
+		go func() {
+			slog.Info("pprof.listen", "addr", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				slog.Error("pprof.failed", "err", err)
+			}
+		}()
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
