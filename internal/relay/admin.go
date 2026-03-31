@@ -1844,6 +1844,16 @@ func (s *AdminServer) handleRelayRevoke(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Send zero-duration receipt BEFORE revoking to invalidate the peer's cached grant.
+	// Must happen first because Revoke() terminates circuits, disconnecting the peer.
+	if s.host != nil && s.receiptHMACKey != nil {
+		revokeReceipt := EncodeGrantReceipt(0, 0, 0, false, time.Now(), s.receiptHMACKey)
+		if err := sendGrantReceipt(r.Context(), s.host, pid, revokeReceipt); err != nil {
+			slog.Warn("relay grant: failed to send revocation receipt",
+				"peer", req.PeerID[:min(16, len(req.PeerID))], "error", err)
+		}
+	}
+
 	if err := s.grantStore.Revoke(pid); err != nil {
 		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("revoke failed: %v", err))
 		return
