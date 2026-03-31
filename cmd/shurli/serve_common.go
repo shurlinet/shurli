@@ -794,7 +794,14 @@ func (rt *serveRuntime) Bootstrap() error {
 }
 
 // ExposeConfiguredServices registers all enabled services from config on the P2P host.
+// Also registers the service-query protocol handler (always, even with no services).
 func (rt *serveRuntime) ExposeConfiguredServices() {
+	// Register service-query protocol so remote peers can discover our services.
+	// Must run even when no services are configured (node still answers "no services").
+	if err := rt.network.RegisterServiceQuery(); err != nil {
+		log.Printf("Warning: failed to register service-query handler: %v", err)
+	}
+
 	if rt.config.Services == nil {
 		return
 	}
@@ -821,12 +828,6 @@ func (rt *serveRuntime) ExposeConfiguredServices() {
 				log.Printf("Failed to expose service %s: %v", name, err)
 			}
 		}
-	}
-
-	// Register service-query protocol so remote peers can discover our services.
-	// Allow relay transport since this is metadata-only (no data transfer).
-	if err := rt.network.RegisterServiceQuery(); err != nil {
-		log.Printf("Warning: failed to register service-query handler: %v", err)
 	}
 
 	fmt.Println()
