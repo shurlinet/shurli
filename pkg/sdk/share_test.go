@@ -485,12 +485,12 @@ func TestWriteDownloadError(t *testing.T) {
 	}
 }
 
-func TestDownloadReadySingleByteReader(t *testing.T) {
-	ready := &downloadReady{firstByte: 'S'}
-
-	// PrefixedReader should return the consumed byte followed by the rest.
+func TestSingleByteReaderPrefixedStream(t *testing.T) {
+	// singleByteReader + io.MultiReader replays a consumed first byte
+	// followed by the rest of the stream. This is the mechanism used
+	// by RequestDownload to reconstruct the full SHFT header.
 	rest := bytes.NewReader([]byte("HFT-rest"))
-	r := ready.PrefixedReader(rest)
+	r := io.MultiReader(&singleByteReader{b: 'S'}, rest)
 
 	all, err := io.ReadAll(r)
 	if err != nil {

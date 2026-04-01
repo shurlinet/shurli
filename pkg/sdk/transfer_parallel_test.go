@@ -2,8 +2,7 @@ package sdk
 
 import (
 	"bytes"
-	"encoding/binary"
-	"io"
+	"crypto/rand"
 	"os"
 	"testing"
 )
@@ -71,15 +70,15 @@ func TestClampStreams(t *testing.T) {
 }
 
 func TestWorkerHelloRoundtrip(t *testing.T) {
-	var rootHash [32]byte
-	copy(rootHash[:], bytes.Repeat([]byte{0xAB}, 32))
+	var transferID [32]byte
+	rand.Read(transferID[:])
 
 	var buf bytes.Buffer
-	if err := writeWorkerHello(&buf, rootHash); err != nil {
+	if err := writeWorkerHello(&buf, transferID); err != nil {
 		t.Fatalf("writeWorkerHello: %v", err)
 	}
 
-	// Should be exactly 33 bytes: 1 byte type + 32 bytes hash.
+	// Should be exactly 33 bytes: 1 byte type + 32 bytes transferID.
 	if buf.Len() != workerHelloSize {
 		t.Fatalf("expected %d bytes, got %d", workerHelloSize, buf.Len())
 	}
@@ -91,43 +90,13 @@ func TestWorkerHelloRoundtrip(t *testing.T) {
 	}
 
 	// Read it back: consume the type byte, then readWorkerHello.
-	reader := bytes.NewReader(data)
-	var typeByte [1]byte
-	if _, err := io.ReadFull(reader, typeByte[:]); err != nil {
-		t.Fatalf("read type byte: %v", err)
-	}
-	if typeByte[0] != msgWorkerHello {
-		t.Fatalf("type byte mismatch")
-	}
-
-	gotHash, err := readWorkerHello(reader)
+	reader := bytes.NewReader(data[1:]) // skip type byte (caller peeks it)
+	gotID, err := readWorkerHello(reader)
 	if err != nil {
 		t.Fatalf("readWorkerHello: %v", err)
 	}
-	if gotHash != rootHash {
-		t.Fatalf("hash mismatch: got %x, want %x", gotHash, rootHash)
-	}
-}
-
-func TestReadChunkFrameHeader(t *testing.T) {
-	// Build a 9-byte header: msgType(1) + index(4) + dataLen(4).
-	var header [9]byte
-	header[0] = msgChunk
-	binary.BigEndian.PutUint32(header[1:5], 42)
-	binary.BigEndian.PutUint32(header[5:9], 1024)
-
-	msgType, index, dataLen, err := readChunkFrameHeader(bytes.NewReader(header[:]))
-	if err != nil {
-		t.Fatalf("readChunkFrameHeader: %v", err)
-	}
-	if msgType != msgChunk {
-		t.Errorf("msgType: got 0x%02x, want 0x%02x", msgType, msgChunk)
-	}
-	if index != 42 {
-		t.Errorf("index: got %d, want 42", index)
-	}
-	if dataLen != 1024 {
-		t.Errorf("dataLen: got %d, want 1024", dataLen)
+	if gotID != transferID {
+		t.Fatalf("transferID mismatch: got %x, want %x", gotID, transferID)
 	}
 }
 
@@ -138,20 +107,20 @@ func TestParallelSessionRegistration(t *testing.T) {
 		t.Fatalf("NewTransferService: %v", err)
 	}
 
-	var rootHash [32]byte
-	copy(rootHash[:], bytes.Repeat([]byte{0xCD}, 32))
+	var transferID [32]byte
+	rand.Read(transferID[:])
 
 	session := &parallelSession{
-		rootHash: rootHash,
-		done:     make(chan struct{}),
-		chunks:   make(chan parallelChunk, 10),
+		transferID: transferID,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 10),
 	}
 
 	// Register.
-	ts.registerParallelSession(rootHash, session)
+	ts.registerParallelSession(transferID, session)
 
 	ts.mu.RLock()
-	got, ok := ts.parallelSessions[rootHash]
+	got, ok := ts.parallelSessions[transferID]
 	ts.mu.RUnlock()
 	if !ok {
 		t.Fatal("session not found after registration")
@@ -161,18 +130,18 @@ func TestParallelSessionRegistration(t *testing.T) {
 	}
 
 	// Unregister.
-	ts.unregisterParallelSession(rootHash)
+	ts.unregisterParallelSession(transferID)
 
 	ts.mu.RLock()
-	_, ok = ts.parallelSessions[rootHash]
+	_, ok = ts.parallelSessions[transferID]
 	ts.mu.RUnlock()
 	if ok {
 		t.Fatal("session still present after unregistration")
 	}
 }
 
-// TestReceiveParallelOutOfOrder verifies that receiveParallel correctly writes
-// chunks arriving out of order from both control stream and worker channel.
+// TestReceiveParallelOutOfOrder verifies that receiveParallel correctly processes
+// streaming chunks arriving out of order from both control stream and worker channel.
 func TestReceiveParallelOutOfOrder(t *testing.T) {
 	dir := t.TempDir()
 	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
@@ -187,90 +156,91 @@ func TestReceiveParallelOutOfOrder(t *testing.T) {
 		bytes.Repeat([]byte{0xCC}, 150),
 		bytes.Repeat([]byte{0xDD}, 250),
 	}
-	chunkHashes := make([][32]byte, 4)
-	chunkSizes := make([]uint32, 4)
-	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
-		chunkSizes[i] = uint32(len(d))
-	}
-	rootHash := MerkleRoot(chunkHashes)
 	totalSize := int64(100 + 200 + 150 + 250)
 
-	manifest := &transferManifest{
-		Filename:    "parallel-test.bin",
-		FileSize:    totalSize,
-		ChunkCount:  4,
-		RootHash:    rootHash,
-		ChunkHashes: chunkHashes,
-		ChunkSizes:  chunkSizes,
+	chunkHashes := make([][32]byte, 4)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
 	}
+	rootHash := MerkleRoot(chunkHashes)
 
-	// Create temp file.
-	tmpPath := dir + "/test-parallel.tmp"
-	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	if err := tmpFile.Truncate(totalSize); err != nil {
-		t.Fatalf("truncate: %v", err)
-	}
+	// Build file table (single file).
+	files := []fileEntry{{Path: "parallel-test.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
 
-	offsets := buildOffsetTable(chunkSizes)
-	have := newBitfield(4)
+	// Build receive state with temp files.
+	state := newStreamReceiveState(files, totalSize, 0, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(4)
+
 	progress := &TransferProgress{ChunksTotal: 4}
 
+	var transferID [32]byte
+	rand.Read(transferID[:])
+
 	session := &parallelSession{
-		rootHash: rootHash,
-		manifest: manifest,
-		tmpFile:  tmpFile,
-		tmpPath:  tmpPath,
-		have:     have,
-		offsets:  offsets,
-		progress: progress,
-		done:     make(chan struct{}),
-		chunks:   make(chan parallelChunk, 10),
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 10),
 	}
 
-	// Simulate control stream: sends chunks 0 and 3 (out of order: 3 first).
+	// Build control stream: chunks 3 and 0 (out of order) + trailer.
 	var controlBuf bytes.Buffer
-	writeChunkFrame(&controlBuf, 3, chunkData[3])
-	writeChunkFrame(&controlBuf, 0, chunkData[0])
-	writeMsg(&controlBuf, msgTransferDone)
+	globalOffset := int64(0)
+	offsets := []int64{0, 100, 300, 450}
+
+	// Chunk 3 first (out of order).
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 3, offset: offsets[3],
+		hash: chunkHashes[3], decompSize: uint32(len(chunkData[3])), data: chunkData[3],
+	})
+	// Then chunk 0.
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: offsets[0],
+		hash: chunkHashes[0], decompSize: uint32(len(chunkData[0])), data: chunkData[0],
+	})
+	// Trailer.
+	writeTrailer(&controlBuf, 4, rootHash, nil, nil)
 
 	// Worker channel delivers chunks 2 and 1 (out of order).
 	go func() {
-		session.chunks <- parallelChunk{index: 2, data: chunkData[2]}
-		session.chunks <- parallelChunk{index: 1, data: chunkData[1]}
+		session.chunks <- streamChunk{
+			fileIdx: 0, chunkIdx: 2, offset: offsets[2],
+			hash: chunkHashes[2], decompSize: uint32(len(chunkData[2])), data: chunkData[2],
+		}
+		session.chunks <- streamChunk{
+			fileIdx: 0, chunkIdx: 1, offset: offsets[1],
+			hash: chunkHashes[1], decompSize: uint32(len(chunkData[1])), data: chunkData[1],
+		}
 	}()
 
-	err = ts.receiveParallel(&controlBuf, session, nil)
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
 	if err != nil {
 		t.Fatalf("receiveParallel: %v", err)
 	}
-
-	// Verify all chunks received.
-	if have.count() != 4 {
-		t.Errorf("have count: got %d, want 4", have.count())
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch: got %x, want %x", gotRoot[:8], rootHash[:8])
 	}
 
-	// Read back the file and verify content at correct offsets.
-	tmpFile.Close()
-	result, err := os.ReadFile(tmpPath)
+	// Verify the finalized file exists and has correct content.
+	finalPath := dir + "/parallel-test.bin"
+	result, err := os.ReadFile(finalPath)
 	if err != nil {
 		t.Fatalf("read result: %v", err)
 	}
-	if int64(len(result)) != totalSize {
-		t.Fatalf("file size: got %d, want %d", len(result), totalSize)
-	}
 
-	// Check each chunk at its offset.
-	for i, d := range chunkData {
-		start := offsets[i]
-		end := start + int64(len(d))
-		got := result[start:end]
-		if !bytes.Equal(got, d) {
-			t.Errorf("chunk %d at offset %d: data mismatch", i, start)
-		}
+	_ = globalOffset
+	expected := make([]byte, 0, totalSize)
+	for _, d := range chunkData {
+		expected = append(expected, d...)
+	}
+	if !bytes.Equal(result, expected) {
+		t.Errorf("file content mismatch: got %d bytes, want %d", len(result), len(expected))
 	}
 }
 
@@ -283,71 +253,63 @@ func TestReceiveParallelSingleStream(t *testing.T) {
 		t.Fatalf("NewTransferService: %v", err)
 	}
 
-	// 2 chunks.
 	chunkData := [][]byte{
 		bytes.Repeat([]byte{0x11}, 64),
 		bytes.Repeat([]byte{0x22}, 128),
 	}
-	chunkHashes := make([][32]byte, 2)
-	chunkSizes := make([]uint32, 2)
-	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
-		chunkSizes[i] = uint32(len(d))
-	}
-	rootHash := MerkleRoot(chunkHashes)
 	totalSize := int64(64 + 128)
 
-	manifest := &transferManifest{
-		Filename:    "single-stream.bin",
-		FileSize:    totalSize,
-		ChunkCount:  2,
-		RootHash:    rootHash,
-		ChunkHashes: chunkHashes,
-		ChunkSizes:  chunkSizes,
+	chunkHashes := make([][32]byte, 2)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
 	}
+	rootHash := MerkleRoot(chunkHashes)
 
-	tmpPath := dir + "/test-single.tmp"
-	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	if err := tmpFile.Truncate(totalSize); err != nil {
-		t.Fatalf("truncate: %v", err)
-	}
+	files := []fileEntry{{Path: "single-stream.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
 
-	offsets := buildOffsetTable(chunkSizes)
-	have := newBitfield(2)
+	state := newStreamReceiveState(files, totalSize, 0, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
 	progress := &TransferProgress{ChunksTotal: 2}
 
+	var transferID [32]byte
+	rand.Read(transferID[:])
+
 	session := &parallelSession{
-		rootHash: rootHash,
-		manifest: manifest,
-		tmpFile:  tmpFile,
-		tmpPath:  tmpPath,
-		have:     have,
-		offsets:  offsets,
-		progress: progress,
-		done:     make(chan struct{}),
-		chunks:   make(chan parallelChunk, 10),
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 10),
 	}
 
 	// All chunks on control stream, no workers.
 	var controlBuf bytes.Buffer
-	writeChunkFrame(&controlBuf, 0, chunkData[0])
-	writeChunkFrame(&controlBuf, 1, chunkData[1])
-	writeMsg(&controlBuf, msgTransferDone)
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: chunkHashes[0], decompSize: uint32(len(chunkData[0])), data: chunkData[0],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 1, offset: 64,
+		hash: chunkHashes[1], decompSize: uint32(len(chunkData[1])), data: chunkData[1],
+	})
+	writeTrailer(&controlBuf, 2, rootHash, nil, nil)
 
-	err = ts.receiveParallel(&controlBuf, session, nil)
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
 	if err != nil {
 		t.Fatalf("receiveParallel: %v", err)
 	}
-
-	if have.count() != 2 {
-		t.Errorf("have count: got %d, want 2", have.count())
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch")
 	}
 
-	tmpFile.Close()
-	result, err := os.ReadFile(tmpPath)
+	finalPath := dir + "/single-stream.bin"
+	result, err := os.ReadFile(finalPath)
 	if err != nil {
 		t.Fatalf("read result: %v", err)
 	}
@@ -363,8 +325,7 @@ func TestReceiveParallelSingleStream(t *testing.T) {
 func TestWorkerCleanupOnSessionDone(t *testing.T) {
 	session := &parallelSession{
 		done:   make(chan struct{}),
-		chunks: make(chan parallelChunk), // unbuffered: send blocks without receiver
-		manifest: &transferManifest{ChunkCount: 10},
+		chunks: make(chan streamChunk), // unbuffered: send blocks without receiver
 	}
 
 	// Close done immediately.
@@ -376,7 +337,7 @@ func TestWorkerCleanupOnSessionDone(t *testing.T) {
 	select {
 	case <-session.done:
 		// Expected: done is closed, worker should exit.
-	case session.chunks <- parallelChunk{index: 0, data: []byte{1}}:
+	case session.chunks <- streamChunk{chunkIdx: 0, data: []byte{1}}:
 		delivered = true
 	}
 
@@ -398,71 +359,67 @@ func TestReceiveParallelDuplicateChunks(t *testing.T) {
 		bytes.Repeat([]byte{0x55}, 80),
 		bytes.Repeat([]byte{0x66}, 120),
 	}
-	chunkHashes := make([][32]byte, 2)
-	chunkSizes := make([]uint32, 2)
-	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
-		chunkSizes[i] = uint32(len(d))
-	}
-	rootHash := MerkleRoot(chunkHashes)
 	totalSize := int64(80 + 120)
 
-	manifest := &transferManifest{
-		Filename:    "dup-test.bin",
-		FileSize:    totalSize,
-		ChunkCount:  2,
-		RootHash:    rootHash,
-		ChunkHashes: chunkHashes,
-		ChunkSizes:  chunkSizes,
+	chunkHashes := make([][32]byte, 2)
+	for i, d := range chunkData {
+		chunkHashes[i] = blake3Sum(d)
 	}
+	rootHash := MerkleRoot(chunkHashes)
 
-	tmpPath := dir + "/test-dup.tmp"
-	tmpFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		t.Fatalf("create temp: %v", err)
-	}
-	if err := tmpFile.Truncate(totalSize); err != nil {
-		t.Fatalf("truncate: %v", err)
-	}
+	files := []fileEntry{{Path: "dup-test.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
 
-	offsets := buildOffsetTable(chunkSizes)
-	have := newBitfield(2)
+	state := newStreamReceiveState(files, totalSize, 0, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
 	progress := &TransferProgress{ChunksTotal: 2}
 
+	var transferID [32]byte
+	rand.Read(transferID[:])
+
 	session := &parallelSession{
-		rootHash: rootHash,
-		manifest: manifest,
-		tmpFile:  tmpFile,
-		tmpPath:  tmpPath,
-		have:     have,
-		offsets:  offsets,
-		progress: progress,
-		done:     make(chan struct{}),
-		chunks:   make(chan parallelChunk, 10),
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 10),
 	}
 
 	// Control sends both chunks.
 	var controlBuf bytes.Buffer
-	writeChunkFrame(&controlBuf, 0, chunkData[0])
-	writeChunkFrame(&controlBuf, 1, chunkData[1])
-	writeMsg(&controlBuf, msgTransferDone)
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: chunkHashes[0], decompSize: uint32(len(chunkData[0])), data: chunkData[0],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 1, offset: 80,
+		hash: chunkHashes[1], decompSize: uint32(len(chunkData[1])), data: chunkData[1],
+	})
+	writeTrailer(&controlBuf, 2, rootHash, nil, nil)
 
 	// Worker also sends chunk 0 (duplicate).
 	go func() {
-		session.chunks <- parallelChunk{index: 0, data: chunkData[0]}
+		session.chunks <- streamChunk{
+			fileIdx: 0, chunkIdx: 0, offset: 0,
+			hash: chunkHashes[0], decompSize: uint32(len(chunkData[0])), data: chunkData[0],
+		}
 	}()
 
-	err = ts.receiveParallel(&controlBuf, session, nil)
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
 	if err != nil {
 		t.Fatalf("receiveParallel: %v", err)
 	}
-
-	if have.count() != 2 {
-		t.Errorf("have count: got %d, want 2", have.count())
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch")
 	}
 
-	tmpFile.Close()
-	result, err := os.ReadFile(tmpPath)
+	finalPath := dir + "/dup-test.bin"
+	result, err := os.ReadFile(finalPath)
 	if err != nil {
 		t.Fatalf("read result: %v", err)
 	}
