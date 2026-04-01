@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"log/slog"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -50,11 +51,12 @@ type RelayDiscovery struct {
 	namespace    string
 	metrics      *Metrics // nil-safe
 
-	mu           sync.RWMutex
-	host         host.Host
-	kdht         *dht.IpfsDHT
-	discovered   []peer.AddrInfo
-	health       *RelayHealth // nil-safe; when set, RelayAddrs returns health-ranked order
+	mu             sync.RWMutex
+	host           host.Host
+	kdht           *dht.IpfsDHT
+	discovered     []peer.AddrInfo
+	health         *RelayHealth         // nil-safe; when set, RelayAddrs returns health-ranked order
+	budgetChecker  RelayGrantChecker    // nil-safe; when set, RelayAddrs factors budget into ranking
 }
 
 // NewRelayDiscovery creates a RelayDiscovery with static relays.
@@ -87,6 +89,15 @@ func (rd *RelayDiscovery) SetHealth(rh *RelayHealth) {
 	rd.mu.Lock()
 	defer rd.mu.Unlock()
 	rd.health = rh
+}
+
+// SetBudgetChecker provides a grant checker for budget-aware relay ranking.
+// When set, RelayAddrs factors remaining session budget into relay scoring
+// so high-budget relays are preferred over low-budget seed relays.
+func (rd *RelayDiscovery) SetBudgetChecker(gc RelayGrantChecker) {
+	rd.mu.Lock()
+	defer rd.mu.Unlock()
+	rd.budgetChecker = gc
 }
 
 // Advertise announces this node as a relay provider on the DHT.
@@ -201,19 +212,20 @@ func (rd *RelayDiscovery) AllRelays() []peer.AddrInfo {
 }
 
 // RelayAddrs implements RelaySource. Returns multiaddr strings for all
-// known relays (static + DHT discovered). When a health tracker is set,
-// relays are ranked by health score (best first).
+// known relays (static + DHT discovered). Relays are ranked by a composite
+// score combining health (latency + success rate) and budget availability
+// (remaining session bytes). High-budget, healthy relays appear first.
 func (rd *RelayDiscovery) RelayAddrs() []string {
 	rd.mu.RLock()
 	health := rd.health
+	bc := rd.budgetChecker
 	rd.mu.RUnlock()
 
 	relays := rd.AllRelays()
 
-	// Health-rank relays when health tracker is available
-	if health != nil && len(relays) > 1 {
+	if len(relays) > 1 && (health != nil || bc != nil) {
 		sort.Slice(relays, func(i, j int) bool {
-			return health.Score(relays[i].ID) > health.Score(relays[j].ID)
+			return rd.relayScore(relays[i].ID, health, bc) > rd.relayScore(relays[j].ID, health, bc)
 		})
 	}
 
@@ -225,6 +237,55 @@ func (rd *RelayDiscovery) RelayAddrs() []string {
 		}
 	}
 	return addrs
+}
+
+// relayScore computes a composite score for general relay ranking.
+// Relays with active grants get a budget bonus on top of health.
+// Relays without grants compete on pure health (not penalized).
+// This prevents a failing relay with a grant from ranking above
+// a healthy relay without a grant.
+func (rd *RelayDiscovery) relayScore(pid peer.ID, health *RelayHealth, bc RelayGrantChecker) float64 {
+	hs := defaultScore
+	if health != nil {
+		hs = health.Score(pid)
+	}
+
+	if bc == nil {
+		return hs
+	}
+
+	bs := relayBudgetScore(pid, bc)
+	if bs == 0.0 {
+		// No grant or expired: rank by health only. Don't penalize
+		// healthy relays just because they don't have a grant yet.
+		return hs
+	}
+	// Has active grant: health is the baseline, budget adds a bonus.
+	// Max possible: 1.0 (health) + 0.5 (budget bonus) = 1.5.
+	// Relays with grants always rank above relays without grants
+	// (because hs alone is capped at 1.0, and 1.0 + any bonus > 1.0).
+	return hs + bs*0.5
+}
+
+// relayBudgetScore returns a 0.0-1.0 score based on remaining session budget.
+// 0.0 = no grant or expired. 1.0 = unlimited or >= 2GB remaining.
+func relayBudgetScore(pid peer.ID, bc RelayGrantChecker) float64 {
+	remaining, budget, _, ok := bc.GrantStatus(pid)
+	if !ok || remaining <= 0 {
+		return 0.0 // no grant or expired
+	}
+
+	// math.MaxInt64 budget = unlimited.
+	if budget >= math.MaxInt64/2 {
+		return 1.0
+	}
+
+	// Scale: 0.0 at 0 bytes, 1.0 at >= 2GB.
+	const twoGB = 2 << 30
+	if budget >= twoGB {
+		return 1.0
+	}
+	return float64(budget) / float64(twoGB)
 }
 
 // PeerSource returns a function compatible with libp2p's autorelay.PeerSource.

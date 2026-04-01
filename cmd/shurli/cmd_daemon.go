@@ -517,6 +517,11 @@ func runDaemonStart(args []string) {
 		// Wire grant cache into plugin context for transfer budget/time checks (H7).
 		pluginProvider.RelayGrantChecker = gc
 
+		// Wire grant cache into relay discovery for budget-aware relay ranking (FT-Y #9).
+		// High-budget relays rank above seed relays, preventing large files from
+		// being routed through low-budget seed relays.
+		rt.relayDiscovery.SetBudgetChecker(gc)
+
 		// Wire revocation -> cache clearing (H9/H12).
 		grantProto.SetOnRevoke(func(issuerID peer.ID) {
 			// Use current time as revocation time (best available - relay doesn't

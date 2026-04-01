@@ -18,14 +18,17 @@ import (
 
 // Multi-peer download coordination using RaptorQ fountain codes.
 //
-// When a file is available from multiple peers, the receiver can request
-// symbols from each peer in parallel. Each peer generates symbols starting
-// from a different ID offset, so there's no wasted overlap. The receiver
-// collects symbols from all sources and decodes when K symbols are available.
+// When a file is available from multiple peers, the receiver requests
+// interleaved symbols from each peer in parallel. Peer i generates symbol
+// IDs i, i+N, i+2N, ... (where N = numPeers), guaranteeing zero overlap.
+// Fast peers naturally deliver more symbols; the receiver decodes each
+// block as soon as K symbols arrive from ANY combination of sources.
+// This gives additive bandwidth: speed = sum(peers) for equal speeds,
+// speed = max(peers) when one peer dominates.
 //
-// Wire protocol: the receiver sends a msgMultiPeerRequest to each peer with
-// the root hash + requested symbol ID range. The peer responds with RaptorQ
-// symbols (not raw chunks) using msgFountainSymbol frames.
+// Wire protocol: the receiver sends a msgMultiPeerRequest with the root hash,
+// peer index, and peer count. Each peer responds with the manifest and then
+// streams interleaved RaptorQ symbols via msgFountainSymbol frames.
 
 // MultiPeerProtocol is the protocol ID for multi-peer fountain-coded downloads.
 const MultiPeerProtocol = "/shurli/file-multi-peer/1.0.0"
@@ -33,7 +36,7 @@ const MultiPeerProtocol = "/shurli/file-multi-peer/1.0.0"
 // Multi-peer wire constants.
 const (
 	// msgMultiPeerRequest is sent by receiver to request symbols from a peer.
-	// Wire: msgMultiPeerRequest(1) + rootHash(32) + startSymbolID(4) + count(4)
+	// Wire: msgMultiPeerRequest(1) + rootHash(32) + peerIndex(2) + numPeers(2) + maxSymbolsPerBlock(4)
 	msgMultiPeerRequest = 0x0A
 
 	// msgFountainSymbol carries a RaptorQ symbol.
@@ -109,29 +112,10 @@ func newMultiPeerSession(m *transferManifest, progress *TransferProgress) *multi
 	}
 }
 
-// getOrCreateDecoder returns or creates a decoder for a block.
-func (s *multiPeerSession) getOrCreateDecoder(blockIndex int) (*raptorqDecoder, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if dec, ok := s.decoders[blockIndex]; ok {
-		return dec, nil
-	}
-
-	if blockIndex < 0 || blockIndex >= s.blockCount {
-		return nil, fmt.Errorf("block index out of range: %d", blockIndex)
-	}
-
-	dec, err := newRaptorQDecoder(s.blockSizes[blockIndex])
-	if err != nil {
-		return nil, fmt.Errorf("create decoder for block %d: %w", blockIndex, err)
-	}
-	s.decoders[blockIndex] = dec
-	return dec, nil
-}
-
 // addSymbol feeds a received symbol into the appropriate block decoder.
 // Returns true if all blocks have been decoded.
+// Thread-safe: holds mu for the entire check-create-decode cycle to prevent
+// TOCTOU races where two goroutines create duplicate decoders for the same block.
 func (s *multiPeerSession) addSymbol(blockIndex int, symbolID uint32, data []byte) (bool, error) {
 	select {
 	case <-s.done:
@@ -139,20 +123,30 @@ func (s *multiPeerSession) addSymbol(blockIndex int, symbolID uint32, data []byt
 	default:
 	}
 
-	// Already decoded this block?
 	s.mu.Lock()
+
+	// Already decoded this block?
 	if _, ok := s.decoded[blockIndex]; ok {
 		s.mu.Unlock()
 		return s.isComplete(), nil
 	}
-	s.mu.Unlock()
 
-	dec, err := s.getOrCreateDecoder(blockIndex)
-	if err != nil {
-		return false, err
+	// Get or create decoder (inline, under same lock).
+	dec, ok := s.decoders[blockIndex]
+	if !ok {
+		if blockIndex < 0 || blockIndex >= s.blockCount {
+			s.mu.Unlock()
+			return false, fmt.Errorf("block index out of range: %d", blockIndex)
+		}
+		var err error
+		dec, err = newRaptorQDecoder(s.blockSizes[blockIndex])
+		if err != nil {
+			s.mu.Unlock()
+			return false, fmt.Errorf("create decoder for block %d: %w", blockIndex, err)
+		}
+		s.decoders[blockIndex] = dec
 	}
 
-	s.mu.Lock()
 	canDecode, err := dec.addSymbol(symbolID, data)
 	if err != nil {
 		s.mu.Unlock()
@@ -217,34 +211,16 @@ func (s *multiPeerSession) results() ([][]byte, error) {
 	return blocks, nil
 }
 
-// peerSymbolRange calculates the symbol ID range for a peer.
-// Each peer gets a non-overlapping range of symbol IDs to generate.
-// peerIndex is 0-based, numPeers is total peer count.
-func peerSymbolRange(k uint32, peerIndex, numPeers int) (startID, count uint32) {
-	if numPeers <= 0 {
-		numPeers = 1
+// interleavedSymbolCount returns how many symbols a single peer should generate
+// per block so that any single fast peer can decode alone. Each peer produces
+// K + repair symbols with interleaved IDs (peerIndex, peerIndex+numPeers, ...).
+// The receiver decodes as soon as K symbols arrive from ANY combination of peers.
+func interleavedSymbolCount(k uint32) uint32 {
+	repair := uint32(float64(k) * raptorqRepairRatio)
+	if repair < 1 {
+		repair = 1
 	}
-
-	// Each peer sends K/numPeers source symbols + repair overhead.
-	perPeer := k / uint32(numPeers)
-	if perPeer < 1 {
-		perPeer = 1
-	}
-
-	// Add repair overhead (20% extra symbols for loss tolerance).
-	repairPerPeer := uint32(float64(perPeer) * raptorqRepairRatio)
-	if repairPerPeer < 1 {
-		repairPerPeer = 1
-	}
-	totalPerPeer := perPeer + repairPerPeer
-
-	// Peer 0 starts at symbol 0 (source symbols).
-	// Peer 1 starts after peer 0's range.
-	// For peers beyond source range, they generate repair symbols.
-	startID = uint32(peerIndex) * totalPerPeer
-	count = totalPerPeer
-
-	return startID, count
+	return k + repair
 }
 
 // verifyBlock verifies a decoded block against the manifest hash.
@@ -289,7 +265,7 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
-		// Read msgMultiPeerRequest: type(1) + rootHash(32) + startSymbolID(4) + count(4)
+		// Read msgMultiPeerRequest: type(1) + rootHash(32) + peerIndex(2) + numPeers(2) + maxSymbolsPerBlock(4)
 		var header [41]byte
 		if _, err := io.ReadFull(s, header[:]); err != nil {
 			slog.Debug("file-multi-peer: read request failed", "peer", short, "error", err)
@@ -303,12 +279,32 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 
 		var rootHash [32]byte
 		copy(rootHash[:], header[1:33])
-		startSymbolID := binary.BigEndian.Uint32(header[33:37])
-		symbolCount := binary.BigEndian.Uint32(header[37:41])
+		// Wire: peerIndex(2) + numPeers(2) + maxSymbolsPerBlock(4)
+		peerIndex := int(binary.BigEndian.Uint16(header[33:35]))
+		numPeers := int(binary.BigEndian.Uint16(header[35:37]))
+		maxSymbolsPerBlock := binary.BigEndian.Uint32(header[37:41])
 
-		// Security: bound symbol count.
-		if symbolCount > 100000 {
-			slog.Warn("file-multi-peer: excessive symbol count", "peer", short, "count", symbolCount)
+		// Security bounds. numPeers >= 2 enforced to match receiver-side
+		// minimum (single-peer downloads use the standard transfer protocol).
+		if numPeers < 2 || numPeers > 64 {
+			slog.Warn("file-multi-peer: invalid numPeers", "peer", short, "numPeers", numPeers)
+			return
+		}
+		if peerIndex >= numPeers {
+			slog.Warn("file-multi-peer: invalid peerIndex", "peer", short, "peerIndex", peerIndex, "numPeers", numPeers)
+			return
+		}
+		if maxSymbolsPerBlock > 100000 {
+			slog.Warn("file-multi-peer: excessive maxSymbolsPerBlock", "peer", short, "count", maxSymbolsPerBlock)
+			return
+		}
+		// maxSymbolsPerBlock=0 means auto: server computes from actual K per block.
+		// This ensures a single fast peer always generates enough symbols to decode alone.
+		// Non-zero values < 4 are rejected: requesting fewer than 4 symbols per block
+		// wastes server CPU (full file chunking + RaptorQ encoding) for no useful output.
+		autoSymbols := maxSymbolsPerBlock == 0
+		if !autoSymbols && maxSymbolsPerBlock < 4 {
+			slog.Warn("file-multi-peer: maxSymbolsPerBlock too small", "peer", short, "count", maxSymbolsPerBlock)
 			return
 		}
 
@@ -384,12 +380,16 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 			return
 		}
 
-		slog.Info("file-multi-peer: serving symbols",
+		slog.Info("file-multi-peer: serving interleaved symbols",
 			"peer", short, "file", manifest.Filename,
-			"start", startSymbolID, "count", symbolCount,
-			"blocks", len(chunks))
+			"peerIndex", peerIndex, "numPeers", numPeers,
+			"maxPerBlock", maxSymbolsPerBlock, "blocks", len(chunks))
 
-		// For each block (chunk), encode with RaptorQ and send requested symbol range.
+		// For each block (chunk), encode with RaptorQ and send interleaved symbols.
+		// Interleaving: this peer generates symbol IDs peerIndex, peerIndex+numPeers,
+		// peerIndex+2*numPeers, ... ensuring zero overlap between peers.
+		// Fast peers deliver more symbols before the receiver has K; slow peers
+		// contribute what they can. Decode triggers when ANY K symbols arrive.
 		for blockIdx, chunk := range chunks {
 			enc, encErr := newRaptorQEncoder(chunk)
 			if encErr != nil {
@@ -398,15 +398,25 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 			}
 
 			k := enc.sourceSymbolCount()
-			// Determine which symbols this request covers for this block.
-			// The startSymbolID and count are per-block: each peer gets the same
-			// range applied to every block.
-			end := startSymbolID + symbolCount
-			if end > k*2 {
-				end = k * 2 // cap at 2x source symbols
+			// Per-block symbol limit: auto mode uses K + repair (enough for
+			// a single fast peer to decode alone). Client-specified cap is
+			// used as an upper bound when non-zero.
+			blockLimit := interleavedSymbolCount(k)
+			if !autoSymbols && maxSymbolsPerBlock < blockLimit {
+				blockLimit = maxSymbolsPerBlock
 			}
-
-			for sid := startSymbolID; sid < end; sid++ {
+			// Cap symbol IDs at 2*K to avoid unbounded generation.
+			// Use uint64 arithmetic to prevent uint32 overflow wrap-around
+			// which would cause an infinite loop (sid wraps to a valid value,
+			// bypassing the maxID check).
+			maxID := uint64(k) * 2
+			sent := uint32(0)
+			for i := uint64(0); sent < blockLimit; i++ {
+				sid64 := uint64(peerIndex) + i*uint64(numPeers)
+				if sid64 >= maxID {
+					break
+				}
+				sid := uint32(sid64)
 				sym := enc.genSymbol(sid)
 
 				// Wire: msgFountainSymbol(1) + blockIndex(4) + symbolID(4) + dataLen(4) + data
@@ -421,6 +431,7 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 				if _, err := s.Write(sym); err != nil {
 					return
 				}
+				sent++
 			}
 		}
 
@@ -560,7 +571,7 @@ func (ts *TransferService) DownloadMultiPeer(
 		return nil, fmt.Errorf("connect to first peer: %w", err)
 	}
 
-	manifest, firstStartID, firstCount, err := requestMultiPeerManifest(firstStream, rootHash, 0, numPeers)
+	manifest, err := requestMultiPeerManifest(firstStream, rootHash, 0, numPeers)
 	if err != nil {
 		firstStream.Close()
 		return nil, fmt.Errorf("get manifest from first peer: %w", err)
@@ -603,12 +614,12 @@ func (ts *TransferService) DownloadMultiPeer(
 		var wg sync.WaitGroup
 		errCh := make(chan error, numPeers)
 
-		// First peer: already has a stream and known symbol range.
+		// First peer: already has a stream, manifest received.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer firstStream.Close()
-			if err := receiveSymbolsFromPeer(dlCtx, firstStream, session, firstStartID, firstCount); err != nil {
+			if err := receiveSymbolsFromPeer(dlCtx, firstStream, session); err != nil {
 				slog.Warn("file-multi-peer: peer 0 failed", "error", err)
 				errCh <- err
 			}
@@ -630,27 +641,47 @@ func (ts *TransferService) DownloadMultiPeer(
 				}
 				defer stream.Close()
 
-				// Get symbol range for this peer.
-				// Use the first block's K to compute ranges.
-				k := uint32(0)
-				if manifest.ChunkCount > 0 && manifest.ChunkSizes[0] > 0 {
-					k = (manifest.ChunkSizes[0] + raptorqSymbolSize - 1) / raptorqSymbolSize
-				}
-				if k < 1 {
-					k = 1
-				}
-				startID, count := peerSymbolRange(k, peerIdx, numPeers)
-
-				// Send request + skip manifest (we already have it).
-				_, _, _, reqErr := requestMultiPeerManifest(stream, rootHash, peerIdx, numPeers)
+				// Send request and verify manifest matches peer 0's.
+				peerManifest, reqErr := requestMultiPeerManifest(stream, rootHash, peerIdx, numPeers)
 				if reqErr != nil {
 					slog.Warn("file-multi-peer: request failed",
 						"peer_index", peerIdx, "error", reqErr)
 					errCh <- reqErr
 					return
 				}
+				// Security: verify peer's manifest root hash matches peer 0's.
+				// A malicious peer could serve a different file with the same
+				// root hash request, feeding wrong symbols into the decoder.
+				peerRoot := MerkleRoot(peerManifest.ChunkHashes)
+				if peerRoot != rootHash {
+					slog.Warn("file-multi-peer: peer manifest root hash mismatch, excluding",
+						"peer_index", peerIdx)
+					errCh <- fmt.Errorf("peer %d: manifest root hash mismatch", peerIdx)
+					return
+				}
+				// Verify chunk sizes match peer 0's manifest. Merkle root only
+				// covers hashes, not sizes. A malicious peer could send correct
+				// hashes but inflated sizes, causing OOM in decoder allocation.
+				if peerManifest.ChunkCount != manifest.ChunkCount {
+					slog.Warn("file-multi-peer: peer chunk count mismatch, excluding",
+						"peer_index", peerIdx,
+						"peer_chunks", peerManifest.ChunkCount,
+						"expected", manifest.ChunkCount)
+					errCh <- fmt.Errorf("peer %d: chunk count mismatch", peerIdx)
+					return
+				}
+				for ci := 0; ci < manifest.ChunkCount; ci++ {
+					if peerManifest.ChunkSizes[ci] != manifest.ChunkSizes[ci] {
+						slog.Warn("file-multi-peer: peer chunk size mismatch, excluding",
+							"peer_index", peerIdx, "chunk", ci,
+							"peer_size", peerManifest.ChunkSizes[ci],
+							"expected", manifest.ChunkSizes[ci])
+						errCh <- fmt.Errorf("peer %d: chunk %d size mismatch", peerIdx, ci)
+						return
+					}
+				}
 
-				if err := receiveSymbolsFromPeer(dlCtx, stream, session, startID, count); err != nil {
+				if err := receiveSymbolsFromPeer(dlCtx, stream, session); err != nil {
 					slog.Warn("file-multi-peer: peer failed",
 						"peer_index", peerIdx, "error", err)
 					errCh <- err
@@ -766,70 +797,61 @@ func (ts *TransferService) DownloadMultiPeer(
 }
 
 // requestMultiPeerManifest sends a multi-peer request to a peer and reads
-// the manifest response. Returns the manifest and the symbol range for this peer.
-func requestMultiPeerManifest(s network.Stream, rootHash [32]byte, peerIndex, numPeers int) (*transferManifest, uint32, uint32, error) {
+// the manifest response. Returns the manifest.
+func requestMultiPeerManifest(s network.Stream, rootHash [32]byte, peerIndex, numPeers int) (*transferManifest, error) {
 	s.SetDeadline(time.Now().Add(30 * time.Second))
 
-	// Compute symbol range. We need to estimate K from a reasonable block size.
-	// We'll use a default estimate and refine after getting the manifest.
-	// For the request, compute a provisional range based on a typical block size.
-	estimatedK := uint32(256) // reasonable default for ~256KB block
-	startID, count := peerSymbolRange(estimatedK, peerIndex, numPeers)
+	// maxSymbolsPerBlock=0 signals the server to auto-compute from actual K.
+	// The server knows the real block size; the client does not before receiving
+	// the manifest. Setting 0 ensures a single fast peer always generates
+	// enough symbols to decode alone, regardless of block size.
+	maxSymbolsPerBlock := uint32(0)
 
-	// Write: msgMultiPeerRequest(1) + rootHash(32) + startSymbolID(4) + count(4)
+	// Write: msgMultiPeerRequest(1) + rootHash(32) + peerIndex(2) + numPeers(2) + maxSymbolsPerBlock(4)
 	var header [41]byte
 	header[0] = msgMultiPeerRequest
 	copy(header[1:33], rootHash[:])
-	binary.BigEndian.PutUint32(header[33:37], startID)
-	binary.BigEndian.PutUint32(header[37:41], count)
+	binary.BigEndian.PutUint16(header[33:35], uint16(peerIndex))
+	binary.BigEndian.PutUint16(header[35:37], uint16(numPeers))
+	binary.BigEndian.PutUint32(header[37:41], maxSymbolsPerBlock)
 	if _, err := s.Write(header[:]); err != nil {
-		return nil, 0, 0, fmt.Errorf("write request: %w", err)
+		return nil, fmt.Errorf("write request: %w", err)
 	}
 
 	// Read manifest response: msgMultiPeerManifest(1) + len(4) + data
 	var respHeader [5]byte
 	if _, err := io.ReadFull(s, respHeader[:]); err != nil {
-		return nil, 0, 0, fmt.Errorf("read manifest header: %w", err)
+		return nil, fmt.Errorf("read manifest header: %w", err)
 	}
 	if respHeader[0] != msgMultiPeerManifest {
-		return nil, 0, 0, fmt.Errorf("unexpected response type: 0x%02x", respHeader[0])
+		return nil, fmt.Errorf("unexpected response type: 0x%02x", respHeader[0])
 	}
 
 	manifestLen := binary.BigEndian.Uint32(respHeader[1:5])
 	if manifestLen > maxManifestSize {
-		return nil, 0, 0, fmt.Errorf("manifest too large: %d bytes", manifestLen)
+		return nil, fmt.Errorf("manifest too large: %d bytes", manifestLen)
 	}
 
 	manifestData := make([]byte, manifestLen)
 	if _, err := io.ReadFull(s, manifestData); err != nil {
-		return nil, 0, 0, fmt.Errorf("read manifest: %w", err)
+		return nil, fmt.Errorf("read manifest: %w", err)
 	}
 
 	manifest, err := unmarshalManifest(manifestData)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("parse manifest: %w", err)
-	}
-
-	// Now that we have the manifest, compute the actual symbol range
-	// using the real block size.
-	if manifest.ChunkCount > 0 && manifest.ChunkSizes[0] > 0 {
-		actualK := (manifest.ChunkSizes[0] + raptorqSymbolSize - 1) / raptorqSymbolSize
-		if actualK >= 1 {
-			startID, count = peerSymbolRange(actualK, peerIndex, numPeers)
-		}
+		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 
 	s.SetDeadline(time.Now().Add(10 * time.Minute))
-	return manifest, startID, count, nil
+	return manifest, nil
 }
 
 // receiveSymbolsFromPeer reads fountain symbols from a peer stream and feeds
-// them into the multi-peer session. Returns when the stream ends, the context
-// is cancelled, or an error occurs.
-func receiveSymbolsFromPeer(ctx context.Context, s network.Stream, session *multiPeerSession, startID, count uint32) error {
-	_ = startID // the server determines which symbols to send based on the request
-	_ = count
-
+// them into the multi-peer session. Symbol IDs are interleaved by the sender
+// (peerIndex + i*numPeers), so there is zero overlap between peers. The
+// receiver simply collects symbols from all peers and decodes each block
+// as soon as K symbols arrive from any combination of sources.
+func receiveSymbolsFromPeer(ctx context.Context, s network.Stream, session *multiPeerSession) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -856,6 +878,10 @@ func receiveSymbolsFromPeer(ctx context.Context, s network.Stream, session *mult
 		symbolID := binary.BigEndian.Uint32(symHeader[5:9])
 		dataLen := binary.BigEndian.Uint32(symHeader[9:13])
 
+		// Validate bounds before allocating memory.
+		if blockIndex < 0 || blockIndex >= session.blockCount {
+			return fmt.Errorf("block index out of range: %d (max %d)", blockIndex, session.blockCount)
+		}
 		if dataLen > uint32(raptorqSymbolSize*2) {
 			return fmt.Errorf("symbol too large: %d bytes", dataLen)
 		}

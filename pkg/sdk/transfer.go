@@ -2276,7 +2276,10 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 				if relayID != "" {
 					dirSize := int64(0)
 					// Walk directory to get total size for grant check.
-					filepath.WalkDir(job.filePath, func(_ string, d os.DirEntry, _ error) error {
+					filepath.WalkDir(job.filePath, func(_ string, d os.DirEntry, walkErr error) error {
+						if walkErr != nil {
+							return walkErr // propagate errors (deleted files, permission issues)
+						}
 						if d != nil && d.Type().IsRegular() {
 							if fi, err := d.Info(); err == nil {
 								dirSize += fi.Size()
@@ -2286,13 +2289,43 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 					})
 					grantInfo := ts.checkRelayGrant(probeStream, dirSize, "send")
 
-					if grantInfo.GrantActive && !grantInfo.TimeOK {
+					if grantInfo.GrantActive && !grantInfo.BudgetOK {
+						// FT-Y #9: Budget insufficient for directory. Close relay
+						// connection and retry through a better relay.
+						probeStream.Close()
+						ts.grantChecker.ResetCircuitCounters(relayID)
+						ts.closeRelayConns(relayID, job.peerID)
+						slog.Info("relay-grant: closing low-budget relay for directory transfer, retrying",
+							"old_relay", shortPeerStr(relayID),
+							"dir_size", FormatBytes(dirSize),
+							"relay_budget", FormatBytes(grantInfo.SessionBudget))
+
+						retryStream, retryErr := job.openStream()
+						if retryErr != nil {
+							finalErr = fmt.Errorf("relay reconnect for directory transfer: %w", retryErr)
+						} else {
+							retryRelayID := relayPeerFromStream(retryStream)
+							if retryRelayID != "" {
+								job.lastRelayPeerID = retryRelayID
+							}
+							retryCheck := ts.checkRelayGrant(retryStream, dirSize, "send")
+							retryStream.Close()
+							if retryCheck.GrantActive && !retryCheck.BudgetOK {
+								finalErr = fmt.Errorf("directory size (%s) exceeds relay session limit (%s) on all available relays",
+									FormatBytes(dirSize), FormatBytes(retryCheck.SessionBudget))
+							} else if retryCheck.GrantActive && !retryCheck.TimeOK {
+								finalErr = fmt.Errorf("relay grant expires too soon for directory transfer (remaining: %s)",
+									retryCheck.GrantRemaining.Truncate(time.Second))
+							}
+						}
+					} else if grantInfo.GrantActive && !grantInfo.TimeOK {
 						probeStream.Close()
 						finalErr = fmt.Errorf("relay grant expires too soon for directory transfer (remaining: %s)",
 							grantInfo.GrantRemaining.Truncate(time.Second))
+					} else {
+						probeStream.Close()
 					}
-				}
-				if finalErr == nil {
+				} else {
 					probeStream.Close()
 				}
 			}
@@ -2337,10 +2370,40 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 							// Re-check after reopen: both budget and time.
 							recheckInfo := ts.checkRelayGrant(newStream, fileSize, "send")
 							if recheckInfo.GrantActive && !recheckInfo.BudgetOK {
+								// FT-Y #9: Still insufficient after reopen (same low-budget relay).
+								// Close the relay CONNECTION to force PathDialer to pick a
+								// different relay (now budget-ranked by RelayDiscovery).
 								stream.Close()
 								stream = nil
-								finalErr = fmt.Errorf("file size (%s) exceeds relay session limit (%s)",
-									FormatBytes(fileSize), FormatBytes(recheckInfo.SessionBudget))
+								ts.closeRelayConns(recheckInfo.RelayPeerID, job.peerID)
+								slog.Info("relay-grant: closing low-budget relay connection, retrying through better relay",
+									"old_relay", shortPeerStr(recheckInfo.RelayPeerID),
+									"file_size", FormatBytes(fileSize),
+									"relay_budget", FormatBytes(recheckInfo.SessionBudget))
+
+								retryStream, retryErr := job.openStream()
+								if retryErr != nil {
+									finalErr = fmt.Errorf("relay reconnect through better relay: %w", retryErr)
+								} else {
+									stream = retryStream
+									retryRelayID := relayPeerFromStream(retryStream)
+									if retryRelayID != "" {
+										job.lastRelayPeerID = retryRelayID
+									}
+									// Final budget check on the new relay.
+									finalCheck := ts.checkRelayGrant(retryStream, fileSize, "send")
+									if finalCheck.GrantActive && !finalCheck.BudgetOK {
+										stream.Close()
+										stream = nil
+										finalErr = fmt.Errorf("file size (%s) exceeds relay session limit (%s) on all available relays",
+											FormatBytes(fileSize), FormatBytes(finalCheck.SessionBudget))
+									} else if finalCheck.GrantActive && !finalCheck.TimeOK {
+										stream.Close()
+										stream = nil
+										finalErr = fmt.Errorf("relay grant expires too soon for transfer (remaining: %s)",
+											finalCheck.GrantRemaining.Truncate(time.Second))
+									}
+								}
 							} else if recheckInfo.GrantActive && !recheckInfo.TimeOK {
 								stream.Close()
 								stream = nil

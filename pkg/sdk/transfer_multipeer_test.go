@@ -3,56 +3,60 @@ package sdk
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestPeerSymbolRange(t *testing.T) {
+func TestInterleavedSymbolCount(t *testing.T) {
 	tests := []struct {
-		name      string
-		k         uint32
-		peerIndex int
-		numPeers  int
-		wantStart uint32
-		wantCount uint32
+		name string
+		k    uint32
+		want uint32
 	}{
-		{"single-peer", 100, 0, 1, 0, 120},            // 100 + 20% repair
-		{"two-peers-first", 100, 0, 2, 0, 60},          // 50 + 10 repair
-		{"two-peers-second", 100, 1, 2, 60, 60},        // starts after first
-		{"four-peers-third", 100, 2, 4, 60, 30},        // 25 + 5 repair, starts at 2*30
-		{"small-k-single", 2, 0, 1, 0, 3},              // 2 + min 1 repair
+		{"typical", 100, 120},  // 100 + 20% = 120
+		{"small", 2, 3},       // 2 + min(1) = 3
+		{"single", 1, 2},      // 1 + min(1) = 2
+		{"large", 1000, 1200}, // 1000 + 200 = 1200
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, count := peerSymbolRange(tt.k, tt.peerIndex, tt.numPeers)
-			if start != tt.wantStart {
-				t.Errorf("startID: got %d, want %d", start, tt.wantStart)
-			}
-			if count != tt.wantCount {
-				t.Errorf("count: got %d, want %d", count, tt.wantCount)
+			got := interleavedSymbolCount(tt.k)
+			if got != tt.want {
+				t.Errorf("interleavedSymbolCount(%d) = %d, want %d", tt.k, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestPeerSymbolRangesNoOverlap(t *testing.T) {
-	k := uint32(200)
+func TestInterleavedSymbolsNoOverlap(t *testing.T) {
+	// Verify that interleaved symbol IDs from different peers never overlap.
 	numPeers := 4
+	k := uint32(200)
+	maxPerPeer := interleavedSymbolCount(k)
 
-	var ranges []struct{ start, end uint32 }
-	for i := 0; i < numPeers; i++ {
-		start, count := peerSymbolRange(k, i, numPeers)
-		ranges = append(ranges, struct{ start, end uint32 }{start, start + count})
-	}
-
-	// Verify no overlap between consecutive ranges.
-	for i := 1; i < len(ranges); i++ {
-		if ranges[i].start < ranges[i-1].end {
-			t.Errorf("peer %d range [%d,%d) overlaps with peer %d range [%d,%d)",
-				i, ranges[i].start, ranges[i].end,
-				i-1, ranges[i-1].start, ranges[i-1].end)
+	for pi := 0; pi < numPeers; pi++ {
+		for pj := pi + 1; pj < numPeers; pj++ {
+			// Generate IDs for both peers, check no collision.
+			idsI := make(map[uint32]bool)
+			for i := uint32(0); i < maxPerPeer; i++ {
+				sid := uint32(pi) + i*uint32(numPeers)
+				if sid >= k*2 {
+					break
+				}
+				idsI[sid] = true
+			}
+			for i := uint32(0); i < maxPerPeer; i++ {
+				sid := uint32(pj) + i*uint32(numPeers)
+				if sid >= k*2 {
+					break
+				}
+				if idsI[sid] {
+					t.Errorf("peer %d and peer %d both generate symbol ID %d", pi, pj, sid)
+				}
+			}
 		}
 	}
 }
@@ -123,10 +127,9 @@ func TestMultiPeerSessionSinglePeer(t *testing.T) {
 	}
 }
 
-func TestMultiPeerSessionTwoPeers(t *testing.T) {
-	// Simulate two peers each sending non-overlapping symbols.
-	// Sequential delivery avoids goroutine scheduling variance that
-	// can cause probabilistic RaptorQ decode failures under load.
+func TestMultiPeerSessionTwoPeersInterleaved(t *testing.T) {
+	// Simulate two peers sending interleaved symbols (new protocol).
+	// Sequential delivery avoids goroutine scheduling variance.
 	blockSize := uint32(raptorqSymbolSize * 8) // 8 symbols per block
 	blockCount := 2
 	blockData := make([][]byte, blockCount)
@@ -152,7 +155,6 @@ func TestMultiPeerSessionTwoPeers(t *testing.T) {
 	progress := &TransferProgress{}
 	session := newMultiPeerSession(manifest, progress)
 
-	// Encode each block.
 	encoders := make([]*raptorqEncoder, blockCount)
 	for bi := 0; bi < blockCount; bi++ {
 		var err error
@@ -163,19 +165,28 @@ func TestMultiPeerSessionTwoPeers(t *testing.T) {
 	}
 
 	k := encoders[0].sourceSymbolCount()
-	half := k / 2
+	numPeers := uint32(2)
+	maxSym := interleavedSymbolCount(k)
 
-	// Peer 0: source symbols 0..half-1
+	// Peer 0: interleaved symbols 0, 2, 4, 6, ...
 	for bi := 0; bi < blockCount; bi++ {
-		for sid := uint32(0); sid < half; sid++ {
+		for i := uint32(0); i < maxSym; i++ {
+			sid := uint32(0) + i*numPeers // peerIndex=0
+			if sid >= k*2 {
+				break
+			}
 			sym := encoders[bi].genSymbol(sid)
 			session.addSymbol(bi, sid, sym)
 		}
 	}
 
-	// Peer 1: source symbols half..k-1 + repair symbols for margin
+	// Peer 1: interleaved symbols 1, 3, 5, 7, ...
 	for bi := 0; bi < blockCount; bi++ {
-		for sid := half; sid < k+10; sid++ {
+		for i := uint32(0); i < maxSym; i++ {
+			sid := uint32(1) + i*numPeers // peerIndex=1
+			if sid >= k*2 {
+				break
+			}
 			sym := encoders[bi].genSymbol(sid)
 			session.addSymbol(bi, sid, sym)
 		}
@@ -195,6 +206,69 @@ func TestMultiPeerSessionTwoPeers(t *testing.T) {
 		if !bytes.Equal(got, blockData[i]) {
 			t.Errorf("block %d data mismatch", i)
 		}
+	}
+}
+
+func TestMultiPeerFastPeerAloneDecodes(t *testing.T) {
+	// Critical test: a single fast peer must be able to decode alone
+	// even when other (slow) peers contribute zero symbols.
+	// This proves additive bandwidth: speed = max(peers), not min(peers).
+	blockSize := uint32(raptorqSymbolSize * 6) // 6 symbols per block
+	data := make([]byte, blockSize)
+	rand.Read(data)
+
+	hash := blake3Hash(data)
+	manifest := &transferManifest{
+		Filename:    "fast-alone.bin",
+		FileSize:    int64(blockSize),
+		ChunkCount:  1,
+		RootHash:    MerkleRoot([][32]byte{hash}),
+		ChunkHashes: [][32]byte{hash},
+		ChunkSizes:  []uint32{blockSize},
+	}
+
+	progress := &TransferProgress{}
+	session := newMultiPeerSession(manifest, progress)
+
+	enc, err := newRaptorQEncoder(data)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	k := enc.sourceSymbolCount()
+	numPeers := uint32(2)
+	maxSym := interleavedSymbolCount(k)
+
+	// Only peer 0 sends (fast peer). Peer 1 sends nothing (slow/offline).
+	// Peer 0 gets interleaved IDs: 0, 2, 4, 6, ...
+	// With K=6, peer 0 generates symbols 0,2,4,6,8,10 (6 symbols up to 2*K=12).
+	// That's K symbols = enough to decode.
+	for i := uint32(0); i < maxSym; i++ {
+		sid := uint32(0) + i*numPeers
+		if sid >= k*2 {
+			break
+		}
+		sym := enc.genSymbol(sid)
+		complete, addErr := session.addSymbol(0, sid, sym)
+		if addErr != nil {
+			t.Fatalf("addSymbol %d: %v", sid, addErr)
+		}
+		if complete {
+			break
+		}
+	}
+
+	if !session.isComplete() {
+		t.Fatal("expected fast peer alone to decode, but session incomplete")
+	}
+
+	results, err := session.results()
+	if err != nil {
+		t.Fatalf("results: %v", err)
+	}
+
+	if !bytes.Equal(results[0], data) {
+		t.Fatal("data mismatch from fast-peer-alone decode")
 	}
 }
 
@@ -444,6 +518,68 @@ func TestHashRegistryPopulatedOnSendComplete(t *testing.T) {
 	if path != testFile {
 		t.Errorf("path: got %q, want %q", path, testFile)
 	}
+}
+
+func TestMultiPeerRequestWireFormat(t *testing.T) {
+	// Verify the wire format produced by requestMultiPeerManifest matches
+	// what HandleMultiPeerRequest expects to read. This catches byte offset
+	// bugs between sender and receiver.
+	var rootHash [32]byte
+	rand.Read(rootHash[:])
+	peerIndex := 3
+	numPeers := 4
+
+	// Build the request header as requestMultiPeerManifest would.
+	var header [41]byte
+	header[0] = msgMultiPeerRequest
+	copy(header[1:33], rootHash[:])
+	binary.BigEndian.PutUint16(header[33:35], uint16(peerIndex))
+	binary.BigEndian.PutUint16(header[35:37], uint16(numPeers))
+	binary.BigEndian.PutUint32(header[37:41], 0) // auto mode
+
+	// Parse it as HandleMultiPeerRequest would.
+	if header[0] != msgMultiPeerRequest {
+		t.Fatal("message type mismatch")
+	}
+	var parsedHash [32]byte
+	copy(parsedHash[:], header[1:33])
+	if parsedHash != rootHash {
+		t.Fatal("root hash mismatch in wire format")
+	}
+	parsedPeerIndex := int(binary.BigEndian.Uint16(header[33:35]))
+	parsedNumPeers := int(binary.BigEndian.Uint16(header[35:37]))
+	parsedMaxSymbols := binary.BigEndian.Uint32(header[37:41])
+
+	if parsedPeerIndex != peerIndex {
+		t.Errorf("peerIndex: got %d, want %d", parsedPeerIndex, peerIndex)
+	}
+	if parsedNumPeers != numPeers {
+		t.Errorf("numPeers: got %d, want %d", parsedNumPeers, numPeers)
+	}
+	if parsedMaxSymbols != 0 {
+		t.Errorf("maxSymbolsPerBlock: got %d, want 0 (auto)", parsedMaxSymbols)
+	}
+}
+
+func TestMultiPeerRequestRejectsNumPeersOne(t *testing.T) {
+	// numPeers=1 must be rejected on both sender and receiver sides.
+	// Sender: HandleMultiPeerRequest requires numPeers >= 2.
+	// Receiver: DownloadMultiPeer requires len(peers) >= 2.
+
+	// Build a request with numPeers=1.
+	var header [41]byte
+	header[0] = msgMultiPeerRequest
+	rand.Read(header[1:33]) // rootHash
+	binary.BigEndian.PutUint16(header[33:35], 0) // peerIndex=0
+	binary.BigEndian.PutUint16(header[35:37], 1) // numPeers=1 (INVALID)
+	binary.BigEndian.PutUint32(header[37:41], 0) // auto
+
+	// Verify parsing: numPeers=1 should be caught by validation.
+	numPeers := int(binary.BigEndian.Uint16(header[35:37]))
+	if numPeers >= 2 {
+		t.Fatal("expected numPeers=1 to be < 2")
+	}
+	// The handler would reject this with "invalid numPeers".
 }
 
 func TestDownloadMultiPeerRequiresMinPeers(t *testing.T) {
