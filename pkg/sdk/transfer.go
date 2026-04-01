@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -906,165 +905,6 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 	return ts, nil
 }
 
-// --- Wire format ---
-
-// writeManifest serializes and writes the SHFT manifest to w.
-//
-// Wire layout:
-//
-//	magic(4) + version(1) + flags(1) + nameLen(2) + name(var)
-//	+ fileSize(8) + chunkCount(4) + rootHash(32)
-//	+ chunkHashes(chunkCount * 32)
-func writeManifest(w io.Writer, m *transferManifest) error {
-	nameBytes := []byte(m.Filename)
-	if len(nameBytes) > maxFilenameLen {
-		return fmt.Errorf("filename too long: %d bytes", len(nameBytes))
-	}
-	if m.ChunkCount > maxChunkCount {
-		return fmt.Errorf("too many chunks: %d", m.ChunkCount)
-	}
-
-	if len(m.ChunkSizes) != m.ChunkCount {
-		return fmt.Errorf("chunk sizes count mismatch: %d sizes for %d chunks", len(m.ChunkSizes), m.ChunkCount)
-	}
-
-	headerSize := 4 + 1 + 1 + 2 + len(nameBytes) + 8 + 4 + 32
-	totalSize := headerSize + m.ChunkCount*32 + m.ChunkCount*4 // hashes + sizes
-	if totalSize > maxManifestSize {
-		return fmt.Errorf("manifest too large: %d bytes", totalSize)
-	}
-
-	buf := make([]byte, headerSize)
-	buf[0] = shftMagic0
-	buf[1] = shftMagic1
-	buf[2] = shftMagic2
-	buf[3] = shftMagic3
-	buf[4] = shftVersion
-	buf[5] = m.Flags
-	binary.BigEndian.PutUint16(buf[6:8], uint16(len(nameBytes)))
-	copy(buf[8:8+len(nameBytes)], nameBytes)
-	off := 8 + len(nameBytes)
-	binary.BigEndian.PutUint64(buf[off:off+8], uint64(m.FileSize))
-	binary.BigEndian.PutUint32(buf[off+8:off+12], uint32(m.ChunkCount))
-	copy(buf[off+12:off+44], m.RootHash[:])
-
-	// Write header.
-	if _, err := w.Write(buf); err != nil {
-		return fmt.Errorf("write manifest header: %w", err)
-	}
-
-	// Write chunk hashes.
-	for i := 0; i < m.ChunkCount; i++ {
-		if _, err := w.Write(m.ChunkHashes[i][:]); err != nil {
-			return fmt.Errorf("write chunk hash %d: %w", i, err)
-		}
-	}
-
-	// Write chunk sizes (decompressed, for sparse writes and resume).
-	sizeBuf := make([]byte, 4)
-	for i := 0; i < m.ChunkCount; i++ {
-		binary.BigEndian.PutUint32(sizeBuf, m.ChunkSizes[i])
-		if _, err := w.Write(sizeBuf); err != nil {
-			return fmt.Errorf("write chunk size %d: %w", i, err)
-		}
-	}
-
-	// Write erasure coding fields (only if flagErasureCoded).
-	if m.Flags&flagErasureCoded != 0 {
-		if err := writeErasureManifest(w, m.StripeSize, m.ParityCount, m.ParityHashes, m.ParitySizes); err != nil {
-			return fmt.Errorf("write erasure manifest: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// readManifest reads and validates an SHFT manifest from r.
-func readManifest(r io.Reader) (*transferManifest, error) {
-	// Read magic + version + flags.
-	var prefix [6]byte
-	if _, err := io.ReadFull(r, prefix[:]); err != nil {
-		return nil, fmt.Errorf("read manifest prefix: %w", err)
-	}
-
-	if prefix[0] != shftMagic0 || prefix[1] != shftMagic1 ||
-		prefix[2] != shftMagic2 || prefix[3] != shftMagic3 {
-		return nil, fmt.Errorf("invalid magic bytes: not SHFT")
-	}
-	if prefix[4] != shftVersion {
-		return nil, fmt.Errorf("unsupported SHFT version: %d (expected %d)", prefix[4], shftVersion)
-	}
-
-	m := &transferManifest{Flags: prefix[5]}
-
-	// Read nameLen.
-	var nameLenBuf [2]byte
-	if _, err := io.ReadFull(r, nameLenBuf[:]); err != nil {
-		return nil, fmt.Errorf("read name length: %w", err)
-	}
-	nameLen := binary.BigEndian.Uint16(nameLenBuf[:])
-	if nameLen > maxFilenameLen {
-		return nil, fmt.Errorf("filename too long: %d", nameLen)
-	}
-
-	// Read name + fileSize + chunkCount + rootHash.
-	rest := make([]byte, int(nameLen)+8+4+32)
-	if _, err := io.ReadFull(r, rest); err != nil {
-		return nil, fmt.Errorf("read manifest body: %w", err)
-	}
-
-	m.Filename = string(rest[:nameLen])
-	m.FileSize = int64(binary.BigEndian.Uint64(rest[nameLen : nameLen+8]))
-	m.ChunkCount = int(binary.BigEndian.Uint32(rest[nameLen+8 : nameLen+12]))
-	copy(m.RootHash[:], rest[nameLen+12:nameLen+44])
-
-	// Validate.
-	if m.FileSize < 0 || m.FileSize > maxFileSize {
-		return nil, fmt.Errorf("invalid file size: %d", m.FileSize)
-	}
-	if m.ChunkCount < 0 || (m.ChunkCount == 0 && m.FileSize > 0) || m.ChunkCount > maxChunkCount {
-		return nil, fmt.Errorf("invalid chunk count: %d (file size: %d)", m.ChunkCount, m.FileSize)
-	}
-
-	// Sanitize filename: preserve relative paths but strip traversal attacks.
-	m.Filename = sanitizeRelativePath(m.Filename)
-	if m.Filename == "" {
-		return nil, fmt.Errorf("filename is empty after sanitization")
-	}
-
-	// Read chunk hashes.
-	m.ChunkHashes = make([][32]byte, m.ChunkCount)
-	for i := 0; i < m.ChunkCount; i++ {
-		if _, err := io.ReadFull(r, m.ChunkHashes[i][:]); err != nil {
-			return nil, fmt.Errorf("read chunk hash %d: %w", i, err)
-		}
-	}
-
-	// Read chunk sizes.
-	m.ChunkSizes = make([]uint32, m.ChunkCount)
-	sizeBuf := make([]byte, 4)
-	for i := 0; i < m.ChunkCount; i++ {
-		if _, err := io.ReadFull(r, sizeBuf); err != nil {
-			return nil, fmt.Errorf("read chunk size %d: %w", i, err)
-		}
-		m.ChunkSizes[i] = binary.BigEndian.Uint32(sizeBuf)
-	}
-
-	// Read erasure coding fields (only if flagErasureCoded).
-	if m.Flags&flagErasureCoded != 0 {
-		ss, ph, ps, err := readErasureManifest(r)
-		if err != nil {
-			return nil, fmt.Errorf("read erasure manifest: %w", err)
-		}
-		m.StripeSize = ss
-		m.ParityCount = len(ph)
-		m.ParityHashes = ph
-		m.ParitySizes = ps
-	}
-
-	return m, nil
-}
-
 // isDangerousRune returns true for characters that are dangerous in filenames:
 // terminal escape sequences, invisible Unicode, BiDi overrides, and variation selectors.
 // These can cause terminal injection (OSC 52 clipboard RCE), AI prompt injection
@@ -1184,64 +1024,6 @@ func sanitizeRelativePath(name string) string {
 	return strings.Join(parts, "/")
 }
 
-// writeChunkFrame writes a single chunk to the wire.
-//
-// Wire layout: type(1) + index(4) + dataLen(4) + data(var)
-func writeChunkFrame(w io.Writer, index int, data []byte) error {
-	if len(data) > maxChunkWireSize {
-		return fmt.Errorf("chunk %d too large: %d bytes", index, len(data))
-	}
-
-	var header [9]byte
-	header[0] = msgChunk
-	binary.BigEndian.PutUint32(header[1:5], uint32(index))
-	binary.BigEndian.PutUint32(header[5:9], uint32(len(data)))
-
-	if _, err := w.Write(header[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(data)
-	return err
-}
-
-// readChunkFrame reads a single chunk frame from the wire.
-// Returns the chunk index and data. Validates bounds.
-func readChunkFrame(r io.Reader) (int, []byte, error) {
-	// Read message type first (1 byte) before committing to the full 9-byte header.
-	// The done signal (msgTransferDone) is only 1 byte via writeMsg, not a full frame.
-	var typeByte [1]byte
-	if _, err := io.ReadFull(r, typeByte[:]); err != nil {
-		return 0, nil, fmt.Errorf("read chunk header: %w", err)
-	}
-
-	if typeByte[0] == msgTransferDone {
-		return -1, nil, nil // sentinel: transfer complete
-	}
-	if typeByte[0] != msgChunk {
-		return 0, nil, fmt.Errorf("unexpected message type: %d (expected chunk)", typeByte[0])
-	}
-
-	// Read remaining 8 bytes: index(4) + dataLen(4).
-	var rest [8]byte
-	if _, err := io.ReadFull(r, rest[:]); err != nil {
-		return 0, nil, fmt.Errorf("read chunk header: %w", err)
-	}
-
-	index := int(binary.BigEndian.Uint32(rest[0:4]))
-	dataLen := int(binary.BigEndian.Uint32(rest[4:8]))
-
-	if dataLen > maxChunkWireSize {
-		return 0, nil, fmt.Errorf("chunk %d data too large: %d bytes", index, dataLen)
-	}
-
-	data := make([]byte, dataLen)
-	if _, err := io.ReadFull(r, data); err != nil {
-		return 0, nil, fmt.Errorf("read chunk %d data: %w", index, err)
-	}
-
-	return index, data, nil
-}
-
 // writeMsg writes a single-byte message (accept/reject/done).
 func writeMsg(w io.Writer, msgType byte) error {
 	_, err := w.Write([]byte{msgType})
@@ -1263,11 +1045,42 @@ func writeRejectWithReason(w io.Writer, reason byte) error {
 
 // --- TransferService: Send ---
 
-// rawChunk holds a chunk's hash and wire data for sending.
-// Data is pre-compressed during chunking (if compression is enabled).
-type rawChunk struct {
-	hash [32]byte
-	data []byte // wire data (possibly compressed)
+// estimateChunkCount returns an approximate chunk count for progress display.
+// The exact count is unknown until chunking completes (content-defined chunking).
+func estimateChunkCount(totalSize int64) int {
+	if totalSize <= 0 {
+		return 0
+	}
+	_, avg, _ := ChunkTarget(totalSize)
+	est := int(totalSize / int64(avg))
+	if est < 1 {
+		est = 1
+	}
+	return est
+}
+
+// extractCommonPrefix extracts the top-level directory name from a file table.
+// Returns the common path prefix (first component) shared by all files.
+// For a directory "mydir" with files ["mydir/a.txt", "mydir/sub/b.txt"], returns "mydir".
+func extractCommonPrefix(files []fileEntry) string {
+	if len(files) == 0 {
+		return ""
+	}
+	// Split first file's path to get the first component.
+	first := files[0].Path
+	idx := strings.IndexByte(first, '/')
+	if idx < 0 {
+		return "" // single file, no prefix
+	}
+	prefix := first[:idx]
+
+	// Verify all files share this prefix.
+	for _, f := range files[1:] {
+		if !strings.HasPrefix(f.Path, prefix+"/") {
+			return "" // mixed prefixes
+		}
+	}
+	return prefix
 }
 
 // SendOptions configures a single send operation.
@@ -1278,154 +1091,147 @@ type SendOptions struct {
 	RelativeName string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
 }
 
-// SendFile chunks, compresses, and sends a file over a libp2p stream.
+// SendFile sends a file or directory over a libp2p stream using the streaming protocol.
+// Supports both single files and directories (merged per FT-Y plan).
 // Runs in background; returns a progress tracker immediately.
+//
+// Streaming protocol flow:
+//
+//	writeHeader -> wait for accept/reject/resume -> chunkProducer -> stream chunks -> writeTrailer
 //
 // Incompressible detection: if the first 3 chunks fail to compress
 // (ratio >= 0.95), compression is disabled for remaining chunks.
 func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...SendOptions) (*TransferProgress, error) {
 	remotePeer := s.Conn().RemotePeer()
 
-	f, err := os.Open(filePath)
+	info, err := os.Stat(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
+		return nil, fmt.Errorf("stat path: %w", err)
 	}
 
-	stat, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("stat file: %w", err)
-	}
-	if stat.IsDir() {
-		f.Close()
-		return nil, fmt.Errorf("cannot send directory directly; use SendDirectory()")
-	}
-	if stat.Size() > maxFileSize {
-		f.Close()
-		return nil, fmt.Errorf("file too large: %d bytes (max %d)", stat.Size(), maxFileSize)
+	// Build file table with metadata (F3).
+	var files []fileEntry
+	var filePaths []string
+	var totalSize int64
+
+	if info.IsDir() {
+		// Walk directory, collect regular files with metadata.
+		dirBase := filepath.Base(filePath)
+		err = filepath.WalkDir(filePath, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			// Skip symlinks, device files, sockets (regular files only).
+			if !d.Type().IsRegular() {
+				return nil
+			}
+			fi, fiErr := d.Info()
+			if fiErr != nil {
+				return fiErr
+			}
+			if fi.Size() > maxFileSize {
+				return fmt.Errorf("file %s too large: %d bytes (max %d)", path, fi.Size(), maxFileSize)
+			}
+			rel, relErr := filepath.Rel(filePath, path)
+			if relErr != nil {
+				return relErr
+			}
+			relPath := filepath.ToSlash(filepath.Join(dirBase, rel))
+			fe := fileEntry{
+				Path:      relPath,
+				Size:      fi.Size(),
+				MetaFlags: metaHasMode | metaHasMtime,
+				Mode:      uint32(fi.Mode().Perm()),
+				Mtime:     fi.ModTime().Unix(),
+			}
+			files = append(files, fe)
+			filePaths = append(filePaths, path)
+			totalSize += fi.Size()
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walk directory: %w", err)
+		}
+		if len(files) == 0 {
+			return nil, fmt.Errorf("directory is empty: %s", filePath)
+		}
+		if totalSize > maxTotalTransferSize {
+			return nil, fmt.Errorf("directory too large: %d bytes (max %d)", totalSize, maxTotalTransferSize)
+		}
+	} else {
+		// Single file.
+		if info.Size() > maxFileSize {
+			return nil, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), maxFileSize)
+		}
+		manifestName := filepath.Base(filePath)
+		if len(opts) > 0 && opts[0].RelativeName != "" {
+			manifestName = opts[0].RelativeName
+		}
+		fe := fileEntry{
+			Path:      manifestName,
+			Size:      info.Size(),
+			MetaFlags: metaHasMode | metaHasMtime,
+			Mode:      uint32(info.Mode().Perm()),
+			Mtime:     info.ModTime().Unix(),
+		}
+		files = []fileEntry{fe}
+		filePaths = []string{filePath}
+		totalSize = info.Size()
 	}
 
-	// Phase 1: Chunk the file and collect hashes + data + sizes.
-	var chunks []rawChunk
-	var chunkHashes [][32]byte
-	var chunkSizes []uint32
+	// Sort file table for deterministic ordering (I7, I10, R3-SEC7).
+	if err := sortFileTable(files, filePaths); err != nil {
+		return nil, fmt.Errorf("sort file table: %w", err)
+	}
 
+	// Compute cumulative offsets for cross-file CDC.
+	cumOffsets := computeCumulativeOffsets(files)
+
+	// Generate transfer ID (random per session).
+	var transferID [32]byte
+	rand.Read(transferID[:])
+
+	// Determine compression.
 	useCompression := ts.compress
 	if len(opts) > 0 && opts[0].NoCompress {
 		useCompression = false
 	}
 
-	incompressibleCount := 0
-
-	anyCompressed := false
-
-	err = ChunkReader(f, stat.Size(), func(c Chunk) error {
-		wireData := c.Data
-		if useCompression {
-			compressed, ok := compressChunk(c.Data)
-			if ok {
-				wireData = compressed
-				anyCompressed = true
-			} else {
-				incompressibleCount++
-			}
-			// After first 3 chunks: if none compressed, disable for rest.
-			if len(chunkHashes) == 2 && incompressibleCount == 3 {
-				useCompression = false
-				slog.Debug("file-transfer: compression disabled (incompressible data detected)")
-			}
-		}
-		chunks = append(chunks, rawChunk{
-			hash: c.Hash,
-			data: wireData,
-		})
-		chunkHashes = append(chunkHashes, c.Hash)
-		chunkSizes = append(chunkSizes, uint32(len(c.Data)))
-		return nil
-	})
-	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("chunk file: %w", err)
-	}
-	f.Close()
-
-	rootHash := MerkleRoot(chunkHashes)
-
 	var flags uint8
-	if anyCompressed || useCompression {
+	if useCompression {
 		flags |= flagCompressed
 	}
 
-	manifestName := filepath.Base(filePath)
-	if len(opts) > 0 && opts[0].RelativeName != "" {
-		manifestName = opts[0].RelativeName
-	}
-
-	manifest := &transferManifest{
-		Filename:    manifestName,
-		FileSize:    stat.Size(),
-		ChunkCount:  len(chunks),
-		Flags:       flags,
-		RootHash:    rootHash,
-		ChunkHashes: chunkHashes,
-		ChunkSizes:  chunkSizes,
-	}
-
-	// Phase 2: Erasure coding (transport-aware).
-	// Auto-enable on Direct WAN, OFF on LAN (reliable), relay already blocked.
-	var parityEntries []parityChunk
+	// Erasure coding decision (transport-aware).
 	useErasure := ts.erasureOverhead > 0
 	if useErasure {
 		transport := ClassifyTransport(s)
 		if transport == TransportLAN {
-			useErasure = false // LAN is reliable, skip erasure overhead
+			useErasure = false
 		} else if transport == TransportDirect && ts.connsToPeer != nil {
-			// Stream is on a public IP (e.g. IPv6), but the peer may still be
-			// on the same LAN (connected via both private IPv4 and public IPv6).
-			// Check all connections to this peer for any LAN path.
 			if anyConnIsLAN(ts.connsToPeer(s.Conn().RemotePeer())) {
 				useErasure = false
 			}
 		}
 	}
-	if useErasure && len(chunks) > 0 {
-		// Collect decompressed data for RS encoding.
-		// Re-read file to get original chunk data (chunks[] holds wire data which may be compressed).
-		dataForRS := make([][]byte, len(chunks))
-		rsFile, err := os.Open(filePath)
-		if err != nil {
-			return nil, fmt.Errorf("reopen file for erasure: %w", err)
-		}
-		i := 0
-		err = ChunkReader(rsFile, stat.Size(), func(c Chunk) error {
-			dataForRS[i] = c.Data
-			i++
-			return nil
-		})
-		rsFile.Close()
-		if err != nil {
-			return nil, fmt.Errorf("rechunk for erasure: %w", err)
-		}
+	if useErasure {
+		flags |= flagErasureCoded
+	}
 
-		params := computeErasureParams(len(chunks), ts.erasureOverhead)
-		parityEntries, err = encodeErasure(dataForRS, params.StripeSize, ts.erasureOverhead)
-		if err != nil {
-			return nil, fmt.Errorf("erasure encode: %w", err)
-		}
-
-		manifest.Flags |= flagErasureCoded
-		manifest.StripeSize = params.StripeSize
-		manifest.ParityCount = len(parityEntries)
-		manifest.ParityHashes = make([][32]byte, len(parityEntries))
-		manifest.ParitySizes = make([]uint32, len(parityEntries))
-		for j, p := range parityEntries {
-			manifest.ParityHashes[j] = p.hash
-			manifest.ParitySizes[j] = uint32(len(p.data))
+	// Display name for progress tracking (R4-IMP6).
+	displayName := files[0].Path
+	if len(files) > 1 {
+		if prefix := extractCommonPrefix(files); prefix != "" {
+			displayName = prefix
+		} else {
+			displayName = filepath.Base(filePath)
 		}
 	}
 
-	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
-		remotePeer.String(), "send", manifest.ChunkCount, anyCompressed || useCompression)
+	estimatedChunks := estimateChunkCount(totalSize)
+
+	progress := ts.trackTransfer(displayName, totalSize,
+		remotePeer.String(), "send", estimatedChunks, useCompression)
 	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
 	progress.setCancelFunc(func() { s.Reset() })
 
@@ -1434,53 +1240,46 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		progress.setRelayTracker(tracker)
 	}
 
-	// Set erasure info on progress for CLI display.
-	if useErasure && len(parityEntries) > 0 {
-		progress.mu.Lock()
-		progress.ErasureParity = len(parityEntries)
-		progress.ErasureOverhead = ts.erasureOverhead
-		progress.mu.Unlock()
-	}
-
-	// Determine parallel stream count based on transport type.
-	var opener streamOpener
-	var requestedStreams int
-	if len(opts) > 0 {
-		opener = opts[0].StreamOpener
-		requestedStreams = opts[0].Streams
-	}
-	transport := ClassifyTransport(s)
-	numStreams := adaptiveStreamCount(transport, len(chunks), requestedStreams)
-
 	go func() {
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		sendStart := time.Now()
-		ts.logEvent(EventLogStarted, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, 0, "", "")
+		ts.logEvent(EventLogStarted, "send", remotePeer.String(), displayName, totalSize, 0, "", "")
 
-		var err error
-		if numStreams > 1 && opener != nil {
-			err = ts.sendParallel(s, opener, manifest, chunks, parityEntries, progress, numStreams)
-		} else {
-			err = ts.sendChunked(s, manifest, chunks, parityEntries, progress)
+		// Parallel stream config from SendOptions.
+		var opener streamOpener
+		var streams int
+		if len(opts) > 0 {
+			opener = opts[0].StreamOpener
+			streams = opts[0].Streams
 		}
-		progress.finish(err)
+		// Determine actual stream count based on transport + chunk estimate.
+		if opener != nil {
+			transport := ClassifyTransport(s)
+			streams = adaptiveStreamCount(transport, estimatedChunks, streams)
+		} else {
+			streams = 1
+		}
+
+		rootHash, sendErr := ts.streamingSend(s, files, filePaths, cumOffsets, totalSize,
+			flags, transferID, useCompression, useErasure, opener, streams, progress)
+		progress.finish(sendErr)
 		ts.markCompleted(progress.ID)
 
 		short := remotePeer.String()[:16] + "..."
 		dur := time.Since(sendStart).Truncate(time.Millisecond).String()
-		if err != nil {
+		if sendErr != nil {
 			slog.Error("file-transfer: send failed",
-				"peer", short, "file", manifest.Filename, "error", err)
-			ts.logEvent(EventLogFailed, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, progress.Sent(), err.Error(), dur)
+				"peer", short, "file", displayName, "error", sendErr)
+			ts.logEvent(EventLogFailed, "send", remotePeer.String(), displayName, totalSize, progress.Sent(), sendErr.Error(), dur)
 		} else {
 			slog.Info("file-transfer: sent",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize, "chunks", manifest.ChunkCount)
-			ts.logEvent(EventLogCompleted, "send", remotePeer.String(), manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
-			// Register hash so this node can serve multi-peer requests for this file.
-			ts.RegisterHash(manifest.RootHash, filePath)
+				"peer", short, "file", displayName,
+				"size", totalSize, "chunks", progress.ChunksDone)
+			ts.logEvent(EventLogCompleted, "send", remotePeer.String(), displayName, totalSize, totalSize, "", dur)
+			// Register hash so this node can serve multi-peer requests.
+			ts.RegisterHash(rootHash, filePath)
 		}
 
 		if ts.events != nil {
@@ -1495,11 +1294,195 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	return progress, nil
 }
 
-// SendDirectory walks a directory and sends each regular file to the peer
-// sequentially, preserving relative directory structure in filenames.
-// openStream is called once per file to get a fresh stream.
-// Returns progress trackers for all files sent.
+// streamingSend executes the streaming protocol: writeHeader -> accept -> chunkProducer -> stream -> trailer.
+// Returns the computed Merkle root hash on success.
+//
+// When numStreams > 1 and openStream is non-nil, chunks are distributed across parallel
+// worker streams via sendParallel. Otherwise, all chunks go on the control stream.
+func (ts *TransferService) streamingSend(
+	rw io.ReadWriter,
+	files []fileEntry, filePaths []string, cumOffsets []int64,
+	totalSize int64, flags uint8, transferID [32]byte,
+	useCompression, useErasure bool,
+	openStream streamOpener, numStreams int,
+	progress *TransferProgress,
+) ([32]byte, error) {
+	var zero [32]byte
+
+	// Write header.
+	if err := writeHeader(rw, files, flags, totalSize, transferID); err != nil {
+		return zero, fmt.Errorf("write header: %w", err)
+	}
+
+	// Wait for accept/reject/resume.
+	resp, err := readMsg(rw)
+	if err != nil {
+		return zero, fmt.Errorf("read response: %w", err)
+	}
+
+	var acceptBitfield *bitfield
+	var skipBitfield *bitfield
+
+	switch resp {
+	case msgReject:
+		return zero, fmt.Errorf("peer rejected transfer")
+
+	case msgRejectReason:
+		reasonByte, readErr := readMsg(rw)
+		if readErr != nil {
+			return zero, fmt.Errorf("peer rejected transfer (could not read reason)")
+		}
+		return zero, fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
+
+	case msgAccept:
+		// Read accept bitfield (F2).
+		bf, bfErr := readAcceptBitfield(rw, len(files))
+		if bfErr != nil {
+			return zero, fmt.Errorf("read accept bitfield: %w", bfErr)
+		}
+		// All-zero bitfield = full rejection (R4-IMP4).
+		if isAllRejected(bf) {
+			return zero, fmt.Errorf("peer rejected all files")
+		}
+		if !isFullAccept(bf) {
+			acceptBitfield = bf
+		}
+
+	case msgResumeRequest:
+		// Resume: read bitfield of chunks the receiver already has.
+		bfData, bfErr := readResumePayload(rw)
+		if bfErr != nil {
+			return zero, fmt.Errorf("read resume payload: %w", bfErr)
+		}
+		// Estimate chunk count for bitfield sizing.
+		estChunks := estimateChunkCount(totalSize)
+		skipBitfield = &bitfield{
+			bits: make([]byte, (estChunks+7)/8),
+			n:    estChunks,
+		}
+		copy(skipBitfield.bits, bfData)
+
+		if err := writeMsg(rw, msgResumeResponse); err != nil {
+			return zero, fmt.Errorf("send resume response: %w", err)
+		}
+
+		slog.Info("file-transfer: resuming",
+			"have", skipBitfield.count(), "total_est", estChunks)
+
+	default:
+		return zero, fmt.Errorf("unexpected response: 0x%02x", resp)
+	}
+
+	progress.setStatus("active")
+
+	// Launch chunk producer goroutine (N2, N9, F1).
+	ch := make(chan streamChunk, producerChanBuffer)
+	done := make(chan producerResult, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go chunkProducer(ctx, files, filePaths, cumOffsets, totalSize,
+		useCompression, useErasure, skipBitfield, acceptBitfield, ch, done)
+
+	// Distribute chunks: parallel (N worker streams) or single stream.
+	var result producerResult
+	if numStreams > 1 && openStream != nil {
+		var parallelErr error
+		result, parallelErr = ts.sendParallel(rw, openStream, transferID, ch, done, progress, numStreams)
+		if parallelErr != nil {
+			cancel()
+			return zero, parallelErr
+		}
+	} else {
+		// Single-stream: read from producer, write directly.
+		var totalSent int64
+		chunksSent := 0
+		for sc := range ch {
+			if err := writeStreamChunkFrame(rw, sc); err != nil {
+				cancel()
+				<-done
+				return zero, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
+			}
+			totalSent += int64(len(sc.data))
+			chunksSent++
+			progress.updateChunks(totalSent, chunksSent)
+			progress.addWireBytes(int64(len(sc.data)))
+		}
+		result = <-done
+		if result.err != nil {
+			return zero, fmt.Errorf("chunk producer: %w", result.err)
+		}
+	}
+
+	// Update progress with actual chunk count (I3).
+	progress.mu.Lock()
+	progress.ChunksTotal = len(result.chunkHashes)
+	progress.mu.Unlock()
+
+	// Compute Merkle root.
+	rootHash := MerkleRoot(result.chunkHashes)
+
+	// Handle erasure coding (R4-SEC1: current approach buffers all data).
+	var erasure *erasureTrailer
+	if useErasure && len(result.rawForRS) > 0 {
+		params := computeErasureParams(len(result.chunkHashes), ts.erasureOverhead)
+		parityEntries, rsErr := encodeErasure(result.rawForRS, params.StripeSize, ts.erasureOverhead)
+		if rsErr != nil {
+			return zero, fmt.Errorf("erasure encode: %w", rsErr)
+		}
+
+		// Set erasure info on progress for CLI display.
+		progress.mu.Lock()
+		progress.ErasureParity = len(parityEntries)
+		progress.ErasureOverhead = ts.erasureOverhead
+		progress.mu.Unlock()
+
+		// Send parity chunks as streaming frames (after all data chunks).
+		// Use parityFileIdx sentinel so receiver doesn't write parity to file data (S1 fix).
+		for i, p := range parityEntries {
+			parityIdx := len(result.chunkHashes) + i
+			sc := streamChunk{
+				fileIdx:    parityFileIdx,
+				chunkIdx:   parityIdx,
+				offset:     0, // parity chunks don't map to file offsets
+				hash:       p.hash,
+				decompSize: uint32(len(p.data)),
+				data:       p.data,
+			}
+			if err := writeStreamChunkFrame(rw, sc); err != nil {
+				return zero, fmt.Errorf("send parity chunk %d: %w", i, err)
+			}
+			progress.addWireBytes(int64(len(p.data)))
+		}
+
+		// Build erasure trailer.
+		parityHashes := make([][32]byte, len(parityEntries))
+		paritySizes := make([]uint32, len(parityEntries))
+		for i, p := range parityEntries {
+			parityHashes[i] = p.hash
+			paritySizes[i] = uint32(len(p.data))
+		}
+		erasure = &erasureTrailer{
+			StripeSize:   params.StripeSize,
+			ParityCount:  len(parityEntries),
+			ParityHashes: parityHashes,
+			ParitySizes:  paritySizes,
+		}
+	}
+
+	// Write trailer.
+	if err := writeTrailer(rw, len(result.chunkHashes), rootHash, result.skippedHashes, erasure); err != nil {
+		return zero, fmt.Errorf("write trailer: %w", err)
+	}
+
+	return rootHash, nil
+}
+
+// SendDirectory is now merged into SendFile. Directories are detected automatically.
+// This wrapper exists for backward compatibility with executeQueuedJob.
+// It opens a single stream and sends the entire directory as one transfer (I4).
 func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, openStream func() (network.Stream, error), opts SendOptions) ([]*TransferProgress, error) {
+	// Validate path before opening stream (matches old behavior).
 	info, err := os.Stat(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat directory: %w", err)
@@ -1508,192 +1491,51 @@ func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, op
 		return nil, fmt.Errorf("not a directory: %s", dirPath)
 	}
 
-	// Collect regular files with their relative paths.
-	type fileEntry struct {
-		absPath  string
-		relPath  string
-	}
-	var files []fileEntry
-	dirBase := filepath.Base(dirPath)
-
-	err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	// Check for empty directory before opening a stream.
+	isEmpty := true
+	filepath.WalkDir(dirPath, func(path string, d os.DirEntry, _ error) error {
+		if path != dirPath && d != nil && d.Type().IsRegular() {
+			isEmpty = false
+			return filepath.SkipAll
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		// Skip symlinks, device files, sockets (regular files only).
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(dirPath, path)
-		if relErr != nil {
-			return relErr
-		}
-		// Prefix with directory name so receiver gets "mydir/subdir/file.txt".
-		files = append(files, fileEntry{
-			absPath: path,
-			relPath: filepath.Join(dirBase, rel),
-		})
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("walk directory: %w", err)
-	}
-
-	if len(files) == 0 {
+	if isEmpty {
 		return nil, fmt.Errorf("directory is empty: %s", dirPath)
 	}
 
-	// Send each file sequentially, one stream per file.
-	var allProgress []*TransferProgress
-	for _, fe := range files {
-		if ctx.Err() != nil {
-			return allProgress, ctx.Err()
-		}
-
-		stream, streamErr := openStream()
-		if streamErr != nil {
-			return allProgress, fmt.Errorf("open stream for %s: %w", fe.relPath, streamErr)
-		}
-
-		fileOpts := opts
-		// Use forward slashes in relative name for cross-platform wire format.
-		fileOpts.RelativeName = filepath.ToSlash(fe.relPath)
-
-		progress, sendErr := ts.SendFile(stream, fe.absPath, fileOpts)
-		if sendErr != nil {
-			stream.Close()
-			return allProgress, fmt.Errorf("send %s: %w", fe.relPath, sendErr)
-		}
-		allProgress = append(allProgress, progress)
-
-		// Wait for this file to complete before starting the next (sequential).
-		for {
-			snap := progress.Snapshot()
-			if snap.Done {
-				if snap.Error != "" {
-					return allProgress, fmt.Errorf("transfer %s failed: %s", fe.relPath, snap.Error)
-				}
-				break
+	stream, streamErr := openStream()
+	if streamErr != nil {
+		return nil, fmt.Errorf("open stream: %w", streamErr)
+	}
+	progress, sendErr := ts.SendFile(stream, dirPath, opts)
+	if sendErr != nil {
+		stream.Close()
+		return nil, sendErr
+	}
+	// Wait for completion (SendFile runs in background).
+	for {
+		snap := progress.Snapshot()
+		if snap.Done {
+			if snap.Error != "" {
+				return []*TransferProgress{progress}, fmt.Errorf("transfer failed: %s", snap.Error)
 			}
-			select {
-			case <-ctx.Done():
-				return allProgress, ctx.Err()
-			case <-time.After(100 * time.Millisecond):
-			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return []*TransferProgress{progress}, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
-
-	return allProgress, nil
-}
-
-// sendChunked sends the manifest, waits for accept or resume, then sends
-// pre-compressed chunks sequentially on a single stream.
-func (ts *TransferService) sendChunked(w io.ReadWriter, m *transferManifest, chunks []rawChunk, parity []parityChunk, progress *TransferProgress) error {
-	// Send manifest.
-	if err := writeManifest(w, m); err != nil {
-		return fmt.Errorf("send manifest: %w", err)
-	}
-
-	// Wait for accept/reject/resume.
-	resp, err := readMsg(w)
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-
-	switch resp {
-	case msgReject:
-		return fmt.Errorf("peer rejected transfer")
-
-	case msgRejectReason:
-		reasonByte, err := readMsg(w)
-		if err != nil {
-			return fmt.Errorf("peer rejected transfer (could not read reason)")
-		}
-		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
-
-	case msgResumeRequest:
-		bfData, err := readResumePayload(w)
-		if err != nil {
-			return fmt.Errorf("read resume payload: %w", err)
-		}
-
-		have := &bitfield{
-			bits: make([]byte, (m.ChunkCount+7)/8),
-			n:    m.ChunkCount,
-		}
-		copy(have.bits, bfData)
-
-		if err := writeMsg(w, msgResumeResponse); err != nil {
-			return fmt.Errorf("send resume response: %w", err)
-		}
-
-		progress.setStatus("active")
-
-		skipped := have.count()
-		slog.Info("file-transfer: resuming",
-			"file", m.Filename, "have", skipped, "total", m.ChunkCount,
-			"remaining", m.ChunkCount-skipped)
-
-		// Send only missing data chunks.
-		var totalSent int64
-		sent := 0
-		for i, c := range chunks {
-			if have.has(i) {
-				continue
-			}
-			if err := writeChunkFrame(w, i, c.data); err != nil {
-				return fmt.Errorf("send chunk %d: %w", i, err)
-			}
-			totalSent += int64(len(c.data))
-			sent++
-			progress.updateChunks(totalSent, skipped+sent)
-			progress.addWireBytes(int64(len(c.data)))
-		}
-
-		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
-			return err
-		}
-		return writeMsg(w, msgTransferDone)
-
-	case msgAccept:
-		progress.setStatus("active")
-
-		var totalSent int64
-		for i, c := range chunks {
-			if err := writeChunkFrame(w, i, c.data); err != nil {
-				return fmt.Errorf("send chunk %d: %w", i, err)
-			}
-			totalSent += int64(len(c.data))
-			progress.updateChunks(totalSent, i+1)
-			progress.addWireBytes(int64(len(c.data)))
-		}
-
-		if err := sendParityChunks(w, parity, m.ChunkCount); err != nil {
-			return err
-		}
-		return writeMsg(w, msgTransferDone)
-
-	default:
-		return fmt.Errorf("unexpected response: %d", resp)
-	}
-}
-
-// sendParityChunks sends parity chunks with indices starting at dataCount.
-func sendParityChunks(w io.Writer, parity []parityChunk, dataCount int) error {
-	for i, p := range parity {
-		if err := writeChunkFrame(w, dataCount+i, p.data); err != nil {
-			return fmt.Errorf("send parity chunk %d: %w", i, err)
-		}
-	}
-	return nil
+	return []*TransferProgress{progress}, nil
 }
 
 // --- TransferService: Receive ---
 
-// HandleInbound returns a StreamHandler for receiving chunked files.
+// HandleInbound returns a StreamHandler for receiving files via the streaming protocol.
+// Reads SHFT streaming header, validates, accepts/rejects, then receives chunks
+// via readStreamChunkFrame and verifies via trailer Merkle root.
 func (ts *TransferService) HandleInbound() StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		// Peek the first byte to detect parallel worker streams.
@@ -1731,8 +1573,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 
 		// Failure backoff check (before any resource allocation).
 		if ts.failureTracker != nil && ts.failureTracker.isBlocked(peerKey) {
-			slog.Warn("file-transfer: peer blocked (failure backoff)",
-				"peer", short)
+			slog.Warn("file-transfer: peer blocked (failure backoff)", "peer", short)
 			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, "", 0, 0, "failure backoff", "")
 			s.Reset()
 			return
@@ -1787,56 +1628,66 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			ts.mu.Unlock()
 		}()
 
-		// Per-peer rate limit check (before parsing manifest to save CPU).
+		// Per-peer rate limit check (before parsing header to save CPU).
 		if ts.rateLimiter != nil && !ts.rateLimiter.allow(peerKey) {
-			slog.Warn("file-transfer: rate limit exceeded",
-				"peer", short)
+			slog.Warn("file-transfer: rate limit exceeded", "peer", short)
 			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, "", 0, 0, "rate limit exceeded", "")
 			s.Reset()
 			return
 		}
 
-		s.SetDeadline(time.Now().Add(transferStreamDeadline))
+		// Short header deadline (I9): 30s to read header, extend after accept.
+		s.SetDeadline(time.Now().Add(30 * time.Second))
 
-		// Read manifest.
-		manifest, err := readManifest(rw)
+		// Read streaming header.
+		files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
 		if err != nil {
-			slog.Warn("file-transfer: bad manifest", "peer", short, "error", err)
+			slog.Warn("file-transfer: bad header", "peer", short, "error", err)
 			writeMsg(s, msgReject)
 			return
 		}
+		// Display name for notification and progress (R4-IMP6).
+		var displayName string
+		if len(files) == 1 {
+			displayName = files[0].Path
+		} else {
+			if prefix := extractCommonPrefix(files); prefix != "" {
+				displayName = fmt.Sprintf("%s (%d files)", prefix, len(files))
+			} else {
+				displayName = fmt.Sprintf("%d files", len(files))
+			}
+		}
 
-		ts.logEvent(EventLogRequestReceived, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+		ts.logEvent(EventLogRequestReceived, "receive", peerKey, displayName, totalSize, 0, "", "")
 
 		// Notify user about incoming transfer request.
 		if ts.notifier != nil {
-			if err := ts.notifier.Notify(peerKey, manifest.Filename, manifest.FileSize); err != nil {
-				slog.Debug("file-transfer: notification failed", "error", err)
+			if notifyErr := ts.notifier.Notify(peerKey, displayName, totalSize); notifyErr != nil {
+				slog.Debug("file-transfer: notification failed", "error", notifyErr)
 			}
 		}
 
 		// Enforce size limit.
-		if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
-			slog.Warn("file-transfer: file too large",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize, "max", ts.maxSize)
+		if ts.maxSize > 0 && totalSize > ts.maxSize {
+			slog.Warn("file-transfer: too large",
+				"peer", short, "file", displayName, "size", totalSize, "max", ts.maxSize)
 			writeRejectWithReason(s, RejectReasonSize)
-			ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "file too large", "")
+			ts.logEvent(EventLogRejected, "receive", peerKey, displayName, totalSize, 0, "file too large", "")
 			return
 		}
 
-		// Per-peer bandwidth budget check (WAN only - LAN peers are local, no throttle).
+		// Per-peer bandwidth budget check (WAN only).
 		transport := ClassifyTransport(s)
 		if transport != TransportLAN && ts.bandwidthTracker != nil {
 			var peerBudget int64
 			if ts.peerBudgetFunc != nil {
 				peerBudget = ts.peerBudgetFunc(peerKey)
 			}
-			if !ts.bandwidthTracker.check(peerKey, manifest.FileSize, peerBudget) {
+			if !ts.bandwidthTracker.check(peerKey, totalSize, peerBudget) {
 				slog.Warn("file-transfer: bandwidth budget exceeded",
-					"peer", short, "file", manifest.Filename, "size", manifest.FileSize)
+					"peer", short, "file", displayName, "size", totalSize)
 				writeRejectWithReason(s, RejectReasonBusy)
-				ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "bandwidth budget exceeded", "")
+				ts.logEvent(EventLogSpamBlocked, "receive", peerKey, displayName, totalSize, 0, "bandwidth budget exceeded", "")
 				return
 			}
 		}
@@ -1844,78 +1695,30 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		// Temp file budget check.
 		if err := ts.checkTempBudget(); err != nil {
 			slog.Warn("file-transfer: temp budget exceeded",
-				"peer", short, "file", manifest.Filename, "error", err)
+				"peer", short, "file", displayName, "error", err)
 			writeRejectWithReason(s, RejectReasonBusy)
-			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "temp file budget exceeded", "")
+			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, displayName, totalSize, 0, "temp file budget exceeded", "")
 			return
 		}
 
 		// Pre-accept disk space check.
-		if err := ts.checkDiskSpace(manifest.FileSize); err != nil {
+		if err := ts.checkDiskSpace(totalSize); err != nil {
 			slog.Warn("file-transfer: insufficient disk space",
-				"peer", short, "file", manifest.Filename, "error", err)
+				"peer", short, "file", displayName, "error", err)
 			writeRejectWithReason(s, RejectReasonSpace)
-			ts.logEvent(EventLogDiskSpaceRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "insufficient disk space", "")
+			ts.logEvent(EventLogDiskSpaceRejected, "receive", peerKey, displayName, totalSize, 0, "insufficient disk space", "")
 			return
 		}
 
-		// Verify Merkle root matches chunk hashes.
-		computedRoot := MerkleRoot(manifest.ChunkHashes)
-		if computedRoot != manifest.RootHash {
-			slog.Warn("file-transfer: manifest root hash mismatch", "peer", short)
-			writeMsg(s, msgReject)
-			return
-		}
-
-		// NEW-1 fix: destDir defaults to receiveDir, overridden by accept dest.
 		destDir := ts.receiveDir
 
-		// Check for existing checkpoint (resume support).
-		var ckpt *transferCheckpoint
-		ckpt, _ = loadCheckpoint(ts.receiveDir, manifest.RootHash)
-		if ckpt != nil {
-			// Validate checkpoint matches this manifest.
-			if ckpt.manifest.ChunkCount != manifest.ChunkCount ||
-				ckpt.manifest.FileSize != manifest.FileSize {
-				// Stale checkpoint, discard it.
-				removeCheckpoint(ts.receiveDir, manifest.RootHash)
-				os.Remove(ckpt.tmpPath)
-				ckpt = nil
-			} else if _, err := os.Stat(ckpt.tmpPath); err != nil {
-				// Tmp file gone, discard checkpoint.
-				removeCheckpoint(ts.receiveDir, manifest.RootHash)
-				ckpt = nil
-			}
-		}
-
-		compressed := manifest.Flags&flagCompressed != 0
-
-		if ckpt != nil {
-			// Resume: send resume request with bitfield.
-			slog.Info("file-transfer: resuming",
-				"peer", short, "file", manifest.Filename,
-				"have", ckpt.have.count(), "total", manifest.ChunkCount)
-			ts.logEvent(EventLogResumed, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
-
-			if err := writeResumeRequest(rw, ckpt.have); err != nil {
-				slog.Error("file-transfer: resume request failed", "error", err)
-				return
-			}
-
-			// Wait for resume response.
-			resp, err := readMsg(rw)
-			if err != nil || resp != msgResumeResponse {
-				slog.Error("file-transfer: resume response failed",
-					"error", err, "resp", resp)
-				return
-			}
-		} else if ts.receiveMode == ReceiveModeAsk {
+		if ts.receiveMode == ReceiveModeAsk {
 			// Ask mode: queue for manual approval with timeout.
 			pendingID := fmt.Sprintf("pending-%d-%s", time.Now().UnixNano(), randomHex(4))
 			pt := &PendingTransfer{
 				ID:       pendingID,
-				Filename: manifest.Filename,
-				Size:     manifest.FileSize,
+				Filename: displayName,
+				Size:     totalSize,
 				PeerID:   peerKey,
 				Time:     time.Now(),
 				decision: make(chan transferDecision, 1),
@@ -1926,8 +1729,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			ts.mu.Unlock()
 
 			slog.Info("file-transfer: awaiting approval",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize, "id", pendingID)
+				"peer", short, "file", displayName,
+				"size", totalSize, "id", pendingID)
 
 			if ts.events != nil {
 				ts.events.Emit(Event{
@@ -1938,7 +1741,6 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				})
 			}
 
-			// Wait for decision or timeout.
 			timer := time.NewTimer(askModeTimeout)
 			defer timer.Stop()
 
@@ -1946,13 +1748,11 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			timedOut := false
 			select {
 			case decision = <-pt.decision:
-				// User decided.
 			case <-timer.C:
-				// Timeout: silent reject.
 				timedOut = true
 				decision = transferDecision{accept: false, reason: RejectReasonBusy}
 				slog.Info("file-transfer: ask mode timeout, rejecting",
-					"peer", short, "file", manifest.Filename, "id", pendingID)
+					"peer", short, "file", displayName, "id", pendingID)
 			}
 
 			ts.removePending(pendingID)
@@ -1964,17 +1764,15 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 					writeMsg(s, msgReject)
 				}
 				if timedOut {
-					ts.logEvent(EventLogCancelled, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "ask mode timeout", "")
+					ts.logEvent(EventLogCancelled, "receive", peerKey, displayName, totalSize, 0, "ask mode timeout", "")
 				} else {
-					ts.logEvent(EventLogRejected, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "user rejected", "")
+					ts.logEvent(EventLogRejected, "receive", peerKey, displayName, totalSize, 0, "user rejected", "")
 				}
 				return
 			}
 
-			// NEW-1 fix: override receive dir if specified in accept decision.
 			if decision.dest != "" {
-				// Validate the override directory exists.
-				if info, err := os.Stat(decision.dest); err != nil || !info.IsDir() {
+				if dInfo, dErr := os.Stat(decision.dest); dErr != nil || !dInfo.IsDir() {
 					slog.Error("file-transfer: invalid accept dest", "dest", decision.dest)
 					writeMsg(s, msgReject)
 					return
@@ -1983,175 +1781,157 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 			}
 
 			slog.Info("file-transfer: approved",
-				"peer", short, "file", manifest.Filename, "id", pendingID)
-			ts.logEvent(EventLogAccepted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+				"peer", short, "file", displayName, "id", pendingID)
+			ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
+		} else {
+			slog.Info("file-transfer: receiving",
+				"peer", short, "file", displayName,
+				"size", totalSize, "files", len(files),
+				"compressed", flags&flagCompressed != 0)
+			ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
+		}
 
-			if err := writeMsg(s, msgAccept); err != nil {
-				slog.Error("file-transfer: accept write failed", "error", err)
+		// Compute content key for cross-session resume (R3-IMP5, R4-IMP2).
+		ck := contentKey(files)
+
+		// Check for existing checkpoint (resume support).
+		var resumeState *streamReceiveState
+		var resumeBitfield *bitfield
+		ckpt, ckptErr := loadCheckpoint(destDir, ck)
+		if ckptErr == nil && ckpt != nil {
+			// Validate checkpoint matches current transfer.
+			if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) {
+				restored, restoreErr := ckpt.restoreReceiveState(destDir)
+				if restoreErr == nil {
+					resumeState = restored
+					resumeBitfield = ckpt.have
+					slog.Info("file-transfer: resuming from checkpoint",
+						"peer", short, "file", displayName,
+						"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+				} else {
+					slog.Debug("file-transfer: checkpoint restore failed, starting fresh",
+						"error", restoreErr)
+				}
+			}
+		}
+
+		// Register parallel session BEFORE accept so worker streams can attach
+		// immediately after the sender receives the accept response. On fast LANs,
+		// worker hello can arrive before allocateTempFiles completes if registration
+		// happens after accept. The worker handler only needs transferID + controlPID +
+		// channels for routing - state/progress are set below before receiveParallel.
+		session := &parallelSession{
+			transferID: transferID,
+			controlPID: s.Conn().RemotePeer(),
+			contentKey: ck,
+			receiveDir: destDir,
+			flags:      flags,
+			done:       make(chan struct{}),
+			chunks:     make(chan streamChunk, producerChanBuffer),
+		}
+		ts.registerParallelSession(transferID, session)
+		defer ts.unregisterParallelSession(transferID)
+
+		if resumeState != nil {
+			// Resume: send resume request with checkpoint bitfield.
+			if err := writeResumeRequest(rw, resumeBitfield); err != nil {
+				slog.Error("file-transfer: resume request write failed", "error", err)
+				resumeState.cleanup()
+				return
+			}
+			// Read sender's resume acknowledgment before entering chunk receive loop.
+			// Without this, receiveParallel reads msgResumeResponse (0x07) as a chunk
+			// frame type and fails with "unexpected stream frame type".
+			resp, respErr := readMsg(rw)
+			if respErr != nil || resp != msgResumeResponse {
+				slog.Error("file-transfer: resume response failed",
+					"error", respErr, "resp", resp)
+				resumeState.cleanup()
 				return
 			}
 		} else {
-			slog.Info("file-transfer: receiving",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize, "chunks", manifest.ChunkCount,
-				"compressed", compressed)
-			ts.logEvent(EventLogAccepted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
-
-			// Accept (fresh transfer - contacts/open mode).
-			if err := writeMsg(s, msgAccept); err != nil {
+			// Fresh transfer: send accept with full-accept bitfield (F2).
+			acceptBF := newBitfield(len(files))
+			for i := range files {
+				acceptBF.set(i)
+			}
+			if err := writeAcceptBitfield(rw, len(files), acceptBF); err != nil {
 				slog.Error("file-transfer: accept write failed", "error", err)
 				return
 			}
 		}
 
-		progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
-			peerKey, "receive", manifest.ChunkCount, compressed)
+		// Extend deadline after accept/resume (I9).
+		s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
+		// Create or reuse streaming receive state.
+		estimatedChunks := estimateChunkCount(totalSize)
+		var state *streamReceiveState
+		if resumeState != nil {
+			state = resumeState
+		} else {
+			state = newStreamReceiveState(files, totalSize, flags, cumOffsets)
+
+			// Allocate temp files for each accepted file entry.
+			if err := state.allocateTempFiles(destDir); err != nil {
+				slog.Error("file-transfer: allocate temp files failed", "error", err)
+				return
+			}
+
+			// Initialize duplicate detection bitfield (R3-IMP3).
+			state.initReceivedBitfield(estimatedChunks)
+		}
+		defer state.cleanup() // R4-SEC2: always clean up temp files on any exit
+
+		progress := ts.trackTransfer(displayName, totalSize,
+			peerKey, "receive", estimatedChunks, flags&flagCompressed != 0)
 		progress.setStatus("active")
 
-		// H7: set per-chunk relay grant byte tracker if receiving through a relay.
+		// H7: relay grant byte tracker.
 		if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
 			progress.setRelayTracker(tracker)
 		}
 
-		ts.logEvent(EventLogStarted, "receive", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+		ts.logEvent(EventLogStarted, "receive", peerKey, displayName, totalSize, 0, "", "")
 
-		// Set up parallel receive session so worker streams can deliver chunks.
-		// Even if the sender uses a single stream, receiveParallel handles it
-		// (control stream reader works the same, worker channel just stays empty).
-		offsets := buildOffsetTable(manifest.ChunkSizes)
-		var have *bitfield
-		var tmpPath string
-		var tmpFile *os.File
-		hasErasure := manifest.Flags&flagErasureCoded != 0
+		// Wire state and progress into session now that they're ready.
+		session.state = state
+		session.progress = progress
 
-		// Set erasure info on progress for CLI display.
-		if hasErasure && manifest.ParityCount > 0 {
-			progress.mu.Lock()
-			progress.ErasureParity = manifest.ParityCount
-			// Compute actual overhead from manifest data.
-			if manifest.ChunkCount > 0 {
-				progress.ErasureOverhead = float64(manifest.ParityCount) / float64(manifest.ChunkCount)
-			}
-			progress.mu.Unlock()
-		}
-
-		if ckpt != nil {
-			tmpPath = ckpt.tmpPath
-			have = ckpt.have
-			var openErr error
-			tmpFile, openErr = os.OpenFile(tmpPath, os.O_WRONLY, 0600)
-			if openErr != nil {
-				ckpt = nil
-			}
-		}
-		if ckpt == nil {
-			have = newBitfield(manifest.ChunkCount)
-			var createErr error
-			// NEW-1 fix: use destDir (may be overridden by accept dest).
-			tmpPath, tmpFile, createErr = createTempFileIn(destDir, manifest.Filename)
-			if createErr != nil {
-				slog.Error("file-transfer: create temp file failed", "error", createErr)
-				return
-			}
-			if truncErr := tmpFile.Truncate(manifest.FileSize); truncErr != nil {
-				tmpFile.Close()
-				os.Remove(tmpPath)
-				slog.Error("file-transfer: pre-allocate file failed", "error", truncErr)
-				return
-			}
-		}
-
-		session := &parallelSession{
-			rootHash:   manifest.RootHash,
-			manifest:   manifest,
-			tmpFile:    tmpFile,
-			tmpPath:    tmpPath,
-			have:       have,
-			offsets:    offsets,
-			progress:   progress,
-			compressed: compressed,
-			hasErasure: hasErasure,
-			done:       make(chan struct{}),
-			chunks:     make(chan parallelChunk, 64),
-		}
-		if hasErasure && manifest.ParityCount > 0 {
-			session.parityData = make(map[int][]byte, manifest.ParityCount)
-		}
-
-		// D1 fix: register cancel func that resets control + all worker streams.
-		// Set after session creation so workers attached later are included.
+		// D1 fix: compose cancel func to reset control + any worker streams.
 		progress.setCancelFunc(func() {
 			s.Reset()
 			session.resetWorkerStreams()
 		})
 
-		ts.registerParallelSession(manifest.RootHash, session)
+		// Receive via parallel-capable streaming receive loop.
+		rootHash, recvErr := ts.receiveParallel(rw, session)
 
-		err = ts.receiveParallel(rw, session, ckpt)
-
-		ts.unregisterParallelSession(manifest.RootHash)
-
-		// Post-receive: finalize file or save checkpoint.
-		if err != nil && have.count() > 0 {
-			cp := &transferCheckpoint{manifest: manifest, have: have, tmpPath: tmpPath}
-			if saveErr := cp.save(destDir); saveErr != nil {
-				slog.Error("file-transfer: save checkpoint failed", "error", saveErr)
-			}
-			tmpFile.Close()
-		} else if err != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-		} else {
-			// Success: flush, rename, clean up.
-			if syncErr := tmpFile.Sync(); syncErr != nil {
-				err = fmt.Errorf("sync file: %w", syncErr)
-				tmpFile.Close()
-			} else {
-				tmpFile.Close()
-				// NEW-1 fix: use destDir for final path (may be overridden by accept dest).
-				fp := filepath.Join(destDir, manifest.Filename)
-				// Create parent directories BEFORE collision check (directory transfers
-				// have relative paths like "mydir/subdir/file.txt" and the parent dirs
-				// may not exist yet).
-				if dir := filepath.Dir(fp); dir != destDir {
-					os.MkdirAll(dir, 0755)
-				}
-				fp, fpErr := nonCollidingPath(fp)
-				if fpErr != nil {
-					err = fmt.Errorf("determine final path: %w", fpErr)
-				} else {
-					if renameErr := os.Rename(tmpPath, fp); renameErr != nil {
-						err = fmt.Errorf("rename temp to final: %w", renameErr)
-					} else {
-						os.Chmod(fp, 0644)
-						removeCheckpoint(destDir, manifest.RootHash)
-					}
-				}
+		// Register hash for multi-peer serving on success.
+		if recvErr == nil {
+			if len(files) == 1 {
+				ts.RegisterHash(rootHash, filepath.Join(destDir, files[0].Path))
+			} else if prefix := extractCommonPrefix(files); prefix != "" {
+				ts.RegisterHash(rootHash, filepath.Join(destDir, prefix))
 			}
 		}
-		progress.finish(err)
+
+		progress.finish(recvErr)
 		ts.markCompleted(progress.ID)
 
 		dur := time.Since(recvStart).Truncate(time.Millisecond).String()
-		if err != nil {
+		if recvErr != nil {
 			slog.Error("file-transfer: receive failed",
-				"peer", short, "file", manifest.Filename, "error", err)
-			ts.logEvent(EventLogFailed, "receive", peerKey, manifest.Filename, manifest.FileSize, progress.Sent(), err.Error(), dur)
+				"peer", short, "file", displayName, "error", recvErr)
+			ts.logEvent(EventLogFailed, "receive", peerKey, displayName, totalSize, progress.Sent(), recvErr.Error(), dur)
 			ts.recordTransferFailure(peerKey)
 		} else {
 			slog.Info("file-transfer: received",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize,
-				"path", filepath.Join(destDir, manifest.Filename))
-			ts.logEvent(EventLogCompleted, "receive", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
-			// Record bandwidth usage for budget tracking (WAN only).
+				"peer", short, "file", displayName,
+				"size", totalSize, "files", len(files))
+			ts.logEvent(EventLogCompleted, "receive", peerKey, displayName, totalSize, totalSize, "", dur)
 			if transport != TransportLAN && ts.bandwidthTracker != nil {
-				ts.bandwidthTracker.record(peerKey, manifest.FileSize)
-			}
-			// Register hash so this node can serve multi-peer requests for this file.
-			regPath := filepath.Join(destDir, manifest.Filename)
-			if regPath != "" {
-				ts.RegisterHash(manifest.RootHash, regPath)
+				ts.bandwidthTracker.record(peerKey, totalSize)
 			}
 		}
 
@@ -2487,7 +2267,7 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 	if job.isDir {
 		// Pre-transfer relay grant check for directory sends.
 		// Open a probe stream to detect relay and check grant, then close it.
-		// SendDirectory opens fresh streams per-file; this is just for the check.
+		// SendDirectory opens a single stream for the entire directory (I4).
 		if ts.grantChecker != nil {
 			probeStream, probeErr := job.openStream()
 			if probeErr == nil {
@@ -3498,29 +3278,20 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		destDir = ts.receiveDir
 	}
 
-	// Ensure destDir exists.
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return nil, fmt.Errorf("create destination directory: %w", err)
 	}
 
-	// Send the download request (path).
-	err := RequestDownload(s, remotePath)
-	if err == nil {
-		return nil, fmt.Errorf("unexpected: download request returned nil error without ready signal")
+	// Send the download request and get a reader that replays the consumed first byte.
+	prefixed, err := RequestDownload(s, remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("download request: %w", err)
 	}
 
-	ready, ok := err.(*downloadReady)
-	if !ok {
-		// Actual error from remote.
-		return nil, err
-	}
-
-	// Create a combined reader that replays the consumed first byte.
-	r := ready.PrefixedReader(s)
 	rw := struct {
 		io.Reader
 		io.Writer
-	}{r, s}
+	}{prefixed, s}
 
 	remotePeer := s.Conn().RemotePeer()
 	peerKey := remotePeer.String()
@@ -3528,134 +3299,157 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 
 	s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
-	// Read manifest (SHFT header).
-	manifest, err := readManifest(rw)
+	// Read streaming header (I1: updated from readManifest to readHeader).
+	files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
 	if err != nil {
-		return nil, fmt.Errorf("read manifest: %w", err)
+		return nil, fmt.Errorf("read header: %w", err)
+	}
+	// Display name.
+	var displayName string
+	if len(files) == 1 {
+		displayName = files[0].Path
+	} else {
+		if prefix := extractCommonPrefix(files); prefix != "" {
+			displayName = fmt.Sprintf("%s (%d files)", prefix, len(files))
+		} else {
+			displayName = fmt.Sprintf("%d files", len(files))
+		}
 	}
 
-	ts.logEvent(EventLogRequestReceived, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+	ts.logEvent(EventLogRequestReceived, "download", peerKey, displayName, totalSize, 0, "", "")
 
 	// Size limit check.
-	if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
+	if ts.maxSize > 0 && totalSize > ts.maxSize {
 		writeMsg(s, msgReject)
-		return nil, fmt.Errorf("file too large: %d bytes (max %d)", manifest.FileSize, ts.maxSize)
+		return nil, fmt.Errorf("file too large: %d bytes (max %d)", totalSize, ts.maxSize)
 	}
 
-	// Disk space check using destDir.
-	if err := checkDiskSpaceAt(destDir, manifest.FileSize); err != nil {
+	// Disk space check.
+	if err := checkDiskSpaceAt(destDir, totalSize); err != nil {
 		writeRejectWithReason(s, RejectReasonSpace)
 		return nil, fmt.Errorf("insufficient disk space: %w", err)
 	}
 
-	// Verify Merkle root.
-	computedRoot := MerkleRoot(manifest.ChunkHashes)
-	if computedRoot != manifest.RootHash {
-		writeMsg(s, msgReject)
-		return nil, fmt.Errorf("manifest root hash mismatch")
-	}
-
-	compressed := manifest.Flags&flagCompressed != 0
-
 	slog.Info("file-download: receiving",
-		"peer", short, "file", manifest.Filename,
-		"size", manifest.FileSize, "chunks", manifest.ChunkCount)
-	ts.logEvent(EventLogAccepted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+		"peer", short, "file", displayName,
+		"size", totalSize, "files", len(files))
+	ts.logEvent(EventLogAccepted, "download", peerKey, displayName, totalSize, 0, "", "")
 
-	// Auto-accept (receiver initiated this download).
-	if err := writeMsg(s, msgAccept); err != nil {
-		return nil, fmt.Errorf("write accept: %w", err)
+	// Compute content key for cross-session resume (R3-IMP5, R4-IMP2).
+	ck := contentKey(files)
+
+	// Check for existing checkpoint (resume support).
+	var resumeState *streamReceiveState
+	var resumeBitfield *bitfield
+	ckpt, ckptErr := loadCheckpoint(destDir, ck)
+	if ckptErr == nil && ckpt != nil {
+		if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) {
+			restored, restoreErr := ckpt.restoreReceiveState(destDir)
+			if restoreErr == nil {
+				resumeState = restored
+				resumeBitfield = ckpt.have
+				slog.Info("file-download: resuming from checkpoint",
+					"peer", short, "file", displayName,
+					"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+			} else {
+				slog.Debug("file-download: checkpoint restore failed, starting fresh",
+					"error", restoreErr)
+			}
+		}
 	}
 
-	progress := ts.trackTransfer(manifest.Filename, manifest.FileSize,
-		peerKey, "download", manifest.ChunkCount, compressed)
+	// Register parallel session BEFORE accept so worker streams can attach
+	// immediately after the sender receives the accept. Same race fix as HandleInbound.
+	session := &parallelSession{
+		transferID: transferID,
+		controlPID: s.Conn().RemotePeer(),
+		contentKey: ck,
+		receiveDir: destDir,
+		flags:      flags,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, producerChanBuffer),
+	}
+	ts.registerParallelSession(transferID, session)
+
+	if resumeState != nil {
+		// Resume: send resume request with checkpoint bitfield.
+		if err := writeResumeRequest(rw, resumeBitfield); err != nil {
+			ts.unregisterParallelSession(transferID)
+			resumeState.cleanup()
+			return nil, fmt.Errorf("write resume request: %w", err)
+		}
+		// Read sender's resume acknowledgment before entering chunk receive loop.
+		// Without this, receiveParallel reads msgResumeResponse (0x07) as a chunk
+		// frame type and fails with "unexpected stream frame type".
+		resp, respErr := readMsg(rw)
+		if respErr != nil || resp != msgResumeResponse {
+			ts.unregisterParallelSession(transferID)
+			resumeState.cleanup()
+			return nil, fmt.Errorf("resume response: err=%v resp=0x%02x", respErr, resp)
+		}
+	} else {
+		// Fresh transfer: auto-accept with full-accept bitfield (receiver initiated this download).
+		acceptBF := newBitfield(len(files))
+		for i := range files {
+			acceptBF.set(i)
+		}
+		if err := writeAcceptBitfield(rw, len(files), acceptBF); err != nil {
+			ts.unregisterParallelSession(transferID)
+			return nil, fmt.Errorf("write accept: %w", err)
+		}
+	}
+
+	estimatedChunks := estimateChunkCount(totalSize)
+	progress := ts.trackTransfer(displayName, totalSize,
+		peerKey, "download", estimatedChunks, flags&flagCompressed != 0)
 	progress.setStatus("active")
 
-	// H7: set per-chunk relay grant byte tracker if downloading through a relay.
 	if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
 		progress.setRelayTracker(tracker)
 	}
 
-	ts.logEvent(EventLogStarted, "download", peerKey, manifest.Filename, manifest.FileSize, 0, "", "")
+	ts.logEvent(EventLogStarted, "download", peerKey, displayName, totalSize, 0, "", "")
 
-	// Receive chunks (reuses the parallel receive path).
+	// Receive via streaming protocol in background.
 	go func() {
 		defer s.Close()
+		defer ts.unregisterParallelSession(transferID)
 		recvStart := time.Now()
 
-		offsets := buildOffsetTable(manifest.ChunkSizes)
-		have := newBitfield(manifest.ChunkCount)
-		hasErasure := manifest.Flags&flagErasureCoded != 0
+		var state *streamReceiveState
+		if resumeState != nil {
+			state = resumeState
+		} else {
+			state = newStreamReceiveState(files, totalSize, flags, cumOffsets)
 
-		// Set erasure info on progress for CLI display.
-		if hasErasure && manifest.ParityCount > 0 {
-			progress.mu.Lock()
-			progress.ErasureParity = manifest.ParityCount
-			if manifest.ChunkCount > 0 {
-				progress.ErasureOverhead = float64(manifest.ParityCount) / float64(manifest.ChunkCount)
+			if allocErr := state.allocateTempFiles(destDir); allocErr != nil {
+				progress.finish(allocErr)
+				ts.markCompleted(progress.ID)
+				return
 			}
-			progress.mu.Unlock()
-		}
 
-		tmpPath, tmpFile, createErr := createTempFileIn(destDir, manifest.Filename)
-		if createErr != nil {
-			progress.finish(createErr)
-			ts.markCompleted(progress.ID)
-			return
+			state.initReceivedBitfield(estimatedChunks)
 		}
-		if truncErr := tmpFile.Truncate(manifest.FileSize); truncErr != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-			progress.finish(truncErr)
-			ts.markCompleted(progress.ID)
-			return
-		}
+		defer state.cleanup()
 
-		session := &parallelSession{
-			rootHash:   manifest.RootHash,
-			manifest:   manifest,
-			tmpFile:    tmpFile,
-			tmpPath:    tmpPath,
-			have:       have,
-			offsets:    offsets,
-			progress:   progress,
-			compressed: compressed,
-			hasErasure: hasErasure,
-			done:       make(chan struct{}),
-			chunks:     make(chan parallelChunk, 64),
-		}
-		if hasErasure && manifest.ParityCount > 0 {
-			session.parityData = make(map[int][]byte, manifest.ParityCount)
-		}
+		// Wire state and progress into session now that they're ready.
+		session.state = state
+		session.progress = progress
 
-		// D1 fix: register cancel func that resets control + all worker streams.
 		progress.setCancelFunc(func() {
 			s.Reset()
 			session.resetWorkerStreams()
 		})
 
-		ts.registerParallelSession(manifest.RootHash, session)
-		recvErr := ts.receiveParallel(rw, session, nil)
-		ts.unregisterParallelSession(manifest.RootHash)
+		// Receive via parallel-capable streaming receive loop.
+		rootHash, recvErr := ts.receiveParallel(rw, session)
 
-		if recvErr != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-		} else {
-			if syncErr := tmpFile.Sync(); syncErr != nil {
-				recvErr = fmt.Errorf("sync file: %w", syncErr)
-				tmpFile.Close()
-			} else {
-				tmpFile.Close()
-				finalPath := filepath.Join(destDir, filepath.Base(manifest.Filename))
-				finalPath, fpErr := nonCollidingPath(finalPath)
-				if fpErr != nil {
-					recvErr = fmt.Errorf("determine final path: %w", fpErr)
-				} else if renameErr := os.Rename(tmpPath, finalPath); renameErr != nil {
-					recvErr = fmt.Errorf("rename temp to final: %w", renameErr)
-				} else {
-					os.Chmod(finalPath, 0644)
-				}
+		// Register hash for multi-peer serving on success.
+		if recvErr == nil {
+			if len(files) == 1 {
+				ts.RegisterHash(rootHash, filepath.Join(destDir, files[0].Path))
+			} else if prefix := extractCommonPrefix(files); prefix != "" {
+				ts.RegisterHash(rootHash, filepath.Join(destDir, prefix))
 			}
 		}
 
@@ -3665,26 +3459,26 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		dur := time.Since(recvStart).Truncate(time.Millisecond).String()
 		if recvErr != nil {
 			slog.Error("file-download: receive failed",
-				"peer", short, "file", manifest.Filename, "error", recvErr)
-			ts.logEvent(EventLogFailed, "download", peerKey, manifest.Filename, manifest.FileSize, progress.Sent(), recvErr.Error(), dur)
+				"peer", short, "file", displayName, "error", recvErr)
+			ts.logEvent(EventLogFailed, "download", peerKey, displayName, totalSize, progress.Sent(), recvErr.Error(), dur)
 		} else {
 			slog.Info("file-download: received",
-				"peer", short, "file", manifest.Filename,
-				"size", manifest.FileSize,
-				"dest", destDir)
-			ts.logEvent(EventLogCompleted, "download", peerKey, manifest.Filename, manifest.FileSize, manifest.FileSize, "", dur)
-			// Register hash so this node can serve multi-peer requests for this file.
-			fp := filepath.Join(destDir, filepath.Base(manifest.Filename))
-			ts.RegisterHash(manifest.RootHash, fp)
+				"peer", short, "file", displayName,
+				"size", totalSize, "dest", destDir)
+			ts.logEvent(EventLogCompleted, "download", peerKey, displayName, totalSize, totalSize, "", dur)
 		}
 	}()
 
 	return progress, nil
 }
 
-// ProbeRootHash opens a download stream to a peer, reads just enough of the
-// SHFT manifest to extract the root hash, then closes the stream. This is used
-// by multi-peer download to discover the file's root hash before fanning out.
+// ProbeRootHash opens a download stream to a peer, sends a hash probe request
+// (requestType=0x02), and reads the 45-byte probe response containing the
+// file's Merkle root hash. This is used by multi-peer download to discover
+// the content hash before fanning out to multiple peers (C2).
+//
+// The handler side chunks the file and computes MerkleRoot without streaming
+// any data back. Cost: ~2.5s for 500MB (FastCDC + BLAKE3).
 func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error) {
 	var zero [32]byte
 
@@ -3694,34 +3488,17 @@ func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, erro
 	}
 	defer stream.Close()
 
-	stream.SetDeadline(time.Now().Add(30 * time.Second))
-
-	// Send download request.
-	reqErr := RequestDownload(stream, remotePath)
-	if reqErr == nil {
-		return zero, fmt.Errorf("unexpected: download request returned nil")
-	}
-	ready, ok := reqErr.(*downloadReady)
-	if !ok {
-		return zero, reqErr
+	probe, err := RequestProbe(stream, remotePath)
+	if err != nil {
+		return zero, fmt.Errorf("probe request: %w", err)
 	}
 
-	// Read manifest from the prefixed reader.
-	r := ready.PrefixedReader(stream)
-	rw := struct {
-		io.Reader
-		io.Writer
-	}{r, stream}
+	slog.Debug("file-download: probe result",
+		"rootHash", fmt.Sprintf("%x", probe.RootHash[:8]),
+		"totalSize", probe.TotalSize,
+		"chunkCount", probe.ChunkCount)
 
-	manifest, manifestErr := readManifest(rw)
-	if manifestErr != nil {
-		return zero, fmt.Errorf("read manifest: %w", manifestErr)
-	}
-
-	// We got the root hash. Reject the transfer (we'll use multi-peer instead).
-	writeMsg(stream, msgReject)
-
-	return manifest.RootHash, nil
+	return probe.RootHash, nil
 }
 
 // createTempFileIn creates a temp file in the given directory.

@@ -2,16 +2,15 @@ package sdk
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // streamOpener opens a new stream to the same peer for parallel transfer.
@@ -27,6 +26,10 @@ const (
 
 	// Minimum chunks per stream to justify parallelism.
 	minChunksPerStream = 4
+
+	// workerHelloSize is the wire size of a worker hello message.
+	// msgWorkerHello(1) + transferID(32) = 33
+	workerHelloSize = 1 + 32
 )
 
 // adaptiveStreamCount returns the optimal stream count based on transport type and chunk count.
@@ -77,120 +80,67 @@ func clampStreams(n int, transport TransportType) int {
 	return n
 }
 
-// --- Parallel send ---
+// --- Worker hello (I5: transferID instead of rootHash) ---
 
-// sendParallel opens N-1 worker streams and distributes chunks across all streams.
-// Each stream sends its own partition of pre-compressed chunks concurrently.
+// writeWorkerHello writes the worker hello message: msgWorkerHello + transferID.
+// transferID is used for session routing instead of rootHash (I5).
+func writeWorkerHello(w io.Writer, transferID [32]byte) error {
+	var buf [33]byte
+	buf[0] = msgWorkerHello
+	copy(buf[1:], transferID[:])
+	_, err := w.Write(buf[:])
+	return err
+}
+
+// readWorkerHello reads the transferID after msgWorkerHello byte has been consumed.
+func readWorkerHello(r io.Reader) ([32]byte, error) {
+	var id [32]byte
+	_, err := io.ReadFull(r, id[:])
+	return id, err
+}
+
+// --- Parallel send (streaming protocol) ---
+
+// sendParallel distributes streaming chunks from the producer channel across N worker streams
+// and the control stream. It is called from streamingSend when parallel streams are available.
+//
+// The producer goroutine feeds chunks via ch. This function reads from ch and round-robins
+// chunks to worker goroutines. After the producer closes ch, all workers must finish writing
+// before the trailer is written on the control stream (R3-IMP2: WaitGroup prevents
+// chunk-after-trailer race).
+//
+// The caller (streamingSend) has already written the header and received accept on controlRW.
+// This function handles only the chunk distribution + trailer write.
 func (ts *TransferService) sendParallel(
 	controlRW io.ReadWriter,
 	openStream streamOpener,
-	m *transferManifest,
-	chunks []rawChunk,
-	parity []parityChunk,
+	transferID [32]byte,
+	ch <-chan streamChunk,
+	producerDone <-chan producerResult,
 	progress *TransferProgress,
 	numStreams int,
-) error {
-	if numStreams <= 1 {
-		return ts.sendChunked(controlRW, m, chunks, parity, progress)
-	}
+) (producerResult, error) {
+	var zeroResult producerResult
 
-	// Send manifest on control stream and wait for accept/reject.
-	if err := writeManifest(controlRW, m); err != nil {
-		return fmt.Errorf("send manifest: %w", err)
-	}
-	resp, err := readMsg(controlRW)
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-	switch resp {
-	case msgReject:
-		return fmt.Errorf("peer rejected transfer")
-	case msgRejectReason:
-		reasonByte, err := readMsg(controlRW)
-		if err != nil {
-			return fmt.Errorf("peer rejected transfer (could not read reason)")
-		}
-		return fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
-	case msgResumeRequest:
-		// Resume not supported in parallel mode; fall back to sequential.
-		slog.Info("file-transfer: resume requested during parallel send, falling back to sequential")
-		bfData, bfErr := readResumePayload(controlRW)
-		if bfErr != nil {
-			return fmt.Errorf("read resume payload: %w", bfErr)
-		}
-		have := &bitfield{bits: make([]byte, (m.ChunkCount+7)/8), n: m.ChunkCount}
-		copy(have.bits, bfData)
-		if wErr := writeMsg(controlRW, msgResumeResponse); wErr != nil {
-			return fmt.Errorf("send resume response: %w", wErr)
-		}
-		progress.setStatus("active")
-		skipped := have.count()
-		var totalSent int64
-		sent := 0
-		for i, c := range chunks {
-			if have.has(i) {
-				continue
-			}
-			if wErr := writeChunkFrame(controlRW, i, c.data); wErr != nil {
-				return fmt.Errorf("send chunk %d: %w", i, wErr)
-			}
-			totalSent += int64(len(c.data))
-			sent++
-			progress.updateChunks(totalSent, sent+skipped)
-			progress.addWireBytes(int64(len(c.data)))
-		}
-		if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
-			return pErr
-		}
-		return writeMsg(controlRW, msgTransferDone)
-	case msgAccept:
-		// Accepted, continue to parallel send.
-	default:
-		return fmt.Errorf("unexpected response: 0x%02x", resp)
-	}
-
-	progress.setStatus("active")
 	progress.initStreams(numStreams)
 
-	// Partition data chunks across streams (round-robin).
-	partitions := make([][]int, numStreams)
-	for i := range chunks {
-		slot := i % numStreams
-		partitions[slot] = append(partitions[slot], i)
-	}
-
-	// Track progress atomically across goroutines.
-	var totalSent atomic.Int64
-	var chunksDone atomic.Int32
-
-	// Open worker streams.
-	workers := make([]network.Stream, numStreams-1)
+	// Open worker streams (1..N-1).
+	workers := make([]network.Stream, 0, numStreams-1)
 	for i := 0; i < numStreams-1; i++ {
 		ws, err := openStream()
 		if err != nil {
-			for j := 0; j < i; j++ {
-				workers[j].Close()
+			// Clean up already-opened workers.
+			for _, w := range workers {
+				w.Close()
 			}
-			slog.Warn("file-transfer: parallel stream open failed, falling back to sequential",
+			slog.Warn("file-transfer: parallel stream open failed, falling back to single stream",
 				"error", err, "attempted", i+1, "total", numStreams)
-			// Fallback: send all chunks on control stream (manifest already accepted).
-			progress.setStatus("active")
-			var fallbackSent int64
-			for idx, c := range chunks {
-				if wErr := writeChunkFrame(controlRW, idx, c.data); wErr != nil {
-					return fmt.Errorf("send chunk %d: %w", idx, wErr)
-				}
-				fallbackSent += int64(len(c.data))
-				progress.updateChunks(fallbackSent, idx+1)
-				progress.addWireBytes(int64(len(c.data)))
-			}
-			if pErr := sendParityChunks(controlRW, parity, m.ChunkCount); pErr != nil {
-				return pErr
-			}
-			return writeMsg(controlRW, msgTransferDone)
+
+			// Fallback: send all chunks on control stream only (header already accepted).
+			return ts.sendSingleStream(controlRW, ch, producerDone, progress)
 		}
-		workers[i] = ws
 		ws.SetDeadline(time.Now().Add(transferStreamDeadline))
+		workers = append(workers, ws)
 	}
 
 	// D1 fix: compose cancel func to reset workers AND preserve control stream reset.
@@ -206,88 +156,175 @@ func (ts *TransferService) sendParallel(
 		}
 	})
 
-	var wg sync.WaitGroup
-	var firstErr atomic.Value
-
-	recordErr := func(err error) {
-		if err != nil {
-			firstErr.CompareAndSwap(nil, err)
+	// Send worker hello on each worker stream.
+	for i, ws := range workers {
+		if err := writeWorkerHello(ws, transferID); err != nil {
+			// Clean up all workers.
+			for _, w := range workers {
+				w.Close()
+			}
+			return zeroResult, fmt.Errorf("worker %d hello: %w", i+1, err)
 		}
 	}
 
-	// Worker goroutines (streams 1..N-1): each sends its partition.
+	// Per-worker channels for chunk distribution.
+	workerChs := make([]chan streamChunk, numStreams)
+	for i := range workerChs {
+		workerChs[i] = make(chan streamChunk, 4) // small buffer per worker
+	}
+
+	var wg sync.WaitGroup
+	var firstErr atomic.Value
+	// errCh signals the distributor to stop when any worker fails.
+	errCh := make(chan struct{}, 1)
+
+	recordErr := func(err error) {
+		if err != nil {
+			if firstErr.CompareAndSwap(nil, err) {
+				select {
+				case errCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}
+
+	// Track progress atomically across goroutines.
+	var totalSent atomic.Int64
+	var chunksDone atomic.Int32
+
+	// Worker goroutines (streams 1..N-1): read from their channel, write to wire.
 	for i, ws := range workers {
 		wg.Add(1)
-		go func(streamIdx int, s network.Stream, partition []int) {
+		go func(streamIdx int, s network.Stream, wch <-chan streamChunk) {
 			defer wg.Done()
 			defer s.Close()
 
-			if err := writeWorkerHello(s, m.RootHash); err != nil {
-				recordErr(fmt.Errorf("worker %d hello: %w", streamIdx, err))
-				return
-			}
-
-			for _, idx := range partition {
-				if err := writeChunkFrame(s, idx, chunks[idx].data); err != nil {
-					recordErr(fmt.Errorf("worker %d chunk %d: %w", streamIdx, idx, err))
+			for sc := range wch {
+				if err := writeStreamChunkFrame(s, sc); err != nil {
+					recordErr(fmt.Errorf("worker %d chunk %d: %w", streamIdx, sc.chunkIdx, err))
 					return
 				}
-				wireBytes := int64(len(chunks[idx].data))
+				wireBytes := int64(len(sc.data))
 				totalSent.Add(wireBytes)
 				done := chunksDone.Add(1)
 				progress.updateChunks(totalSent.Load(), int(done))
 				progress.addWireBytes(wireBytes)
 				progress.updateStream(streamIdx, wireBytes)
 			}
-		}(i+1, ws, partitions[i+1])
+		}(i+1, ws, workerChs[i+1])
 	}
 
-	// Stream 0 (control): send its partition.
-	for _, idx := range partitions[0] {
-		if err := writeChunkFrame(controlRW, idx, chunks[idx].data); err != nil {
-			recordErr(fmt.Errorf("control chunk %d: %w", idx, err))
-			break
+	// Control stream goroutine (stream 0): read from its channel, write to wire.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for sc := range workerChs[0] {
+			if err := writeStreamChunkFrame(controlRW, sc); err != nil {
+				recordErr(fmt.Errorf("control chunk %d: %w", sc.chunkIdx, err))
+				return
+			}
+			wireBytes := int64(len(sc.data))
+			totalSent.Add(wireBytes)
+			done := chunksDone.Add(1)
+			progress.updateChunks(totalSent.Load(), int(done))
+			progress.addWireBytes(wireBytes)
+			progress.updateStream(0, wireBytes)
 		}
-		wireBytes := int64(len(chunks[idx].data))
-		totalSent.Add(wireBytes)
-		done := chunksDone.Add(1)
-		progress.updateChunks(totalSent.Load(), int(done))
-		progress.addWireBytes(wireBytes)
-		progress.updateStream(0, wireBytes)
+	}()
+
+	// Distribute chunks from producer to per-worker channels (round-robin).
+	// If any worker errors, stop distributing to avoid blocking on a dead worker's channel.
+	streamIdx := 0
+	distribDone := false
+	for sc := range ch {
+		if distribDone {
+			continue // drain producer channel to let it finish
+		}
+		select {
+		case workerChs[streamIdx%numStreams] <- sc:
+			streamIdx++
+		case <-errCh:
+			distribDone = true
+			// Continue draining ch to unblock the producer goroutine.
+		}
 	}
 
+	// Close all per-worker channels to signal workers to finish.
+	for _, wch := range workerChs {
+		close(wch)
+	}
+
+	// R3-IMP2: Wait for ALL workers to finish writing before trailer.
+	// This prevents chunk-after-trailer race where a worker stream has in-flight
+	// writes when the trailer arrives at the receiver.
 	wg.Wait()
 
 	if errVal := firstErr.Load(); errVal != nil {
-		return errVal.(error)
+		return zeroResult, errVal.(error)
 	}
 
-	// Send parity on control stream.
-	if err := sendParityChunks(controlRW, parity, m.ChunkCount); err != nil {
-		return err
+	// Wait for producer result (producer channel is already closed).
+	result := <-producerDone
+	if result.err != nil {
+		return zeroResult, fmt.Errorf("chunk producer: %w", result.err)
 	}
 
-	return writeMsg(controlRW, msgTransferDone)
+	return result, nil
+}
+
+// sendSingleStream is the fallback when parallel streams can't be opened.
+// Sends all chunks from the producer channel on a single stream.
+func (ts *TransferService) sendSingleStream(
+	rw io.ReadWriter,
+	ch <-chan streamChunk,
+	producerDone <-chan producerResult,
+	progress *TransferProgress,
+) (producerResult, error) {
+	var zeroResult producerResult
+	var totalSent int64
+	chunksSent := 0
+
+	for sc := range ch {
+		if err := writeStreamChunkFrame(rw, sc); err != nil {
+			// Don't block on producerDone here. The caller (streamingSend) has
+			// defer cancel() which cancels the producer context. The producer then
+			// closes ch (unblocking this range) and sends to done (buffered, cap 1).
+			// Blocking here would deadlock: producer blocked on ch <- sc, us on <-done.
+			return zeroResult, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
+		}
+		totalSent += int64(len(sc.data))
+		chunksSent++
+		progress.updateChunks(totalSent, chunksSent)
+		progress.addWireBytes(int64(len(sc.data)))
+	}
+
+	result := <-producerDone
+	if result.err != nil {
+		return zeroResult, fmt.Errorf("chunk producer: %w", result.err)
+	}
+
+	return result, nil
 }
 
 // --- Parallel receive ---
 
 // parallelSession coordinates chunk reception from multiple streams for one transfer.
+// Revised: uses transferID for session routing (I5), stores control peer ID for
+// worker verification (C5), uses streamReceiveState for chunk processing.
 type parallelSession struct {
-	rootHash   [32]byte
-	manifest   *transferManifest
-	tmpFile    *os.File
-	tmpPath    string
-	have       *bitfield
-	offsets    []int64
+	transferID [32]byte      // session key for worker stream routing (I5)
+	controlPID peer.ID       // peer ID from control stream for worker verification (C5)
+	state      *streamReceiveState
 	progress   *TransferProgress
-	compressed bool
-	hasErasure bool
+
+	// Checkpoint state for cross-session resume (R3-IMP5, R4-IMP2, N10).
+	contentKey [32]byte // BLAKE3 of sorted paths + sizes
+	receiveDir string   // destination directory for checkpoint files
+	flags      uint8    // transfer flags (compression, erasure)
 
 	mu           sync.Mutex
-	totalWritten int64
-	parityData   map[int][]byte
-	corrupted    []int
 	nextWorkerID int32 // atomically incremented to assign stream indices to workers
 
 	// D1 fix: track attached worker streams so cancel can reset them.
@@ -296,12 +333,12 @@ type parallelSession struct {
 	// done is closed when receiveParallel completes or cancel fires.
 	// Worker streams check this to exit their read loops.
 	done chan struct{}
-	// chunks receives verified chunk data from any stream.
-	chunks chan parallelChunk
+	// chunks receives streaming chunk data from worker streams.
+	chunks chan streamChunk
 }
 
 // resetWorkerStreams resets all attached worker streams to unblock
-// any goroutines stuck in readChunkFrame after cancel or completion.
+// any goroutines stuck in readStreamChunkFrame after cancel or completion.
 func (s *parallelSession) resetWorkerStreams() {
 	s.mu.Lock()
 	streams := s.workerStreams
@@ -312,33 +349,15 @@ func (s *parallelSession) resetWorkerStreams() {
 	}
 }
 
-// parallelChunk is a verified chunk delivered from any stream.
-type parallelChunk struct {
-	index       int
-	data        []byte
-	isParity    bool
-	streamIndex int // which stream delivered this chunk (0-indexed)
-}
-
-// writeWorkerHello writes the worker hello message: msgWorkerHello + rootHash.
-func writeWorkerHello(w io.Writer, rootHash [32]byte) error {
-	var buf [33]byte
-	buf[0] = msgWorkerHello
-	copy(buf[1:], rootHash[:])
-	_, err := w.Write(buf[:])
-	return err
-}
-
-// readWorkerHello reads the rootHash after msgWorkerHello byte has been consumed.
-func readWorkerHello(r io.Reader) ([32]byte, error) {
-	var hash [32]byte
-	_, err := io.ReadFull(r, hash[:])
-	return hash, err
-}
+// --- Worker stream handler (I5: transferID routing, C5: peer ID verification) ---
 
 // handleWorkerStreamFromReader processes an incoming parallel worker stream.
 // The caller has already peeked the first byte (msgWorkerHello) via a bufio.Reader.
 // All reads go through r to avoid losing the buffered data.
+//
+// Security (C5): Verifies that the worker stream's peer ID matches the control
+// stream's peer ID. This prevents session hijack where a malicious peer copies
+// a transferID from observed traffic and opens a worker stream to inject chunks.
 func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *bufio.Reader) {
 	defer s.Close()
 
@@ -352,15 +371,15 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 		return
 	}
 
-	rootHash, err := readWorkerHello(r)
+	transferID, err := readWorkerHello(r)
 	if err != nil {
-		slog.Debug("file-transfer: worker rootHash read failed", "peer", short, "error", err)
+		slog.Debug("file-transfer: worker transferID read failed", "peer", short, "error", err)
 		return
 	}
 
-	// Look up session.
+	// Look up session by transferID (I5).
 	ts.mu.RLock()
-	session, ok := ts.parallelSessions[rootHash]
+	session, ok := ts.parallelSessions[transferID]
 	ts.mu.RUnlock()
 
 	if !ok {
@@ -368,17 +387,37 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 		return
 	}
 
+	// C5: Verify worker peer ID matches control stream peer ID.
+	// Prevents session hijack from a different peer.
+	if remotePeer != session.controlPID {
+		slog.Warn("file-transfer: worker stream peer mismatch (C5)",
+			"worker_peer", short,
+			"control_peer", session.controlPID.String()[:16]+"...")
+		return
+	}
+
 	// Assign a stream index (workers start at 1, control is 0).
+	// Limit max worker streams to prevent resource exhaustion from malicious senders.
 	streamIdx := int(atomic.AddInt32(&session.nextWorkerID, 1))
+	if streamIdx > parallelStreamsLANMax {
+		slog.Warn("file-transfer: too many worker streams, rejecting",
+			"peer", short, "stream", streamIdx, "max", parallelStreamsLANMax)
+		return
+	}
 
 	// D1 fix: register this worker stream so cancel can reset it.
 	session.mu.Lock()
 	session.workerStreams = append(session.workerStreams, s)
 	session.mu.Unlock()
 
+	// Set deadline on worker stream to prevent slowloris (silent worker holds goroutine).
+	// Same deadline as control stream. resetWorkerStreams will override this if the
+	// transfer completes earlier.
+	s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
 	slog.Debug("file-transfer: worker stream attached", "peer", short, "stream", streamIdx)
 
-	// Read chunks and deliver to session.
+	// Read streaming chunks and deliver to session (I12: readStreamChunkFrame).
 	for {
 		select {
 		case <-session.done:
@@ -386,156 +425,122 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 		default:
 		}
 
-		index, wireData, err := readChunkFrame(r)
-		if err != nil {
+		sc, msgType, readErr := readStreamChunkFrame(r)
+		if readErr != nil {
 			return // stream closed or error
 		}
-		if index == -1 {
-			return // done signal (shouldn't happen on workers, but handle gracefully)
+
+		// Workers should only send chunk frames.
+		// Trailer/done signals on worker streams are unexpected but handled gracefully.
+		if msgType != msgStreamChunk {
+			return
 		}
 
-		// Use select to avoid blocking forever if receiveParallel has returned
-		// and the chunks channel is full. Without this, the worker goroutine leaks.
+		// Deliver chunk to session via select to avoid goroutine leak if
+		// receiveParallel has returned and the channel is full.
 		select {
-		case session.chunks <- parallelChunk{
-			index:       index,
-			data:        wireData,
-			isParity:    index >= session.manifest.ChunkCount,
-			streamIndex: streamIdx,
-		}:
+		case session.chunks <- sc:
 		case <-session.done:
 			return
 		}
 	}
 }
 
+// --- Session registry (I5: transferID key) ---
+
 // registerParallelSession registers a session for worker streams to find.
-func (ts *TransferService) registerParallelSession(rootHash [32]byte, session *parallelSession) {
+func (ts *TransferService) registerParallelSession(transferID [32]byte, session *parallelSession) {
 	ts.mu.Lock()
 	if ts.parallelSessions == nil {
 		ts.parallelSessions = make(map[[32]byte]*parallelSession)
 	}
-	ts.parallelSessions[rootHash] = session
+	ts.parallelSessions[transferID] = session
 	ts.mu.Unlock()
 }
 
 // unregisterParallelSession removes a session.
-func (ts *TransferService) unregisterParallelSession(rootHash [32]byte) {
+func (ts *TransferService) unregisterParallelSession(transferID [32]byte) {
 	ts.mu.Lock()
-	delete(ts.parallelSessions, rootHash)
+	delete(ts.parallelSessions, transferID)
 	ts.mu.Unlock()
 }
 
-// receiveParallel reads chunks from both the control stream and the parallel chunk channel.
-// It coordinates writes from multiple sources into a single file.
+// --- Parallel receive (streaming protocol) ---
+
+// receiveParallel reads streaming chunks from both the control stream and parallel
+// worker streams. It coordinates writes from multiple sources using streamReceiveState.
+//
+// The control stream uses readStreamChunkFrame (I12). Worker streams deliver chunks
+// via the session.chunks channel. All chunks are processed through streamReceiveState
+// for duplicate detection (R3-IMP3), bounds validation (C3/C4), hash verification,
+// and globalToLocal file mapping (N3/F1).
 func (ts *TransferService) receiveParallel(
 	controlReader io.Reader,
 	session *parallelSession,
-	ckpt *transferCheckpoint,
-) error {
-	m := session.manifest
-	offsets := session.offsets
-	have := session.have
-	compressed := session.compressed
-	hasErasure := session.hasErasure
+) ([32]byte, error) {
+	var zero [32]byte
+	state := session.state
 	progress := session.progress
 
-	// Seed progress from checkpoint.
-	if have.count() > 0 {
-		var seeded int64
-		for i := 0; i < m.ChunkCount; i++ {
-			if have.has(i) {
-				seeded += int64(m.ChunkSizes[i])
-			}
+	// Checkpoint state: periodic save to survive crashes (N10, R3-IMP5).
+	ckptEnabled := session.receiveDir != ""
+	lastCkptSave := time.Now()
+
+	// saveCheckpointIfDue saves a checkpoint if enough time has elapsed since the last save.
+	saveCheckpointIfDue := func() {
+		if !ckptEnabled {
+			return
 		}
-		session.mu.Lock()
-		session.totalWritten = seeded
-		session.mu.Unlock()
-		progress.updateChunks(seeded, have.count())
+		if time.Since(lastCkptSave) < checkpointSaveInterval {
+			return
+		}
+		ckpt := checkpointFromState(state, session.contentKey, session.flags)
+		if err := ckpt.save(session.receiveDir); err != nil {
+			slog.Debug("file-transfer: checkpoint save failed", "error", err)
+		}
+		lastCkptSave = time.Now()
 	}
 
-	// Process a single chunk (from any source). streamIdx identifies which stream delivered it.
-	processChunk := func(index int, wireData []byte, streamIdx int) error {
-		progress.addWireBytes(int64(len(wireData)))
+	// saveCheckpointOnError persists final state before returning an error.
+	// On success, sets keepTempFiles so cleanup() preserves partial data for resume.
+	saveCheckpointOnError := func() {
+		if !ckptEnabled {
+			return
+		}
+		ckpt := checkpointFromState(state, session.contentKey, session.flags)
+		if err := ckpt.save(session.receiveDir); err != nil {
+			slog.Debug("file-transfer: checkpoint save on error failed", "error", err)
+			return
+		}
+		// Checkpoint saved successfully. Tell cleanup to preserve temp files
+		// so the next session can resume from the checkpoint.
+		state.mu.Lock()
+		state.keepTempFiles = true
+		state.mu.Unlock()
+	}
 
-		// Parity chunk.
-		if index >= m.ChunkCount && index < m.ChunkCount+m.ParityCount {
-			parityIdx := index - m.ChunkCount
-			hash := blake3Sum(wireData)
-			session.mu.Lock()
-			if hash == m.ParityHashes[parityIdx] {
-				session.parityData[parityIdx] = wireData
-			}
-			session.mu.Unlock()
+	// Process a single streaming chunk from any source.
+	// Uses the shared processIncomingChunk on streamReceiveState (Q1 fix).
+	processChunk := func(sc streamChunk) error {
+		progress.addWireBytes(int64(len(sc.data)))
+
+		isNew, err := state.processIncomingChunk(sc)
+		if err != nil {
+			return err
+		}
+		if !isNew {
 			return nil
 		}
 
-		// Validate bounds.
-		if index < 0 || index >= m.ChunkCount {
-			return fmt.Errorf("chunk index out of range: %d", index)
-		}
+		progress.updateChunks(state.ReceivedBytes(), sc.chunkIdx+1)
 
-		session.mu.Lock()
-		if have.has(index) {
-			session.mu.Unlock()
-			return nil // duplicate
-		}
-		session.mu.Unlock()
+		// Periodic checkpoint save (N10).
+		saveCheckpointIfDue()
 
-		// Decompress if needed.
-		// Use manifest ChunkSizes (Merkle-verified) as decompression limit instead of
-		// ratio-based cap. Ratio cap fails on highly compressible data (e.g. zeros
-		// compress at 8456:1, so 30 bytes * 10 = 300 byte cap vs 256KB actual chunk).
-		chunkData := wireData
-		if compressed {
-			maxDecomp := int(m.ChunkSizes[index])
-			if maxDecomp > maxDecompressedChunk {
-				maxDecomp = maxDecompressedChunk
-			}
-			if decompressed, err := decompressChunk(wireData, maxDecomp); err == nil {
-				chunkData = decompressed
-			} else {
-				slog.Debug("transfer: decompression failed, using raw data", "chunk", index, "size", len(wireData), "error", err)
-			}
-		}
-
-		// Verify hash.
-		hash := blake3Hash(chunkData)
-		if hash != m.ChunkHashes[index] {
-			if hasErasure {
-				session.mu.Lock()
-				session.corrupted = append(session.corrupted, index)
-				session.mu.Unlock()
-				return nil
-			}
-			return fmt.Errorf("chunk %d hash mismatch: corrupted", index)
-		}
-
-		// Verify size.
-		if uint32(len(chunkData)) != m.ChunkSizes[index] {
-			return fmt.Errorf("chunk %d size mismatch: got %d, expected %d",
-				index, len(chunkData), m.ChunkSizes[index])
-		}
-
-		// Write at correct offset.
-		if _, err := session.tmpFile.WriteAt(chunkData, offsets[index]); err != nil {
-			return fmt.Errorf("write chunk %d: %w", index, err)
-		}
-
-		session.mu.Lock()
-		have.set(index)
-		session.totalWritten += int64(len(chunkData))
-		tw := session.totalWritten
-		haveCount := have.count()
-		session.mu.Unlock()
-
-		progress.updateChunks(tw, haveCount)
-		progress.updateStream(streamIdx, int64(len(chunkData)))
 		return nil
 	}
 
-	// Ensure worker cleanup happens on ALL exit paths (success, error, cancel).
-	// sync.Once prevents double-close of session.done.
+	// Ensure worker cleanup happens on ALL exit paths.
 	var cleanupOnce sync.Once
 	cleanupWorkers := func() {
 		cleanupOnce.Do(func() {
@@ -545,105 +550,152 @@ func (ts *TransferService) receiveParallel(
 	}
 	defer cleanupWorkers()
 
-	// Read from control stream + parallel chunk channel concurrently.
-	// The control goroutine reads until it gets the done signal (index == -1)
-	// or an error. It does not count frames to avoid racing with workers
-	// that also update the have bitfield.
-	controlDone := make(chan error, 1)
+	// Control stream goroutine: read streaming chunks until trailer.
+	type controlResult struct {
+		chunkCount   int
+		rootHash     [32]byte
+		sparseHashes map[int][32]byte
+		erasure      *erasureTrailer
+		err          error
+	}
+	controlDone := make(chan controlResult, 1)
 	go func() {
 		for {
-			index, wireData, err := readChunkFrame(controlReader)
-			if err != nil {
-				controlDone <- fmt.Errorf("control read: %w", err)
+			sc, msgType, readErr := readStreamChunkFrame(controlReader)
+			if readErr != nil {
+				controlDone <- controlResult{err: fmt.Errorf("control read: %w", readErr)}
 				return
 			}
-			if index == -1 {
-				break // done signal
-			}
-			if err := processChunk(index, wireData, 0); err != nil {
-				controlDone <- err
+
+			switch msgType {
+			case msgTrailer:
+				chunkCount, rootHash, sparseHashes, erasure, trailerErr := readTrailer(controlReader, state.hasErasure)
+				if trailerErr != nil {
+					controlDone <- controlResult{err: fmt.Errorf("read trailer: %w", trailerErr)}
+					return
+				}
+				controlDone <- controlResult{
+					chunkCount:   chunkCount,
+					rootHash:     rootHash,
+					sparseHashes: sparseHashes,
+					erasure:      erasure,
+				}
 				return
+
+			case msgTransferDone:
+				controlDone <- controlResult{err: fmt.Errorf("unexpected msgTransferDone in streaming parallel protocol")}
+				return
+
+			case msgStreamChunk:
+				if err := processChunk(sc); err != nil {
+					controlDone <- controlResult{err: err}
+					return
+				}
 			}
 		}
-		controlDone <- nil
 	}()
 
-	// Process chunks from worker streams.
-	controlFinished := false
-	workerDone := false
-	for !workerDone {
+	// Process chunks from worker streams and control stream concurrently.
+	var ctrlResult controlResult
+	for {
 		select {
-		case chunk, ok := <-session.chunks:
-			if !ok {
-				workerDone = true
-				break
-			}
-			if err := processChunk(chunk.index, chunk.data, chunk.streamIndex); err != nil {
+		case sc := <-session.chunks:
+			if err := processChunk(sc); err != nil {
 				cleanupWorkers()
-				<-controlDone
-				return err
+				saveCheckpointOnError()
+				// Don't block on controlDone (S2 fix): control goroutine will exit
+				// when the caller closes the stream. Buffered channel prevents leak.
+				return zero, err
 			}
-			// If control already finished and we have all chunks, stop.
-			if controlFinished && have.missing() == 0 {
-				workerDone = true
-			}
-		case err := <-controlDone:
-			// Control stream finished (got done signal or error).
-			if err != nil {
+
+		case result := <-controlDone:
+			if result.err != nil {
 				cleanupWorkers()
-				return err
+				saveCheckpointOnError()
+				return zero, result.err
 			}
-			controlFinished = true
-			// If all chunks received, no need to wait for workers.
-			if have.missing() == 0 {
-				workerDone = true
+			ctrlResult = result
+
+			// Control stream finished (trailer received). Signal workers to stop,
+			// then drain remaining chunks.
+			cleanupWorkers()
+
+			// Only drain if workers actually attached. Without this check,
+			// every single-stream transfer pays a 50ms timer penalty.
+			if atomic.LoadInt32(&session.nextWorkerID) > 0 {
+				// Workers may have in-flight chunks between readStreamChunkFrame
+				// completing and the select on session.done. Brief grace period
+				// lets them deliver their last chunk.
+				drainTimer := time.NewTimer(50 * time.Millisecond)
+			drainLoop:
+				for {
+					select {
+					case sc := <-session.chunks:
+						if err := processChunk(sc); err != nil {
+							drainTimer.Stop()
+							saveCheckpointOnError()
+							return zero, err
+						}
+					case <-drainTimer.C:
+						break drainLoop
+					}
+				}
 			}
-			// Otherwise keep draining worker chunks.
+			goto verify
 		}
 	}
 
-	// Wait for control to finish if we exited the worker loop.
-	if !controlFinished {
-		if err := <-controlDone; err != nil {
-			return err
-		}
+verify:
+	// Verify transfer integrity.
+	chunkCount := ctrlResult.chunkCount
+	rootHash := ctrlResult.rootHash
+
+	// Update progress with actual chunk count (I3).
+	progress.mu.Lock()
+	progress.ChunksTotal = chunkCount
+	progress.mu.Unlock()
+
+	// Check for missing chunks (R3-IMP4).
+	missing := state.missingChunks(chunkCount)
+	if len(missing) > 0 {
+		saveCheckpointOnError()
+		return zero, fmt.Errorf("transfer incomplete: %d chunks missing (first: %d)", len(missing), missing[0])
 	}
 
-	// Check for missing chunks.
-	session.mu.Lock()
-	corrupted := session.corrupted
-	session.mu.Unlock()
-
-	if len(corrupted) > 0 && hasErasure {
-		slog.Info("file-transfer: attempting RS reconstruction",
-			"corrupted", len(corrupted), "parity_available", len(session.parityData))
-		if err := ts.rsReconstruct(session.tmpFile, m, offsets, corrupted, session.parityData); err != nil {
-			return fmt.Errorf("RS reconstruction: %w", err)
-		}
-		for _, idx := range corrupted {
-			have.set(idx)
-			session.totalWritten += int64(m.ChunkSizes[idx])
-		}
-		progress.updateChunks(session.totalWritten, have.count())
-	} else if have.missing() > 0 {
-		return fmt.Errorf("transfer incomplete: %d chunks missing", have.missing())
+	// Assemble full hash list and verify Merkle root.
+	var allHashes [][32]byte
+	if len(ctrlResult.sparseHashes) > 0 {
+		allHashes = state.assembleFullHashList(chunkCount, ctrlResult.sparseHashes)
+	} else {
+		allHashes = state.orderedHashes()
+	}
+	computedRoot := MerkleRoot(allHashes)
+	if computedRoot != rootHash {
+		saveCheckpointOnError()
+		return zero, fmt.Errorf("Merkle root mismatch: transfer corrupted")
 	}
 
-	return nil
+	// Set erasure info on progress.
+	if ctrlResult.erasure != nil {
+		progress.mu.Lock()
+		progress.ErasureParity = ctrlResult.erasure.ParityCount
+		if chunkCount > 0 {
+			progress.ErasureOverhead = float64(ctrlResult.erasure.ParityCount) / float64(chunkCount)
+		}
+		progress.mu.Unlock()
+	}
+
+	// Finalize all temp files.
+	if finalizeErr := state.finalize(); finalizeErr != nil {
+		saveCheckpointOnError()
+		return zero, fmt.Errorf("finalize: %w", finalizeErr)
+	}
+
+	// Transfer succeeded. Remove checkpoint (N10).
+	if ckptEnabled {
+		removeCheckpoint(session.receiveDir, session.contentKey)
+	}
+
+	return rootHash, nil
 }
 
-// workerHelloSize is the wire size of a worker hello message.
-const workerHelloSize = 1 + 32 // msgWorkerHello + rootHash
-
-// readChunkFrameHeader reads just the 9-byte chunk frame header.
-// Returns msgType, index, dataLen.
-func readChunkFrameHeader(r io.Reader) (byte, int, int, error) {
-	var header [9]byte
-	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return 0, 0, 0, err
-	}
-	msgType := header[0]
-	index := int(binary.BigEndian.Uint32(header[1:5]))
-	dataLen := int(binary.BigEndian.Uint32(header[5:9]))
-	return msgType, index, dataLen, nil
-}

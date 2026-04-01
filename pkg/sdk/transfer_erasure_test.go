@@ -293,23 +293,16 @@ func TestErasureManifestMismatchCount(t *testing.T) {
 
 // --- Full manifest with erasure flag ---
 
-func TestManifestWithErasureRoundtrip(t *testing.T) {
+func TestTrailerWithErasureRoundtrip(t *testing.T) {
 	hashes := make([][32]byte, 3)
 	for i := range hashes {
 		hashes[i] = blake3Sum([]byte{byte(i)})
 	}
+	rootHash := MerkleRoot(hashes)
 
 	parityHashes := make([][32]byte, 1)
 	parityHashes[0] = blake3Sum([]byte("parity0"))
-
-	original := &transferManifest{
-		Filename:     "erasure-test.bin",
-		FileSize:     3000,
-		ChunkCount:   3,
-		Flags:        flagCompressed | flagErasureCoded,
-		RootHash:     MerkleRoot(hashes),
-		ChunkHashes:  hashes,
-		ChunkSizes:   []uint32{1000, 1000, 1000},
+	erasure := &erasureTrailer{
 		StripeSize:   3,
 		ParityCount:  1,
 		ParityHashes: parityHashes,
@@ -317,72 +310,71 @@ func TestManifestWithErasureRoundtrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := writeManifest(&buf, original); err != nil {
-		t.Fatalf("writeManifest: %v", err)
+	if err := writeTrailer(&buf, 3, rootHash, nil, erasure); err != nil {
+		t.Fatalf("writeTrailer: %v", err)
 	}
 
-	parsed, err := readManifest(&buf)
+	// readTrailer expects the msgTrailer byte to already be consumed.
+	// writeTrailer writes msgTrailer as the first byte, so skip it.
+	data := buf.Bytes()[1:] // skip msgTrailer byte
+	reader := bytes.NewReader(data)
+
+	chunkCount, parsedRoot, _, parsedErasure, err := readTrailer(reader, true)
 	if err != nil {
-		t.Fatalf("readManifest: %v", err)
+		t.Fatalf("readTrailer: %v", err)
 	}
 
-	if parsed.Flags&flagErasureCoded == 0 {
-		t.Error("erasure flag not set on parsed manifest")
+	if chunkCount != 3 {
+		t.Errorf("chunkCount: got %d, want 3", chunkCount)
 	}
-	if parsed.StripeSize != original.StripeSize {
-		t.Errorf("stripeSize: got %d, want %d", parsed.StripeSize, original.StripeSize)
+	if parsedRoot != rootHash {
+		t.Error("rootHash mismatch")
 	}
-	if parsed.ParityCount != original.ParityCount {
-		t.Errorf("parityCount: got %d, want %d", parsed.ParityCount, original.ParityCount)
+	if parsedErasure == nil {
+		t.Fatal("erasure should not be nil")
 	}
-	if len(parsed.ParityHashes) != len(original.ParityHashes) {
-		t.Fatalf("parity hash count: got %d, want %d", len(parsed.ParityHashes), len(original.ParityHashes))
+	if parsedErasure.StripeSize != 3 {
+		t.Errorf("stripeSize: got %d, want 3", parsedErasure.StripeSize)
 	}
-	if parsed.ParityHashes[0] != original.ParityHashes[0] {
+	if parsedErasure.ParityCount != 1 {
+		t.Errorf("parityCount: got %d, want 1", parsedErasure.ParityCount)
+	}
+	if parsedErasure.ParityHashes[0] != parityHashes[0] {
 		t.Error("parity hash mismatch")
 	}
-	if len(parsed.ParitySizes) != len(original.ParitySizes) {
-		t.Fatalf("parity size count: got %d, want %d", len(parsed.ParitySizes), len(original.ParitySizes))
-	}
-	if parsed.ParitySizes[0] != original.ParitySizes[0] {
-		t.Errorf("parity size: got %d, want %d", parsed.ParitySizes[0], original.ParitySizes[0])
+	if parsedErasure.ParitySizes[0] != 1000 {
+		t.Errorf("parity size: got %d, want 1000", parsedErasure.ParitySizes[0])
 	}
 }
 
-func TestManifestWithoutErasureStillWorks(t *testing.T) {
+func TestTrailerWithoutErasureStillWorks(t *testing.T) {
 	hashes := make([][32]byte, 2)
 	for i := range hashes {
 		hashes[i] = blake3Sum([]byte{byte(i)})
 	}
-
-	original := &transferManifest{
-		Filename:    "no-erasure.bin",
-		FileSize:    2000,
-		ChunkCount:  2,
-		Flags:       flagCompressed, // no erasure flag
-		RootHash:    MerkleRoot(hashes),
-		ChunkHashes: hashes,
-		ChunkSizes:  []uint32{1000, 1000},
-	}
+	rootHash := MerkleRoot(hashes)
 
 	var buf bytes.Buffer
-	if err := writeManifest(&buf, original); err != nil {
-		t.Fatalf("writeManifest: %v", err)
+	if err := writeTrailer(&buf, 2, rootHash, nil, nil); err != nil {
+		t.Fatalf("writeTrailer: %v", err)
 	}
 
-	parsed, err := readManifest(&buf)
+	data := buf.Bytes()[1:] // skip msgTrailer byte
+	reader := bytes.NewReader(data)
+
+	chunkCount, parsedRoot, _, parsedErasure, err := readTrailer(reader, false)
 	if err != nil {
-		t.Fatalf("readManifest: %v", err)
+		t.Fatalf("readTrailer: %v", err)
 	}
 
-	if parsed.Flags&flagErasureCoded != 0 {
-		t.Error("erasure flag should not be set")
+	if chunkCount != 2 {
+		t.Errorf("chunkCount: got %d, want 2", chunkCount)
 	}
-	if parsed.StripeSize != 0 {
-		t.Errorf("stripeSize should be 0, got %d", parsed.StripeSize)
+	if parsedRoot != rootHash {
+		t.Error("rootHash mismatch")
 	}
-	if parsed.ParityCount != 0 {
-		t.Errorf("parityCount should be 0, got %d", parsed.ParityCount)
+	if parsedErasure != nil {
+		t.Error("erasure should be nil")
 	}
 }
 

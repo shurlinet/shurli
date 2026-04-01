@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,65 +20,72 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 )
 
-// --- Wire format tests ---
+// --- Streaming header wire format tests ---
 
-func TestManifestRoundtrip(t *testing.T) {
-	hashes := make([][32]byte, 3)
-	hashes[0] = blake3Sum([]byte("chunk0"))
-	hashes[1] = blake3Sum([]byte("chunk1"))
-	hashes[2] = blake3Sum([]byte("chunk2"))
-
-	original := &transferManifest{
-		Filename:    "test-file.txt",
-		FileSize:    1024 * 1024,
-		ChunkCount:  3,
-		Flags:       flagCompressed,
-		RootHash:    MerkleRoot(hashes),
-		ChunkHashes: hashes,
-		ChunkSizes:  []uint32{4096, 8192, 2048},
+func TestStreamingHeaderRoundtrip(t *testing.T) {
+	files := []fileEntry{
+		{Path: "dir/file1.txt", Size: 1024, MetaFlags: metaHasMode | metaHasMtime, Mode: 0644, Mtime: 1711900000},
+		{Path: "dir/file2.bin", Size: 2048, MetaFlags: metaHasMode, Mode: 0755},
+		{Path: "readme.md", Size: 512},
 	}
+	filePaths := []string{"/tmp/a", "/tmp/b", "/tmp/c"}
+	if err := sortFileTable(files, filePaths); err != nil {
+		t.Fatalf("sortFileTable: %v", err)
+	}
+
+	var totalSize int64
+	for _, f := range files {
+		totalSize += f.Size
+	}
+
+	var transferID [32]byte
+	copy(transferID[:], "test-transfer-id-32-bytes-long!!")
 
 	var buf bytes.Buffer
-	if err := writeManifest(&buf, original); err != nil {
-		t.Fatalf("writeManifest: %v", err)
+	if err := writeHeader(&buf, files, flagCompressed, totalSize, transferID); err != nil {
+		t.Fatalf("writeHeader: %v", err)
 	}
 
-	parsed, err := readManifest(&buf)
+	parsedFiles, parsedTotal, parsedFlags, parsedID, cumOffsets, err := readHeader(&buf)
 	if err != nil {
-		t.Fatalf("readManifest: %v", err)
+		t.Fatalf("readHeader: %v", err)
 	}
 
-	if parsed.Filename != original.Filename {
-		t.Errorf("filename: got %q, want %q", parsed.Filename, original.Filename)
+	if parsedTotal != totalSize {
+		t.Errorf("totalSize: got %d, want %d", parsedTotal, totalSize)
 	}
-	if parsed.FileSize != original.FileSize {
-		t.Errorf("fileSize: got %d, want %d", parsed.FileSize, original.FileSize)
+	if parsedFlags != flagCompressed {
+		t.Errorf("flags: got %d, want %d", parsedFlags, flagCompressed)
 	}
-	if parsed.ChunkCount != original.ChunkCount {
-		t.Errorf("chunkCount: got %d, want %d", parsed.ChunkCount, original.ChunkCount)
+	if parsedID != transferID {
+		t.Error("transferID mismatch")
 	}
-	if parsed.Flags != original.Flags {
-		t.Errorf("flags: got %d, want %d", parsed.Flags, original.Flags)
+	if len(parsedFiles) != len(files) {
+		t.Fatalf("file count: got %d, want %d", len(parsedFiles), len(files))
 	}
-	if parsed.RootHash != original.RootHash {
-		t.Error("rootHash mismatch")
-	}
-	for i := range parsed.ChunkHashes {
-		if parsed.ChunkHashes[i] != original.ChunkHashes[i] {
-			t.Errorf("chunk hash %d mismatch", i)
+	for i, f := range parsedFiles {
+		if f.Path != files[i].Path {
+			t.Errorf("file %d path: got %q, want %q", i, f.Path, files[i].Path)
+		}
+		if f.Size != files[i].Size {
+			t.Errorf("file %d size: got %d, want %d", i, f.Size, files[i].Size)
+		}
+		if f.MetaFlags != files[i].MetaFlags {
+			t.Errorf("file %d metaFlags: got %d, want %d", i, f.MetaFlags, files[i].MetaFlags)
+		}
+		if f.Mode != files[i].Mode {
+			t.Errorf("file %d mode: got %o, want %o", i, f.Mode, files[i].Mode)
+		}
+		if f.Mtime != files[i].Mtime {
+			t.Errorf("file %d mtime: got %d, want %d", i, f.Mtime, files[i].Mtime)
 		}
 	}
-	for i := range parsed.ChunkSizes {
-		if parsed.ChunkSizes[i] != original.ChunkSizes[i] {
-			t.Errorf("chunk size %d: got %d, want %d", i, parsed.ChunkSizes[i], original.ChunkSizes[i])
-		}
+	if len(cumOffsets) != len(files)+1 {
+		t.Errorf("cumOffsets: got %d entries, want %d", len(cumOffsets), len(files)+1)
 	}
 }
 
-func TestManifestPathTraversal(t *testing.T) {
-	hash := blake3Sum([]byte("x"))
-	hashes := [][32]byte{hash}
-
+func TestStreamingHeaderPathTraversal(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
@@ -90,141 +98,124 @@ func TestManifestPathTraversal(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		files := []fileEntry{{Path: tt.input, Size: 1}}
+		filePaths := []string{"/tmp/x"}
+
+		var transferID [32]byte
 		var buf bytes.Buffer
-		m := &transferManifest{
-			Filename:    tt.input,
-			FileSize:    1,
-			ChunkCount:  1,
-			RootHash:    MerkleRoot(hashes),
-			ChunkHashes: hashes,
-			ChunkSizes:  []uint32{1},
-		}
-		if err := writeManifest(&buf, m); err != nil {
+		if err := writeHeader(&buf, files, 0, 1, transferID); err != nil {
 			t.Fatalf("write %q: %v", tt.input, err)
 		}
-		parsed, err := readManifest(&buf)
+		parsed, _, _, _, _, err := readHeader(&buf)
 		if err != nil {
 			t.Fatalf("read %q: %v", tt.input, err)
 		}
-		if parsed.Filename != tt.expected {
-			t.Errorf("traversal: input %q, got %q, want %q", tt.input, parsed.Filename, tt.expected)
+		_ = filePaths
+		if parsed[0].Path != tt.expected {
+			t.Errorf("traversal: input %q, got %q, want %q", tt.input, parsed[0].Path, tt.expected)
 		}
 	}
 }
 
-func TestManifestRejectDotFilenames(t *testing.T) {
-	hash := blake3Sum([]byte("x"))
-	hashes := [][32]byte{hash}
-
+func TestStreamingHeaderRejectDotFilenames(t *testing.T) {
 	for _, name := range []string{".", ".."} {
+		files := []fileEntry{{Path: name, Size: 1}}
+		var transferID [32]byte
 		var buf bytes.Buffer
-		m := &transferManifest{
-			Filename:    name,
-			FileSize:    1,
-			ChunkCount:  1,
-			RootHash:    MerkleRoot(hashes),
-			ChunkHashes: hashes,
-			ChunkSizes:  []uint32{1},
-		}
-		if err := writeManifest(&buf, m); err != nil {
+		if err := writeHeader(&buf, files, 0, 1, transferID); err != nil {
 			t.Fatalf("write %q: %v", name, err)
 		}
-		_, err := readManifest(&buf)
+		_, _, _, _, _, err := readHeader(&buf)
 		if err == nil {
-			t.Errorf("expected error for filename %q", name)
+			t.Errorf("expected error for path %q", name)
 		}
 	}
 }
 
-func TestManifestInvalidMagic(t *testing.T) {
+func TestStreamingHeaderInvalidMagic(t *testing.T) {
 	buf := bytes.NewReader([]byte{0x99, 0x99, 0x99, 0x99, shftVersion, 0})
-	_, err := readManifest(buf)
+	_, _, _, _, _, err := readHeader(buf)
 	if err == nil {
 		t.Error("expected error for invalid magic")
 	}
 }
 
-func TestManifestInvalidVersion(t *testing.T) {
+func TestStreamingHeaderInvalidVersion(t *testing.T) {
 	buf := bytes.NewReader([]byte{shftMagic0, shftMagic1, shftMagic2, shftMagic3, 0x99, 0})
-	_, err := readManifest(buf)
+	_, _, _, _, _, err := readHeader(buf)
 	if err == nil {
 		t.Error("expected error for invalid version")
 	}
 }
 
-func TestManifestOversizedFile(t *testing.T) {
-	hash := blake3Sum([]byte("x"))
-	hashes := [][32]byte{hash}
-	var buf bytes.Buffer
-	m := &transferManifest{
-		Filename:    "big.bin",
-		FileSize:    maxFileSize + 1,
-		ChunkCount:  1,
-		RootHash:    MerkleRoot(hashes),
-		ChunkHashes: hashes,
-		ChunkSizes:  []uint32{1},
-	}
-	if err := writeManifest(&buf, m); err != nil {
-		t.Fatal(err)
-	}
-	_, err := readManifest(&buf)
-	if err == nil {
-		t.Error("expected error for oversized file")
-	}
-}
-
-func TestManifestChunkSizesMismatch(t *testing.T) {
-	hash := blake3Sum([]byte("x"))
-	hashes := [][32]byte{hash}
-	var buf bytes.Buffer
-	m := &transferManifest{
-		Filename:    "test.bin",
-		FileSize:    1,
-		ChunkCount:  1,
-		RootHash:    MerkleRoot(hashes),
-		ChunkHashes: hashes,
-		ChunkSizes:  []uint32{1, 2}, // 2 sizes for 1 chunk
-	}
-	err := writeManifest(&buf, m)
-	if err == nil {
-		t.Error("expected error for chunk sizes count mismatch")
-	}
-}
-
-func TestChunkFrameRoundtrip(t *testing.T) {
+func TestStreamChunkFrameRoundtrip(t *testing.T) {
 	data := []byte("hello world this is chunk data")
+	hash := blake3Sum(data)
+
+	sc := streamChunk{
+		fileIdx:    0,
+		chunkIdx:   42,
+		offset:     1024,
+		hash:       hash,
+		decompSize: uint32(len(data)),
+		data:       data,
+	}
 
 	var buf bytes.Buffer
-	if err := writeChunkFrame(&buf, 42, data); err != nil {
-		t.Fatalf("writeChunkFrame: %v", err)
+	if err := writeStreamChunkFrame(&buf, sc); err != nil {
+		t.Fatalf("writeStreamChunkFrame: %v", err)
 	}
 
-	idx, got, err := readChunkFrame(&buf)
+	got, msgType, err := readStreamChunkFrame(&buf)
 	if err != nil {
-		t.Fatalf("readChunkFrame: %v", err)
+		t.Fatalf("readStreamChunkFrame: %v", err)
 	}
-	if idx != 42 {
-		t.Errorf("index: got %d, want 42", idx)
+	if msgType != msgStreamChunk {
+		t.Errorf("msgType: got 0x%02x, want 0x%02x", msgType, msgStreamChunk)
 	}
-	if !bytes.Equal(got, data) {
+	if got.chunkIdx != 42 {
+		t.Errorf("chunkIdx: got %d, want 42", got.chunkIdx)
+	}
+	if got.offset != 1024 {
+		t.Errorf("offset: got %d, want 1024", got.offset)
+	}
+	if got.hash != hash {
+		t.Error("hash mismatch")
+	}
+	if got.decompSize != uint32(len(data)) {
+		t.Errorf("decompSize: got %d, want %d", got.decompSize, len(data))
+	}
+	if !bytes.Equal(got.data, data) {
 		t.Error("data mismatch")
 	}
 }
 
-func TestDoneSignal(t *testing.T) {
-	var buf bytes.Buffer
-	if err := writeMsg(&buf, msgTransferDone); err != nil {
-		t.Fatal(err)
-	}
-	// Pad with extra bytes so readChunkFrame can read 9 bytes.
-	buf.Write(make([]byte, 8))
+func TestTrailerSignal(t *testing.T) {
+	var rootHash [32]byte
+	copy(rootHash[:], bytes.Repeat([]byte{0xAB}, 32))
 
-	idx, _, err := readChunkFrame(&buf)
-	if err != nil {
-		t.Fatalf("readChunkFrame: %v", err)
+	var buf bytes.Buffer
+	if err := writeTrailer(&buf, 10, rootHash, nil, nil); err != nil {
+		t.Fatalf("writeTrailer: %v", err)
 	}
-	if idx != -1 {
-		t.Errorf("expected -1 (done sentinel), got %d", idx)
+
+	_, msgType, err := readStreamChunkFrame(&buf)
+	if err != nil {
+		t.Fatalf("readStreamChunkFrame: %v", err)
+	}
+	if msgType != msgTrailer {
+		t.Errorf("expected msgTrailer (0x%02x), got 0x%02x", msgTrailer, msgType)
+	}
+
+	chunkCount, gotRoot, _, _, err := readTrailer(&buf, false)
+	if err != nil {
+		t.Fatalf("readTrailer: %v", err)
+	}
+	if chunkCount != 10 {
+		t.Errorf("chunkCount: got %d, want 10", chunkCount)
+	}
+	if gotRoot != rootHash {
+		t.Error("root hash mismatch")
 	}
 }
 
@@ -352,24 +343,23 @@ func TestResumeRequestRoundtrip(t *testing.T) {
 	}
 }
 
-// --- Checkpoint tests ---
+// --- Checkpoint tests (streaming protocol format) ---
 
 func TestCheckpointRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 
-	hashes := make([][32]byte, 5)
-	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+	files := []fileEntry{
+		{Path: "file1.txt", Size: 2000, MetaFlags: metaHasMode, Mode: 0644},
+		{Path: "file2.bin", Size: 3000},
 	}
 
-	manifest := &transferManifest{
-		Filename:    "resume-test.bin",
-		FileSize:    5000,
-		ChunkCount:  5,
-		Flags:       flagCompressed,
-		RootHash:    MerkleRoot(hashes),
-		ChunkHashes: hashes,
-		ChunkSizes:  []uint32{1000, 1000, 1000, 1000, 1000},
+	ck := contentKey(files)
+
+	hashes := make([][32]byte, 5)
+	sizes := make([]uint32, 5)
+	for i := range hashes {
+		hashes[i] = blake3Sum([]byte{byte(i)})
+		sizes[i] = 1000
 	}
 
 	have := newBitfield(5)
@@ -377,13 +367,21 @@ func TestCheckpointRoundtrip(t *testing.T) {
 	have.set(2)
 	have.set(4)
 
-	tmpPath := filepath.Join(dir, ".shurli-tmp-abc123-resume-test.bin")
-	os.WriteFile(tmpPath, make([]byte, 5000), 0600)
+	// Create temp files so restoreReceiveState can find them.
+	tmpName0 := ".shurli-tmp-0-file1.txt"
+	tmpName1 := ".shurli-tmp-1-file2.bin"
+	os.WriteFile(filepath.Join(dir, tmpName0), make([]byte, 2000), 0600)
+	os.WriteFile(filepath.Join(dir, tmpName1), make([]byte, 3000), 0600)
 
 	ckpt := &transferCheckpoint{
-		manifest: manifest,
-		have:     have,
-		tmpPath:  tmpPath,
+		contentKey: ck,
+		files:      files,
+		totalSize:  5000,
+		flags:      flagCompressed,
+		have:       have,
+		hashes:     hashes,
+		sizes:      sizes,
+		tmpPaths:   []string{filepath.Join(dir, tmpName0), filepath.Join(dir, tmpName1)},
 	}
 
 	if err := ckpt.save(dir); err != nil {
@@ -391,28 +389,37 @@ func TestCheckpointRoundtrip(t *testing.T) {
 	}
 
 	// Verify checkpoint file exists.
-	ckptPath := checkpointPath(dir, manifest.RootHash)
+	ckptPath := checkpointPath(dir, ck)
 	if _, err := os.Stat(ckptPath); err != nil {
 		t.Fatalf("checkpoint file missing: %v", err)
 	}
 
 	// Load it back.
-	loaded, err := loadCheckpoint(dir, manifest.RootHash)
+	loaded, err := loadCheckpoint(dir, ck)
 	if err != nil {
 		t.Fatalf("load checkpoint: %v", err)
 	}
 
-	if loaded.manifest.Filename != manifest.Filename {
-		t.Errorf("filename: got %q, want %q", loaded.manifest.Filename, manifest.Filename)
+	if loaded.contentKey != ck {
+		t.Error("contentKey mismatch")
 	}
-	if loaded.manifest.FileSize != manifest.FileSize {
-		t.Errorf("fileSize: got %d, want %d", loaded.manifest.FileSize, manifest.FileSize)
+	if loaded.totalSize != 5000 {
+		t.Errorf("totalSize: got %d, want 5000", loaded.totalSize)
 	}
-	if loaded.manifest.ChunkCount != manifest.ChunkCount {
-		t.Errorf("chunkCount: got %d, want %d", loaded.manifest.ChunkCount, manifest.ChunkCount)
+	if loaded.flags != flagCompressed {
+		t.Errorf("flags: got %d, want %d", loaded.flags, flagCompressed)
 	}
-	if loaded.manifest.RootHash != manifest.RootHash {
-		t.Error("rootHash mismatch")
+	if len(loaded.files) != 2 {
+		t.Fatalf("file count: got %d, want 2", len(loaded.files))
+	}
+	if loaded.files[0].Path != "file1.txt" {
+		t.Errorf("file 0 path: got %q", loaded.files[0].Path)
+	}
+	if loaded.files[0].Mode != 0644 {
+		t.Errorf("file 0 mode: got %o, want 644", loaded.files[0].Mode)
+	}
+	if loaded.files[1].Path != "file2.bin" {
+		t.Errorf("file 1 path: got %q", loaded.files[1].Path)
 	}
 	if loaded.have.count() != 3 {
 		t.Errorf("have count: got %d, want 3", loaded.have.count())
@@ -423,12 +430,31 @@ func TestCheckpointRoundtrip(t *testing.T) {
 	if loaded.have.has(1) || loaded.have.has(3) {
 		t.Error("loaded bitfield has spurious bits")
 	}
-	if filepath.Base(loaded.tmpPath) != filepath.Base(tmpPath) {
-		t.Errorf("tmpPath: got %q, want %q", filepath.Base(loaded.tmpPath), filepath.Base(tmpPath))
+	if len(loaded.hashes) != 5 {
+		t.Fatalf("hash count: got %d, want 5", len(loaded.hashes))
+	}
+	for i, h := range loaded.hashes {
+		if h != hashes[i] {
+			t.Errorf("hash %d mismatch", i)
+		}
+	}
+	for i, s := range loaded.sizes {
+		if s != sizes[i] {
+			t.Errorf("size %d: got %d, want %d", i, s, sizes[i])
+		}
+	}
+	if len(loaded.tmpPaths) != 2 {
+		t.Fatalf("tmpPath count: got %d, want 2", len(loaded.tmpPaths))
+	}
+	if filepath.Base(loaded.tmpPaths[0]) != tmpName0 {
+		t.Errorf("tmpPath 0: got %q, want %q", filepath.Base(loaded.tmpPaths[0]), tmpName0)
+	}
+	if filepath.Base(loaded.tmpPaths[1]) != tmpName1 {
+		t.Errorf("tmpPath 1: got %q, want %q", filepath.Base(loaded.tmpPaths[1]), tmpName1)
 	}
 
 	// Remove checkpoint.
-	removeCheckpoint(dir, manifest.RootHash)
+	removeCheckpoint(dir, ck)
 	if _, err := os.Stat(ckptPath); !os.IsNotExist(err) {
 		t.Error("checkpoint should be removed")
 	}
@@ -440,6 +466,208 @@ func TestCheckpointNotFound(t *testing.T) {
 	_, err := loadCheckpoint(dir, fakeHash)
 	if !os.IsNotExist(err) {
 		t.Errorf("expected not-exist, got: %v", err)
+	}
+}
+
+func TestCheckpointOldFormatDiscarded(t *testing.T) {
+	dir := t.TempDir()
+	var ck [32]byte
+	copy(ck[:], "test-content-key-for-old-format!")
+
+	// Write a file with wrong magic (simulating old format).
+	path := checkpointPath(dir, ck)
+	os.WriteFile(path, []byte("SHFT\x02old-checkpoint-data"), 0600)
+
+	// loadCheckpoint should detect wrong magic, delete the file, return not-exist.
+	_, err := loadCheckpoint(dir, ck)
+	if !os.IsNotExist(err) {
+		t.Errorf("expected not-exist for old format, got: %v", err)
+	}
+
+	// File should have been deleted.
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("old checkpoint file should have been deleted")
+	}
+}
+
+func TestCheckpointRestoreReceiveState(t *testing.T) {
+	dir := t.TempDir()
+
+	files := []fileEntry{
+		{Path: "data.bin", Size: 3000},
+	}
+	ck := contentKey(files)
+
+	hashes := make([][32]byte, 3)
+	sizes := make([]uint32, 3)
+	for i := range hashes {
+		hashes[i] = blake3Sum([]byte{byte(i)})
+		sizes[i] = 1000
+	}
+
+	have := newBitfield(3)
+	have.set(0)
+	have.set(1)
+
+	tmpName := ".shurli-tmp-0-data.bin"
+	os.WriteFile(filepath.Join(dir, tmpName), make([]byte, 3000), 0600)
+
+	ckpt := &transferCheckpoint{
+		contentKey: ck,
+		files:      files,
+		totalSize:  3000,
+		flags:      0,
+		have:       have,
+		hashes:     hashes,
+		sizes:      sizes,
+		tmpPaths:   []string{filepath.Join(dir, tmpName)},
+	}
+
+	state, err := ckpt.restoreReceiveState(dir)
+	if err != nil {
+		t.Fatalf("restoreReceiveState: %v", err)
+	}
+	defer state.cleanup()
+
+	// Verify restored state.
+	if state.totalSize != 3000 {
+		t.Errorf("totalSize: got %d, want 3000", state.totalSize)
+	}
+	if state.receivedBytes != 2000 {
+		t.Errorf("receivedBytes: got %d, want 2000", state.receivedBytes)
+	}
+	if state.maxChunkIdx != 1 {
+		t.Errorf("maxChunkIdx: got %d, want 1", state.maxChunkIdx)
+	}
+	if state.receivedBitfield == nil {
+		t.Fatal("receivedBitfield should not be nil")
+	}
+	if !state.receivedBitfield.has(0) || !state.receivedBitfield.has(1) {
+		t.Error("receivedBitfield lost set bits")
+	}
+	if state.receivedBitfield.has(2) {
+		t.Error("receivedBitfield has spurious bit")
+	}
+	if state.tmpFiles[0] == nil {
+		t.Error("temp file should be re-opened")
+	}
+}
+
+func TestCheckpointRestoreBitfieldGrown(t *testing.T) {
+	dir := t.TempDir()
+
+	// Simulate a mid-transfer checkpoint: 3 of ~78 expected chunks received.
+	// 10MB / 128KB avg = ~78 estimated chunks. Checkpoint saved after receiving 3.
+	totalSize := int64(10 << 20) // 10 MB
+	files := []fileEntry{{Path: "big.bin", Size: totalSize}}
+	ck := contentKey(files)
+
+	// Checkpoint saved with only 3 chunks (maxChunkIdx=2, so hashes/sizes length=3).
+	hashes := make([][32]byte, 3)
+	sizes := make([]uint32, 3)
+	for i := range hashes {
+		hashes[i] = blake3Sum([]byte{byte(i)})
+		sizes[i] = 131072 // 128K avg chunk
+	}
+	have := newBitfield(3)
+	have.set(0)
+	have.set(1)
+	have.set(2)
+
+	tmpName := ".shurli-tmp-0-big.bin"
+	os.WriteFile(filepath.Join(dir, tmpName), make([]byte, 1000), 0600)
+
+	ckpt := &transferCheckpoint{
+		contentKey: ck,
+		files:      files,
+		totalSize:  totalSize,
+		flags:      0,
+		have:       have,
+		hashes:     hashes,
+		sizes:      sizes,
+		tmpPaths:   []string{filepath.Join(dir, tmpName)},
+	}
+
+	state, err := ckpt.restoreReceiveState(dir)
+	if err != nil {
+		t.Fatalf("restoreReceiveState: %v", err)
+	}
+	defer state.cleanup()
+
+	// The restored bitfield must be large enough for chunks beyond the checkpoint.
+	est := estimateChunkCount(totalSize)
+	if est <= 3 {
+		t.Fatalf("test setup error: estimated chunks %d should be > 3", est)
+	}
+	if state.receivedBitfield.n < est {
+		t.Errorf("bitfield.n = %d, too small for estimated %d chunks", state.receivedBitfield.n, est)
+	}
+
+	// Verify chunks 0-2 are marked as received.
+	if !state.receivedBitfield.has(0) || !state.receivedBitfield.has(1) || !state.receivedBitfield.has(2) {
+		t.Error("restored chunks should be marked as received")
+	}
+
+	// Verify we can set bits BEYOND the checkpoint's original count.
+	// This was the bug: bitfield.n = 3, set(50) was silently ignored.
+	state.receivedBitfield.set(50)
+	if !state.receivedBitfield.has(50) {
+		t.Error("bitfield should be able to track chunks beyond checkpoint count")
+	}
+}
+
+func TestCheckpointTmpPathTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	files := []fileEntry{{Path: "file.txt", Size: 100}}
+	ck := contentKey(files)
+
+	// Save a valid checkpoint first, then corrupt the tmp path on disk.
+	ckpt := &transferCheckpoint{
+		contentKey: ck,
+		files:      files,
+		totalSize:  100,
+		flags:      0,
+		have:       newBitfield(1),
+		hashes:     make([][32]byte, 1),
+		sizes:      []uint32{100},
+		tmpPaths:   []string{filepath.Join(dir, ".shurli-tmp-0-file.txt")},
+	}
+	os.WriteFile(filepath.Join(dir, ".shurli-tmp-0-file.txt"), make([]byte, 100), 0600)
+
+	if err := ckpt.save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Corrupt the checkpoint file: replace the tmp path name with a traversal path.
+	// The tmp path section is at the end of the file. We'll just write a new file
+	// with the traversal path using the internal write functions.
+	ckpt.tmpPaths = []string{"../../etc/evil"}
+	// Bypass writeCheckpointTmpPaths (which strips to base name) by writing directly.
+	path := checkpointPath(dir, ck)
+	data, _ := os.ReadFile(path)
+	// Find the last 2 bytes of the file which is the tmp path count section.
+	// Easier to just build a corrupted checkpoint with raw bytes.
+	f, _ := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0600)
+	f.Write(data[:len(data)-2-4-len(".shurli-tmp-0-file.txt")])
+	// Write corrupted tmp path entry: count(2) + fileIdx(2) + pathLen(2) + path
+	evilName := []byte("../../../etc/evil")
+	var buf [6]byte
+	binary.BigEndian.PutUint16(buf[0:2], 1) // count
+	f.Write(buf[0:2])
+	binary.BigEndian.PutUint16(buf[0:2], 0) // fileIdx
+	binary.BigEndian.PutUint16(buf[2:4], uint16(len(evilName)))
+	f.Write(buf[0:4])
+	f.Write(evilName)
+	f.Close()
+
+	// Load should reject the traversal path.
+	_, err := loadCheckpoint(dir, ck)
+	if err == nil {
+		t.Fatal("expected error for path traversal in tmp name")
+	}
+	if !strings.Contains(err.Error(), "path traversal") {
+		t.Errorf("expected path traversal error, got: %v", err)
 	}
 }
 

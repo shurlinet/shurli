@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -39,6 +40,16 @@ const (
 
 	// Download wire error marker.
 	msgDownloadError = 0xFF
+
+	// Download request types (C2: hash probe support).
+	// requestTypeDownload is a full file download (sender calls SendFile).
+	requestTypeDownload byte = 0x01
+	// requestTypeProbe is a hash probe (sender chunks file, returns 45-byte response).
+	requestTypeProbe byte = 0x02
+
+	// probeResponseSize is the wire size of a hash probe response:
+	// marker(1) + rootHash(32) + totalSize(8) + chunkCount(4) = 45 bytes.
+	probeResponseSize = 45
 
 	// Limits.
 	maxSharesPerPeer  = 100
@@ -903,15 +914,24 @@ func BrowsePeer(s network.Stream, subPath string) (*BrowseResult, error) {
 
 // HandleDownload returns a stream handler for the download protocol.
 // When a peer opens a download stream, the handler:
-// 1. Reads the requested path
+// 1. Reads the requested path + requestType (C2)
 // 2. Verifies the peer has ACL access to the path
-// 3. Sends the file using the SHFT chunked transfer format
+// 3. Dispatches: requestType=0x01 sends file (SHFT streaming),
+//    requestType=0x02 returns 45-byte hash probe response
 //
-// For directory downloads, the caller iterates browse entries and downloads
-// each file separately.
+// Wire format received: pathLen(2) + path + requestType(1).
 func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		remotePeer := s.Conn().RemotePeer()
+
+		// Stream ownership: all paths close the stream except requestTypeDownload,
+		// where SendFile's background goroutine takes ownership and closes it.
+		streamOwned := false
+		defer func() {
+			if !streamOwned {
+				s.Close()
+			}
+		}()
 
 		// Check if peer has any visible shares.
 		shares := r.ListShares(&remotePeer)
@@ -922,29 +942,31 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
-		// Read requested path: pathLen(2) + path.
+		// Read requested path: pathLen(2) + path + requestType(1).
 		var pathLen uint16
 		if err := binary.Read(s, binary.BigEndian, &pathLen); err != nil {
-			s.Close()
 			return
 		}
 		if pathLen == 0 || pathLen > maxPathLength {
 			writeDownloadError(s, "invalid path length")
-			s.Close()
 			return
 		}
 
 		pathBuf := make([]byte, pathLen)
 		if _, err := io.ReadFull(s, pathBuf); err != nil {
-			s.Close()
 			return
 		}
 		requestedPath := string(pathBuf)
 
+		// Read request type (C2).
+		var reqType [1]byte
+		if _, err := io.ReadFull(s, reqType[:]); err != nil {
+			return
+		}
+
 		// Reject absolute paths (never let clients reference server filesystem).
 		if filepath.IsAbs(requestedPath) {
 			writeDownloadError(s, "absolute paths not allowed")
-			s.Close()
 			return
 		}
 
@@ -959,7 +981,6 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		share, ok := r.LookupShareByID(shareID, remotePeer)
 		if !ok {
 			writeDownloadError(s, "access denied")
-			s.Close()
 			return
 		}
 
@@ -975,14 +996,12 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		root, err := os.OpenRoot(rootPath)
 		if err != nil {
 			writeDownloadError(s, "not found")
-			s.Close()
 			return
 		}
 		defer root.Close()
 
 		if relPath == "" {
 			writeDownloadError(s, "no file specified")
-			s.Close()
 			return
 		}
 
@@ -990,7 +1009,6 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		f, err := root.Open(relPath)
 		if err != nil {
 			writeDownloadError(s, "not found")
-			s.Close()
 			return
 		}
 
@@ -998,42 +1016,134 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
 		f.Close()
 		if err != nil {
 			writeDownloadError(s, "not found")
-			s.Close()
 			return
 		}
 
 		if info.IsDir() {
 			writeDownloadError(s, "cannot download directory; use browse + per-file download")
-			s.Close()
 			return
 		}
 
 		if !info.Mode().IsRegular() {
 			writeDownloadError(s, "not a regular file")
-			s.Close()
 			return
 		}
 
-		// Resolve the full filesystem path for SendFile (within jailed root).
+		// Resolve the full filesystem path (within jailed root).
 		filePath := filepath.Join(share.Path, relPath)
 		if !share.IsDir {
 			filePath = share.Path
 		}
 
 		short := remotePeer.String()[:16] + "..."
-		slog.Info("file-download: serving file",
-			"peer", short, "path", info.Name(),
-			"size", info.Size())
 
-		// Send the file using existing chunked transfer (SHFT format).
-		_, sendErr := ts.SendFile(s, filePath)
-		if sendErr != nil {
-			slog.Error("file-download: send failed",
-				"peer", short, "path", info.Name(), "error", sendErr)
-			writeDownloadError(s, "internal error")
-			s.Close()
+		switch reqType[0] {
+		case requestTypeDownload:
+			// Full download: send via streaming SHFT protocol.
+			// SendFile spawns a background goroutine that owns the stream.
+			slog.Info("file-download: serving file",
+				"peer", short, "path", info.Name(),
+				"size", info.Size())
+
+			_, sendErr := ts.SendFile(s, filePath)
+			if sendErr != nil {
+				slog.Error("file-download: send failed",
+					"peer", short, "path", info.Name(), "error", sendErr)
+				writeDownloadError(s, "internal error")
+				return // defer closes stream
+			}
+			// SendFile's goroutine now owns the stream. Don't close it.
+			streamOwned = true
+
+		case requestTypeProbe:
+			// Rate limit probe requests (CPU DoS: each probe chunks the entire file).
+			// Reuse browse rate limiter since probes are metadata queries.
+			if r.browseRateLimit != nil && !r.browseRateLimit.allow(remotePeer.String()) {
+				slog.Warn("file-download: probe rate limit exceeded",
+					"peer", short)
+				writeDownloadError(s, "rate limit exceeded")
+				return
+			}
+
+			// Hash probe (C2): chunk the file, compute MerkleRoot, return 45-byte response.
+			slog.Info("file-download: hash probe",
+				"peer", short, "path", info.Name(),
+				"size", info.Size())
+
+			// Timeout bounds the chunking duration. For a 1TB file at ~200 MB/s
+			// disk read, chunking takes ~80s. 2 minutes covers worst case with
+			// margin. The per-chunk ctx.Done() check in handleHashProbe aborts
+			// early on timeout. If the peer disconnects, the final Write fails
+			// and the handler exits cleanly.
+			probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer probeCancel()
+			probeErr := handleHashProbe(probeCtx, s, root, relPath, info.Size())
+			if probeErr != nil {
+				slog.Error("file-download: probe failed",
+					"peer", short, "path", info.Name(), "error", probeErr)
+				writeDownloadError(s, "internal error")
+			}
+			// defer closes stream
+
+		default:
+			writeDownloadError(s, "unknown request type")
+			// defer closes stream
 		}
 	}
+}
+
+// handleHashProbe chunks a file within the jailed root, computes the Merkle
+// root, and writes the 45-byte probe response:
+// 'P'(1) + rootHash(32) + totalSize(8) + chunkCount(4).
+//
+// The returned hash is specific to this file's chunking strategy: ChunkTarget
+// uses fileSize to determine chunk boundaries. If the same file is later served
+// as part of a directory transfer, the directory uses totalSize (sum of all files)
+// for ChunkTarget, producing different chunk boundaries and a different hash.
+// Multi-peer download must probe the exact share entry being downloaded. [R3-UA2]
+//
+// Security: opens file through os.Root to prevent TOCTOU symlink attacks between
+// the stat in HandleDownload and the open here. Checks stream context on each
+// chunk to abort if the peer disconnects mid-probe. [C2]
+func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath string, fileSize int64) error {
+	// writeProbeResponse builds and writes the 45-byte probe response.
+	writeProbeResponse := func(rootHash [32]byte, size int64, chunkCount int) error {
+		var resp [probeResponseSize]byte
+		resp[0] = 'P'
+		copy(resp[1:33], rootHash[:])
+		binary.BigEndian.PutUint64(resp[33:41], uint64(size))
+		binary.BigEndian.PutUint32(resp[41:45], uint32(chunkCount))
+		_, err := w.Write(resp[:])
+		return err
+	}
+
+	// Empty file: deterministic zero hash, no chunking needed.
+	if fileSize == 0 {
+		return writeProbeResponse(MerkleRoot(nil), 0, 0)
+	}
+
+	f, err := root.Open(relPath)
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	// Collect chunk hashes via ChunkReader.
+	// Check context every chunk to abort early if peer disconnected or timed out.
+	var chunkHashes [][32]byte
+	if err := ChunkReader(f, fileSize, func(c Chunk) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		chunkHashes = append(chunkHashes, c.Hash)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("chunk file: %w", err)
+	}
+
+	return writeProbeResponse(MerkleRoot(chunkHashes), fileSize, len(chunkHashes))
 }
 
 // writeDownloadError sends an error on the download stream.
@@ -1047,71 +1157,105 @@ func writeDownloadError(w io.Writer, msg string) {
 	w.Write(data)
 }
 
-// RequestDownload opens a download request on a stream and reads the response.
-// On success, the stream will have SHFT manifest data ready to read.
-// On error, returns the error message from the sharer.
-// The caller is responsible for reading the SHFT data after a successful return.
-func RequestDownload(s network.Stream, remotePath string) error {
-	s.SetDeadline(time.Now().Add(browseTimeout))
+// sendDownloadRequest writes the download request wire format and reads the
+// first response byte. Shared by RequestDownload and RequestProbe.
+// Wire format sent: pathLen(2) + path + requestType(1).
+// Returns the first response byte on success, or an error if the remote
+// sent an error response (0xFF + errLen + errMsg).
+func sendDownloadRequest(s network.Stream, remotePath string, requestType byte, deadline time.Duration) (byte, error) {
+	s.SetDeadline(time.Now().Add(deadline))
 
-	// Send path request: pathLen(2) + path.
 	pathBytes := []byte(remotePath)
 	if err := binary.Write(s, binary.BigEndian, uint16(len(pathBytes))); err != nil {
-		return fmt.Errorf("write path length: %w", err)
+		return 0, fmt.Errorf("write path length: %w", err)
 	}
 	if _, err := s.Write(pathBytes); err != nil {
-		return fmt.Errorf("write path: %w", err)
+		return 0, fmt.Errorf("write path: %w", err)
+	}
+	if _, err := s.Write([]byte{requestType}); err != nil {
+		return 0, fmt.Errorf("write request type: %w", err)
 	}
 
-	// Peek first byte to determine success or error.
+	// Read first response byte to determine success or error.
 	var firstByte [1]byte
 	if _, err := io.ReadFull(s, firstByte[:]); err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return 0, fmt.Errorf("read response: %w", err)
 	}
 
 	if firstByte[0] == msgDownloadError {
-		// Read error message: errLen(2) + errMsg.
 		var errLen uint16
 		if err := binary.Read(s, binary.BigEndian, &errLen); err != nil {
-			return fmt.Errorf("read error length: %w", err)
+			return 0, fmt.Errorf("read error length: %w", err)
 		}
 		if errLen > maxPathLength {
-			return fmt.Errorf("error message too large")
+			return 0, fmt.Errorf("error message too large")
 		}
 		errBuf := make([]byte, errLen)
 		if _, err := io.ReadFull(s, errBuf); err != nil {
-			return fmt.Errorf("read error message: %w", err)
+			return 0, fmt.Errorf("read error message: %w", err)
 		}
-		return fmt.Errorf("remote: %s", string(errBuf))
+		return 0, fmt.Errorf("remote: %s", string(errBuf))
 	}
 
-	// Success: the first byte is the start of SHFT magic.
-	// We need to "unread" it. The caller needs this byte as part of the SHFT header.
-	// Return the first byte info so the caller can reconstruct.
-	// We'll use a different approach: the caller wraps the stream with a prefixed reader.
-	// Store the first byte for the caller.
+	return firstByte[0], nil
+}
+
+// RequestDownload sends a download request (requestType=0x01) and returns a
+// reader that replays the consumed first byte followed by the rest of the
+// stream. The caller reads SHFT streaming data from the returned reader.
+func RequestDownload(s network.Stream, remotePath string) (io.Reader, error) {
+	firstByte, err := sendDownloadRequest(s, remotePath, requestTypeDownload, browseTimeout)
+	if err != nil {
+		return nil, err
+	}
+
 	s.SetDeadline(time.Time{}) // reset deadline for transfer
-	return &downloadReady{firstByte: firstByte[0]}
-}
 
-// downloadReady signals that the download stream has SHFT data ready.
-// The firstByte field contains the first byte already consumed (part of SHFT magic).
-// Callers should check for this with errors.As() and use PrefixedReader().
-type downloadReady struct {
-	firstByte byte
-}
-
-func (d *downloadReady) Error() string {
-	return "download ready"
-}
-
-// PrefixedReader returns a reader that replays the consumed first byte
-// followed by the rest of the stream.
-func (d *downloadReady) PrefixedReader(s io.Reader) io.Reader {
-	return io.MultiReader(
-		&singleByteReader{b: d.firstByte, read: false},
+	// Prepend the consumed first byte (part of SHFT magic) back onto the stream.
+	prefixed := io.MultiReader(
+		&singleByteReader{b: firstByte},
 		s,
 	)
+	return prefixed, nil
+}
+
+// HashProbeResult holds the response from a hash probe request (C2).
+type HashProbeResult struct {
+	RootHash   [32]byte
+	TotalSize  int64
+	ChunkCount uint32
+}
+
+// RequestProbe sends a hash probe request (requestType=0x02) and reads the
+// 45-byte probe response: 'P'(1) + rootHash(32) + totalSize(8) + chunkCount(4).
+// Used by multi-peer download to discover the file's Merkle root hash before
+// fanning out to multiple peers (C2).
+func RequestProbe(s network.Stream, remotePath string) (*HashProbeResult, error) {
+	// Probe needs longer deadline: server must chunk the entire file
+	// to compute MerkleRoot (~2.5s per 500MB). 2 minutes covers up to ~1TB.
+	firstByte, err := sendDownloadRequest(s, remotePath, requestTypeProbe, 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	if firstByte != 'P' {
+		return nil, fmt.Errorf("unexpected probe response marker: 0x%02x", firstByte)
+	}
+
+	// Read remaining 44 bytes.
+	var rest [probeResponseSize - 1]byte
+	if _, err := io.ReadFull(s, rest[:]); err != nil {
+		return nil, fmt.Errorf("read probe response: %w", err)
+	}
+
+	var rootHash [32]byte
+	copy(rootHash[:], rest[:32])
+
+	return &HashProbeResult{
+		RootHash:   rootHash,
+		TotalSize:  int64(binary.BigEndian.Uint64(rest[32:40])),
+		ChunkCount: binary.BigEndian.Uint32(rest[40:44]),
+	}, nil
 }
 
 // singleByteReader delivers exactly one byte, then EOF.
