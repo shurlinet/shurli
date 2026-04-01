@@ -527,6 +527,16 @@ func readCheckpointTmpPaths(r io.Reader, fileCount int, receiveDir string) ([]st
 	return tmpPaths, nil
 }
 
+// cleanupTempFiles removes temp files referenced by this checkpoint.
+func (c *transferCheckpoint) cleanupTempFiles(receiveDir string) {
+	for _, p := range c.tmpPaths {
+		if p == "" {
+			continue
+		}
+		os.Remove(filepath.Join(receiveDir, filepath.Base(p)))
+	}
+}
+
 // removeCheckpoint deletes the checkpoint file.
 func removeCheckpoint(receiveDir string, ck [32]byte) {
 	os.Remove(checkpointPath(receiveDir, ck))

@@ -221,6 +221,7 @@ type PluginContext struct {
 	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
 	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
 	relayGrantChecker  sdk.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
+	isLANPeer          func(peer.ID) bool                // mDNS LAN peer check
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -340,6 +341,14 @@ func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker {
 	return c.relayGrantChecker
 }
 
+// IsLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
+func (c *PluginContext) IsLANPeer(id peer.ID) bool {
+	if c.isLANPeer == nil {
+		return false
+	}
+	return c.isLANPeer(id)
+}
+
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
 // Re-export when the reputation pipeline or metrics integration is built.
 // These were exported but had zero callers across the entire codebase.
@@ -403,6 +412,7 @@ type ContextProvider struct {
 	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
 	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
 	RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
+	IsLANPeer          func(peer.ID) bool                       // mDNS LAN peer check
 }
 
 // --- Info ---

@@ -85,6 +85,12 @@ type MDNSDiscovery struct {
 	mu      sync.Mutex
 	lastTry map[peer.ID]time.Time
 
+	// lanPeers tracks peers discovered via mDNS (proven on LAN).
+	// mDNS multicast only works on the local network segment, so
+	// discovery = proof of LAN presence. Used by transport classification
+	// to detect LAN peers even when the QUIC connection uses public IPv6.
+	lanPeers map[peer.ID]time.Time
+
 	// Semaphore for concurrent connection attempts.
 	sem chan struct{}
 
@@ -100,9 +106,21 @@ func NewMDNSDiscovery(h host.Host, m *Metrics) *MDNSDiscovery {
 		host:        h,
 		metrics:     m,
 		lastTry:     make(map[peer.ID]time.Time),
+		lanPeers:    make(map[peer.ID]time.Time),
 		sem:         make(chan struct{}, mdnsMaxConcurrentConnects),
 		browseNowCh: make(chan struct{}, 1),
 	}
+}
+
+// IsLANPeer returns true if the peer was discovered via mDNS within the last
+// 5 minutes. mDNS multicast only works on the local network segment, so
+// discovery is proof of LAN presence regardless of which IP the QUIC
+// connection uses (private IPv4 or public IPv6 on the same LAN).
+func (md *MDNSDiscovery) IsLANPeer(id peer.ID) bool {
+	md.mu.Lock()
+	t, ok := md.lanPeers[id]
+	md.mu.Unlock()
+	return ok && time.Since(t) < 5*time.Minute
 }
 
 // Start begins mDNS advertising and periodic browsing on the local network.
@@ -320,6 +338,11 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		return
 	}
 	md.lastTry[pi.ID] = time.Now()
+	md.mu.Unlock()
+
+	// Mark peer as LAN-proven. mDNS multicast = same network segment.
+	md.mu.Lock()
+	md.lanPeers[pi.ID] = time.Now()
 	md.mu.Unlock()
 
 	slog.Info("mdns: peer discovered on LAN", "peer", short, "addrs", len(pi.Addrs))
