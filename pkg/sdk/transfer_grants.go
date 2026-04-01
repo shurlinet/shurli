@@ -261,6 +261,33 @@ func (ts *TransferService) makeChunkTracker(s network.Stream, direction string) 
 	}
 }
 
+// closeRelayConns closes all relay (limited) connections to a peer routed
+// through a specific relay. This forces PathDialer to establish a new connection
+// on the next openStream, picking a relay based on current budget ranking.
+func (ts *TransferService) closeRelayConns(relayID peer.ID, targetPeerIDStr string) {
+	if ts.connsToPeer == nil || relayID == "" {
+		return
+	}
+	targetPeerID, err := peer.Decode(targetPeerIDStr)
+	if err != nil {
+		slog.Warn("relay-grant: closeRelayConns failed to decode peer ID", "error", err)
+		return
+	}
+	conns := ts.connsToPeer(targetPeerID)
+	for _, conn := range conns {
+		if !conn.Stat().Limited {
+			continue // keep direct connections
+		}
+		connRelay := relayPeerFromAddr(conn.RemoteMultiaddr())
+		if connRelay == relayID {
+			conn.Close()
+			slog.Info("relay-grant: closed relay connection for budget switch",
+				"relay", shortPeerStr(relayID),
+				"peer", shortPeerStr(targetPeerID))
+		}
+	}
+}
+
 // shortPeerStr returns a truncated peer ID string for logging.
 func shortPeerStr(pid peer.ID) string {
 	s := pid.String()

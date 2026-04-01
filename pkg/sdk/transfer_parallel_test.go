@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"os"
+	"sync/atomic"
 	"testing"
 )
 
@@ -188,6 +189,10 @@ func TestReceiveParallelOutOfOrder(t *testing.T) {
 		done:       make(chan struct{}),
 		chunks:     make(chan streamChunk, 10),
 	}
+	// Mark that worker streams are active so receiveParallel drains the
+	// chunks channel after the control stream trailer (instead of skipping
+	// the drain due to the nextWorkerID==0 optimization).
+	atomic.StoreInt32(&session.nextWorkerID, 1)
 
 	// Build control stream: chunks 3 and 0 (out of order) + trailer.
 	var controlBuf bytes.Buffer
