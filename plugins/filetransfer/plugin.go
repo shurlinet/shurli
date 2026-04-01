@@ -221,6 +221,9 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		ConnsToPeer: func(pid peer.ID) []libp2pnet.Conn {
 			return p.network.Host().Network().ConnsToPeer(pid)
 		},
+		IsLANPeer: func(pid peer.ID) bool {
+			return p.ctx.IsLANPeer(pid)
+		},
 	}
 
 	ts, err := sdk.NewTransferService(cfg, nil, p.network.Events())

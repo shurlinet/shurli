@@ -364,6 +364,15 @@ func runDaemonStart(args []string) {
 		ScoreResolver:   scoreResolver,
 	}
 
+	// Wire mDNS LAN peer detection for transport classification.
+	// Closure captures rt; mdnsDiscovery may be nil until network starts.
+	pluginProvider.IsLANPeer = func(id peer.ID) bool {
+		if rt.mdnsDiscovery != nil {
+			return rt.mdnsDiscovery.IsLANPeer(id)
+		}
+		return false
+	}
+
 	// Wire peer attribute resolver for per-peer settings (bandwidth_budget, etc.).
 	if rt.authKeys != "" {
 		akPath := rt.authKeys

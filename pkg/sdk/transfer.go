@@ -579,6 +579,11 @@ type TransferConfig struct {
 	// if a peer has any LAN connection when deciding whether to enable erasure
 	// coding. If nil, only the stream's own connection is checked.
 	ConnsToPeer func(peer.ID) []network.Conn
+
+	// IsLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
+	// Catches LAN peers communicating via public IPv6 on the same network segment.
+	// If nil, only connection IPs are checked.
+	IsLANPeer func(peer.ID) bool
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -690,6 +695,10 @@ type TransferService struct {
 
 	// connsToPeer returns all connections to a peer (for LAN detection across connections).
 	connsToPeer func(peer.ID) []network.Conn
+
+	// isLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
+	// This catches LAN peers even when all QUIC connections use public IPv6.
+	isLANPeer func(peer.ID) bool
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -772,6 +781,7 @@ func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) 
 		jobCancels:        make(map[string]context.CancelFunc),
 		grantChecker:      cfg.GrantChecker,
 		connsToPeer:       cfg.ConnsToPeer,
+		isLANPeer:         cfg.IsLANPeer,
 	}
 
 	// Start the single queue processor goroutine.
@@ -1205,11 +1215,17 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	// Erasure coding decision (transport-aware).
 	useErasure := ts.erasureOverhead > 0
 	if useErasure {
+		remotePeerID := s.Conn().RemotePeer()
 		transport := ClassifyTransport(s)
 		if transport == TransportLAN {
 			useErasure = false
-		} else if transport == TransportDirect && ts.connsToPeer != nil {
-			if anyConnIsLAN(ts.connsToPeer(s.Conn().RemotePeer())) {
+		} else if transport == TransportDirect {
+			// Check connection IPs for private IPv4 (LAN).
+			if ts.connsToPeer != nil && anyConnIsLAN(ts.connsToPeer(remotePeerID)) {
+				useErasure = false
+			}
+			// Check mDNS discovery (catches LAN peers on public IPv6).
+			if useErasure && ts.isLANPeer != nil && ts.isLANPeer(remotePeerID) {
 				useErasure = false
 			}
 		}
@@ -1800,7 +1816,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		ckpt, ckptErr := loadCheckpoint(destDir, ck)
 		if ckptErr == nil && ckpt != nil {
 			// Validate checkpoint matches current transfer.
-			if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) {
+			if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) && ckpt.flags == flags {
 				restored, restoreErr := ckpt.restoreReceiveState(destDir)
 				if restoreErr == nil {
 					resumeState = restored
@@ -1811,7 +1827,15 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				} else {
 					slog.Debug("file-transfer: checkpoint restore failed, starting fresh",
 						"error", restoreErr)
+					// Clean up stale temp files from failed restore.
+					ckpt.cleanupTempFiles(destDir)
+					removeCheckpoint(destDir, ck)
 				}
+			} else {
+				// Flags/size mismatch - discard stale checkpoint and temp files.
+				slog.Debug("file-transfer: checkpoint flags/size mismatch, starting fresh")
+				ckpt.cleanupTempFiles(destDir)
+				removeCheckpoint(destDir, ck)
 			}
 		}
 
@@ -2140,10 +2164,27 @@ func (ts *TransferService) SubmitSend(filePath, peerID string, priority Transfer
 		return nil, fmt.Errorf("queue full: %w", err)
 	}
 
+	// Compute size for queue progress display.
+	var queueSize int64
+	if info.IsDir() {
+		filepath.WalkDir(filePath, func(_ string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil || d == nil || !d.Type().IsRegular() {
+				return walkErr
+			}
+			if fi, err := d.Info(); err == nil {
+				queueSize += fi.Size()
+			}
+			return nil
+		})
+	} else {
+		queueSize = info.Size()
+	}
+
 	progress := &TransferProgress{
 		ID:        queueID,
 		Filename:  filepath.Base(filePath),
 		PeerID:    peerID,
+		Size:      queueSize,
 		Direction: "send",
 		Status:    "queued",
 		StartTime: time.Now(),
@@ -3406,7 +3447,7 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	var resumeBitfield *bitfield
 	ckpt, ckptErr := loadCheckpoint(destDir, ck)
 	if ckptErr == nil && ckpt != nil {
-		if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) {
+		if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) && ckpt.flags == flags {
 			restored, restoreErr := ckpt.restoreReceiveState(destDir)
 			if restoreErr == nil {
 				resumeState = restored
@@ -3417,7 +3458,13 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			} else {
 				slog.Debug("file-download: checkpoint restore failed, starting fresh",
 					"error", restoreErr)
+				ckpt.cleanupTempFiles(destDir)
+				removeCheckpoint(destDir, ck)
 			}
+		} else {
+			slog.Debug("file-download: checkpoint flags/size mismatch, starting fresh")
+			ckpt.cleanupTempFiles(destDir)
+			removeCheckpoint(destDir, ck)
 		}
 	}
 

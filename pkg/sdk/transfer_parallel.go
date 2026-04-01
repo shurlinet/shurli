@@ -170,7 +170,7 @@ func (ts *TransferService) sendParallel(
 	// Per-worker channels for chunk distribution.
 	workerChs := make([]chan streamChunk, numStreams)
 	for i := range workerChs {
-		workerChs[i] = make(chan streamChunk, 4) // small buffer per worker
+		workerChs[i] = make(chan streamChunk, 32) // buffer per worker (reduces goroutine scheduling overhead)
 	}
 
 	var wg sync.WaitGroup
@@ -211,6 +211,13 @@ func (ts *TransferService) sendParallel(
 				progress.updateChunks(totalSent.Load(), int(done))
 				progress.addWireBytes(wireBytes)
 				progress.updateStream(streamIdx, wireBytes)
+			}
+			// Flush buffered writes before closing the stream. Without this,
+			// tiny compressed chunks (e.g. 30 bytes) can remain in QUIC's write
+			// buffer and get discarded when s.Close() fires. CloseWrite signals
+			// the write half is done, forcing QUIC to flush.
+			if cw, ok := s.(interface{ CloseWrite() error }); ok {
+				cw.CloseWrite()
 			}
 		}(i+1, ws, workerChs[i+1])
 	}
