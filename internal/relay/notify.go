@@ -342,8 +342,15 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 					if g == nil {
 						return
 					}
+					// Use per-peer DataBudget for receipt if set, else global default (BUG-GRANT-1).
+					peerDataLimit := receiptCfg.SessionDataLimit
+					if g.DataBudget > 0 {
+						peerDataLimit = g.DataBudget
+					} else if g.DataBudget == -1 {
+						peerDataLimit = 0 // wire format: 0 = unlimited
+					}
 					if err := NotifyGrantReceipt(ctx, h, pid,
-						g, receiptCfg.SessionDataLimit, receiptCfg.SessionDuration,
+						g, peerDataLimit, receiptCfg.SessionDuration,
 						receiptCfg.HMACKey); err != nil {
 						short := pid.String()
 						if len(short) > 16 {

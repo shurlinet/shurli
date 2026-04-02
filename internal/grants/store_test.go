@@ -48,7 +48,7 @@ func TestGrantAndCheck(t *testing.T) {
 	}
 
 	// Create grant.
-	g, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+	g, err := s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGrantWithServices(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	_, err := s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0)
+	_, err := s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0, 0)
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestGrantPermanent(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	g, err := s.Grant(pid, 0, nil, true, 0)
+	g, err := s.Grant(pid, 0, nil, true, 0, 0)
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestRevoke(t *testing.T) {
 		revokedPeer = p
 	})
 
-	s.Grant(pid, 1*time.Hour, nil, false, 0)
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 	if !s.Check(pid, "file-transfer") {
 		t.Fatal("should have grant")
 	}
@@ -148,7 +148,7 @@ func TestExtend(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	s.Grant(pid, 10*time.Minute, nil, false, 0)
+	s.Grant(pid, 10*time.Minute, nil, false, 0, 0)
 
 	if err := s.Extend(pid, 2*time.Hour); err != nil {
 		t.Fatalf("extend: %v", err)
@@ -185,7 +185,7 @@ func TestExpiredGrantFailsCheck(t *testing.T) {
 	pid := genPeerID(t)
 
 	// Create a grant that expires immediately.
-	s.Grant(pid, 1*time.Millisecond, nil, false, 0)
+	s.Grant(pid, 1*time.Millisecond, nil, false, 0, 0)
 	time.Sleep(5 * time.Millisecond)
 
 	if s.Check(pid, "file-transfer") {
@@ -200,8 +200,8 @@ func TestList(t *testing.T) {
 	pid1 := genPeerID(t)
 	pid2 := genPeerID(t)
 
-	s.Grant(pid1, 1*time.Hour, nil, false, 0)
-	s.Grant(pid2, 1*time.Hour, []string{"file-browse"}, false, 0)
+	s.Grant(pid1, 1*time.Hour, nil, false, 0, 0)
+	s.Grant(pid2, 1*time.Hour, []string{"file-browse"}, false, 0, 0)
 
 	list := s.List()
 	if len(list) != 2 {
@@ -216,8 +216,8 @@ func TestExpiringWithin(t *testing.T) {
 	pid1 := genPeerID(t)
 	pid2 := genPeerID(t)
 
-	s.Grant(pid1, 5*time.Minute, nil, false, 0)
-	s.Grant(pid2, 2*time.Hour, nil, false, 0)
+	s.Grant(pid1, 5*time.Minute, nil, false, 0, 0)
+	s.Grant(pid2, 2*time.Hour, nil, false, 0, 0)
 
 	expiring := s.ExpiringWithin(10 * time.Minute)
 	if len(expiring) != 1 {
@@ -234,7 +234,7 @@ func TestPersistAndLoad(t *testing.T) {
 	s.SetPersistPath(path)
 
 	pid := genPeerID(t)
-	s.Grant(pid, 1*time.Hour, []string{"file-transfer", "file-browse"}, false, 0)
+	s.Grant(pid, 1*time.Hour, []string{"file-transfer", "file-browse"}, false, 0, 0)
 
 	// Load into a new store.
 	s2, err := Load(path, rootKey, hmacKey)
@@ -262,7 +262,7 @@ func TestPersistHMACTamperDetection(t *testing.T) {
 	s.SetPersistPath(path)
 
 	pid := genPeerID(t)
-	s.Grant(pid, 1*time.Hour, nil, false, 0)
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 
 	// Tamper with the file.
 	data, _ := os.ReadFile(path)
@@ -284,7 +284,7 @@ func TestPersistWrongKey(t *testing.T) {
 	s.SetPersistPath(path)
 
 	pid := genPeerID(t)
-	s.Grant(pid, 1*time.Hour, nil, false, 0)
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 
 	// Load with wrong HMAC key.
 	wrongKey := make([]byte, 32)
@@ -320,7 +320,7 @@ func TestSymlinkRejection(t *testing.T) {
 	s.SetPersistPath(linkPath)
 
 	pid := genPeerID(t)
-	s.Grant(pid, 1*time.Hour, nil, false, 0)
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 
 	// The save should have detected the symlink. Check the real file is NOT corrupted.
 	data, _ := os.ReadFile(realPath)
@@ -334,7 +334,7 @@ func TestCleanup(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 
 	pid := genPeerID(t)
-	s.Grant(pid, 5*time.Millisecond, nil, false, 0)
+	s.Grant(pid, 5*time.Millisecond, nil, false, 0, 0)
 	time.Sleep(10 * time.Millisecond)
 
 	s.cleanExpired()
@@ -349,8 +349,8 @@ func TestGrantReplaceExisting(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0)
-	s.Grant(pid, 2*time.Hour, nil, false, 0) // replace
+	s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0, 0)
+	s.Grant(pid, 2*time.Hour, nil, false, 0, 0) // replace
 
 	// New grant should have no service restriction.
 	if !s.Check(pid, "file-transfer") {
@@ -378,7 +378,7 @@ func TestListReturnsCopies(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0)
+	s.Grant(pid, 1*time.Hour, []string{"file-browse"}, false, 0, 0)
 
 	list := s.List()
 	if len(list) != 1 {
@@ -414,7 +414,7 @@ func TestTokenTamperFailsCheck(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	s.Grant(pid, 1*time.Hour, nil, false, 0)
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 
 	// Tamper with the token's caveats.
 	s.mu.Lock()
@@ -434,7 +434,7 @@ func TestGrantWithMaxDelegations(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	g, err := s.Grant(pid, 1*time.Hour, nil, false, 3)
+	g, err := s.Grant(pid, 1*time.Hour, nil, false, 3, 0)
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestGrantWithoutMaxDelegations(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	g, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+	g, err := s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestExtendPreservesMaxDelegations(t *testing.T) {
 	s := NewStore(rootKey, hmacKey)
 	pid := genPeerID(t)
 
-	s.Grant(pid, 1*time.Hour, nil, false, 5)
+	s.Grant(pid, 1*time.Hour, nil, false, 5, 0)
 	s.Extend(pid, 2*time.Hour)
 
 	s.mu.RLock()
@@ -526,7 +526,7 @@ func TestStoreAuditLogIntegration(t *testing.T) {
 	s.SetAuditLog(al)
 
 	// Grant, extend, refresh, revoke - all should produce audit entries.
-	s.Grant(pid, 1*time.Hour, nil, false, 0, GrantOptions{AutoRefresh: true, MaxRefreshes: 5})
+	s.Grant(pid, 1*time.Hour, nil, false, 0, 0, GrantOptions{AutoRefresh: true, MaxRefreshes: 5})
 	s.Extend(pid, 2*time.Hour)
 	s.Refresh(pid)
 	s.Revoke(pid)
@@ -579,7 +579,7 @@ func TestStoreAuditMetadataWithoutNotify(t *testing.T) {
 	s.SetAuditLog(al)
 
 	// Grant then revoke. Revoke audit entry must have metadata.
-	s.Grant(pid, 1*time.Hour, []string{"file-transfer"}, false, 0)
+	s.Grant(pid, 1*time.Hour, []string{"file-transfer"}, false, 0, 0)
 	s.Revoke(pid)
 
 	entries, err := al.Entries()
@@ -622,7 +622,7 @@ func TestStoreCleanExpiredAuditMetadata(t *testing.T) {
 	s.SetAuditLog(al)
 
 	// Create a grant that expires immediately.
-	s.Grant(pid, 1*time.Millisecond, []string{"file-browse"}, false, 0)
+	s.Grant(pid, 1*time.Millisecond, []string{"file-browse"}, false, 0, 0)
 	time.Sleep(5 * time.Millisecond)
 	s.cleanExpired()
 
@@ -656,14 +656,14 @@ func TestStoreRateLimiter(t *testing.T) {
 
 	// First 3 ops should succeed.
 	for i := 0; i < 3; i++ {
-		_, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+		_, err := s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 		if err != nil {
 			t.Fatalf("grant %d should succeed: %v", i+1, err)
 		}
 	}
 
 	// 4th should be rate limited.
-	_, err := s.Grant(pid, 1*time.Hour, nil, false, 0)
+	_, err := s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
 	if err == nil {
 		t.Fatal("4th grant should be rate limited")
 	}

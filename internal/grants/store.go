@@ -38,6 +38,7 @@ type Grant struct {
 	RefreshesUsed      int                `json:"refreshes_used,omitempty"`       // how many refreshes consumed
 	MaxRefreshDuration time.Duration      `json:"max_refresh_duration,omitempty"` // absolute deadline from grant creation
 	OriginalDuration   time.Duration      `json:"original_duration,omitempty"`    // stored for consistent refresh intervals
+	DataBudget         int64              `json:"data_budget,omitempty"`          // relay data budget in bytes: 0=use global default, -1=unlimited, >0=per-peer limit
 }
 
 // Expired returns true if this grant has expired.
@@ -196,7 +197,8 @@ type GrantOptions struct {
 // Returns the created grant. If a grant already exists for this peer,
 // it is replaced (new grant, new token).
 // maxDelegations: 0=none (default), N=limited hops, -1=unlimited.
-func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int, opts ...GrantOptions) (*Grant, error) {
+// dataBudget: relay data budget in bytes (0=use global default, -1=unlimited, >0=per-peer limit).
+func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string, permanent bool, maxDelegations int, dataBudget int64, opts ...GrantOptions) (*Grant, error) {
 	// Phase D3: rate limit check.
 	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
 		return nil, fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
@@ -233,6 +235,7 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 		MaxRefreshes:       opt.MaxRefreshes,
 		MaxRefreshDuration: opt.MaxRefreshDuration,
 		OriginalDuration:   duration,
+		DataBudget:         dataBudget,
 	}
 
 	// Clone for delivery BEFORE storing in map, so no concurrent Extend() can race.
@@ -349,7 +352,9 @@ func (s *Store) Revoke(peerID peer.ID) error {
 
 // Extend extends an existing grant by the given duration.
 // The new expiry is calculated from NOW + duration, not from the old expiry.
-func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
+// If dataBudget is provided (variadic), the grant's DataBudget is updated.
+// This also triggers a budget refill in the BudgetTracker via onGrant callback.
+func (s *Store) Extend(peerID peer.ID, duration time.Duration, dataBudget ...int64) error {
 	// Phase D3: rate limit check.
 	if s.rateLimiter != nil && !s.rateLimiter.Allow(peerID) {
 		return fmt.Errorf("rate limit exceeded for peer %s (max %d ops/min)", shortPeerID(peerID), DefaultOpsPerMinute)
@@ -364,6 +369,10 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration) error {
 	newExpiry := time.Now().Add(duration)
 	g.ExpiresAt = newExpiry
 	g.Permanent = false // extending makes it time-limited again
+	// Update data budget if provided (C6: extend with --data flag).
+	if len(dataBudget) > 0 {
+		g.DataBudget = dataBudget[0]
+	}
 	var refreshDeadline time.Time
 	if g.AutoRefresh && g.MaxRefreshDuration > 0 {
 		refreshDeadline = g.CreatedAt.Add(g.MaxRefreshDuration)
@@ -657,6 +666,18 @@ func (s *Store) Check(peerID peer.ID, service string) bool {
 	}
 
 	return true
+}
+
+// DataBudget returns the data budget for a peer's grant.
+// Returns 0 if no grant exists (caller should use global default).
+func (s *Store) DataBudget(peerID peer.ID) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, exists := s.grants[peerID]
+	if !exists || g.Expired() {
+		return 0
+	}
+	return g.DataBudget
 }
 
 // CheckAndGet returns a clone of the grant for peerID if it exists and is not

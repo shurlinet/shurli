@@ -181,6 +181,7 @@ type AdminServer struct {
 	receiptHMACKey   []byte          // HKDF("grant-receipt/v1") - dedicated key for receipt HMAC
 	sessionDataLimit int64           // from relay config, bytes per session per direction (0=unlimited)
 	sessionDuration  time.Duration   // from relay config, max time per circuit session
+	budgetTracker    *BudgetTracker  // per-peer budget enforcement (nil if not configured)
 }
 
 // SetHost stores the libp2p host reference for connected-peers queries.
@@ -199,6 +200,14 @@ func (s *AdminServer) SetReceiptHMACKey(key []byte) {
 func (s *AdminServer) SetSessionLimits(dataLimit int64, duration time.Duration) {
 	s.sessionDataLimit = dataLimit
 	s.sessionDuration = duration
+}
+
+// SetBudgetTracker wires the per-peer budget tracker for synchronous budget
+// initialization on grant/extend. The async onGrant callback is a safety net,
+// but the admin handler must initialize budgets synchronously to close the
+// race between grant creation and AllowConnect.
+func (s *AdminServer) SetBudgetTracker(bt *BudgetTracker) {
+	s.budgetTracker = bt
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -1698,26 +1707,30 @@ func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Reque
 
 // RelayGrantRequest is the JSON body for POST /v1/relay-grant.
 type RelayGrantRequest struct {
-	PeerID      string   `json:"peer_id"`
-	DurationSec int      `json:"duration_secs"`
-	Services    []string `json:"services,omitempty"`
-	Permanent   bool     `json:"permanent,omitempty"`
+	PeerID        string   `json:"peer_id"`
+	DurationSec   int      `json:"duration_secs"`
+	Services      []string `json:"services,omitempty"`
+	Permanent     bool     `json:"permanent,omitempty"`
+	DataBudgetStr string   `json:"data_budget,omitempty"` // human-readable: "500MB", "2GB", "unlimited", "" = use global default
 }
 
 // RelayGrantInfo is the JSON representation of a relay data grant.
 type RelayGrantInfo struct {
-	PeerID       string   `json:"peer_id"`
-	Services     []string `json:"services,omitempty"`
-	ExpiresAt    string   `json:"expires_at,omitempty"`
-	CreatedAt    string   `json:"created_at"`
-	Permanent    bool     `json:"permanent,omitempty"`
-	RemainingSec int      `json:"remaining_seconds"`
+	PeerID        string   `json:"peer_id"`
+	Services      []string `json:"services,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	Permanent     bool     `json:"permanent,omitempty"`
+	RemainingSec  int      `json:"remaining_seconds"`
+	DataBudget    int64    `json:"data_budget,omitempty"`     // raw bytes (I5)
+	DataBudgetStr string   `json:"data_budget_str,omitempty"` // human-readable (I5)
 }
 
 // RelayExtendRequest is the JSON body for POST /v1/relay-extend.
 type RelayExtendRequest struct {
-	PeerID      string `json:"peer_id"`
-	DurationSec int    `json:"duration_secs"`
+	PeerID        string `json:"peer_id"`
+	DurationSec   int    `json:"duration_secs"`
+	DataBudgetStr string `json:"data_budget,omitempty"` // human-readable: "1GB", "unlimited", "" = keep current
 }
 
 // maxGrantDurationSec is the maximum grant duration (365 days) to prevent
@@ -1759,11 +1772,29 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse per-peer data budget (0 = use global default).
+	var dataBudget int64
+	if req.DataBudgetStr != "" {
+		var parseErr error
+		dataBudget, parseErr = parseDataBudgetStr(req.DataBudgetStr)
+		if parseErr != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid data_budget %q: %v", req.DataBudgetStr, parseErr))
+			return
+		}
+	}
+
 	duration := time.Duration(req.DurationSec) * time.Second
-	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0)
+	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0, dataBudget)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
+	}
+
+	// Initialize budget synchronously BEFORE the response returns, closing the
+	// race between grant creation and AllowConnect seeing the grant. The async
+	// onGrant callback is a safety net but fires in a goroutine (too late).
+	if s.budgetTracker != nil {
+		s.budgetTracker.OnGrantOrExtend(pid, g)
 	}
 
 	// Audit trail: log who created the grant (local admin socket or remote peer).
@@ -1782,7 +1813,7 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 	// to avoid a data race: grantStore.Grant() returns the same pointer stored in
 	// the map, and a concurrent Extend() could modify its fields.
 	if s.host != nil && s.receiptHMACKey != nil {
-		receiptData := EncodeGrantReceipt(duration, s.sessionDataLimit,
+		receiptData := EncodeGrantReceipt(duration, peerSessionDataLimit(dataBudget, s.sessionDataLimit),
 			s.sessionDuration, req.Permanent, time.Now(), s.receiptHMACKey)
 		go func() {
 			if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
@@ -1907,10 +1938,29 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Parse optional data budget update for extend (C6).
+	var extendDataBudget []int64
+	if req.DataBudgetStr != "" {
+		db, parseErr := parseDataBudgetStr(req.DataBudgetStr)
+		if parseErr != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid data_budget %q: %v", req.DataBudgetStr, parseErr))
+			return
+		}
+		extendDataBudget = append(extendDataBudget, db)
+	}
+
 	duration := time.Duration(req.DurationSec) * time.Second
-	if err := s.grantStore.Extend(pid, duration); err != nil {
+	if err := s.grantStore.Extend(pid, duration, extendDataBudget...); err != nil {
 		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("extend failed: %v", err))
 		return
+	}
+
+	// Synchronous budget refill — same race fix as handleRelayGrant.
+	if s.budgetTracker != nil {
+		extGrant := s.grantStore.CheckAndGet(pid)
+		if extGrant != nil {
+			s.budgetTracker.OnGrantOrExtend(pid, extGrant)
+		}
 	}
 
 	origin, _ := r.Context().Value(ctxOrigin).(string)
@@ -1933,7 +1983,7 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 					grantDuration = 0
 				}
 			}
-			receiptData := EncodeGrantReceipt(grantDuration, s.sessionDataLimit,
+			receiptData := EncodeGrantReceipt(grantDuration, peerSessionDataLimit(extGrant.DataBudget, s.sessionDataLimit),
 				s.sessionDuration, extGrant.Permanent, time.Now(), s.receiptHMACKey)
 			go func() {
 				if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
@@ -1954,10 +2004,20 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 // grantToInfo converts a grants.Grant to the API response type.
 func grantToInfo(g *grants.Grant) RelayGrantInfo {
 	info := RelayGrantInfo{
-		PeerID:    g.PeerIDStr,
-		Services:  g.Services,
-		CreatedAt: g.CreatedAt.Format(time.RFC3339),
-		Permanent: g.Permanent,
+		PeerID:     g.PeerIDStr,
+		Services:   g.Services,
+		CreatedAt:  g.CreatedAt.Format(time.RFC3339),
+		Permanent:  g.Permanent,
+		DataBudget: g.DataBudget,
+	}
+	// Human-readable data budget (I5).
+	switch {
+	case g.DataBudget == -1:
+		info.DataBudgetStr = "unlimited"
+	case g.DataBudget > 0:
+		info.DataBudgetStr = formatDataBudget(g.DataBudget)
+	default:
+		info.DataBudgetStr = "default"
 	}
 	if !g.Permanent {
 		info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
@@ -1968,6 +2028,52 @@ func grantToInfo(g *grants.Grant) RelayGrantInfo {
 		info.RemainingSec = remaining
 	}
 	return info
+}
+
+// peerSessionDataLimit resolves a grant's DataBudget to the value sent in
+// grant receipts (I1/I2). The receipt's session_data_limit field carries the
+// per-peer budget so the client knows its actual limit.
+func peerSessionDataLimit(dataBudget, globalDefault int64) int64 {
+	switch {
+	case dataBudget > 0:
+		return dataBudget
+	case dataBudget == -1:
+		return 0 // wire format: 0 = unlimited
+	default:
+		return globalDefault
+	}
+}
+
+// parseDataBudgetStr parses a human-readable data budget string.
+// Accepts "unlimited" (returns -1), "" (returns 0 = use global default),
+// or a byte size string like "500MB", "2GB" parsed via ParseByteSize.
+func parseDataBudgetStr(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if strings.EqualFold(s, "unlimited") {
+		return -1, nil
+	}
+	return sdk.ParseByteSize(s)
+}
+
+// formatDataBudget formats bytes as a human-readable string for display.
+func formatDataBudget(b int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case b >= gb && b%gb == 0:
+		return fmt.Sprintf("%d GB", b/gb)
+	case b >= mb && b%mb == 0:
+		return fmt.Sprintf("%d MB", b/mb)
+	case b >= kb && b%kb == 0:
+		return fmt.Sprintf("%d KB", b/kb)
+	default:
+		return fmt.Sprintf("%d bytes", b)
+	}
 }
 
 func respondAdminError(w http.ResponseWriter, status int, msg string) {

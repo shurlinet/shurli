@@ -498,10 +498,12 @@ Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
 role (admin/member), group, verified, bandwidth_budget (unlimited, 500MB, 1GB, etc.).
 Supports --remote for administration from any admin device.
 .TP
-.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--remote\fR \fIaddr\fR]
+.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--data\fR \fI500MB\fR] [\fB--remote\fR \fIaddr\fR]
 Grant time-limited data relay access to a peer. Default duration is 1 hour.
 Without a grant, peers can only use signaling protocols (pairing, discovery).
 Admin peers always have data access regardless of grants.
+The --data flag sets a per-peer cumulative data budget (e.g. 500MB, 2GB, unlimited).
+If omitted, the relay's configured session_data_limit is used as default.
 .TP
 .B relay grants [\fB--remote\fR \fIaddr\fR]
 List all active data relay grants with remaining time.
@@ -509,8 +511,9 @@ List all active data relay grants with remaining time.
 .B relay revoke \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
 Revoke a peer's data relay grant and terminate all active circuits.
 .TP
-.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--remote\fR \fIaddr\fR]
+.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--data\fR \fI1GB\fR] [\fB--remote\fR \fIaddr\fR]
 Extend an existing data relay grant. The new expiry is calculated from now.
+The --data flag optionally updates the peer's data budget (refilled on extend).
 .TP
 .B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.

@@ -496,7 +496,7 @@ func TestPouchDelegateMultiHopEndToEnd(t *testing.T) {
 
 	// Step 1: Node A creates a grant for Peer B with max_delegations=3.
 	store := NewStore(rootKey, hmacKey)
-	grantB, err := store.Grant(peerB, 1*time.Hour, nil, false, 3)
+	grantB, err := store.Grant(peerB, 1*time.Hour, nil, false, 3, 0)
 	if err != nil {
 		t.Fatalf("grant to B: %v", err)
 	}
