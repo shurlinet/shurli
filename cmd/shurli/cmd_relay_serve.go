@@ -24,6 +24,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -358,6 +359,8 @@ func runRelayServe(args []string) {
 				}
 
 				// Terminate active circuits when a grant is revoked or expires.
+				// NOTE: if BudgetTracker is enabled (below), this callback is
+				// replaced with a combined one that also zeros the budget (SEC7).
 				gs.SetOnRevoke(func(pid peer.ID) {
 					if err := h.Network().ClosePeer(pid); err != nil {
 						short := pid.String()
@@ -378,7 +381,75 @@ func runRelayServe(args []string) {
 
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
 	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay, cfg.Security.EnableConnectionGating, relayGrantStore)
-	_, err = relayv2.New(h,
+
+	// Per-peer relay data budgets (BUG-GRANT-1).
+	// When grants are enabled, create BudgetTracker + LimitingHost to enforce
+	// per-peer data limits on relay circuits. The LimitingHost wraps streams
+	// at the host.Host layer — zero fork, zero libp2p changes.
+	var relayHost libp2phost.Host = h
+	var relayBudgetTracker *relay.BudgetTracker
+
+	if relayGrantStore != nil {
+		// Parse session data limit for BudgetTracker default.
+		sessionDataLimit, _ := config.ParseDataSize(cfg.Resources.SessionDataLimit)
+		relayBudgetTracker = relay.NewBudgetTracker(relayGrantStore, sessionDataLimit)
+		budgetTracker := relayBudgetTracker
+
+		// Initialize budget entries for grants loaded from disk (SEC5 restart recovery).
+		// Without this, peers with persisted grants would be treated as non-grant
+		// (per-circuit default) until they get a new grant or extend.
+		for _, g := range relayGrantStore.List() {
+			budgetTracker.OnGrantOrExtend(g.PeerID, g)
+		}
+
+		// C5: wire onGrant callback so budget resets on grant create/extend.
+		// NOTE: The grant store fires onGrant in a goroutine (async, for P2P delivery).
+		// Budget initialization MUST happen synchronously before AllowConnect can see
+		// the grant, otherwise a narrow race lets the first circuit get per-circuit
+		// default instead of cumulative tracking (budget inflation for small grants).
+		// Fix: we set onGrant for budget init, but the store calls it async. To close
+		// the race, we also initialize budget in the admin handler path. The async
+		// callback handles the extend case (no admin handler involvement) and serves
+		// as a safety net for any other Grant()/Extend() call path.
+		relayGrantStore.SetOnGrant(func(pid peer.ID, g *grants.Grant) {
+			budgetTracker.OnGrantOrExtend(pid, g)
+		})
+
+		// SEC7: replace the ClosePeer-only onRevoke with a combined callback.
+		// Double protection: budget=0 ensures any in-flight Read/Write on
+		// limitedStream sees exhaustion immediately, then ClosePeer terminates
+		// the connection. Both must fire.
+		relayGrantStore.SetOnRevoke(func(pid peer.ID) {
+			budgetTracker.OnRevoke(pid)
+			if err := h.Network().ClosePeer(pid); err != nil {
+				short := pid.String()
+				if len(short) > 16 {
+					short = short[:16]
+				}
+				slog.Warn("relay grants: failed to close peer on revoke",
+					"peer", short, "error", err)
+			}
+		})
+
+		// TE3-C1: wire budget tracker to ACL for AllowConnect budget check.
+		circuitACL.SetBudgetTracker(budgetTracker)
+
+		// C1/TE3-C2: raise global safety net to 100GB when grants are enabled.
+		// Real enforcement is in limitedStream. Global is just zombie-circuit protection.
+		const safetyNetBytes int64 = 100 * 1024 * 1024 * 1024 // 100 GB
+		const safetyNetDuration = time.Hour
+		relayResources.Limit.Data = safetyNetBytes
+		relayResources.Limit.Duration = safetyNetDuration
+		relayLimit.Data = safetyNetBytes
+		relayLimit.Duration = safetyNetDuration
+
+		// Create LimitingHost — relay sees this as host.Host.
+		relayHost = relay.NewLimitingHost(h, budgetTracker, circuitACL)
+		slog.Info("relay budget: per-peer enforcement enabled",
+			"default_limit", cfg.Resources.SessionDataLimit)
+	}
+
+	_, err = relayv2.New(relayHost,
 		relayv2.WithResources(relayResources),
 		relayv2.WithLimit(relayLimit),
 		relayv2.WithACL(circuitACL),
@@ -478,6 +549,10 @@ func runRelayServe(args []string) {
 	if receiptHMACKey != nil {
 		adminSrv.SetReceiptHMACKey(receiptHMACKey)
 		adminSrv.SetSessionLimits(receiptSessionDataLimit, receiptSessionDuration)
+	}
+	// Wire budget tracker for synchronous budget init in admin grant/extend handlers.
+	if relayBudgetTracker != nil {
+		adminSrv.SetBudgetTracker(relayBudgetTracker)
 	}
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:

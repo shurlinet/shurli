@@ -111,7 +111,7 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations, grantOpts...)
+	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations, 0, grantOpts...)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
