@@ -1387,22 +1387,47 @@ func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error
 		return nil
 	}
 
-	// If dial failed, check for stale relay connections. After relay budget
-	// exhaustion the circuit is dead but libp2p still holds the connection
-	// object. Close them and retry once with a fresh circuit.
+	// First dial failed. This commonly happens after relay budget exhaustion:
+	// the circuit was killed, PeerManager accumulated backoff, and swarm-level
+	// dial backoffs prevent re-dial. Clear ALL backoff state and retry once.
+	//
+	// 1. Close stale relay connections (dead circuit objects that fool libp2p
+	//    into thinking the peer is still connected).
+	// 2. Clear swarm dial backoffs (libp2p won't retry addresses it recently
+	//    failed to dial without clearing these).
+	// 3. Reset PeerManager backoff (ConsecFailures and BackoffUntil) so the
+	//    reconnect loop doesn't block subsequent attempts.
+	// 4. Reset black hole detector state (consecutive relay failures may have
+	//    triggered the detector, blocking all relay dials).
+	short := peerID.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+
 	h := rt.network.Host()
-	closedStale := false
 	for _, c := range h.Network().ConnsToPeer(peerID) {
 		if c.Stat().Limited {
 			c.Close()
-			closedStale = true
 		}
 	}
-	if !closedStale {
-		return err
+	rt.network.ClearDialBackoffs([]peer.ID{peerID})
+	if rt.peerManager != nil {
+		rt.peerManager.ResetPeerBackoff(peerID)
+	}
+	rt.network.ResetBlackHoles()
+
+	// Re-add relay circuit addresses to the peerstore. After circuit death,
+	// the peerstore may only have direct addresses that are unreachable from
+	// CGNAT. Adding fresh circuit addresses ensures the retry's relay leg
+	// has valid addresses to dial.
+	if rt.relayDiscovery != nil {
+		relayAddrs := rt.relayDiscovery.RelayAddrs()
+		if len(relayAddrs) > 0 {
+			_ = sdk.AddRelayAddressesForPeerFunc(h, relayAddrs, peerID)
+		}
 	}
 
-	slog.Info("ConnectToPeer: closed stale relay circuit, retrying", "peer", peerID.String()[:16]+"...")
+	slog.Info("ConnectToPeer: cleared backoffs, retrying dial", "peer", short)
 	result, err = rt.pathDialer.DialPeer(ctx, peerID)
 	if err != nil {
 		return err
