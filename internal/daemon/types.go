@@ -330,8 +330,9 @@ type RelayGrantInfo struct {
 	Permanent        bool   `json:"permanent,omitempty"`
 	Remaining        string `json:"remaining,omitempty"`        // human-readable time left
 	SessionBudget    string `json:"session_budget,omitempty"`   // e.g. "2 GB" or "unlimited"
-	SessionUsed      string `json:"session_used,omitempty"`     // e.g. "1.2 GB"
-	SessionDuration  string `json:"session_duration,omitempty"` // e.g. "2h"
+	SessionUsed      string `json:"session_used,omitempty"`      // e.g. "1.2 GB"
+	SessionRemaining string `json:"session_remaining,omitempty"` // e.g. "800 MB"
+	SessionDuration  string `json:"session_duration,omitempty"`  // e.g. "2h"
 }
 
 // NotificationsStatus is the notifications section in the status response.

@@ -87,6 +87,12 @@ func HumanizeError(err string) string {
 		return "connection refused. The peer or relay is not accepting connections"
 	case strings.Contains(lower, "context deadline exceeded") || strings.Contains(lower, "i/o timeout"):
 		return "connection timed out. The peer may be offline or behind a restrictive firewall"
+	case strings.Contains(lower, "stream reset"):
+		return "connection lost (stream reset by remote peer).\n" +
+			"  Likely causes:\n" +
+			"  - Relay data budget exhausted (check with: shurli status)\n" +
+			"  - Relay circuit expired (per-circuit time limit)\n" +
+			"  - Remote peer went offline mid-transfer"
 	}
 
 	return truncateError(err)
