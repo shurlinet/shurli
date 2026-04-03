@@ -1122,10 +1122,28 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 }
 
 // clearBackoffsAndReconnect clears dial backoffs and triggers reconnection.
+// Also closes stale relay circuits so libp2p re-dials with fresh circuits
+// (needed after relay budget refill — old circuits are dead but libp2p
+// still holds the connection objects, blocking re-dial).
 func (rt *serveRuntime) clearBackoffsAndReconnect() {
 	if rt.gater != nil {
 		rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
 	}
+
+	// Close idle relay connections. After budget exhaustion the relay kills
+	// the circuit but libp2p still holds the connection object. ConnectToPeer
+	// sees it and returns without re-dialing, then stream open fails.
+	// Closing idle limited connections forces a fresh dial on the next attempt.
+	// Only close connections with no open streams to avoid killing active transfers.
+	h := rt.network.Host()
+	for _, p := range h.Network().Peers() {
+		for _, c := range h.Network().ConnsToPeer(p) {
+			if c.Stat().Limited && len(c.GetStreams()) == 0 {
+				c.Close()
+			}
+		}
+	}
+
 	if rt.peerManager != nil {
 		rt.peerManager.OnNetworkChange()
 	}
