@@ -1,0 +1,82 @@
+#!/bin/bash
+# tools/git-hooks/pre-commit
+# Runs plugin architecture boundary checks before every commit.
+# Two checks:
+#   1. Shell script: protocol leaks, type names, engine methods (grep-based)
+#   2. Go analyzer: import graphs, AST-level engine detection (go vet-based)
+# Blocks commits that introduce NEW plugin boundary violations.
+# Pre-existing violations are suppressed via tools/known-boundary-violations.txt.
+#
+# Setup: git config core.hooksPath tools/git-hooks
+
+set -uo pipefail
+# NOTE: -e intentionally omitted. We capture exit codes manually so both
+# checks run even if the first one fails.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+BOUNDARY_CHECK="$REPO_ROOT/tools/check-plugin-boundary.sh"
+FAILED=0
+
+# Only run if Go files in boundary-sensitive paths are being committed
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [[ -z "$STAGED_GO_FILES" ]]; then
+    exit 0
+fi
+
+# Also check if boundary enforcement files themselves are being modified
+ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM || true)
+NEEDS_CHECK=0
+while IFS= read -r file; do
+    case "$file" in
+        pkg/sdk/*|plugins/*|pkg/plugin/*|cmd/shurli/*)
+            NEEDS_CHECK=1
+            break
+            ;;
+        tools/check-plugin-boundary.sh|tools/known-boundary-violations.txt|tools/plugin-engine-types.txt)
+            NEEDS_CHECK=1
+            break
+            ;;
+        tools/boundarycheck/*)
+            NEEDS_CHECK=1
+            break
+            ;;
+        tools/git-hooks/*)
+            NEEDS_CHECK=1
+            break
+            ;;
+    esac
+done <<< "$ALL_STAGED"
+
+if [[ $NEEDS_CHECK -eq 0 ]]; then
+    exit 0
+fi
+
+# --- Check 1: Shell script (grep-based) ---
+if [[ -x "$BOUNDARY_CHECK" ]]; then
+    echo "Running plugin boundary check (shell)..."
+    echo ""
+    if ! "$BOUNDARY_CHECK"; then
+        FAILED=1
+    fi
+    echo ""
+else
+    echo "WARNING: tools/check-plugin-boundary.sh not found or not executable."
+fi
+
+# --- Check 2: Go analyzer (AST-based) ---
+echo "Running plugin boundary check (go vet)..."
+TMPBIN="$(mktemp)"
+trap 'rm -f "$TMPBIN"' EXIT
+
+if go build -o "$TMPBIN" "$REPO_ROOT/tools/boundarycheck/cmd/boundarycheck" 2>/dev/null; then
+    if go vet -vettool="$TMPBIN" ./plugins/... ./pkg/sdk/... ./pkg/plugin/... ./cmd/shurli/... 2>&1; then
+        echo "Go analyzer: PASSED"
+    else
+        echo "Go analyzer: FAILED"
+        FAILED=1
+    fi
+else
+    echo "WARNING: Could not build boundarycheck analyzer. Skipping."
+fi
+
+exit $FAILED
