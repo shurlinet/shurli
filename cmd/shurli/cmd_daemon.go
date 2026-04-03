@@ -536,6 +536,17 @@ func runDaemonStart(args []string) {
 			// Use current time as revocation time (best available - relay doesn't
 			// send a timestamp in the revocation message).
 			rt.grantCache.HandleRevocation(issuerID, time.Now())
+
+			// Emit notification for client-side revocation.
+			if rt.notifyRouter != nil {
+				short := issuerID.String()
+				if len(short) > 16 {
+					short = short[:16] + "..."
+				}
+				event := notify.NewEvent(notify.EventGrantRevoked, notify.SeverityWarn,
+					issuerID.String(), short, "relay grant revoked")
+				rt.notifyRouter.Emit(event)
+			}
 		})
 
 		// Wire delivery into Store: deliver grant tokens to peers on create/revoke.

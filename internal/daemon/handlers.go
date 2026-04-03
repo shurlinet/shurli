@@ -365,15 +365,30 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			} else {
 				rgi.SessionBudget = sdk.FormatBytes(r.SessionDataLimit)
 			}
-			// Clamp sum to prevent int64 overflow (both counters are individually
-			// clamped to MaxInt64 by TrackCircuitBytes).
-			sent, recv := r.CircuitBytesSent, r.CircuitBytesReceived
+			// Total session usage = accumulated session bytes + current circuit bytes.
+			// All counters are individually clamped to MaxInt64 by TrackCircuitBytes/ResetCircuitCounters.
+			sent := r.SessionBytesSent + r.CircuitBytesSent
+			if sent < r.SessionBytesSent { // overflow
+				sent = math.MaxInt64
+			}
+			recv := r.SessionBytesReceived + r.CircuitBytesReceived
+			if recv < r.SessionBytesReceived { // overflow
+				recv = math.MaxInt64
+			}
 			if sent > math.MaxInt64-recv {
 				sent = math.MaxInt64 - recv
 			}
 			used := sent + recv
 			if used > 0 {
 				rgi.SessionUsed = sdk.FormatBytes(used)
+			}
+			// Always show remaining budget for non-unlimited sessions.
+			if r.SessionDataLimit > 0 {
+				rem := r.SessionDataLimit - used
+				if rem < 0 {
+					rem = 0
+				}
+				rgi.SessionRemaining = sdk.FormatBytes(rem)
 			}
 			if r.SessionDuration > 0 {
 				rgi.SessionDuration = formatDuration(r.SessionDuration)

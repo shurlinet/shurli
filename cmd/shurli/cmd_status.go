@@ -227,8 +227,12 @@ func doStatus(args []string, stdout io.Writer) error {
 				fmt.Fprintf(stdout, ", expires in %s", rg.Remaining)
 			}
 			fmt.Fprintf(stdout, ", %s/session", rg.SessionBudget)
-			if rg.SessionUsed != "" {
+			if rg.SessionUsed != "" && rg.SessionRemaining != "" {
+				tc.Wfaint(stdout, " (%s used, %s remaining)", rg.SessionUsed, rg.SessionRemaining)
+			} else if rg.SessionUsed != "" {
 				tc.Wfaint(stdout, " (%s used)", rg.SessionUsed)
+			} else if rg.SessionRemaining != "" {
+				tc.Wfaint(stdout, " (%s remaining)", rg.SessionRemaining)
 			}
 			if rg.SessionDuration != "" {
 				fmt.Fprintf(stdout, ", %s/circuit", rg.SessionDuration)

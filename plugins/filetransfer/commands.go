@@ -280,7 +280,7 @@ func runSend(args []string) {
 
 	resp, err := client.Send(absPath, peerArg, *noCompressFlag, *streamsFlag, *priorityFlag)
 	if err != nil {
-		fatal("Send failed: %v", err)
+		fatal("Send failed: %s", sdk.HumanizeError(err.Error()))
 	}
 
 	if *jsonFlag {
@@ -368,7 +368,7 @@ func runDownload(args []string) {
 
 	resp, err := client.Download(peerArg, remotePath, *destFlag, *multiPeerFlag, extraPeers)
 	if err != nil {
-		fatal("Download failed: %v", err)
+		fatal("Download failed: %s", sdk.HumanizeError(err.Error()))
 	}
 
 	if *jsonFlag {
@@ -741,7 +741,7 @@ func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
 		}
 		if ev.Error != "" {
 			fmt.Printf("  ")
-			tc.Wred(os.Stdout, "%s", ev.Error)
+			tc.Wred(os.Stdout, "%s", sdk.HumanizeError(ev.Error))
 		}
 		peerShort := ev.PeerID
 		if len(peerShort) > 16 {
@@ -817,7 +817,7 @@ func printTransferTable(transfers []sdk.TransferSnapshot) {
 
 		fmt.Printf("  %s\n", age)
 		if t.Error != "" {
-			tc.Wred(os.Stdout, "    error: %s\n", t.Error)
+			tc.Wred(os.Stdout, "    error: %s\n", sdk.HumanizeError(t.Error))
 		}
 	}
 }

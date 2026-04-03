@@ -1112,6 +1112,20 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 					"session_data", decoded.SessionDataLimit,
 					"session_duration", decoded.SessionDuration)
 			}
+
+			// Emit notification for client-side grant receipt.
+			if rt.notifyRouter != nil {
+				msg := "relay grant received"
+				if decoded.SessionDataLimit > 0 {
+					msg += " (" + sdk.FormatBytes(decoded.SessionDataLimit) + " budget)"
+				}
+				if decoded.Permanent {
+					msg += " [permanent]"
+				}
+				event := notify.NewEvent(notify.EventGrantCreated, notify.SeverityInfo,
+					remotePeer.String(), short, msg)
+				rt.notifyRouter.Emit(event)
+			}
 		} else {
 			slog.Warn("grant-receipt: received but cache not initialized (identity key missing?)",
 				"relay", short)
