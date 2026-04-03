@@ -311,31 +311,9 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 			slog.Debug("reconnect-notifier: peer identified",
 				"peer", e.Peer.String()[:16]+"...")
 
-			// Skip if recently notified.
-			if last, ok := recentlyNotified[e.Peer]; ok && time.Since(last) < dedupeWindow {
-				continue
-			}
-
-			// Look up identified peer in authorized_keys.
-			entries, err := auth.ListPeers(authKeysPath)
-			if err != nil {
-				continue
-			}
-			for _, entry := range entries {
-				if entry.PeerID == e.Peer && entry.Group != "" {
-					recentlyNotified[e.Peer] = time.Now()
-					go func(pid peer.ID, gid string) {
-						if err := notifier.NotifyPeer(ctx, pid, gid); err != nil {
-							slog.Warn("reconnect-notifier: delivery failed",
-								"peer", pid.String()[:16]+"...",
-								"group", gid, "err", err)
-						}
-					}(e.Peer, entry.Group)
-					break
-				}
-			}
-
-			// Push grant receipt if the peer has an active grant.
+			// Grant receipt delivery on EVERY reconnect (no dedup).
+			// Grant state can change between reconnects (revoke + re-grant),
+			// so the client must always receive the current receipt.
 			if receiptCfg != nil && receiptCfg.GrantStore != nil {
 				go func(pid peer.ID) {
 					g := receiptCfg.GrantStore.CheckAndGet(pid)
@@ -360,6 +338,30 @@ func RunReconnectNotifier(ctx context.Context, h host.Host, notifier *PeerNotifi
 							"peer", short, "err", err)
 					}
 				}(e.Peer)
+			}
+
+			// Skip peer introduction if recently notified (dedup window).
+			if last, ok := recentlyNotified[e.Peer]; ok && time.Since(last) < dedupeWindow {
+				continue
+			}
+
+			// Look up identified peer in authorized_keys.
+			entries, err := auth.ListPeers(authKeysPath)
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if entry.PeerID == e.Peer && entry.Group != "" {
+					recentlyNotified[e.Peer] = time.Now()
+					go func(pid peer.ID, gid string) {
+						if err := notifier.NotifyPeer(ctx, pid, gid); err != nil {
+							slog.Warn("reconnect-notifier: delivery failed",
+								"peer", pid.String()[:16]+"...",
+								"group", gid, "err", err)
+						}
+					}(e.Peer, entry.Group)
+					break
+				}
 			}
 		}
 	}

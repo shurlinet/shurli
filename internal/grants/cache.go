@@ -137,10 +137,18 @@ func (c *GrantCache) Get(relayID peer.ID) *GrantReceipt {
 }
 
 // Put stores a receipt, replacing any existing one for that relay.
+// If a placeholder receipt exists (created by TrackCircuitBytes when no grant
+// was cached), the accumulated byte counters are preserved on the new receipt.
 func (c *GrantCache) Put(receipt *GrantReceipt) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cp := *receipt
+	if existing, ok := c.receipts[cp.RelayPeerID]; ok {
+		cp.CircuitBytesSent = clampAdd(cp.CircuitBytesSent, existing.CircuitBytesSent)
+		cp.CircuitBytesReceived = clampAdd(cp.CircuitBytesReceived, existing.CircuitBytesReceived)
+		cp.SessionBytesSent = clampAdd(cp.SessionBytesSent, existing.SessionBytesSent)
+		cp.SessionBytesReceived = clampAdd(cp.SessionBytesReceived, existing.SessionBytesReceived)
+	}
 	c.receipts[cp.RelayPeerID] = &cp
 	c.version++
 	c.persistLocked()
@@ -191,7 +199,17 @@ func (c *GrantCache) TrackCircuitBytes(relayID peer.ID, direction string, n int6
 	defer c.mu.Unlock()
 	r, ok := c.receipts[relayID]
 	if !ok {
-		return
+		// No cached receipt for this relay. This can happen when the relay has
+		// a grant but the receipt delivery was missed (e.g., reconnect race).
+		// Track bytes in a placeholder receipt so the budget display is correct
+		// when the receipt arrives later via the reconnect notifier.
+		r = &GrantReceipt{
+			RelayPeerID:    relayID,
+			CircuitStartedAt: time.Now(),
+		}
+		c.receipts[relayID] = r
+		slog.Warn("grant-cache: tracking bytes for relay without cached receipt",
+			"relay", relayID.String()[:16]+"...")
 	}
 	if direction == "recv" {
 		if r.CircuitBytesReceived > math.MaxInt64-n {
