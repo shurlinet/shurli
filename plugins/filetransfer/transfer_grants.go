@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"fmt"
@@ -9,21 +9,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	ma "github.com/multiformats/go-multiaddr"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
-
-// RelayGrantChecker provides relay grant information for transfer decisions.
-// Implemented by grants.GrantCache via structural typing (no import needed).
-type RelayGrantChecker interface {
-	// GrantStatus returns grant info for a relay. ok=false if no cached/valid grant.
-	GrantStatus(relayID peer.ID) (remaining time.Duration, budget int64, sessionDuration time.Duration, ok bool)
-	// HasSufficientBudget checks if the session budget can handle fileSize.
-	HasSufficientBudget(relayID peer.ID, fileSize int64, direction string) bool
-	// TrackCircuitBytes increments the byte counter for a relay circuit.
-	TrackCircuitBytes(relayID peer.ID, direction string, n int64)
-	// ResetCircuitCounters resets per-circuit byte counters (new circuit).
-	ResetCircuitCounters(relayID peer.ID)
-}
 
 // relayTransferInfo holds pre-transfer grant check results.
 type relayTransferInfo struct {
@@ -50,47 +37,7 @@ func relayPeerFromStream(s network.Stream) peer.ID {
 	if !s.Conn().Stat().Limited {
 		return ""
 	}
-	return relayPeerFromAddr(s.Conn().RemoteMultiaddr())
-}
-
-// relayPeerFromAddr extracts the relay peer ID from a circuit relay multiaddr.
-// Returns empty peer.ID if the address is not a circuit relay address.
-// Used by hasAnyActiveRelayGrant to check connections and peerstore addresses.
-func relayPeerFromAddr(addr ma.Multiaddr) peer.ID {
-	var lastP2P peer.ID
-	foundCircuit := false
-	ma.ForEach(addr, func(c ma.Component) bool {
-		switch c.Protocol().Code {
-		case ma.P_P2P:
-			if !foundCircuit {
-				pid, err := peer.Decode(c.Value())
-				if err == nil {
-					lastP2P = pid
-				}
-			}
-		case ma.P_CIRCUIT:
-			foundCircuit = true
-		}
-		return true
-	})
-	if !foundCircuit {
-		return ""
-	}
-	return lastP2P
-}
-
-// RelayPeerFromAddrStr extracts the relay peer ID string from a circuit relay
-// multiaddr string. Returns empty string if the address is not a relay circuit.
-func RelayPeerFromAddrStr(addrStr string) string {
-	maddr, err := ma.NewMultiaddr(addrStr)
-	if err != nil {
-		return ""
-	}
-	pid := relayPeerFromAddr(maddr)
-	if pid == "" {
-		return ""
-	}
-	return pid.String()
+	return sdk.RelayPeerFromAddr(s.Conn().RemoteMultiaddr())
 }
 
 // checkRelayGrant performs pre-transfer grant checks for a relayed connection.
@@ -147,7 +94,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 	// Log grant status (user-facing).
 	budgetStr := "unlimited"
 	if budget < math.MaxInt64 {
-		budgetStr = FormatBytes(budget)
+		budgetStr = sdk.FormatBytes(budget)
 	}
 	remainStr := "permanent"
 	if remaining != time.Duration(math.MaxInt64) {
@@ -167,7 +114,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 			"relay", shortPeerStr(relayID),
 			"grant_remaining", remainStr,
 			"session_budget", budgetStr,
-			"file_size", FormatBytes(fileSize),
+			"file_size", sdk.FormatBytes(fileSize),
 			"estimate", estimateStr)
 	} else {
 		slog.Info("relay-grant: transfer check",
@@ -175,7 +122,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 			"grant_remaining", remainStr,
 			"session_budget", budgetStr,
 			"session_duration", sessionStr,
-			"file_size", FormatBytes(fileSize),
+			"file_size", sdk.FormatBytes(fileSize),
 			"budget_ok", info.BudgetOK,
 			"time_ok", info.TimeOK)
 	}
@@ -183,7 +130,7 @@ func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, dir
 	if !info.BudgetOK {
 		slog.Warn("relay-grant: insufficient session budget, will establish new circuit",
 			"relay", shortPeerStr(relayID),
-			"need", FormatBytes(fileSize),
+			"need", sdk.FormatBytes(fileSize),
 			"have", budgetStr)
 	}
 
@@ -278,7 +225,7 @@ func (ts *TransferService) closeRelayConns(relayID peer.ID, targetPeerIDStr stri
 		if !conn.Stat().Limited {
 			continue // keep direct connections
 		}
-		connRelay := relayPeerFromAddr(conn.RemoteMultiaddr())
+		connRelay := sdk.RelayPeerFromAddr(conn.RemoteMultiaddr())
 		if connRelay == relayID {
 			conn.Close()
 			slog.Info("relay-grant: closed relay connection for budget switch",
@@ -295,18 +242,4 @@ func shortPeerStr(pid peer.ID) string {
 		return s[:16] + "..."
 	}
 	return s
-}
-
-// FormatBytes formats a byte count for user-facing display (e.g. "1.2 GB", "500 MB").
-func FormatBytes(b int64) string {
-	if b >= 1<<30 {
-		return fmt.Sprintf("%.1f GB", float64(b)/float64(1<<30))
-	}
-	if b >= 1<<20 {
-		return fmt.Sprintf("%.1f MB", float64(b)/float64(1<<20))
-	}
-	if b >= 1<<10 {
-		return fmt.Sprintf("%.1f KB", float64(b)/float64(1<<10))
-	}
-	return fmt.Sprintf("%d B", b)
 }

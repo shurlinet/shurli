@@ -121,7 +121,7 @@ func ClassifyPeerTransport(s network.Stream, net network.Network) TransportType 
 	}
 
 	// Stream is on a public IP. Check if the peer has any LAN connection.
-	if anyConnIsLAN(net.ConnsToPeer(s.Conn().RemotePeer())) {
+	if AnyConnIsLAN(net.ConnsToPeer(s.Conn().RemotePeer())) {
 		return TransportLAN
 	}
 	return TransportDirect

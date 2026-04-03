@@ -279,7 +279,7 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 	}
 	defer stream.Close()
 
-	result, err := sdk.BrowsePeer(stream, req.SubPath)
+	result, err := BrowsePeer(stream, req.SubPath)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
@@ -304,10 +304,10 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 				kind = "[dir]"
 			}
 			// D3 fix: sanitize remote-controlled strings for display (terminal injection).
-			displayName := sdk.SanitizeDisplayName(e.Name)
-			downloadPath := sdk.SanitizeDisplayName(e.Path)
+			displayName := SanitizeDisplayName(e.Name)
+			downloadPath := SanitizeDisplayName(e.Path)
 			if e.ShareID != "" {
-				downloadPath = sdk.SanitizeDisplayName(e.ShareID) + "/" + downloadPath
+				downloadPath = SanitizeDisplayName(e.ShareID) + "/" + downloadPath
 			}
 			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, displayName, humanSize(e.Size), downloadPath)
 		}
@@ -471,7 +471,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		activeCtx := p.activeCtx
 		p.mu.RUnlock()
 		if activeCtx != nil {
-			go func(ctx context.Context, id, dir string, prog *sdk.TransferProgress) {
+			go func(ctx context.Context, id, dir string, prog *TransferProgress) {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
 				for {
@@ -556,18 +556,18 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 	opener := func() (network.Stream, error) {
 		return pnet.OpenPluginStream(ctx, targetPeerID, "file-transfer")
 	}
-	sendOpts := sdk.SendOptions{
+	sendOpts := SendOptions{
 		NoCompress:   req.NoCompress,
 		Streams:      req.Streams,
 		StreamOpener: opener,
 	}
 
-	priority := sdk.PriorityNormal
+	priority := PriorityNormal
 	switch strings.ToLower(req.Priority) {
 	case "low":
-		priority = sdk.PriorityLow
+		priority = PriorityLow
 	case "high":
-		priority = sdk.PriorityHigh
+		priority = PriorityHigh
 	}
 
 	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
@@ -593,7 +593,7 @@ func (p *FileTransferPlugin) handleTransferList(w http.ResponseWriter, r *http.R
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferSnapshot{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferSnapshot{})
 		return
 	}
 	daemon.RespondJSON(w, http.StatusOK, ts.ListTransfers())
@@ -604,13 +604,13 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferEvent{})
 		return
 	}
 
 	logPath := ts.LogPath()
 	if logPath == "" {
-		daemon.RespondJSON(w, http.StatusOK, []sdk.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferEvent{})
 		return
 	}
 
@@ -628,14 +628,14 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 		}
 	}
 
-	events, err := sdk.ReadTransferEvents(logPath, max)
+	events, err := ReadTransferEvents(logPath, max)
 	if err != nil {
 		slog.Warn("plugin.filetransfer: read transfer log failed", "path", logPath, "error", err)
 		daemon.RespondError(w, http.StatusInternalServerError, "transfer history unavailable")
 		return
 	}
 	if events == nil {
-		events = []sdk.TransferEvent{}
+		events = []TransferEvent{}
 	}
 	daemon.RespondJSON(w, http.StatusOK, events)
 }
@@ -741,14 +741,14 @@ func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http
 		}
 	}
 
-	reason := sdk.RejectReasonNone
+	reason := RejectReasonNone
 	switch req.Reason {
 	case "space":
-		reason = sdk.RejectReasonSpace
+		reason = RejectReasonSpace
 	case "busy":
-		reason = sdk.RejectReasonBusy
+		reason = RejectReasonBusy
 	case "size":
-		reason = sdk.RejectReasonSize
+		reason = RejectReasonSize
 	}
 
 	if err := ts.RejectTransfer(id, reason); err != nil {

@@ -10,7 +10,6 @@ import (
 	"golang.org/x/term"
 
 	tc "github.com/shurlinet/shurli/internal/termcolor"
-	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // humanSize formats bytes into a human-readable string.
@@ -151,7 +150,7 @@ func pollTransfer(client *daemonClient, id string, quiet bool) {
 					avgSpeed = float64(progress.Size) / dur.Seconds()
 				}
 				fmt.Printf("  %s  %s in %s (%s/s avg)",
-					sdk.SanitizeDisplayName(progress.Filename),
+					SanitizeDisplayName(progress.Filename),
 					humanSize(progress.Size), dur, humanSize(int64(avgSpeed)))
 				if progress.Compressed && progress.CompressedSize > 0 {
 					ratio := float64(progress.Size) / float64(progress.CompressedSize)
@@ -168,7 +167,7 @@ func pollTransfer(client *daemonClient, id string, quiet bool) {
 		if progress.Size > 0 {
 			if !headerPrinted {
 				tc.Wfaint(os.Stdout, "  File: %s (%s)\n",
-					sdk.SanitizeDisplayName(progress.Filename), humanSize(progress.Size))
+					SanitizeDisplayName(progress.Filename), humanSize(progress.Size))
 				mode := "1 stream"
 				if len(progress.StreamProgress) > 1 {
 					mode = fmt.Sprintf("%d streams", len(progress.StreamProgress))

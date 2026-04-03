@@ -54,11 +54,9 @@ receiver:^func (x \*MyType)  # Grep pattern for receiver methods (shell script)
 
 ### `tools/known-boundary-violations.txt`
 
-Suppression file for pre-existing violations. Lists files in `pkg/sdk/` that contain plugin-specific code awaiting migration.
+Suppression file for pre-existing violations during migration. **Deleted** after the plugin code migration completed (all file transfer code moved from `pkg/sdk/` to `plugins/filetransfer/`).
 
-**This file MUST be deleted** when all violations are migrated to `plugins/`.
-
-Suppression is **per-file**: adding `pkg/sdk/transfer.go` suppresses violations in that file only. A new file `pkg/sdk/new_engine.go` will NOT be suppressed.
+If future violations need temporary suppression, recreate this file with per-file entries.
 
 ### `tools/check-plugin-boundary.sh`
 

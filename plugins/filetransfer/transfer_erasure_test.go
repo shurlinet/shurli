@@ -1,8 +1,9 @@
-package sdk
+package filetransfer
 
 import (
 	"bytes"
 	"testing"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Erasure params tests ---
@@ -248,7 +249,7 @@ func TestErasureManifestRoundtrip(t *testing.T) {
 	paritySizes := make([]uint32, parityCount)
 
 	for i := 0; i < parityCount; i++ {
-		parityHashes[i] = blake3Sum([]byte{byte(i)})
+		parityHashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 		paritySizes[i] = uint32(100 + i*10)
 	}
 
@@ -296,12 +297,12 @@ func TestErasureManifestMismatchCount(t *testing.T) {
 func TestTrailerWithErasureRoundtrip(t *testing.T) {
 	hashes := make([][32]byte, 3)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 	}
-	rootHash := MerkleRoot(hashes)
+	rootHash := sdk.MerkleRoot(hashes)
 
 	parityHashes := make([][32]byte, 1)
-	parityHashes[0] = blake3Sum([]byte("parity0"))
+	parityHashes[0] = sdk.Blake3Sum([]byte("parity0"))
 	erasure := &erasureTrailer{
 		StripeSize:   3,
 		ParityCount:  1,
@@ -350,9 +351,9 @@ func TestTrailerWithErasureRoundtrip(t *testing.T) {
 func TestTrailerWithoutErasureStillWorks(t *testing.T) {
 	hashes := make([][32]byte, 2)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 	}
-	rootHash := MerkleRoot(hashes)
+	rootHash := sdk.MerkleRoot(hashes)
 
 	var buf bytes.Buffer
 	if err := writeTrailer(&buf, 2, rootHash, nil, nil); err != nil {

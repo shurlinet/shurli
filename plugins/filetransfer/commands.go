@@ -379,7 +379,7 @@ func runDownload(args []string) {
 	}
 
 	tc.Wgreen(os.Stdout, "Download started")
-	fmt.Printf(" [%s] %s (%s)\n", resp.TransferID, sdk.SanitizeDisplayName(resp.FileName), humanSize(resp.FileSize))
+	fmt.Printf(" [%s] %s (%s)\n", resp.TransferID, SanitizeDisplayName(resp.FileName), humanSize(resp.FileSize))
 
 	if !*followFlag || *silentFlag {
 		if !*silentFlag {
@@ -679,7 +679,7 @@ func runTransfers(args []string) {
 	}
 	for _, p := range pending {
 		t, _ := time.Parse(time.RFC3339, p.Time)
-		transfers = append(transfers, sdk.TransferSnapshot{
+		transfers = append(transfers, TransferSnapshot{
 			ID:        p.ID,
 			Filename:  p.Filename,
 			Size:      p.Size,
@@ -735,7 +735,7 @@ func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
 			sizeStr = humanSize(ev.FileSize)
 		}
 
-		fmt.Printf("  %s  %s %s  %-18s  %s", ts, dir, sdk.SanitizeDisplayName(ev.FileName), ev.EventType, sizeStr)
+		fmt.Printf("  %s  %s %s  %-18s  %s", ts, dir, SanitizeDisplayName(ev.FileName), ev.EventType, sizeStr)
 		if ev.Duration != "" {
 			fmt.Printf("  %s", ev.Duration)
 		}
@@ -752,7 +752,7 @@ func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
 	}
 }
 
-func printTransferTable(transfers []sdk.TransferSnapshot) {
+func printTransferTable(transfers []TransferSnapshot) {
 	sort.Slice(transfers, func(i, j int) bool {
 		if transfers[i].Done != transfers[j].Done {
 			return !transfers[i].Done
@@ -795,7 +795,7 @@ func printTransferTable(transfers []sdk.TransferSnapshot) {
 		age := time.Since(t.StartTime).Truncate(time.Second)
 
 		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
-			dir, t.ID, sdk.SanitizeDisplayName(t.Filename), peerShort,
+			dir, t.ID, SanitizeDisplayName(t.Filename), peerShort,
 			humanSize(t.Transferred), humanSize(t.Size),
 			pctStr, compressTag, erasureTag,
 		)
@@ -843,7 +843,7 @@ func printWatchRound(client *daemonClient, jsonOutput bool) {
 	pending, _ := client.TransferPending()
 	for _, p := range pending {
 		t, _ := time.Parse(time.RFC3339, p.Time)
-		transfers = append(transfers, sdk.TransferSnapshot{
+		transfers = append(transfers, TransferSnapshot{
 			ID: p.ID, Filename: p.Filename, Size: p.Size, PeerID: p.PeerID,
 			Direction: "receive", Status: "awaiting_approval", StartTime: t,
 		})
@@ -898,7 +898,7 @@ func runAccept(args []string) {
 				json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "accepted", "id": p.ID})
 			} else {
 				tc.Wgreen(os.Stdout, "Accepted")
-				fmt.Printf(" %s (%s from %s)\n", p.ID, sdk.SanitizeDisplayName(p.Filename), p.PeerID)
+				fmt.Printf(" %s (%s from %s)\n", p.ID, SanitizeDisplayName(p.Filename), p.PeerID)
 			}
 		}
 		return
@@ -965,7 +965,7 @@ func runReject(args []string) {
 				json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "rejected", "id": p.ID, "reason": reason})
 			} else {
 				tc.Wfaint(os.Stdout, "Rejected")
-				fmt.Printf(" %s (%s from %s)\n", p.ID, sdk.SanitizeDisplayName(p.Filename), p.PeerID)
+				fmt.Printf(" %s (%s from %s)\n", p.ID, SanitizeDisplayName(p.Filename), p.PeerID)
 			}
 		}
 		return

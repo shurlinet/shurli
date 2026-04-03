@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"bytes"
@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Streaming header wire format tests ---
@@ -150,7 +152,7 @@ func TestStreamingHeaderInvalidVersion(t *testing.T) {
 
 func TestStreamChunkFrameRoundtrip(t *testing.T) {
 	data := []byte("hello world this is chunk data")
-	hash := blake3Sum(data)
+	hash := sdk.Blake3Sum(data)
 
 	sc := streamChunk{
 		fileIdx:    0,
@@ -358,7 +360,7 @@ func TestCheckpointRoundtrip(t *testing.T) {
 	hashes := make([][32]byte, 5)
 	sizes := make([]uint32, 5)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 		sizes[i] = 1000
 	}
 
@@ -454,7 +456,7 @@ func TestCheckpointRoundtrip(t *testing.T) {
 	}
 
 	// Remove checkpoint.
-	removeCheckpoint(dir, ck)
+	removeStreamCheckpoint(dir, ck)
 	if _, err := os.Stat(ckptPath); !os.IsNotExist(err) {
 		t.Error("checkpoint should be removed")
 	}
@@ -501,7 +503,7 @@ func TestCheckpointRestoreReceiveState(t *testing.T) {
 	hashes := make([][32]byte, 3)
 	sizes := make([]uint32, 3)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 		sizes[i] = 1000
 	}
 
@@ -566,7 +568,7 @@ func TestCheckpointRestoreBitfieldGrown(t *testing.T) {
 	hashes := make([][32]byte, 3)
 	sizes := make([]uint32, 3)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
 		sizes[i] = 131072 // 128K avg chunk
 	}
 	have := newBitfield(3)
@@ -1124,7 +1126,7 @@ func TestDiskSpaceCheck(t *testing.T) {
 }
 
 func TestCustomHandlerServiceRegistration(t *testing.T) {
-	svc := &Service{
+	svc := &sdk.Service{
 		Name:     "test-plugin",
 		Protocol: "/shurli/test-plugin/1.0.0",
 		Handler: func(serviceName string, s network.Stream) {
@@ -2239,7 +2241,7 @@ func TestEmptyFileManifest(t *testing.T) {
 	}
 
 	// Merkle root of 0 hashes.
-	root := MerkleRoot(nil)
+	root := sdk.MerkleRoot(nil)
 	if root != [32]byte{} {
 		t.Error("Merkle root of empty should be zero hash")
 	}

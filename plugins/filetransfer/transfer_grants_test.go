@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"fmt"
@@ -10,7 +10,10 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
+
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Mock grant checker ---
@@ -81,6 +84,30 @@ func (c *mockRelayConn) RemotePeer() peer.ID {
 func (c *mockRelayConn) RemoteMultiaddr() ma.Multiaddr {
 	return c.remoteAddr
 }
+
+// --- Mock stream for interface satisfaction ---
+
+type mockStream struct {
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+func (m *mockStream) Read(p []byte) (int, error)                       { return 0, nil }
+func (m *mockStream) Write(p []byte) (int, error)                      { return len(p), nil }
+func (m *mockStream) Close() error                                      { return nil }
+func (m *mockStream) CloseWrite() error                                  { return nil }
+func (m *mockStream) CloseRead() error                                   { return nil }
+func (m *mockStream) Reset() error                                       { return nil }
+func (m *mockStream) ResetWithError(network.StreamErrorCode) error       { return nil }
+func (m *mockStream) SetDeadline(t time.Time) error                      { return nil }
+func (m *mockStream) SetReadDeadline(t time.Time) error                  { m.readDeadline = t; return nil }
+func (m *mockStream) SetWriteDeadline(t time.Time) error                 { m.writeDeadline = t; return nil }
+func (m *mockStream) ID() string                                         { return "test" }
+func (m *mockStream) Protocol() protocol.ID                              { return "/test/1.0.0" }
+func (m *mockStream) SetProtocol(protocol.ID) error                      { return nil }
+func (m *mockStream) Stat() network.Stats                                { return network.Stats{} }
+func (m *mockStream) Conn() network.Conn                                 { return nil }
+func (m *mockStream) Scope() network.StreamScope                         { return nil }
 
 // --- Mock stream wrapping conn ---
 
@@ -483,9 +510,9 @@ func TestFormatBytes(t *testing.T) {
 		{3 << 30, "3.0 GB"},
 	}
 	for _, tt := range tests {
-		got := FormatBytes(tt.input)
+		got := sdk.FormatBytes(tt.input)
 		if got != tt.want {
-			t.Errorf("FormatBytes(%d) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("sdk.FormatBytes(%d) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -510,7 +537,7 @@ func TestShortPeerStr(t *testing.T) {
 
 func TestRelayGrantChecker_InterfaceSatisfied(t *testing.T) {
 	// Verify mockGrantChecker satisfies the interface.
-	var _ RelayGrantChecker = newMockGrantChecker()
+	var _ sdk.RelayGrantChecker = newMockGrantChecker()
 }
 
 func TestCheckRelayGrant_DirectConnection(t *testing.T) {

@@ -80,43 +80,6 @@ const (
 )
 ```
 
-### Receive Modes
-
-```go
-type ReceiveMode string
-
-const (
-    ReceiveModeOff      ReceiveMode = "off"
-    ReceiveModeContacts ReceiveMode = "contacts"
-    ReceiveModeAsk      ReceiveMode = "ask"
-    ReceiveModeOpen     ReceiveMode = "open"
-    ReceiveModeTimed    ReceiveMode = "timed"
-)
-```
-
-### Transfer Priority
-
-```go
-type TransferPriority int
-
-const (
-    PriorityLow    TransferPriority = 0
-    PriorityNormal TransferPriority = 1
-    PriorityHigh   TransferPriority = 2
-)
-```
-
-### Reject Reasons
-
-```go
-const (
-    RejectReasonNone  byte = 0x00
-    RejectReasonSpace byte = 0x01
-    RejectReasonBusy  byte = 0x02
-    RejectReasonSize  byte = 0x03
-)
-```
-
 ### NAT Types
 
 ```go
@@ -663,393 +626,8 @@ ReplaceFromMap replaces all name mappings with the given map.
 
 ---
 
-## File Transfer
 
-### type TransferConfig
-
-```go
-type TransferConfig struct {
-    ReceiveDir              string
-    MaxSize                 int64
-    ReceiveMode             ReceiveMode
-    Compress                bool
-    ErasureOverhead         float64
-    LogPath                 string
-    Notify                  string
-    NotifyCommand           string
-    MaxConcurrent           int
-    MultiPeerEnabled        bool
-    MultiPeerMaxPeers       int
-    MultiPeerMinSize        int64
-    RateLimit               int
-    GlobalRateLimit         int
-    MaxQueuedPerPeer        int
-    MinSpeedBytes           int
-    MinSpeedSeconds         int
-    MaxTempSize             int64
-    TempFileExpiry          time.Duration
-    BandwidthBudget         int64
-    PeerBudgetFunc          func(peerID string) int64
-    FailureBackoffThreshold int
-    FailureBackoffWindow    time.Duration
-    FailureBackoffBlock     time.Duration
-    QueueFile               string
-    QueueHMACKey            []byte
-    GrantChecker            RelayGrantChecker
-}
-```
-
-TransferConfig configures the transfer service. Passed to NewTransferService.
-
-### type TransferService
-
-```go
-type TransferService struct {
-    // contains unexported fields
-}
-```
-
-TransferService manages chunked file transfers with FastCDC chunking, BLAKE3 Merkle tree integrity, zstd compression, Reed-Solomon erasure coding, resumable bitfield checkpoints, and multi-peer swarming.
-
-#### func NewTransferService
-
-```go
-func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) (*TransferService, error)
-```
-
-#### func (*TransferService) SendFile
-
-```go
-func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...SendOptions) (*TransferProgress, error)
-```
-
-SendFile chunks, compresses, and sends a file over a libp2p stream. Runs in background; returns a progress tracker immediately.
-
-#### func (*TransferService) SendDirectory
-
-```go
-func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, openStream func() (network.Stream, error), opts SendOptions) ([]*TransferProgress, error)
-```
-
-SendDirectory sends all files in a directory.
-
-#### func (*TransferService) SubmitSend
-
-```go
-func (ts *TransferService) SubmitSend(filePath, peerID string, priority TransferPriority, openStream streamOpener, opts SendOptions) (*TransferProgress, error)
-```
-
-SubmitSend queues a file for sending through the transfer queue.
-
-#### func (*TransferService) HandleInbound
-
-```go
-func (ts *TransferService) HandleInbound() StreamHandler
-```
-
-HandleInbound returns the stream handler for inbound file transfers.
-
-#### func (*TransferService) HandleMultiPeerRequest
-
-```go
-func (ts *TransferService) HandleMultiPeerRequest() StreamHandler
-```
-
-HandleMultiPeerRequest returns the stream handler for multi-peer swarming requests.
-
-#### func (*TransferService) GetTransfer
-
-```go
-func (ts *TransferService) GetTransfer(id string) (*TransferProgress, bool)
-```
-
-#### func (*TransferService) ListTransfers
-
-```go
-func (ts *TransferService) ListTransfers() []TransferSnapshot
-```
-
-#### func (*TransferService) CancelTransfer
-
-```go
-func (ts *TransferService) CancelTransfer(id string) error
-```
-
-#### func (*TransferService) SetReceiveMode
-
-```go
-func (ts *TransferService) SetReceiveMode(mode ReceiveMode)
-```
-
-#### func (*TransferService) SetTimedMode
-
-```go
-func (ts *TransferService) SetTimedMode(duration time.Duration) error
-```
-
-#### func (*TransferService) TimedModeRemaining
-
-```go
-func (ts *TransferService) TimedModeRemaining() time.Duration
-```
-
-#### func (*TransferService) GetReceiveMode
-
-```go
-func (ts *TransferService) GetReceiveMode() ReceiveMode
-```
-
-#### func (*TransferService) SetReceiveDir
-
-```go
-func (ts *TransferService) SetReceiveDir(dir string)
-```
-
-#### func (*TransferService) SetCompress
-
-```go
-func (ts *TransferService) SetCompress(enabled bool)
-```
-
-#### func (*TransferService) SetMaxSize
-
-```go
-func (ts *TransferService) SetMaxSize(maxBytes int64)
-```
-
-#### func (*TransferService) SetNotifyMode
-
-```go
-func (ts *TransferService) SetNotifyMode(mode string)
-```
-
-#### func (*TransferService) SetNotifyCommand
-
-```go
-func (ts *TransferService) SetNotifyCommand(cmd string)
-```
-
-#### func (*TransferService) ReceiveDir
-
-```go
-func (ts *TransferService) ReceiveDir() string
-```
-
-#### func (*TransferService) MultiPeerEnabled
-
-```go
-func (ts *TransferService) MultiPeerEnabled() bool
-```
-
-#### func (*TransferService) MultiPeerMaxPeers
-
-```go
-func (ts *TransferService) MultiPeerMaxPeers() int
-```
-
-#### func (*TransferService) MultiPeerMinSize
-
-```go
-func (ts *TransferService) MultiPeerMinSize() int64
-```
-
-#### func (*TransferService) RegisterHash
-
-```go
-func (ts *TransferService) RegisterHash(rootHash [32]byte, localPath string)
-```
-
-RegisterHash associates a BLAKE3 root hash with a local file path for multi-peer swarming.
-
-#### func (*TransferService) LookupHash
-
-```go
-func (ts *TransferService) LookupHash(rootHash [32]byte) (string, bool)
-```
-
-#### func (*TransferService) LogPath
-
-```go
-func (ts *TransferService) LogPath() string
-```
-
-#### func (*TransferService) FlushQueue
-
-```go
-func (ts *TransferService) FlushQueue()
-```
-
-FlushQueue persists the transfer queue to disk.
-
-#### func (*TransferService) RequeuePersisted
-
-```go
-func (ts *TransferService) RequeuePersisted(streamFactory func(peerID string) func() (network.Stream, error))
-```
-
-RequeuePersisted re-enqueues transfers from the persisted queue file after daemon restart.
-
-#### func (*TransferService) CleanTempFiles
-
-```go
-func (ts *TransferService) CleanTempFiles() (int, int64)
-```
-
-CleanTempFiles removes expired temp files. Returns count and bytes freed.
-
-#### func (*TransferService) ListPending
-
-```go
-func (ts *TransferService) ListPending() []PendingTransfer
-```
-
-#### func (*TransferService) AcceptTransfer
-
-```go
-func (ts *TransferService) AcceptTransfer(id, dest string) error
-```
-
-#### func (*TransferService) RejectTransfer
-
-```go
-func (ts *TransferService) RejectTransfer(id string, reason byte) error
-```
-
-#### func (*TransferService) ReceiveFrom
-
-```go
-func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error)
-```
-
-ReceiveFrom initiates a download from a remote peer's shared file.
-
-#### func (*TransferService) ProbeRootHash
-
-```go
-func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error)
-```
-
-ProbeRootHash queries a remote peer for the BLAKE3 root hash of a shared file.
-
-#### func (*TransferService) Close
-
-```go
-func (ts *TransferService) Close() error
-```
-
-### type TransferProgress
-
-```go
-type TransferProgress struct {
-    ID              string
-    Filename        string
-    Size            int64
-    Transferred     int64
-    ChunksTotal     int
-    ChunksDone      int
-    Compressed      bool
-    CompressedSize  int64
-    ErasureParity   int
-    ErasureOverhead float64
-    StreamProgress  []StreamInfo
-    PeerID          string
-    Direction       string
-    Status          string
-    StartTime       time.Time
-    Done            bool
-    Error           string
-}
-```
-
-TransferProgress tracks the progress of an active transfer.
-
-#### func (*TransferProgress) Snapshot
-
-```go
-func (tp *TransferProgress) Snapshot() TransferSnapshot
-```
-
-Snapshot returns a mutex-free copy for serialization.
-
-#### func (*TransferProgress) Sent
-
-```go
-func (tp *TransferProgress) Sent() int64
-```
-
-### type TransferSnapshot
-
-```go
-type TransferSnapshot struct {
-    ID              string        `json:"id"`
-    Filename        string        `json:"filename"`
-    Size            int64         `json:"size"`
-    Transferred     int64         `json:"transferred"`
-    ChunksTotal     int           `json:"chunks_total"`
-    ChunksDone      int           `json:"chunks_done"`
-    Compressed      bool          `json:"compressed"`
-    CompressedSize  int64         `json:"compressed_size"`
-    ErasureParity   int           `json:"erasure_parity"`
-    ErasureOverhead float64       `json:"erasure_overhead"`
-    StreamProgress  []StreamInfo  `json:"stream_progress,omitempty"`
-    PeerID          string        `json:"peer_id"`
-    Direction       string        `json:"direction"`
-    Status          string        `json:"status"`
-    StartTime       time.Time     `json:"start_time"`
-    Done            bool          `json:"done"`
-    Error           string        `json:"error,omitempty"`
-}
-```
-
-TransferSnapshot is a mutex-free copy of TransferProgress for serialization and API responses.
-
-### type StreamInfo
-
-```go
-type StreamInfo struct {
-    ChunksDone int   `json:"chunks_done"`
-    BytesDone  int64 `json:"bytes_done"`
-}
-```
-
-StreamInfo tracks progress for a single parallel stream.
-
-### type PendingTransfer
-
-```go
-type PendingTransfer struct {
-    ID       string    `json:"id"`
-    Filename string    `json:"filename"`
-    Size     int64     `json:"size"`
-    PeerID   string    `json:"peer_id"`
-    Time     time.Time `json:"time"`
-}
-```
-
-PendingTransfer represents an inbound transfer awaiting user approval (receive_mode: ask).
-
-### type SendOptions
-
-```go
-type SendOptions struct {
-    NoCompress   bool
-    Streams      int    // parallel stream count (0 = adaptive default)
-    RelativeName string // override manifest filename
-}
-```
-
-### type QueuedTransfer
-
-```go
-type QueuedTransfer struct {
-    ID        string           `json:"id"`
-    FilePath  string           `json:"file_path"`
-    PeerID    string           `json:"peer_id"`
-    Priority  TransferPriority `json:"priority"`
-    Direction string           `json:"direction"`
-    QueuedAt  time.Time        `json:"queued_at"`
-}
-```
+## Byte Size Utilities
 
 ### func ParseByteSize
 
@@ -1059,87 +637,61 @@ func ParseByteSize(s string) (int64, error)
 
 ParseByteSize parses a human-readable byte size string (e.g., "500MB", "1GB", "unlimited").
 
-### func RejectReasonString
+### func FormatBytes
 
 ```go
-func RejectReasonString(reason byte) string
+func FormatBytes(b int64) string
 ```
 
-### func SanitizeDisplayName
-
-```go
-func SanitizeDisplayName(name string) string
-```
-
-SanitizeDisplayName sanitizes a filename for display, stripping ANSI escapes, BiDi overrides, and zero-width characters.
+FormatBytes formats a byte count for user-facing display (e.g. "1.2 GB", "500 MB").
 
 ---
 
-## Share Registry
+## Cryptographic Utilities
 
-### type ShareRegistry
-
-```go
-type ShareRegistry struct {
-    // contains unexported fields
-}
-```
-
-ShareRegistry manages shared files and handles browse/download protocol requests.
-
-#### func NewShareRegistry
+### func Blake3Sum
 
 ```go
-func NewShareRegistry() *ShareRegistry
+func Blake3Sum(data []byte) [32]byte
 ```
 
-#### func LoadShareRegistry
+Blake3Sum computes the BLAKE3-256 hash of data.
+
+### func MerkleRoot
 
 ```go
-func LoadShareRegistry(path string) (*ShareRegistry, error)
+func MerkleRoot(hashes [][32]byte) [32]byte
 ```
 
-LoadShareRegistry loads a share registry from a JSON file.
+MerkleRoot computes the BLAKE3 Merkle root hash from a list of chunk hashes. Leaf nodes are chunk hashes (already BLAKE3). Internal nodes are BLAKE3(left || right). Odd nodes are promoted unchanged. Single hash is returned as-is. Empty list returns zero hash.
 
-#### func (*ShareRegistry) SetPersistPath
+---
+
+## Relay Utilities
+
+### func RelayPeerFromAddr
 
 ```go
-func (r *ShareRegistry) SetPersistPath(path string)
+func RelayPeerFromAddr(addr ma.Multiaddr) peer.ID
 ```
 
-#### func (*ShareRegistry) SetHMACKey
+RelayPeerFromAddr extracts the relay peer ID from a circuit relay multiaddr. Returns empty peer.ID if the address is not a circuit relay address.
+
+### func RelayPeerFromAddrStr
 
 ```go
-func (r *ShareRegistry) SetHMACKey(key []byte)
+func RelayPeerFromAddrStr(addrStr string) string
 ```
 
-#### func (*ShareRegistry) SetBrowseRateLimit
+RelayPeerFromAddrStr extracts the relay peer ID string from a circuit relay multiaddr string. Returns empty string if the address is not a relay circuit.
+
+### func AnyConnIsLAN
 
 ```go
-func (r *ShareRegistry) SetBrowseRateLimit(requestsPerMinute int)
+func AnyConnIsLAN(conns []network.Conn) bool
 ```
 
-#### func (*ShareRegistry) HandleBrowse
-
-```go
-func (r *ShareRegistry) HandleBrowse() StreamHandler
-```
-
-HandleBrowse returns the stream handler for file browse requests.
-
-#### func (*ShareRegistry) HandleDownload
-
-```go
-func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler
-```
-
-HandleDownload returns the stream handler for file download requests.
-
-#### func (*ShareRegistry) SavePersistent
-
-```go
-func (r *ShareRegistry) SavePersistent(path string) error
-```
+AnyConnIsLAN returns true if at least one non-relay connection uses a private IPv4 remote address (RFC 1918 / RFC 6598). Distinguishes "direct via LAN" from "direct via internet IPv6".
 
 ---
 

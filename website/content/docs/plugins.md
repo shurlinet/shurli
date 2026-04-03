@@ -884,4 +884,4 @@ The file transfer plugin (`plugins/filetransfer/`) is the first and currently on
 
 **Drain mechanism**: on Stop(), sets a drain gate to reject new HTTP requests, cancels the active context (signals all transfer goroutines), then waits up to 25 seconds for in-progress transfers to complete before the framework's 30-second drain timeout
 
-The protocol engine lives in `pkg/sdk` (TransferService, ShareRegistry, chunker, Merkle tree, compression). The plugin is the integration layer that wires the engine to the daemon's routes, CLI, and protocol handlers. See the [Go SDK](/docs/sdk/) documentation for details on the engine components.
+The entire file transfer engine (TransferService, ShareRegistry, chunker, Merkle tree, compression, erasure coding, multi-peer, checkpoint/resume) lives in `plugins/filetransfer/`. The plugin owns both the protocol engine and the integration layer (daemon routes, CLI commands, protocol handlers). Generic SDK utilities (MerkleRoot, transport classification, relay grant interface) are imported from `pkg/sdk/`.

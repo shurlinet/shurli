@@ -1,8 +1,4 @@
----
-title: "File Transfer"
-weight: 9
-description: "Chunked P2P file transfer with BLAKE3 integrity, zstd compression, erasure coding, multi-source download, and AirDrop-style receive permissions."
----
+# File Transfer
 
 Shurli includes a built-in file transfer plugin that sends files directly between peers over the P2P network. Files are chunked with FastCDC, compressed with zstd, and verified with a BLAKE3 Merkle tree. Relay is blocked for file transfer by default (drives own-relay adoption).
 

@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Multi-peer download coordination using RaptorQ fountain codes.
@@ -248,7 +249,7 @@ func (s *multiPeerSession) verifyBlock(blockIndex int, data []byte) error {
 // fountain-coded download requests. When a peer requests symbols for a file
 // (identified by root hash), this handler reads the local file, encodes each
 // chunk with RaptorQ, and sends the requested symbol range.
-func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
+func (ts *TransferService) HandleMultiPeerRequest() sdk.StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		defer s.Close()
 
@@ -347,7 +348,7 @@ func (ts *TransferService) HandleMultiPeerRequest() StreamHandler {
 			slog.Warn("file-multi-peer: empty chunking result", "peer", short)
 			return
 		}
-		computedRoot := MerkleRoot(hashes)
+		computedRoot := sdk.MerkleRoot(hashes)
 		if computedRoot != rootHash {
 			slog.Warn("file-multi-peer: root hash mismatch on re-chunk", "peer", short)
 			return
@@ -578,7 +579,7 @@ func (ts *TransferService) DownloadMultiPeer(
 	}
 
 	// Verify root hash matches.
-	computedRoot := MerkleRoot(manifest.ChunkHashes)
+	computedRoot := sdk.MerkleRoot(manifest.ChunkHashes)
 	if computedRoot != rootHash {
 		firstStream.Close()
 		return nil, fmt.Errorf("manifest root hash mismatch")
@@ -652,7 +653,7 @@ func (ts *TransferService) DownloadMultiPeer(
 				// Security: verify peer's manifest root hash matches peer 0's.
 				// A malicious peer could serve a different file with the same
 				// root hash request, feeding wrong symbols into the decoder.
-				peerRoot := MerkleRoot(peerManifest.ChunkHashes)
+				peerRoot := sdk.MerkleRoot(peerManifest.ChunkHashes)
 				if peerRoot != rootHash {
 					slog.Warn("file-multi-peer: peer manifest root hash mismatch, excluding",
 						"peer_index", peerIdx)

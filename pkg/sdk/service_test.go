@@ -243,15 +243,15 @@ func TestRelayPeerFromAddr(t *testing.T) {
 				}
 				t.Fatalf("invalid test multiaddr %q: %v", tt.addr, err)
 			}
-			got := relayPeerFromAddr(maddr)
+			got := RelayPeerFromAddr(maddr)
 			if tt.wantID == "" {
 				if got != "" {
-					t.Errorf("relayPeerFromAddr(%q) = %s, want empty", tt.addr, got)
+					t.Errorf("RelayPeerFromAddr(%q) = %s, want empty", tt.addr, got)
 				}
 			} else {
 				wantPeer, _ := peer.Decode(tt.wantID)
 				if got != wantPeer {
-					t.Errorf("relayPeerFromAddr(%q) = %s, want %s", tt.addr, got, wantPeer)
+					t.Errorf("RelayPeerFromAddr(%q) = %s, want %s", tt.addr, got, wantPeer)
 				}
 			}
 		})

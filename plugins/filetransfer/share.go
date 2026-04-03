@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Share protocol constants.
@@ -555,7 +556,7 @@ func (r *ShareRegistry) BrowseForPeer(peerID peer.ID) []BrowseEntry {
 // HandleBrowse returns a stream handler for the browse protocol.
 // Only responds to peers who have shares visible to them.
 // Non-authorized peers get a stream reset (no error, no info leakage).
-func (r *ShareRegistry) HandleBrowse() StreamHandler {
+func (r *ShareRegistry) HandleBrowse() sdk.StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		defer s.Close()
 
@@ -920,7 +921,7 @@ func BrowsePeer(s network.Stream, subPath string) (*BrowseResult, error) {
 //    requestType=0x02 returns 45-byte hash probe response
 //
 // Wire format received: pathLen(2) + path + requestType(1).
-func (r *ShareRegistry) HandleDownload(ts *TransferService) StreamHandler {
+func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		remotePeer := s.Conn().RemotePeer()
 
@@ -1119,7 +1120,7 @@ func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath st
 
 	// Empty file: deterministic zero hash, no chunking needed.
 	if fileSize == 0 {
-		return writeProbeResponse(MerkleRoot(nil), 0, 0)
+		return writeProbeResponse(sdk.MerkleRoot(nil), 0, 0)
 	}
 
 	f, err := root.Open(relPath)
@@ -1143,7 +1144,7 @@ func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath st
 		return fmt.Errorf("chunk file: %w", err)
 	}
 
-	return writeProbeResponse(MerkleRoot(chunkHashes), fileSize, len(chunkHashes))
+	return writeProbeResponse(sdk.MerkleRoot(chunkHashes), fileSize, len(chunkHashes))
 }
 
 // writeDownloadError sends an error on the download stream.

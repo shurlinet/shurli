@@ -328,7 +328,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// the peer is on LAN right now.
 	connsForDedup := md.host.Network().ConnsToPeer(pi.ID)
 	peerNeedsUpgrade := allConnsRelayed(connsForDedup) ||
-		(len(connsForDedup) > 0 && !anyConnIsLAN(connsForDedup))
+		(len(connsForDedup) > 0 && !AnyConnIsLAN(connsForDedup))
 
 	// Dedup: skip if we attempted this peer recently.
 	// Exception: relay-only peers always get an upgrade attempt.
@@ -367,7 +367,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// Re-check in case state changed between dedup and here.
 	currentConns := md.host.Network().ConnsToPeer(pi.ID)
 	needsUpgrade := allConnsRelayed(currentConns) ||
-		(len(currentConns) > 0 && !anyConnIsLAN(currentConns))
+		(len(currentConns) > 0 && !AnyConnIsLAN(currentConns))
 
 	if len(lanAddrs) > 0 {
 		pi.Addrs = lanAddrs

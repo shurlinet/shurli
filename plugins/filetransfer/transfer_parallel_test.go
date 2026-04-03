@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"bytes"
@@ -6,34 +6,35 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func TestAdaptiveStreamCount(t *testing.T) {
 	tests := []struct {
 		name       string
-		transport  TransportType
+		transport  sdk.TransportType
 		chunkCount int
 		requested  int
 		want       int
 	}{
 		// Relay always gets 1.
-		{"relay-default", TransportRelay, 100, 0, 1},
-		{"relay-requested", TransportRelay, 100, 8, 1},
+		{"relay-default", sdk.TransportRelay, 100, 0, 1},
+		{"relay-requested", sdk.TransportRelay, 100, 8, 1},
 
 		// LAN defaults.
-		{"lan-default-100", TransportLAN, 100, 0, 8},
-		{"lan-default-16", TransportLAN, 16, 0, 4}, // 16/4 = 4 < 8
-		{"lan-default-2", TransportLAN, 2, 0, 1},   // too few chunks
+		{"lan-default-100", sdk.TransportLAN, 100, 0, 8},
+		{"lan-default-16", sdk.TransportLAN, 16, 0, 4}, // 16/4 = 4 < 8
+		{"lan-default-2", sdk.TransportLAN, 2, 0, 1},   // too few chunks
 
 		// Direct WAN defaults.
-		{"direct-default-100", TransportDirect, 100, 0, 4},
-		{"direct-default-8", TransportDirect, 8, 0, 2}, // 8/4 = 2 < 4
+		{"direct-default-100", sdk.TransportDirect, 100, 0, 4},
+		{"direct-default-8", sdk.TransportDirect, 8, 0, 2}, // 8/4 = 2 < 4
 
 		// User-requested overrides.
-		{"lan-requested-16", TransportLAN, 100, 16, 16},
-		{"lan-requested-clamped", TransportLAN, 100, 50, parallelStreamsLANMax},
-		{"direct-requested-10", TransportDirect, 100, 10, 10},
-		{"direct-requested-clamped", TransportDirect, 100, 30, parallelStreamsDirectMax},
+		{"lan-requested-16", sdk.TransportLAN, 100, 16, 16},
+		{"lan-requested-clamped", sdk.TransportLAN, 100, 50, parallelStreamsLANMax},
+		{"direct-requested-10", sdk.TransportDirect, 100, 10, 10},
+		{"direct-requested-clamped", sdk.TransportDirect, 100, 30, parallelStreamsDirectMax},
 	}
 
 	for _, tt := range tests {
@@ -49,17 +50,17 @@ func TestAdaptiveStreamCount(t *testing.T) {
 func TestClampStreams(t *testing.T) {
 	tests := []struct {
 		n         int
-		transport TransportType
+		transport sdk.TransportType
 		want      int
 	}{
-		{0, TransportLAN, 1},
-		{-1, TransportLAN, 1},
-		{1, TransportLAN, 1},
-		{32, TransportLAN, 32},
-		{33, TransportLAN, 32},
-		{20, TransportDirect, 20},
-		{21, TransportDirect, 20},
-		{5, TransportRelay, 1},
+		{0, sdk.TransportLAN, 1},
+		{-1, sdk.TransportLAN, 1},
+		{1, sdk.TransportLAN, 1},
+		{32, sdk.TransportLAN, 32},
+		{33, sdk.TransportLAN, 32},
+		{20, sdk.TransportDirect, 20},
+		{21, sdk.TransportDirect, 20},
+		{5, sdk.TransportRelay, 1},
 	}
 
 	for _, tt := range tests {
@@ -161,9 +162,9 @@ func TestReceiveParallelOutOfOrder(t *testing.T) {
 
 	chunkHashes := make([][32]byte, 4)
 	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
+		chunkHashes[i] = sdk.Blake3Sum(d)
 	}
-	rootHash := MerkleRoot(chunkHashes)
+	rootHash := sdk.MerkleRoot(chunkHashes)
 
 	// Build file table (single file).
 	files := []fileEntry{{Path: "parallel-test.bin", Size: totalSize}}
@@ -266,9 +267,9 @@ func TestReceiveParallelSingleStream(t *testing.T) {
 
 	chunkHashes := make([][32]byte, 2)
 	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
+		chunkHashes[i] = sdk.Blake3Sum(d)
 	}
-	rootHash := MerkleRoot(chunkHashes)
+	rootHash := sdk.MerkleRoot(chunkHashes)
 
 	files := []fileEntry{{Path: "single-stream.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
@@ -368,9 +369,9 @@ func TestReceiveParallelDuplicateChunks(t *testing.T) {
 
 	chunkHashes := make([][32]byte, 2)
 	for i, d := range chunkData {
-		chunkHashes[i] = blake3Sum(d)
+		chunkHashes[i] = sdk.Blake3Sum(d)
 	}
-	rootHash := MerkleRoot(chunkHashes)
+	rootHash := sdk.MerkleRoot(chunkHashes)
 
 	files := []fileEntry{{Path: "dup-test.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)

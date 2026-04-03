@@ -12,7 +12,7 @@ func TestMerkleRootEmpty(t *testing.T) {
 }
 
 func TestMerkleRootSingle(t *testing.T) {
-	hash := blake3Sum([]byte("single chunk"))
+	hash := Blake3Sum([]byte("single chunk"))
 	root := MerkleRoot([][32]byte{hash})
 	if root != hash {
 		t.Error("single hash should be returned as-is")
@@ -20,24 +20,24 @@ func TestMerkleRootSingle(t *testing.T) {
 }
 
 func TestMerkleRootPair(t *testing.T) {
-	h1 := blake3Sum([]byte("chunk1"))
-	h2 := blake3Sum([]byte("chunk2"))
+	h1 := Blake3Sum([]byte("chunk1"))
+	h2 := Blake3Sum([]byte("chunk2"))
 	root := MerkleRoot([][32]byte{h1, h2})
 
 	// Root should be BLAKE3(h1 || h2).
 	var combined [64]byte
 	copy(combined[:32], h1[:])
 	copy(combined[32:], h2[:])
-	expected := blake3Sum(combined[:])
+	expected := Blake3Sum(combined[:])
 	if root != expected {
 		t.Error("pair root mismatch")
 	}
 }
 
 func TestMerkleRootOdd(t *testing.T) {
-	h1 := blake3Sum([]byte("a"))
-	h2 := blake3Sum([]byte("b"))
-	h3 := blake3Sum([]byte("c"))
+	h1 := Blake3Sum([]byte("a"))
+	h2 := Blake3Sum([]byte("b"))
+	h3 := Blake3Sum([]byte("c"))
 
 	root := MerkleRoot([][32]byte{h1, h2, h3})
 
@@ -45,12 +45,12 @@ func TestMerkleRootOdd(t *testing.T) {
 	var combined [64]byte
 	copy(combined[:32], h1[:])
 	copy(combined[32:], h2[:])
-	pair12 := blake3Sum(combined[:])
+	pair12 := Blake3Sum(combined[:])
 
 	// Level 2: pair(pair12, h3)
 	copy(combined[:32], pair12[:])
 	copy(combined[32:], h3[:])
-	expected := blake3Sum(combined[:])
+	expected := Blake3Sum(combined[:])
 
 	if root != expected {
 		t.Error("odd root mismatch")
@@ -60,7 +60,7 @@ func TestMerkleRootOdd(t *testing.T) {
 func TestMerkleRootDeterministic(t *testing.T) {
 	hashes := make([][32]byte, 7)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = Blake3Sum([]byte{byte(i)})
 	}
 
 	r1 := MerkleRoot(hashes)
@@ -73,7 +73,7 @@ func TestMerkleRootDeterministic(t *testing.T) {
 func TestMerkleRootDoesNotMutateInput(t *testing.T) {
 	hashes := make([][32]byte, 4)
 	for i := range hashes {
-		hashes[i] = blake3Sum([]byte{byte(i)})
+		hashes[i] = Blake3Sum([]byte{byte(i)})
 	}
 
 	// Save original.
