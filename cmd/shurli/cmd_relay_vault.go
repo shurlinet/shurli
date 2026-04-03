@@ -13,6 +13,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/protocol"
 
+	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/relay"
@@ -241,6 +242,15 @@ func resolveRelayAddr(input string, cfg *config.NodeConfig) (string, error) {
 	if cfg.Names != nil {
 		if err := resolver.LoadFromMap(cfg.Names); err != nil {
 			return "", fmt.Errorf("failed to load names: %w", err)
+		}
+	}
+
+	// Also load authorized_keys comments as name sources (e.g. "# relay" -> peer ID)
+	if cfg.Security.AuthorizedKeysFile != "" {
+		if commentMap, err := auth.LoadCommentMap(cfg.Security.AuthorizedKeysFile); err == nil {
+			for name, pid := range commentMap {
+				_ = resolver.Register(name, pid)
+			}
 		}
 	}
 

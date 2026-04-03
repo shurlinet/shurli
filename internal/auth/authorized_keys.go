@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -48,3 +49,31 @@ func LoadAuthorizedKeys(path string) (map[peer.ID]bool, error) {
 func IsAuthorized(peerID peer.ID, authorizedPeers map[peer.ID]bool) bool {
 	return authorizedPeers[peerID]
 }
+
+// LoadCommentMap loads an authorized_keys file and returns a map from
+// comment (lowercased) to peer ID. Only entries with non-empty comments
+// are included. This enables resolving friendly names like "relay" or
+// "home-node" to their peer IDs.
+func LoadCommentMap(path string) (map[string]peer.ID, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	result := make(map[string]peer.ID)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		peerIDStr, _, comment := parseLine(scanner.Text())
+		if peerIDStr == "" || comment == "" {
+			continue
+		}
+		pid, err := peer.Decode(peerIDStr)
+		if err != nil {
+			continue
+		}
+		result[strings.ToLower(comment)] = pid
+	}
+	return result, scanner.Err()
+}
+
