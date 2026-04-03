@@ -1,6 +1,6 @@
 //go:build windows
 
-package sdk
+package filetransfer
 
 import (
 	"fmt"

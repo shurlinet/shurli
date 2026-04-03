@@ -2,8 +2,8 @@ package sdk
 
 import "github.com/zeebo/blake3"
 
-// blake3Sum computes the BLAKE3-256 hash of data.
-func blake3Sum(data []byte) [32]byte {
+// Blake3Sum computes the BLAKE3-256 hash of data.
+func Blake3Sum(data []byte) [32]byte {
 	return blake3.Sum256(data)
 }
 

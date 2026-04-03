@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"bufio"
@@ -20,6 +20,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Transfer protocol constants.
@@ -73,7 +75,7 @@ const (
 )
 
 func init() {
-	MustValidateProtocolIDs(
+	sdk.MustValidateProtocolIDs(
 		TransferProtocol,
 		BrowseProtocol,
 		DownloadProtocol,
@@ -298,61 +300,6 @@ func (bt *bandwidthTracker) cleanup() {
 	}
 }
 
-// ParseByteSize parses a human-readable byte size string into bytes.
-// Supports: "unlimited" (returns -1), plain numbers, and suffixes
-// KB, MB, GB, TB (case-insensitive, binary: 1MB = 1048576).
-func ParseByteSize(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	if strings.EqualFold(s, "unlimited") {
-		return -1, nil
-	}
-	if s == "" {
-		return 0, fmt.Errorf("empty size string")
-	}
-
-	// Scan digits only (no dots, no signs).
-	i := 0
-	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-		i++
-	}
-	numStr := s[:i]
-	suffix := strings.TrimSpace(s[i:])
-
-	if numStr == "" {
-		return 0, fmt.Errorf("no numeric value in %q", s)
-	}
-
-	var num int64
-	if _, err := fmt.Sscanf(numStr, "%d", &num); err != nil {
-		return 0, fmt.Errorf("invalid number %q: %w", numStr, err)
-	}
-	if num < 0 {
-		return 0, fmt.Errorf("negative size not allowed: %d", num)
-	}
-
-	var multiplier int64
-	switch strings.ToUpper(suffix) {
-	case "", "B":
-		multiplier = 1
-	case "KB", "K":
-		multiplier = 1024
-	case "MB", "M":
-		multiplier = 1024 * 1024
-	case "GB", "G":
-		multiplier = 1024 * 1024 * 1024
-	case "TB", "T":
-		multiplier = 1024 * 1024 * 1024 * 1024
-	default:
-		return 0, fmt.Errorf("unknown suffix %q", suffix)
-	}
-
-	result := num * multiplier
-	if num != 0 && result/num != multiplier {
-		return 0, fmt.Errorf("value overflows int64: %d%s", num, suffix)
-	}
-	return result, nil
-}
-
 // StreamInfo tracks per-stream progress for parallel transfers.
 type StreamInfo struct {
 	ChunksDone int   `json:"chunks_done"`
@@ -573,7 +520,7 @@ type TransferConfig struct {
 	QueueHMACKey []byte // 32-byte HMAC key for queue file integrity
 
 	// Relay grant checker for pre-transfer budget/time checks and per-chunk tracking.
-	GrantChecker RelayGrantChecker
+	GrantChecker sdk.RelayGrantChecker
 
 	// ConnsToPeer returns all connections to a peer. Used by SendFile to check
 	// if a peer has any LAN connection when deciding whether to enable erasure
@@ -626,8 +573,8 @@ type TransferService struct {
 	receiveMode     ReceiveMode
 	compress        bool
 	erasureOverhead float64
-	metrics         *Metrics
-	events          *EventBus
+	metrics         *sdk.Metrics
+	events          *sdk.EventBus
 	logger          *TransferLogger
 	notifier        *TransferNotifier
 
@@ -691,7 +638,7 @@ type TransferService struct {
 	persistMu    sync.Mutex // P7 fix: serializes persistQueue writes
 
 	// Relay grant checker for budget/time checks and per-chunk tracking (H7).
-	grantChecker RelayGrantChecker
+	grantChecker sdk.RelayGrantChecker
 
 	// connsToPeer returns all connections to a peer (for LAN detection across connections).
 	connsToPeer func(peer.ID) []network.Conn
@@ -702,7 +649,7 @@ type TransferService struct {
 }
 
 // NewTransferService creates a new chunked transfer service.
-func NewTransferService(cfg TransferConfig, metrics *Metrics, events *EventBus) (*TransferService, error) {
+func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.EventBus) (*TransferService, error) {
 	dir := cfg.ReceiveDir
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -1216,12 +1163,12 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	useErasure := ts.erasureOverhead > 0
 	if useErasure {
 		remotePeerID := s.Conn().RemotePeer()
-		transport := ClassifyTransport(s)
-		if transport == TransportLAN {
+		transport := sdk.ClassifyTransport(s)
+		if transport == sdk.TransportLAN {
 			useErasure = false
-		} else if transport == TransportDirect {
+		} else if transport == sdk.TransportDirect {
 			// Check connection IPs for private IPv4 (LAN).
-			if ts.connsToPeer != nil && anyConnIsLAN(ts.connsToPeer(remotePeerID)) {
+			if ts.connsToPeer != nil && sdk.AnyConnIsLAN(ts.connsToPeer(remotePeerID)) {
 				useErasure = false
 			}
 			// Check mDNS discovery (catches LAN peers on public IPv6).
@@ -1272,7 +1219,7 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		}
 		// Determine actual stream count based on transport + chunk estimate.
 		if opener != nil {
-			transport := ClassifyTransport(s)
+			transport := sdk.ClassifyTransport(s)
 			streams = adaptiveStreamCount(transport, estimatedChunks, streams)
 		} else {
 			streams = 1
@@ -1299,8 +1246,8 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		}
 
 		if ts.events != nil {
-			ts.events.Emit(Event{
-				Type:        EventStreamClosed,
+			ts.events.Emit(sdk.Event{
+				Type:        sdk.EventStreamClosed,
 				PeerID:      remotePeer,
 				ServiceName: "file-transfer",
 			})
@@ -1436,7 +1383,7 @@ func (ts *TransferService) streamingSend(
 	progress.mu.Unlock()
 
 	// Compute Merkle root.
-	rootHash := MerkleRoot(result.chunkHashes)
+	rootHash := sdk.MerkleRoot(result.chunkHashes)
 
 	// Handle erasure coding (R4-SEC1: current approach buffers all data).
 	var erasure *erasureTrailer
@@ -1552,7 +1499,7 @@ func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, op
 // HandleInbound returns a StreamHandler for receiving files via the streaming protocol.
 // Reads SHFT streaming header, validates, accepts/rejects, then receives chunks
 // via readStreamChunkFrame and verifies via trailer Merkle root.
-func (ts *TransferService) HandleInbound() StreamHandler {
+func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		// Peek the first byte to detect parallel worker streams.
 		// Worker streams start with msgWorkerHello and are ancillary to an
@@ -1693,8 +1640,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 		}
 
 		// Per-peer bandwidth budget check (WAN only).
-		transport := ClassifyTransport(s)
-		if transport != TransportLAN && ts.bandwidthTracker != nil {
+		transport := sdk.ClassifyTransport(s)
+		if transport != sdk.TransportLAN && ts.bandwidthTracker != nil {
 			var peerBudget int64
 			if ts.peerBudgetFunc != nil {
 				peerBudget = ts.peerBudgetFunc(peerKey)
@@ -1749,8 +1696,8 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"size", totalSize, "id", pendingID)
 
 			if ts.events != nil {
-				ts.events.Emit(Event{
-					Type:        EventTransferPending,
+				ts.events.Emit(sdk.Event{
+					Type:        sdk.EventTransferPending,
 					PeerID:      remotePeer,
 					ServiceName: "file-transfer",
 					Detail:      pendingID,
@@ -1829,13 +1776,13 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 						"error", restoreErr)
 					// Clean up stale temp files from failed restore.
 					ckpt.cleanupTempFiles(destDir)
-					removeCheckpoint(destDir, ck)
+					removeStreamCheckpoint(destDir, ck)
 				}
 			} else {
 				// Flags/size mismatch - discard stale checkpoint and temp files.
 				slog.Debug("file-transfer: checkpoint flags/size mismatch, starting fresh")
 				ckpt.cleanupTempFiles(destDir)
-				removeCheckpoint(destDir, ck)
+				removeStreamCheckpoint(destDir, ck)
 			}
 		}
 
@@ -1954,14 +1901,14 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 				"peer", short, "file", displayName,
 				"size", totalSize, "files", len(files))
 			ts.logEvent(EventLogCompleted, "receive", peerKey, displayName, totalSize, totalSize, "", dur)
-			if transport != TransportLAN && ts.bandwidthTracker != nil {
+			if transport != sdk.TransportLAN && ts.bandwidthTracker != nil {
 				ts.bandwidthTracker.record(peerKey, totalSize)
 			}
 		}
 
 		if ts.events != nil {
-			ts.events.Emit(Event{
-				Type:        EventStreamClosed,
+			ts.events.Emit(sdk.Event{
+				Type:        sdk.EventStreamClosed,
 				PeerID:      remotePeer,
 				ServiceName: "file-transfer",
 			})
@@ -1972,7 +1919,7 @@ func (ts *TransferService) HandleInbound() StreamHandler {
 // blake3Hash computes BLAKE3-256 of data.
 func blake3Hash(data []byte) [32]byte {
 	// Import is in chunker.go; use zeebo/blake3 directly.
-	return blake3Sum(data)
+	return sdk.Blake3Sum(data)
 }
 
 // createTempFile creates a temporary file in the receive directory.
@@ -2338,8 +2285,8 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 						ts.closeRelayConns(relayID, job.peerID)
 						slog.Info("relay-grant: closing low-budget relay for directory transfer, retrying",
 							"old_relay", shortPeerStr(relayID),
-							"dir_size", FormatBytes(dirSize),
-							"relay_budget", FormatBytes(grantInfo.SessionBudget))
+							"dir_size", sdk.FormatBytes(dirSize),
+							"relay_budget", sdk.FormatBytes(grantInfo.SessionBudget))
 
 						retryStream, retryErr := job.openStream()
 						if retryErr != nil {
@@ -2353,7 +2300,7 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 							retryStream.Close()
 							if retryCheck.GrantActive && !retryCheck.BudgetOK {
 								finalErr = fmt.Errorf("directory size (%s) exceeds relay session limit (%s) on all available relays",
-									FormatBytes(dirSize), FormatBytes(retryCheck.SessionBudget))
+									sdk.FormatBytes(dirSize), sdk.FormatBytes(retryCheck.SessionBudget))
 							} else if retryCheck.GrantActive && !retryCheck.TimeOK {
 								finalErr = fmt.Errorf("relay grant expires too soon for directory transfer (remaining: %s)",
 									retryCheck.GrantRemaining.Truncate(time.Second))
@@ -2419,8 +2366,8 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 								ts.closeRelayConns(recheckInfo.RelayPeerID, job.peerID)
 								slog.Info("relay-grant: closing low-budget relay connection, retrying through better relay",
 									"old_relay", shortPeerStr(recheckInfo.RelayPeerID),
-									"file_size", FormatBytes(fileSize),
-									"relay_budget", FormatBytes(recheckInfo.SessionBudget))
+									"file_size", sdk.FormatBytes(fileSize),
+									"relay_budget", sdk.FormatBytes(recheckInfo.SessionBudget))
 
 								retryStream, retryErr := job.openStream()
 								if retryErr != nil {
@@ -2437,7 +2384,7 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 										stream.Close()
 										stream = nil
 										finalErr = fmt.Errorf("file size (%s) exceeds relay session limit (%s) on all available relays",
-											FormatBytes(fileSize), FormatBytes(finalCheck.SessionBudget))
+											sdk.FormatBytes(fileSize), sdk.FormatBytes(finalCheck.SessionBudget))
 									} else if finalCheck.GrantActive && !finalCheck.TimeOK {
 										stream.Close()
 										stream = nil
@@ -3459,12 +3406,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 				slog.Debug("file-download: checkpoint restore failed, starting fresh",
 					"error", restoreErr)
 				ckpt.cleanupTempFiles(destDir)
-				removeCheckpoint(destDir, ck)
+				removeStreamCheckpoint(destDir, ck)
 			}
 		} else {
 			slog.Debug("file-download: checkpoint flags/size mismatch, starting fresh")
 			ckpt.cleanupTempFiles(destDir)
-			removeCheckpoint(destDir, ck)
+			removeStreamCheckpoint(destDir, ck)
 		}
 	}
 

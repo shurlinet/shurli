@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"encoding/binary"
@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/klauspost/reedsolomon"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Erasure coding constants.
@@ -100,7 +101,7 @@ func encodeErasure(dataChunks [][]byte, stripeSize int, overhead float64) ([]par
 		}
 
 		for _, p := range parity {
-			hash := blake3Sum(p)
+			hash := sdk.Blake3Sum(p)
 			allParity = append(allParity, parityChunk{hash: hash, data: p})
 		}
 	}
@@ -366,7 +367,7 @@ func (ts *TransferService) rsReconstruct(tmpFile *os.File, m *transferManifest, 
 			chunk := reconstructed[localIdx]
 
 			// Verify BLAKE3 hash of reconstructed data.
-			hash := blake3Sum(chunk)
+			hash := sdk.Blake3Sum(chunk)
 			if hash != m.ChunkHashes[idx] {
 				return fmt.Errorf("chunk %d hash mismatch after reconstruction", idx)
 			}

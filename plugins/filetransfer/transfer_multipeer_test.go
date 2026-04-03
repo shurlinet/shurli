@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func TestInterleavedSymbolCount(t *testing.T) {
@@ -80,7 +81,7 @@ func TestMultiPeerSessionSinglePeer(t *testing.T) {
 		Filename:    "test.bin",
 		FileSize:    int64(blockSize) * int64(blockCount),
 		ChunkCount:  blockCount,
-		RootHash:    MerkleRoot(blockHashes),
+		RootHash:    sdk.MerkleRoot(blockHashes),
 		ChunkHashes: blockHashes,
 		ChunkSizes:  blockSizes,
 	}
@@ -147,7 +148,7 @@ func TestMultiPeerSessionTwoPeersInterleaved(t *testing.T) {
 		Filename:    "multi.bin",
 		FileSize:    int64(blockSize) * int64(blockCount),
 		ChunkCount:  blockCount,
-		RootHash:    MerkleRoot(blockHashes),
+		RootHash:    sdk.MerkleRoot(blockHashes),
 		ChunkHashes: blockHashes,
 		ChunkSizes:  blockSizes,
 	}
@@ -222,7 +223,7 @@ func TestMultiPeerFastPeerAloneDecodes(t *testing.T) {
 		Filename:    "fast-alone.bin",
 		FileSize:    int64(blockSize),
 		ChunkCount:  1,
-		RootHash:    MerkleRoot([][32]byte{hash}),
+		RootHash:    sdk.MerkleRoot([][32]byte{hash}),
 		ChunkHashes: [][32]byte{hash},
 		ChunkSizes:  []uint32{blockSize},
 	}
@@ -284,7 +285,7 @@ func TestMultiPeerSessionRepairOnly(t *testing.T) {
 		Filename:    "repair-only.bin",
 		FileSize:    int64(blockSize),
 		ChunkCount:  1,
-		RootHash:    MerkleRoot([][32]byte{hash}),
+		RootHash:    sdk.MerkleRoot([][32]byte{hash}),
 		ChunkHashes: [][32]byte{hash},
 		ChunkSizes:  []uint32{blockSize},
 	}
@@ -351,7 +352,7 @@ func TestMarshalUnmarshalManifest(t *testing.T) {
 		Filename:    "test-file.bin",
 		FileSize:    12345678,
 		ChunkCount:  blockCount,
-		RootHash:    MerkleRoot(hashes),
+		RootHash:    sdk.MerkleRoot(hashes),
 		ChunkHashes: hashes,
 		ChunkSizes:  sizes,
 	}

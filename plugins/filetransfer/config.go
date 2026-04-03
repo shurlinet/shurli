@@ -8,7 +8,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // containsShellMeta returns true if the string contains shell metacharacters
@@ -30,8 +29,8 @@ func sanitizeNotifyCommand(cmd string) string {
 	return cmd
 }
 
-// TransferConfig holds the plugin's configuration, loaded from its own config.yaml.
-type TransferConfig struct {
+// PluginConfig holds the plugin's configuration, loaded from its own config.yaml.
+type PluginConfig struct {
 	ReceiveDir      string  `yaml:"receive_dir"`
 	MaxFileSize     int64   `yaml:"max_file_size"`
 	ReceiveMode     string  `yaml:"receive_mode"`     // off, contacts, ask, open, timed
@@ -75,8 +74,8 @@ type TransferConfig struct {
 
 // loadConfig parses the plugin config from raw YAML bytes.
 // Returns defaults if bytes are empty or nil. Logs warning on parse errors (P21 fix).
-func loadConfig(data []byte) TransferConfig {
-	var cfg TransferConfig
+func loadConfig(data []byte) PluginConfig {
+	var cfg PluginConfig
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			slog.Warn("plugin.filetransfer: config parse error, using defaults", "error", err)
@@ -91,7 +90,7 @@ func loadConfig(data []byte) TransferConfig {
 
 // defaultPersistent returns the configured default for share persistence.
 // True unless explicitly set to false in config.
-func (c *TransferConfig) defaultPersistent() bool {
+func (c *PluginConfig) defaultPersistent() bool {
 	return c.DefaultPersistent == nil || *c.DefaultPersistent
 }
 
@@ -163,11 +162,11 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 				rollbackAll()
 				return
 			}
-			ts.SetReceiveMode(sdk.ReceiveMode(newMode))
+			ts.SetReceiveMode(ReceiveMode(newMode))
 		}
 		applied = append(applied, rollbackEntry{
 			field:   "receive_mode",
-			restore: func() { ts.SetReceiveMode(sdk.ReceiveMode(oldMode)) },
+			restore: func() { ts.SetReceiveMode(ReceiveMode(oldMode)) },
 		})
 	}
 

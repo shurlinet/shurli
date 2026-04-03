@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"encoding/binary"
@@ -537,8 +537,8 @@ func (c *transferCheckpoint) cleanupTempFiles(receiveDir string) {
 	}
 }
 
-// removeCheckpoint deletes the checkpoint file.
-func removeCheckpoint(receiveDir string, ck [32]byte) {
+// removeStreamCheckpoint deletes the streaming protocol checkpoint file.
+func removeStreamCheckpoint(receiveDir string, ck [32]byte) {
 	os.Remove(checkpointPath(receiveDir, ck))
 }
 

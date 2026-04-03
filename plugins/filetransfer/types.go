@@ -1,6 +1,5 @@
 package filetransfer
 
-import "github.com/shurlinet/shurli/pkg/sdk"
 
 // SendRequest is the body for POST /v1/send.
 type SendRequest struct {
@@ -64,7 +63,7 @@ type BrowseRequest struct {
 
 // BrowseResponse is returned by POST /v1/browse.
 type BrowseResponse struct {
-	Entries []sdk.BrowseEntry `json:"entries"`
+	Entries []BrowseEntry `json:"entries"`
 	Error   string               `json:"error,omitempty"`
 }
 

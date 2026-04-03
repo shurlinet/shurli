@@ -336,7 +336,7 @@ func isRelayOnlyPeer(h host.Host, p peer.ID) bool {
 func peerRelayFromConns(h host.Host, p peer.ID) peer.ID {
 	for _, c := range h.Network().ConnsToPeer(p) {
 		if c.Stat().Limited {
-			rid := relayPeerFromAddr(c.RemoteMultiaddr())
+			rid := RelayPeerFromAddr(c.RemoteMultiaddr())
 			if rid != "" {
 				return rid
 			}
@@ -355,7 +355,7 @@ func hasAnyActiveRelayGrant(checker RelayGrantChecker, h host.Host, peerID peer.
 		if !c.Stat().Limited {
 			continue // direct connection, not relayed
 		}
-		rid := relayPeerFromAddr(c.RemoteMultiaddr())
+		rid := RelayPeerFromAddr(c.RemoteMultiaddr())
 		if rid != "" {
 			if _, _, _, ok := checker.GrantStatus(rid); ok {
 				return true
@@ -367,7 +367,7 @@ func hasAnyActiveRelayGrant(checker RelayGrantChecker, h host.Host, peerID peer.
 	// Post-dial verification re-checks the actual connection's relay.
 	if len(conns) == 0 {
 		for _, addr := range h.Peerstore().Addrs(peerID) {
-			rid := relayPeerFromAddr(addr)
+			rid := RelayPeerFromAddr(addr)
 			if rid != "" {
 				if _, _, _, ok := checker.GrantStatus(rid); ok {
 					return true

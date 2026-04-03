@@ -36,9 +36,9 @@ type FileTransferPlugin struct {
 	// Handlers take RLock, Stop() takes full Lock when nilling fields.
 	mu              sync.RWMutex
 	network         *sdk.Network
-	transferService *sdk.TransferService
-	shareRegistry   *sdk.ShareRegistry
-	config          TransferConfig
+	transferService *TransferService
+	shareRegistry   *ShareRegistry
+	config          PluginConfig
 
 	// Drain mechanism (Finding 52 - CRITICAL).
 	// Plugin owns context.Context + sync.WaitGroup for active transfers.
@@ -182,10 +182,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		queueFile = filepath.Join(p.configDir, "queue.json")
 	}
 
-	cfg := sdk.TransferConfig{
+	cfg := TransferConfig{
 		ReceiveDir:        p.config.ReceiveDir,
 		MaxSize:           p.config.MaxFileSize,
-		ReceiveMode:       sdk.ReceiveMode(p.config.ReceiveMode),
+		ReceiveMode:       ReceiveMode(p.config.ReceiveMode),
 		Compress:          compress,
 		ErasureOverhead:   erasureOverhead,
 		LogPath:           logPath,
@@ -226,14 +226,14 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		},
 	}
 
-	ts, err := sdk.NewTransferService(cfg, nil, p.network.Events())
+	ts, err := NewTransferService(cfg, nil, p.network.Events())
 	if err != nil {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
 	p.transferService = ts
 
 	// If config specifies timed mode at startup, activate the timer.
-	if cfg.ReceiveMode == sdk.ReceiveModeTimed {
+	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration
 		if durStr == "" {
 			durStr = "10m"
@@ -248,10 +248,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// Load/create share registry.
 	if p.configDir != "" {
 		persistPath := filepath.Join(p.configDir, "shares.json")
-		reg, loadErr := sdk.LoadShareRegistry(persistPath)
+		reg, loadErr := LoadShareRegistry(persistPath)
 		if loadErr != nil {
 			slog.Warn("plugin.filetransfer: failed to load shares", "error", loadErr)
-			reg = sdk.NewShareRegistry()
+			reg = NewShareRegistry()
 			reg.SetPersistPath(persistPath)
 		}
 
@@ -574,7 +574,7 @@ func (p *FileTransferPlugin) Restore(data []byte) error {
 
 // checkpointState is the JSON structure saved by Checkpoint/Restore.
 type checkpointState struct {
-	Transfers []sdk.TransferSnapshot `json:"transfers,omitempty"`
+	Transfers []TransferSnapshot `json:"transfers,omitempty"`
 	HasShares bool                      `json:"has_shares,omitempty"`
 }
 

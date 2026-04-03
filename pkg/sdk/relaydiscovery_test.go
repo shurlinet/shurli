@@ -169,6 +169,13 @@ func TestRelayDiscovery_NilMetricsSafety(t *testing.T) {
 	rd.RelayAddrs()
 }
 
+// mockGrant holds test grant data for mockBudgetChecker.
+type mockGrant struct {
+	remaining       time.Duration
+	budget          int64
+	sessionDuration time.Duration
+}
+
 // mockBudgetChecker implements RelayGrantChecker for testing budget-aware relay ranking.
 type mockBudgetChecker struct {
 	grants map[peer.ID]*mockGrant

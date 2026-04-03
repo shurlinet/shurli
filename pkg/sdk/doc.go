@@ -33,16 +33,6 @@
 //   - Bootstrap: [BootstrapAndConnect] handles DHT client-mode bootstrap,
 //     peer discovery, and relay circuit fallback.
 //
-//   - Transfer: [TransferService] implements chunked file transfer with the
-//     SHFT wire format (v2). Features: FastCDC content-defined chunking,
-//     BLAKE3 Merkle integrity, zstd compression (on by default), receive
-//     permissions (off/contacts/ask/open), disk space checks, atomic writes,
-//     per-chunk hash verification, resumable transfers (bitfield checkpoint
-//     persistence + sparse file writes for out-of-order chunks),
-//     ResumeRequest/ResumeResponse protocol, and Reed-Solomon erasure coding
-//     (auto-enabled on Direct WAN, configurable overhead, stripe-based
-//     encoding via klauspost/reedsolomon). Protocol: /shurli/file-transfer/2.0.0.
-//
 //   - Protocol IDs: [ProtocolID] and [MustValidateProtocolIDs] enforce valid
 //     protocol ID construction at init time.
 //
@@ -55,5 +45,5 @@
 // # Thread Safety
 //
 // All exported types are safe for concurrent use. The Network, ServiceRegistry,
-// EventBus, NameResolver, and TransferService use internal locking.
+// EventBus, and NameResolver use internal locking.
 package sdk

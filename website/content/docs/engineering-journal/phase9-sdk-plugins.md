@@ -128,7 +128,7 @@ File transfer is the first concrete plugin built on the Phase 9A service infrast
 
 ### Decision
 
-`https://github.com/shurlinet/shurli/blob/main/pkg/sdk/transfer.go` implements:
+`https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` implements:
 - Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
 - `TransferService` with `HandleInbound()` returning a `StreamHandler`
 - `SendFile()` for outbound transfers with background progress tracking

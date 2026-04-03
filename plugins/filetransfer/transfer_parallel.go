@@ -1,4 +1,4 @@
-package sdk
+package filetransfer
 
 import (
 	"bufio"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // streamOpener opens a new stream to the same peer for parallel transfer.
@@ -33,16 +34,16 @@ const (
 )
 
 // adaptiveStreamCount returns the optimal stream count based on transport type and chunk count.
-func adaptiveStreamCount(transport TransportType, chunkCount, requested int) int {
+func adaptiveStreamCount(transport sdk.TransportType, chunkCount, requested int) int {
 	if requested > 0 {
 		return clampStreams(requested, transport)
 	}
 
 	var defaultN int
 	switch transport {
-	case TransportLAN:
+	case sdk.TransportLAN:
 		defaultN = parallelStreamsLAN
-	case TransportDirect:
+	case sdk.TransportDirect:
 		defaultN = parallelStreamsDirect
 	default:
 		return 1 // relay or unknown: single stream
@@ -61,15 +62,15 @@ func adaptiveStreamCount(transport TransportType, chunkCount, requested int) int
 }
 
 // clampStreams ensures the stream count is within transport-specific bounds.
-func clampStreams(n int, transport TransportType) int {
+func clampStreams(n int, transport sdk.TransportType) int {
 	if n < 1 {
 		return 1
 	}
 	var max int
 	switch transport {
-	case TransportLAN:
+	case sdk.TransportLAN:
 		max = parallelStreamsLANMax
-	case TransportDirect:
+	case sdk.TransportDirect:
 		max = parallelStreamsDirectMax
 	default:
 		return 1
@@ -676,7 +677,7 @@ verify:
 	} else {
 		allHashes = state.orderedHashes()
 	}
-	computedRoot := MerkleRoot(allHashes)
+	computedRoot := sdk.MerkleRoot(allHashes)
 	if computedRoot != rootHash {
 		saveCheckpointOnError()
 		return zero, fmt.Errorf("Merkle root mismatch: transfer corrupted")
@@ -700,7 +701,7 @@ verify:
 
 	// Transfer succeeded. Remove checkpoint (N10).
 	if ckptEnabled {
-		removeCheckpoint(session.receiveDir, session.contentKey)
+		removeStreamCheckpoint(session.receiveDir, session.contentKey)
 	}
 
 	return rootHash, nil

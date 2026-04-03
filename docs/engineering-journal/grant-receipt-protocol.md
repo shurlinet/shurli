@@ -95,7 +95,7 @@ Clients should not attempt transfers that will exceed the relay's session budget
 
 ### Decision
 
-`checkRelayGrant()` (`pkg/sdk/transfer_grants.go`) runs before every relay transfer:
+`checkRelayGrant()` (`plugins/filetransfer/transfer_grants.go`) runs before every relay transfer:
 
 1. Extract relay peer ID from the circuit multiaddr
 2. Query grant cache for receipt: `GrantStatus(relayID)`
@@ -113,7 +113,7 @@ Returns a `relayTransferInfo` struct with: `IsRelayed`, `RelayPeerID`, `GrantAct
 - Conservative 200 KB/s estimate means the check errs on the side of caution
 - Session duration check (H11) ensures the transfer fits within a single circuit session, not just the grant lifetime
 
-**Reference**: `pkg/sdk/transfer_grants.go`
+**Reference**: `plugins/filetransfer/transfer_grants.go`
 
 ---
 
@@ -130,7 +130,7 @@ Pre-transfer checks validate the total file size against the budget, but the act
 
 ### Decision
 
-`makeChunkTracker()` (`pkg/sdk/transfer_grants.go`) creates a callback function for relayed streams:
+`makeChunkTracker()` (`plugins/filetransfer/transfer_grants.go`) creates a callback function for relayed streams:
 
 1. For direct connections: returns nil (no tracking needed)
 2. For relayed streams: extracts relay peer ID from circuit multiaddr
@@ -146,7 +146,7 @@ The progress tracker calls `tracker(n)` for every chunk frame written, counting 
 - Tracking happens at the chunk level, not file level, so budget overruns are caught within one chunk of the limit
 - Zero overhead for direct connections (nil tracker)
 
-**Reference**: `pkg/sdk/transfer_grants.go`, `pkg/sdk/transfer.go`
+**Reference**: `plugins/filetransfer/transfer_grants.go`, `plugins/filetransfer/transfer.go`
 
 ---
 
@@ -163,7 +163,7 @@ Relay sessions expire. When a transfer fails mid-stream due to session expiry, t
 
 ### Decision
 
-`isRelaySessionExpiry()` (`pkg/sdk/transfer_grants.go`) classifies transfer errors:
+`isRelaySessionExpiry()` (`plugins/filetransfer/transfer_grants.go`) classifies transfer errors:
 
 **Do not retry** (application errors):
 - "rejected", "file too large", "disk space"
@@ -187,4 +187,4 @@ Reconnection flow:
 - Budget counters reset per circuit (each session gets its own budget)
 - Max 5 reconnection attempts prevents infinite loops
 
-**Reference**: `pkg/sdk/transfer_grants.go`, `pkg/sdk/transfer.go`
+**Reference**: `plugins/filetransfer/transfer_grants.go`, `plugins/filetransfer/transfer.go`

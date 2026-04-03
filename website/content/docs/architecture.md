@@ -395,8 +395,8 @@ Shurli/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
 │   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
 │
-├── pkg/sdk/              # ✅ Core library (importable) - transfer engine, chunking,
-│   │                        #   Merkle, compression, erasure, share registry, plugin policy
+├── pkg/sdk/              # ✅ Core library (importable) - network, events, Merkle,
+│   │                        #   plugin policy, transport classification, byte utilities
 │   ├── ...existing...
 │   └── federation.go        # 🆕 Phase 13: Network peering
 │
@@ -495,7 +495,6 @@ type RuntimeInfo interface {
     PathTracker() *sdk.PathTracker             // nil before bootstrap
     STUNResult() *sdk.STUNResult               // nil before probe
     IsRelaying() bool                             // true if peer relay enabled
-    TransferService() *sdk.TransferService     // file transfer service (nil if not configured)
 }
 ```
 
@@ -1145,7 +1144,7 @@ The HMAC key is derived via HKDF from the relay's identity with context `"grant-
 - Background cleanup goroutine removes expired entries on a configurable interval.
 - `GrantStatus()` satisfies the `RelayGrantChecker` interface via structural typing (no import cycle).
 
-**Smart pre-transfer checks** (`pkg/sdk/transfer_grants.go`):
+**Smart pre-transfer checks** (`plugins/filetransfer/transfer_grants.go`):
 
 Before a relay-mediated file transfer, the transfer service checks the cached receipt:
 
@@ -1177,7 +1176,7 @@ The `Relay Grants:` section in `shurli status` displays per-relay grant info fro
 - Relays running the new code send receipts to new clients and 1-byte signals to old clients (protocol negotiation).
 - New clients with old relays never receive receipts (no handler registered on the relay). The cache stays empty and pre-transfer checks are skipped (graceful degradation).
 
-**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `pkg/sdk/transfer_grants.go`, `cmd/shurli/serve_common.go`
+**Reference**: `internal/relay/grant_receipt.go`, `internal/grants/cache.go`, `plugins/filetransfer/transfer_grants.go`, `cmd/shurli/serve_common.go`
 
 #### Security Thought Experiment
 
@@ -1428,7 +1427,7 @@ Machine-bound session tokens that allow password-free daemon restarts. Same mode
 
 ### File Transfer (Phase 9B)
 
-> **Status: Implemented** - extracted to `plugins/filetransfer/` as the first plugin. Protocol engine remains in `pkg/sdk/`. Plugin provides CLI commands, daemon handlers, and P2P protocol registration.
+> **Status: Implemented** - fully extracted to `plugins/filetransfer/` as the first plugin. The plugin owns the entire protocol engine (TransferService, ShareRegistry, chunker, compression, erasure, multi-peer, checkpoint/resume) plus the integration layer (CLI commands, daemon handlers, P2P protocol registration). Generic utilities (MerkleRoot, transport classification) are imported from `pkg/sdk/`.
 
 Chunked P2P file transfer with content-defined chunking, integrity verification, compression, erasure coding, multi-source download, parallel streams, and AirDrop-style receive permissions. Relay transport is allowed (relay-side bandwidth limits enforce conservation). Seven-layer DDoS defense protects all transfer endpoints.
 
@@ -1539,7 +1538,7 @@ Chunked P2P file transfer with content-defined chunking, integrity verification,
 | klauspost/reedsolomon | MIT | Erasure coding |
 | xssnick/raptorq | MIT | Fountain codes (multi-source) |
 
-**Reference**: `pkg/sdk/transfer.go`, `pkg/sdk/chunker.go`, `pkg/sdk/merkle.go`, `pkg/sdk/compress.go`, `pkg/sdk/share.go`, `pkg/sdk/transfer_erasure.go`, `pkg/sdk/transfer_multipeer.go`, `pkg/sdk/transfer_raptorq.go`, `pkg/sdk/transfer_parallel.go`, `pkg/sdk/transfer_resume.go`, `pkg/sdk/transfer_log.go`, `pkg/sdk/transfer_notify.go`, `pkg/sdk/plugin_policy.go`
+**Reference**: `plugins/filetransfer/transfer.go`, `plugins/filetransfer/chunker.go`, `pkg/sdk/merkle.go`, `plugins/filetransfer/compress.go`, `plugins/filetransfer/share.go`, `plugins/filetransfer/transfer_erasure.go`, `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_raptorq.go`, `plugins/filetransfer/transfer_parallel.go`, `plugins/filetransfer/transfer_resume.go`, `plugins/filetransfer/transfer_log.go`, `plugins/filetransfer/transfer_notify.go`, `pkg/sdk/plugin_policy.go`
 
 ### Plugin System
 
