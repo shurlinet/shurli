@@ -1381,6 +1381,29 @@ func isCGNATAddr(ip net.IP) bool {
 // This is used by daemon API handlers (ping, traceroute, connect).
 func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error {
 	result, err := rt.pathDialer.DialPeer(ctx, peerID)
+	if err == nil {
+		fmt.Printf("Connected to %s [%s] via %s (%s)\n",
+			peerID.String()[:16], result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+		return nil
+	}
+
+	// If dial failed, check for stale relay connections. After relay budget
+	// exhaustion the circuit is dead but libp2p still holds the connection
+	// object. Close them and retry once with a fresh circuit.
+	h := rt.network.Host()
+	closedStale := false
+	for _, c := range h.Network().ConnsToPeer(peerID) {
+		if c.Stat().Limited {
+			c.Close()
+			closedStale = true
+		}
+	}
+	if !closedStale {
+		return err
+	}
+
+	slog.Info("ConnectToPeer: closed stale relay circuit, retrying", "peer", peerID.String()[:16]+"...")
+	result, err = rt.pathDialer.DialPeer(ctx, peerID)
 	if err != nil {
 		return err
 	}
