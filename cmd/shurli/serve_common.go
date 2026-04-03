@@ -1011,31 +1011,15 @@ func (rt *serveRuntime) SetupPeerNotify() {
 
 }
 
-// receiptRateLimiter tracks the last receipt time per relay (S7: max 1 per 10s).
-type receiptRateLimiter struct {
-	mu   sync.Mutex
-	last map[peer.ID]time.Time
-}
-
-func (rl *receiptRateLimiter) allow(relayID peer.ID) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.last == nil {
-		rl.last = make(map[peer.ID]time.Time)
-	}
-	last, ok := rl.last[relayID]
-	if ok && time.Since(last) < 10*time.Second {
-		return false
-	}
-	rl.last[relayID] = time.Now()
-	return true
-}
+// S7 (revised): receipt rate limiting removed. The original 10s-per-relay
+// rate limit blocked the second receipt in revoke+re-grant sequences.
+// Configured relay check in setupGrantReceiptHandler already limits
+// senders to trusted relays, making spam protection unnecessary.
 
 // setupGrantReceiptHandler registers the grant-receipt protocol handler.
 // When a relay pushes a 62-byte receipt, the client caches it and clears backoffs.
 func (rt *serveRuntime) setupGrantReceiptHandler() {
 	h := rt.network.Host()
-	rl := &receiptRateLimiter{}
 
 	// Handler for the new grant-receipt protocol (62-byte receipt).
 	h.SetStreamHandler(protocol.ID(relay.GrantReceiptProtocol), func(s network.Stream) {
@@ -1052,11 +1036,12 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 			return
 		}
 
-		// S7: rate limit receipt processing (max 1 per relay per 10s).
-		if !rl.allow(remotePeer) {
-			slog.Debug("grant-receipt: rate limited", "peer", short)
-			return
-		}
+		// S7 (revised): no rate limit on grant receipts from configured relays.
+		// The original 10s rate limit blocked the second receipt in a
+		// revoke+re-grant sequence (revoke sends zero-duration receipt, then
+		// re-grant sends the new receipt ~1s later, both on the same protocol).
+		// Configured relay check above already limits the sender to trusted
+		// relays only, making spam rate limiting unnecessary.
 
 		// Read the full 62-byte receipt with timeout to prevent hanging
 		// on a malicious relay that sends partial data.
