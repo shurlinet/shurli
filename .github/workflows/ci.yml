@@ -46,6 +46,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Plugin boundary check
+        run: ./tools/check-plugin-boundary.sh
+
+      - name: Plugin architecture boundary check (Go analyzer)
+        run: |
+          TMPBIN="$(mktemp)"
+          go build -o "$TMPBIN" ./tools/boundarycheck/cmd/boundarycheck
+          go vet -vettool="$TMPBIN" ./plugins/... ./pkg/sdk/... ./pkg/plugin/... ./cmd/shurli/...
+          rm -f "$TMPBIN"
+
       - name: Test
         run: go test -race -count=1 ./...
 

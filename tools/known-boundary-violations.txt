@@ -1,0 +1,53 @@
+# Known plugin boundary violations - pre-existing as of 2026-04-03
+# Audit: memory/plugin-architecture-audit-violations-2026-04-03.md
+# Incident: #21 in memory/incident-log.md
+# REMOVE THIS FILE when all violations are migrated to plugins/filetransfer/
+#
+# Format: relative/path/to/file.go (suppresses all violations in that file)
+# Or: relative/path/to/file.go:LINE for specific line suppression
+
+# V-01: TransferService engine
+pkg/sdk/transfer.go
+
+# V-02: Streaming wire format
+pkg/sdk/transfer_stream.go
+
+# V-03: Parallel streams
+pkg/sdk/transfer_parallel.go
+
+# V-04: Reed-Solomon erasure coding
+pkg/sdk/transfer_erasure.go
+
+# V-05: Share/Browse/Download protocols
+pkg/sdk/share.go
+
+# V-06: Multi-peer fountain download
+pkg/sdk/transfer_multipeer.go
+
+# V-07: Transfer checkpoint/resume
+pkg/sdk/transfer_resume.go
+
+# V-08: Transfer event logging
+pkg/sdk/transfer_log.go
+
+# V-09: Transfer notifications
+pkg/sdk/transfer_notify.go
+
+# V-10: RaptorQ fountain coding
+pkg/sdk/transfer_raptorq.go
+
+# V-11: Transfer grant checking (partial - only transfer-specific parts)
+pkg/sdk/transfer_grants.go
+
+# V-12: zstd compression
+pkg/sdk/compress.go
+
+# V-13: FastCDC chunker
+pkg/sdk/chunker.go
+
+# V-01 also: disk space check is TransferService method
+pkg/sdk/diskspace_unix.go
+pkg/sdk/diskspace_windows.go
+
+# V-16: doc.go advertises TransferService as SDK feature
+pkg/sdk/doc.go
