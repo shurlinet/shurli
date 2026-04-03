@@ -299,6 +299,19 @@ func (pm *PeerManager) SetWatchlist(peerIDs []peer.ID) {
 //
 // For stale connection cleanup, call CloseStaleConnections separately
 // with the removed IPs before calling this method.
+// ResetPeerBackoff clears the backoff state for a single peer, allowing
+// the PeerManager's reconnect loop to immediately attempt reconnection.
+// Used by ConnectToPeer after a dial failure to give the peer a fresh chance
+// (e.g. after relay budget was refilled for the remote peer).
+func (pm *PeerManager) ResetPeerBackoff(pid peer.ID) {
+	pm.mu.Lock()
+	if mp, ok := pm.peers[pid]; ok {
+		mp.BackoffUntil = time.Time{}
+		mp.ConsecFailures = 0
+	}
+	pm.mu.Unlock()
+}
+
 func (pm *PeerManager) OnNetworkChange() {
 	pm.mu.Lock()
 	for _, mp := range pm.peers {

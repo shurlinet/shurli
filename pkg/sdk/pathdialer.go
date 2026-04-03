@@ -117,7 +117,9 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 	}
 	if len(relayAddrs) > 0 {
 		go func() {
-			if err := AddRelayAddressesForPeerFunc(pd.host, relayAddrs, peerID); err != nil {
+			// Build circuit addresses and add to peerstore.
+			circuitAddrInfo, err := buildCircuitAddrInfo(pd.host, relayAddrs, peerID)
+			if err != nil {
 				resultCh <- raceResult{err: fmt.Errorf("relay addrs: %w", err)}
 				return
 			}
@@ -125,7 +127,11 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 			connectCtx, connectCancel := context.WithTimeout(raceCtx, 30*time.Second)
 			defer connectCancel()
 
-			if err := pd.host.Connect(connectCtx, peer.AddrInfo{ID: peerID}); err != nil {
+			// Pass circuit addresses directly to Connect rather than relying
+			// on peerstore alone. After budget exhaustion + backoff clearing,
+			// the peerstore may have stale direct addresses that time out
+			// before the relay circuit addresses are tried.
+			if err := pd.host.Connect(connectCtx, *circuitAddrInfo); err != nil {
 				resultCh <- raceResult{err: fmt.Errorf("relay connect: %w", err)}
 				return
 			}
@@ -271,4 +277,24 @@ func AddRelayAddressesForPeerFunc(h host.Host, relayAddrs []string, target peer.
 		h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, time.Hour)
 	}
 	return nil
+}
+
+// buildCircuitAddrInfo constructs relay circuit addresses for a target peer
+// and returns them as a peer.AddrInfo. Also adds them to the peerstore.
+// Unlike AddRelayAddressesForPeerFunc which only updates the peerstore,
+// this returns the AddrInfo so callers can pass it directly to host.Connect
+// (ensuring circuit addresses are tried even if the peerstore has many
+// stale direct addresses that would time out first).
+func buildCircuitAddrInfo(h host.Host, relayAddrs []string, target peer.ID) (*peer.AddrInfo, error) {
+	info := &peer.AddrInfo{ID: target}
+	for _, relayAddr := range relayAddrs {
+		circuitAddr := relayAddr + "/p2p-circuit/p2p/" + target.String()
+		addrInfo, err := peer.AddrInfoFromString(circuitAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse relay circuit address %s: %w", circuitAddr, err)
+		}
+		info.Addrs = append(info.Addrs, addrInfo.Addrs...)
+		h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, time.Hour)
+	}
+	return info, nil
 }
