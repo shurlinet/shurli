@@ -1099,6 +1099,8 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 			}
 
 			// Emit notification for client-side grant receipt.
+			// Use deterministic ID so duplicate receipts from the same relay
+			// (e.g. on reconnect, multi-address identification) are deduplicated.
 			if rt.notifyRouter != nil {
 				msg := "relay grant received"
 				if decoded.SessionDataLimit > 0 {
@@ -1109,6 +1111,7 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 				}
 				event := notify.NewEvent(notify.EventGrantCreated, notify.SeverityInfo,
 					remotePeer.String(), short, msg)
+				event.ID = fmt.Sprintf("grant-received-%s-%d", remotePeer, decoded.SessionDataLimit)
 				rt.notifyRouter.Emit(event)
 			}
 		} else {
