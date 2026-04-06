@@ -262,6 +262,25 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 
 		p.shareRegistry = reg
 
+		// Wire shared file lister for multi-peer hash scan (IF6-3, IF13-3).
+		ts.SetSharedFileLister(func() []string {
+			shares := reg.ListShares(nil)
+			var paths []string
+			for _, s := range shares {
+				if s.IsDir {
+					filepath.WalkDir(s.Path, func(p string, d os.DirEntry, err error) error {
+						if err == nil && !d.IsDir() {
+							paths = append(paths, p)
+						}
+						return nil
+					})
+				} else {
+					paths = append(paths, s.Path)
+				}
+			}
+			return paths
+		})
+
 		browseLimit := p.config.BrowseRateLimit
 		if browseLimit == 0 {
 			browseLimit = 10

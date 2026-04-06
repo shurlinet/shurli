@@ -90,4 +90,5 @@ type DownloadResponse struct {
 	TransferID string `json:"transfer_id"`
 	FileName   string `json:"filename"`
 	FileSize   int64  `json:"file_size"`
+	PeersUsed  int    `json:"peers_used,omitempty"` // IF3-7: multi-peer peer count
 }

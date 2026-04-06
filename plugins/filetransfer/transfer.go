@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -62,7 +63,7 @@ const (
 	maxFilenameLen         = 4096       // max filename length in bytes
 	maxFileSize            = 1 << 40    // 1 TB max single file
 	maxChunkCount          = 1 << 20    // 1M chunks max per transfer
-	maxManifestSize        = 64 << 20   // 64 MB max manifest wire size
+	maxManifestSize        = 40 << 20   // 40 MB max manifest wire size (IF12-4: tightened from 64MB)
 	maxChunkWireSize       = 4 << 20    // 4 MB max single chunk on wire (compressed)
 	maxDecompressedChunk   = 8 << 20    // 8 MB max decompressed chunk
 	maxConcurrentTransfers = 10         // global inbound transfer limit
@@ -489,10 +490,11 @@ type TransferConfig struct {
 	NotifyCommand   string      // command template for "command" mode ({from}, {file}, {size})
 	MaxConcurrent   int         // max concurrent outbound transfers (default: 5, min: 1)
 
-	// Multi-peer swarming download using RaptorQ fountain codes.
-	MultiPeerEnabled  bool  // enable multi-peer downloads (default: true)
-	MultiPeerMaxPeers int   // max peers to download from simultaneously (default: 4)
-	MultiPeerMinSize  int64 // min file size for multi-peer (default: 10 MB)
+	// Multi-peer work-stealing block download.
+	MultiPeerEnabled         bool  // enable multi-peer downloads (default: true)
+	MultiPeerMaxPeers        int   // max peers to download from simultaneously (default: 4)
+	MultiPeerMinSize         int64 // min file size for multi-peer (default: 10 MB)
+	MultiPeerStrikeThreshold int   // hash mismatches before peer ban (default: 3, 1 for public) (IF12-2)
 
 	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
 
@@ -602,13 +604,22 @@ type TransferService struct {
 	timedDeadline time.Time         // when the timer expires
 
 	// Multi-peer download config.
-	multiPeerEnabled  bool
-	multiPeerMaxPeers int
-	multiPeerMinSize  int64
+	multiPeerEnabled         bool
+	multiPeerMaxPeers        int
+	multiPeerMinSize         int64
+	multiPeerStrikeThreshold int
 
 	// Hash registry: maps root hash -> local file path for multi-peer serving.
 	hashMu       sync.RWMutex
 	hashRegistry map[[32]byte]string
+
+	// Multi-peer serving state (IF13-1, IF12-1).
+	peerServing          map[string]int   // per-peer active serving session count
+	boundaries           *boundaryCache   // FastCDC boundary scan cache (I3)
+	sharedFileLister     func() []string  // callback for listing shared files (IF13-3)
+	totalServedBytes     atomic.Int64     // global outbound bytes counter (IF12-1)
+	servedBytesHour      atomic.Int64     // epoch hour for counter reset
+	maxTotalServedPerHour int64           // 0 = unlimited (IF12-1)
 
 	// Per-peer transfer request rate limiter (nil = disabled).
 	rateLimiter   *transferRateLimiter
@@ -701,7 +712,11 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 	}
 	multiPeerMinSize := cfg.MultiPeerMinSize
 	if multiPeerMinSize <= 0 {
-		multiPeerMinSize = 10 * 1024 * 1024 // 10 MB
+		multiPeerMinSize = 10 * 1024 * 1024
+	}
+	multiPeerStrikeThreshold := cfg.MultiPeerStrikeThreshold
+	if multiPeerStrikeThreshold < 1 {
+		multiPeerStrikeThreshold = 3 // default: 3 strikes (authorized networks)
 	}
 
 	ts := &TransferService{
@@ -721,10 +736,13 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		transfers:         make(map[string]*TransferProgress),
 		peerInbound:       make(map[string]int),
 		pending:           make(map[string]*PendingTransfer),
-		multiPeerEnabled:  cfg.MultiPeerEnabled,
-		multiPeerMaxPeers: multiPeerMaxPeers,
-		multiPeerMinSize:  multiPeerMinSize,
+		multiPeerEnabled:         cfg.MultiPeerEnabled,
+		multiPeerMaxPeers:        multiPeerMaxPeers,
+		multiPeerMinSize:         multiPeerMinSize,
+		multiPeerStrikeThreshold: multiPeerStrikeThreshold,
 		hashRegistry:      make(map[[32]byte]string),
+		peerServing:       make(map[string]int),
+		boundaries:        newBoundaryCache(),
 		jobCancels:        make(map[string]context.CancelFunc),
 		grantChecker:      cfg.GrantChecker,
 		connsToPeer:       cfg.ConnsToPeer,
@@ -3102,7 +3120,7 @@ func (ts *TransferService) checkTempBudget() error {
 
 	var total int64
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+		if e.IsDir() || !isShurliTempFile(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -3131,7 +3149,7 @@ func (ts *TransferService) cleanExpiredTempFiles() {
 
 	cutoff := time.Now().Add(-ts.tempFileExpiry)
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+		if e.IsDir() || !isShurliTempFile(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -3147,6 +3165,20 @@ func (ts *TransferService) cleanExpiredTempFiles() {
 	}
 }
 
+// isShurliTempFile returns true if the filename matches any Shurli temp file prefix.
+// IF9-1: includes multi-peer temp files (.shurli-mp-*) and orphaned checkpoints (.shurli-ckpt-*).
+func isShurliTempFile(name string) bool {
+	return strings.HasPrefix(name, ".shurli-tmp-") ||
+		strings.HasPrefix(name, ".shurli-mp-") ||
+		strings.HasPrefix(name, ".shurli-ckpt-")
+}
+
+// isActiveTempFile returns true if the temp file was modified recently enough
+// to be part of an active download (IF9-7: don't delete active downloads).
+func isActiveTempFile(info os.FileInfo) bool {
+	return time.Since(info.ModTime()) < 5*time.Minute
+}
+
 // CleanTempFiles removes all .tmp files in the receive directory and returns
 // the number of files removed and total bytes reclaimed.
 func (ts *TransferService) CleanTempFiles() (int, int64) {
@@ -3158,14 +3190,22 @@ func (ts *TransferService) CleanTempFiles() (int, int64) {
 	var count int
 	var total int64
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), ".shurli-tmp-") {
+		name := e.Name()
+		// IF9-1: Clean multi-peer temp files (.shurli-mp-*) and orphaned checkpoints (.shurli-ckpt-*).
+		if e.IsDir() || (!strings.HasPrefix(name, ".shurli-tmp-") &&
+			!strings.HasPrefix(name, ".shurli-mp-") &&
+			!strings.HasPrefix(name, ".shurli-ckpt-")) {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		path := filepath.Join(ts.receiveDir, e.Name())
+		// IF9-7: Skip multi-peer temp files that may be actively in use.
+		if (strings.HasPrefix(name, ".shurli-mp-") || strings.HasPrefix(name, ".shurli-ckpt-")) && isActiveTempFile(info) {
+			continue
+		}
+		path := filepath.Join(ts.receiveDir, name)
 		if err := os.Remove(path); err == nil {
 			count++
 			total += info.Size()

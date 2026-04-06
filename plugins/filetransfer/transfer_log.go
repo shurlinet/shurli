@@ -38,6 +38,7 @@ const (
 	EventLogCancelled          = "cancelled"
 	EventLogSpamBlocked        = "spam_blocked"
 	EventLogDiskSpaceRejected  = "disk_space_rejected"
+	EventLogMultiPeerRejected  = "multi_peer_rejected" // IF16-5
 )
 
 // TransferLogger writes structured JSON transfer events to a rotating log file.
