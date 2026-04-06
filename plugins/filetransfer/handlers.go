@@ -377,18 +377,54 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 
 	// Multi-peer download path.
 	if req.MultiPeer && ts.MultiPeerEnabled() && len(req.ExtraPeers) > 0 {
+		// Cap extra peers to prevent goroutine explosion from unbounded input.
+		maxExtra := ts.MultiPeerMaxPeers() - 1 // -1 for target peer
+		if maxExtra < 1 {
+			maxExtra = 3
+		}
+		extraPeers := req.ExtraPeers
+		if len(extraPeers) > maxExtra {
+			extraPeers = extraPeers[:maxExtra]
+		}
+
 		allPeers := []peer.ID{targetPeerID}
-		for _, name := range req.ExtraPeers {
-			pid, resolveErr := pnet.ResolveName(name)
-			if resolveErr != nil {
-				slog.Warn("multi-peer: cannot resolve extra peer", "name", name, "error", resolveErr)
+
+		// IF5-2: Deduplicate peers by ID.
+		seen := map[peer.ID]bool{targetPeerID: true}
+
+		// IF5-3: Connect to extra peers in parallel.
+		type peerResult struct {
+			pid peer.ID
+			err error
+		}
+		results := make(chan peerResult, len(extraPeers))
+		for _, name := range extraPeers {
+			peerName := name
+			go func() {
+				pid, resolveErr := pnet.ResolveName(peerName)
+				if resolveErr != nil {
+					results <- peerResult{err: resolveErr}
+					return
+				}
+				connectCtx, connectCancel := context.WithTimeout(r.Context(), 15*time.Second)
+				defer connectCancel()
+				if connectErr := p.ctx.ConnectToPeer(connectCtx, pid); connectErr != nil {
+					results <- peerResult{err: connectErr}
+					return
+				}
+				results <- peerResult{pid: pid}
+			}()
+		}
+		for range extraPeers {
+			res := <-results
+			if res.err != nil {
+				slog.Warn("multi-peer: extra peer failed", "error", res.err)
 				continue
 			}
-			if connectErr := p.ctx.ConnectToPeer(r.Context(), pid); connectErr != nil {
-				slog.Warn("multi-peer: cannot reach extra peer", "name", name, "error", connectErr)
-				continue
+			if !seen[res.pid] {
+				seen[res.pid] = true
+				allPeers = append(allPeers, res.pid)
 			}
-			allPeers = append(allPeers, pid)
 		}
 
 		if len(allPeers) >= 2 {
@@ -418,6 +454,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 						TransferID: snap.ID,
 						FileName:   snap.Filename,
 						FileSize:   snap.Size,
+						PeersUsed:  len(allPeers),
 					})
 					return
 				}

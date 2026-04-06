@@ -1078,7 +1078,7 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler {
 			// and the handler exits cleanly.
 			probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer probeCancel()
-			probeErr := handleHashProbe(probeCtx, s, root, relPath, info.Size())
+			probeErr := handleHashProbe(probeCtx, s, root, relPath, info.Size(), ts.RegisterHash)
 			if probeErr != nil {
 				slog.Error("file-download: probe failed",
 					"peer", short, "path", info.Name(), "error", probeErr)
@@ -1106,7 +1106,7 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler {
 // Security: opens file through os.Root to prevent TOCTOU symlink attacks between
 // the stat in HandleDownload and the open here. Checks stream context on each
 // chunk to abort if the peer disconnects mid-probe. [C2]
-func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath string, fileSize int64) error {
+func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath string, fileSize int64, onHash func([32]byte, string)) error {
 	// writeProbeResponse builds and writes the 45-byte probe response.
 	writeProbeResponse := func(rootHash [32]byte, size int64, chunkCount int) error {
 		var resp [probeResponseSize]byte
@@ -1144,7 +1144,13 @@ func handleHashProbe(ctx context.Context, w io.Writer, root *os.Root, relPath st
 		return fmt.Errorf("chunk file: %w", err)
 	}
 
-	return writeProbeResponse(sdk.MerkleRoot(chunkHashes), fileSize, len(chunkHashes))
+	rootHash := sdk.MerkleRoot(chunkHashes)
+	// IF6-2: Register hash so multi-peer serving can find this file.
+	// The probe already paid the chunking cost — RegisterHash is free.
+	if onHash != nil {
+		onHash(rootHash, filepath.Join(root.Name(), relPath))
+	}
+	return writeProbeResponse(rootHash, fileSize, len(chunkHashes))
 }
 
 // writeDownloadError sends an error on the download stream.

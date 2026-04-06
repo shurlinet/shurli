@@ -366,6 +366,18 @@ func runDownload(args []string) {
 		}
 	}
 
+	// IF16-2: --peers implies --multi-peer (no flag redundancy needed).
+	if len(extraPeers) > 0 {
+		*multiPeerFlag = true
+	}
+
+	// IF16-3: --multi-peer without --peers prints a hint.
+	if *multiPeerFlag && len(extraPeers) == 0 {
+		if !*jsonFlag && !*silentFlag {
+			tc.Wfaint(os.Stdout, "Note: --multi-peer requires --peers to specify additional sources. Using single-peer.\n")
+		}
+	}
+
 	resp, err := client.Download(peerArg, remotePath, *destFlag, *multiPeerFlag, extraPeers)
 	if err != nil {
 		fatal("Download failed: %s", sdk.HumanizeError(err.Error()))
