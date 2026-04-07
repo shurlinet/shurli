@@ -495,6 +495,7 @@ type TransferConfig struct {
 	MultiPeerMaxPeers        int   // max peers to download from simultaneously (default: 4)
 	MultiPeerMinSize         int64 // min file size for multi-peer (default: 10 MB)
 	MultiPeerStrikeThreshold int   // hash mismatches before peer ban (default: 3, 1 for public) (IF12-2)
+	MaxServedBytesPerHour    int64 // max total bytes served outbound per hour (0 = unlimited) (IF12-1)
 
 	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
 
@@ -710,6 +711,9 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 	if multiPeerMaxPeers < 1 {
 		multiPeerMaxPeers = 4
 	}
+	if multiPeerMaxPeers > 16 {
+		multiPeerMaxPeers = 16 // cap to prevent goroutine explosion from misconfiguration
+	}
 	multiPeerMinSize := cfg.MultiPeerMinSize
 	if multiPeerMinSize <= 0 {
 		multiPeerMinSize = 10 * 1024 * 1024
@@ -740,6 +744,7 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		multiPeerMaxPeers:        multiPeerMaxPeers,
 		multiPeerMinSize:         multiPeerMinSize,
 		multiPeerStrikeThreshold: multiPeerStrikeThreshold,
+		maxTotalServedPerHour:    cfg.MaxServedBytesPerHour,
 		hashRegistry:      make(map[[32]byte]string),
 		peerServing:       make(map[string]int),
 		boundaries:        newBoundaryCache(),

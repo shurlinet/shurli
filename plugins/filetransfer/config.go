@@ -45,9 +45,10 @@ type PluginConfig struct {
 	QueueFile       string  `yaml:"queue_file"`
 
 	// Multi-peer swarming.
-	MultiPeerEnabled  *bool `yaml:"multi_peer_enabled"`
-	MultiPeerMaxPeers int   `yaml:"multi_peer_max_peers"`
-	MultiPeerMinSize  int64 `yaml:"multi_peer_min_size"`
+	MultiPeerEnabled       *bool  `yaml:"multi_peer_enabled"`
+	MultiPeerMaxPeers      int    `yaml:"multi_peer_max_peers"`
+	MultiPeerMinSize       int64  `yaml:"multi_peer_min_size"`
+	MaxServedBytesPerHour  string `yaml:"max_served_bytes_per_hour"` // human-readable: "10GB", "unlimited", or plain bytes (0 = unlimited)
 
 	// Erasure coding.
 	ErasureOverhead *float64 `yaml:"erasure_overhead"`

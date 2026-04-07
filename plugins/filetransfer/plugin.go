@@ -192,10 +192,11 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		Notify:            p.config.Notify,
 		NotifyCommand:     sanitizeNotifyCommand(p.config.NotifyCommand),
 		MaxConcurrent:     p.config.MaxConcurrent,
-		MultiPeerEnabled:  multiPeerEnabled,
-		MultiPeerMaxPeers: p.config.MultiPeerMaxPeers,
-		MultiPeerMinSize:  p.config.MultiPeerMinSize,
-		RateLimit:         p.config.RateLimit,
+		MultiPeerEnabled:      multiPeerEnabled,
+		MultiPeerMaxPeers:     p.config.MultiPeerMaxPeers,
+		MultiPeerMinSize:      p.config.MultiPeerMinSize,
+		MaxServedBytesPerHour: parseBandwidthBudget(p.config.MaxServedBytesPerHour),
+		RateLimit:             p.config.RateLimit,
 
 		// DDoS defenses.
 		GlobalRateLimit:         p.config.GlobalRateLimit,
