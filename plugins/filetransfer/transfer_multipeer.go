@@ -1099,6 +1099,9 @@ func (ts *TransferService) DownloadMultiPeer(
 			session.addPeerStream(stream)
 			ps.startTime = time.Now()
 			ps.transport = sdk.ClassifyTransport(stream)
+			// H7: per-peer relay grant byte tracker. Each peer stream may go through
+			// a different relay, so each needs its own tracker.
+			peerRelayTracker := ts.makeChunkTracker(stream, "recv")
 			lastSave := time.Now()
 
 			// Pipeline: pre-fill then loop (IF-9).
@@ -1144,6 +1147,7 @@ func (ts *TransferService) DownloadMultiPeer(
 						streamOwned = true
 						session.addPeerStream(newStream)
 						ps.transport = sdk.ClassifyTransport(newStream)
+						peerRelayTracker = ts.makeChunkTracker(newStream, "recv") // H7: refresh relay tracker for new stream
 						ps.reconnects++
 						slog.Info("multi-peer: peer reconnected",
 							"peer_index", ps.peerIdx, "reconnects", ps.reconnects)
@@ -1211,11 +1215,14 @@ func (ts *TransferService) DownloadMultiPeer(
 					// Remove from pipeline head.
 					pipeline = pipeline[1:]
 
-					// Wire bytes tracking (C11).
+					// Wire bytes tracking (C11) + relay grant tracking (H7).
 					wireBytes := int64(14 + dataLen)
 					progress.addWireBytes(wireBytes)
 					progress.updateStream(peerIdx, wireBytes)
 					ps.bytesRecv.Add(wireBytes)
+					if peerRelayTracker != nil {
+						peerRelayTracker(wireBytes)
+					}
 
 					// Process block: decompress, validate, write (D7, IF8-2, C8).
 					blockFailed := false
@@ -1244,9 +1251,14 @@ func (ts *TransferService) DownloadMultiPeer(
 					}
 
 					if !blockFailed && uint32(len(raw)) != manifest.ChunkSizes[blockIndex] {
+						slog.Warn("multi-peer: block size mismatch", "peer_index", peerIdx,
+							"block", blockIndex, "expected", manifest.ChunkSizes[blockIndex],
+							"got", len(raw))
 						ps.strikes++
 						if ps.strikes >= session.strikeThreshold {
 							ps.banned = true
+							slog.Warn("multi-peer: peer banned",
+								"peer_index", ps.peerIdx, "strikes", ps.strikes)
 							queue.requeue(blockIndex)
 							return
 						}
@@ -1456,14 +1468,18 @@ func (ts *TransferService) DownloadMultiPeer(
 			saveCheckpointFn()
 			progress.finish(dlCtx.Err())
 			ts.markCompleted(progress.ID)
+			ts.logEvent(EventLogCancelled, "multi-peer-download", "multi-peer",
+				manifest.Filename, manifest.FileSize, queue.transferredBytes.Load(), "cancelled", "")
 			return
 		}
 
 		if int(queue.completed.Load()) < queue.total {
 			saveCheckpointFn()
-			progress.finish(fmt.Errorf("multi-peer download incomplete: %d/%d blocks",
-				queue.completed.Load(), queue.total))
+			errMsg := fmt.Sprintf("incomplete: %d/%d blocks", queue.completed.Load(), queue.total)
+			progress.finish(fmt.Errorf("multi-peer download %s", errMsg))
 			ts.markCompleted(progress.ID)
+			ts.logEvent(EventLogFailed, "multi-peer-download", "multi-peer",
+				manifest.Filename, manifest.FileSize, queue.transferredBytes.Load(), errMsg, "")
 			return
 		}
 
@@ -1489,6 +1505,8 @@ func (ts *TransferService) DownloadMultiPeer(
 		if verifyErr != nil {
 			progress.finish(fmt.Errorf("verification failed: %w", verifyErr))
 			ts.markCompleted(progress.ID)
+			ts.logEvent(EventLogFailed, "multi-peer-download", "multi-peer",
+				manifest.Filename, manifest.FileSize, manifest.FileSize, "verification failed", "")
 			return
 		}
 		if sdk.MerkleRoot(verifyHashes) != rootHash {
@@ -1497,6 +1515,8 @@ func (ts *TransferService) DownloadMultiPeer(
 			removeStreamCheckpoint(destDir, contentKey)
 			progress.finish(fmt.Errorf("corrupt resume data detected, starting fresh"))
 			ts.markCompleted(progress.ID)
+			ts.logEvent(EventLogFailed, "multi-peer-download", "multi-peer",
+				manifest.Filename, manifest.FileSize, manifest.FileSize, "corrupt resume data", "")
 			return
 		}
 
@@ -1580,7 +1600,9 @@ func requestMultiPeerManifest(s network.Stream, rootHash [32]byte, flags uint32)
 	switch typeByte[0] {
 	case msgMultiPeerReject:
 		var reason [1]byte
-		io.ReadFull(s, reason[:])
+		if _, err := io.ReadFull(s, reason[:]); err != nil {
+			return nil, fmt.Errorf("peer rejected (reason unreadable: %w)", err)
+		}
 		return nil, fmt.Errorf("peer rejected: %s", multiPeerRejectString(reason[0]))
 
 	case msgMultiPeerManifest:
