@@ -347,11 +347,12 @@ func loadCheckpoint(receiveDir string, ck [32]byte) (*transferCheckpoint, error)
 		return nil, fmt.Errorf("read file table: %w", err)
 	}
 
-	// Verify contentKey matches the file table (defense against corrupted checkpoint).
-	computedKey := contentKey(files)
-	if computedKey != ck {
-		return nil, fmt.Errorf("checkpoint file table does not match content key")
-	}
+	// File table integrity: the stored key was already verified against the
+	// expected key at line 332. Re-computing contentKey(files) here would
+	// only work when the content key IS derived from the file table (single-peer).
+	// Multi-peer derives its key from the Merkle root hash with a different salt,
+	// so the re-computation always mismatches. Final file integrity is guaranteed
+	// by Merkle root hash verification on download completion.
 
 	// Section 4: Chunk state.
 	var chunkCountBuf [4]byte
