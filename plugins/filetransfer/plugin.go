@@ -233,6 +233,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	}
 	p.transferService = ts
 
+	// TS-4: Set host reference for multi-path cancel and register cancel handler.
+	ts.SetHost(p.network.Host())
+	RegisterCancelHandler(p.network.Host(), ts)
+
 	// If config specifies timed mode at startup, activate the timer.
 	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration
@@ -304,6 +308,11 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 
 // Stop persists state and releases resources. Called on disable.
 func (p *FileTransferPlugin) Stop() error {
+	// TS-4: Unregister cancel handler BEFORE closing TransferService (R3-C3).
+	if p.network != nil {
+		UnregisterCancelHandler(p.network.Host())
+	}
+
 	// Set drain gate to reject new handler work (P2 fix).
 	p.mu.Lock()
 	p.drainGate = true

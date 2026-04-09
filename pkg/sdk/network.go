@@ -830,6 +830,112 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	return s, nil
 }
 
+// OpenPluginStreamOnConn opens a protocol-negotiated stream on a SPECIFIC connection
+// to a peer. This is the connection-pinned variant of OpenPluginStream, used for
+// hedging across independent paths (TS-4).
+//
+// Runs the SAME security pipeline as OpenPluginStream:
+//  1. Service registry lookup
+//  2. PeerAllowed policy check
+//  3. Transport policy check (BEFORE opening stream — better than OpenPluginStream's post-dial)
+//  4. Pouch token + relay grant checks
+//  5. Protocol negotiation via SelectProtoOrFail
+//  6. Grant header write
+//
+// The conn parameter must belong to the target peer (verified).
+func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, serviceName string, conn network.Conn) (network.Stream, error) {
+	// Verify connection belongs to target peer (R2-S7).
+	if conn.RemotePeer() != peerID {
+		return nil, fmt.Errorf("connection peer mismatch: conn=%s target=%s", conn.RemotePeer(), peerID)
+	}
+
+	svc, ok := n.serviceRegistry.GetService(serviceName)
+	if !ok {
+		return nil, fmt.Errorf("plugin %q not registered", serviceName)
+	}
+
+	// Enforce peer restrictions before touching the network.
+	if svc.Policy != nil && !svc.Policy.PeerAllowed(peerID) {
+		return nil, fmt.Errorf("peer denied by plugin %q policy", serviceName)
+	}
+
+	// Pre-stream transport check (R4-I2): check BEFORE opening stream, not after.
+	// This avoids opening+resetting a stream when transport is disallowed.
+	transport := classifyConnTransport(conn)
+	if svc.Policy != nil && !svc.Policy.TransportAllowed(transport) {
+		// Check relay grant exceptions (same logic as OpenPluginStream post-dial check).
+		if transport == TransportRelay {
+			relayGranted := false
+			if n.serviceRegistry.grantChecker != nil {
+				relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName)
+			}
+			if !relayGranted {
+				var pouchToken string
+				if n.serviceRegistry.tokenLookup != nil {
+					pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
+				}
+				if pouchToken != "" {
+					relayGranted = true
+				}
+			}
+			if !relayGranted && n.serviceRegistry.relayGrantChecker != nil {
+				relayGranted = hasAnyActiveRelayGrant(n.serviceRegistry.relayGrantChecker, n.host, peerID)
+			}
+			if !relayGranted {
+				return nil, fmt.Errorf("plugin %q: relay transport not allowed by policy", serviceName)
+			}
+		} else {
+			return nil, fmt.Errorf("plugin %q: transport %d not allowed by policy", serviceName, transport)
+		}
+	}
+
+	// Open stream on specific connection with protocol negotiation.
+	s, err := OpenStreamOnConn(ctx, conn, protocol.ID(svc.Protocol))
+	if err != nil {
+		return nil, fmt.Errorf("open stream on conn: %w", err)
+	}
+
+	// Clear the negotiation deadline set by OpenStreamOnConn. The caller
+	// will set their own deadline for their operation. Without this, the
+	// 10s negotiation deadline bleeds into grant header write and application
+	// data on slow relay paths (audit Round 2 gap fix).
+	s.SetDeadline(time.Time{})
+
+	// Write grant header — mandatory for all plugin streams (R4-C1).
+	// Without this, the server reads application data as grant header bytes,
+	// corrupting the stream.
+	var pouchToken string
+	if svc.Policy != nil && n.serviceRegistry.tokenLookup != nil {
+		pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
+	}
+	if svc.Policy != nil {
+		if err := WriteGrantHeader(s, pouchToken); err != nil {
+			s.Reset()
+			return nil, fmt.Errorf("write grant header: %w", err)
+		}
+	}
+
+	return s, nil
+}
+
+// classifyConnTransport determines the TransportType for a connection.
+// Same logic as ClassifyTransport but takes a Conn instead of a Stream.
+// Used by OpenPluginStreamOnConn for pre-stream transport policy checks.
+func classifyConnTransport(conn network.Conn) TransportType {
+	if conn.Stat().Limited {
+		return TransportRelay
+	}
+	addr := conn.RemoteMultiaddr()
+	first, _ := ma.SplitFirst(addr)
+	if first != nil {
+		ip := net.ParseIP(first.Value())
+		if ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+			return TransportLAN
+		}
+	}
+	return TransportDirect
+}
+
 // ServiceRegistry returns the underlying ServiceRegistry for direct access.
 // Plugins that need Use() or other ServiceManager methods use this.
 func (n *Network) ServiceRegistry() *ServiceRegistry {

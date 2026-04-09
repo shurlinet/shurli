@@ -340,9 +340,19 @@ type parallelSession struct {
 
 	// done is closed when receiveParallel completes or cancel fires.
 	// Worker streams check this to exit their read loops.
-	done chan struct{}
+	// closeDone must be used instead of close(done) to prevent double-close panic
+	// when cancel handler and receiveParallel race (TS-4 audit fix).
+	done      chan struct{}
+	closeOnce sync.Once
 	// chunks receives streaming chunk data from worker streams.
 	chunks chan streamChunk
+}
+
+// closeDone safely closes the done channel exactly once.
+// Must be used by all callers instead of close(done) to prevent
+// double-close panic from concurrent cancel + receiveParallel (TS-4).
+func (s *parallelSession) closeDone() {
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 // resetWorkerStreams resets all attached worker streams to unblock
@@ -552,7 +562,7 @@ func (ts *TransferService) receiveParallel(
 	var cleanupOnce sync.Once
 	cleanupWorkers := func() {
 		cleanupOnce.Do(func() {
-			close(session.done)
+			session.closeDone()
 			session.resetWorkerStreams()
 		})
 	}

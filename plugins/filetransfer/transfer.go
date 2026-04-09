@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/text/unicode/norm"
@@ -330,6 +331,10 @@ type TransferProgress struct {
 	mu           sync.Mutex
 	cancelFunc   func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
 	relayTracker func(int64) // per-chunk relay grant byte tracking (H7)
+
+	// TS-4: cancel protocol routing. Not exported to JSON/API (R4-S4).
+	transferID   [32]byte // transfer session ID for cancel protocol routing
+	remotePeerID peer.ID  // remote peer for sendMultiPathCancel
 }
 
 func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
@@ -658,6 +663,26 @@ type TransferService struct {
 	// isLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
 	// This catches LAN peers even when all QUIC connections use public IPv6.
 	isLANPeer func(peer.ID) bool
+
+	// TS-4: Multi-path cancel support.
+	// hostRef is the libp2p host, needed by sendMultiPathCancel to enumerate connections.
+	hostRef host.Host
+
+	// activeSends maps transferID -> active send info for outbound sends.
+	// The cancel handler looks up this map when a remote receiver sends a cancel.
+	// Separate mutex from ts.mu to avoid contention (R2-I5).
+	activeSendsMu sync.RWMutex
+	activeSends   map[[32]byte]activeSendEntry
+
+	// cancelRateLimiter bounds cancel messages per peer (R2-S1).
+	cancelRateLimiter *transferRateLimiter
+}
+
+// activeSendEntry tracks an outbound send for cancel protocol routing.
+// Stores the remote peer ID so the cancel handler can verify the sender (R2-S audit).
+type activeSendEntry struct {
+	cancel     func()  // context cancel for the send goroutine
+	remotePeer peer.ID // the peer we're sending TO
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -752,6 +777,8 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		grantChecker:      cfg.GrantChecker,
 		connsToPeer:       cfg.ConnsToPeer,
 		isLANPeer:         cfg.IsLANPeer,
+		activeSends:       make(map[[32]byte]activeSendEntry),
+		cancelRateLimiter: newTransferRateLimiter(cancelRateMax),
 	}
 
 	// Start the single queue processor goroutine.
@@ -874,6 +901,9 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 				}
 				if ts.globalRateLimiter != nil {
 					ts.globalRateLimiter.cleanup()
+				}
+				if ts.cancelRateLimiter != nil {
+					ts.cancelRateLimiter.cleanup()
 				}
 				ts.cleanExpiredTempFiles()
 			case <-defenseCtx.Done():
@@ -1220,6 +1250,11 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		remotePeer.String(), "send", estimatedChunks, useCompression)
 	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
 	progress.setCancelFunc(func() { s.Reset() })
+	// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
+	progress.mu.Lock()
+	progress.transferID = transferID
+	progress.remotePeerID = remotePeer
+	progress.mu.Unlock()
 
 	// H7: set per-chunk relay grant byte tracker if stream goes through a relay.
 	if tracker := ts.makeChunkTracker(s, "send"); tracker != nil {
@@ -1366,6 +1401,22 @@ func (ts *TransferService) streamingSend(
 	done := make(chan producerResult, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// TS-4: Register in activeSends so remote receiver can cancel via cancel protocol (R3-C1).
+	// Registration is inside streamingSend (goroutine context), not in SendFile,
+	// to avoid cancel arriving before the goroutine starts.
+	// Read remotePeerID from progress (set by SendFile before launching goroutine).
+	progress.mu.Lock()
+	sendRemotePeer := progress.remotePeerID
+	progress.mu.Unlock()
+	ts.activeSendsMu.Lock()
+	ts.activeSends[transferID] = activeSendEntry{cancel: cancel, remotePeer: sendRemotePeer}
+	ts.activeSendsMu.Unlock()
+	defer func() {
+		ts.activeSendsMu.Lock()
+		delete(ts.activeSends, transferID)
+		ts.activeSendsMu.Unlock()
+	}()
 
 	go chunkProducer(ctx, files, filePaths, cumOffsets, totalSize,
 		useCompression, useErasure, skipBitfield, acceptBitfield, ch, done)
@@ -1880,6 +1931,11 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		progress := ts.trackTransfer(displayName, totalSize,
 			peerKey, "receive", estimatedChunks, flags&flagCompressed != 0)
 		progress.setStatus("active")
+		// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
+		progress.mu.Lock()
+		progress.transferID = transferID
+		progress.remotePeerID = remotePeer
+		progress.mu.Unlock()
 
 		// H7: relay grant byte tracker.
 		if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
@@ -2636,16 +2692,20 @@ func (ts *TransferService) CancelTransfer(id string) error {
 	ts.jobCancelMu.Unlock()
 
 	var progressCancel func()
+	var cancelTransferID [32]byte
+	var cancelRemotePeer peer.ID
 	found := false
 
 	ts.mu.Lock()
 	if p, ok := ts.transfers[resolved]; ok {
-		// Read p.Done and p.cancelFunc under p.mu (they are protected by p.mu, not ts.mu).
+		// Read p.Done, p.cancelFunc, and TS-4 fields under p.mu.
 		p.mu.Lock()
 		done := p.Done
 		if !done {
 			found = true
 			progressCancel = p.cancelFunc
+			cancelTransferID = p.transferID
+			cancelRemotePeer = p.remotePeerID
 		}
 		p.mu.Unlock()
 		if !done {
@@ -2665,6 +2725,16 @@ func (ts *TransferService) CancelTransfer(id string) error {
 	if progressCancel != nil {
 		progressCancel()
 	}
+
+	// TS-4: Send cancel on all available paths in background (R2-I8).
+	// Fire-and-forget — existing s.Reset() already handled the primary path.
+	if ts.hostRef != nil && cancelRemotePeer != "" {
+		var zeroID [32]byte
+		if cancelTransferID != zeroID {
+			go sendMultiPathCancel(ts.hostRef, cancelRemotePeer, cancelTransferID)
+		}
+	}
+
 	return nil
 }
 
@@ -3253,6 +3323,12 @@ func (ts *TransferService) Close() error {
 	return nil
 }
 
+// SetHost sets the libp2p host reference needed for multi-path cancel (TS-4).
+// Called from plugin.Start() after TransferService creation.
+func (ts *TransferService) SetHost(h host.Host) {
+	ts.hostRef = h
+}
+
 // logEvent writes a structured transfer event to the log file.
 // No-op if logging is disabled.
 func (ts *TransferService) logEvent(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string) {
@@ -3505,6 +3581,11 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress := ts.trackTransfer(displayName, totalSize,
 		peerKey, "download", estimatedChunks, flags&flagCompressed != 0)
 	progress.setStatus("active")
+	// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
+	progress.mu.Lock()
+	progress.transferID = transferID
+	progress.remotePeerID = remotePeer
+	progress.mu.Unlock()
 
 	if tracker := ts.makeChunkTracker(s, "recv"); tracker != nil {
 		progress.setRelayTracker(tracker)
