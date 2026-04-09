@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -64,7 +63,6 @@ func BootstrapAndConnect(ctx context.Context, h host.Host, net *Network, target 
 	}
 
 	var wg sync.WaitGroup
-	var connected atomic.Int32
 	for _, pAddr := range bootstrapPeers {
 		pi, err := peer.AddrInfoFromP2pAddr(pAddr)
 		if err != nil {
@@ -73,20 +71,60 @@ func BootstrapAndConnect(ctx context.Context, h host.Host, net *Network, target 
 		wg.Add(1)
 		go func(pi peer.AddrInfo) {
 			defer wg.Done()
-			if err := h.Connect(ctx, pi); err == nil {
-				connected.Add(1)
-			}
+			h.Connect(ctx, pi) //nolint:errcheck // best-effort bootstrap
 		}(*pi)
 	}
 	wg.Wait()
 
-	// Connect to relay servers.
+	// Connect to relay servers - race all in parallel with staggered starts (TS-2).
+	// Each relay is an independent path. First connection unblocks DHT routing,
+	// no need to wait for slow relays sequentially.
 	relayInfos, err := ParseRelayAddrs(cfg.RelayAddrs)
 	if err != nil {
 		return fmt.Errorf("relay address parse error: %w", err)
 	}
-	for _, ai := range relayInfos {
-		h.Connect(ctx, ai)
+	if len(relayInfos) > 0 {
+		var relayWg sync.WaitGroup
+		relayCtx, relayCancel := context.WithTimeout(ctx, 30*time.Second)
+		relayConnected := make(chan struct{}, 1) // signal first success
+		relayAllDone := make(chan struct{})      // signal all goroutines finished
+		for i, ai := range relayInfos {
+			relayWg.Add(1)
+			go func(idx int, info peer.AddrInfo) {
+				defer relayWg.Done()
+				// Staggered start: 100ms apart to prevent thundering herd.
+				if idx > 0 {
+					stagger := time.NewTimer(time.Duration(idx) * 100 * time.Millisecond)
+					select {
+					case <-relayCtx.Done():
+						stagger.Stop()
+						return
+					case <-stagger.C:
+					}
+				}
+				if err := h.Connect(relayCtx, info); err == nil {
+					select {
+					case relayConnected <- struct{}{}:
+					default:
+					}
+				}
+			}(i, ai)
+		}
+		// Background: signal when all goroutines finish, then cancel context.
+		go func() {
+			relayWg.Wait()
+			close(relayAllDone)
+			relayCancel()
+		}()
+		// Proceed once first relay connects, all finish, or timeout.
+		// Do NOT cancel on first success - additional relay connections
+		// give the DHT more routing options. Goroutines continue in
+		// background, bounded by the 30s relayCtx timeout.
+		select {
+		case <-relayConnected:
+		case <-relayAllDone:
+		case <-relayCtx.Done():
+		}
 	}
 
 	// Find target via DHT.

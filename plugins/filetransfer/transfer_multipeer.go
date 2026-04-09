@@ -907,53 +907,118 @@ func (ts *TransferService) DownloadMultiPeer(
 	}
 	numPeers := len(peers)
 
-	// IF-8: Try each peer for manifest until one succeeds.
+	// IF-8 + TS-3: Race all peers for manifest in parallel (Tail Slayer pattern).
+	// Each peer is an independent path. First valid manifest wins, losing streams closed.
+	// Eliminates sequential 3-minute timeout per peer.
 	var manifest *transferManifest
 	var firstStream network.Stream
 	var firstPeerIdx int
 	requestFlags := uint32(flagMPCompressionSupported | flagMPResumeSupported)
 	peerErrors := make(map[string]string) // IF16-4: per-peer rejection reasons
 
+	type manifestResult struct {
+		manifest *transferManifest
+		stream   network.Stream
+		peerIdx  int
+		err      error
+		shortPID string
+	}
+
+	manifestCh := make(chan manifestResult, numPeers)
+	var manifestWg sync.WaitGroup
+
 	for i, pid := range peers {
-		shortPID := pid.String()
-		if len(shortPID) > 16 {
-			shortPID = shortPID[:16]
-		}
-		stream, err := openStream(pid)
-		if err != nil {
-			peerErrors[shortPID] = err.Error()
-			slog.Warn("multi-peer: connect failed for manifest", "peer_index", i, "error", err)
+		manifestWg.Add(1)
+		go func(idx int, peerID peer.ID) {
+			defer manifestWg.Done()
+			shortPID := peerID.String()
+			if len(shortPID) > 16 {
+				shortPID = shortPID[:16]
+			}
+			stream, err := openStream(peerID)
+			if err != nil {
+				manifestCh <- manifestResult{err: err, peerIdx: idx, shortPID: shortPID}
+				return
+			}
+			m, err := requestMultiPeerManifest(stream, rootHash, requestFlags)
+			if err != nil {
+				stream.Close()
+				manifestCh <- manifestResult{err: err, peerIdx: idx, shortPID: shortPID}
+				return
+			}
+			// Verify manifest (S10, C12, C13).
+			computedRoot := sdk.MerkleRoot(m.ChunkHashes)
+			if computedRoot != rootHash {
+				stream.Close()
+				manifestCh <- manifestResult{
+					err: fmt.Errorf("manifest root hash mismatch"), peerIdx: idx, shortPID: shortPID,
+				}
+				return
+			}
+			if err := validateManifestSizes(m); err != nil {
+				stream.Close()
+				manifestCh <- manifestResult{err: err, peerIdx: idx, shortPID: shortPID}
+				return
+			}
+			manifestCh <- manifestResult{manifest: m, stream: stream, peerIdx: idx, shortPID: shortPID}
+		}(i, pid)
+	}
+
+	// Close channel when all goroutines finish.
+	go func() {
+		manifestWg.Wait()
+		close(manifestCh)
+	}()
+
+	// Collect results: first valid manifest wins, proceed IMMEDIATELY.
+	// Do NOT wait for slow peers (3-minute timeout would defeat hedging).
+	for r := range manifestCh {
+		if r.err != nil {
+			peerErrors[r.shortPID] = r.err.Error()
+			slog.Warn("multi-peer: manifest failed", "peer_index", r.peerIdx, "error", r.err)
 			continue
 		}
-		m, err := requestMultiPeerManifest(stream, rootHash, requestFlags)
-		if err != nil {
-			stream.Close()
-			peerErrors[shortPID] = err.Error()
-			slog.Warn("multi-peer: manifest failed", "peer_index", i, "error", err)
-			continue
-		}
-		// Verify manifest (S10, C12, C13).
-		computedRoot := sdk.MerkleRoot(m.ChunkHashes)
-		if computedRoot != rootHash {
-			stream.Close()
-			peerErrors[shortPID] = "manifest root hash mismatch"
-			slog.Warn("multi-peer: manifest root hash mismatch", "peer_index", i)
-			continue
-		}
-		if err := validateManifestSizes(m); err != nil {
-			stream.Close()
-			peerErrors[shortPID] = err.Error()
-			slog.Warn("multi-peer: invalid manifest", "peer_index", i, "error", err)
-			continue
-		}
-		manifest = m
-		firstStream = stream
-		firstPeerIdx = i
+		// First valid manifest - take it and stop waiting.
+		manifest = r.manifest
+		firstStream = r.stream
+		firstPeerIdx = r.peerIdx
 		break
 	}
+
 	if manifest == nil {
 		return nil, &multiPeerError{peerErrors: peerErrors}
 	}
+
+	// Background: drain remaining manifest results, close loser streams,
+	// and cross-verify manifests for consistency (TS-3 plan requirement).
+	winnerRoot := rootHash
+	winnerFilename := manifest.Filename
+	winnerFileSize := manifest.FileSize
+	go func() {
+		for r := range manifestCh {
+			if r.err != nil {
+				slog.Debug("multi-peer: late manifest failed",
+					"peer_index", r.peerIdx, "error", r.err)
+				continue
+			}
+			// Cross-verify: metadata should match the winner.
+			// Root hash match is cryptographically guaranteed (verified in goroutine),
+			// but filename/size mismatch indicates a peer serving different content
+			// under the same hash - log as warning for diagnostics.
+			if r.manifest.Filename != winnerFilename || r.manifest.FileSize != winnerFileSize {
+				slog.Warn("multi-peer: manifest metadata mismatch from peer",
+					"peer_index", r.peerIdx,
+					"winner_root", fmt.Sprintf("%x", winnerRoot[:8]),
+					"peer_filename", r.manifest.Filename,
+					"winner_filename", winnerFilename,
+					"peer_size", r.manifest.FileSize,
+					"winner_size", winnerFileSize)
+			}
+			slog.Debug("multi-peer: closing loser manifest stream",
+				"peer_index", r.peerIdx, "peer", r.shortPID)
+			r.stream.Close()
+		}
+	}()
 
 	// Size limit.
 	if ts.maxSize > 0 && manifest.FileSize > ts.maxSize {
