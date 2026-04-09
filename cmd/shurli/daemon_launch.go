@@ -204,7 +204,7 @@ RestrictSUIDSGID=true
 
 # Resource limits
 LimitNOFILE=65536
-MemoryMax=512M
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target

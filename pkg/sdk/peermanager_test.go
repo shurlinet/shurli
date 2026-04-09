@@ -19,7 +19,7 @@ func TestPeerManager_SetWatchlist(t *testing.T) {
 	netB := newListeningNetwork(t)
 	netC := newListeningNetwork(t)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 
 	// Set watchlist with 2 peers.
 	pm.SetWatchlist([]peer.ID{netB.Host().ID(), netC.Host().ID()})
@@ -53,7 +53,7 @@ func TestPeerManager_SnapshotExisting(t *testing.T) {
 	// Connect A to B first.
 	connectNetworks(t, netA, netB)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
 	// Start should snapshot B as connected.
@@ -75,7 +75,7 @@ func TestPeerManager_ConnectDisconnect(t *testing.T) {
 	netA := newListeningNetwork(t)
 	netB := newListeningNetwork(t)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,7 +128,7 @@ func TestPeerManager_Backoff(t *testing.T) {
 	unreachable.Close()
 
 	pd := NewPathDialer(netA.Host(), nil, nil, nil)
-	pm := NewPeerManager(netA.Host(), pd, nil, nil)
+	pm := NewPeerManager(netA.Host(), pd, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{unreachablePID})
 
 	// Directly attempt reconnection (don't start the loop).
@@ -170,7 +170,7 @@ func TestPeerManager_OnNetworkChange(t *testing.T) {
 	netA := newListeningNetwork(t)
 	netB := newListeningNetwork(t)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
 	// Simulate accumulated backoff.
@@ -214,7 +214,7 @@ func TestPeerManager_WithMetrics(t *testing.T) {
 
 	metrics := NewMetrics("test", "go1.26")
 	pd := NewPathDialer(netA.Host(), nil, nil, nil)
-	pm := NewPeerManager(netA.Host(), pd, metrics, nil)
+	pm := NewPeerManager(netA.Host(), pd, metrics, nil, nil)
 	pm.SetWatchlist([]peer.ID{unreachablePID})
 
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
@@ -293,7 +293,7 @@ func TestCloseStaleConnections(t *testing.T) {
 	netA := newListeningNetwork(t)
 	netB := newListeningNetwork(t)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -332,7 +332,7 @@ func TestCloseStaleConnections_NoMatchPreserved(t *testing.T) {
 	netA := newListeningNetwork(t)
 	netB := newListeningNetwork(t)
 
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -361,7 +361,7 @@ func TestCloseStaleConnections_NoMatchPreserved(t *testing.T) {
 
 func TestCloseStaleConnections_EmptyRemoved(t *testing.T) {
 	netA := newListeningNetwork(t)
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 
 	// Should be a no-op, no panic.
 	pm.CloseStaleConnections(nil)
@@ -370,7 +370,7 @@ func TestCloseStaleConnections_EmptyRemoved(t *testing.T) {
 
 func TestOnNetworkChange_TriggersImmediateReconnect(t *testing.T) {
 	netA := newListeningNetwork(t)
-	pm := NewPeerManager(netA.Host(), nil, nil, nil)
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 
 	// Verify the channel receives a signal after OnNetworkChange.
 	pm.OnNetworkChange()
