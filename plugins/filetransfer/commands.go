@@ -77,8 +77,8 @@ func cliCommandList() []plugin.CLICommandEntry {
 				{Long: "follow", Type: "bool", Description: "Follow transfer progress"},
 				{Long: "quiet", Type: "bool", Description: "Show only a single progress bar"},
 				{Long: "silent", Type: "bool", Description: "No progress output"},
-				{Long: "multi-peer", Type: "bool", Description: "Download from multiple peers"},
-				{Long: "peers", Type: "string", Description: "Comma-separated extra peers", RequiresArg: true},
+				{Long: "multi-peer", Type: "bool", Description: "Enable multi-peer download (requires --peers)"},
+				{Long: "peers", Type: "string", Description: "Extra peer names/IDs for multi-peer download (comma-separated, implies --multi-peer)", RequiresArg: true},
 			},
 		},
 		{
@@ -321,8 +321,8 @@ func runDownload(args []string) {
 	followFlag := fs.Bool("follow", false, "follow transfer progress inline")
 	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
 	silentFlag := fs.Bool("silent", false, "no progress output")
-	multiPeerFlag := fs.Bool("multi-peer", false, "download from multiple peers")
-	extraPeersFlag := fs.String("peers", "", "comma-separated extra peer names/IDs")
+	multiPeerFlag := fs.Bool("multi-peer", false, "enable multi-peer download (requires --peers)")
+	extraPeersFlag := fs.String("peers", "", "extra peer names/IDs for multi-peer (comma-separated, implies --multi-peer)")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
