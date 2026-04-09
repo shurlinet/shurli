@@ -31,7 +31,7 @@ menu:
       pageRef: /blog
       weight: 2
     - name: Whitepaper
-      url: /shurli.pdf
+      pageRef: /whitepaper
       weight: 3
     - name: About
       pageRef: /about

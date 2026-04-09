@@ -62,7 +62,8 @@
   #v(0.5cm)
   #text(size: 11pt)[Satinderjit Singh] \
   #text(size: 10pt)[with Claude, Anthropic] \
-  #text(size: 10pt)[#link("https://shurli.io")[shurli.io]]
+  #text(size: 10pt)[#link("https://shurli.io")[shurli.io]] \
+  #text(size: 10pt, fill: luma(120))[8 April 2026]
 ]
 
 #v(0.6cm)
