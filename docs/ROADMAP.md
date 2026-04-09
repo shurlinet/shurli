@@ -238,7 +238,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Per-service access control - `AllowedPeers` field on each service restricts which peers can connect. Config supports per-service `allowed_peers` list. nil = all authorized peers allowed (backward compatible). ACL check runs before TCP dial. *(Pre-Batch H)*
 - [x] Rate limiting on incoming connections and streams - libp2p ResourceManager enabled (auto-scaled connection/stream/memory limits). Always-on for relay server; opt-in for home/client nodes via `resource_limits_enabled`. OS-level: iptables SYN flood protection (50/s) and UDP rate limiting (200/s) in setup.sh. *(Pre-Batch H)*
 - [x] QUIC source address verification - reverse path filtering (rp_filter=1) enabled in setup.sh, SYN cookies for TCP flood protection. *(Pre-Batch H)*
-- [x] OS-level rate limiting - iptables rules in `setup.sh` (TCP SYN 50/s burst 100, UDP 200/s burst 500), conntrack tuning (131072 max, tw_reuse, fin_timeout=30s), systemd cgroup limits (MemoryMax=512M, CPUQuota=200%, TasksMax=4096). *(Pre-Batch H)*
+- [x] OS-level rate limiting - iptables rules in `setup.sh` (TCP SYN 50/s burst 100, UDP 200/s burst 500), conntrack tuning (131072 max, tw_reuse, fin_timeout=30s), systemd cgroup limits (MemoryMax=2G, CPUQuota=200%, TasksMax=4096). *(Pre-Batch H)*
 - [x] Config file permissions - write with 0600 (not 0644) *(done in Phase 4B)*
 - [x] Key file permission check on load - refuse to load keys with permissions wider than 0600 (actionable error message with `chmod` fix)
 - [x] Service name validation - DNS-label format enforced (1-63 lowercase alphanumeric + hyphens), prevents protocol ID injection

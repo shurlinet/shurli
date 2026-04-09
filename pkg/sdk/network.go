@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -137,6 +138,7 @@ type Network struct {
 	serviceRegistry *ServiceRegistry
 	nameResolver    *NameResolver
 	events          *EventBus
+	lanRegistry     *LANRegistry // mDNS-verified LAN peer/IP tracking
 	ctx             context.Context
 	cancel          context.CancelFunc
 
@@ -322,6 +324,9 @@ func New(cfg *Config) (*Network, error) {
 	// Add connection gater: use pre-created Gater if provided (enables hot-reload),
 	// otherwise auto-create from AuthorizedKeys file path (simpler for commands that
 	// don't need runtime auth management).
+	// autoGater captures the locally-created gater so the LAN dial filter can
+	// be wired on it after host creation (C2 fix).
+	var autoGater *auth.AuthorizedPeerGater
 	if cfg.Gater != nil {
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(cfg.Gater))
 	} else if cfg.AuthorizedKeys != "" {
@@ -331,8 +336,8 @@ func New(cfg *Config) (*Network, error) {
 			return nil, fmt.Errorf("failed to load authorized_keys: %w", err)
 		}
 
-		gater := auth.NewAuthorizedPeerGater(authorizedPeers)
-		hostOpts = append(hostOpts, libp2p.ConnectionGater(gater))
+		autoGater = auth.NewAuthorizedPeerGater(authorizedPeers)
+		hostOpts = append(hostOpts, libp2p.ConnectionGater(autoGater))
 	}
 
 	// Create black hole detector counters with libp2p defaults. We store
@@ -353,6 +358,57 @@ func New(cfg *Config) (*Network, error) {
 		return nil, fmt.Errorf("failed to create libp2p host: %w", err)
 	}
 
+	// Create mDNS-verified LAN registry. Shared between gater, connLogger,
+	// and mDNS discovery. Created here so the gater closure can capture it.
+	lanReg := NewLANRegistry()
+
+	// Wire LAN dial filter: when a verified LAN connection exists to a peer,
+	// block outbound dials to non-verified addresses. Uses mDNS-verified
+	// LANRegistry instead of IsLANMultiaddr to avoid CGNAT/Docker false
+	// positives (BUG-MP-4+6+7).
+	//
+	// Log dedup (I3): first block per peer logs at Info, subsequent blocks
+	// within 30s log at Debug to avoid spam during dial batches.
+	var lanDialLogMu sync.Mutex
+	lanDialLastLog := make(map[peer.ID]time.Time)
+	lanDialFilter := func(pid peer.ID, addr ma.Multiaddr) bool {
+		if !lanReg.HasVerifiedLANConn(h, pid) {
+			return true // no verified LAN connection, allow all dials
+		}
+		// Verified LAN connection exists — only allow verified LAN + relay dials.
+		if isCircuitAddr(addr) {
+			return true
+		}
+		if lanReg.IsVerifiedLAN(pid, addr) {
+			return true
+		}
+		short := pid.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+		lanDialLogMu.Lock()
+		last := lanDialLastLog[pid]
+		fresh := time.Since(last) > 30*time.Second
+		if fresh {
+			lanDialLastLog[pid] = time.Now()
+		}
+		lanDialLogMu.Unlock()
+		if fresh {
+			slog.Info("gater: blocked non-LAN dial (verified LAN exists)",
+				"peer", short, "addr", addr)
+		} else {
+			slog.Debug("gater: blocked non-LAN dial (verified LAN exists)",
+				"peer", short, "addr", addr)
+		}
+		return false
+	}
+	// Wire on pre-created gater (cfg.Gater) or auto-created gater (C2 fix).
+	if cfg.Gater != nil {
+		cfg.Gater.SetLANDialFilter(lanDialFilter)
+	} else if autoGater != nil {
+		autoGater.SetLANDialFilter(lanDialFilter)
+	}
+
 	events := NewEventBus()
 
 	// Use custom resolver if provided, otherwise default.
@@ -370,6 +426,7 @@ func New(cfg *Config) (*Network, error) {
 		serviceRegistry: NewServiceRegistry(h, cfg.Metrics),
 		nameResolver:    resolver,
 		events:          events,
+		lanRegistry:     lanReg,
 		ctx:             ctx,
 		cancel:          cancel,
 		udpBlackHole:    udpBH,
@@ -548,6 +605,12 @@ func (n *Network) ClearDialBackoffs(peers []peer.ID) {
 // Host returns the underlying libp2p host
 func (n *Network) Host() host.Host {
 	return n.host
+}
+
+// GetLANRegistry returns the mDNS-verified LAN registry. Used by mDNS
+// discovery to register verified addresses and by PeerManager for trust.
+func (n *Network) GetLANRegistry() *LANRegistry {
+	return n.lanRegistry
 }
 
 // PeerID returns the peer ID of this network node

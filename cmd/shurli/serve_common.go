@@ -501,6 +501,7 @@ func (rt *serveRuntime) Bootstrap() error {
 				rt.peerHistory.RecordConnection(peerID, pathType, latencyMs)
 			}
 		},
+		rt.network.GetLANRegistry(),
 	)
 	if rt.gater != nil {
 		rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
@@ -750,7 +751,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Start mDNS local discovery (default: enabled).
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
-		rt.mdnsDiscovery = sdk.NewMDNSDiscovery(h, rt.metrics)
+		rt.mdnsDiscovery = sdk.NewMDNSDiscovery(h, rt.metrics, rt.network.GetLANRegistry())
 		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
 			slog.Warn("mdns: failed to start", "error", err)
 			rt.mdnsDiscovery = nil

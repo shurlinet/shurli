@@ -128,6 +128,63 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 				break
 			}
 		}
+
+		// BUG-MP-4+6+7: Close non-LAN connections when a verified LAN
+		// connection exists. Uses mDNS-verified LANRegistry instead of
+		// bare IsLANMultiaddr — RFC 1918 addresses alone are unreliable
+		// (Starlink CGNAT 10.1.x.x, Docker 172.x.x.x both pass
+		// IsLANMultiaddr but traverse the internet or are unreachable).
+		reg := cl.pm.lanRegistry
+		isNewConnVerifiedLAN := reg.IsVerifiedLAN(pid, c.RemoteMultiaddr())
+
+		if !isNewConnVerifiedLAN && reg.HasVerifiedLANConn(cl.pm.host, pid) {
+			// Case 1: New non-LAN arrives, verified LAN exists → close new.
+			var lanAddr ma.Multiaddr
+			for _, existing := range n.ConnsToPeer(pid) {
+				if existing != c && !existing.Stat().Limited && reg.IsVerifiedLAN(pid, existing.RemoteMultiaddr()) {
+					lanAddr = existing.RemoteMultiaddr()
+					break
+				}
+			}
+			slog.Info("peermanager: closing non-LAN conn (verified LAN exists)",
+				"peer", short,
+				"closing", c.RemoteMultiaddr(),
+				"keeping", lanAddr,
+				"direction", dir)
+			go func() {
+				c.Close()
+				StripNonLANAddrs(cl.pm.host, pid)
+			}()
+			return
+		}
+
+		if isNewConnVerifiedLAN {
+			// Case 2: New verified LAN arrives → close existing non-verified conns.
+			var closedAny bool
+			for _, existing := range n.ConnsToPeer(pid) {
+				if existing == c || existing.Stat().Limited {
+					continue
+				}
+				if reg.IsVerifiedLAN(pid, existing.RemoteMultiaddr()) {
+					continue
+				}
+				if streams := existing.GetStreams(); len(streams) > 0 {
+					slog.Info("peermanager: keeping non-LAN conn (active streams)",
+						"peer", short, "remote", existing.RemoteMultiaddr(),
+						"streams", len(streams))
+					continue
+				}
+				slog.Info("peermanager: closing non-LAN conn (verified LAN arrived)",
+					"peer", short,
+					"closing", existing.RemoteMultiaddr(),
+					"keeping", c.RemoteMultiaddr())
+				go existing.Close()
+				closedAny = true
+			}
+			if closedAny {
+				go StripNonLANAddrs(cl.pm.host, pid)
+			}
+		}
 	}
 }
 func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
@@ -194,6 +251,7 @@ type PeerManager struct {
 	metrics     *Metrics
 	onReconnect ConnectionRecorder // nil-safe
 	connLog     *connLogger        // logs connection close events for watched peers
+	lanRegistry *LANRegistry       // mDNS-verified LAN peer/IP tracking
 
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
@@ -215,16 +273,26 @@ type PeerManager struct {
 
 // NewPeerManager creates a PeerManager. The onReconnect callback is
 // optional (nil-safe) and fires on each successful background reconnection.
-func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect ConnectionRecorder) *PeerManager {
+func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect ConnectionRecorder, lanReg *LANRegistry) *PeerManager {
+	if lanReg == nil {
+		lanReg = NewLANRegistry()
+	}
 	return &PeerManager{
 		host:         h,
 		pathDialer:   pd,
 		metrics:      m,
 		onReconnect:  onReconnect,
+		lanRegistry:  lanReg,
 		peers:        make(map[peer.ID]*ManagedPeer),
 		relayCleanup: make(map[peer.ID]struct{}),
 		reconnectNow: make(chan struct{}, 1),
 	}
+}
+
+// LANRegistry returns the mDNS-verified LAN registry for use by mDNS
+// discovery and the gater's LAN dial filter.
+func (pm *PeerManager) GetLANRegistry() *LANRegistry {
+	return pm.lanRegistry
 }
 
 // Start begins the event listener and reconnection loop.
@@ -1196,6 +1264,101 @@ func AnyConnIsLAN(conns []network.Conn) bool {
 	return false
 }
 
+// IsLANMultiaddr returns true if the multiaddr starts with a private IPv4
+// address (RFC 1918 / RFC 6598). Used to distinguish LAN addresses from
+// public internet paths. Relay circuit addresses return false.
+func IsLANMultiaddr(addr ma.Multiaddr) bool {
+	if addr == nil {
+		return false
+	}
+	first, _ := ma.SplitFirst(addr)
+	if first == nil || first.Protocol().Code != ma.P_IP4 {
+		return false
+	}
+	ip := net.ParseIP(first.Value())
+	return ip != nil && isPrivateIPv4(ip)
+}
+
+// StripNonLANAddrs removes all non-LAN, non-relay addresses from the
+// peerstore for a given peer. Keeps only private IPv4 (LAN) and relay
+// circuit addresses. Used by both mDNS upgrade and connLogger to prevent
+// identify/DHT from re-populating non-LAN addresses that would cause
+// unwanted reconnection attempts (BUG-MP-4 I1/I2).
+//
+// Collects keepers first, then does a single ClearAddrs + AddAddrs to
+// minimize the window where the peer has no addresses in the peerstore.
+func StripNonLANAddrs(h host.Host, pid peer.ID) {
+	allAddrs := h.Peerstore().Addrs(pid)
+	keepers := make([]ma.Multiaddr, 0, len(allAddrs))
+	for _, addr := range allAddrs {
+		if isCircuitAddr(addr) || IsLANMultiaddr(addr) {
+			keepers = append(keepers, addr)
+		}
+	}
+	h.Peerstore().ClearAddrs(pid)
+	if len(keepers) > 0 {
+		h.Peerstore().AddAddrs(pid, keepers, discoveredAddrTTL)
+	}
+}
+
+// HasLiveLANConnection returns true if the peer has at least one non-relay
+// connection that (a) uses a private IPv4 remote address and (b) whose local
+// IP is still on an active interface. This is the zombie-safe version of
+// AnyConnIsLAN — it prevents a zombie LAN connection (interface unplugged but
+// TCP socket lingering) from blocking non-LAN fallback dials (BUG-MP-4 C1).
+func HasLiveLANConnection(h host.Host, pid peer.ID) bool {
+	conns := h.Network().ConnsToPeer(pid)
+	if len(conns) == 0 {
+		return false
+	}
+
+	// Build active IPs from all up interfaces.
+	activeIPs := make(map[string]struct{})
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			addrs, _ := iface.Addrs()
+			for _, a := range addrs {
+				ipNet, ok := a.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				activeIPs[ipNet.IP.String()] = struct{}{}
+			}
+		}
+	}
+
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue
+		}
+		// Check remote is private IPv4 (LAN).
+		remoteMA := c.RemoteMultiaddr()
+		if !IsLANMultiaddr(remoteMA) {
+			continue
+		}
+		// Check local IP is on an active interface (not zombie).
+		// QUIC listeners bind to 0.0.0.0 (wildcard), so the local address
+		// reported by the connection is always 0.0.0.0, never a specific
+		// interface IP. For wildcard addresses, we trust the remote IP check
+		// alone — if the remote is private IPv4 and the connection exists,
+		// the kernel routed it through some active interface (BUG-MP-5).
+		localIP := extractIPFromMultiaddrObj(c.LocalMultiaddr())
+		if localIP == "" {
+			continue
+		}
+		if localIP == "0.0.0.0" || localIP == "::" {
+			return true // wildcard listener — remote LAN check is sufficient
+		}
+		if _, ok := activeIPs[localIP]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // hasLiveDirectConnection returns true if the peer has at least one
 // non-relay connection whose local IP is still present on an active
 // interface. Connections whose local IP has been removed (e.g. USB LAN
@@ -1289,4 +1452,118 @@ func isCircuitAddr(addr ma.Multiaddr) bool {
 		return true
 	})
 	return found
+}
+
+// ---------------------------------------------------------------------------
+// LANRegistry — mDNS-verified LAN peer/address tracking (BUG-MP-6/7)
+//
+// mDNS multicast reception is the ONLY proof that a peer is on the local
+// network. RFC 1918 addresses alone are NOT proof of LAN proximity:
+//   - Starlink CGNAT presents remote peers with 10.1.x.x source addresses
+//   - Docker bridge networks create 172.17-21.x.x addresses
+//   - VPN tunnels use 10.x.x.x or 172.x.x.x ranges
+//
+// All of these pass IsLANMultiaddr but traverse the internet or are
+// unreachable from the LAN. The registry solves this by tracking which
+// (peer, IP) pairs were confirmed via mDNS discovery. Only connections
+// matching a registry entry are trusted as LAN by the gater and connLogger.
+// ---------------------------------------------------------------------------
+
+// LANRegistry tracks peers and IPs confirmed as LAN-local via mDNS.
+type LANRegistry struct {
+	mu      sync.RWMutex
+	entries map[peer.ID]*lanEntry
+}
+
+type lanEntry struct {
+	ips      map[string]struct{} // IPs discovered via mDNS for this peer
+	lastSeen time.Time           // refreshed on each mDNS discovery
+}
+
+// lanRegistryTTL is how long an mDNS-verified entry remains valid without
+// a refresh. 2 minutes = 4 missed mDNS cycles (30s each). After expiry,
+// the peer is no longer trusted as LAN until the next mDNS discovery.
+const lanRegistryTTL = 2 * time.Minute
+
+// NewLANRegistry creates an empty registry.
+func NewLANRegistry() *LANRegistry {
+	return &LANRegistry{
+		entries: make(map[peer.ID]*lanEntry),
+	}
+}
+
+// Add registers IPs discovered via mDNS for a peer. Called by mDNS
+// discovery after filtering to LAN addresses. Each call refreshes the
+// TTL and merges new IPs (previous IPs from the same peer are kept).
+func (r *LANRegistry) Add(pid peer.ID, ips []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[pid]
+	if !ok {
+		e = &lanEntry{ips: make(map[string]struct{})}
+		r.entries[pid] = e
+	}
+	e.lastSeen = time.Now()
+	for _, ip := range ips {
+		e.ips[ip] = struct{}{}
+	}
+}
+
+// IsVerifiedLAN returns true if the remote address of a connection
+// matches an mDNS-verified LAN IP for the given peer. The entry must
+// not be expired (within lanRegistryTTL of last mDNS discovery).
+func (r *LANRegistry) IsVerifiedLAN(pid peer.ID, remoteAddr ma.Multiaddr) bool {
+	ip := extractIPFromMultiaddrObj(remoteAddr)
+	if ip == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.entries[pid]
+	if !ok || time.Since(e.lastSeen) > lanRegistryTTL {
+		return false
+	}
+	_, verified := e.ips[ip]
+	return verified
+}
+
+// HasVerifiedLANConn returns true if the peer has at least one live
+// non-relay connection whose remote IP is mDNS-verified. This is the
+// authoritative "does this peer have a real LAN connection?" check —
+// replaces HasLiveLANConnection for trust decisions.
+func (r *LANRegistry) HasVerifiedLANConn(h host.Host, pid peer.ID) bool {
+	conns := h.Network().ConnsToPeer(pid)
+	if len(conns) == 0 {
+		return false
+	}
+	r.mu.RLock()
+	e, ok := r.entries[pid]
+	expired := !ok || time.Since(e.lastSeen) > lanRegistryTTL
+	r.mu.RUnlock()
+	if expired {
+		return false
+	}
+	for _, c := range conns {
+		if c.Stat().Limited {
+			continue
+		}
+		ip := extractIPFromMultiaddrObj(c.RemoteMultiaddr())
+		if ip == "" {
+			continue
+		}
+		r.mu.RLock()
+		_, verified := e.ips[ip]
+		r.mu.RUnlock()
+		if verified {
+			return true
+		}
+	}
+	return false
+}
+
+// Remove deletes a peer from the registry (e.g., when deauthorized).
+func (r *LANRegistry) Remove(pid peer.ID) {
+	r.mu.Lock()
+	delete(r.entries, pid)
+	r.mu.Unlock()
 }

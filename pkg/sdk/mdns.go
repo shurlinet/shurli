@@ -72,9 +72,10 @@ const (
 // Discovered peers have their addresses added to the peerstore;
 // connection attempts go through the normal ConnectionGater.
 type MDNSDiscovery struct {
-	host    host.Host
-	server  *zeroconf.Server
-	metrics *Metrics
+	host        host.Host
+	server      *zeroconf.Server
+	metrics     *Metrics
+	lanRegistry *LANRegistry // mDNS-verified LAN peer/IP tracking
 
 	// Managed context for clean shutdown of connection goroutines.
 	ctx    context.Context
@@ -101,10 +102,14 @@ type MDNSDiscovery struct {
 
 // NewMDNSDiscovery creates an mDNS discovery service.
 // Metrics is optional (nil-safe).
-func NewMDNSDiscovery(h host.Host, m *Metrics) *MDNSDiscovery {
+func NewMDNSDiscovery(h host.Host, m *Metrics, lanReg *LANRegistry) *MDNSDiscovery {
+	if lanReg == nil {
+		lanReg = NewLANRegistry()
+	}
 	return &MDNSDiscovery{
 		host:        h,
 		metrics:     m,
+		lanRegistry: lanReg,
 		lastTry:     make(map[peer.ID]time.Time),
 		lanPeers:    make(map[peer.ID]time.Time),
 		sem:         make(chan struct{}, mdnsMaxConcurrentConnects),
@@ -373,6 +378,18 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		pi.Addrs = lanAddrs
 		md.host.Peerstore().AddAddrs(pi.ID, lanAddrs, discoveredAddrTTL)
 		slog.Info("mdns: filtered to LAN addresses", "peer", short, "lan_addrs", len(lanAddrs))
+
+		// Register mDNS-verified LAN IPs. Only these IPs are trusted as
+		// LAN by the gater and connLogger (BUG-MP-6+7).
+		var verifiedIPs []string
+		for _, addr := range lanAddrs {
+			if ip := extractIPFromMultiaddrObj(addr); ip != "" {
+				verifiedIPs = append(verifiedIPs, ip)
+			}
+		}
+		if len(verifiedIPs) > 0 {
+			md.lanRegistry.Add(pi.ID, verifiedIPs)
+		}
 	} else {
 		// No LAN match: add all and let libp2p try everything.
 		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
@@ -481,28 +498,24 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 			}
 
 			// Strip non-LAN addresses from peerstore to prevent re-dial.
-			// Keep only private IPv4 (LAN) + relay circuit addresses.
-			allPeerstoreAddrs := md.host.Peerstore().Addrs(pi.ID)
-			md.host.Peerstore().ClearAddrs(pi.ID)
-			for _, addr := range allPeerstoreAddrs {
-				if isCircuitAddr(addr) {
-					md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
-					continue
-				}
-				first, _ := ma.SplitFirst(addr)
-				if first != nil && first.Protocol().Code == ma.P_IP4 {
-					ip := net.ParseIP(first.Value())
-					if ip != nil && isPrivateIPv4(ip) {
-						md.host.Peerstore().AddAddrs(pi.ID, []ma.Multiaddr{addr}, discoveredAddrTTL)
-					}
-				}
-			}
+			// Uses shared function (also called by connLogger for BUG-MP-4).
+			StripNonLANAddrs(md.host, pi.ID)
 		} else {
+			// Strip non-LAN addresses from peerstore BEFORE connecting.
+			// host.Connect dials ALL peerstore addresses, not just pi.Addrs.
+			// Without this, old public IPv6 addresses from identify/DHT win
+			// the dial race against LAN IPv4 (BUG-MP-4 root cause: gater
+			// can't protect a LAN path that was never established).
+			savedAddrs := md.host.Peerstore().Addrs(pi.ID)
+			StripNonLANAddrs(md.host, pi.ID)
+
 			ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
 			defer cancel()
 
 			if err := md.host.Connect(ctx, pi); err != nil {
 				slog.Info("mdns: connect failed", "peer", short, "error", err)
+				// Restore all addresses so peer is reachable via other paths.
+				md.host.Peerstore().AddAddrs(pi.ID, savedAddrs, discoveredAddrTTL)
 				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
 				return
 			}
@@ -522,8 +535,23 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 			md.metrics.MDNSDiscoveredTotal.WithLabelValues("connected").Inc()
 		}
 
-		// Add the full address set now that connect succeeded.
-		md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
+		// Add only LAN + relay addresses when a LAN connection exists.
+		// Adding public addresses causes the remote peer's PeerManager to
+		// reconnect via public IPv6 after we close the non-LAN connection,
+		// undoing the LAN upgrade in a 30s cycle.
+		if AnyConnIsLAN(md.host.Network().ConnsToPeer(pi.ID)) {
+			var safeAddrs []ma.Multiaddr
+			for _, addr := range allAddrs {
+				if isCircuitAddr(addr) || IsLANMultiaddr(addr) {
+					safeAddrs = append(safeAddrs, addr)
+				}
+			}
+			if len(safeAddrs) > 0 {
+				md.host.Peerstore().AddAddrs(pi.ID, safeAddrs, discoveredAddrTTL)
+			}
+		} else {
+			md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
+		}
 
 		// Don't close relay connections here. Let direct and relay
 		// coexist. libp2p prefers non-limited (direct) connections for
@@ -555,9 +583,15 @@ func (md *MDNSDiscovery) dialWithBackoffClear(ctx context.Context, pid peer.ID, 
 
 	_, dialErr := md.host.Network().DialPeer(ctx, pid)
 
-	// Restore full address set regardless of outcome.
-	md.host.Peerstore().AddAddrs(pid, savedAddrs, discoveredAddrTTL)
-	md.host.Peerstore().AddAddrs(pid, allAddrs, discoveredAddrTTL)
+	if dialErr != nil {
+		// Restore full address set on failure so peer is reachable via other paths.
+		md.host.Peerstore().AddAddrs(pid, savedAddrs, discoveredAddrTTL)
+		md.host.Peerstore().AddAddrs(pid, allAddrs, discoveredAddrTTL)
+	}
+	// On success: keep only LAN+relay in peerstore. Non-LAN addresses will
+	// be restored naturally by identify protocol. Restoring them here would
+	// re-contaminate the peerstore and let PeerManager re-dial via IPv6
+	// during the window before StripNonLANAddrs runs in the caller.
 
 	return dialErr
 }

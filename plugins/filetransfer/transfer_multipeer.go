@@ -281,6 +281,26 @@ func (q *blockQueue) claim(ctx context.Context, slowPeer bool) (int, bool) {
 	}
 }
 
+// tryClaim is a non-blocking version of claim. Returns (-1, false) immediately
+// if no block is available. Used when the pipeline still has in-flight requests
+// to prevent deadlock (IF-DEADLOCK-1).
+func (q *blockQueue) tryClaim(slowPeer bool) (int, bool) {
+	select {
+	case idx := <-q.retry:
+		return idx, true
+	default:
+	}
+	if slowPeer {
+		return -1, false // slow peers only get retries
+	}
+	select {
+	case idx := <-q.blocks:
+		return idx, true
+	default:
+		return -1, false
+	}
+}
+
 // markComplete records a block as done and checks for session completion (IF-3, IF10-1).
 func (q *blockQueue) markComplete(blockIndex int, blockSize int64) {
 	q.haveMu.Lock()
@@ -1088,8 +1108,14 @@ func (ts *TransferService) DownloadMultiPeer(
 		// runPeer handles the pipeline block loop for a single peer.
 		// Caller is responsible for wg.Done(). Stream must have manifest already exchanged.
 		runPeer := func(peerIdx int, pid peer.ID, stream network.Stream, ps *peerState) {
+			exitReason := "unknown"
 			streamOwned := true
 			defer func() {
+				slog.Info("multi-peer: peer goroutine exited",
+					"peer_index", peerIdx, "reason", exitReason,
+					"blocks_ok", ps.blocksOK.Load(), "blocks_fail", ps.blocksFail.Load(),
+					"bytes", ps.bytesRecv.Load(), "slow", ps.slow, "banned", ps.banned,
+					"strikes", ps.strikes, "reconnects", ps.reconnects)
 				if streamOwned && stream != nil {
 					stream.Close()
 				}
@@ -1123,6 +1149,7 @@ func (ts *TransferService) DownloadMultiPeer(
 				if err := sendBlockRequest(stream, idx); err != nil {
 					// IF14-1: re-queue immediately before it's lost.
 					queue.requeue(idx)
+					exitReason = "prefill-send-error"
 					return
 				}
 				pipeline = append(pipeline, idx)
@@ -1141,7 +1168,8 @@ func (ts *TransferService) DownloadMultiPeer(
 						streamOwned = false
 						newStream, openErr := openStream(pid)
 						if openErr != nil {
-							return // truly unreachable
+							exitReason = "reconnect-open-failed"
+							return
 						}
 						stream = newStream
 						streamOwned = true
@@ -1155,20 +1183,24 @@ func (ts *TransferService) DownloadMultiPeer(
 						// Re-exchange manifest on new stream and verify root hash.
 						reconnManifest, mErr := requestMultiPeerManifest(newStream, rootHash, requestFlags)
 						if mErr != nil {
+							exitReason = "reconnect-manifest-failed"
 							return
 						}
 						if sdk.MerkleRoot(reconnManifest.ChunkHashes) != rootHash {
-							return // manifest changed after reconnect
+							exitReason = "reconnect-manifest-mismatch"
+							return
 						}
 
 						// Re-send all pipeline block requests.
 						for _, idx := range pipeline {
 							if err := sendBlockRequest(stream, idx); err != nil {
+								exitReason = "reconnect-resend-failed"
 								return
 							}
 						}
 						continue // retry reading response
 					}
+					exitReason = "max-reconnects-exhausted"
 					return
 				}
 
@@ -1179,6 +1211,7 @@ func (ts *TransferService) DownloadMultiPeer(
 					// Read: blockIndex(4) + flags(1) + decompSize(4) + dataLen(4) = 13 bytes.
 					var dataHeader [13]byte
 					if _, err := io.ReadFull(stream, dataHeader[:]); err != nil {
+						exitReason = "read-block-header"
 						return
 					}
 					blockIndex := int(binary.BigEndian.Uint32(dataHeader[0:4]))
@@ -1188,19 +1221,23 @@ func (ts *TransferService) DownloadMultiPeer(
 
 					// Security: validate data length and decompSize before allocation.
 					if blockIndex < 0 || blockIndex >= manifest.ChunkCount {
-						return // out-of-range blockIndex — protocol error
+						exitReason = fmt.Sprintf("block-index-oob:%d", blockIndex)
+						return
 					}
 					maxLen := manifest.ChunkSizes[blockIndex]
 					if dataLen > maxLen {
-						return // oversized block data
+						exitReason = fmt.Sprintf("oversized-block:%d-len:%d-max:%d", blockIndex, dataLen, maxLen)
+						return
 					}
 					if decompSize > uint32(maxDecompressedChunk) {
-						return // decompSize exceeds safe limit
+						exitReason = fmt.Sprintf("decomp-too-large:%d", decompSize)
+						return
 					}
 
 					// Read block data.
 					blockData := make([]byte, dataLen)
 					if _, err := io.ReadFull(stream, blockData); err != nil {
+						exitReason = "read-block-data"
 						return
 					}
 
@@ -1209,6 +1246,7 @@ func (ts *TransferService) DownloadMultiPeer(
 						slog.Warn("multi-peer: out-of-order response", "peer_index", peerIdx,
 							"expected", expectedBlock, "got", blockIndex)
 						ps.strikes++
+						exitReason = fmt.Sprintf("out-of-order:expected=%d,got=%d", expectedBlock, blockIndex)
 						return
 					}
 
@@ -1238,6 +1276,7 @@ func (ts *TransferService) DownloadMultiPeer(
 								slog.Warn("multi-peer: peer banned",
 									"peer_index", ps.peerIdx, "strikes", ps.strikes)
 								queue.requeue(blockIndex)
+								exitReason = "banned-decompress"
 								return
 							}
 							ps.onParole = true
@@ -1260,6 +1299,7 @@ func (ts *TransferService) DownloadMultiPeer(
 							slog.Warn("multi-peer: peer banned",
 								"peer_index", ps.peerIdx, "strikes", ps.strikes)
 							queue.requeue(blockIndex)
+							exitReason = "banned-size-mismatch"
 							return
 						}
 						ps.onParole = true
@@ -1277,6 +1317,7 @@ func (ts *TransferService) DownloadMultiPeer(
 								slog.Warn("multi-peer: peer banned",
 									"peer_index", ps.peerIdx, "strikes", ps.strikes)
 								queue.requeue(blockIndex)
+								exitReason = "banned-hash-mismatch"
 								return
 							}
 							ps.onParole = true
@@ -1298,20 +1339,18 @@ func (ts *TransferService) DownloadMultiPeer(
 							// Don't call markCompleted here — dlCancel triggers the outer
 							// goroutine's ctx.Done path which handles markCompleted.
 							dlCancel()
+							exitReason = "disk-write-error"
 							return
 						}
 
 						queue.markComplete(blockIndex, int64(len(raw)))
 						progress.updateChunks(queue.transferredBytes.Load(), int(queue.completed.Load()))
 
-						spd := ps.speed()
-						if spd > 0 {
-							session.updateFastestSpeed(spd)
-							fastest := math.Float64frombits(session.fastestSpeed.Load())
-							if fastest > 0 && spd < fastest/float64(multiPeerSlowRatio) {
-								ps.slow = true
-							}
-						}
+						// Speed tracking for diagnostics (slow demotion removed:
+						// average-since-start vs all-time-peak caused both peers
+						// to be marked slow, creating deadlock IF-DEADLOCK-2).
+						// Work-stealing handles speed differences naturally — fast
+						// peers claim more blocks by processing faster.
 
 						if time.Since(lastSave) >= checkpointSaveInterval {
 							saveCheckpointFn()
@@ -1320,23 +1359,44 @@ func (ts *TransferService) DownloadMultiPeer(
 					}
 
 					if ps.banned {
+						exitReason = "banned-post-block"
 						return
 					}
-					idx, ok := queue.claim(dlCtx, ps.slow)
-					if !ok {
-						return // done or cancelled
+					// Non-blocking claim when pipeline has work: prevents deadlock
+					// where slow peer blocks in claim() while holding unreceived
+					// pipeline responses (IF-DEADLOCK-1).
+					if len(pipeline) > 0 {
+						// Try non-blocking claim first.
+						idx, ok := queue.tryClaim(ps.slow)
+						if ok {
+							if err := sendBlockRequest(stream, idx); err != nil {
+								queue.requeue(idx)
+								exitReason = "send-block-request-error"
+								return
+							}
+							pipeline = append(pipeline, idx)
+						}
+						// Even if no new block claimed, continue draining pipeline.
+					} else {
+						// Pipeline empty — blocking claim is safe.
+						idx, ok := queue.claim(dlCtx, ps.slow)
+						if !ok {
+							exitReason = "claim-failed-done-or-cancelled"
+							return
+						}
+						if err := sendBlockRequest(stream, idx); err != nil {
+							queue.requeue(idx)
+							exitReason = "send-block-request-error"
+							return
+						}
+						pipeline = append(pipeline, idx)
 					}
-					if err := sendBlockRequest(stream, idx); err != nil {
-						// IF14-1: re-queue immediately.
-						queue.requeue(idx)
-						return
-					}
-					pipeline = append(pipeline, idx)
 
 				case msgBlockError:
 					// Read: blockIndex(4) + errLen(2) = 6 bytes.
 					var errHeader [6]byte
 					if _, err := io.ReadFull(stream, errHeader[:]); err != nil {
+						exitReason = "read-error-header"
 						return
 					}
 					respBlockIndex := int(binary.BigEndian.Uint32(errHeader[0:4]))
@@ -1344,6 +1404,7 @@ func (ts *TransferService) DownloadMultiPeer(
 					if errLen > 0 {
 						discard := make([]byte, errLen)
 						if _, err := io.ReadFull(stream, discard); err != nil {
+							exitReason = "read-error-body"
 							return
 						}
 					}
@@ -1353,6 +1414,7 @@ func (ts *TransferService) DownloadMultiPeer(
 					if respBlockIndex != expectedBlock {
 						// Protocol error — sender returned error for wrong block.
 						ps.strikes++
+						exitReason = fmt.Sprintf("error-wrong-block:expected=%d,got=%d", expectedBlock, respBlockIndex)
 						return
 					}
 					pipeline = pipeline[1:]
@@ -1363,6 +1425,7 @@ func (ts *TransferService) DownloadMultiPeer(
 						slog.Warn("multi-peer: too many consecutive errors, disconnecting",
 							"peer_index", peerIdx, "errors", ps.consecErrors)
 						queue.requeue(expectedBlock)
+						exitReason = "too-many-consec-errors"
 						return
 					}
 					if ps.consecErrors >= multiPeerMaxConsecErrors {
@@ -1370,25 +1433,41 @@ func (ts *TransferService) DownloadMultiPeer(
 					}
 					queue.requeue(expectedBlock)
 
-					// Claim next.
-					idx, ok := queue.claim(dlCtx, ps.slow)
-					if !ok {
-						return
+					// Claim next (non-blocking if pipeline has work).
+					if len(pipeline) > 0 {
+						idx, ok := queue.tryClaim(ps.slow)
+						if ok {
+							if err := sendBlockRequest(stream, idx); err != nil {
+								queue.requeue(idx)
+								exitReason = "error-send-request"
+								return
+							}
+							pipeline = append(pipeline, idx)
+						}
+					} else {
+						idx, ok := queue.claim(dlCtx, ps.slow)
+						if !ok {
+							exitReason = "error-claim-failed"
+							return
+						}
+						if err := sendBlockRequest(stream, idx); err != nil {
+							queue.requeue(idx)
+							exitReason = "error-send-request"
+							return
+						}
+						pipeline = append(pipeline, idx)
 					}
-					if err := sendBlockRequest(stream, idx); err != nil {
-						queue.requeue(idx)
-						return
-					}
-					pipeline = append(pipeline, idx)
 
 				default:
 					slog.Warn("multi-peer: unexpected response type", "peer_index", peerIdx,
 						"type", typeByte[0])
+					exitReason = fmt.Sprintf("unexpected-type:0x%02x", typeByte[0])
 					return
 				}
 			}
 
 			// Send done signal to sender (I14).
+			exitReason = "pipeline-drained-clean"
 			stream.Write([]byte{msgMultiPeerDone})
 		}
 

@@ -35,7 +35,7 @@ func TestMDNSDiscovery_SelfIgnored(t *testing.T) {
 	net := newMDNSNetwork(t)
 	h := net.Host()
 
-	md := NewMDNSDiscovery(h, nil)
+	md := NewMDNSDiscovery(h, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := md.Start(ctx); err != nil {
@@ -58,7 +58,7 @@ func TestMDNSDiscovery_HandlePeerFound(t *testing.T) {
 	netA := newMDNSNetwork(t)
 	netB := newMDNSNetwork(t)
 
-	md := NewMDNSDiscovery(netA.Host(), nil)
+	md := NewMDNSDiscovery(netA.Host(), nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := md.Start(ctx); err != nil {
@@ -95,7 +95,7 @@ func TestMDNSDiscovery_BrowseNow(t *testing.T) {
 	net := newMDNSNetwork(t)
 	h := net.Host()
 
-	md := NewMDNSDiscovery(h, nil)
+	md := NewMDNSDiscovery(h, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := md.Start(ctx); err != nil {
@@ -134,7 +134,7 @@ func TestMDNSDiscovery_HandlePeerFound_NoConnections(t *testing.T) {
 	netA := newMDNSNetwork(t)
 	netB := newMDNSNetwork(t)
 
-	md := NewMDNSDiscovery(netA.Host(), nil)
+	md := NewMDNSDiscovery(netA.Host(), nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := md.Start(ctx); err != nil {
@@ -161,7 +161,7 @@ func TestMDNSDiscovery_HandlePeerFound_DirectNotClosed(t *testing.T) {
 	netA := newMDNSNetwork(t)
 	netB := newMDNSNetwork(t)
 
-	md := NewMDNSDiscovery(netA.Host(), nil)
+	md := NewMDNSDiscovery(netA.Host(), nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := md.Start(ctx); err != nil {
@@ -211,8 +211,8 @@ func TestMDNSDiscovery_TwoHosts(t *testing.T) {
 	netA := newMDNSNetwork(t)
 	netB := newMDNSNetwork(t)
 
-	mdA := NewMDNSDiscovery(netA.Host(), nil)
-	mdB := NewMDNSDiscovery(netB.Host(), nil)
+	mdA := NewMDNSDiscovery(netA.Host(), nil, nil)
+	mdB := NewMDNSDiscovery(netB.Host(), nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
