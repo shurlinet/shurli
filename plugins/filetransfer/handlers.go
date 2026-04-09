@@ -272,7 +272,8 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
+	// TS-4: Hedge browse across independent paths (direct vs relay).
+	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-browse")
 	if err != nil {
 		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", sdk.HumanizeError(err.Error())))
 		return
@@ -465,8 +466,8 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Single-peer download. Use r.Context() so drain cancellation propagates (F2 fix).
-	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
+	// Single-peer download. TS-4: hedge across independent paths.
+	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
 	if err != nil {
 		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(err.Error())))
 		return
