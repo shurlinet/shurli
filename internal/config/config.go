@@ -411,6 +411,7 @@ type NetworkConfig struct {
 	ForcePrivateReachability bool     `yaml:"force_private_reachability"`
 	ForceCGNAT               bool     `yaml:"force_cgnat,omitempty"`
 	ResourceLimitsEnabled    bool     `yaml:"resource_limits_enabled"`
+	MemoryLimit              string   `yaml:"memory_limit,omitempty"` // systemd MemoryMax (e.g. "2G", "4G"). Default: 2G.
 }
 
 // RelayNetworkConfig holds relay server network configuration

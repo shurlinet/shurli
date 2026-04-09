@@ -210,6 +210,7 @@ var validConfigKeys = []string{
 	"network.force_private_reachability",
 	"network.force_cgnat",
 	"network.resource_limits_enabled",
+	"network.memory_limit",
 	"relay.addresses",
 	"relay.reservation_interval",
 	"discovery.rendezvous",
@@ -604,4 +605,5 @@ func printConfigUsage() {
 	fmt.Println("  shurli config set transfer.receive_mode timed --duration 10m")
 	fmt.Println("  shurli config reload                          # apply without restart")
 	fmt.Println("  shurli config set network.force_private_reachability true")
+	fmt.Println("  shurli config set network.memory_limit 4G     # systemd MemoryMax")
 }

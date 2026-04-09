@@ -282,6 +282,7 @@ network:
     - "/ip4/0.0.0.0/tcp/0"
     - "/ip4/0.0.0.0/udp/0/quic-v1"
   force_private_reachability: false  # true for servers behind CGNAT
+  memory_limit: "2G"                # systemd MemoryMax (e.g. "2G", "4G", "8G")
 
 relay:
   addresses:

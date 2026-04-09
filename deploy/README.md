@@ -112,7 +112,7 @@ shurli status
 | `RestrictSUIDSGID=true` | Cannot set SUID/SGID bits |
 | `PrivateTmp=true` | Isolated /tmp |
 | `LimitNOFILE=65536` | Enough file descriptors for many peer connections |
-| `MemoryMax=2G` | Hard memory cap |
+| `MemoryMax=2G` | Hard memory cap (configurable via `network.memory_limit`) |
 
 ---
 
@@ -288,7 +288,7 @@ rm /tmp/shurli-daemon.log
 | Socket permission denied | Different user trying to access | `shurli status` must run as the same user that owns the socket |
 | launchctl: "service already loaded" | Plist already active | `launchctl unload` first, then `launchctl load` |
 | macOS logs empty | Daemon not starting | Check `launchctl list \| grep shurli` for exit code; non-zero means crash |
-| High memory usage | Many peer connections | `MemoryMax=2G` in systemd caps it; check peer count with `shurli status` |
+| High memory usage | Many peer connections | Default `MemoryMax=2G`; increase with `shurli config set network.memory_limit 4G` and reinstall service |
 | "Config not found" after install | `shurli init` not run as service user | `sudo -u shurli shurli init` |
 | Logs filling disk (Linux) | No journal rotation | See below |
 
