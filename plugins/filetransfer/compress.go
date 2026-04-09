@@ -16,7 +16,14 @@ func getEncoder() *zstd.Encoder {
 	if v := zstdEncPool.Get(); v != nil {
 		return v.(*zstd.Encoder)
 	}
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	// Window size 1MB: sufficient for 256KB-2MB chunks. Default (8MB) caused
+	// 2.6 GB memory bloat on the sender — each pooled encoder retained an 8MB
+	// history buffer, and sync.Pool kept hundreds alive between GC cycles.
+	// BUG-MP-8: OOM-killed the LAN peer daemon mid-transfer (562MB file).
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.SpeedDefault),
+		zstd.WithWindowSize(1<<20), // 1 MB window (was 8 MB default)
+	)
 	if err != nil {
 		panic("zstd encoder init: " + err.Error())
 	}
