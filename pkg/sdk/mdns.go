@@ -333,7 +333,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// the peer is on LAN right now.
 	connsForDedup := md.host.Network().ConnsToPeer(pi.ID)
 	peerNeedsUpgrade := allConnsRelayed(connsForDedup) ||
-		(len(connsForDedup) > 0 && !AnyConnIsLAN(connsForDedup))
+		(len(connsForDedup) > 0 && !md.lanRegistry.HasVerifiedLANConn(md.host, pi.ID))
 
 	// Dedup: skip if we attempted this peer recently.
 	// Exception: relay-only peers always get an upgrade attempt.
@@ -372,7 +372,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 	// Re-check in case state changed between dedup and here.
 	currentConns := md.host.Network().ConnsToPeer(pi.ID)
 	needsUpgrade := allConnsRelayed(currentConns) ||
-		(len(currentConns) > 0 && !AnyConnIsLAN(currentConns))
+		(len(currentConns) > 0 && !md.lanRegistry.HasVerifiedLANConn(md.host, pi.ID))
 
 	if len(lanAddrs) > 0 {
 		pi.Addrs = lanAddrs
@@ -539,7 +539,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 		// Adding public addresses causes the remote peer's PeerManager to
 		// reconnect via public IPv6 after we close the non-LAN connection,
 		// undoing the LAN upgrade in a 30s cycle.
-		if AnyConnIsLAN(md.host.Network().ConnsToPeer(pi.ID)) {
+		if md.lanRegistry.HasVerifiedLANConn(md.host, pi.ID) {
 			var safeAddrs []ma.Multiaddr
 			for _, addr := range allAddrs {
 				if isCircuitAddr(addr) || IsLANMultiaddr(addr) {
