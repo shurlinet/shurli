@@ -357,6 +357,197 @@ func TestAddRelayAddressesForPeerFunc_InvalidAddr(t *testing.T) {
 	}
 }
 
+func TestGroupRelayAddrsByPeer_MultipleRelays(t *testing.T) {
+	// Two different relay servers should produce two groups.
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.NoSecurity,
+		libp2p.DisableRelay(),
+	)
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer h.Close()
+
+	h2, err := libp2p.New(libp2p.NoSecurity, libp2p.DisableRelay())
+	if err != nil {
+		t.Fatalf("host2: %v", err)
+	}
+	targetID := h2.ID()
+	h2.Close()
+
+	relayAddrs := []string{
+		"/ip4/203.0.113.50/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+		"/ip4/203.0.113.51/tcp/4001/p2p/12D3KooWHVXoYnSJaifkK3bQN5RhnNiVDSbhVAhTwrJVwL3fZcmo",
+	}
+
+	groups, err := groupRelayAddrsByPeer(h, relayAddrs, targetID)
+	if err != nil {
+		t.Fatalf("groupRelayAddrsByPeer: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	// Both groups should target the same peer.
+	for i, g := range groups {
+		if g.ID != targetID {
+			t.Errorf("group[%d].ID = %s, want %s", i, g.ID, targetID)
+		}
+		if len(g.Addrs) == 0 {
+			t.Errorf("group[%d] has no addresses", i)
+		}
+		// All addresses should contain p2p-circuit.
+		for _, addr := range g.Addrs {
+			if !containsCircuit(addr.String()) {
+				t.Errorf("group[%d] addr %s missing p2p-circuit", i, addr)
+			}
+		}
+	}
+}
+
+func TestGroupRelayAddrsByPeer_SameRelayMultipleAddrs(t *testing.T) {
+	// Two addresses for the same relay peer ID should merge into one group.
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.NoSecurity,
+		libp2p.DisableRelay(),
+	)
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer h.Close()
+
+	h2, err := libp2p.New(libp2p.NoSecurity, libp2p.DisableRelay())
+	if err != nil {
+		t.Fatalf("host2: %v", err)
+	}
+	targetID := h2.ID()
+	h2.Close()
+
+	// Same relay peer ID, different transport addresses.
+	relayPeerID := "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+	relayAddrs := []string{
+		"/ip4/203.0.113.50/tcp/4001/p2p/" + relayPeerID,
+		"/ip4/203.0.113.50/udp/4001/quic-v1/p2p/" + relayPeerID,
+	}
+
+	groups, err := groupRelayAddrsByPeer(h, relayAddrs, targetID)
+	if err != nil {
+		t.Fatalf("groupRelayAddrsByPeer: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group (same relay), got %d", len(groups))
+	}
+	if len(groups[0].Addrs) != 2 {
+		t.Errorf("expected 2 merged addresses, got %d", len(groups[0].Addrs))
+	}
+}
+
+func TestGroupRelayAddrsByPeer_SkipsBadAddresses(t *testing.T) {
+	// Invalid addresses should be skipped, valid ones still grouped.
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.NoSecurity,
+		libp2p.DisableRelay(),
+	)
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer h.Close()
+
+	h2, err := libp2p.New(libp2p.NoSecurity, libp2p.DisableRelay())
+	if err != nil {
+		t.Fatalf("host2: %v", err)
+	}
+	targetID := h2.ID()
+	h2.Close()
+
+	relayAddrs := []string{
+		"not-a-valid-multiaddr",
+		"/ip4/203.0.113.50/tcp/4001", // no peer ID - skip
+		"/ip4/203.0.113.50/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN", // valid
+	}
+
+	groups, err := groupRelayAddrsByPeer(h, relayAddrs, targetID)
+	if err != nil {
+		t.Fatalf("groupRelayAddrsByPeer: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group (2 bad, 1 valid), got %d", len(groups))
+	}
+}
+
+func TestGroupRelayAddrsByPeer_EmptyInput(t *testing.T) {
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.NoSecurity,
+		libp2p.DisableRelay(),
+	)
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer h.Close()
+
+	h2, err := libp2p.New(libp2p.NoSecurity, libp2p.DisableRelay())
+	if err != nil {
+		t.Fatalf("host2: %v", err)
+	}
+	targetID := h2.ID()
+	h2.Close()
+
+	groups, err := groupRelayAddrsByPeer(h, nil, targetID)
+	if err != nil {
+		t.Fatalf("groupRelayAddrsByPeer: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("expected 0 groups for empty input, got %d", len(groups))
+	}
+}
+
+func TestGroupRelayAddrsByPeer_PeerstorePopulated(t *testing.T) {
+	// Verify circuit addresses are added to peerstore.
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.NoSecurity,
+		libp2p.DisableRelay(),
+	)
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer h.Close()
+
+	h2, err := libp2p.New(libp2p.NoSecurity, libp2p.DisableRelay())
+	if err != nil {
+		t.Fatalf("host2: %v", err)
+	}
+	targetID := h2.ID()
+	h2.Close()
+
+	relayAddrs := []string{
+		"/ip4/203.0.113.50/tcp/4001/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+	}
+
+	_, err = groupRelayAddrsByPeer(h, relayAddrs, targetID)
+	if err != nil {
+		t.Fatalf("groupRelayAddrsByPeer: %v", err)
+	}
+
+	addrs := h.Peerstore().Addrs(targetID)
+	if len(addrs) == 0 {
+		t.Error("peerstore should have circuit addresses for target after groupRelayAddrsByPeer")
+	}
+	found := false
+	for _, addr := range addrs {
+		if containsCircuit(addr.String()) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("no p2p-circuit address found in peerstore")
+	}
+}
+
 func containsCircuit(s string) bool {
 	return len(s) > 0 && contains(s, "/p2p-circuit")
 }

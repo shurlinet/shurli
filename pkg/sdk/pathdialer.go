@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // PathType describes how a peer connection was established.
@@ -110,36 +112,103 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 		}()
 	}
 
-	// Leg 2: Relay circuit
+	// Leg 2: Relay circuit - race relay candidates with staggered starts (TS-1).
+	// Each relay server is an independent "channel" (Tail Slayer pattern).
+	// Group addresses by relay peer ID, launch one goroutine per relay with
+	// 100ms stagger. First circuit wins, context cancels losers.
 	var relayAddrs []string
 	if pd.relaySource != nil {
 		relayAddrs = pd.relaySource.RelayAddrs()
 	}
 	if len(relayAddrs) > 0 {
 		go func() {
-			// Build circuit addresses and add to peerstore.
-			circuitAddrInfo, err := buildCircuitAddrInfo(pd.host, relayAddrs, peerID)
-			if err != nil {
-				resultCh <- raceResult{err: fmt.Errorf("relay addrs: %w", err)}
+			// Group relay addresses by relay peer ID so each relay server
+			// gets its own independent connection attempt.
+			relayGroups, err := groupRelayAddrsByPeer(pd.host, relayAddrs, peerID)
+			if err != nil || len(relayGroups) == 0 {
+				if err != nil {
+					resultCh <- raceResult{err: fmt.Errorf("relay addrs: %w", err)}
+				} else {
+					resultCh <- raceResult{err: fmt.Errorf("relay: no valid relay addresses")}
+				}
 				return
 			}
 
-			connectCtx, connectCancel := context.WithTimeout(raceCtx, 30*time.Second)
-			defer connectCancel()
-
-			// Pass circuit addresses directly to Connect rather than relying
-			// on peerstore alone. After budget exhaustion + backoff clearing,
-			// the peerstore may have stale direct addresses that time out
-			// before the relay circuit addresses are tried.
-			if err := pd.host.Connect(connectCtx, *circuitAddrInfo); err != nil {
-				resultCh <- raceResult{err: fmt.Errorf("relay connect: %w", err)}
+			// Single relay - no need to hedge, just connect directly.
+			if len(relayGroups) == 1 {
+				connectCtx, connectCancel := context.WithTimeout(raceCtx, 30*time.Second)
+				defer connectCancel()
+				if err := pd.host.Connect(connectCtx, relayGroups[0]); err != nil {
+					resultCh <- raceResult{err: fmt.Errorf("relay connect: %w", err)}
+					return
+				}
+				resultCh <- raceResult{
+					pathType: classifyConnection(pd.host, peerID),
+					addr:     firstConnAddr(pd.host, peerID),
+				}
 				return
 			}
 
-			resultCh <- raceResult{
-				pathType: classifyConnection(pd.host, peerID),
-				addr:     firstConnAddr(pd.host, peerID),
+			// Multiple relays - race with staggered starts (100ms apart).
+			// Zero shared state between goroutines (Tail Slayer principle).
+			// Cap at 5 relay candidates to bound resource consumption.
+			// Budget-filtered relay list is already sorted by health+budget score,
+			// so we race the top 5 candidates.
+			const maxRelayRace = 5
+			if len(relayGroups) > maxRelayRace {
+				relayGroups = relayGroups[:maxRelayRace]
 			}
+			relayWinner := make(chan raceResult, len(relayGroups))
+			relayCtx, relayCancel := context.WithTimeout(raceCtx, 30*time.Second)
+			defer relayCancel()
+
+			for i, ai := range relayGroups {
+				go func(idx int, addrInfo peer.AddrInfo) {
+					// Every goroutine MUST send exactly one result to relayWinner.
+					// Failing to send causes the collector to deadlock.
+
+					// Staggered start: first relay fires immediately,
+					// subsequent relays wait idx*100ms. Prevents thundering herd.
+					if idx > 0 {
+						stagger := time.NewTimer(time.Duration(idx) * 100 * time.Millisecond)
+						select {
+						case <-relayCtx.Done():
+							stagger.Stop()
+							relayWinner <- raceResult{err: fmt.Errorf("relay[%d]: cancelled during stagger", idx)}
+							return
+						case <-stagger.C:
+						}
+					}
+					if err := pd.host.Connect(relayCtx, addrInfo); err != nil {
+						relayWinner <- raceResult{err: fmt.Errorf("relay[%d] connect: %w", idx, err)}
+						return
+					}
+					relayWinner <- raceResult{
+						pathType: classifyConnection(pd.host, peerID),
+						addr:     firstConnAddr(pd.host, peerID),
+					}
+				}(i, ai)
+			}
+
+			// Collect results: first success wins, cancel the rest.
+			// Loop expects exactly len(relayGroups) results (guaranteed by goroutine contract above).
+			var relayErr error
+			for range relayGroups {
+				r := <-relayWinner
+				if r.err == nil {
+					relayCancel() // cancel losing relays
+					resultCh <- r
+					// No drain needed: relayWinner is buffered with
+					// len(relayGroups) capacity, so remaining goroutines
+					// can always send without blocking.
+					return
+				}
+				if relayErr == nil {
+					relayErr = r.err
+				}
+			}
+			// All relays failed.
+			resultCh <- raceResult{err: fmt.Errorf("all relays failed: %v", relayErr)}
 		}()
 	} else {
 		go func() {
@@ -279,22 +348,51 @@ func AddRelayAddressesForPeerFunc(h host.Host, relayAddrs []string, target peer.
 	return nil
 }
 
-// buildCircuitAddrInfo constructs relay circuit addresses for a target peer
-// and returns them as a peer.AddrInfo. Also adds them to the peerstore.
-// Unlike AddRelayAddressesForPeerFunc which only updates the peerstore,
-// this returns the AddrInfo so callers can pass it directly to host.Connect
-// (ensuring circuit addresses are tried even if the peerstore has many
-// stale direct addresses that would time out first).
-func buildCircuitAddrInfo(h host.Host, relayAddrs []string, target peer.ID) (*peer.AddrInfo, error) {
-	info := &peer.AddrInfo{ID: target}
+// groupRelayAddrsByPeer groups relay addresses by relay server peer ID, returning
+// one peer.AddrInfo per relay server with circuit addresses targeting the given peer.
+// Each group becomes an independent hedged connection attempt (TS-1).
+// Also adds all circuit addresses to the peerstore.
+func groupRelayAddrsByPeer(h host.Host, relayAddrs []string, target peer.ID) ([]peer.AddrInfo, error) {
+	// Indexed by relay peer ID position in result slice.
+	var groupAddrs [][]ma.Multiaddr
+	seen := make(map[peer.ID]int) // relay peer ID -> index in groupAddrs
+
 	for _, relayAddr := range relayAddrs {
 		circuitAddr := relayAddr + "/p2p-circuit/p2p/" + target.String()
 		addrInfo, err := peer.AddrInfoFromString(circuitAddr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse relay circuit address %s: %w", circuitAddr, err)
+			slog.Debug("pathdialer: skipping unparseable circuit address",
+				"relay_addr", relayAddr, "error", err)
+			continue
 		}
-		info.Addrs = append(info.Addrs, addrInfo.Addrs...)
+		// Extract relay peer ID from the relay address to group by relay server.
+		relayMaddr, err := ma.NewMultiaddr(relayAddr)
+		if err != nil {
+			slog.Debug("pathdialer: skipping invalid relay multiaddr",
+				"relay_addr", relayAddr, "error", err)
+			continue
+		}
+		relayAI, err := peer.AddrInfoFromP2pAddr(relayMaddr)
+		if err != nil {
+			slog.Debug("pathdialer: skipping relay addr without peer ID",
+				"relay_addr", relayAddr, "error", err)
+			continue
+		}
 		h.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, time.Hour)
+
+		if idx, ok := seen[relayAI.ID]; ok {
+			groupAddrs[idx] = append(groupAddrs[idx], addrInfo.Addrs...)
+		} else {
+			seen[relayAI.ID] = len(groupAddrs)
+			groupAddrs = append(groupAddrs, addrInfo.Addrs)
+		}
 	}
-	return info, nil
+
+	// Convert to peer.AddrInfo slice (target peer ID with per-relay circuit addrs).
+	result := make([]peer.AddrInfo, len(groupAddrs))
+	for i, addrs := range groupAddrs {
+		result[i] = peer.AddrInfo{ID: target, Addrs: addrs}
+	}
+	return result, nil
 }
+
