@@ -47,6 +47,10 @@ func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceNa
 
 	// Fast path: single group — no hedging, no goroutines, no channels (R2 F12).
 	if len(groups) == 1 {
+		slog.Info("hedged-stream: fast path (single group)",
+			"peer", peerID.String()[:16],
+			"service", serviceName,
+			"group", groups[0].Type)
 		conn := groups[0].Conns[0]
 		s, err := n.OpenPluginStreamOnConn(ctx, peerID, serviceName, conn)
 		if err != nil {
@@ -65,7 +69,7 @@ func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceNa
 	for i, g := range groups {
 		groupTypes[i] = g.Type
 	}
-	slog.Debug("hedged-stream: racing",
+	slog.Info("hedged-stream: racing",
 		"peer", peerID.String()[:16],
 		"service", serviceName,
 		"groups", groupTypes)
@@ -116,7 +120,7 @@ func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceNa
 		if r.err == nil {
 			hedgeCancel() // cancel losing goroutines
 
-			slog.Debug("hedged-stream: winner",
+			slog.Info("hedged-stream: winner",
 				"peer", peerID.String()[:16],
 				"service", serviceName,
 				"group", r.groupType,

@@ -616,18 +616,35 @@ func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 	paths := tracker.ListPeerPaths()
 
 	if WantsText(r) {
+		// Build reverse name map: peerID string → name.
+		reverseNames := make(map[string]string)
+		if net := s.runtime.Network(); net != nil {
+			for name, pid := range net.ListNames() {
+				reverseNames[pid.String()] = name
+			}
+		}
+		// Also check relay names from config.
+		for _, p := range paths {
+			if _, ok := reverseNames[p.PeerID]; !ok {
+				if rn := s.runtime.RelayNameFromConfig(p.PeerID); rn != "" {
+					reverseNames[p.PeerID] = rn
+				}
+			}
+		}
+
 		var sb strings.Builder
 		for _, p := range paths {
-			peerShort := p.PeerID
-			if len(peerShort) > 16 {
-				peerShort = peerShort[:16] + "..."
+			name := reverseNames[p.PeerID]
+			nameCol := ""
+			if name != "" {
+				nameCol = " (" + name + ")"
 			}
 			rttStr := "-"
 			if p.LastRTTMs > 0 {
 				rttStr = fmt.Sprintf("%.1fms", p.LastRTTMs)
 			}
-			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\trtt=%s\n",
-				peerShort, p.PathType, p.Transport, p.IPVersion, rttStr)
+			fmt.Fprintf(&sb, "%s%s\t%s\t%s\t%s\trtt=%s\n",
+				p.PeerID, nameCol, p.PathType, p.Transport, p.IPVersion, rttStr)
 		}
 		RespondText(w, http.StatusOK, sb.String())
 		return

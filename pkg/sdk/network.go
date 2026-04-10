@@ -889,8 +889,16 @@ func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, se
 		}
 	}
 
+	// For relay connections, set WithAllowLimitedConn on the context.
+	// Without this, libp2p refuses to open streams on limited (relay) connections.
+	// Same flag as OpenPluginStream (line 751).
+	streamCtx := ctx
+	if transport == TransportRelay {
+		streamCtx = network.WithAllowLimitedConn(ctx, svc.Protocol)
+	}
+
 	// Open stream on specific connection with protocol negotiation.
-	s, err := OpenStreamOnConn(ctx, conn, protocol.ID(svc.Protocol))
+	s, err := OpenStreamOnConn(streamCtx, conn, protocol.ID(svc.Protocol))
 	if err != nil {
 		return nil, fmt.Errorf("open stream on conn: %w", err)
 	}
