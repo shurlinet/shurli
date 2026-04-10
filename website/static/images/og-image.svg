@@ -1,17 +1,62 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
   <defs>
     <linearGradient id="ogBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#141316;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1a191c;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#222124;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#0d0c0f;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#141316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a191c;stop-opacity:1" />
     </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#da1c5c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fbb040;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="lineGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#da1c5c;stop-opacity:0" />
+      <stop offset="50%" style="stop-color:#da1c5c;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#fbb040;stop-opacity:0" />
+    </linearGradient>
+    <linearGradient id="lineGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#fbb040;stop-opacity:0" />
+      <stop offset="40%" style="stop-color:#e8729a;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#da1c5c;stop-opacity:0" />
+    </linearGradient>
+    <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#e8729a;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#e8729a;stop-opacity:0" />
+    </radialGradient>
   </defs>
+
   <!-- Background -->
   <rect width="1200" height="630" fill="url(#ogBg)"/>
+
+  <!-- Subtle mesh network lines -->
+  <line x1="80" y1="120" x2="350" y2="280" stroke="url(#lineGrad1)" stroke-width="1"/>
+  <line x1="350" y1="280" x2="180" y2="480" stroke="url(#lineGrad2)" stroke-width="1"/>
+  <line x1="850" y1="150" x2="1050" y2="350" stroke="url(#lineGrad1)" stroke-width="1"/>
+  <line x1="1050" y1="350" x2="900" y2="520" stroke="url(#lineGrad2)" stroke-width="1"/>
+  <line x1="350" y1="280" x2="850" y2="150" stroke="url(#lineGrad1)" stroke-width="0.5" opacity="0.4"/>
+  <line x1="180" y1="480" x2="900" y2="520" stroke="url(#lineGrad2)" stroke-width="0.5" opacity="0.3"/>
+
+  <!-- Network nodes -->
+  <circle cx="80" cy="120" r="12" fill="url(#nodeGlow)"/><circle cx="80" cy="120" r="3" fill="#e8729a"/>
+  <circle cx="350" cy="280" r="12" fill="url(#nodeGlow)"/><circle cx="350" cy="280" r="3" fill="#e8729a"/>
+  <circle cx="180" cy="480" r="12" fill="url(#nodeGlow)"/><circle cx="180" cy="480" r="3" fill="#e8729a"/>
+  <circle cx="850" cy="150" r="12" fill="url(#nodeGlow)"/><circle cx="850" cy="150" r="3" fill="#e8729a"/>
+  <circle cx="1050" cy="350" r="12" fill="url(#nodeGlow)"/><circle cx="1050" cy="350" r="3" fill="#e8729a"/>
+  <circle cx="900" cy="520" r="12" fill="url(#nodeGlow)"/><circle cx="900" cy="520" r="3" fill="#e8729a"/>
+
+  <!-- Accent line under title area -->
+  <rect x="480" y="310" width="240" height="2" rx="1" fill="url(#accentGrad)" opacity="0.6"/>
+
   <!-- Title -->
-  <text x="600" y="260" font-family="system-ui, -apple-system, sans-serif" font-size="72" fill="#c0caf5" text-anchor="middle" font-weight="700">Shurli</text>
-  <!-- Subtitle -->
-  <text x="600" y="330" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#e8729a" text-anchor="middle">Access your home server from anywhere</text>
+  <text x="600" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="80" fill="#c0caf5" text-anchor="middle" font-weight="700" letter-spacing="-1">Shurli</text>
+
+  <!-- Hero line -->
+  <text x="600" y="370" font-family="system-ui, -apple-system, sans-serif" font-size="32" fill="#e8729a" text-anchor="middle" font-weight="500">The Zero-Human Network</text>
+
   <!-- Tagline -->
-  <text x="600" y="380" font-family="system-ui, -apple-system, sans-serif" font-size="20" fill="#565f89" text-anchor="middle">Peer-to-peer connectivity through NAT, CGNAT, and firewalls</text>
+  <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#565f89" text-anchor="middle">P2P infrastructure for autonomous AI agents. No cloud. No accounts. No middleman.</text>
+
+  <!-- Whitepaper badge -->
+  <rect x="505" y="450" width="190" height="30" rx="15" fill="none" stroke="#565f89" stroke-width="1" opacity="0.5"/>
+  <text x="600" y="470" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#565f89" text-anchor="middle" letter-spacing="1.5">WHITEPAPER OUT NOW</text>
 </svg>
