@@ -286,6 +286,28 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// TS-5: Include managed relay connections in path summaries (R9-I1).
+	if pp := rt.PathProtector(); pp != nil {
+		managedPaths := pp.ManagedPaths()
+		if len(managedPaths) > 0 {
+			if resp.PeerPaths == nil {
+				resp.PeerPaths = make(map[string]PeerPathSummary)
+			}
+			for _, mp := range managedPaths {
+				peerStr := mp.PeerID.String()
+				// Only add if not already present from PathTracker (managed is backup).
+				if _, exists := resp.PeerPaths[peerStr]; !exists {
+					relayName := rt.RelayNameFromConfig(mp.RelayPeerID.String())
+					resp.PeerPaths[peerStr] = PeerPathSummary{
+						PathType:    "RELAYED",
+						RelayPeerID: mp.RelayPeerID.String(),
+						RelayName:   validate.SanitizeForDisplay(relayName),
+					}
+				}
+			}
+		}
+	}
+
 	// MOTD/goodbye messages from relays
 	resp.MOTDs = rt.RelayMOTDs()
 
@@ -646,6 +668,29 @@ func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(&sb, "%s%s\t%s\t%s\t%s\trtt=%s\n",
 				p.PeerID, nameCol, p.PathType, p.Transport, p.IPVersion, rttStr)
 		}
+
+		// TS-5: append managed relay connections (R8-I1).
+		if pp := s.runtime.PathProtector(); pp != nil {
+			for _, mp := range pp.ManagedPaths() {
+				peerStr := mp.PeerID.String()
+				name := reverseNames[peerStr]
+				nameCol := ""
+				if name != "" {
+					nameCol = " (" + name + ")"
+				}
+				relayName := reverseNames[mp.RelayPeerID.String()]
+				if relayName == "" {
+					relayName = s.runtime.RelayNameFromConfig(mp.RelayPeerID.String())
+				}
+				status := "[managed-backup]"
+				if mp.Dead {
+					status = "[managed-dead]"
+				}
+				fmt.Fprintf(&sb, "%s%s\tRELAYED\trelay=%s\tstreams=%d\t%s\n",
+					peerStr, nameCol, relayName, mp.Streams, status)
+			}
+		}
+
 		RespondText(w, http.StatusOK, sb.String())
 		return
 	}

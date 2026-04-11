@@ -45,6 +45,7 @@ func (m *networkMockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error {
 }
 func (m *networkMockRuntime) Interfaces() *sdk.InterfaceSummary { return nil }
 func (m *networkMockRuntime) PathTracker() *sdk.PathTracker           { return nil }
+func (m *networkMockRuntime) PathProtector() *sdk.PathProtector       { return nil }
 func (m *networkMockRuntime) BandwidthTracker() *sdk.BandwidthTracker { return nil }
 func (m *networkMockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
 func (m *networkMockRuntime) STUNResult() *sdk.STUNResult             { return nil }

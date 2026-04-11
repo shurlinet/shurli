@@ -138,24 +138,30 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 		isNewConnVerifiedLAN := reg.IsVerifiedLAN(pid, c.RemoteMultiaddr())
 
 		if !isNewConnVerifiedLAN && reg.HasVerifiedLANConn(cl.pm.host, pid) {
-			// Case 1: New non-LAN arrives, verified LAN exists → close new.
-			var lanAddr ma.Multiaddr
-			for _, existing := range n.ConnsToPeer(pid) {
-				if existing != c && !existing.Stat().Limited && reg.IsVerifiedLAN(pid, existing.RemoteMultiaddr()) {
-					lanAddr = existing.RemoteMultiaddr()
-					break
+			// Guard: don't close if peer is path-protected (C4).
+			if cl.pm.pathProtector != nil && cl.pm.pathProtector.IsProtected(pid) {
+				slog.Debug("pathprotector: keeping non-LAN conn (protected)",
+					"peer", short, "remote", c.RemoteMultiaddr())
+			} else {
+				// Case 1: New non-LAN arrives, verified LAN exists → close new.
+				var lanAddr ma.Multiaddr
+				for _, existing := range n.ConnsToPeer(pid) {
+					if existing != c && !existing.Stat().Limited && reg.IsVerifiedLAN(pid, existing.RemoteMultiaddr()) {
+						lanAddr = existing.RemoteMultiaddr()
+						break
+					}
 				}
+				slog.Info("peermanager: closing non-LAN conn (verified LAN exists)",
+					"peer", short,
+					"closing", c.RemoteMultiaddr(),
+					"keeping", lanAddr,
+					"direction", dir)
+				go func() {
+					c.Close()
+					StripNonLANAddrs(cl.pm.host, pid)
+				}()
+				return
 			}
-			slog.Info("peermanager: closing non-LAN conn (verified LAN exists)",
-				"peer", short,
-				"closing", c.RemoteMultiaddr(),
-				"keeping", lanAddr,
-				"direction", dir)
-			go func() {
-				c.Close()
-				StripNonLANAddrs(cl.pm.host, pid)
-			}()
-			return
 		}
 
 		if isNewConnVerifiedLAN {
@@ -166,6 +172,12 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 					continue
 				}
 				if reg.IsVerifiedLAN(pid, existing.RemoteMultiaddr()) {
+					continue
+				}
+				// Guard: don't close if protected (C4) or has active streams.
+				if cl.pm.pathProtector != nil && cl.pm.pathProtector.IsProtected(pid) {
+					slog.Debug("pathprotector: keeping non-LAN conn (protected)",
+						"peer", short, "remote", existing.RemoteMultiaddr())
 					continue
 				}
 				if streams := existing.GetStreams(); len(streams) > 0 {
@@ -253,6 +265,11 @@ type PeerManager struct {
 	connLog     *connLogger        // logs connection close events for watched peers
 	lanRegistry *LANRegistry       // mDNS-verified LAN peer/IP tracking
 
+	// TS-5: PathProtector integration.
+	pathProtector      *PathProtector           // nil-safe, set via SetPathProtector
+	onWatchlistRemoved func(peer.ID)            // callback for deauth cleanup (R7-D1)
+	connGracePeriod    time.Duration            // per-connection grace in closeOnce (R8-C1)
+
 	mu    sync.RWMutex
 	peers map[peer.ID]*ManagedPeer
 
@@ -278,15 +295,34 @@ func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect Connect
 		lanReg = NewLANRegistry()
 	}
 	return &PeerManager{
-		host:         h,
-		pathDialer:   pd,
-		metrics:      m,
-		onReconnect:  onReconnect,
-		lanRegistry:  lanReg,
-		peers:        make(map[peer.ID]*ManagedPeer),
-		relayCleanup: make(map[peer.ID]struct{}),
-		reconnectNow: make(chan struct{}, 1),
+		host:            h,
+		pathDialer:      pd,
+		metrics:         m,
+		onReconnect:     onReconnect,
+		lanRegistry:     lanReg,
+		connGracePeriod: DefaultConnGracePeriod,
+		peers:           make(map[peer.ID]*ManagedPeer),
+		relayCleanup:    make(map[peer.ID]struct{}),
+		reconnectNow:    make(chan struct{}, 1),
 	}
+}
+
+// SetPathProtector sets the path protector for guard checks in cleanup code.
+// Called during daemon wiring after both PeerManager and PathProtector are created.
+func (pm *PeerManager) SetPathProtector(pp *PathProtector) {
+	pm.pathProtector = pp
+}
+
+// SetOnWatchlistRemoved registers a callback fired for each peer removed from
+// the watchlist. Used by PathProtector for deauth cleanup (R7-D1).
+func (pm *PeerManager) SetOnWatchlistRemoved(fn func(peer.ID)) {
+	pm.onWatchlistRemoved = fn
+}
+
+// SetConnGracePeriod overrides the per-connection grace period for closeOnce.
+// Used in tests (R9-D2). Production default: DefaultConnGracePeriod (30s).
+func (pm *PeerManager) SetConnGracePeriod(d time.Duration) {
+	pm.connGracePeriod = d
 }
 
 // LANRegistry returns the mDNS-verified LAN registry for use by mDNS
@@ -334,10 +370,25 @@ func (pm *PeerManager) SetWatchlist(peerIDs []peer.ID) {
 	}
 
 	// Remove peers no longer in the watchlist.
+	// Collect removed peers for deauth callback (R7-C1).
+	var removed []peer.ID
 	for pid := range pm.peers {
 		if _, ok := newSet[pid]; !ok {
+			removed = append(removed, pid)
 			delete(pm.peers, pid)
 		}
+	}
+
+	// Fire deauth callback synchronously BEFORE returning (R7-S1).
+	// This ensures managed conns are closed before SetWatchlist completes.
+	callback := pm.onWatchlistRemoved
+	if callback != nil && len(removed) > 0 {
+		// Release lock before callback to avoid deadlock.
+		pm.mu.Unlock()
+		for _, pid := range removed {
+			callback(pid)
+		}
+		pm.mu.Lock()
 	}
 
 	// Add new peers, checking current connection state.
@@ -915,8 +966,22 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 	defer timer.Stop()
 
 	closeOnce := func() {
+		// Guard: skip cleanup if peer is path-protected (C1, I2).
+		// Re-evaluated on every tick — protection can be set after goroutine launch.
+		if pm.pathProtector != nil && pm.pathProtector.IsProtected(pid) {
+			slog.Debug("pathprotector: relay cleanup blocked (protected)",
+				"peer", short)
+			return
+		}
 		for _, c := range pm.host.Network().ConnsToPeer(pid) {
 			if c.Stat().Limited {
+				// Per-connection grace: skip recently-arrived relays (R8-C1).
+				// Covers managed circuits arriving mid-sweep before Protect() is called.
+				if pm.connGracePeriod > 0 && time.Since(c.Stat().Opened) < pm.connGracePeriod {
+					slog.Debug("pathprotector: closeOnce skipped recent relay",
+						"peer", short, "age", time.Since(c.Stat().Opened).Round(time.Millisecond))
+					continue
+				}
 				c.Close()
 				slog.Info("peermanager: closed relay conn (direct exists)",
 					"peer", short,
@@ -956,6 +1021,17 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 // startRelayCleanup launches closeRelayConns for a peer if one isn't
 // already running. Returns true if a new goroutine was launched.
 func (pm *PeerManager) startRelayCleanup(pid peer.ID) bool {
+	// Guard: skip cleanup if peer is path-protected (C2).
+	if pm.pathProtector != nil && pm.pathProtector.IsProtected(pid) {
+		short := pid.String()
+		if len(short) > 16 {
+			short = short[:16] + "..."
+		}
+		slog.Debug("pathprotector: relay cleanup skipped (protected)",
+			"peer", short)
+		return false
+	}
+
 	pm.mu.Lock()
 	if _, running := pm.relayCleanup[pid]; running {
 		pm.mu.Unlock()
@@ -964,7 +1040,39 @@ func (pm *PeerManager) startRelayCleanup(pid peer.ID) bool {
 	pm.relayCleanup[pid] = struct{}{}
 	pm.mu.Unlock()
 
-	go pm.closeRelayConns(pid)
+	// I6/R5-I2: Grace period before starting relay cleanup sweep.
+	// Gives transfers time to call Protect() before relay is torn down.
+	// Tracked by wg to ensure clean shutdown.
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+
+		// Wait for grace period (cancellable via ctx for clean shutdown).
+		if pm.connGracePeriod > 0 {
+			timer := time.NewTimer(pm.connGracePeriod)
+			select {
+			case <-pm.ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				pm.mu.Lock()
+				delete(pm.relayCleanup, pid)
+				pm.mu.Unlock()
+				return
+			case <-timer.C:
+			}
+
+			// Re-check protection after grace period.
+			if pm.pathProtector != nil && pm.pathProtector.IsProtected(pid) {
+				pm.mu.Lock()
+				delete(pm.relayCleanup, pid)
+				pm.mu.Unlock()
+				return
+			}
+		}
+
+		pm.closeRelayConns(pid)
+	}()
 	return true
 }
 

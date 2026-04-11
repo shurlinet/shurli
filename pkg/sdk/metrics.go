@@ -104,6 +104,12 @@ type Metrics struct {
 	RelayHealthScore *prometheus.GaugeVec   // labels: peer, is_static
 	RelayProbeTotal  *prometheus.CounterVec // labels: result
 
+	// TS-5: Managed relay connection metrics (R8-I2)
+	ManagedConnsActive          prometheus.Gauge
+	ManagedConnsEstablishedTotal *prometheus.CounterVec // labels: (none)
+	ManagedConnsFailedTotal     *prometheus.CounterVec // labels: (none)
+	ManagedConnsClosedTotal     *prometheus.CounterVec // labels: reason (unprotect, dead, deauth, reaper, shutdown)
+
 	// Build info
 	BuildInfo *prometheus.GaugeVec
 }
@@ -490,6 +496,35 @@ func NewMetrics(version, goVersion string) *Metrics {
 			[]string{"result"},
 		),
 
+		// TS-5: Managed relay connection metrics (R8-I2).
+		ManagedConnsActive: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "shurli_managed_conns_active",
+				Help: "Number of active managed relay connections.",
+			},
+		),
+		ManagedConnsEstablishedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_managed_conns_established_total",
+				Help: "Total managed relay connections established.",
+			},
+			[]string{},
+		),
+		ManagedConnsFailedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_managed_conns_failed_total",
+				Help: "Total managed relay connection establishment failures.",
+			},
+			[]string{},
+		),
+		ManagedConnsClosedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "shurli_managed_conns_closed_total",
+				Help: "Total managed relay connections closed.",
+			},
+			[]string{"reason"},
+		),
+
 		BuildInfo: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "shurli_info",
@@ -548,6 +583,10 @@ func NewMetrics(version, goVersion string) *Metrics {
 		m.BandwidthBytesTotal,
 		m.RelayHealthScore,
 		m.RelayProbeTotal,
+		m.ManagedConnsActive,
+		m.ManagedConnsEstablishedTotal,
+		m.ManagedConnsFailedTotal,
+		m.ManagedConnsClosedTotal,
 		m.BuildInfo,
 	)
 

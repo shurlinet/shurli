@@ -60,6 +60,9 @@ type serveRuntime struct {
 	// Path tracker for per-peer connection visibility
 	pathTracker *sdk.PathTracker
 
+	// TS-5: Path protector for managed relay connections during transfers
+	pathProtector *sdk.PathProtector
+
 	// STUN prober for NAT type detection and external address discovery
 	stunProber *sdk.STUNProber
 
@@ -507,6 +510,26 @@ func (rt *serveRuntime) Bootstrap() error {
 		rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
 	}
 	rt.peerManager.Start(rt.ctx)
+
+	// TS-5: Create PathProtector and wire to PeerManager + Network.
+	// Requires: host, relay source, LAN registry (all available at this point).
+	// relayDiscovery is always set (line ~195) and implements RelaySource.
+	rt.pathProtector = sdk.NewPathProtector(h, rt.relayDiscovery, rt.network.GetLANRegistry(), rt.bwTracker)
+	if rt.pathProtector != nil {
+		if rt.metrics != nil {
+			rt.pathProtector.SetMetrics(rt.metrics)
+		}
+		rt.network.SetPathProtector(rt.pathProtector)
+		rt.peerManager.SetPathProtector(rt.pathProtector)
+		// R7-D1: deauth cleanup callback.
+		rt.peerManager.SetOnWatchlistRemoved(func(pid peer.ID) {
+			rt.pathProtector.ForceUnprotectAll(pid)
+			// Also close swarm connections (pre-existing gap fix, R7-I3).
+			for _, c := range h.Network().ConnsToPeer(pid) {
+				c.Close()
+			}
+		})
+	}
 
 	// Start network intelligence presence protocol (default: enabled).
 	// Shares reachability, NAT type, and capability info with connected peers

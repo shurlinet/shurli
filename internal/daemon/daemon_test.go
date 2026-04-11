@@ -39,6 +39,7 @@ func (m *mockRuntime) PingProtocolID() string          { return m.pingProto }
 func (m *mockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error { return nil }
 func (m *mockRuntime) Interfaces() *sdk.InterfaceSummary             { return nil }
 func (m *mockRuntime) PathTracker() *sdk.PathTracker           { return nil }
+func (m *mockRuntime) PathProtector() *sdk.PathProtector       { return nil }
 func (m *mockRuntime) BandwidthTracker() *sdk.BandwidthTracker { return nil }
 func (m *mockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
 func (m *mockRuntime) STUNResult() *sdk.STUNResult             { return nil }

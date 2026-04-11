@@ -668,6 +668,9 @@ type TransferService struct {
 	// hostRef is the libp2p host, needed by sendMultiPathCancel to enumerate connections.
 	hostRef host.Host
 
+	// TS-5: PathProtector for path protection during transfers.
+	pathProtector *sdk.PathProtector
+
 	// activeSends maps transferID -> active send info for outbound sends.
 	// The cancel handler looks up this map when a remote receiver sends a cancel.
 	// Separate mutex from ts.mu to avoid contention (R2-I5).
@@ -1201,6 +1204,12 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	var transferID [32]byte
 	rand.Read(transferID[:])
 
+	// TS-5: protect relay paths during transfer.
+	protectTag := fmt.Sprintf("send-%x", transferID[:8])
+	if ts.pathProtector != nil {
+		ts.pathProtector.Protect(remotePeer, protectTag)
+	}
+
 	// Determine compression.
 	useCompression := ts.compress
 	if len(opts) > 0 && opts[0].NoCompress {
@@ -1263,6 +1272,12 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	go func() {
 		defer s.Close()
+		// TS-5: unprotect relay paths when send completes.
+		defer func() {
+			if ts.pathProtector != nil {
+				ts.pathProtector.Unprotect(remotePeer, protectTag)
+			}
+		}()
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		sendStart := time.Now()
@@ -1826,6 +1841,13 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 				"size", totalSize, "files", len(files),
 				"compressed", flags&flagCompressed != 0)
 			ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
+		}
+
+		// TS-5: protect relay paths during inbound transfer (C3).
+		recvProtectTag := fmt.Sprintf("recv-%x", transferID[:8])
+		if ts.pathProtector != nil {
+			ts.pathProtector.Protect(remotePeer, recvProtectTag)
+			defer ts.pathProtector.Unprotect(remotePeer, recvProtectTag)
 		}
 
 		// Compute content key for cross-session resume (R3-IMP5, R4-IMP2).
@@ -2731,7 +2753,7 @@ func (ts *TransferService) CancelTransfer(id string) error {
 	if ts.hostRef != nil && cancelRemotePeer != "" {
 		var zeroID [32]byte
 		if cancelTransferID != zeroID {
-			go sendMultiPathCancel(ts.hostRef, cancelRemotePeer, cancelTransferID)
+			go sendMultiPathCancel(ts.hostRef, cancelRemotePeer, cancelTransferID, ts.pathProtector)
 		}
 	}
 
@@ -3329,6 +3351,12 @@ func (ts *TransferService) SetHost(h host.Host) {
 	ts.hostRef = h
 }
 
+// SetPathProtector sets the path protector for relay path protection during transfers (TS-5).
+// Called from plugin.Start() after TransferService creation.
+func (ts *TransferService) SetPathProtector(pp *sdk.PathProtector) {
+	ts.pathProtector = pp
+}
+
 // logEvent writes a structured transfer event to the log file.
 // No-op if logging is disabled.
 func (ts *TransferService) logEvent(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string) {
@@ -3489,6 +3517,13 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	}
 
 	ts.logEvent(EventLogRequestReceived, "download", peerKey, displayName, totalSize, 0, "", "")
+
+	// TS-5: protect relay paths during download (C3).
+	dlProtectTag := fmt.Sprintf("dl-%x", transferID[:8])
+	if ts.pathProtector != nil {
+		ts.pathProtector.Protect(remotePeer, dlProtectTag)
+		defer ts.pathProtector.Unprotect(remotePeer, dlProtectTag)
+	}
 
 	// Size limit check.
 	if ts.maxSize > 0 && totalSize > ts.maxSize {

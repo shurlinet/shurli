@@ -42,8 +42,9 @@ func (rt *serveRuntime) Version() string                      { return rt.versio
 func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
 func (rt *serveRuntime) Interfaces() *sdk.InterfaceSummary { return rt.ifSummary }
-func (rt *serveRuntime) PathTracker() *sdk.PathTracker         { return rt.pathTracker }
-func (rt *serveRuntime) BandwidthTracker() *sdk.BandwidthTracker { return rt.bwTracker }
+func (rt *serveRuntime) PathTracker() *sdk.PathTracker             { return rt.pathTracker }
+func (rt *serveRuntime) PathProtector() *sdk.PathProtector         { return rt.pathProtector }
+func (rt *serveRuntime) BandwidthTracker() *sdk.BandwidthTracker   { return rt.bwTracker }
 func (rt *serveRuntime) RelayHealth() *sdk.RelayHealth           { return rt.relayHealth }
 func (rt *serveRuntime) STUNResult() *sdk.STUNResult {
 	if rt.stunProber == nil {
