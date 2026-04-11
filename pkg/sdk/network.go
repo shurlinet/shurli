@@ -138,7 +138,8 @@ type Network struct {
 	serviceRegistry *ServiceRegistry
 	nameResolver    *NameResolver
 	events          *EventBus
-	lanRegistry     *LANRegistry // mDNS-verified LAN peer/IP tracking
+	lanRegistry     *LANRegistry    // mDNS-verified LAN peer/IP tracking
+	pathProtector   *PathProtector  // TS-5: managed relay paths during transfers
 	ctx             context.Context
 	cancel          context.CancelFunc
 
@@ -613,6 +614,18 @@ func (n *Network) GetLANRegistry() *LANRegistry {
 	return n.lanRegistry
 }
 
+// GetPathProtector returns the path protector for managed relay connections.
+// Used by plugins to Protect/Unprotect during transfers and by cancel fan-out.
+func (n *Network) GetPathProtector() *PathProtector {
+	return n.pathProtector
+}
+
+// SetPathProtector sets the path protector. Called during daemon wiring
+// after both Network and PeerManager are created (LANRegistry pattern).
+func (n *Network) SetPathProtector(pp *PathProtector) {
+	n.pathProtector = pp
+}
+
 // PeerID returns the peer ID of this network node
 func (n *Network) PeerID() peer.ID {
 	return n.host.ID()
@@ -1032,6 +1045,9 @@ func (n *Network) Events() *EventBus {
 
 // Close shuts down the network
 func (n *Network) Close() error {
+	if n.pathProtector != nil {
+		n.pathProtector.Close()
+	}
 	n.cancel()
 	return n.host.Close()
 }

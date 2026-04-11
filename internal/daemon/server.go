@@ -35,6 +35,7 @@ type RuntimeInfo interface {
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
 	Interfaces() *sdk.InterfaceSummary                    // nil before discovery
 	PathTracker() *sdk.PathTracker                        // nil before bootstrap
+	PathProtector() *sdk.PathProtector                   // nil before bootstrap (TS-5)
 	BandwidthTracker() *sdk.BandwidthTracker              // nil when disabled
 	RelayHealth() *sdk.RelayHealth                        // nil when disabled
 	STUNResult() *sdk.STUNResult                          // nil before probe

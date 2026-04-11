@@ -237,6 +237,9 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	ts.SetHost(p.network.Host())
 	RegisterCancelHandler(p.network.Host(), ts)
 
+	// TS-5: Set path protector for relay path protection during transfers.
+	ts.SetPathProtector(p.network.GetPathProtector())
+
 	// If config specifies timed mode at startup, activate the timer.
 	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration

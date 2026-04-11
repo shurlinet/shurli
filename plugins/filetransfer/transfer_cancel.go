@@ -111,8 +111,15 @@ func UnregisterCancelHandler(h host.Host) {
 // the cancel protocol is not a plugin service — R4-I6).
 //
 // Called from CancelTransfer in a background goroutine (R2-I8).
-func sendMultiPathCancel(h host.Host, peerID peer.ID, transferID [32]byte) {
+func sendMultiPathCancel(h host.Host, peerID peer.ID, transferID [32]byte, pp *sdk.PathProtector) {
 	conns := h.Network().ConnsToPeer(peerID)
+
+	// Include managed conns from PathProtector for cancel fan-out (R5-C2).
+	// If direct path is dead, cancel can still reach peer via managed relay.
+	if pp != nil {
+		conns = append(conns, pp.ManagedConnsForCancel(peerID)...)
+	}
+
 	if len(conns) == 0 {
 		slog.Debug("transfer-cancel: no connections for multi-path cancel",
 			"peer", peerID.String()[:16])

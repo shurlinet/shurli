@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -102,6 +103,17 @@ func classifyConnGroup(conn network.Conn) string {
 	return "relay-" + relayPeerID
 }
 
+// AllConnGroups merges swarm connection groups with managed relay groups from
+// PathProtector. This is the primary interface for hedging and cancel fan-out.
+// ConnGroups stays as a pure swarm function for internal use (R8-D1).
+func AllConnGroups(h HostNetwork, peerID peer.ID, pp *PathProtector) []ConnGroup {
+	groups := ConnGroups(h, peerID)
+	if pp != nil {
+		groups = append(groups, pp.ManagedGroups(peerID)...)
+	}
+	return groups
+}
+
 // OpenStreamOnConn opens a protocol-negotiated stream on a specific connection.
 // This is the primitive needed for hedging across independent paths — it bypasses
 // host.NewStream's automatic connection selection.
@@ -126,6 +138,14 @@ func OpenStreamOnConn(ctx context.Context, conn network.Conn, proto protocol.ID)
 	if err := multistream.SelectProtoOrFail(string(proto), s); err != nil {
 		s.Reset() // Clean up raw stream on negotiation failure.
 		return nil, fmt.Errorf("negotiate %s: %w", proto, err)
+	}
+
+	// Set protocol on stream for bandwidth tracking and diagnostics.
+	// For swarm streams, host.NewStream does this. For managed streams
+	// opened via OpenStreamOnConn, we must do it explicitly.
+	if err := s.SetProtocol(proto); err != nil {
+		// Non-fatal: protocol tracking is informational.
+		slog.Debug("connstream: SetProtocol failed", "proto", proto, "error", err)
 	}
 
 	return s, nil

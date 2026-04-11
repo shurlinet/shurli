@@ -40,7 +40,7 @@ type hedgeResult struct {
 // Security: uses OpenPluginStreamOnConn which runs the full security pipeline
 // (policy check, transport check, grant header). Never bypasses security.
 func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceName string) (network.Stream, error) {
-	groups := ConnGroups(n.host, peerID)
+	groups := AllConnGroups(n.host, peerID, n.pathProtector)
 	if len(groups) == 0 {
 		return nil, fmt.Errorf("no connections to peer %s", peerID.String()[:16])
 	}
