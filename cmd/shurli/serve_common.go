@@ -240,7 +240,18 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
 	}
 
+	// Detect macOS Local Network Privacy (LNP) hang: if network creation
+	// takes >5s, the process is likely blocked waiting for the LNP permission
+	// dialog. Print a hint so the user knows what to do.
+	lnpTimer := time.AfterFunc(5*time.Second, func() {
+		fmt.Println()
+		fmt.Println("WARNING: Network startup is taking unusually long.")
+		fmt.Println("  If you see a macOS \"Local Network\" permission dialog, please allow it.")
+		fmt.Println("  Check: System Settings > Privacy & Security > Local Network > Shurli")
+		fmt.Println()
+	})
 	net, err := sdk.New(netCfg)
+	lnpTimer.Stop()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create P2P network: %w", err)
 	}
@@ -261,6 +272,25 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	rt.peerHistory = reputation.NewPeerHistory(historyPath)
 
 	return rt, nil
+}
+
+// SetupPathProtection creates PathProtector and wires it to Network.
+// MUST be called before pluginRegistry.StartAll() so plugins can access
+// the PathProtector via Network.GetPathProtector() during Start().
+// PeerManager wiring happens later in Bootstrap() after PeerManager is created.
+func (rt *serveRuntime) SetupPathProtection() {
+	h := rt.network.Host()
+
+	// TS-5: Create PathProtector and wire to Network.
+	// Requires: host, relay source, LAN registry (all available at this point).
+	// relayDiscovery is always set (line ~195) and implements RelaySource.
+	rt.pathProtector = sdk.NewPathProtector(h, rt.relayDiscovery, rt.network.GetLANRegistry(), rt.bwTracker)
+	if rt.pathProtector != nil {
+		if rt.metrics != nil {
+			rt.pathProtector.SetMetrics(rt.metrics)
+		}
+		rt.network.SetPathProtector(rt.pathProtector)
+	}
 }
 
 // Bootstrap connects to relay servers, bootstraps the DHT, and starts
@@ -511,15 +541,9 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 	rt.peerManager.Start(rt.ctx)
 
-	// TS-5: Create PathProtector and wire to PeerManager + Network.
-	// Requires: host, relay source, LAN registry (all available at this point).
-	// relayDiscovery is always set (line ~195) and implements RelaySource.
-	rt.pathProtector = sdk.NewPathProtector(h, rt.relayDiscovery, rt.network.GetLANRegistry(), rt.bwTracker)
+	// TS-5: Wire PathProtector to PeerManager (PathProtector was created in
+	// SetupPathProtection() before plugins started, PeerManager was just created above).
 	if rt.pathProtector != nil {
-		if rt.metrics != nil {
-			rt.pathProtector.SetMetrics(rt.metrics)
-		}
-		rt.network.SetPathProtector(rt.pathProtector)
 		rt.peerManager.SetPathProtector(rt.pathProtector)
 		// R7-D1: deauth cleanup callback.
 		rt.peerManager.SetOnWatchlistRemoved(func(pid peer.ID) {

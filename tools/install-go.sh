@@ -89,11 +89,12 @@ do_install() {
     echo "Downloading: ${url}"
     curl -fSL -o "${dl_dir}/${tarball}" "$url"
 
-    # Verify checksum from Go's official SHA256 file
+    # Verify checksum from Go's official SHA256 file.
+    # Use dl.google.com which returns raw hash (go.dev returns HTML redirect).
     echo "Verifying checksum..."
-    local sha_url="https://go.dev/dl/${tarball}.sha256"
+    local sha_url="https://dl.google.com/go/${tarball}.sha256"
     local expected_sum
-    expected_sum="$(curl -fsSL "$sha_url" 2>/dev/null)" || expected_sum=""
+    expected_sum="$(curl -fsSL "$sha_url" 2>/dev/null | head -1 | tr -d '[:space:]')" || expected_sum=""
     if [ -n "$expected_sum" ]; then
         local actual_sum
         if command -v sha256sum >/dev/null 2>&1; then

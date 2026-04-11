@@ -744,6 +744,11 @@ func runDaemonStart(args []string) {
 	if states := rt.config.Plugins.PluginStates(); states != nil {
 		pluginRegistry.ApplyConfig(states)
 	}
+
+	// TS-5: PeerManager + PathProtector must be ready before plugins start.
+	// Plugins call Network.GetPathProtector() during Start().
+	rt.SetupPathProtection()
+
 	pluginRegistry.StartAll()
 
 	if err := rt.Bootstrap(); err != nil {
