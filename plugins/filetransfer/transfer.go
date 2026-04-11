@@ -1214,11 +1214,8 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	var transferID [32]byte
 	rand.Read(transferID[:])
 
-	// TS-5: protect relay paths during transfer.
+	// TS-5: protect relay paths during transfer (tag created here, protect inside goroutine).
 	protectTag := fmt.Sprintf("send-%x", transferID[:8])
-	if ts.pathProtector != nil {
-		ts.pathProtector.Protect(remotePeer, protectTag)
-	}
 
 	// Determine compression.
 	useCompression := ts.compress
@@ -1282,7 +1279,14 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	go func() {
 		defer s.Close()
-		// TS-5: unprotect relay paths when send completes.
+		// TS-5: protect/unprotect relay paths for entire goroutine lifecycle.
+		// Context-based liveness prevents reaper from killing idle backup circuits
+		// during long transfers (TS-5b reaper bug fix).
+		sendCtx, sendCtxCancel := context.WithCancel(context.Background())
+		defer sendCtxCancel()
+		if ts.pathProtector != nil {
+			ts.pathProtector.ProtectWithContext(sendCtx, remotePeer, protectTag)
+		}
 		defer func() {
 			if ts.pathProtector != nil {
 				ts.pathProtector.Unprotect(remotePeer, protectTag)
@@ -1854,9 +1858,13 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 
 		// TS-5: protect relay paths during inbound transfer (C3).
+		// Context-based liveness prevents reaper from killing idle backup circuits
+		// during long transfers (TS-5b reaper bug fix).
 		recvProtectTag := fmt.Sprintf("recv-%x", transferID[:8])
+		recvCtx, recvCtxCancel := context.WithCancel(context.Background())
+		defer recvCtxCancel()
 		if ts.pathProtector != nil {
-			ts.pathProtector.Protect(remotePeer, recvProtectTag)
+			ts.pathProtector.ProtectWithContext(recvCtx, remotePeer, recvProtectTag)
 			defer ts.pathProtector.Unprotect(remotePeer, recvProtectTag)
 		}
 
@@ -3943,8 +3951,12 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 
 		// F32 fix: Protect/Unprotect inside goroutine so managed relay
 		// connections stay protected for the entire transfer lifecycle.
+		// Context-based liveness prevents reaper from killing idle backup circuits
+		// during long transfers (TS-5b reaper bug fix).
+		dlCtx, dlCtxCancel := context.WithCancel(context.Background())
+		defer dlCtxCancel()
 		if ts.pathProtector != nil {
-			ts.pathProtector.Protect(remotePeer, dlProtectTag)
+			ts.pathProtector.ProtectWithContext(dlCtx, remotePeer, dlProtectTag)
 			defer ts.pathProtector.Unprotect(remotePeer, dlProtectTag)
 		}
 
@@ -4018,15 +4030,69 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 				break
 			}
 
-			// F14: Check for backup path. If no alternative connections, save and stop.
+			// F14: Check for backup path. If no alternative connections exist yet
+			// (e.g. network switch killed all connections), wait for the daemon to
+			// re-establish a connection via relay on the new network.
 			if ts.networkRef == nil || ts.downloadServiceName == "" {
 				break
 			}
 			groups := sdk.AllConnGroups(ts.networkRef.Host(), remotePeer, ts.pathProtector)
 			if len(groups) <= 1 {
-				slog.Info("file-download: no backup path for failover, saving checkpoint",
+				// No backup path yet. Wait for reconnection before giving up.
+				// Network switch (WiFi→cellular) kills all connections including
+				// managed relay circuits. The daemon will reconnect to relays on
+				// the new network, then establish a relay circuit to the peer.
+				// Poll with increasing intervals up to 30s total.
+				reconnectDeadline := time.After(60 * time.Second)
+				reconnectTick := time.NewTicker(2 * time.Second)
+				reconnected := false
+				slog.Info("file-download: waiting for reconnection to peer",
 					"peer", short, "file", displayName)
-				break
+				progress.setStatus("reconnecting")
+
+			reconnectLoop:
+				for {
+					select {
+					case <-ts.queueCtx.Done():
+						reconnectTick.Stop()
+						recvErr = fmt.Errorf("cancelled during reconnection wait")
+						goto done
+					case <-reconnectDeadline:
+						break reconnectLoop
+					case <-reconnectTick.C:
+						if progress.Snapshot().Done {
+							break reconnectLoop // user cancelled
+						}
+						// Clear stale state blocking reconnection (same as ConnectToPeer).
+						for _, c := range ts.networkRef.Host().Network().ConnsToPeer(remotePeer) {
+							if c.Stat().Limited {
+								c.Close()
+							}
+						}
+						ts.networkRef.ClearDialBackoffs([]peer.ID{remotePeer})
+						ts.networkRef.ResetBlackHoles()
+						connectCtx, connectCancel := context.WithTimeout(ts.queueCtx, 10*time.Second)
+						ts.networkRef.Host().Connect(connectCtx, peer.AddrInfo{ID: remotePeer})
+						connectCancel()
+						groups = sdk.AllConnGroups(ts.networkRef.Host(), remotePeer, ts.pathProtector)
+						if len(groups) >= 1 {
+							reconnected = true
+							break reconnectLoop
+						}
+					}
+				}
+				reconnectTick.Stop()
+
+				if !reconnected {
+					slog.Info("file-download: no backup path, will retry",
+						"peer", short, "file", displayName,
+						"attempt", totalFailovers, "max", maxTotalFailovers)
+					recvErr = fmt.Errorf("no backup path for failover")
+					continue
+				}
+				slog.Info("file-download: peer reconnected, proceeding with failover",
+					"peer", short, "file", displayName,
+					"groups", len(groups))
 			}
 
 			// F21: Detect if failover is from direct to relay and log appropriately.
@@ -4082,8 +4148,68 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			newStream, hedgeErr := sdk.HedgedOpenStream(
 				ts.queueCtx, ts.networkRef, remotePeer, ts.downloadServiceName)
 			if hedgeErr != nil {
-				recvErr = fmt.Errorf("failover stream: %w", hedgeErr)
-				break
+				// All existing connection groups failed (dead connections from
+				// network switch). Wait for daemon to reconnect on new network,
+				// then retry HedgedOpenStream.
+				slog.Info("file-download: all paths dead, waiting for reconnection",
+					"peer", short, "file", displayName, "error", hedgeErr)
+				progress.setStatus("reconnecting")
+
+				reconnectDeadline := time.After(60 * time.Second)
+				reconnectTick := time.NewTicker(2 * time.Second)
+				reconnected := false
+
+			hedgeReconnectLoop:
+				for {
+					select {
+					case <-ts.queueCtx.Done():
+						reconnectTick.Stop()
+						recvErr = fmt.Errorf("cancelled during reconnection wait")
+						goto done
+					case <-reconnectDeadline:
+						break hedgeReconnectLoop
+					case <-reconnectTick.C:
+						if progress.Snapshot().Done {
+							break hedgeReconnectLoop
+						}
+						// Clear stale state that blocks reconnection after network switch:
+						// - Close dead relay connections (fool libp2p into thinking peer is connected)
+						// - Clear dial backoffs (libp2p won't retry recently-failed addresses)
+						// - Reset black hole detector (blocks all relay dials after consecutive failures)
+						// - Re-add relay circuit addresses to peerstore (may only have direct addrs)
+						// Same logic as ConnectToPeer (serve_common.go:1457-1478).
+						for _, c := range ts.networkRef.Host().Network().ConnsToPeer(remotePeer) {
+							if c.Stat().Limited {
+								c.Close()
+							}
+						}
+						ts.networkRef.ClearDialBackoffs([]peer.ID{remotePeer})
+						ts.networkRef.ResetBlackHoles()
+						connectCtx, connectCancel := context.WithTimeout(ts.queueCtx, 10*time.Second)
+						ts.networkRef.Host().Connect(connectCtx, peer.AddrInfo{ID: remotePeer})
+						connectCancel()
+						newStream, hedgeErr = sdk.HedgedOpenStream(
+							ts.queueCtx, ts.networkRef, remotePeer, ts.downloadServiceName)
+						if hedgeErr == nil {
+							reconnected = true
+							break hedgeReconnectLoop
+						}
+					}
+				}
+				reconnectTick.Stop()
+
+				if !reconnected {
+					slog.Info("file-download: reconnection timed out, will retry",
+						"peer", short, "file", displayName,
+						"attempt", totalFailovers, "max", maxTotalFailovers)
+					recvErr = fmt.Errorf("failover stream: %w", hedgeErr)
+					// Don't break — continue the retry loop. The next iteration
+					// will check retry limits and try another 60s reconnect window.
+					// Total window: maxDownloadFailovers × 60s = 3 minutes.
+					continue
+				}
+				slog.Info("file-download: reconnected, resuming transfer",
+					"peer", short, "file", displayName)
 			}
 
 			// F4: Check relay budget on failover path. Awareness only (per project rules:
@@ -4107,10 +4233,17 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			dlCtx, negErr := ts.downloadNegotiate(newStream, remotePath, destDir, state)
 			if negErr != nil {
 				newStream.Close()
+				// If negotiation failed due to stream reset (stale managed circuit),
+				// mark the managed circuit as dead and retry — the next iteration
+				// will enter the reconnection wait loop and get a fresh connection.
+				negCategory := classifyTransferError(negErr, ts.queueCtx)
+				if negCategory == retryableNetwork {
+					slog.Info("file-download: negotiate failed on stale path, retrying",
+						"peer", short, "error", negErr)
+					recvErr = fmt.Errorf("failover negotiate: %w", negErr)
+					continue
+				}
 				recvErr = fmt.Errorf("failover negotiate: %w", negErr)
-				// Negotiation failed on backup path. Don't continue the loop
-				// (currentSession is deregistered, receiveParallel would fail).
-				// Save checkpoint and stop — user retries manually.
 				break
 			}
 

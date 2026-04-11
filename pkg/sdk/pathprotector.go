@@ -41,6 +41,15 @@ const (
 	DefaultConnGracePeriod = 30 * time.Second
 )
 
+// protectInfo tracks a single protection tag with optional context-based liveness.
+// When ctx is non-nil, the reaper uses context cancellation to detect goroutine exit
+// instead of time-based orphan detection. This prevents the reaper from killing
+// managed relay circuits that are idle backups for long-running transfers.
+type protectInfo struct {
+	created time.Time
+	ctx     context.Context // nil for legacy Protect() calls (uses time-based reaping)
+}
+
 // shortPeerID returns a truncated peer ID for logging (safe for short IDs in tests).
 func shortPeerID(pid peer.ID) string {
 	s := pid.String()
@@ -73,7 +82,7 @@ type PathProtector struct {
 	metrics     *Metrics          // nil when metrics disabled (R8-I2)
 
 	mu   sync.RWMutex
-	tags map[peer.ID]map[string]time.Time // pid -> tag -> created
+	tags map[peer.ID]map[string]protectInfo // pid -> tag -> info
 
 	// Managed relay connections established via Transport.Dial (D6).
 	// NOT in the swarm. One per peer (R7-E2: concurrent transfers multiplex).
@@ -109,7 +118,7 @@ func NewPathProtector(h host.Host, rs RelaySource, lr *LANRegistry, bw *Bandwidt
 		relaySource:       rs,
 		lanRegistry:       lr,
 		bwTracker:         bw,
-		tags:              make(map[peer.ID]map[string]time.Time),
+		tags:              make(map[peer.ID]map[string]protectInfo),
 		managedConns:      make(map[peer.ID]*managedConn),
 		establishing:      make(map[peer.ID]context.CancelFunc),
 		lastEstablish:     make(map[peer.ID]time.Time),
@@ -136,9 +145,25 @@ func (pp *PathProtector) SetMetrics(m *Metrics) {
 // Multiple tags per peer are supported (I1). Background relay establishment
 // triggers on first tag (0->1 transition, I3).
 //
+// Uses time-based orphan detection in the reaper. For long-running operations,
+// prefer ProtectWithContext which uses context-based liveness detection.
+//
 // Security: compiled-in plugins are trusted (current phase). When Layer 2 WASM
 // ships, Protect must become a host function requiring a capability token (S3).
 func (pp *PathProtector) Protect(pid peer.ID, tag string) {
+	pp.protectInternal(pid, tag, nil)
+}
+
+// ProtectWithContext marks a peer as path-protected with context-based liveness.
+// The reaper will NOT consider this tag orphaned as long as ctx is alive.
+// When the goroutine exits (ctx cancelled via defer), the reaper can detect the
+// leaked tag if Unprotect was missed. This prevents the reaper from killing
+// managed relay circuits that are idle backups for long-running transfers.
+func (pp *PathProtector) ProtectWithContext(ctx context.Context, pid peer.ID, tag string) {
+	pp.protectInternal(pid, tag, ctx)
+}
+
+func (pp *PathProtector) protectInternal(pid peer.ID, tag string, ctx context.Context) {
 	pp.mu.Lock()
 
 	// Cap protected peers (S4).
@@ -153,10 +178,10 @@ func (pp *PathProtector) Protect(pid peer.ID, tag string) {
 
 	peerTags, exists := pp.tags[pid]
 	if !exists {
-		peerTags = make(map[string]time.Time)
+		peerTags = make(map[string]protectInfo)
 		pp.tags[pid] = peerTags
 	}
-	peerTags[tag] = time.Now()
+	peerTags[tag] = protectInfo{created: time.Now(), ctx: ctx}
 	firstTag := len(peerTags) == 1 && !exists
 	pp.mu.Unlock()
 
@@ -327,7 +352,7 @@ func (pp *PathProtector) Close() {
 			pp.host.ConnManager().Unprotect(pid, "shurli-path-"+tag)
 		}
 	}
-	pp.tags = make(map[peer.ID]map[string]time.Time)
+	pp.tags = make(map[peer.ID]map[string]protectInfo)
 	pp.mu.Unlock()
 
 	slog.Info("pathprotector: closed")
@@ -340,13 +365,6 @@ func (pp *PathProtector) Close() {
 func (pp *PathProtector) maybeEstablishRelay(pid peer.ID) {
 	// Skip if shutting down.
 	if pp.ctx.Err() != nil {
-		return
-	}
-
-	// Skip LAN peers (R4-F7): same failure domain, relay backup provides no benefit.
-	if pp.lanRegistry != nil && pp.lanRegistry.HasVerifiedLANConn(pp.host, pid) {
-		slog.Info("pathprotector: skipping managed circuit (LAN peer)",
-			"peer", shortPeerID(pid))
 		return
 	}
 
@@ -645,14 +663,25 @@ func (pp *PathProtector) reap() {
 	var orphans []peer.ID
 	now := time.Now()
 	for pid, tags := range pp.tags {
-		allOld := true
-		for _, created := range tags {
-			if now.Sub(created) < orphanTimeout {
-				allOld = false
+		allOrphaned := true
+		for _, info := range tags {
+			if info.ctx != nil {
+				// Context-based liveness: tag is alive as long as context is not done.
+				if info.ctx.Err() == nil {
+					allOrphaned = false
+					break
+				}
+				// Context done but Unprotect not called = leaked tag.
+				// Fall through to orphan handling.
+				continue
+			}
+			// Legacy time-based: tag is alive if younger than orphanTimeout.
+			if now.Sub(info.created) < orphanTimeout {
+				allOrphaned = false
 				break
 			}
 		}
-		if allOld {
+		if allOrphaned {
 			// Check if there are active streams on managed conn.
 			if mc, ok := pp.managedConns[pid]; ok {
 				if mc.streamCount() > 0 {
@@ -674,8 +703,15 @@ func (pp *PathProtector) reap() {
 			continue // already removed by something else
 		}
 		stillOrphan := true
-		for _, created := range tags {
-			if time.Since(created) < orphanTimeout {
+		for _, info := range tags {
+			if info.ctx != nil {
+				if info.ctx.Err() == nil {
+					stillOrphan = false
+					break
+				}
+				continue
+			}
+			if time.Since(info.created) < orphanTimeout {
 				stillOrphan = false
 				break
 			}
