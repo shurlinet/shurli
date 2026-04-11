@@ -502,14 +502,24 @@ func (ts *TransferService) receiveParallel(
 
 	// Checkpoint state: periodic save to survive crashes (N10, R3-IMP5).
 	ckptEnabled := session.receiveDir != ""
+
+	// F5: Dynamic checkpoint interval. Relay transfers use 1s (expensive bandwidth,
+	// save progress aggressively). LAN uses 5s (fast, less disk I/O).
+	// R3-F9: For non-LAN transfers, force immediate first-chunk save by starting
+	// lastCkptSave at zero time (makes first saveCheckpointIfDue always fire).
+	ckptInterval := checkpointSaveInterval // 5s default (LAN)
 	lastCkptSave := time.Now()
+	if ts.isLANPeer == nil || !ts.isLANPeer(session.controlPID) {
+		ckptInterval = 1 * time.Second        // relay/WAN: save every 1s
+		lastCkptSave = time.Time{}             // R3-F9: force first-chunk save
+	}
 
 	// saveCheckpointIfDue saves a checkpoint if enough time has elapsed since the last save.
 	saveCheckpointIfDue := func() {
 		if !ckptEnabled {
 			return
 		}
-		if time.Since(lastCkptSave) < checkpointSaveInterval {
+		if time.Since(lastCkptSave) < ckptInterval {
 			return
 		}
 		ckpt := checkpointFromState(state, session.contentKey, session.flags)
@@ -621,8 +631,11 @@ func (ts *TransferService) receiveParallel(
 			if err := processChunk(sc); err != nil {
 				cleanupWorkers()
 				saveCheckpointOnError()
-				// Don't block on controlDone (S2 fix): control goroutine will exit
-				// when the caller closes the stream. Buffered channel prevents leak.
+				// R2-F3: Wait for control goroutine to exit before returning.
+				// Prevents race with TS-5b retry re-opening the same temp files.
+				// The dead stream's read returns error immediately; controlDone
+				// is buffered(1) and all paths send exactly once — won't block.
+				<-controlDone
 				return zero, err
 			}
 

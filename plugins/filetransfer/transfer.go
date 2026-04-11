@@ -82,6 +82,7 @@ func init() {
 		BrowseProtocol,
 		DownloadProtocol,
 		MultiPeerProtocol,
+		CancelProtocol,
 	)
 }
 
@@ -321,6 +322,7 @@ type TransferProgress struct {
 	ErasureParity   int       `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
 	ErasureOverhead float64   `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
 	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"` // per-stream progress (parallel only)
+	Failovers       int          `json:"failovers,omitempty"`       // TS-5b: number of path failovers (F10)
 	PeerID          string    `json:"peer_id"`
 	Direction   string    `json:"direction"` // "send" or "receive"
 	Status      string    `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
@@ -431,6 +433,7 @@ type TransferSnapshot struct {
 	ErasureParity   int          `json:"erasure_parity,omitempty"`
 	ErasureOverhead float64      `json:"erasure_overhead,omitempty"`
 	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`
+	Failovers       int          `json:"failovers,omitempty"`
 	PeerID          string       `json:"peer_id"`
 	Direction       string       `json:"direction"`
 	Status          string       `json:"status"`
@@ -449,6 +452,7 @@ func (p *TransferProgress) Snapshot() TransferSnapshot {
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
 		CompressedSize: p.CompressedSize,
 		ErasureParity: p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
+		Failovers: p.Failovers,
 		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, Done: p.Done, Error: p.Error,
 	}
@@ -670,6 +674,12 @@ type TransferService struct {
 
 	// TS-5: PathProtector for path protection during transfers.
 	pathProtector *sdk.PathProtector
+
+	// TS-5b: Network reference and service name for failover retry.
+	// The retry loop uses HedgedOpenStream(networkRef, ..., downloadServiceName)
+	// to open streams on backup paths with full security pipeline (R2-F2, R2-F12).
+	networkRef          *sdk.Network
+	downloadServiceName string
 
 	// activeSends maps transferID -> active send info for outbound sends.
 	// The cancel handler looks up this map when a remote receiver sends a cancel.
@@ -2180,6 +2190,10 @@ func (ts *TransferService) ListTransfers() []TransferSnapshot {
 const (
 	maxSendRetries    = 5
 	initialRetryDelay = 2 * time.Second
+
+	// TS-5b: Send-side failover via requeue.
+	maxSendFailovers    = 3  // max path failover requeues per job
+	maxTotalJobAttempts = 10 // cap across ALL retry mechanisms (R5-F8)
 )
 
 // queuedJob holds everything needed to execute a queued transfer.
@@ -2195,6 +2209,15 @@ type queuedJob struct {
 	retryCount         int     // number of retries so far
 	relayReconnects    int     // relay session expiry reconnection attempts (H11)
 	lastRelayPeerID    peer.ID // relay peer from last attempt (for session expiry detection)
+
+	// TS-5b: Send-side failover state.
+	failoverAttempts int   // path failover requeue count
+	cumulativeBytes  int64 // bytes transferred before failover (R3-F5: progress continuity)
+}
+
+// totalAttempts returns the sum of all retry mechanisms for this job (R5-F8).
+func (j *queuedJob) totalAttempts() int {
+	return j.retryCount + j.relayReconnects + j.failoverAttempts
 }
 
 // SubmitSend enqueues an outbound transfer. If a slot is available it starts
@@ -2529,9 +2552,62 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 					// Copy the real transfer's progress into our queued progress tracker.
 					// D1 fix: check jobCtx.Done() so cancel propagates to the polling loop.
 					// When cancelled, reset the stream to stop the underlying SendFile goroutine.
-					finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress)
+					finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress, job.cumulativeBytes)
 				}
 			}
+		}
+	}
+
+	// TS-5b: Send-side path failover via requeue (R5-F1).
+	// Checked FIRST before relay-session-expiry (R5-F4). Uses the existing requeue
+	// pattern: PathDialer + managed relay handles path selection on re-execution.
+	//
+	// R5-F7 KNOWN LIMITATION: For directory sends (SendDirectory), cancel-before-retry
+	// is not performed because SendDirectory doesn't expose the internal transferID.
+	// The old goroutine times out via QUIC idle timeout (~30s). This is bounded and
+	// acceptable. Fix path: add TransferID() method to SendDirectory's return value.
+	if finalErr != nil && job.totalAttempts() < maxTotalJobAttempts &&
+		job.failoverAttempts < maxSendFailovers &&
+		classifyTransferError(finalErr, ts.queueCtx) == retryableNetwork {
+
+		job.failoverAttempts++
+
+		// R3-F5: Accumulate transferred bytes for progress continuity.
+		// The next pollSendProgress call adds this offset.
+		job.progress.mu.Lock()
+		job.cumulativeBytes = job.progress.Transferred
+		job.progress.Failovers++
+		job.progress.mu.Unlock()
+
+		// R5-F4: Reset circuit counters for relay cleanup (belt-and-suspenders).
+		if job.lastRelayPeerID != "" && ts.grantChecker != nil {
+			ts.grantChecker.ResetCircuitCounters(job.lastRelayPeerID)
+		}
+
+		delay := failoverBackoff(job.failoverAttempts)
+		slog.Info("file-transfer: send path failover",
+			"id", job.queueID, "attempt", job.failoverAttempts, "delay", delay)
+		ts.logEvent(EventLogPathFailover, "send", job.peerID, job.filePath, 0,
+			job.cumulativeBytes, finalErr.Error(),
+			fmt.Sprintf("attempt=%d", job.failoverAttempts))
+		job.progress.setStatus("path-failover")
+
+		select {
+		case <-jobCtx.Done():
+			job.progress.finish(fmt.Errorf("cancelled during send failover backoff"))
+			ts.queue.Complete(job.queueID)
+			return
+		case <-time.After(delay):
+			job.progress.setStatus("queued")
+			ts.pendingJobsMu.Lock()
+			ts.pendingJobs[job.queueID] = job
+			ts.pendingJobsMu.Unlock()
+			ts.queue.Requeue(job.queueID, job.filePath, job.peerID, "send", job.priority)
+			select {
+			case ts.queueReady <- struct{}{}:
+			default:
+			}
+			return // Don't complete — job retries via requeue.
 		}
 	}
 
@@ -2556,6 +2632,8 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 		select {
 		case <-jobCtx.Done():
 			job.progress.finish(fmt.Errorf("cancelled during relay reconnect backoff"))
+			ts.queue.Complete(job.queueID)
+			return
 		case <-time.After(delay):
 			job.progress.setStatus("queued")
 			ts.pendingJobsMu.Lock()
@@ -2581,6 +2659,8 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 		select {
 		case <-jobCtx.Done():
 			job.progress.finish(fmt.Errorf("cancelled during retry backoff"))
+			ts.queue.Complete(job.queueID)
+			return
 		case <-time.After(delay):
 			// Re-queue: put job back and signal processor.
 			job.progress.setStatus("queued")
@@ -2626,7 +2706,8 @@ func isRetryableReject(err error) bool {
 // pollSendProgress copies progress from a SendFile operation into the queued job's
 // progress tracker. Exits when the send completes or the context is cancelled.
 // On cancel, resets the stream to stop the underlying SendFile goroutine.
-func pollSendProgress(ctx context.Context, stream network.Stream, sendProgress, jobProgress *TransferProgress) error {
+// cumulativeOffset is added to Transferred for TS-5b progress continuity (R3-F5).
+func pollSendProgress(ctx context.Context, stream network.Stream, sendProgress, jobProgress *TransferProgress, cumulativeOffset int64) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -2634,7 +2715,7 @@ func pollSendProgress(ctx context.Context, stream network.Stream, sendProgress, 
 		snap := sendProgress.Snapshot()
 		jobProgress.mu.Lock()
 		jobProgress.Size = snap.Size
-		jobProgress.Transferred = snap.Transferred
+		jobProgress.Transferred = cumulativeOffset + snap.Transferred
 		jobProgress.ChunksTotal = snap.ChunksTotal
 		jobProgress.ChunksDone = snap.ChunksDone
 		jobProgress.Compressed = snap.Compressed
@@ -3357,6 +3438,14 @@ func (ts *TransferService) SetPathProtector(pp *sdk.PathProtector) {
 	ts.pathProtector = pp
 }
 
+// SetNetwork sets the SDK network reference and download service name for
+// TS-5b failover. The retry loop uses HedgedOpenStream to open streams on
+// backup paths with the full security pipeline (R2-F2, R2-F12).
+func (ts *TransferService) SetNetwork(n *sdk.Network, downloadSvc string) {
+	ts.networkRef = n
+	ts.downloadServiceName = downloadSvc
+}
+
 // logEvent writes a structured transfer event to the log file.
 // No-op if logging is disabled.
 func (ts *TransferService) logEvent(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string) {
@@ -3466,6 +3555,220 @@ func (ts *TransferService) removePending(id string) {
 	ts.mu.Unlock()
 }
 
+// downloadContext holds all state from a download negotiation, needed by
+// receiveParallel and the TS-5b retry loop. Returned by downloadNegotiate (R6-F1).
+type downloadContext struct {
+	rw              io.ReadWriter
+	files           []fileEntry
+	totalSize       int64
+	flags           uint8
+	transferID      [32]byte
+	cumOffsets      []int64
+	displayName     string
+	contentKey      [32]byte
+	estimatedChunks int
+	session         *parallelSession
+	state           *streamReceiveState // non-nil if checkpoint restored or passed in
+}
+
+// TS-5b failover constants.
+const (
+	maxDownloadFailovers = 3  // max consecutive failures without progress (F9)
+	maxTotalFailovers    = 10 // max total failovers per transfer regardless of progress (R2-F7)
+
+	// Backoff between failover attempts (F9).
+	failoverBackoff0 = 500 * time.Millisecond
+	failoverBackoff1 = 2 * time.Second
+	failoverBackoff2 = 5 * time.Second
+)
+
+// failoverBackoff returns the delay for a given failover attempt number (F9).
+func failoverBackoff(attempt int) time.Duration {
+	switch {
+	case attempt <= 1:
+		return failoverBackoff0
+	case attempt == 2:
+		return failoverBackoff1
+	default:
+		return failoverBackoff2
+	}
+}
+
+// downloadNegotiate opens a download on a new stream and negotiates resume
+// from in-memory state or disk checkpoint. Called by the TS-5b retry loop
+// inside ReceiveFrom's goroutine (R6-F1, R4-F1, F13).
+//
+// NOTE: This function's negotiation flow parallels ReceiveFrom's first-attempt
+// path (lines 3776-3903). Per R4-F1, the first attempt stays in ReceiveFrom
+// for synchronous error return semantics. Changes to negotiation logic must be
+// applied in BOTH places.
+//
+// existingState: non-nil on retry (use in-memory bitfield for resume, skip disk).
+// nil on first attempt from disk checkpoint path (normal ReceiveFrom handles that).
+//
+// On error, any registered session is cleaned up before returning.
+func (ts *TransferService) downloadNegotiate(
+	s network.Stream,
+	remotePath, destDir string,
+	existingState *streamReceiveState,
+) (*downloadContext, error) {
+	// Send download request on the new stream.
+	prefixed, err := RequestDownload(s, remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("download request: %w", err)
+	}
+
+	rw := struct {
+		io.Reader
+		io.Writer
+	}{prefixed, s}
+
+	s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
+	// Read header from sender.
+	files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
+	if err != nil {
+		return nil, fmt.Errorf("read header: %w", err)
+	}
+
+	// Display name.
+	var displayName string
+	if len(files) == 1 {
+		displayName = files[0].Path
+	} else {
+		if prefix := extractCommonPrefix(files); prefix != "" {
+			displayName = fmt.Sprintf("%s (%d files)", prefix, len(files))
+		} else {
+			displayName = fmt.Sprintf("%d files", len(files))
+		}
+	}
+
+	// Size limit check.
+	if ts.maxSize > 0 && totalSize > ts.maxSize {
+		writeMsg(s, msgReject)
+		return nil, fmt.Errorf("file too large: %d bytes (max %d)", totalSize, ts.maxSize)
+	}
+
+	// Disk space check (R6-F4: re-check on retry, account for existing temp data).
+	neededSpace := totalSize
+	if existingState != nil {
+		neededSpace = totalSize - existingState.ReceivedBytes()
+		if neededSpace < 0 {
+			neededSpace = 0
+		}
+	}
+	if err := checkDiskSpaceAt(destDir, neededSpace); err != nil {
+		writeRejectWithReason(s, RejectReasonSpace)
+		return nil, fmt.Errorf("insufficient disk space: %w", err)
+	}
+
+	// Compute content key.
+	ck := contentKey(files)
+
+	// Check if content changed on sender (R4-F6).
+	if existingState != nil {
+		// Compare content key from new header vs previous state.
+		// If mismatch: file changed, can't resume — start fresh.
+		prevCK := contentKey(existingState.files)
+		if ck != prevCK {
+			existingState.cleanup()
+			existingState = nil
+			slog.Info("file-download: content changed on sender since last attempt, starting fresh")
+		}
+	}
+
+	// Register parallel session.
+	session := &parallelSession{
+		transferID: transferID,
+		controlPID: s.Conn().RemotePeer(),
+		contentKey: ck,
+		receiveDir: destDir,
+		flags:      flags,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, producerChanBuffer),
+	}
+	ts.registerParallelSession(transferID, session)
+
+	if existingState != nil {
+		// Resume from in-memory state (R3-F2): build bitfield directly
+		// from existingState's receivedBitfield, skip disk checkpoint.
+		resumeBF := existingState.ReceivedBitfield()
+		if resumeBF == nil {
+			resumeBF = newBitfield(0)
+		}
+		if err := writeResumeRequest(rw, resumeBF); err != nil {
+			ts.unregisterParallelSession(transferID)
+			return nil, fmt.Errorf("write resume request: %w", err)
+		}
+		resp, respErr := readMsg(rw)
+		if respErr != nil || resp != msgResumeResponse {
+			ts.unregisterParallelSession(transferID)
+			return nil, fmt.Errorf("resume response: err=%v resp=0x%02x", respErr, resp)
+		}
+	} else {
+		// Check for disk checkpoint.
+		ckpt, ckptErr := loadCheckpoint(destDir, ck)
+		if ckptErr == nil && ckpt != nil &&
+			ckpt.totalSize == totalSize && len(ckpt.files) == len(files) && ckpt.flags == flags {
+			restored, restoreErr := ckpt.restoreReceiveState(destDir)
+			if restoreErr == nil {
+				existingState = restored
+				resumeBF := ckpt.have
+				if err := writeResumeRequest(rw, resumeBF); err != nil {
+					ts.unregisterParallelSession(transferID)
+					restored.cleanup()
+					return nil, fmt.Errorf("write resume request: %w", err)
+				}
+				resp, respErr := readMsg(rw)
+				if respErr != nil || resp != msgResumeResponse {
+					ts.unregisterParallelSession(transferID)
+					restored.cleanup()
+					return nil, fmt.Errorf("resume response: err=%v resp=0x%02x", respErr, resp)
+				}
+				slog.Info("file-download: resuming from checkpoint",
+					"file", displayName, "have", ckpt.have.count())
+			} else {
+				slog.Debug("file-download: checkpoint restore failed, starting fresh", "error", restoreErr)
+				ckpt.cleanupTempFiles(destDir)
+				removeStreamCheckpoint(destDir, ck)
+			}
+		} else if ckptErr == nil && ckpt != nil {
+			// Checkpoint exists but mismatches — clean up.
+			slog.Debug("file-download: checkpoint flags/size mismatch, starting fresh")
+			ckpt.cleanupTempFiles(destDir)
+			removeStreamCheckpoint(destDir, ck)
+		}
+
+		if existingState == nil {
+			// Fresh transfer: send full accept.
+			acceptBF := newBitfield(len(files))
+			for i := range files {
+				acceptBF.set(i)
+			}
+			if err := writeAcceptBitfield(rw, len(files), acceptBF); err != nil {
+				ts.unregisterParallelSession(transferID)
+				return nil, fmt.Errorf("write accept: %w", err)
+			}
+		}
+	}
+
+	estimatedChunks := estimateChunkCount(totalSize)
+
+	return &downloadContext{
+		rw:              rw,
+		files:           files,
+		totalSize:       totalSize,
+		flags:           flags,
+		transferID:      transferID,
+		cumOffsets:       cumOffsets,
+		displayName:     displayName,
+		contentKey:      ck,
+		estimatedChunks: estimatedChunks,
+		session:         session,
+		state:           existingState,
+	}, nil
+}
+
 // ReceiveFrom initiates a receiver-side download. It sends a download request
 // on the given stream, reads the SHFT manifest from the sharer, auto-accepts,
 // and receives the file to destDir (or the default receive directory if empty).
@@ -3519,11 +3822,11 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	ts.logEvent(EventLogRequestReceived, "download", peerKey, displayName, totalSize, 0, "", "")
 
 	// TS-5: protect relay paths during download (C3).
+	// F32 fix: Protect/Unprotect moved into the background goroutine so
+	// managed relay connections stay protected for the entire transfer
+	// lifecycle (including TS-5b retry). The old defer here fired when
+	// ReceiveFrom returned (immediately), not when the goroutine finished.
 	dlProtectTag := fmt.Sprintf("dl-%x", transferID[:8])
-	if ts.pathProtector != nil {
-		ts.pathProtector.Protect(remotePeer, dlProtectTag)
-		defer ts.pathProtector.Unprotect(remotePeer, dlProtectTag)
-	}
 
 	// Size limit check.
 	if ts.maxSize > 0 && totalSize > ts.maxSize {
@@ -3628,10 +3931,23 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 
 	ts.logEvent(EventLogStarted, "download", peerKey, displayName, totalSize, 0, "", "")
 
-	// Receive via streaming protocol in background.
+	// Receive via streaming protocol in background with TS-5b automatic failover.
 	go func() {
-		defer s.Close()
-		defer ts.unregisterParallelSession(transferID)
+		// R2-F5: Track active stream via closure variable so defer closes the CURRENT stream.
+		activeStream := network.Stream(s)
+		defer func() { activeStream.Close() }()
+
+		// R3-F1: Track current transferID via closure for correct session deregistration.
+		currentTransferID := transferID
+		defer func() { ts.unregisterParallelSession(currentTransferID) }()
+
+		// F32 fix: Protect/Unprotect inside goroutine so managed relay
+		// connections stay protected for the entire transfer lifecycle.
+		if ts.pathProtector != nil {
+			ts.pathProtector.Protect(remotePeer, dlProtectTag)
+			defer ts.pathProtector.Unprotect(remotePeer, dlProtectTag)
+		}
+
 		recvStart := time.Now()
 
 		var state *streamReceiveState
@@ -3648,19 +3964,202 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 
 			state.initReceivedBitfield(estimatedChunks)
 		}
-		defer state.cleanup()
 
 		// Wire state and progress into session now that they're ready.
 		session.state = state
 		session.progress = progress
 
 		progress.setCancelFunc(func() {
-			s.Reset()
+			activeStream.Reset()
 			session.resetWorkerStreams()
 		})
 
-		// Receive via parallel-capable streaming receive loop.
-		rootHash, recvErr := ts.receiveParallel(rw, session)
+		// TS-5b: Retry loop for automatic failover.
+		var recvErr error
+		var rootHash [32]byte
+		totalFailovers := 0
+		consecutiveFailures := 0
+		currentSession := session
+		currentRW := io.ReadWriter(rw)
+
+		for {
+			// R2-F7: Record bytes before this attempt to detect progress.
+			bytesBeforeAttempt := state.ReceivedBytes()
+
+			rootHash, recvErr = ts.receiveParallel(currentRW, currentSession)
+
+			// Success or non-retryable error — exit loop.
+			if recvErr == nil {
+				break
+			}
+
+			// Classify the error (F7, R5-F5).
+			category := classifyTransferError(recvErr, ts.queueCtx)
+			if category != retryableNetwork {
+				break
+			}
+
+			// R2-F7: Progress-based retry reset. If any new chunks were received
+			// on this attempt, reset consecutive failures (survives unlimited
+			// blips as long as progress is made between each).
+			if state.ReceivedBytes() > bytesBeforeAttempt {
+				consecutiveFailures = 0
+			}
+
+			// Check retry limits (F9, R2-F7).
+			consecutiveFailures++
+			totalFailovers++
+			if consecutiveFailures > maxDownloadFailovers || totalFailovers > maxTotalFailovers {
+				break
+			}
+
+			// R2-F20: Check if user cancelled during or before retry.
+			if progress.Snapshot().Done {
+				break
+			}
+
+			// F14: Check for backup path. If no alternative connections, save and stop.
+			if ts.networkRef == nil || ts.downloadServiceName == "" {
+				break
+			}
+			groups := sdk.AllConnGroups(ts.networkRef.Host(), remotePeer, ts.pathProtector)
+			if len(groups) <= 1 {
+				slog.Info("file-download: no backup path for failover, saving checkpoint",
+					"peer", short, "file", displayName)
+				break
+			}
+
+			// F21: Detect if failover is from direct to relay and log appropriately.
+			failoverPathType := "path"
+			for _, g := range groups {
+				if g.Type != "direct" {
+					failoverPathType = "direct-to-relay"
+					break
+				}
+			}
+			slog.Info("file-download: "+failoverPathType+" failover",
+				"peer", short, "file", displayName,
+				"attempt", totalFailovers, "consecutive", consecutiveFailures,
+				"error", recvErr)
+
+			// F10/F39: Fire failover event (R3-F7: no EventLogFailed during retry).
+			ts.logEvent(EventLogPathFailover, "download", peerKey, displayName, totalSize,
+				progress.Sent(), recvErr.Error(),
+				fmt.Sprintf("attempt=%d", totalFailovers))
+
+			// F10: Update progress for failover (R3-F4: no EventLogFailed yet).
+			progress.mu.Lock()
+			progress.Failovers++
+			progress.mu.Unlock()
+			progress.setStatus("path-failover")
+
+			// F1: Cancel old sender before retry. Best-effort, fire-and-forget (R2-F6).
+			go sendMultiPathCancel(ts.hostRef, remotePeer, currentTransferID, ts.pathProtector)
+
+			// R3-F8: Clean up state between retries (close handles, keep files).
+			state.cleanup()
+
+			// F3: Deregister old session before opening new stream.
+			ts.unregisterParallelSession(currentTransferID)
+
+			// F9: Backoff before retry.
+			delay := failoverBackoff(consecutiveFailures)
+			select {
+			case <-ts.queueCtx.Done():
+				// R2-F17: Daemon shutdown during backoff.
+				recvErr = fmt.Errorf("cancelled during failover backoff")
+				goto done
+			case <-time.After(delay):
+			}
+
+			// R2-F20: Re-check user cancel after backoff.
+			if progress.Snapshot().Done {
+				recvErr = fmt.Errorf("cancelled during failover")
+				goto done
+			}
+
+			// Open new stream on backup path via HedgedOpenStream (R2-F2).
+			newStream, hedgeErr := sdk.HedgedOpenStream(
+				ts.queueCtx, ts.networkRef, remotePeer, ts.downloadServiceName)
+			if hedgeErr != nil {
+				recvErr = fmt.Errorf("failover stream: %w", hedgeErr)
+				break
+			}
+
+			// F4: Check relay budget on failover path. Awareness only (per project rules:
+			// enforcement is server-side). Still attempt failover — partial progress +
+			// checkpoint is better than nothing.
+			if ts.grantChecker != nil {
+				relayID := relayPeerFromStream(newStream)
+				if relayID != "" {
+					remaining := totalSize - state.ReceivedBytes()
+					grantInfo := ts.checkRelayGrant(newStream, remaining, "recv")
+					if grantInfo.GrantActive && !grantInfo.BudgetOK {
+						slog.Warn("file-download: failover to relay with insufficient budget",
+							"peer", short, "relay_budget", sdk.FormatBytes(grantInfo.SessionBudget),
+							"remaining", sdk.FormatBytes(remaining),
+							"hint", "extend budget with: shurli auth grant")
+					}
+				}
+			}
+
+			// Negotiate download on new stream with in-memory state (R3-F2, R6-F1).
+			dlCtx, negErr := ts.downloadNegotiate(newStream, remotePath, destDir, state)
+			if negErr != nil {
+				newStream.Close()
+				recvErr = fmt.Errorf("failover negotiate: %w", negErr)
+				// Negotiation failed on backup path. Don't continue the loop
+				// (currentSession is deregistered, receiveParallel would fail).
+				// Save checkpoint and stop — user retries manually.
+				break
+			}
+
+			// Update tracking for new session.
+			activeStream = newStream
+			currentTransferID = dlCtx.transferID
+			currentSession = dlCtx.session
+			state = dlCtx.state
+			currentRW = dlCtx.rw
+
+			// Set up state if downloadNegotiate returned nil (fresh start after content change).
+			if state == nil {
+				state = newStreamReceiveState(dlCtx.files, dlCtx.totalSize, dlCtx.flags, dlCtx.cumOffsets)
+				if allocErr := state.allocateTempFiles(destDir); allocErr != nil {
+					recvErr = allocErr
+					break
+				}
+				state.initReceivedBitfield(dlCtx.estimatedChunks)
+			}
+
+			// Wire new state into session.
+			currentSession.state = state
+			currentSession.progress = progress
+
+			// R3-F3: Recreate relay tracker for new stream.
+			if tracker := ts.makeChunkTracker(newStream, "recv"); tracker != nil {
+				progress.setRelayTracker(tracker)
+			}
+
+			// Update progress with new transferID (F35).
+			progress.mu.Lock()
+			progress.transferID = dlCtx.transferID
+			progress.mu.Unlock()
+
+			// Update cancel func for new stream.
+			progress.setCancelFunc(func() {
+				activeStream.Reset()
+				currentSession.resetWorkerStreams()
+			})
+
+			progress.setStatus("active")
+
+			// F9: consecutive failures already reset by R2-F7 progress check at loop top
+			// if chunks were received on the previous attempt.
+		}
+
+	done:
+		// Final cleanup of state (closes handles; keepTempFiles preserves data if checkpoint saved).
+		state.cleanup()
 
 		// Register hash for multi-peer serving on success.
 		if recvErr == nil {
@@ -3671,14 +4170,27 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			}
 		}
 
+		// R3-F4: finish/completed/log events OUTSIDE retry loop.
 		progress.finish(recvErr)
 		ts.markCompleted(progress.ID)
 
 		dur := time.Since(recvStart).Truncate(time.Millisecond).String()
 		if recvErr != nil {
-			slog.Error("file-download: receive failed",
+			// F40: Actionable error message on final failure.
+			received := progress.Sent()
+			failoverDetail := ""
+			if totalFailovers > 0 {
+				failoverDetail = fmt.Sprintf(", %d failover attempts", totalFailovers)
+			}
+			resumeHint := ""
+			if received > 0 {
+				resumeHint = fmt.Sprintf(". Resume with: shurli download %s:%s", short, remotePath)
+			}
+			slog.Error(fmt.Sprintf("file-download: failed (received %s/%s%s)%s",
+				sdk.FormatBytes(received), sdk.FormatBytes(totalSize),
+				failoverDetail, resumeHint),
 				"peer", short, "file", displayName, "error", recvErr)
-			ts.logEvent(EventLogFailed, "download", peerKey, displayName, totalSize, progress.Sent(), recvErr.Error(), dur)
+			ts.logEvent(EventLogFailed, "download", peerKey, displayName, totalSize, received, recvErr.Error(), dur)
 		} else {
 			slog.Info("file-download: received",
 				"peer", short, "file", displayName,
