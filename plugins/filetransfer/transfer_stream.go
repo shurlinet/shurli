@@ -1065,6 +1065,23 @@ func (s *streamReceiveState) ReceivedBytes() int64 {
 	return s.receivedBytes
 }
 
+// ReceivedBitfield returns a copy of the received chunk bitfield (thread-safe).
+// Used by TS-5b retry loop to build resume request from in-memory state
+// (more current than on-disk checkpoint if save failed). R3-F2.
+func (s *streamReceiveState) ReceivedBitfield() *bitfield {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.receivedBitfield == nil {
+		return nil
+	}
+	cp := &bitfield{
+		bits: make([]byte, len(s.receivedBitfield.bits)),
+		n:    s.receivedBitfield.n,
+	}
+	copy(cp.bits, s.receivedBitfield.bits)
+	return cp
+}
+
 // checkReceivedBytes validates cumulative received bytes against totalSize (R3-SEC4).
 // Returns error if receiver has accepted more data than the declared transfer size.
 func (s *streamReceiveState) checkReceivedBytes() error {

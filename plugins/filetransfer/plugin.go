@@ -240,6 +240,9 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// TS-5: Set path protector for relay path protection during transfers.
 	ts.SetPathProtector(p.network.GetPathProtector())
 
+	// TS-5b: Set network reference for failover retry (HedgedOpenStream).
+	ts.SetNetwork(p.network, "file-download")
+
 	// If config specifies timed mode at startup, activate the timer.
 	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration
