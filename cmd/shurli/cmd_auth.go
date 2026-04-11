@@ -158,12 +158,13 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 			if name != "" {
 				updateConfigNames(cfgFile, filepath.Dir(cfgFile), name, peerIDStr)
 				fmt.Fprintf(stdout, "  Name: %s (added to config)\n", name)
-				// Trigger daemon config reload so the name is usable immediately.
-				tryDaemonConfigReload()
 			}
 		}
 	}
 
+	// Signal the running daemon to reload authorized_keys so the new peer
+	// is recognized immediately (gater update + watchlist update).
+	tryDaemonConfigReload()
 	return nil
 }
 
@@ -280,6 +281,11 @@ func doAuthRemove(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Revoked peer: %s", peerIDStr[:min(16, len(peerIDStr))]+"...")
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+
+	// Signal the running daemon to reload authorized_keys so deauthorization
+	// takes effect immediately (closes connections + managed circuits via
+	// OnWatchlistRemoved callback, R7-C1).
+	tryDaemonConfigReload()
 	return nil
 }
 

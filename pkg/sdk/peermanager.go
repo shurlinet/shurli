@@ -978,7 +978,7 @@ func (pm *PeerManager) closeRelayConns(pid peer.ID) {
 				// Per-connection grace: skip recently-arrived relays (R8-C1).
 				// Covers managed circuits arriving mid-sweep before Protect() is called.
 				if pm.connGracePeriod > 0 && time.Since(c.Stat().Opened) < pm.connGracePeriod {
-					slog.Debug("pathprotector: closeOnce skipped recent relay",
+					slog.Info("pathprotector: closeOnce skipped recent relay",
 						"peer", short, "age", time.Since(c.Stat().Opened).Round(time.Millisecond))
 					continue
 				}
