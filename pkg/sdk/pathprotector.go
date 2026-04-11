@@ -345,13 +345,8 @@ func (pp *PathProtector) maybeEstablishRelay(pid peer.ID) {
 
 	// Skip LAN peers (R4-F7): same failure domain, relay backup provides no benefit.
 	if pp.lanRegistry != nil && pp.lanRegistry.HasVerifiedLANConn(pp.host, pid) {
-		// Log which connection matched LAN for debugging.
-		var lanAddr string
-		for _, c := range pp.host.Network().ConnsToPeer(pid) {
-			lanAddr += c.RemoteMultiaddr().String() + " "
-		}
 		slog.Info("pathprotector: skipping managed circuit (LAN peer)",
-			"peer", shortPeerID(pid), "conns", lanAddr)
+			"peer", shortPeerID(pid))
 		return
 	}
 
