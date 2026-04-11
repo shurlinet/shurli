@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -165,13 +166,118 @@ func TestPathProtectorTagTimestamp(t *testing.T) {
 	after := time.Now()
 
 	pp.mu.RLock()
-	ts, ok := pp.tags[pid]["timestamped"]
+	info, ok := pp.tags[pid]["timestamped"]
 	pp.mu.RUnlock()
 
 	if !ok {
 		t.Fatal("tag not found")
 	}
-	if ts.Before(before) || ts.After(after) {
-		t.Errorf("tag timestamp %v not between %v and %v", ts, before, after)
+	if info.created.Before(before) || info.created.After(after) {
+		t.Errorf("tag timestamp %v not between %v and %v", info.created, before, after)
+	}
+	if info.ctx != nil {
+		t.Error("legacy Protect should have nil ctx")
+	}
+}
+
+func TestProtectWithContext_LiveContext(t *testing.T) {
+	pp := newTestPathProtector(t)
+	pid := peer.ID("test-peer-ctx-live")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pp.ProtectWithContext(ctx, pid, "long-transfer")
+
+	if !pp.IsProtected(pid) {
+		t.Fatal("peer should be protected")
+	}
+
+	// Verify context is stored.
+	pp.mu.RLock()
+	info, ok := pp.tags[pid]["long-transfer"]
+	pp.mu.RUnlock()
+	if !ok {
+		t.Fatal("tag not found")
+	}
+	if info.ctx == nil {
+		t.Fatal("ProtectWithContext should store non-nil ctx")
+	}
+	if info.ctx.Err() != nil {
+		t.Fatal("context should be alive")
+	}
+}
+
+func TestReaper_SkipsLiveContext(t *testing.T) {
+	pp := newTestPathProtector(t)
+	pid := peer.ID("test-peer-reaper-skip")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pp.ProtectWithContext(ctx, pid, "long-transfer")
+
+	// Backdate the tag creation to make it look old to time-based check.
+	pp.mu.Lock()
+	info := pp.tags[pid]["long-transfer"]
+	info.created = time.Now().Add(-10 * time.Minute) // well past orphanTimeout
+	pp.tags[pid]["long-transfer"] = info
+	pp.mu.Unlock()
+
+	// Run reaper — should NOT kill the protection because context is alive.
+	pp.reap()
+
+	if !pp.IsProtected(pid) {
+		t.Fatal("reaper should NOT have killed protection with live context")
+	}
+}
+
+func TestReaper_CleansDeadContext(t *testing.T) {
+	pp := newTestPathProtector(t)
+	pid := peer.ID("test-peer-reaper-dead")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pp.ProtectWithContext(ctx, pid, "crashed-transfer")
+
+	// Simulate goroutine exit: cancel the context.
+	cancel()
+
+	// Backdate the tag so time-based check also considers it old.
+	pp.mu.Lock()
+	info := pp.tags[pid]["crashed-transfer"]
+	info.created = time.Now().Add(-10 * time.Minute)
+	pp.tags[pid]["crashed-transfer"] = info
+	pp.mu.Unlock()
+
+	// Run reaper — should clean up because context is dead + Unprotect was never called.
+	pp.reap()
+
+	if pp.IsProtected(pid) {
+		t.Fatal("reaper should have cleaned up dead context protection")
+	}
+}
+
+func TestReaper_MixedTags_LiveContextKeepsAll(t *testing.T) {
+	pp := newTestPathProtector(t)
+	pid := peer.ID("test-peer-mixed")
+
+	// Legacy tag (time-based, old).
+	pp.Protect(pid, "old-tag")
+	pp.mu.Lock()
+	info := pp.tags[pid]["old-tag"]
+	info.created = time.Now().Add(-10 * time.Minute)
+	pp.tags[pid]["old-tag"] = info
+	pp.mu.Unlock()
+
+	// Context-based tag (alive).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pp.ProtectWithContext(ctx, pid, "live-tag")
+
+	// Run reaper — live context tag should prevent ALL tags from being reaped.
+	pp.reap()
+
+	if !pp.IsProtected(pid) {
+		t.Fatal("live context tag should prevent reaping of all tags for this peer")
 	}
 }
