@@ -18,7 +18,7 @@
 #set document(
   title: "Shurli: Distributed Social Proof for P2P Trust Without Blockchain",
   author: "Satinderjit Singh",
-  date: datetime(year: 2026, month: 4, day: 8),
+  date: datetime(year: 2026, month: 4, day: 12),
 )
 
 #set page(
@@ -63,14 +63,14 @@
   #text(size: 11pt)[Satinderjit Singh] \
   #text(size: 10pt)[with Claude, Anthropic] \
   #text(size: 10pt)[#link("https://shurli.io")[shurli.io]] \
-  #text(size: 10pt, fill: luma(120))[8 April 2026]
+  #text(size: 10pt, fill: luma(120))[v0.3.0 -- 12 April 2026]
 ]
 
 #v(0.6cm)
 
 #pad(x: 2em)[
   #text(size: 10pt)[
-    #text(weight: "bold")[Abstract.] #h(0.3em) A purely peer-to-peer network layer for AI-native applications would allow agents and humans to connect, communicate, and transfer data directly without routing through centralized infrastructure. Cryptographic identity provides part of the solution, but the main benefits are lost if a trusted third party is still required to verify peer reliability and authorize access. We propose a trust framework called distributed social proof (DSP), in which reputation emerges from overlapping behavioral observation by independent agents on the network, requiring no ledger, no tokens, and no consensus algorithms. The network derives trust scores by applying matrix factorization to interaction ratings, extracting genuine peer quality from cross-factional agreement rather than majority vote. Peers prove their reputation exceeds a threshold using zero-knowledge proofs @goldwasser1989knowledge without revealing the score itself, enabling privacy-preserving access control. Authorization uses capability tokens @birgisson2014macaroons that can only be made more restrictive as they are delegated, never more permissive, a mathematical guarantee from HMAC chains. As long as observers span sufficiently diverse network positions, coordinated manipulation of the reputation layer becomes proportionally more expensive. The network is designed to operate without humans in the loop: nodes discover peers, traverse NATs, manage trust, and maintain security autonomously. It is agnostic by design. Payment methods, naming systems, identity providers, and agent frameworks all plug in. The core provides only what is essential: transport, identity, discovery, authorization, and trust. We present Shurli, an open-source implementation on libp2p, as the reference architecture.
+    #text(weight: "bold")[Abstract.] #h(0.3em) A purely peer-to-peer network layer for AI-native applications would allow agents and humans to connect, communicate, and transfer data directly without routing through centralized infrastructure. Cryptographic identity provides part of the solution, but the main benefits are lost if a trusted third party is still required to verify peer reliability and authorize access. We propose a trust framework called distributed social proof (DSP), in which reputation emerges from overlapping behavioral observation by independent agents on the network, requiring no ledger, no tokens, and no consensus algorithms. The network derives trust scores by adapting the bridging algorithm from X's Community Notes @wojcik2022birdwatch to peer reputation: matrix factorization applied to interaction ratings extracts genuine peer quality from cross-factional agreement rather than majority vote, without requiring a central operator. Peers prove their reputation exceeds a threshold using zero-knowledge proofs @goldwasser1989knowledge without revealing the score itself, enabling privacy-preserving access control. Authorization uses capability tokens @birgisson2014macaroons that can only be made more restrictive as they are delegated, never more permissive, a mathematical guarantee from HMAC chains. As long as observers span sufficiently diverse network positions, coordinated manipulation of the reputation layer becomes proportionally more expensive. The network is designed to operate without humans in the loop: nodes discover peers, traverse NATs, manage trust, and maintain security autonomously. It is agnostic by design. Payment methods, naming systems, identity providers, and agent frameworks all plug in. The core provides only what is essential: transport, identity, discovery, authorization, and trust. We present Shurli, an open-source implementation on libp2p, as the reference architecture.
   ]
 ]
 
@@ -219,6 +219,64 @@ $ P_italic("sybil") (k, d) <= f^k dot f_italic("max")^(d-1) $
 
 where $f_italic("max")$ is adversary penetration in any single partition. Even at 40% total control, achieving 40% in every independent partition requires proportionally more resources.
 
+A "network partition" in this context does not refer to geographic region or IP subnet. It refers to an _independent observation group_: a set of peers whose rating behavior is statistically independent of other groups. The matrix factorization algorithm (Section 3.3) discovers these groups automatically from rating patterns via polarity factors. Two peers controlled by the same operator, regardless of how many distinct IP addresses or VPN endpoints they use, will rate other peers the same way and cluster into the same polarity factor. The variable $d$ counts how many such _behaviorally independent_ groups must be penetrated.
+
+This is the key distinction from IP-based identity. Bitcoin's whitepaper @nakamoto2008bitcoin observes that "if the majority were based on one-IP-address-one-vote, it could be subverted by anyone able to allocate many IPs." DSP does not use IP-based identity at all. A single entity operating 10,000 nodes behind 10,000 different IP addresses still constitutes a single faction in the MF decomposition, because behavioral patterns, not network addresses, determine partition membership. The cost to the attacker is not "acquire many IPs" but "get your fake nodes rated well by nodes that disagree with each other on everything else," which requires either compromising genuinely independent peers or building real cross-factional reputation through honest participation.
+
+#figure(
+  cetz.canvas(length: 1cm, {
+    import cetz.draw: *
+
+    // Title
+    content((3.5, 6.8), text(size: 9pt, weight: "bold", fill: shurli-dark)[IP-Based Identity])
+    content((11.5, 6.8), text(size: 9pt, weight: "bold", fill: shurli-dark)[Rating-Pattern Identity (DSP)])
+
+    // Left side: IP-based (defeated)
+    // Attacker with many IPs
+    let attacker-col = accent-red
+    for i in range(6) {
+      let x = 1.0 + calc.rem(i, 3) * 1.8
+      let y = 4.8 - calc.floor(i / 3) * 1.8
+      circle((x, y), radius: 0.45, fill: bg-red, stroke: (paint: attacker-col, thickness: 0.8pt))
+      content((x, y + 0.05), text(size: 6pt, fill: attacker-col)[IP-#str(i + 1)])
+    }
+    // Bracket: "1 entity"
+    content((3.5, 2.2), text(size: 7pt, style: "italic", fill: attacker-col)[6 IPs, 1 entity])
+    // Check mark: defeats IP voting
+    content((3.5, 1.5), text(size: 7pt, fill: attacker-col)[6 votes in IP-based system])
+
+    // Divider
+    line((7.2, 1.0), (7.2, 6.5), stroke: (paint: luma(210), thickness: 0.5pt, dash: "dashed"))
+
+    // Right side: MF-based (detected)
+    // Same 6 nodes, but MF clusters them
+    let faction-col = accent-red
+    let honest-col = accent-green
+    // Attacker cluster (tight group)
+    for i in range(6) {
+      let x = 9.0 + calc.rem(i, 3) * 0.7
+      let y = 5.2 - calc.floor(i / 3) * 0.7
+      circle((x, y), radius: 0.35, fill: bg-red, stroke: (paint: faction-col, thickness: 0.8pt))
+      content((x, y), text(size: 5.5pt, fill: faction-col)[S#str(i + 1)])
+    }
+    // Faction boundary
+    rect((8.5, 4.0), (11.3, 5.8), stroke: (paint: faction-col, thickness: 0.6pt, dash: "dashed"), radius: 5pt)
+    content((9.9, 5.95), text(size: 6.5pt, fill: faction-col)[Single faction ($w_i$ cluster)])
+
+    // Honest peers (spread out)
+    let honest-pos = ((8.5, 3.0), (10.5, 2.5), (12.5, 3.2), (11.5, 1.8))
+    let honest-labels = ("H1", "H2", "H3", "H4")
+    for i in range(4) {
+      let (x, y) = honest-pos.at(i)
+      circle((x, y), radius: 0.35, fill: bg-green, stroke: (paint: honest-col, thickness: 0.8pt))
+      content((x, y), text(size: 5.5pt, fill: honest-col)[#honest-labels.at(i)])
+    }
+
+    content((11.5, 1.1), text(size: 7pt, style: "italic", fill: honest-col)[MF: 1 faction, intercept low])
+  }),
+  caption: [IP-based identity is defeated by address proliferation. Rating-pattern identity clusters Sybils into a single faction regardless of IP diversity, because polarity factors reflect behavioral correlation, not network topology.],
+) <fig-ip-vs-rating>
+
 == Trust Convergence
 
 For a node with true quality $q in [0, 1]$ and $n$ honest observations with noise $epsilon tilde cal(N)(0, sigma^2)$, the estimated reputation converges:
@@ -239,6 +297,85 @@ where $w_i$ is rater $i$'s polarity factor (where they sit on a viewpoint spectr
 
 Creating 1000 fake accounts that all rate each other the same way is detected as a single faction. Only cross-factional agreement moves the intercept. No blockchain, no staking, no central authority. Pure mathematics on rating patterns.
 
+== Decentralization of Trust Computation
+
+X's Community Notes @communitynotes2023 runs the identical matrix factorization algorithm on centralized infrastructure. X collects all ratings, runs MF on its servers, and publishes the results. X can additionally detect Sybil accounts through IP fingerprinting, browser telemetry, and manual intervention. The natural question is: what replaces X's backstop in a decentralized network?
+
+The answer is that the MF algorithm's Sybil resistance does not depend on centralization. X uses fingerprinting as a supplementary defense, but the core Sybil detection, the polarity factor decomposition, operates entirely on rating patterns. The same mathematics works identically whether computed by a central server or by individual peers. What changes in a decentralized setting is _who runs the computation_, not _how the computation works_.
+
+Shurli addresses trust computation through progressive decentralization in three layers:
+
+#figure(
+  cetz.canvas(length: 1cm, {
+    import cetz.draw: *
+
+    let box-w = 3.8
+    let box-h = 1.8
+    let gap-x = 1.2
+
+    // Layer A
+    let ax = 0.0
+    rect((ax, 0), (ax + box-w, box-h), stroke: (paint: accent-amber, thickness: 0.9pt), fill: bg-warm, radius: 3pt)
+    content((ax + box-w/2, box-h - 0.35), text(size: 8pt, weight: "bold", fill: accent-amber)[Layer A: Relay Computes])
+    content((ax + box-w/2, box-h - 0.75), text(size: 6.5pt, fill: shurli-dark)[Relay collects signed ratings,])
+    content((ax + box-w/2, box-h - 1.05), text(size: 6.5pt, fill: shurli-dark)[runs MF, publishes scores])
+    content((ax + box-w/2, box-h - 1.4), text(size: 6.5pt, style: "italic", fill: subtle-gray)[Trust relay, but verifiable])
+
+    // Arrow A→B
+    line((ax + box-w + 0.1, box-h/2), (ax + box-w + gap-x - 0.1, box-h/2),
+      stroke: (paint: luma(150), thickness: 0.7pt), mark: (end: ">", size: 0.2))
+
+    // Layer B
+    let bx = ax + box-w + gap-x
+    rect((bx, 0), (bx + box-w, box-h), stroke: (paint: shurli-blue, thickness: 0.9pt), fill: bg-blue, radius: 3pt)
+    content((bx + box-w/2, box-h - 0.35), text(size: 8pt, weight: "bold", fill: shurli-blue)[Layer B: Local Verify])
+    content((bx + box-w/2, box-h - 0.75), text(size: 6.5pt, fill: shurli-dark)[Peers re-run MF locally,])
+    content((bx + box-w/2, box-h - 1.05), text(size: 6.5pt, fill: shurli-dark)[cross-check relay scores])
+    content((bx + box-w/2, box-h - 1.4), text(size: 6.5pt, style: "italic", fill: subtle-gray)[Verify relay])
+
+    // Arrow B→C
+    line((bx + box-w + 0.1, box-h/2), (bx + box-w + gap-x - 0.1, box-h/2),
+      stroke: (paint: luma(150), thickness: 0.7pt), mark: (end: ">", size: 0.2))
+
+    // Layer C
+    let cx = bx + box-w + gap-x
+    rect((cx, 0), (cx + box-w, box-h), stroke: (paint: accent-green, thickness: 0.9pt), fill: bg-green, radius: 3pt)
+    content((cx + box-w/2, box-h - 0.35), text(size: 8pt, weight: "bold", fill: accent-green)[Layer C: Gossip])
+    content((cx + box-w/2, box-h - 0.75), text(size: 6.5pt, fill: shurli-dark)[Peers gossip ratings directly,])
+    content((cx + box-w/2, box-h - 1.05), text(size: 6.5pt, fill: shurli-dark)[build own matrix, no relay])
+    content((cx + box-w/2, box-h - 1.4), text(size: 6.5pt, style: "italic", fill: subtle-gray)[Don't need relay])
+
+    // Bottom annotation
+    content((cx/2 + box-w/2, -0.7),
+      text(size: 7.5pt, style: "italic", fill: subtle-gray)[
+        Each layer reduces trust in the previous one. A alone = trust relay. A+B = verify relay. A+B+C = sovereign.
+      ])
+  }),
+  caption: [Progressive decentralization of trust computation. The mathematical mechanism (MF) is identical at every layer; only the trust assumption changes.],
+) <fig-progressive-decentralization>
+
+*Layer A* is semi-centralized: the relay collects signed ratings, runs MF periodically, and publishes both the scores and the input rating matrix. Any peer can download the matrix, re-run MF with the same parameters, and verify that the published scores match. A relay that fabricates scores must also fabricate a plausible rating matrix that produces those scores under MF, which is computationally harder than running MF honestly. MF is deterministic given inputs: same matrix, same parameters, same output.
+
+*Layer B* adds local verification. When multiple relays exist, each runs MF independently and publishes results. Peers compare scores across relays and flag divergence. Peers also run local MF on their own direct observations as a sanity check. A relay that selectively drops ratings before publishing the matrix is caught by peers whose local observations disagree with the published matrix.
+
+*Layer C* eliminates the relay from trust computation entirely. Peers gossip interaction ratings directly to neighbors via pubsub. Each peer accumulates a partial view of the global rating matrix through epidemic propagation and runs MF locally. The relay becomes one participant among many, with no special authority over reputation.
+
+The five-layer Byzantine defense operates independently of which computation layer is active: (1) bilateral transfer receipts require both peers' signatures to validate a rating, (2) MF itself detects factional coordination, (3) relay observability cross-checks circuit metadata for relayed connections, (4) quasi-clique detection flags coordinated rating groups, and (5) rate limiting ensures each rating requires real network interaction. An attacker must defeat all five layers simultaneously, and critically, the core defense (layer 2: MF faction detection) requires no central operator at all.
+
+== Economic Basis of Sybil Resistance
+
+Matrix factorization detects naive coordinated rating, but pure algorithmic cleverness does not defeat a determined attacker who adapts to the known scoring rules. The entire network is itself, in a sense, a "swarm" that accumulated influence over time. The algorithm alone is not the defense. The defense is what the algorithm, combined with real-world participation cost, makes the attacker actually do.
+
+In proof-of-work systems, the cost is computational work whose output (mined tokens) is tradable. In centralized systems, the cost is identity verification (SMS, government ID, KYC) whose integrity depends on external authorities. Shurli uses neither. The cost in DSP is _real participation over time_: a peer must age at least 7 days before its ratings count toward others' scores, complete a minimum number of genuine interactions, operate under a probationary score cap for 30 days, and produce bilateral transfer receipts signed by counterparties for every interaction that feeds reputation.
+
+The critical property of these costs is that honest users pay them as a byproduct of normal use. A participant who joined to share files, reach their own machines, or run an AI agent is already completing transfers, accumulating interactions, and aging their peer identity. They pay zero marginal cost for reputation accrual. An attacker faces the same requirements, but with an additional algorithmic constraint from Section 3.3: cross-factional agreement is the only path to high intercepts, and cross-factional agreement can only be obtained by genuinely providing value to peers outside the attacker's control. Faction-internal rating produces zero intercept regardless of how many fake nodes participate.
+
+After the probationary period, an attacker who maintained fake nodes through real interactions, earned ratings from peers outside their cluster, and built cross-factional reputation has functionally become an honest participant, because the requirements for attack and honest participation converge. The defense is not "make attacks computationally expensive" but "make attacks indistinguishable from honest participation". This is sufficient for networking decisions (routing, peering, access control) where the cost of a wrong outcome is small and reversible. It is explicitly not sufficient for financial settlement, which requires thermodynamic irreversibility.
+
+A third defense layers on top of behavioral cost: tiered identity trust via the Shurli naming standard. Peers may optionally bind their identity to verifiable external presence, such as social profiles, messaging accounts, enterprise directory entries, DIDs @w3cdid2026, or domain names. These bindings feed a separate identity trust dimension that combines with behavioral reputation to produce the final score. An honest user links identities they already control at zero cost. An attacker running 10,000 Sybil nodes must forge 10,000 plausible external identities, each with its own history, cross-platform presence, and verifiability. The marginal cost per Sybil grows with the number of identity tiers the target network weighs. Identity trust is optional and pseudonymous participation remains fully supported, but networks that require high-stakes trust decisions (enterprise agent-to-agent coordination, paid inference markets) can weight identity trust heavily, shifting the attack cost from "operate nodes honestly for 30 days" to "operate nodes honestly for 30 days _and_ maintain real external identities that pass cross-platform verification."
+
+In authorized private networks, a fourth and strongest defense applies: invitation chains. Every peer traces membership through a chain of prior invitations rooted in trusted parties. Sybil creation requires either compromising an existing peer's identity or convincing a trusted peer to issue an invitation, neither of which has a computational shortcut. Private-mode networks inherit the social trust of their operators at zero ongoing cost to users.
+
 == Comparative Attack Cost
 
 #figure(
@@ -250,7 +387,7 @@ Creating 1000 fake accounts that all rate each other the same way is detected as
       [*Property*], [*Blockchain (PoW)*], [*Institutional*], [*DSP (Shurli)*],
     ),
     [Trust basis], [Thermodynamics], [Legal identity], [Behavioral observation],
-    [Finality], [Mathematical], [Contractual], [Probabilistic],
+    [Finality], [Probabilistic (energy)], [Contractual], [Probabilistic (behavioral)],
     [Expressiveness], [Binary], [Policy-defined], [Graduated / fuzzy],
     [Infrastructure], [Very high], [Moderate], [Near zero],
     [Throughput], [Low (7 tx/s)], [High], [High],
@@ -336,7 +473,7 @@ Shurli is an open-source Go implementation on libp2p @libp2p2023. It occupies a 
 
 *Layer 2: Network.* Kademlia DHT for peer discovery in an owned namespace. mDNS for zero-configuration LAN discovery. A PeerManager maintains connection lifecycle with promotion, demotion, and state tracking. Path selection is continuous: if a peer transitions from cellular to WiFi, the connection migrates automatically. Eleven upstream libp2p overrides harden the transport for production use.
 
-*Layer 3: Identity and Naming.* BIP39 seed phrase derives all keys through HKDF-SHA256 with domain separation. One backup recovers everything. The naming standard @zooko2001names @rfc9498gns provides a five-layer resolution pipeline: PeerID (cryptographic ground truth), DID (standards interop via W3C `did:peer` @w3cdid2026), petname (local, user-assigned), nickname (self-chosen, advisory), and external (resolved via plugins for ENS, DNS, VerusID, or any naming system). The relay is explicitly prevented from becoming a name authority.
+*Layer 3: Identity and Naming.* A BIP32-style @bip32 hierarchical key tree derives all keys through HKDF-SHA256 with domain separation. The root seed may be generated from a BIP39 mnemonic, SLIP39 shares, or any method that produces sufficient entropy. One backup of the root seed recovers everything. The naming standard @zooko2001names @rfc9498gns provides a five-layer resolution pipeline: PeerID (cryptographic ground truth), DID (standards interop via W3C `did:peer` @w3cdid2026), petname (local, user-assigned), nickname (self-chosen, advisory), and external (resolved via plugins for ENS, DNS, VerusID, or any naming system). The relay is explicitly prevented from becoming a name authority.
 
 *Layer 4: Trust and Reputation.* The DSP framework described in Sections 3 and 4. DAG-based append-only interaction log. Heuristic scoring as cold-start fallback, transitioning smoothly to matrix factorization as ratings accumulate. Zero-knowledge range proofs allow peers to prove "my score exceeds threshold $t$" without revealing the score. Macaroon capability tokens @birgisson2014macaroons provide authorization with cryptographic attenuation, time-limited grants, delegation chains, and per-peer bandwidth budgets.
 
@@ -435,7 +572,7 @@ Shurli is not adversarial to centralized AI providers. A self-hoster running loc
 
 = Limitations
 
-*No mathematical finality.* A sufficiently resourced adversary can theoretically manipulate the reputation layer. For absolute immutability (financial settlement, legal records), blockchain remains appropriate. DSP provides probabilistic trust, sufficient for networking but not for irreversible transactions.
+*Probabilistic trust, not thermodynamic finality.* Both blockchain and DSP provide probabilistic guarantees, but backed by different resources. In proof-of-work, the cost of reversing a transaction grows with accumulated computational work: older transactions become exponentially harder to undo, and time strengthens finality. In DSP, the cost of manipulating a reputation grows with observer diversity and cross-factional agreement, but time works in the opposite direction: older observations decay in relevance, and recent behavior carries more weight. This is by design. A relay that was reliable for two years but started dropping connections last week should lose reputation now, not coast on historical performance. For use cases that require immutable, time-strengthening finality (financial settlement, legal records), blockchain remains appropriate. DSP provides adaptive probabilistic trust sufficient for networking decisions but not for irreversible transactions.
 
 *Cold start.* New nodes lack reputation. The current mitigation is graduated trust escalation through low-stakes interactions: heuristic scoring for the first 5 ratings, blending to matrix factorization from 5 to 15 ratings, full MF-based scoring above 15. In private networks, invitation chains mathematically bound the Sybil fraction. In public networks, time cost (7 days), bandwidth cost, and interaction minimums (10) constrain rapid reputation gaming. Connected external identities via the naming standard provide a partial solution: a peer that links verified social profiles, messaging accounts, or enterprise directory entries inherits initial identity trust, reducing the cold-start gap while still requiring performance trust to be earned through real interactions.
 
