@@ -3,6 +3,7 @@ package grants
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -273,7 +274,7 @@ func TestPouchDelegateBasic(t *testing.T) {
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
 	// Delegate to target.
-	subToken, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0)
+	subToken, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, 0)
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -319,7 +320,7 @@ func TestPouchDelegateNoDelegationAllowed(t *testing.T) {
 	token := testMacaroon(t)
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
-	_, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0)
+	_, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, 0)
 	if err == nil {
 		t.Fatal("should fail: token does not allow delegation")
 	}
@@ -337,7 +338,7 @@ func TestPouchDelegateUnlimited(t *testing.T) {
 
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
-	subToken, err := p.Delegate(issuer, target, 0, nil, 5)
+	subToken, err := p.Delegate(issuer, target, 0, nil, 5, 0)
 	if err != nil {
 		t.Fatalf("delegate with unlimited: %v", err)
 	}
@@ -367,7 +368,7 @@ func TestPouchDelegateLimitedDecrement(t *testing.T) {
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
 	// Request unlimited (-1) but original is 3, so decremented to 2.
-	subToken, err := p.Delegate(issuer, target, 0, nil, -1)
+	subToken, err := p.Delegate(issuer, target, 0, nil, -1, 0)
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -394,7 +395,7 @@ func TestPouchDelegateExpired(t *testing.T) {
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Millisecond), false)
 	time.Sleep(5 * time.Millisecond)
 
-	_, err := p.Delegate(issuer, target, 0, nil, 0)
+	_, err := p.Delegate(issuer, target, 0, nil, 0, 0)
 	if err == nil {
 		t.Fatal("should fail: token expired")
 	}
@@ -417,7 +418,7 @@ func TestPouchDelegateChainedMaxDelegations(t *testing.T) {
 
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
-	subToken, err := p.Delegate(issuer, target, 0, nil, 0)
+	subToken, err := p.Delegate(issuer, target, 0, nil, 0, 0)
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -468,7 +469,7 @@ func TestPouchDelegateWithServiceRestriction(t *testing.T) {
 
 	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
 
-	subToken, err := p.Delegate(issuer, target, 0, []string{"file-browse"}, 0)
+	subToken, err := p.Delegate(issuer, target, 0, []string{"file-browse"}, 0, 0)
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -508,7 +509,7 @@ func TestPouchDelegateMultiHopEndToEnd(t *testing.T) {
 	// Step 3: Peer B delegates to Peer C with max_delegations=2.
 	// (issuerID is peerB because the pouch is keyed by "who gave me this token",
 	//  but for this test we simulate B holding A's token keyed by B's own ID)
-	subTokenC, err := pouchB.Delegate(peerB, peerC, 30*time.Minute, nil, 1)
+	subTokenC, err := pouchB.Delegate(peerB, peerC, 30*time.Minute, nil, 1, 0)
 	if err != nil {
 		t.Fatalf("B delegate to C: %v", err)
 	}
@@ -518,7 +519,7 @@ func TestPouchDelegateMultiHopEndToEnd(t *testing.T) {
 	pouchC.Add(peerB, subTokenC, nil, time.Now().Add(30*time.Minute), false)
 
 	// Step 5: Peer C delegates to Peer D with max_delegations=0.
-	subTokenD, err := pouchC.Delegate(peerB, peerD, 15*time.Minute, nil, 0)
+	subTokenD, err := pouchC.Delegate(peerB, peerD, 15*time.Minute, nil, 0, 0)
 	if err != nil {
 		t.Fatalf("C delegate to D: %v", err)
 	}
@@ -544,7 +545,7 @@ func TestPouchDelegateMultiHopEndToEnd(t *testing.T) {
 	// Step 7: Verify D cannot further delegate (max_delegations exhausted).
 	pouchD := NewPouch(hmacKey)
 	pouchD.Add(peerB, subTokenD, nil, time.Now().Add(15*time.Minute), false)
-	_, err = pouchD.Delegate(peerB, genPeerID(t), 5*time.Minute, nil, 0)
+	_, err = pouchD.Delegate(peerB, genPeerID(t), 5*time.Minute, nil, 0, 0)
 	if err == nil {
 		t.Fatal("D should not be able to delegate further (max_delegations=0)")
 	}
@@ -582,7 +583,7 @@ func TestPouchDelegateInheritsParentExpiry(t *testing.T) {
 	p.Add(issuer, token, nil, parentExpiry, false)
 
 	// Delegate with duration=0 (inherit parent's expiry).
-	subToken, err := p.Delegate(issuer, target, 0, nil, 0)
+	subToken, err := p.Delegate(issuer, target, 0, nil, 0, 0)
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
@@ -594,6 +595,78 @@ func TestPouchDelegateInheritsParentExpiry(t *testing.T) {
 	}
 	if !extracted.Equal(parentExpiry) {
 		t.Errorf("extracted expiry %v != parent expiry %v", extracted, parentExpiry)
+	}
+}
+
+// TestPouchDelegateTransportWidenRejected verifies that attempting to
+// delegate with a transport mask wider than the parent's transport caveat
+// is rejected at the pouch boundary. Without this check, widening silently
+// narrows to the parent via AND — surprising the user.
+func TestPouchDelegateTransportWidenRejected(t *testing.T) {
+	_, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	// Parent token with transport=direct (no relay).
+	token := testMacaroon(t)
+	token.AddFirstPartyCaveat("max_delegations=2")
+	token.AddFirstPartyCaveat("transport=direct")
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	// Try to delegate asking for relay — must fail fast.
+	_, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, macaroon.TransportRelay)
+	if err == nil {
+		t.Fatal("expected widen error, got nil")
+	}
+	if !strings.Contains(err.Error(), "transport attenuation violation") {
+		t.Errorf("error %q missing attenuation violation text", err.Error())
+	}
+
+	// Same-set delegation (direct → direct) must succeed.
+	subToken, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, macaroon.TransportDirect)
+	if err != nil {
+		t.Fatalf("same-set delegate: %v", err)
+	}
+	if subToken == nil {
+		t.Fatal("expected non-nil sub-token")
+	}
+
+	// Pure narrowing (direct → nothing new requested) must succeed.
+	subToken2, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("no-op transport delegate: %v", err)
+	}
+	if subToken2 == nil {
+		t.Fatal("expected non-nil sub-token")
+	}
+}
+
+// TestPouchDelegateTransportNarrowFromPermissive verifies the legit
+// narrowing path: parent is wide (lan,direct,relay), child picks a subset.
+func TestPouchDelegateTransportNarrowFromPermissive(t *testing.T) {
+	_, hmacKey := genKeys(t)
+	p := NewPouch(hmacKey)
+	issuer := genPeerID(t)
+	target := genPeerID(t)
+
+	token := testMacaroon(t)
+	token.AddFirstPartyCaveat("max_delegations=2")
+	token.AddFirstPartyCaveat("transport=lan,direct,relay")
+	p.Add(issuer, token, nil, time.Now().Add(1*time.Hour), false)
+
+	subToken, err := p.Delegate(issuer, target, 30*time.Minute, nil, 0, macaroon.TransportLAN|macaroon.TransportDirect)
+	if err != nil {
+		t.Fatalf("narrow delegate: %v", err)
+	}
+
+	// Child token's effective mask is the intersection — LAN+Direct.
+	eff, err := macaroon.EffectiveTransportMask(subToken.Caveats)
+	if err != nil {
+		t.Fatalf("effective mask: %v", err)
+	}
+	if eff != (macaroon.TransportLAN | macaroon.TransportDirect) {
+		t.Errorf("effective mask = %d, want lan|direct (%d)", eff, macaroon.TransportLAN|macaroon.TransportDirect)
 	}
 }
 

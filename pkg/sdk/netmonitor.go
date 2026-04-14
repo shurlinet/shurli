@@ -186,16 +186,32 @@ func diffSummaries(old, current *InterfaceSummary) *NetworkChange {
 	}
 }
 
-// makeIPSet creates a set of all global IPs from a summary.
+// makeIPSet creates a set of every unicast IP (private + global) from a
+// summary, used by diffSummaries to compute Added/Removed.
+//
+// Originally this read the Global* fields only, which silently hid every
+// private-IPv4 transition from the delta (e.g. one carrier-NAT private IPv4
+// → a different carrier-NAT private IPv4, or a wired-LAN unplug). The
+// network-change handler in serve_common gates CloseStaleConnections on
+// len(change.Removed) > 0 — a deliberate "only kill conns when NetworkMonitor
+// has an authoritative removal signal" policy. Reading only globals broke
+// that policy: private-IP transitions produced an empty Removed list, the
+// gate stayed closed, and conns bound to the dead interface lived on as
+// zombies until TCP/QUIC keepalive killed them ~30s later (or indefinitely,
+// if the connection gater's LAN-first guard kept the zombie alive).
+//
+// Reading AllIPv*Addrs makes NetworkMonitor genuinely authoritative for
+// every unicast IP change. The gate in serve_common stays intact; its
+// original intent (trust the NetworkMonitor signal) is preserved.
 func makeIPSet(s *InterfaceSummary) map[string]bool {
 	set := make(map[string]bool)
 	if s == nil {
 		return set
 	}
-	for _, ip := range s.GlobalIPv4Addrs {
+	for _, ip := range s.AllIPv4Addrs {
 		set[ip] = true
 	}
-	for _, ip := range s.GlobalIPv6Addrs {
+	for _, ip := range s.AllIPv6Addrs {
 		set[ip] = true
 	}
 	return set

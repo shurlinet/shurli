@@ -308,4 +308,261 @@ func TestDefaultVerifierEmptyContext(t *testing.T) {
 	if err := v("group=family"); err != nil {
 		t.Errorf("empty group context should skip: %v", err)
 	}
+	if err := v("transport=lan,direct"); err != nil {
+		t.Errorf("empty transport context should skip: %v", err)
+	}
+}
+
+func TestEffectiveTransportMask(t *testing.T) {
+	cases := []struct {
+		name    string
+		caveats []string
+		want    TransportType
+		wantErr bool
+	}{
+		{
+			name:    "no transport caveat",
+			caveats: []string{"service=file-download", "expires=2099-01-01T00:00:00Z"},
+			want:    0,
+		},
+		{
+			name:    "single permissive caveat",
+			caveats: []string{"transport=lan,direct,relay"},
+			want:    TransportLAN | TransportDirect | TransportRelay,
+		},
+		{
+			name:    "single narrowed caveat",
+			caveats: []string{"transport=direct"},
+			want:    TransportDirect,
+		},
+		{
+			name:    "two caveats intersect (narrowing)",
+			caveats: []string{"transport=lan,direct,relay", "transport=lan,direct"},
+			want:    TransportLAN | TransportDirect,
+		},
+		{
+			name:    "two caveats intersect to single bit",
+			caveats: []string{"transport=lan,direct", "transport=direct,relay"},
+			want:    TransportDirect,
+		},
+		{
+			name:    "two caveats intersect to zero",
+			caveats: []string{"transport=lan", "transport=relay"},
+			want:    0, // mathematically empty intersection — display-only, not used for enforcement
+		},
+		{
+			name:    "malformed caveat errors",
+			caveats: []string{"transport=bogus"},
+			wantErr: true,
+		},
+		{
+			name:    "ignores other caveats",
+			caveats: []string{"peer_id=abc", "service=file", "transport=relay", "expires=2099-01-01T00:00:00Z"},
+			want:    TransportRelay,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := EffectiveTransportMask(tc.caveats)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (mask=%d)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("mask = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTransportMask(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    TransportType
+		wantErr bool
+	}{
+		{"lan", TransportLAN, false},
+		{"direct", TransportDirect, false},
+		{"relay", TransportRelay, false},
+		{"lan,direct", TransportLAN | TransportDirect, false},
+		{"LAN, Direct ,Relay", TransportLAN | TransportDirect | TransportRelay, false},
+		{"1", TransportLAN, false},
+		{"7", TransportLAN | TransportDirect | TransportRelay, false},
+		{"", 0, true},
+		{"wifi", 0, true},
+		{"lan,wifi", 0, true},
+		{"-1", 0, true},
+		{"8", 0, true}, // high bit not a known transport
+		{"16", 0, true},
+	}
+	for _, tc := range cases {
+		got, err := ParseTransportMask(tc.in)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("ParseTransportMask(%q) err=%v wantErr=%v", tc.in, err, tc.wantErr)
+			continue
+		}
+		if !tc.wantErr && got != tc.want {
+			t.Errorf("ParseTransportMask(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFormatTransportMask(t *testing.T) {
+	cases := []struct {
+		in   TransportType
+		want string
+	}{
+		{0, ""},
+		{TransportLAN, "lan"},
+		{TransportDirect, "direct"},
+		{TransportRelay, "relay"},
+		{TransportLAN | TransportDirect, "lan,direct"},
+		{TransportLAN | TransportDirect | TransportRelay, "lan,direct,relay"},
+	}
+	for _, tc := range cases {
+		if got := FormatTransportMask(tc.in); got != tc.want {
+			t.Errorf("FormatTransportMask(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestTokenAllowsTransport(t *testing.T) {
+	rk := []byte("rootkey-test-32bytes----------ab")
+
+	// Token without transport caveat — allows any transport (hint).
+	m1 := New("loc", rk, "id1")
+	m1.AddFirstPartyCaveat("service=file-download")
+	b1, _ := m1.EncodeBase64()
+	for _, tr := range []TransportType{TransportLAN, TransportDirect, TransportRelay} {
+		if !TokenAllowsTransport(b1, tr) {
+			t.Errorf("no caveat should allow %d", tr)
+		}
+	}
+
+	// Token with transport=direct — allows only direct.
+	m2 := New("loc", rk, "id2")
+	m2.AddFirstPartyCaveat("transport=direct")
+	b2, _ := m2.EncodeBase64()
+	if !TokenAllowsTransport(b2, TransportDirect) {
+		t.Error("direct should be allowed")
+	}
+	if TokenAllowsTransport(b2, TransportRelay) {
+		t.Error("relay must not be allowed")
+	}
+	if TokenAllowsTransport(b2, TransportLAN) {
+		t.Error("lan must not be allowed")
+	}
+
+	// Token with multiple caveats (parent=lan,direct,relay; child=lan,direct) — AND semantics.
+	m3 := New("loc", rk, "id3")
+	m3.AddFirstPartyCaveat("transport=lan,direct,relay")
+	m3.AddFirstPartyCaveat("transport=lan,direct")
+	b3, _ := m3.EncodeBase64()
+	if TokenAllowsTransport(b3, TransportRelay) {
+		t.Error("AND semantics: child narrowed, relay must not be allowed")
+	}
+	if !TokenAllowsTransport(b3, TransportDirect) {
+		t.Error("direct allowed by both")
+	}
+
+	// Malformed value — fail closed.
+	m4 := New("loc", rk, "id4")
+	m4.AddFirstPartyCaveat("transport=bogus")
+	b4, _ := m4.EncodeBase64()
+	if TokenAllowsTransport(b4, TransportDirect) {
+		t.Error("malformed caveat should fail closed")
+	}
+
+	// Zero transport — always allows.
+	if !TokenAllowsTransport(b2, 0) {
+		t.Error("zero transport should skip check")
+	}
+
+	// Malformed base64 — fail closed.
+	if TokenAllowsTransport("not-a-valid-token!!!", TransportDirect) {
+		t.Error("bad base64 should fail closed")
+	}
+}
+
+func TestDefaultVerifierTransportCaveat(t *testing.T) {
+	// Context with relay transport.
+	vRelay := DefaultVerifier(VerifyContext{
+		Now:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Transport: TransportRelay,
+	})
+	// Grant allows relay: passes.
+	if err := vRelay("transport=lan,direct,relay"); err != nil {
+		t.Errorf("relay allowed by mask should pass: %v", err)
+	}
+	// Grant restricts to lan,direct: relay stream rejected.
+	if err := vRelay("transport=lan,direct"); err == nil {
+		t.Error("relay not in mask should reject, got nil")
+	}
+	// Grant only lan: reject.
+	if err := vRelay("transport=lan"); err == nil {
+		t.Error("lan-only grant over relay should reject, got nil")
+	}
+	// Malformed value: reject.
+	if err := vRelay("transport=bogus"); err == nil {
+		t.Error("invalid transport token should error, got nil")
+	}
+
+	vDirect := DefaultVerifier(VerifyContext{
+		Now:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Transport: TransportDirect,
+	})
+	if err := vDirect("transport=direct"); err != nil {
+		t.Errorf("direct allowed: %v", err)
+	}
+	if err := vDirect("transport=lan,relay"); err == nil {
+		t.Error("direct not in mask should reject")
+	}
+
+	// Ctx with LAN.
+	vLAN := DefaultVerifier(VerifyContext{
+		Now:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Transport: TransportLAN,
+	})
+	if err := vLAN("transport=lan"); err != nil {
+		t.Errorf("lan allowed: %v", err)
+	}
+	if err := vLAN("transport=relay"); err == nil {
+		t.Error("lan stream on relay-only grant should reject")
+	}
+}
+
+// TestTransportCaveatAttenuationOnly verifies that chaining caveats only
+// narrows the allowed transport set — a child caveat cannot widen past the
+// parent because macaroon verifier ANDs all caveats.
+func TestTransportCaveatAttenuationOnly(t *testing.T) {
+	m := New("loc", []byte("rootkey-test-32bytes----------ab"), "id")
+	m.AddFirstPartyCaveat("transport=lan,direct")  // parent: no relay
+	m.AddFirstPartyCaveat("transport=lan,relay")   // child: tries to add relay
+
+	// Relay stream — parent caveat rejects.
+	err := m.Verify([]byte("rootkey-test-32bytes----------ab"), DefaultVerifier(VerifyContext{
+		Now: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Transport: TransportRelay,
+	}))
+	if err == nil {
+		t.Error("child widening to relay must still be rejected by parent caveat, got nil")
+	}
+	// Direct stream — child caveat rejects (not in child mask).
+	err = m.Verify([]byte("rootkey-test-32bytes----------ab"), DefaultVerifier(VerifyContext{
+		Now: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Transport: TransportDirect,
+	}))
+	if err == nil {
+		t.Error("child narrowing away direct must still reject over direct, got nil")
+	}
+	// LAN — both parent and child allow.
+	err = m.Verify([]byte("rootkey-test-32bytes----------ab"), DefaultVerifier(VerifyContext{
+		Now: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Transport: TransportLAN,
+	}))
+	if err != nil {
+		t.Errorf("lan should pass both parent and child: %v", err)
+	}
 }

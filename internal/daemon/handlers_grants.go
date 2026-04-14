@@ -11,6 +11,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/macaroon"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // handleGrantList returns all active grants.
@@ -91,7 +92,32 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var grantOpts []grants.GrantOptions
+	// Parse optional transport caveat. Empty = no caveat emitted (back-compat).
+	var transportMask macaroon.TransportType
+	if req.Transports != "" {
+		parsed, err := macaroon.ParseTransportMask(req.Transports)
+		if err != nil {
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid transports: %v", err))
+			return
+		}
+		transportMask = parsed
+	}
+
+	// Parse optional per-peer data budget. Empty = 0 = use global default.
+	// Accepts "20GB", "unlimited", etc. Validated server-side even though the
+	// CLI already validated — defense in depth against direct API callers.
+	var dataBudget int64
+	if req.Budget != "" {
+		parsed, err := sdk.ParseByteSize(req.Budget)
+		if err != nil {
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid budget: %v", err))
+			return
+		}
+		dataBudget = parsed
+	}
+
+	var opt grants.GrantOptions
+	opt.Transports = transportMask
 	if autoRefresh {
 		maxRefreshes := req.MaxRefreshes
 		if maxRefreshes <= 0 {
@@ -104,14 +130,13 @@ func (s *Server) handleGrantCreate(w http.ResponseWriter, r *http.Request) {
 				maxRefreshDur = cap
 			}
 		}
-		grantOpts = append(grantOpts, grants.GrantOptions{
-			AutoRefresh:        true,
-			MaxRefreshes:       maxRefreshes,
-			MaxRefreshDuration: maxRefreshDur,
-		})
+		opt.AutoRefresh = true
+		opt.MaxRefreshes = maxRefreshes
+		opt.MaxRefreshDuration = maxRefreshDur
 	}
+	grantOpts := []grants.GrantOptions{opt}
 
-	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations, 0, grantOpts...)
+	grant, err := gs.Grant(peerID, duration, req.Services, req.Permanent, req.MaxDelegations, dataBudget, grantOpts...)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
@@ -268,8 +293,19 @@ func (s *Server) handleGrantDelegate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Optional narrower transport caveat.
+	var delegTransports macaroon.TransportType
+	if req.Transports != "" {
+		parsed, perr := macaroon.ParseTransportMask(req.Transports)
+		if perr != nil {
+			RespondError(w, http.StatusBadRequest, fmt.Sprintf("invalid transports: %v", perr))
+			return
+		}
+		delegTransports = parsed
+	}
+
 	// Create the attenuated sub-token.
-	subToken, err := pouch.Delegate(issuerID, targetID, duration, req.Services, req.MaxDelegations)
+	subToken, err := pouch.Delegate(issuerID, targetID, duration, req.Services, req.MaxDelegations, delegTransports)
 	if err != nil {
 		RespondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -419,6 +455,11 @@ func (s *Server) handlePouchList(w http.ResponseWriter, r *http.Request) {
 			Services:  e.Services,
 			Permanent: e.Permanent,
 		}
+		if e.Token != nil {
+			if mask, err := macaroon.EffectiveTransportMask(e.Token.Caveats); err == nil && mask != 0 {
+				info.Transports = macaroon.FormatTransportMask(mask)
+			}
+		}
 
 		if name, ok := reverseNames[e.IssuerIDStr]; ok {
 			info.Issuer = name
@@ -465,6 +506,11 @@ func grantToInfo(g *grants.Grant, reverseNames map[string]string) GrantInfo {
 		MaxRefreshes:   g.MaxRefreshes,
 		RefreshesUsed:  g.RefreshesUsed,
 	}
+	if g.Transports != 0 {
+		info.Transports = macaroon.FormatTransportMask(g.Transports)
+	}
+	info.DataBudget = g.DataBudget
+	info.DataBudgetHR = formatDataBudget(g.DataBudget)
 
 	if name, ok := reverseNames[g.PeerIDStr]; ok {
 		info.Peer = name
@@ -478,6 +524,19 @@ func grantToInfo(g *grants.Grant, reverseNames map[string]string) GrantInfo {
 	}
 
 	return info
+}
+
+// formatDataBudget returns a presentation-only string for a grant's data
+// budget. 0 = inherits global default, -1 = unlimited, otherwise bytes.
+func formatDataBudget(b int64) string {
+	switch {
+	case b == 0:
+		return ""
+	case b < 0:
+		return "unlimited"
+	default:
+		return sdk.FormatBytes(b)
+	}
 }
 
 // formatDuration returns a human-readable duration string.

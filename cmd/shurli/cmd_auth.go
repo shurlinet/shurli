@@ -67,7 +67,7 @@ func printAuthUsage() {
 	fmt.Println("  set-attr <peer-id> <key> <value>                              Set peer attribute")
 	fmt.Println()
 	fmt.Println("Relay data access grants (macaroon capability tokens):")
-	fmt.Println("  grant    <peer> --duration 1h [--bandwidth 1GB] [--delegate N]  Grant relay data access")
+	fmt.Println("  grant    <peer> --duration 1h [--bandwidth 1GB] [--delegate N] [--transport lan,direct,relay]  Grant relay data access")
 	fmt.Println("  grants                                                         List active grants")
 	fmt.Println("  revoke   <peer>                                                Revoke relay data access")
 	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")

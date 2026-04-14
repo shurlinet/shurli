@@ -253,6 +253,8 @@ type GrantRequest struct {
 	MaxDelegations int      `json:"max_delegations,omitempty"` // 0=none, N=limited, -1=unlimited
 	AutoRefresh    bool     `json:"auto_refresh,omitempty"`    // B4: opt-in token refresh
 	MaxRefreshes   int      `json:"max_refreshes,omitempty"`   // B4: max refresh count
+	Transports     string   `json:"transports,omitempty"`      // transport caveat: comma-separated "lan,direct,relay" or decimal bitmask; empty = no caveat
+	Budget         string   `json:"budget,omitempty"`          // per-peer data budget (e.g. "20GB", "unlimited"); stored in Grant.DataBudget
 }
 
 // GrantExtendRequest is the request body for extending a grant.
@@ -274,6 +276,7 @@ type GrantDelegateRequest struct {
 	Duration       string   `json:"duration,omitempty"`        // optional: shorter duration
 	Services       []string `json:"services,omitempty"`        // optional: fewer services
 	MaxDelegations int      `json:"max_delegations,omitempty"` // optional: further delegation hops
+	Transports     string   `json:"transports,omitempty"`      // optional: narrower transport caveat (lan,direct,relay)
 }
 
 // GrantInfo represents a grant in API responses.
@@ -289,6 +292,9 @@ type GrantInfo struct {
 	AutoRefresh    bool     `json:"auto_refresh,omitempty"`     // B4: token refresh enabled
 	MaxRefreshes   int      `json:"max_refreshes,omitempty"`    // B4: total allowed
 	RefreshesUsed  int      `json:"refreshes_used,omitempty"`   // B4: consumed so far
+	Transports     string   `json:"transports,omitempty"`       // transport caveat string (e.g. "lan,direct,relay"); empty = any
+	DataBudget     int64    `json:"data_budget,omitempty"`      // per-peer relay data budget in bytes: 0=global default, -1=unlimited, >0=absolute
+	DataBudgetHR   string   `json:"data_budget_hr,omitempty"`   // human-readable form of DataBudget ("unlimited", "20GB", etc.) — presentation only
 }
 
 // GrantListResponse is the response for listing grants.
@@ -298,12 +304,13 @@ type GrantListResponse struct {
 
 // PouchEntryInfo represents a received grant token in API responses.
 type PouchEntryInfo struct {
-	Issuer    string   `json:"issuer"`              // issuer name or truncated ID
-	IssuerID  string   `json:"issuer_id"`           // full peer ID
-	Services  []string `json:"services,omitempty"`   // empty = all
-	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
-	Remaining string   `json:"remaining,omitempty"`  // human-readable
-	Permanent bool     `json:"permanent,omitempty"`
+	Issuer     string   `json:"issuer"`               // issuer name or truncated ID
+	IssuerID   string   `json:"issuer_id"`            // full peer ID
+	Services   []string `json:"services,omitempty"`   // empty = all
+	ExpiresAt  string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	Remaining  string   `json:"remaining,omitempty"`  // human-readable
+	Permanent  bool     `json:"permanent,omitempty"`
+	Transports string   `json:"transports,omitempty"` // effective transport mask parsed from token caveats (AND of all transport caveats); empty = unrestricted
 }
 
 // PouchListResponse is the response for listing pouch entries.

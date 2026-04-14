@@ -9,6 +9,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/shurlinet/shurli/internal/macaroon"
 )
 
 func genKeys(t *testing.T) ([]byte, []byte) {
@@ -43,7 +45,7 @@ func TestGrantAndCheck(t *testing.T) {
 	pid := genPeerID(t)
 
 	// No grant yet.
-	if s.Check(pid, "file-transfer") {
+	if s.Check(pid, "file-transfer", 0) {
 		t.Fatal("should not have grant before creation")
 	}
 
@@ -60,10 +62,10 @@ func TestGrantAndCheck(t *testing.T) {
 	}
 
 	// Check passes.
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("should have grant after creation")
 	}
-	if !s.Check(pid, "file-browse") {
+	if !s.Check(pid, "file-browse", 0) {
 		t.Fatal("empty services = all allowed")
 	}
 }
@@ -78,10 +80,10 @@ func TestGrantWithServices(t *testing.T) {
 		t.Fatalf("grant: %v", err)
 	}
 
-	if !s.Check(pid, "file-browse") {
+	if !s.Check(pid, "file-browse", 0) {
 		t.Fatal("file-browse should be allowed")
 	}
-	if s.Check(pid, "file-transfer") {
+	if s.Check(pid, "file-transfer", 0) {
 		t.Fatal("file-transfer should NOT be allowed (not in services list)")
 	}
 }
@@ -101,7 +103,7 @@ func TestGrantPermanent(t *testing.T) {
 	if g.Expired() {
 		t.Fatal("permanent grant should not be expired")
 	}
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("permanent grant should pass check")
 	}
 }
@@ -117,7 +119,7 @@ func TestRevoke(t *testing.T) {
 	})
 
 	s.Grant(pid, 1*time.Hour, nil, false, 0, 0)
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("should have grant")
 	}
 
@@ -125,7 +127,7 @@ func TestRevoke(t *testing.T) {
 		t.Fatalf("revoke: %v", err)
 	}
 
-	if s.Check(pid, "file-transfer") {
+	if s.Check(pid, "file-transfer", 0) {
 		t.Fatal("should not have grant after revoke")
 	}
 	if revokedPeer != pid {
@@ -155,7 +157,7 @@ func TestExtend(t *testing.T) {
 	}
 
 	// Verify the grant is still valid.
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("extended grant should still be valid")
 	}
 
@@ -188,7 +190,7 @@ func TestExpiredGrantFailsCheck(t *testing.T) {
 	s.Grant(pid, 1*time.Millisecond, nil, false, 0, 0)
 	time.Sleep(5 * time.Millisecond)
 
-	if s.Check(pid, "file-transfer") {
+	if s.Check(pid, "file-transfer", 0) {
 		t.Fatal("expired grant should fail check")
 	}
 }
@@ -242,13 +244,13 @@ func TestPersistAndLoad(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 
-	if !s2.Check(pid, "file-transfer") {
+	if !s2.Check(pid, "file-transfer", 0) {
 		t.Fatal("loaded store should have the grant")
 	}
-	if !s2.Check(pid, "file-browse") {
+	if !s2.Check(pid, "file-browse", 0) {
 		t.Fatal("loaded store should allow file-browse")
 	}
-	if s2.Check(pid, "file-download") {
+	if s2.Check(pid, "file-download", 0) {
 		t.Fatal("loaded store should NOT allow file-download (not in services)")
 	}
 }
@@ -353,7 +355,7 @@ func TestGrantReplaceExisting(t *testing.T) {
 	s.Grant(pid, 2*time.Hour, nil, false, 0, 0) // replace
 
 	// New grant should have no service restriction.
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("replacement grant should allow all services")
 	}
 }
@@ -424,7 +426,7 @@ func TestTokenTamperFailsCheck(t *testing.T) {
 	}
 	s.mu.Unlock()
 
-	if s.Check(pid, "file-transfer") {
+	if s.Check(pid, "file-transfer", 0) {
 		t.Fatal("tampered token should fail verification")
 	}
 }
@@ -455,7 +457,7 @@ func TestGrantWithMaxDelegations(t *testing.T) {
 	}
 
 	// Grant should still verify.
-	if !s.Check(pid, "file-transfer") {
+	if !s.Check(pid, "file-transfer", 0) {
 		t.Fatal("grant with max_delegations should verify")
 	}
 }
@@ -683,5 +685,142 @@ func TestProtocolVersionCheck(t *testing.T) {
 	// Future version (higher than min).
 	if err := checkProtocolVersion(GrantProtocolVersion + 1); err != nil {
 		t.Fatalf("future version should be accepted: %v", err)
+	}
+}
+
+func TestGrantWithTransportCaveat(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	pid := genPeerID(t)
+
+	// Grant authorizes lan+direct+relay on file-download.
+	_, err := s.Grant(pid, 1*time.Hour, []string{"file-download"}, false, 0, 0,
+		GrantOptions{Transports: macaroon.TransportLAN | macaroon.TransportDirect | macaroon.TransportRelay})
+	if err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+
+	// Token must contain the transport caveat.
+	found := false
+	for _, c := range s.grants[pid].Token.Caveats {
+		if c == "transport=lan,direct,relay" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected transport caveat, got %v", s.grants[pid].Token.Caveats)
+	}
+
+	// Check over each transport — all should pass under this mask.
+	for _, tr := range []macaroon.TransportType{macaroon.TransportLAN, macaroon.TransportDirect, macaroon.TransportRelay} {
+		if !s.Check(pid, "file-download", tr) {
+			t.Errorf("transport %d should pass: all bits allowed", tr)
+		}
+	}
+}
+
+func TestGrantTransportCaveatNarrowed(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	pid := genPeerID(t)
+
+	// Grant only allows direct.
+	_, err := s.Grant(pid, 1*time.Hour, []string{"file-download"}, false, 0, 0,
+		GrantOptions{Transports: macaroon.TransportDirect})
+	if err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+
+	if !s.Check(pid, "file-download", macaroon.TransportDirect) {
+		t.Error("direct transport should pass on direct-only grant")
+	}
+	if s.Check(pid, "file-download", macaroon.TransportRelay) {
+		t.Error("relay transport must NOT pass on direct-only grant")
+	}
+	if s.Check(pid, "file-download", macaroon.TransportLAN) {
+		t.Error("lan transport must NOT pass on direct-only grant")
+	}
+	// 0 transport skips the check — any service grant matches.
+	if !s.Check(pid, "file-download", 0) {
+		t.Error("zero transport must skip caveat check")
+	}
+}
+
+func TestGrantTransportCaveatExtendPreserves(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	s := NewStore(rootKey, hmacKey)
+	pid := genPeerID(t)
+
+	_, err := s.Grant(pid, 1*time.Hour, []string{"file-download"}, false, 0, 0,
+		GrantOptions{Transports: macaroon.TransportLAN | macaroon.TransportRelay})
+	if err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+
+	// Extend and verify caveat is still present on rebuilt token.
+	if err := s.Extend(pid, 30*time.Minute); err != nil {
+		t.Fatalf("extend: %v", err)
+	}
+	if !s.Check(pid, "file-download", macaroon.TransportRelay) {
+		t.Error("relay transport should still pass after extend")
+	}
+	if s.Check(pid, "file-download", macaroon.TransportDirect) {
+		t.Error("direct transport must still be rejected after extend")
+	}
+}
+
+// TestGrantTransportCaveatPersistence verifies that transport caveats survive
+// Save/Load round-trip. Catches regressions in JSON encoding, macaroon bytes,
+// or the Grant.Transports field.
+func TestGrantTransportCaveatPersistence(t *testing.T) {
+	rootKey, hmacKey := genKeys(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grants.json")
+
+	s := NewStore(rootKey, hmacKey)
+	s.SetPersistPath(path)
+	pid := genPeerID(t)
+
+	_, err := s.Grant(pid, 1*time.Hour, []string{"file-download"}, false, 0, 20*1024*1024*1024, // 20GB
+		GrantOptions{Transports: macaroon.TransportLAN | macaroon.TransportDirect | macaroon.TransportRelay})
+	if err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+
+	// Load into a fresh store.
+	s2, err := Load(path, rootKey, hmacKey)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	g2 := s2.CheckAndGet(pid)
+	if g2 == nil {
+		t.Fatal("loaded store should have the grant")
+	}
+	if g2.Transports != (macaroon.TransportLAN | macaroon.TransportDirect | macaroon.TransportRelay) {
+		t.Errorf("loaded grant Transports = %d, want %d", g2.Transports,
+			macaroon.TransportLAN|macaroon.TransportDirect|macaroon.TransportRelay)
+	}
+	if g2.DataBudget != 20*1024*1024*1024 {
+		t.Errorf("loaded grant DataBudget = %d, want 20GB", g2.DataBudget)
+	}
+
+	// Caveat must be present on the persisted token (not just on the Grant field).
+	foundCaveat := false
+	for _, c := range g2.Token.Caveats {
+		if c == "transport=lan,direct,relay" {
+			foundCaveat = true
+			break
+		}
+	}
+	if !foundCaveat {
+		t.Errorf("persisted token missing transport caveat, got %v", g2.Token.Caveats)
+	}
+
+	// Verification against every transport should pass.
+	for _, tr := range []macaroon.TransportType{macaroon.TransportLAN, macaroon.TransportDirect, macaroon.TransportRelay} {
+		if !s2.Check(pid, "file-download", tr) {
+			t.Errorf("loaded grant should pass Check for transport %d", tr)
+		}
 	}
 }

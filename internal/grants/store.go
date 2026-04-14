@@ -39,6 +39,7 @@ type Grant struct {
 	MaxRefreshDuration time.Duration      `json:"max_refresh_duration,omitempty"` // absolute deadline from grant creation
 	OriginalDuration   time.Duration      `json:"original_duration,omitempty"`    // stored for consistent refresh intervals
 	DataBudget         int64              `json:"data_budget,omitempty"`          // relay data budget in bytes: 0=use global default, -1=unlimited, >0=per-peer limit
+	Transports         macaroon.TransportType `json:"transports,omitempty"`       // transport bitmask; 0 = no caveat emitted (back-compat)
 }
 
 // Expired returns true if this grant has expired.
@@ -191,6 +192,7 @@ type GrantOptions struct {
 	RefreshesUsed      int           // consumed so far (for accurate caveat: remaining = max - used)
 	MaxRefreshDuration time.Duration // relative duration from creation (stored on Grant, used to compute deadline)
 	RefreshDeadline    time.Time     // absolute deadline (computed once at creation, baked into macaroon)
+	Transports         macaroon.TransportType // transport bitmask; 0 = no transport caveat emitted (back-compat)
 }
 
 // Grant creates a new data access grant for the given peer.
@@ -236,6 +238,7 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 		MaxRefreshDuration: opt.MaxRefreshDuration,
 		OriginalDuration:   duration,
 		DataBudget:         dataBudget,
+		Transports:         opt.Transports,
 	}
 
 	// Clone for delivery BEFORE storing in map, so no concurrent Extend() can race.
@@ -270,6 +273,12 @@ func (s *Store) Grant(peerID peer.ID, duration time.Duration, services []string,
 	}
 	if len(services) > 0 {
 		meta["services"] = strings.Join(services, ",")
+	}
+	if opt.Transports != 0 {
+		meta["transports"] = macaroon.FormatTransportMask(opt.Transports)
+	}
+	if dataBudget != 0 {
+		meta["data_budget"] = formatDataBudgetMeta(dataBudget)
 	}
 
 	// Phase D1: audit log.
@@ -382,6 +391,7 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration, dataBudget ...int
 		MaxRefreshes:    g.MaxRefreshes,
 		RefreshesUsed:   g.RefreshesUsed,
 		RefreshDeadline: refreshDeadline,
+		Transports:      g.Transports,
 	})
 	// Clone while holding the lock so concurrent operations can't race.
 	var grantCopy *Grant
@@ -396,6 +406,10 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration, dataBudget ...int
 		grantServices = make([]string, len(g.Services))
 		copy(grantServices, g.Services)
 	}
+	// Snapshot caveat state under lock — reading `g` after unlock would
+	// race against concurrent Extend/Refresh mutating the same pointer.
+	extTransports := g.Transports
+	extDataBudget := g.DataBudget
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -404,10 +418,18 @@ func (s *Store) Extend(peerID peer.ID, duration time.Duration, dataBudget ...int
 
 	s.logger.Info("grants: extended", "peer", shortPeerID(peerID), "new_expiry", newExpiry.Format(time.RFC3339))
 
-	// Phase D1: audit log.
-	s.auditAppend(AuditGrantExtended, peerID, map[string]string{
+	// Phase D1: audit log. Preserve transport + data budget in the
+	// forensic trail so extend events can be reconstructed end-to-end.
+	auditMeta := map[string]string{
 		"expires_at": newExpiry.Format(time.RFC3339),
-	})
+	}
+	if extTransports != 0 {
+		auditMeta["transports"] = macaroon.FormatTransportMask(extTransports)
+	}
+	if extDataBudget != 0 {
+		auditMeta["data_budget"] = formatDataBudgetMeta(extDataBudget)
+	}
+	s.auditAppend(AuditGrantExtended, peerID, auditMeta)
 
 	// Phase C: notification.
 	if onNotify != nil {
@@ -503,6 +525,7 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 		MaxRefreshes:    g.MaxRefreshes,
 		RefreshesUsed:   g.RefreshesUsed,
 		RefreshDeadline: refreshDeadline,
+		Transports:      g.Transports,
 	})
 
 	result := g.clone()
@@ -525,12 +548,20 @@ func (s *Store) Refresh(peerID peer.ID) (*Grant, error) {
 		"refreshes_used", refreshesUsed,
 		"max_refreshes", maxRefreshes)
 
-	// Phase D1: audit log.
-	s.auditAppend(AuditGrantRefreshed, peerID, map[string]string{
+	// Phase D1: audit log. Carry transport + data budget forward so the
+	// forensic trail links every refresh to the current caveat state.
+	refreshAuditMeta := map[string]string{
 		"expires_at":     newExpiry.Format(time.RFC3339),
 		"refreshes_used": fmt.Sprintf("%d", refreshesUsed),
 		"max_refreshes":  fmt.Sprintf("%d", maxRefreshes),
-	})
+	}
+	if result.Transports != 0 {
+		refreshAuditMeta["transports"] = macaroon.FormatTransportMask(result.Transports)
+	}
+	if result.DataBudget != 0 {
+		refreshAuditMeta["data_budget"] = formatDataBudgetMeta(result.DataBudget)
+	}
+	s.auditAppend(AuditGrantRefreshed, peerID, refreshAuditMeta)
 
 	// Phase C: notification.
 	if onNotify != nil {
@@ -578,6 +609,7 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 		MaxRefreshes:    maxRefreshes,
 		RefreshesUsed:   g.RefreshesUsed,
 		RefreshDeadline: refreshDeadline,
+		Transports:      g.Transports,
 	})
 
 	var grantCopy *Grant
@@ -591,6 +623,9 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 		grantServices = make([]string, len(g.Services))
 		copy(grantServices, g.Services)
 	}
+	// Snapshot caveat state for audit log AFTER unlock.
+	grantTransports := g.Transports
+	grantDataBudget := g.DataBudget
 	s.mu.Unlock()
 
 	if err := s.save(); err != nil {
@@ -599,10 +634,17 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 
 	s.logger.Info("grants: updated max_refreshes", "peer", shortPeerID(peerID), "max_refreshes", maxRefreshes)
 
-	// Phase D1: audit log.
-	s.auditAppend(AuditGrantExtended, peerID, map[string]string{
+	// Phase D1: audit log. Preserve transport + data budget for continuity.
+	umrAuditMeta := map[string]string{
 		"max_refreshes": fmt.Sprintf("%d", maxRefreshes),
-	})
+	}
+	if grantTransports != 0 {
+		umrAuditMeta["transports"] = macaroon.FormatTransportMask(grantTransports)
+	}
+	if grantDataBudget != 0 {
+		umrAuditMeta["data_budget"] = formatDataBudgetMeta(grantDataBudget)
+	}
+	s.auditAppend(AuditGrantExtended, peerID, umrAuditMeta)
 
 	// Phase C: notification.
 	if onNotify != nil {
@@ -627,8 +669,13 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 	return nil
 }
 
-// Check returns true if the given peer has a valid grant for the given service.
-// This is the primary enforcement point. Called by OpenPluginStream and inbound handler.
+// Check returns true if the given peer has a valid grant for the given service
+// on the given transport. This is the primary enforcement point. Called by
+// OpenPluginStream and inbound handler.
+//
+// transport is the current stream transport (LAN/Direct/Relay). Pass 0 only
+// when the caller does not know the transport and explicitly wants to skip
+// the transport caveat check (rare; most call paths know the transport).
 //
 // D1 mitigation: all code paths execute the same operations (map lookup, expiry check,
 // HMAC verification) to prevent timing oracles that leak grant state. When no grant
@@ -637,11 +684,12 @@ func (s *Store) UpdateMaxRefreshes(peerID peer.ID, maxRefreshes int) error {
 //
 // The RLock is held through verification to prevent a data race with concurrent
 // Extend() which can mutate ExpiresAt and Token on the same Grant pointer.
-func (s *Store) Check(peerID peer.ID, service string) bool {
+func (s *Store) Check(peerID peer.ID, service string, transport macaroon.TransportType) bool {
 	verifier := macaroon.DefaultVerifier(macaroon.VerifyContext{
-		PeerID:  peerID.String(),
-		Service: service,
-		Now:     time.Now(),
+		PeerID:    peerID.String(),
+		Service:   service,
+		Transport: transport,
+		Now:       time.Now(),
 	})
 
 	s.mu.RLock()
@@ -815,6 +863,12 @@ func (s *Store) buildMacaroon(peerID peer.ID, expiresAt time.Time, services []st
 
 	// Always emit max_delegations, even when 0.
 	m.AddFirstPartyCaveat(fmt.Sprintf("%s=%d", macaroon.CaveatMaxDelegations, maxDelegations))
+
+	// Transport caveat (only when explicitly set). Absence preserves
+	// the pre-transport-caveat behavior: any grant unlocks all transports.
+	if len(opts) > 0 && opts[0].Transports != 0 {
+		m.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatTransport, macaroon.FormatTransportMask(opts[0].Transports)))
+	}
 
 	// Auto-refresh caveats (B4).
 	if len(opts) > 0 && opts[0].AutoRefresh {
@@ -995,4 +1049,14 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 
 	success = true
 	return nil
+}
+
+// formatDataBudgetMeta returns the canonical audit/notification string
+// for a grant data budget. 0 is elided by callers (inherits default), -1 is
+// "unlimited", positive values are decimal byte counts. Callers must skip 0.
+func formatDataBudgetMeta(b int64) string {
+	if b < 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%d", b)
 }

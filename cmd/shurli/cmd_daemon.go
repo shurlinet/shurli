@@ -458,10 +458,15 @@ func runDaemonStart(args []string) {
 
 		// Wire grant checker into service registry for stream-level enforcement.
 		// This is the C2 mitigation: node-level enforcement independent of relay ACL.
-		rt.network.ServiceRegistry().SetGrantChecker(gs.Check)
+		// Thin adapter: sdk.TransportType → macaroon.TransportType (identical bit
+		// values, different packages to avoid sdk→macaroon import cycle).
+		checkGrant := func(pid peer.ID, svc string, t sdk.TransportType) bool {
+			return gs.Check(pid, svc, macaroon.TransportType(t))
+		}
+		rt.network.ServiceRegistry().SetGrantChecker(checkGrant)
 
 		// Wire grant checker into plugin context for share warnings (E1-design mitigation).
-		pluginProvider.GrantChecker = gs.Check
+		pluginProvider.GrantChecker = checkGrant
 
 		// Phase B: GrantPouch (received tokens) + delivery protocol + offline queue.
 		configDir := filepath.Dir(rt.configFile)
@@ -578,7 +583,7 @@ func runDaemonStart(args []string) {
 		// TokenVerifier: inbound - verify presented tokens cryptographically.
 		// D1 mitigation: constant-time HMAC on all paths (valid, invalid, malformed).
 		dummyToken := macaroon.New("shurli-node", grantRootKey, "dummy")
-		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string) bool {
+		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string, t sdk.TransportType) bool {
 			short := pid.String()[:16]
 
 			// D1 mitigation: all code paths must execute the same operations
@@ -597,6 +602,7 @@ func runDaemonStart(args []string) {
 				PeerID:     pid.String(),
 				Service:    svc,
 				DelegateTo: delegateTo,
+				Transport:  macaroon.TransportType(t),
 				Now:        time.Now(),
 			})
 			verifyErr := token.Verify(grantRootKey, verifier)

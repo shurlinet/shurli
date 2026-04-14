@@ -230,9 +230,9 @@ type StreamHandler    func(serviceName string, s network.Stream)
 type EventHandler     func(Event)
 type EventType        int
 type TransportType    int
-type GrantChecker     func(peerID peer.ID, service string) bool
-type TokenVerifier    func(peerID peer.ID, service string, token []byte) bool
-type TokenLookup      func(peerID peer.ID, service string) []byte
+type GrantChecker     func(peerID peer.ID, service string, transport TransportType) bool
+type TokenVerifier    func(tokenBase64 string, peerID peer.ID, service string, transport TransportType) bool
+type TokenLookup      func(peerID peer.ID, service string) string
 type ConnectionRecorder func(peerID peer.ID)
 type PeerFilter       func(peer.ID) bool
 type NodeStateProvider func() *NodeAnnouncement

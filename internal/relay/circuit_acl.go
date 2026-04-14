@@ -204,8 +204,11 @@ func (a *CircuitACL) hasDataAccess(p peer.ID) bool {
 	}
 
 	// Check time-limited grant (empty service = any grant qualifies).
+	// Transport 0 = skip transport caveat check: circuit ACL is before the
+	// circuit is usable for plugin streams, so transport-level restrictions
+	// in the grant caveat chain aren't applicable here.
 	if gs != nil {
-		if !gs.Check(p, "") {
+		if !gs.Check(p, "", 0) {
 			return false
 		}
 		// TE3-C1: deny if grant exists but budget is exhausted.

@@ -25,6 +25,25 @@ type InterfaceSummary struct {
 	GlobalIPv6Addrs []string       `json:"global_ipv6_addrs,omitempty"`
 	GlobalIPv4Addrs []string       `json:"global_ipv4_addrs,omitempty"`
 
+	// AllIPv4Addrs / AllIPv6Addrs are every unicast IP bound to a live
+	// interface, excluding loopback and link-local. These are a superset
+	// of the Global* lists — they additionally include RFC 1918, RFC 6598
+	// CGNAT, and ULA IPv6. They exist so diffSummaries can compute an
+	// authoritative Added/Removed delta that includes private-IPv4
+	// transitions (e.g. one carrier-NAT RFC 1918 prefix to another, or
+	// an RFC 6598 CGNAT prefix to a classic RFC 1918 LAN prefix). Without
+	// these, `change.Removed` was blind to
+	// private-IP interfaces vanishing, which left `CloseStaleConnections`
+	// unable to kill conns bound to the dead interface via its authoritative
+	// gate in the serve_common network-change handler.
+	//
+	// Reachability classification (`reachability.go`, `peerrelay.go`,
+	// `network.go` IPv6 dialer/factory, `peermanager.go` IPv6 probe target
+	// extraction) still reads the Global* fields, so publicly-routable
+	// semantics are unchanged.
+	AllIPv4Addrs []string `json:"all_ipv4_addrs,omitempty"`
+	AllIPv6Addrs []string `json:"all_ipv6_addrs,omitempty"`
+
 	// TunnelInterfaces lists names of active VPN/tunnel interfaces.
 	// Used by diffSummaries to detect VPN activation/deactivation even
 	// when global IPs don't change (VPN tunnels typically carry only
@@ -97,14 +116,19 @@ func discoverInterfacesFrom(listFn func() ([]net.Interface, error)) (*InterfaceS
 			}
 
 			if ip.To4() != nil {
-				// IPv4
+				// IPv4: track every unicast in AllIPv4Addrs (RFC 1918,
+				// CGNAT, global), but only promote globals into the
+				// Global* lists used for reachability classification.
+				summary.AllIPv4Addrs = append(summary.AllIPv4Addrs, ip.String())
 				if isGlobalIPv4(ip) {
 					info.IPv4Addrs = append(info.IPv4Addrs, ip.String())
 					summary.GlobalIPv4Addrs = append(summary.GlobalIPv4Addrs, ip.String())
 					summary.HasGlobalIPv4 = true
 				}
 			} else if len(ip) == net.IPv6len {
-				// IPv6 - exclude ULA (fc00::/7)
+				// IPv6: track every unicast in AllIPv6Addrs (ULA and
+				// global). Only globals feed reachability.
+				summary.AllIPv6Addrs = append(summary.AllIPv6Addrs, ip.String())
 				if isGlobalIPv6(ip) {
 					info.IPv6Addrs = append(info.IPv6Addrs, ip.String())
 					summary.GlobalIPv6Addrs = append(summary.GlobalIPv6Addrs, ip.String())
@@ -113,7 +137,9 @@ func discoverInterfacesFrom(listFn func() ([]net.Interface, error)) (*InterfaceS
 			}
 		}
 
-		// Include interface if it has any global addresses or is loopback
+		// Include interface if it has any global addresses or is loopback.
+		// Private-only interfaces still contribute to AllIPv*Addrs via the
+		// summary-level append above.
 		if len(info.IPv4Addrs) > 0 || len(info.IPv6Addrs) > 0 || info.IsLoopback {
 			summary.Interfaces = append(summary.Interfaces, info)
 		}

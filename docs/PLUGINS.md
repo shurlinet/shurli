@@ -450,7 +450,7 @@ type ContextProvider struct {
     PeerConnector     func(ctx context.Context, id peer.ID) error // DHT + relay fallback
     KeyDeriver        func(domain string) []byte                  // HKDF-SHA256 from identity
     ScoreResolver     func(peerID peer.ID) int                    // reputation score (0-100)
-    GrantChecker      func(peerID peer.ID, service string) bool   // data access grant check
+    GrantChecker      func(peerID peer.ID, service string, transport sdk.TransportType) bool // data access grant check (C2)
     PeerAttrFunc      func(peerID string, key string) string      // peer attribute lookup
     RelayGrantChecker sdk.RelayGrantChecker                       // relay grant cache
 }
