@@ -197,7 +197,7 @@ func (r *Registry) Register(p Plugin) error {
 	var peerConnector func(context.Context, peer.ID) error
 	var keyDeriver func(string) []byte
 	var scoreResolver func(peer.ID) int
-	var grantChecker func(peer.ID, string) bool
+	var grantChecker sdk.GrantChecker
 	var peerAttrFunc func(string, string) string
 	if r.provider != nil {
 		nameResolver = r.provider.NameResolver

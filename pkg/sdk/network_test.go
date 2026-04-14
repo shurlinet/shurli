@@ -805,6 +805,184 @@ func TestSourceBindDialerForAddr(t *testing.T) {
 	})
 }
 
+// TestShurliQUICSourceSelector covers the QUIC equivalent of
+// sourceBindDialerForAddr. See libp2p-overrides.md #7 for background.
+func TestShurliQUICSourceSelector(t *testing.T) {
+	sel := &shurliQUICSourceSelector{}
+
+	t.Run("IPv4 destination returns nil", func(t *testing.T) {
+		ip, err := sel.PreferredSourceIPForDestination(&net.UDPAddr{
+			IP:   net.ParseIP("203.0.113.50"),
+			Port: 4001,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil {
+			t.Errorf("expected nil source IP for IPv4 destination, got %v", ip)
+		}
+	})
+
+	t.Run("loopback IPv6 destination returns nil", func(t *testing.T) {
+		ip, err := sel.PreferredSourceIPForDestination(&net.UDPAddr{
+			IP:   net.ParseIP("::1"),
+			Port: 4001,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil {
+			t.Errorf("expected nil source IP for loopback, got %v", ip)
+		}
+	})
+
+	t.Run("link-local IPv6 destination returns nil", func(t *testing.T) {
+		ip, err := sel.PreferredSourceIPForDestination(&net.UDPAddr{
+			IP:   net.ParseIP("fe80::1"),
+			Port: 4001,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil {
+			t.Errorf("expected nil source IP for link-local, got %v", ip)
+		}
+	})
+
+	t.Run("ULA IPv6 destination returns nil", func(t *testing.T) {
+		ip, err := sel.PreferredSourceIPForDestination(&net.UDPAddr{
+			IP:   net.ParseIP("fd00::1"),
+			Port: 4001,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil {
+			t.Errorf("expected nil source IP for ULA, got %v", ip)
+		}
+	})
+
+	t.Run("nil destination returns nil", func(t *testing.T) {
+		ip, err := sel.PreferredSourceIPForDestination(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil {
+			t.Errorf("expected nil source IP for nil dst, got %v", ip)
+		}
+	})
+
+	t.Run("global IPv6 destination returns interface-derived source or nil fallback", func(t *testing.T) {
+		// On hosts WITH a live non-tunnel global IPv6 interface: returns that IP.
+		// On hosts WITHOUT one (CI, no-v6 LAN): returns nil fallback.
+		// Both are correct behavior — the test just verifies it doesn't error
+		// and never returns a tunnel-derived address.
+		ip, err := sel.PreferredSourceIPForDestination(&net.UDPAddr{
+			IP:   net.ParseIP("2001:db8::1"),
+			Port: 4001,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ip != nil && !isGlobalIPv6(ip) {
+			t.Errorf("returned source IP is not a global IPv6: %v", ip)
+		}
+		t.Logf("global IPv6 source IP: %v", ip)
+	})
+
+	t.Run("factory returns selector", func(t *testing.T) {
+		got, err := newShurliQUICSourceSelector()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got == nil {
+			t.Fatal("factory returned nil selector")
+		}
+	})
+}
+
+// TestSelectNonTunnelGlobalIPv6 covers the pure helper that the QUIC source
+// selector uses. Crafted InterfaceSummary fixtures exercise the utun-filter
+// path which real DiscoverInterfaces() can't simulate deterministically.
+func TestSelectNonTunnelGlobalIPv6(t *testing.T) {
+	t.Run("nil summary returns nil", func(t *testing.T) {
+		if ip := selectNonTunnelGlobalIPv6(nil); ip != nil {
+			t.Errorf("expected nil, got %v", ip)
+		}
+	})
+
+	t.Run("empty summary returns nil", func(t *testing.T) {
+		if ip := selectNonTunnelGlobalIPv6(&InterfaceSummary{}); ip != nil {
+			t.Errorf("expected nil, got %v", ip)
+		}
+	})
+
+	t.Run("skips loopback", func(t *testing.T) {
+		s := &InterfaceSummary{
+			Interfaces: []InterfaceInfo{
+				{Name: "lo0", IsLoopback: true, IPv6Addrs: []string{"::1"}},
+			},
+		}
+		if ip := selectNonTunnelGlobalIPv6(s); ip != nil {
+			t.Errorf("expected nil (loopback skipped), got %v", ip)
+		}
+	})
+
+	t.Run("skips utun even when it has global IPv6", func(t *testing.T) {
+		s := &InterfaceSummary{
+			Interfaces: []InterfaceInfo{
+				{Name: "utun4", IPv6Addrs: []string{"2001:db8:aaaa::1"}},
+				{Name: "utun7", IPv6Addrs: []string{"2001:db8:bbbb::1"}},
+			},
+		}
+		if ip := selectNonTunnelGlobalIPv6(s); ip != nil {
+			t.Errorf("expected nil (utun filtered), got %v", ip)
+		}
+	})
+
+	t.Run("skips tun/wg/ppp interfaces", func(t *testing.T) {
+		s := &InterfaceSummary{
+			Interfaces: []InterfaceInfo{
+				{Name: "tun0", IPv6Addrs: []string{"2001:db8:1::1"}},
+				{Name: "wg0", IPv6Addrs: []string{"2001:db8:2::1"}},
+				{Name: "ppp0", IPv6Addrs: []string{"2001:db8:3::1"}},
+			},
+		}
+		if ip := selectNonTunnelGlobalIPv6(s); ip != nil {
+			t.Errorf("expected nil (all tunnel), got %v", ip)
+		}
+	})
+
+	t.Run("picks first real interface global IPv6", func(t *testing.T) {
+		// Uses RFC 3849 documentation prefix 2001:db8::/32 for fixtures.
+		s := &InterfaceSummary{
+			Interfaces: []InterfaceInfo{
+				{Name: "utun4", IPv6Addrs: []string{"2001:db8:dead::1"}},
+				{Name: "en10", IPv6Addrs: []string{"2001:db8:1111::1"}},
+				{Name: "en0", IPv6Addrs: []string{"2001:db8:2222::1"}},
+			},
+		}
+		ip := selectNonTunnelGlobalIPv6(s)
+		if ip == nil {
+			t.Fatal("expected non-nil source IP")
+		}
+		if got := ip.String(); got != "2001:db8:1111::1" {
+			t.Errorf("expected en10 global IPv6, got %s", got)
+		}
+	})
+
+	t.Run("ignores non-global IPv6 values on real interfaces", func(t *testing.T) {
+		s := &InterfaceSummary{
+			Interfaces: []InterfaceInfo{
+				{Name: "en0", IPv6Addrs: []string{"fe80::1", "fd00::1"}},
+			},
+		}
+		if ip := selectNonTunnelGlobalIPv6(s); ip != nil {
+			t.Errorf("expected nil (no global v6 on interface), got %v", ip)
+		}
+	})
+}
+
 func mustMultiaddrs(t *testing.T, strs ...string) []ma.Multiaddr {
 	t.Helper()
 	addrs := make([]ma.Multiaddr, len(strs))
@@ -816,4 +994,62 @@ func mustMultiaddrs(t *testing.T, strs ...string) []ma.Multiaddr {
 		addrs[i] = a
 	}
 	return addrs
+}
+
+// TestRenderRelayBlockedHint_MissingBudget covers the common failure mode:
+// no relay data grant exists, so both required permissions are surfaced,
+// the RELAY section shows [MISSING], and the sample CLIs contain the full
+// peer ID verbatim (copy-pastable).
+func TestRenderRelayBlockedHint_MissingBudget(t *testing.T) {
+	out := renderRelayBlockedHint("file-download", "12D3KooWExamplePeer000000000000000000000000000", false, "")
+	mustContain := []string{
+		"relay transport blocked for service file-download",
+		"Two independent permissions are required",
+		"1) RELAY DATA BUDGET",
+		"[MISSING] no active relay data grant",
+		"shurli relay grant 12D3KooWExamplePeer000000000000000000000000000",
+		"2) PEER TRANSPORT GRANT",
+		"shurli auth grant <your-peer-id> --service file-download --transport lan,direct,relay",
+		"Check: shurli status",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(out, want) {
+			t.Errorf("hint missing substring %q; full:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "[OK]") || strings.Contains(out, "[WRONG RELAY]") {
+		t.Errorf("missing-budget hint should not include OK/WRONG RELAY markers; got:\n%s", out)
+	}
+}
+
+// TestRenderRelayBlockedHint_OKBudget covers the post-budget case: relay
+// side is already granted, so the blocker is (2) — peer transport policy.
+func TestRenderRelayBlockedHint_OKBudget(t *testing.T) {
+	out := renderRelayBlockedHint("file-browse", "12D3KooWZ", true, "")
+	if !strings.Contains(out, "[OK] you already have a relay data grant") {
+		t.Errorf("OK branch missing; got:\n%s", out)
+	}
+	if strings.Contains(out, "[MISSING]") || strings.Contains(out, "[WRONG RELAY]") {
+		t.Errorf("OK hint should not show MISSING/WRONG markers; got:\n%s", out)
+	}
+	// Still shows peer grant path.
+	if !strings.Contains(out, "shurli auth grant <your-peer-id> --service file-browse --transport lan,direct,relay") {
+		t.Errorf("OK hint should still show the peer transport grant CLI; got:\n%s", out)
+	}
+}
+
+// TestRenderRelayBlockedHint_WrongRelay covers the case where we have
+// grants for OTHER relays but not this one — [WRONG RELAY] marker fires.
+func TestRenderRelayBlockedHint_WrongRelay(t *testing.T) {
+	out := renderRelayBlockedHint("file-download", "12D3KooWZ", false,
+		"you have relay grants for other relays but not the one this peer routes through.\n")
+	if !strings.Contains(out, "[WRONG RELAY]") {
+		t.Errorf("WRONG RELAY marker missing; got:\n%s", out)
+	}
+	if strings.Contains(out, "[MISSING]") || strings.Contains(out, "[OK]") {
+		t.Errorf("wrong-relay hint should not show MISSING/OK markers; got:\n%s", out)
+	}
+	if !strings.Contains(out, "you have relay grants for other relays") {
+		t.Errorf("wrong-relay description missing; got:\n%s", out)
+	}
 }

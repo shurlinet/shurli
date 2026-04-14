@@ -218,7 +218,7 @@ type PluginContext struct {
 	declaredProtos map[string]bool // protocol IDs this plugin declared
 	keyDeriver     func(domain string) []byte          // HKDF-SHA256 key derivation
 	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
-	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
+	grantChecker   sdk.GrantChecker                    // data access grant check (E1)
 	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
 	relayGrantChecker  sdk.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
 	isLANPeer          func(peer.ID) bool                // mDNS LAN peer check
@@ -318,12 +318,14 @@ func (c *PluginContext) DeriveKey(domain string) []byte {
 }
 
 // HasGrant checks if a peer has a valid data access grant for the given service.
-// Returns false if no grant checker is configured.
+// Returns false if no grant checker is configured. This is a display-only check
+// (e.g. share-add warning): it passes a catch-all transport mask so any grant,
+// including transport-caveated ones, matches.
 func (c *PluginContext) HasGrant(peerID peer.ID, service string) bool {
 	if c.grantChecker == nil {
 		return false
 	}
-	return c.grantChecker(peerID, service)
+	return c.grantChecker(peerID, service, sdk.TransportLAN|sdk.TransportDirect|sdk.TransportRelay)
 }
 
 // PeerAttr returns the value of a peer attribute from authorized_keys.
@@ -409,7 +411,7 @@ type ContextProvider struct {
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
-	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
+	GrantChecker    sdk.GrantChecker                              // data access grant check (E1)
 	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
 	RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
 	IsLANPeer          func(peer.ID) bool                       // mDNS LAN peer check

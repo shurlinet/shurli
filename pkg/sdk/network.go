@@ -20,6 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
@@ -28,7 +29,67 @@ import (
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
+	"github.com/shurlinet/shurli/internal/macaroon"
 )
+
+// tokenPermitsRelay is a client-side hint: reports whether the given
+// base64-encoded macaroon token carries a transport caveat permitting
+// relay (or no transport caveat at all, meaning unrestricted). The
+// authoritative check happens server-side in the token verifier.
+func tokenPermitsRelay(tokenBase64 string) bool {
+	return macaroon.TokenAllowsTransport(tokenBase64, macaroon.TransportRelay)
+}
+
+// renderRelayBlockedHint builds the humanized "relay transport blocked"
+// error body shown when OpenPluginStream cannot dial a relay-only peer.
+// Pure function — no network or host state — so it's covered by unit tests.
+//
+// service: current plugin service name (e.g. "file-download"); never empty.
+// fullPeerID: full destination peer ID, used inside sample CLI commands.
+// hasRelayBudget: true when we already hold an active relay data grant for
+//
+//	the relay this peer routes through (the first permission is satisfied).
+//
+// relayHint: optional non-empty string that describes a "wrong relay" case
+//
+//	(we have grants for other relays but not this one). Mutually exclusive
+//	with hasRelayBudget=true.
+func renderRelayBlockedHint(service, fullPeerID string, hasRelayBudget bool, relayHint string) string {
+	var b strings.Builder
+	b.WriteString("relay transport blocked for service ")
+	b.WriteString(service)
+	b.WriteString(".\n\n")
+	b.WriteString("Two independent permissions are required to move data over a relay:\n\n")
+
+	b.WriteString("  1) RELAY DATA BUDGET (issued by the relay admin)\n")
+	if hasRelayBudget {
+		b.WriteString("     [OK] you already have a relay data grant for the relay this peer uses.\n\n")
+	} else {
+		if relayHint != "" {
+			b.WriteString("     [WRONG RELAY] ")
+			b.WriteString(relayHint)
+		} else {
+			b.WriteString("     [MISSING] no active relay data grant for the relay this peer uses.\n")
+		}
+		b.WriteString("     Ask the relay admin to run:\n")
+		b.WriteString("       shurli relay grant ")
+		b.WriteString(fullPeerID)
+		b.WriteString(" --duration 1h --remote <relay-addr>\n\n")
+	}
+
+	b.WriteString("  2) PEER TRANSPORT GRANT (issued by the destination peer)\n")
+	b.WriteString("     The destination peer's plugin policy restricts ")
+	b.WriteString(service)
+	b.WriteString(" to LAN/direct by default.\n")
+	b.WriteString("     Ask that peer to run:\n")
+	b.WriteString("       shurli auth grant <your-peer-id> --service ")
+	b.WriteString(service)
+	b.WriteString(" --transport lan,direct,relay --duration 1h\n\n")
+
+	b.WriteString("Hint: resolve (1) first if status shows no relay budget,\n")
+	b.WriteString("otherwise the blocker is (2). Check: shurli status")
+	return b.String()
+}
 
 // DHTProtocolPrefix is the default protocol prefix for the private shurli Kademlia DHT.
 // This isolates shurli from the public IPFS Amino DHT (/ipfs/kad/1.0.0),
@@ -216,6 +277,14 @@ func New(cfg *Config) (*Network, error) {
 	hostOpts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.Transport(libp2pquic.NewTransport),
+		// Custom QUIC source-IP selector: mirrors the TCP
+		// sourceBindDialerForAddr fix for macOS utun/VPN IPv6 route
+		// hijacking. Without this, QUIC dials to global IPv6 destinations
+		// leave the socket unbound and the kernel routes them through
+		// dead utun interfaces whose default IPv6 routes outrank the real
+		// interfaces. See macos-utun-ipv6-workaround.md and item #7 in
+		// libp2p-overrides.md.
+		libp2p.QUICReuse(quicreuse.NewConnManager, quicreuse.OverrideSourceIPSelector(newShurliQUICSourceSelector)),
 		libp2p.Transport(tcp.NewTCPTransport, tcp.WithDialerForAddr(sourceBindDialerForAddr)),
 		libp2p.Transport(ws.New),
 		libp2p.EnableAutoNATv2(),
@@ -475,6 +544,80 @@ func sourceBindDialerForAddr(raddr ma.Multiaddr) (tcp.ContextDialer, error) {
 	return &net.Dialer{
 		LocalAddr: &net.TCPAddr{IP: localIP},
 	}, nil
+}
+
+// shurliQUICSourceSelector implements quicreuse.SourceIPSelector. It returns
+// a non-tunnel global IPv6 source address for global IPv6 QUIC destinations,
+// mirroring sourceBindDialerForAddr for TCP. For every other destination
+// family (IPv4, loopback, link-local, ULA, or when no live non-tunnel global
+// IPv6 exists) it returns nil so the kernel picks the default source.
+//
+// Why this exists: macOS VPN apps (Mullvad, ExpressVPN, ProtonVPN, iCloud
+// Private Relay) create utun interfaces with default IPv6 routes that
+// outrank the real interfaces even when the VPN is disconnected. Without
+// source binding, libp2p's QUIC transport dials from [::]:PORT and the
+// kernel sends every unbound IPv6 packet through a dead utun, producing
+// instant "no route to host". Source-binding to a real global IPv6 forces
+// the kernel to route through the real interface (USB LAN, WiFi, etc.).
+// See memory/macos-utun-ipv6-workaround.md and libp2p-overrides.md #7.
+type shurliQUICSourceSelector struct{}
+
+// newShurliQUICSourceSelector is the factory passed to
+// quicreuse.OverrideSourceIPSelector.
+func newShurliQUICSourceSelector() (quicreuse.SourceIPSelector, error) {
+	return &shurliQUICSourceSelector{}, nil
+}
+
+// PreferredSourceIPForDestination is the SourceIPSelector hook called by
+// go-libp2p's QUICReuse ConnManager for every outbound QUIC dial.
+func (s *shurliQUICSourceSelector) PreferredSourceIPForDestination(dst *net.UDPAddr) (net.IP, error) {
+	if dst == nil || dst.IP == nil {
+		return nil, nil
+	}
+	// IPv4 destinations: kernel default (no VPN utun hijacking for v4).
+	if dst.IP.To4() != nil {
+		return nil, nil
+	}
+	// IPv6 destinations that are NOT globally routable (loopback, link-local,
+	// ULA): kernel default. Utun only hijacks the default IPv6 route, which
+	// only matters for global IPv6 destinations.
+	if !isGlobalIPv6(dst.IP) {
+		return nil, nil
+	}
+
+	summary, err := DiscoverInterfaces()
+	if err != nil || !summary.HasGlobalIPv6 {
+		return nil, nil
+	}
+	if ip := selectNonTunnelGlobalIPv6(summary); ip != nil {
+		return ip, nil
+	}
+	return nil, nil
+}
+
+// selectNonTunnelGlobalIPv6 walks the interface summary and returns the
+// first global IPv6 address from a real (non-loopback, non-tunnel) interface.
+// Returns nil when no such address exists. Pure function over the summary
+// so it's directly unit-testable with crafted fixtures.
+func selectNonTunnelGlobalIPv6(summary *InterfaceSummary) net.IP {
+	if summary == nil {
+		return nil
+	}
+	for _, iface := range summary.Interfaces {
+		if iface.IsLoopback {
+			continue
+		}
+		if isTunnelInterface(iface.Name) {
+			continue
+		}
+		for _, addr := range iface.IPv6Addrs {
+			ip := net.ParseIP(addr)
+			if ip != nil && isGlobalIPv6(ip) {
+				return ip
+			}
+		}
+	}
+	return nil
 }
 
 // globalIPv6AddrsFactory ensures global IPv6 addresses from all network
@@ -746,9 +889,13 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	// or relay grant cache (receipts from relays confirming data access).
 	relayAllowed := svc.Policy == nil || svc.Policy.RelayAllowed()
 	if !relayAllowed && n.serviceRegistry.grantChecker != nil {
-		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName)
+		relayAllowed = n.serviceRegistry.grantChecker(peerID, serviceName, TransportRelay)
 	}
-	if !relayAllowed && pouchToken != "" {
+	// Client-side hint: if we hold a pouch token, only pre-approve relay
+	// when the token's transport caveat actually permits relay. This
+	// prevents useless relay dials when a parent or delegate narrowed
+	// the token to LAN/direct only. Server remains authoritative.
+	if !relayAllowed && pouchToken != "" && tokenPermitsRelay(pouchToken) {
 		relayAllowed = true
 	}
 	// Check relay grant receipt cache: if any relay has granted us data access,
@@ -767,42 +914,51 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 	s, err := n.host.NewStream(dialCtx, peerID, protocol.ID(svc.Protocol))
 	if err != nil {
 		// Helpful error when relay-only peer + relay not allowed.
+		// Two distinct "relay blocked" failure modes, each with its own fix:
+		//   (A) No relay data budget: the relay admin has not issued a grant
+		//       for this node on the relay this peer routes through. Fix is
+		//       on the RELAY side — `shurli relay grant ...`.
+		//   (B) Relay budget exists but the destination peer's plugin policy
+		//       restricts the relay transport for this service. Fix is on the
+		//       DESTINATION PEER side — `shurli auth grant <me> --transport ... relay`.
+		// The user may need to resolve EITHER or BOTH, so show both paths.
 		if !relayAllowed && isRelayOnlyPeer(n.host, peerID) {
-			hint := "no active relay data grant for this connection.\n\n" +
-				"Relay connections require an active data grant from the relay admin.\n" +
-				"Ping works (signaling only) but browse/download/send need a data grant.\n\n" +
-				"Ask the relay admin to run:\n" +
-				fmt.Sprintf("  shurli relay grant %s --duration 1h --remote <relay-addr>\n\n", peerID.String()[:16]+"...") +
-				"Check your grant status: shurli status"
+			// Full peer ID for CLI commands — truncating would make the
+			// sample command unusable if a user copy-pastes it. The short
+			// form is only shown in log-style diagnostic output below.
+			fullPeer := peerID.String()
+			svcForCLI := serviceName
+			if svcForCLI == "" {
+				svcForCLI = "<service>"
+			}
 
-			// Check if we have grants for OTHER relays but not the one this peer uses.
+			// Detect whether the relay side already has a grant for us. If so,
+			// the remaining blocker is almost certainly the peer's plugin policy.
+			hasRelayBudget := false
+			relayHint := ""
 			if n.serviceRegistry.relayGrantChecker != nil {
 				peerRelay := peerRelayFromConns(n.host, peerID)
 				if peerRelay != "" {
-					if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(peerRelay); !ok {
-						// No grant for the peer's relay. Check if we have grants for any
-						// OTHER relay (which means wrong relay, not no grants at all).
-						// Only check peers we have relay reservations through (not all peers).
-						hasOtherGrant := false
+					if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(peerRelay); ok {
+						hasRelayBudget = true
+					} else {
+						// Check if we have grants for OTHER relays but not this one.
 						for _, c := range n.host.Network().Conns() {
-							remotePeer := c.RemotePeer()
-							if remotePeer == peerID || remotePeer == peerRelay {
+							rp := c.RemotePeer()
+							if rp == peerID || rp == peerRelay {
 								continue
 							}
-							if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(remotePeer); ok {
-								hasOtherGrant = true
+							if _, _, _, ok := n.serviceRegistry.relayGrantChecker.GrantStatus(rp); ok {
+								relayHint = "you have relay grants for other relays but not the one this peer routes through.\n" +
+									"The destination peer currently connects via a relay you have no data grant for.\n"
 								break
 							}
-						}
-						if hasOtherGrant {
-							hint = "you have relay grants, but not for the relay this peer routes through.\n\n" +
-								"The peer connects via a relay you don't have a data grant for.\n" +
-								"Ask the relay admin to grant access on the correct relay,\n" +
-								"or check which relays you have grants for: shurli status"
 						}
 					}
 				}
 			}
+
+			hint := renderRelayBlockedHint(svcForCLI, fullPeer, hasRelayBudget, relayHint)
 			return nil, fmt.Errorf("%s\n\nOriginal error: %w", hint, err)
 		}
 		return nil, fmt.Errorf("open stream: %w", err)
@@ -816,9 +972,9 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 			relayGranted := false
 			if transport == TransportRelay {
 				if n.serviceRegistry.grantChecker != nil {
-					relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName)
+					relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName, transport)
 				}
-				if !relayGranted && pouchToken != "" {
+				if !relayGranted && pouchToken != "" && tokenPermitsRelay(pouchToken) {
 					relayGranted = true
 				}
 				if !relayGranted && n.serviceRegistry.relayGrantChecker != nil {
@@ -880,14 +1036,14 @@ func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, se
 		if transport == TransportRelay {
 			relayGranted := false
 			if n.serviceRegistry.grantChecker != nil {
-				relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName)
+				relayGranted = n.serviceRegistry.grantChecker(peerID, serviceName, transport)
 			}
 			if !relayGranted {
 				var pouchToken string
 				if n.serviceRegistry.tokenLookup != nil {
 					pouchToken = n.serviceRegistry.tokenLookup(peerID, serviceName)
 				}
-				if pouchToken != "" {
+				if pouchToken != "" && tokenPermitsRelay(pouchToken) {
 					relayGranted = true
 				}
 			}

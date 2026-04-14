@@ -237,7 +237,7 @@ func (p *Pouch) List() []*PouchEntry {
 // - max_delegations decremented (or set to the requested value if lower)
 // - optional: shorter duration, fewer services
 // Returns the attenuated macaroon for delivery to the target peer.
-func (p *Pouch) Delegate(issuerID peer.ID, targetPeerID peer.ID, duration time.Duration, services []string, maxDelegations int) (*macaroon.Macaroon, error) {
+func (p *Pouch) Delegate(issuerID peer.ID, targetPeerID peer.ID, duration time.Duration, services []string, maxDelegations int, transports macaroon.TransportType) (*macaroon.Macaroon, error) {
 	p.mu.RLock()
 	entry, exists := p.entries[issuerID]
 	if !exists || entry.Expired() {
@@ -250,6 +250,27 @@ func (p *Pouch) Delegate(issuerID peer.ID, targetPeerID peer.ID, duration time.D
 	if origMaxDel == 0 {
 		p.mu.RUnlock()
 		return nil, fmt.Errorf("token from issuer %s does not allow delegation (max_delegations=0)", shortPeerID(issuerID))
+	}
+
+	// Pre-validate transport attenuation. Macaroon verification structurally
+	// prevents widening (AND semantics), but a silent widen attempt produces
+	// a token whose effective mask is the intersection — if the parent is
+	// narrow and the child tries to widen, the resulting token is narrower
+	// than the child requested. Reject loudly so users don't get surprised
+	// by "I asked for relay but only lan works". The whole point is
+	// user-visible narrowing, so fail-fast at the delegate boundary.
+	if transports != 0 {
+		parentMask, err := macaroon.EffectiveTransportMask(entry.Token.Caveats)
+		if err != nil {
+			p.mu.RUnlock()
+			return nil, fmt.Errorf("parent token has malformed transport caveat: %w", err)
+		}
+		if parentMask != 0 && (transports&parentMask) != transports {
+			p.mu.RUnlock()
+			return nil, fmt.Errorf("transport attenuation violation: child mask %s is not a subset of parent %s (macaroon chains can narrow transport, never widen)",
+				macaroon.FormatTransportMask(transports),
+				macaroon.FormatTransportMask(parentMask))
+		}
 	}
 
 	// Also verify the legacy delegate caveat isn't blocking.
@@ -294,6 +315,16 @@ func (p *Pouch) Delegate(issuerID peer.ID, targetPeerID peer.ID, duration time.D
 	// Optional: add tighter service restriction.
 	if len(services) > 0 {
 		subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatService, strings.Join(services, ",")))
+	}
+
+	// Optional: add tighter transport restriction. Macaroon chaining ANDs all
+	// transport caveats, so a parent that carries no transport caveat is
+	// widened to "any" and this adds the child's restriction. A parent that
+	// already carries a transport caveat stays AND-ed with the child — the
+	// effective set is the intersection. Attempting to widen beyond the
+	// parent's set is structurally impossible.
+	if transports != 0 {
+		subToken.AddFirstPartyCaveat(fmt.Sprintf("%s=%s", macaroon.CaveatTransport, macaroon.FormatTransportMask(transports)))
 	}
 
 	p.logger.Info("pouch: delegated token",

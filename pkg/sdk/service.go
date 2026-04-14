@@ -57,17 +57,20 @@ type ServiceConn interface {
 }
 
 // GrantChecker is a function that checks whether a peer has a valid
-// data access grant for a given service. Injected by the daemon from
-// the grant store. When set and returns true, relay transport is allowed
-// for that peer+service even if the plugin policy doesn't allow relay.
-// This is the node-level security boundary (C2 mitigation).
-type GrantChecker func(peerID peer.ID, service string) bool
+// data access grant for a given service on the given transport. Injected
+// by the daemon from the grant store. When set and returns true, the
+// transport is allowed for that peer+service even if the plugin policy
+// doesn't allow it. This is the node-level security boundary (C2
+// mitigation). Callers on the client side (pre-dial) that only want to
+// know whether a usable grant exists for relay should pass TransportRelay.
+type GrantChecker func(peerID peer.ID, service string, transport TransportType) bool
 
 // TokenVerifier verifies a presented grant token (base64-encoded macaroon).
-// Returns true if the token is valid for the given peer and service.
-// Injected by the daemon. Must do constant-time work on all code paths
-// (valid, invalid, malformed) for D1 timing oracle mitigation.
-type TokenVerifier func(tokenBase64 string, peerID peer.ID, service string) bool
+// Returns true if the token is valid for the given peer, service, and
+// current stream transport. Injected by the daemon. Must do constant-time
+// work on all code paths (valid, invalid, malformed) for D1 timing oracle
+// mitigation.
+type TokenVerifier func(tokenBase64 string, peerID peer.ID, service string, transport TransportType) bool
 
 // TokenLookup retrieves a grant token from the GrantPouch for outbound
 // presentation. Returns the base64-encoded token, or empty string if no
@@ -199,30 +202,30 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	// Plugin policy enforcement (transport + peer restrictions).
 	if svc.Policy != nil {
 		transport := ClassifyTransport(s)
-		if presentedToken != "" && transport != TransportRelay {
-			slog.Debug("grant token presented on non-relay transport, not needed",
-				"service", svc.Name, "peer", short, "transport", transport)
-		}
 		if !svc.Policy.TransportAllowed(transport) {
-			// Grant override: if transport is relay, verify authorization.
+			// Grant override: a transport-caveated grant (or plain grant under
+			// Phase A) can unlock any transport the plugin policy restricts,
+			// not just relay. The verifier / grant store checks the grant's
+			// own transport caveat against the current stream transport; an
+			// unrestricted grant unlocks all, a narrowed grant unlocks only
+			// the transports it names.
+			//
 			// D1 timing: when a token is presented, ONLY use the token path
-			// (tokenVerifier does constant-time HMAC on all outcomes).
-			// When no token, fall back to grantChecker (Phase A, has its own
-			// D1 dummy). Never run both - that creates a timing distinguisher.
+			// (tokenVerifier does constant-time HMAC on all outcomes). When no
+			// token, fall back to grantChecker (Phase A, has its own D1 dummy).
+			// Never run both - that creates a timing distinguisher.
 			granted := false
-			if transport == TransportRelay {
-				if presentedToken != "" && r.tokenVerifier != nil {
-					// Phase B: verify presented token cryptographically.
-					granted = r.tokenVerifier(presentedToken, remotePeer, svc.Name)
-					if granted {
-						slog.Info("relay allowed via presented token", "service", svc.Name, "peer", short)
-					}
-				} else if r.grantChecker != nil {
-					// Phase A fallback: no token presented, check local grant store.
-					granted = r.grantChecker(remotePeer, svc.Name)
-					if granted {
-						slog.Info("relay allowed via grant store", "service", svc.Name, "peer", short)
-					}
+			if presentedToken != "" && r.tokenVerifier != nil {
+				granted = r.tokenVerifier(presentedToken, remotePeer, svc.Name, transport)
+				if granted {
+					slog.Info("plugin transport allowed via presented token",
+						"service", svc.Name, "peer", short, "transport", transport)
+				}
+			} else if r.grantChecker != nil {
+				granted = r.grantChecker(remotePeer, svc.Name, transport)
+				if granted {
+					slog.Info("plugin transport allowed via grant store",
+						"service", svc.Name, "peer", short, "transport", transport)
 				}
 			}
 			if !granted {
