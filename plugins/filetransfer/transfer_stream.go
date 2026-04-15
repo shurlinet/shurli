@@ -1192,6 +1192,32 @@ func (s *streamReceiveState) allocateTempFiles(destDir string) error {
 	return nil
 }
 
+// reopenTempFiles re-opens existing temp files after a failover cleanup.
+// Unlike allocateTempFiles (which creates new files with O_EXCL), this opens
+// files that already exist on disk. Used when TS-5b failover resumes a transfer
+// after cleanup() closed all handles and destRoot.
+func (s *streamReceiveState) reopenTempFiles(destDir string) error {
+	root, err := os.OpenRoot(destDir)
+	if err != nil {
+		return fmt.Errorf("reopen dest root %s: %w", destDir, err)
+	}
+	s.destRoot = root
+
+	s.tmpFiles = make([]*os.File, len(s.files))
+	for i, tmpName := range s.tmpPaths {
+		if tmpName == "" {
+			continue // rejected or not allocated
+		}
+		f, err := root.OpenFile(tmpName, os.O_RDWR, 0600)
+		if err != nil {
+			s.cleanup()
+			return fmt.Errorf("reopen temp file %s: %w", tmpName, err)
+		}
+		s.tmpFiles[i] = f
+	}
+	return nil
+}
+
 // writeChunkGlobal writes decompressed chunk data using globalToLocal mapping.
 // Handles cross-file boundary chunks by splitting data across multiple temp files (N3, F1).
 // Validates bounds before writing (C3: fileIdx range, C4: offset+size within totalSize).
