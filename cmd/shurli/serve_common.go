@@ -38,6 +38,12 @@ import (
 	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
+// mdnsGracePeriod is how long PeerManager reconnect and DHT bootstrap are
+// deferred after a network change. Gives mDNS time to discover and upgrade
+// LAN peers before broader reconnect mechanisms create swarm dial workers
+// that would block mDNS's targeted LAN dial via dial_sync dedup.
+const mdnsGracePeriod = 5 * time.Second
+
 // serveRuntime holds the shared P2P lifecycle state for the daemon command.
 type serveRuntime struct {
 	network    *sdk.Network
@@ -109,6 +115,13 @@ type serveRuntime struct {
 
 	// Notification router (Phase C)
 	notifyRouter *notify.Router
+
+	// Deferred reconnect timer: after a network change, PM reconnect and DHT
+	// bootstrap are delayed by mdnsGracePeriod to give mDNS priority for LAN
+	// peers. Cancelled and reset on each new network change.
+	deferredReconnectTimer *time.Timer
+	deferredDHTTimer       *time.Timer
+	deferredMu             sync.Mutex
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -657,17 +670,35 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerManager.CloseStaleConnections(change.Removed)
 		}
 
-		// Reset backoffs and trigger immediate reconnect cycle.
+		// Reset backoffs immediately so mDNS can dial without hitting stale state.
+		// Reconnect trigger is DEFERRED (below) to give mDNS priority.
 		if rt.peerManager != nil {
-			rt.peerManager.OnNetworkChange()
+			rt.peerManager.ResetBackoffsForNetworkChange()
 		}
 
-		// Trigger immediate mDNS re-browse. If we just returned to a LAN
-		// where a peer exists, mDNS will discover it and upgrade the path
-		// from RELAYED to DIRECT without waiting for the next 30s cycle.
+		// Trigger mDNS re-browse BEFORE PeerManager reconnect. mDNS discovers
+		// LAN peers via multicast (1-2s) and upgrades them to direct connections.
+		// If PM fires first, its DHT/relay-based reconnect creates swarm dial
+		// workers that block mDNS's targeted LAN dial via dial_sync dedup +
+		// per-peer limiter starvation (8 slots consumed by stale public-addr dials).
 		if rt.mdnsDiscovery != nil {
 			rt.mdnsDiscovery.BrowseNow()
 		}
+
+		// Defer PeerManager reconnect by mdnsGracePeriod. By then, mDNS has
+		// either upgraded LAN peers (PM skips them as Connected) or found nothing
+		// (PM handles all peers via DHT/relay). Cancel previous timer on rapid
+		// network changes so only the latest change's timer fires.
+		rt.deferredMu.Lock()
+		if rt.deferredReconnectTimer != nil {
+			rt.deferredReconnectTimer.Stop()
+		}
+		rt.deferredReconnectTimer = time.AfterFunc(mdnsGracePeriod, func() {
+			if rt.peerManager != nil {
+				rt.peerManager.TriggerReconnect()
+			}
+		})
+		rt.deferredMu.Unlock()
 
 		// Probe direct paths through newly available interfaces.
 		// If a relayed peer is reachable via IPv6 on a secondary
@@ -686,6 +717,14 @@ func (rt *serveRuntime) Bootstrap() error {
 		// 3 times with 2s spacing to cover NDP neighbor resolution.
 		if rt.peerManager != nil && len(change.Added) > 0 {
 			go func() {
+				// Wait for mDNS grace period before probing. ProbeAndUpgradeRelayed
+				// calls host.Connect which creates swarm dial workers — same
+				// dial_sync dedup + limiter starvation problem as PM/DHT.
+				select {
+				case <-rt.ctx.Done():
+					return
+				case <-time.After(mdnsGracePeriod):
+				}
 				if !waitForIPv6BindReady(rt.ctx, 5*time.Second) {
 					return
 				}
@@ -724,23 +763,31 @@ func (rt *serveRuntime) Bootstrap() error {
 			}()
 		}
 
-		// Re-bootstrap DHT and re-advertise on network change.
-		// Our addresses changed; DHT peers need the update.
-		go func() {
-			if rt.kdht != nil {
-				refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
-				defer refreshCancel()
-				if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
-					slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
-				} else {
-					slog.Info("netmonitor: DHT re-bootstrapped after network change")
+		// Defer DHT re-bootstrap by the same grace period as PM reconnect.
+		// DHT bootstrap calls host.Connect which creates swarm dial workers
+		// that would poison mDNS's LAN upgrade dial via dial_sync dedup.
+		rt.deferredMu.Lock()
+		if rt.deferredDHTTimer != nil {
+			rt.deferredDHTTimer.Stop()
+		}
+		rt.deferredDHTTimer = time.AfterFunc(mdnsGracePeriod, func() {
+			go func() {
+				if rt.kdht != nil {
+					refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
+					defer refreshCancel()
+					if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
+						slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
+					} else {
+						slog.Info("netmonitor: DHT re-bootstrapped after network change")
+					}
 				}
-			}
-			if rt.routingDiscovery != nil {
-				rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
-				slog.Info("netmonitor: re-advertised on rendezvous")
-			}
-		}()
+				if rt.routingDiscovery != nil {
+					rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
+					slog.Info("netmonitor: re-advertised on rendezvous")
+				}
+			}()
+		})
+		rt.deferredMu.Unlock()
 
 		// Delayed stale-address check: after libp2p has time to update,
 		// warn if it still advertises addresses for removed interfaces.
@@ -799,6 +846,9 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
 		rt.mdnsDiscovery = sdk.NewMDNSDiscovery(h, rt.metrics, rt.network.GetLANRegistry())
+		if rt.peerManager != nil {
+			rt.mdnsDiscovery.SetPeerReconnector(rt.peerManager)
+		}
 		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
 			slog.Warn("mdns: failed to start", "error", err)
 			rt.mdnsDiscovery = nil
@@ -1603,6 +1653,17 @@ func (rt *serveRuntime) StartReputationScoreUpdater() func(peer.ID) int {
 // and closes the P2P network.
 // Transfer service shutdown is handled by plugin Stop() via registry.StopAll().
 func (rt *serveRuntime) Shutdown() {
+	// Stop deferred network-change timers before any subsystem cleanup.
+	// Prevents callbacks from firing on partially-torn-down state.
+	rt.deferredMu.Lock()
+	if rt.deferredReconnectTimer != nil {
+		rt.deferredReconnectTimer.Stop()
+	}
+	if rt.deferredDHTTimer != nil {
+		rt.deferredDHTTimer.Stop()
+	}
+	rt.deferredMu.Unlock()
+
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {

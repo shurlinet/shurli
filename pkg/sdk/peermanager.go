@@ -412,12 +412,6 @@ func (pm *PeerManager) SetWatchlist(peerIDs []peer.ID) {
 	slog.Info("peermanager: watchlist updated", "watched", len(pm.peers))
 }
 
-// OnNetworkChange resets all backoff timers and triggers an immediate
-// reconnect cycle. Called when NetworkMonitor detects interface changes
-// (new IP, lost IP, WiFi switch, etc.).
-//
-// For stale connection cleanup, call CloseStaleConnections separately
-// with the removed IPs before calling this method.
 // ResetPeerBackoff clears the backoff state for a single peer, allowing
 // the PeerManager's reconnect loop to immediately attempt reconnection.
 // Used by ConnectToPeer after a dial failure to give the peer a fresh chance
@@ -431,7 +425,20 @@ func (pm *PeerManager) ResetPeerBackoff(pid peer.ID) {
 	pm.mu.Unlock()
 }
 
+// OnNetworkChange resets all backoff timers and triggers an immediate
+// reconnect cycle. Used by the auth-reload path where deferral is not needed.
+// The network change handler in serve_common.go calls ResetBackoffsForNetworkChange
+// and TriggerReconnect separately with a grace period between them.
 func (pm *PeerManager) OnNetworkChange() {
+	pm.ResetBackoffsForNetworkChange()
+	pm.TriggerReconnect()
+}
+
+// ResetBackoffsForNetworkChange clears backoff state for all watched peers
+// without triggering a reconnect cycle. Called immediately on network change
+// so that mDNS and other subsystems can dial without hitting stale backoffs.
+// The reconnect trigger is deferred separately to give mDNS priority.
+func (pm *PeerManager) ResetBackoffsForNetworkChange() {
 	pm.mu.Lock()
 	for _, mp := range pm.peers {
 		mp.BackoffUntil = time.Time{}
@@ -441,8 +448,10 @@ func (pm *PeerManager) OnNetworkChange() {
 	pm.mu.Unlock()
 
 	slog.Info("peermanager: backoffs reset (network change)")
+}
 
-	// Trigger immediate reconnect cycle (non-blocking send).
+// TriggerReconnect sends a non-blocking signal to the reconnect loop.
+func (pm *PeerManager) TriggerReconnect() {
 	select {
 	case pm.reconnectNow <- struct{}{}:
 	default:
