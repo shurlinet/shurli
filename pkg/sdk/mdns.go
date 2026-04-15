@@ -77,6 +77,11 @@ type MDNSDiscovery struct {
 	metrics     *Metrics
 	lanRegistry *LANRegistry // mDNS-verified LAN peer/IP tracking
 
+	// peerReconnector triggers PeerManager reconnect for a specific peer.
+	// Called when mDNS upgrade fails so PM immediately retries via DHT/relay
+	// instead of waiting for the next 30s ticker cycle. Nil-safe.
+	peerReconnector interface{ ReconnectPeer(peer.ID) bool }
+
 	// Managed context for clean shutdown of connection goroutines.
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -200,6 +205,12 @@ func (md *MDNSDiscovery) startServer() error {
 	}
 	md.server = server
 	return nil
+}
+
+// SetPeerReconnector wires the PeerManager so mDNS can re-trigger reconnect
+// on upgrade failure. Called during daemon setup after both are created.
+func (md *MDNSDiscovery) SetPeerReconnector(pr interface{ ReconnectPeer(peer.ID) bool }) {
+	md.peerReconnector = pr
 }
 
 // BrowseNow triggers an immediate mDNS re-browse. Called after network
@@ -454,6 +465,13 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 			if dialErr != nil {
 				slog.Info("mdns: upgrade to direct failed", "peer", short, "error", dialErr)
 				md.scheduleRetry(pi.ID, tcpAddrs, allAddrs, short)
+				// Re-trigger PeerManager reconnect so it retries via DHT/relay
+				// immediately instead of waiting for the next 30s ticker cycle.
+				// Also defeats mDNS spoofing DoS: spoofed entry fails at Noise
+				// handshake, PM is re-triggered instantly.
+				if md.peerReconnector != nil {
+					md.peerReconnector.ReconnectPeer(pi.ID)
+				}
 				return
 			}
 			slog.Info("mdns: upgraded to DIRECT via LAN", "peer", short)
@@ -517,6 +535,9 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 				// Restore all addresses so peer is reachable via other paths.
 				md.host.Peerstore().AddAddrs(pi.ID, savedAddrs, discoveredAddrTTL)
 				md.host.Peerstore().AddAddrs(pi.ID, allAddrs, discoveredAddrTTL)
+				if md.peerReconnector != nil {
+					md.peerReconnector.ReconnectPeer(pi.ID)
+				}
 				return
 			}
 			// Verify we actually established a direct connection. If pathDialer
@@ -654,6 +675,9 @@ func (md *MDNSDiscovery) scheduleRetry(pid peer.ID, tcpLANAddrs, allAddrs []ma.M
 
 		if err := md.dialWithBackoffClear(ctx, pid, retryAddrs, allAddrs); err != nil {
 			slog.Info("mdns: retry upgrade failed", "peer", short, "error", err)
+			if md.peerReconnector != nil {
+				md.peerReconnector.ReconnectPeer(pid)
+			}
 			return
 		}
 
