@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/internal/auth"
@@ -170,12 +171,16 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 
 // tryDaemonConfigReload attempts to trigger a config reload on the running daemon.
 // Silently succeeds if the daemon is not running (name will load on next start).
+// Uses a short per-call timeout so a busy or hung daemon cannot stall CLI
+// commands or tests — the config change is persisted on disk already and the
+// daemon will pick it up on next start regardless.
 func tryDaemonConfigReload() {
 	c, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
 		return // daemon not running
 	}
-	c.ConfigReload() // best-effort, ignore errors
+	c.SetTimeout(3 * time.Second)
+	c.ConfigReload() //nolint:errcheck // best-effort, ignored by design
 }
 
 func runAuthList(args []string) {

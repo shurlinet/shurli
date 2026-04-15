@@ -10,9 +10,17 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/shurlinet/shurli/pkg/sdk"
 )
+
+// defaultClientTimeout bounds every request the daemon client issues,
+// so a hung or busy daemon cannot freeze callers indefinitely. The value
+// is generous enough for normal operations (config reload, status
+// snapshots, plugin management) but short enough that a stalled socket
+// surfaces as an error rather than a CLI or test hang.
+const defaultClientTimeout = 30 * time.Second
 
 // Client connects to a running daemon via its Unix socket.
 type Client struct {
@@ -39,6 +47,7 @@ func NewClient(socketPath, cookiePath string) (*Client, error) {
 		socketPath: socketPath,
 		authToken:  strings.TrimSpace(string(token)),
 		httpClient: &http.Client{
+			Timeout: defaultClientTimeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
@@ -49,6 +58,17 @@ func NewClient(socketPath, cookiePath string) (*Client, error) {
 	}
 
 	return c, nil
+}
+
+// SetTimeout overrides the daemon client's request timeout. Use it for
+// best-effort, fire-and-forget calls (such as tryDaemonConfigReload)
+// where waiting up to the default 30s would be excessive. Values <= 0
+// are ignored so callers cannot accidentally disable the safety net.
+func (c *Client) SetTimeout(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	c.httpClient.Timeout = d
 }
 
 // do sends an HTTP request to the daemon and returns the raw response body.
