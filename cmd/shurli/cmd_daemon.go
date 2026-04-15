@@ -800,6 +800,10 @@ func runDaemonStart(args []string) {
 	rt.StartStatusPrinter()
 	rt.StartDHTHealthCheck()
 
+	// SIGUSR1 triggers a read-only diagnostic snapshot (see cmd_daemon_diag.go).
+	stopDiag := installDiagSignalHandler(rt)
+	defer stopDiag()
+
 	// Wait for signal or API-initiated shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
