@@ -4262,6 +4262,13 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 					break
 				}
 				state.initReceivedBitfield(dlCtx.estimatedChunks)
+			} else if state.destRoot == nil {
+				// TS-5b failover: cleanup() closed destRoot and tmpFiles.
+				// Re-open existing temp files so writeChunkGlobal and finalize work.
+				if reopenErr := state.reopenTempFiles(destDir); reopenErr != nil {
+					recvErr = fmt.Errorf("reopen temp files after failover: %w", reopenErr)
+					break
+				}
 			}
 
 			// Wire new state into session.
