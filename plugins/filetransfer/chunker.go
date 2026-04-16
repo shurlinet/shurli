@@ -20,16 +20,30 @@ import (
 // ChunkTarget selects adaptive chunk sizes based on file size.
 // Smaller files get smaller chunks for better dedup granularity.
 // Larger files get bigger chunks to reduce manifest overhead.
+//
+// Couplings (must be updated together):
+//   - max returned by this function MUST stay <= maxChunkWireSize in transfer.go.
+//     A chunk whose compressed wire size exceeds that limit is rejected by
+//     writeStreamChunkFrame / readStreamChunkFrame.
+//   - zstd encoder window in compress.go MUST be >= max returned here, or the
+//     encoder discards context across a single chunk (hurts ratio).
+//   - Reed-Solomon stripe memory in transfer_erasure.go is O(defaultStripeSize
+//     x max). Any tier bump feeds directly into RS worst-case memory; R4-SEC1
+//     incremental per-stripe encoding is what keeps that finite for 4MB tiers.
+//   - Any change here is a wire-compatible additive change, but old checkpoints
+//     written under smaller tiers are discarded on resume via ckptVersion bump.
 func ChunkTarget(fileSize int64) (minSize, avgSize, maxSize int) {
 	switch {
-	case fileSize < 250<<20: // < 250 MB
+	case fileSize < 64<<20: // < 64 MB
 		return 64 << 10, 128 << 10, 256 << 10 // 64K / 128K / 256K
-	case fileSize < 1<<30: // < 1 GB
+	case fileSize < 512<<20: // < 512 MB
 		return 128 << 10, 256 << 10, 512 << 10 // 128K / 256K / 512K
-	case fileSize < 4<<30: // < 4 GB
+	case fileSize < 2<<30: // < 2 GB
 		return 256 << 10, 512 << 10, 1 << 20 // 256K / 512K / 1M
-	default: // 4 GB+
+	case fileSize < 8<<30: // < 8 GB
 		return 512 << 10, 1 << 20, 2 << 20 // 512K / 1M / 2M
+	default: // >= 8 GB
+		return 1 << 20, 2 << 20, 4 << 20 // 1M / 2M / 4M
 	}
 }
 

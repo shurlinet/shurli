@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -70,11 +71,18 @@ func (bf *bitfield) missing() int {
 
 // Checkpoint magic: "SHCK" (Shurli Checkpoint).
 const (
-	ckptMagic0  = 'S'
-	ckptMagic1  = 'H'
-	ckptMagic2  = 'C'
-	ckptMagic3  = 'K'
-	ckptVersion = 0x01
+	ckptMagic0 = 'S'
+	ckptMagic1 = 'H'
+	ckptMagic2 = 'C'
+	ckptMagic3 = 'K'
+	// ckptVersion bumped 0x01 -> 0x02 for FT-Y #14. The content key is now
+	// derived from a byte-order sorted file table (TE-69) and the chunk stream
+	// can use the new 4 MB-max tier. Old 0x01 checkpoints carry chunk indices
+	// that do not map onto the new tiers, and their content key may have been
+	// computed from a locale-dependent sort on another platform. Any checkpoint
+	// with version != 0x02 is discarded on load (TE-94 silent-discard policy
+	// with a log line so operators can see the one-time cost after upgrade).
+	ckptVersion = 0x02
 
 	maxBitfieldSize = maxChunkCount/8 + 1 // ~128 KB for 1M chunks
 
@@ -89,14 +97,14 @@ const (
 // resume (R3-IMP5, R4-IMP2). Stores streaming protocol state: file table,
 // received bitfield, per-chunk hashes and sizes, temp file paths.
 type transferCheckpoint struct {
-	contentKey [32]byte     // BLAKE3 of sorted paths + sizes (resume key)
-	files      []fileEntry  // file table from header
-	totalSize  int64        // declared total size
-	flags      uint8        // compression, erasure flags
-	have       *bitfield    // which chunks have been received
-	hashes     [][32]byte   // per-chunk hashes (dense, indexed by chunkIdx)
-	sizes      []uint32     // per-chunk decompressed sizes (dense)
-	tmpPaths   []string     // temp file paths per file entry (base name only)
+	contentKey [32]byte    // BLAKE3 of sorted paths + sizes (resume key)
+	files      []fileEntry // file table from header
+	totalSize  int64       // declared total size
+	flags      uint8       // compression, erasure flags
+	have       *bitfield   // which chunks have been received
+	hashes     [][32]byte  // per-chunk hashes (dense, indexed by chunkIdx)
+	sizes      []uint32    // per-chunk decompressed sizes (dense)
+	tmpPaths   []string    // temp file paths per file entry (base name only)
 }
 
 // checkpointPath returns the checkpoint file path for a given content key.
@@ -296,6 +304,16 @@ func writeCheckpointTmpPaths(w io.Writer, tmpPaths []string) error {
 // loadCheckpoint reads a checkpoint from disk. Returns os.ErrNotExist if none.
 // Detects old checkpoint format (pre-streaming) by checking magic bytes and
 // discards them gracefully (R3-IMP7, I2).
+//
+// Version-mismatch handling (TE-94): if the on-disk version != ckptVersion, we
+// try to parse the body with the CURRENT parser (format-compatible across
+// 0x01/0x02 — the bump is driven by chunk-tier semantics, not wire format)
+// to recover the exact tmpPaths the discarded checkpoint owned. Those temp
+// files are then removed via the symlink-safe os.Root so a post-upgrade fresh
+// transfer for the same contentKey can proceed without hitting O_EXCL/EEXIST
+// on orphan data. We use the checkpoint's own authoritative tmpPaths instead
+// of regenerating names or globbing the directory — this is the only way to
+// avoid stepping on a concurrent transfer's in-flight temp files.
 func loadCheckpoint(receiveDir string, ck [32]byte) (*transferCheckpoint, error) {
 	path := checkpointPath(receiveDir, ck)
 
@@ -312,18 +330,53 @@ func loadCheckpoint(receiveDir string, ck [32]byte) (*transferCheckpoint, error)
 	}
 	if header[0] != ckptMagic0 || header[1] != ckptMagic1 ||
 		header[2] != ckptMagic2 || header[3] != ckptMagic3 {
-		// Old format or corrupt file. Discard (I2).
-		f.Close()
-		os.Remove(path)
-		return nil, os.ErrNotExist
-	}
-	if header[4] != ckptVersion {
-		// Future version we can't read. Discard.
+		// Old format or corrupt file. Discard (I2). No tmpPaths are recoverable
+		// because the magic did not validate; any sibling temp files are left
+		// for manual cleanup (pre-existing behavior).
 		f.Close()
 		os.Remove(path)
 		return nil, os.ErrNotExist
 	}
 
+	loadedVersion := header[4]
+	// Parse the body regardless of version — format is backward-compatible
+	// for 0x01/0x02. If a future version changes wire layout, parsing will
+	// fail and we fall through to plain discard.
+	ckpt, parseErr := readCheckpointBody(f, ck, receiveDir)
+
+	if loadedVersion != ckptVersion {
+		// Version mismatch (e.g. pre-FT-Y #14 0x01 checkpoint under a 0x02
+		// binary, or a rolled-back binary finding a newer checkpoint).
+		// Silent-discard per TE-94 with a log line. If we parsed the body
+		// successfully, use the checkpoint's tmpPaths for targeted orphan
+		// cleanup before discarding. This is safe across concurrent transfers
+		// because a checkpoint is unique per contentKey — same contentKey
+		// transfers are serialized by the temp-file O_EXCL contract.
+		cleanedTemps := 0
+		if parseErr == nil && ckpt != nil {
+			cleanedTemps = removeCheckpointTempFiles(receiveDir, ckpt.tmpPaths)
+		}
+		slog.Info("file-transfer: discarding checkpoint with incompatible version",
+			"path", path,
+			"have", loadedVersion,
+			"want", ckptVersion,
+			"cleaned_temps", cleanedTemps,
+			"parse_ok", parseErr == nil)
+		f.Close()
+		os.Remove(path)
+		return nil, os.ErrNotExist
+	}
+
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	return ckpt, nil
+}
+
+// readCheckpointBody parses sections 2-5 of a checkpoint (content key through
+// temp paths). Assumes the 5-byte magic+version header has already been
+// consumed by the caller. Returns the fully populated checkpoint or an error.
+func readCheckpointBody(f io.Reader, ck [32]byte, receiveDir string) (*transferCheckpoint, error) {
 	// Section 2: Content key.
 	var storedKey [32]byte
 	if _, err := io.ReadFull(f, storedKey[:]); err != nil {
@@ -348,11 +401,11 @@ func loadCheckpoint(receiveDir string, ck [32]byte) (*transferCheckpoint, error)
 	}
 
 	// File table integrity: the stored key was already verified against the
-	// expected key at line 332. Re-computing contentKey(files) here would
-	// only work when the content key IS derived from the file table (single-peer).
-	// Multi-peer derives its key from the Merkle root hash with a different salt,
-	// so the re-computation always mismatches. Final file integrity is guaranteed
-	// by Merkle root hash verification on download completion.
+	// expected key above. Re-computing contentKey(files) here would only work
+	// when the content key IS derived from the file table (single-peer).
+	// Multi-peer derives its key from the Merkle root hash with a different
+	// salt, so the re-computation always mismatches. Final file integrity is
+	// guaranteed by Merkle root hash verification on download completion.
 
 	// Section 4: Chunk state.
 	var chunkCountBuf [4]byte
@@ -416,6 +469,46 @@ func loadCheckpoint(receiveDir string, ck [32]byte) (*transferCheckpoint, error)
 		sizes:      sizes,
 		tmpPaths:   tmpPaths,
 	}, nil
+}
+
+// removeCheckpointTempFiles deletes the temp files listed in a discarded
+// checkpoint's tmpPaths, via an os.Root rooted at receiveDir so a crafted
+// path cannot escape the destination. Returns the number of files removed
+// (for the discard log line). Silently skips entries whose base names are
+// empty or absent from disk; the discard path is best-effort and must never
+// block a fresh transfer from starting.
+func removeCheckpointTempFiles(receiveDir string, tmpPaths []string) int {
+	if len(tmpPaths) == 0 {
+		return 0
+	}
+	root, err := os.OpenRoot(receiveDir)
+	if err != nil {
+		// Receive dir is gone or unreadable. The fresh transfer will either
+		// recreate it (succeeds, no orphans) or fail for the same reason.
+		return 0
+	}
+	defer root.Close()
+
+	removed := 0
+	for _, tp := range tmpPaths {
+		if tp == "" {
+			continue
+		}
+		// Checkpoint stored basenames relative to receiveDir. If an older
+		// binary stored absolute paths, strip to basename so os.Root cannot
+		// be escaped.
+		name := filepath.Base(tp)
+		if name == "." || name == "/" || name == "" {
+			continue
+		}
+		if err := root.Remove(name); err == nil {
+			removed++
+		} else if !os.IsNotExist(err) {
+			slog.Debug("file-transfer: orphan temp removal failed",
+				"file", name, "error", err)
+		}
+	}
+	return removed
 }
 
 // readCheckpointFileTable reads the file table from a checkpoint.

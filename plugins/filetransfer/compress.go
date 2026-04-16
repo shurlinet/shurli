@@ -20,6 +20,14 @@ func getEncoder() *zstd.Encoder {
 	// 2.6 GB memory bloat on the sender — each pooled encoder retained an 8MB
 	// history buffer, and sync.Pool kept hundreds alive between GC cycles.
 	// BUG-MP-8: OOM-killed the LAN peer daemon mid-transfer (562MB file).
+	//
+	// Coupling (ChunkTarget): the window deliberately holds 1 MB even though
+	// FT-Y #14's top tier produces 4 MB chunks. Each chunk is compressed as a
+	// standalone zstd frame via EncodeAll(), so window < chunk just means the
+	// frame references 1 MB of internal history instead of the full 4 MB.
+	// Compression ratio drops marginally for the 4 MB tier but resident memory
+	// per pooled encoder stays bounded. If a future tier exceeds 4 MB, revisit
+	// this trade-off rather than bumping the window proportionally.
 	enc, err := zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.SpeedDefault),
 		zstd.WithWindowSize(1<<20), // 1 MB window (was 8 MB default)
@@ -37,8 +45,8 @@ func getDecoder() *zstd.Decoder {
 		return v.(*zstd.Decoder)
 	}
 	dec, err := zstd.NewReader(nil,
-		zstd.WithDecoderMaxMemory(64<<20),  // 64 MB max (largest chunk is 2 MB)
-		zstd.WithDecoderMaxWindow(32<<20),   // 32 MB max window
+		zstd.WithDecoderMaxMemory(64<<20), // 64 MB max (largest chunk is 2 MB)
+		zstd.WithDecoderMaxWindow(32<<20), // 32 MB max window
 	)
 	if err != nil {
 		panic("zstd decoder init: " + err.Error())

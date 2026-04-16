@@ -24,7 +24,7 @@ const (
 	// Adaptive stream defaults by transport type.
 	parallelStreamsLAN       = 8
 	parallelStreamsLANMax    = 32
-	parallelStreamsDirect   = 4
+	parallelStreamsDirect    = 4
 	parallelStreamsDirectMax = 20
 
 	// Minimum chunks per stream to justify parallelism.
@@ -173,9 +173,14 @@ func (ts *TransferService) sendParallel(
 	}
 
 	// Per-worker channels for chunk distribution.
+	// Buffer 8 (was 32): with FT-Y #14 tier bump a single streamChunk can hold
+	// up to 4 MB of wire data, so 32-deep per-worker buffers translated into
+	// ~32 workers x 32 slots x 4 MB = 4 GB worst-case resident memory. 8 slots
+	// keeps the backpressure loop tight with the producer while bounding
+	// memory to workers x 8 x max-chunk.
 	workerChs := make([]chan streamChunk, numStreams)
 	for i := range workerChs {
-		workerChs[i] = make(chan streamChunk, 32) // buffer per worker (reduces goroutine scheduling overhead)
+		workerChs[i] = make(chan streamChunk, 8)
 	}
 
 	var wg sync.WaitGroup
@@ -341,8 +346,8 @@ func (ts *TransferService) sendSingleStream(
 // Revised: uses transferID for session routing (I5), stores control peer ID for
 // worker verification (C5), uses streamReceiveState for chunk processing.
 type parallelSession struct {
-	transferID [32]byte      // session key for worker stream routing (I5)
-	controlPID peer.ID       // peer ID from control stream for worker verification (C5)
+	transferID [32]byte // session key for worker stream routing (I5)
+	controlPID peer.ID  // peer ID from control stream for worker verification (C5)
 	state      *streamReceiveState
 	progress   *TransferProgress
 
@@ -529,8 +534,8 @@ func (ts *TransferService) receiveParallel(
 	ckptInterval := checkpointSaveInterval // 5s default (LAN)
 	lastCkptSave := time.Now()
 	if ts.isLANPeer == nil || !ts.isLANPeer(session.controlPID) {
-		ckptInterval = 1 * time.Second        // relay/WAN: save every 1s
-		lastCkptSave = time.Time{}             // R3-F9: force first-chunk save
+		ckptInterval = 1 * time.Second // relay/WAN: save every 1s
+		lastCkptSave = time.Time{}     // R3-F9: force first-chunk save
 	}
 
 	// saveCheckpointIfDue saves a checkpoint if enough time has elapsed since the last save.
@@ -748,4 +753,3 @@ verify:
 
 	return rootHash, nil
 }
-
