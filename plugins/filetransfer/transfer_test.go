@@ -780,6 +780,8 @@ func TestTransferProgress(t *testing.T) {
 		t.Errorf("chunks_done: got %d, want 5", snap.ChunksDone)
 	}
 
+	// Simulate full transfer completion before finish.
+	p.updateChunks(1024, 10)
 	p.finish(nil)
 	snap = p.Snapshot()
 	if !snap.Done {

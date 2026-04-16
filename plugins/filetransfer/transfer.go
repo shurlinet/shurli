@@ -415,6 +415,11 @@ func (p *TransferProgress) finish(err error) {
 	if err != nil {
 		p.Error = err.Error()
 		p.Status = "failed"
+	} else if p.Size > 0 && p.Transferred < p.Size {
+		// Guard: no error but transfer is incomplete. This catches silent
+		// failures where the stream died but no error propagated back.
+		p.Error = fmt.Sprintf("transfer incomplete: %d/%d bytes", p.Transferred, p.Size)
+		p.Status = "failed"
 	} else {
 		p.Status = "complete"
 	}
