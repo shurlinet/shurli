@@ -449,7 +449,7 @@ func (p *FileTransferPlugin) OnNetworkReady() error {
 			if err != nil {
 				return nil, fmt.Errorf("decode peer ID: %w", err)
 			}
-			return pnet.OpenPluginStream(p.activeCtx, pid, "file-transfer")
+			return sdk.HedgedOpenStream(p.activeCtx, pnet, pid, "file-transfer")
 		}
 	})
 

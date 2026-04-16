@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -63,6 +64,19 @@ func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceNa
 	}
 
 	// Multiple groups — race with staggered starts (Tail Slayer pattern).
+	// Sort: direct first, then relay groups. Direct gets zero stagger (fires
+	// immediately), relays are delayed. This ensures direct always wins when
+	// the LAN path is healthy, regardless of map iteration order or warm
+	// relay circuits.
+	sort.Slice(groups, func(i, j int) bool {
+		iDirect := groups[i].Type == "direct"
+		jDirect := groups[j].Type == "direct"
+		if iDirect != jDirect {
+			return iDirect // direct before relay
+		}
+		return false // preserve relative order among relays
+	})
+
 	// Cap fan-out to prevent resource exhaustion (R2 F9).
 	if len(groups) > MaxHedgeFanOut {
 		groups = groups[:MaxHedgeFanOut]

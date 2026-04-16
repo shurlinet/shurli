@@ -592,7 +592,7 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	opener := func() (network.Stream, error) {
-		return pnet.OpenPluginStream(ctx, targetPeerID, "file-transfer")
+		return sdk.HedgedOpenStream(ctx, pnet, targetPeerID, "file-transfer")
 	}
 	sendOpts := SendOptions{
 		NoCompress:   req.NoCompress,
