@@ -136,7 +136,8 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		persistent = *req.Persistent
 	}
 
-	if err := reg.Share(req.Path, peerIDs, persistent); err != nil {
+	entry, err := reg.Share(req.Path, peerIDs, persistent)
+	if err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -152,8 +153,8 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
-	resp := map[string]any{"status": "shared"}
+	slog.Info("path shared via API", "path", req.Path, "share_id", entry.ID, "peers", len(req.Peers))
+	resp := map[string]any{"status": "shared", "share_id": entry.ID}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}

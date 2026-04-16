@@ -20,7 +20,7 @@ func TestShareRegistryBasic(t *testing.T) {
 	reg := NewShareRegistry()
 
 	// Share with all peers.
-	if err := reg.Share(subFile, nil, false); err != nil {
+	if _, err := reg.Share(subFile, nil, false); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 
@@ -56,7 +56,7 @@ func TestShareRegistryPeerACL(t *testing.T) {
 	peerB, _ := peer.Decode("12D3KooWB7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
 
 	// Share only with peerA.
-	if err := reg.Share(file, []peer.ID{peerA}, false); err != nil {
+	if _, err := reg.Share(file, []peer.ID{peerA}, false); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func TestShareRegistryDirectoryAccess(t *testing.T) {
 	peerA, _ := peer.Decode("12D3KooWA7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
 
 	// Share the directory.
-	if err := reg.Share(subDir, nil, false); err != nil {
+	if _, err := reg.Share(subDir, nil, false); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestShareRegistryBrowse(t *testing.T) {
 
 	peerA, _ := peer.Decode("12D3KooWA7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
 
-	if err := reg.Share(dir, nil, false); err != nil {
+	if _, err := reg.Share(dir, nil, false); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 
@@ -273,7 +273,7 @@ func TestTransferQueueRequeue(t *testing.T) {
 
 func TestShareNonexistentPath(t *testing.T) {
 	reg := NewShareRegistry()
-	err := reg.Share("/nonexistent/path/to/file", nil, false)
+	_, err := reg.Share("/nonexistent/path/to/file", nil, false)
 	if err == nil {
 		t.Fatal("expected error for nonexistent path")
 	}
@@ -299,10 +299,10 @@ func TestSavePersistentRoundtrip(t *testing.T) {
 	// Create registry with one persistent and one non-persistent share.
 	reg := NewShareRegistry()
 	reg.SetPersistPath(persistFile)
-	if err := reg.Share(file1, nil, true); err != nil {
+	if _, err := reg.Share(file1, nil, true); err != nil {
 		t.Fatalf("Share persistent: %v", err)
 	}
-	if err := reg.Share(file2, nil, false); err != nil {
+	if _, err := reg.Share(file2, nil, false); err != nil {
 		t.Fatalf("Share non-persistent: %v", err)
 	}
 
@@ -340,7 +340,7 @@ func TestSavePersistentWithPeerACL(t *testing.T) {
 	peerB, _ := peer.Decode("12D3KooWB7e4tPH7RaBmRYDWNNYPxT5uxHoiT7aBmRPfT5VxmeZZ")
 
 	reg := NewShareRegistry()
-	if err := reg.Share(file, []peer.ID{peerA}, true); err != nil {
+	if _, err := reg.Share(file, []peer.ID{peerA}, true); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 	if err := reg.SavePersistent(persistFile); err != nil {
@@ -386,7 +386,7 @@ func TestAutoSaveOnShareAndUnshare(t *testing.T) {
 	reg.SetPersistPath(persistFile)
 
 	// Share with persistent=true should auto-save.
-	if err := reg.Share(file, nil, true); err != nil {
+	if _, err := reg.Share(file, nil, true); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 
@@ -426,7 +426,7 @@ func TestAtomicWrite(t *testing.T) {
 	persistFile := filepath.Join(dir, "subdir", "shares.json")
 
 	reg := NewShareRegistry()
-	if err := reg.Share(file, nil, true); err != nil {
+	if _, err := reg.Share(file, nil, true); err != nil {
 		t.Fatalf("Share: %v", err)
 	}
 

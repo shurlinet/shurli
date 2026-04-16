@@ -328,6 +328,7 @@ type TransferProgress struct {
 	Direction   string    `json:"direction"` // "send" or "receive"
 	Status      string    `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
 	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time,omitempty"`
 	Done        bool      `json:"done"`
 	Error       string    `json:"error,omitempty"`
 
@@ -411,6 +412,7 @@ func (p *TransferProgress) finish(err error) {
 		return
 	}
 	p.Done = true
+	p.EndTime = time.Now()
 	p.cancelFunc = nil // release stream reference
 	if err != nil {
 		p.Error = err.Error()
@@ -444,6 +446,7 @@ type TransferSnapshot struct {
 	Direction       string       `json:"direction"`
 	Status          string       `json:"status"`
 	StartTime       time.Time    `json:"start_time"`
+	EndTime         time.Time    `json:"end_time,omitempty"`
 	Done            bool         `json:"done"`
 	Error           string       `json:"error,omitempty"`
 }
@@ -460,7 +463,8 @@ func (p *TransferProgress) Snapshot() TransferSnapshot {
 		ErasureParity: p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
 		Failovers: p.Failovers,
 		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
-		StartTime: p.StartTime, Done: p.Done, Error: p.Error,
+		StartTime: p.StartTime, EndTime: p.EndTime,
+		Done: p.Done, Error: p.Error,
 	}
 	if len(p.StreamProgress) > 0 {
 		snap.StreamProgress = make([]StreamInfo, len(p.StreamProgress))
@@ -2228,15 +2232,22 @@ func (ts *TransferService) GetTransfer(id string) (*TransferProgress, bool) {
 func (ts *TransferService) ListTransfers() []TransferSnapshot {
 	ts.mu.RLock()
 	activeTransfers := make([]TransferSnapshot, 0, len(ts.transfers))
+	activeIDs := make(map[string]bool, len(ts.transfers))
 	for _, p := range ts.transfers {
 		activeTransfers = append(activeTransfers, p.Snapshot())
+		activeIDs[p.ID] = true
 	}
 	ts.mu.RUnlock()
 
 	// Include queued (pending) transfers as synthetic progress entries.
+	// Skip queue entries that already have an active transfer (same ID)
+	// to avoid duplicate lines when a queued job becomes active.
 	queued := ts.queue.Pending()
 	result := make([]TransferSnapshot, 0, len(activeTransfers)+len(queued))
 	for _, qt := range queued {
+		if activeIDs[qt.ID] {
+			continue
+		}
 		result = append(result, TransferSnapshot{
 			ID:        qt.ID,
 			Filename:  filepath.Base(qt.FilePath),
