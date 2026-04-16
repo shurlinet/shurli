@@ -62,6 +62,7 @@ func cliCommandList() []plugin.CLICommandEntry {
 				{Long: "no-compress", Type: "bool", Description: "Disable zstd compression"},
 				{Long: "streams", Type: "int", Description: "Parallel stream count", RequiresArg: true},
 				{Long: "priority", Type: "enum", Description: "Queue priority", Enum: []string{"low", "normal", "high"}, RequiresArg: true},
+				{Long: "rate", Type: "string", Description: "Send rate limit (e.g. 100M, 500M, 0=unlimited)", RequiresArg: true},
 				{Long: "quiet", Type: "bool", Description: "Show only a single progress bar"},
 				{Long: "silent", Type: "bool", Description: "No progress output"},
 			},
@@ -229,6 +230,7 @@ func runSend(args []string) {
 	noCompressFlag := fs.Bool("no-compress", false, "disable zstd compression")
 	streamsFlag := fs.Int("streams", 0, "parallel stream count (0 = auto)")
 	priorityFlag := fs.String("priority", "normal", "queue priority: low, normal, high")
+	rateFlag := fs.String("rate", "", "send rate limit bytes/sec (e.g. 100M, 500M, 0=unlimited)")
 	quietFlag := fs.Bool("quiet", false, "show only a single progress bar")
 	silentFlag := fs.Bool("silent", false, "no progress output")
 	fs.Parse(reorderFlags(fs, args))
@@ -278,7 +280,7 @@ func runSend(args []string) {
 		}
 	}
 
-	resp, err := client.Send(absPath, peerArg, *noCompressFlag, *streamsFlag, *priorityFlag)
+	resp, err := client.Send(absPath, peerArg, *noCompressFlag, *streamsFlag, *priorityFlag, *rateFlag)
 	if err != nil {
 		fatal("Send failed: %s", sdk.HumanizeError(err.Error()))
 	}

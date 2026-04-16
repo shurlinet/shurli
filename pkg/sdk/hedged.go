@@ -52,6 +52,7 @@ func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceNa
 			"peer", peerID.String()[:16],
 			"service", serviceName,
 			"group", groups[0].Type,
+			"limited", conn.Stat().Limited,
 			"local", conn.LocalMultiaddr(),
 			"remote", conn.RemoteMultiaddr())
 		s, err := n.OpenPluginStreamOnConn(ctx, peerID, serviceName, conn)

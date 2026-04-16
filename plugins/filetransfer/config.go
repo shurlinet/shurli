@@ -61,6 +61,7 @@ type PluginConfig struct {
 	MaxTempSize     int64  `yaml:"max_temp_size"`
 	TempFileExpiry  string `yaml:"temp_file_expiry"`
 	BandwidthBudget string `yaml:"bandwidth_budget"` // human-readable: "500MB", "1GB", "unlimited", or plain bytes
+	SendRateLimit   string `yaml:"send_rate_limit"`  // max send rate bytes/sec: "100M", "500M", "0" = unlimited
 
 	// Share defaults.
 	DefaultPersistent *bool `yaml:"default_persistent"` // default for --persist flag (default: true)

@@ -206,6 +206,7 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		MaxTempSize:             p.config.MaxTempSize,
 		TempFileExpiry:          tempExpiry,
 		BandwidthBudget: parseBandwidthBudget(p.config.BandwidthBudget),
+		SendRateLimit:   parseBandwidthBudget(p.config.SendRateLimit),
 		PeerBudgetFunc:  p.makePeerBudgetFunc(),
 		FailureBackoffThreshold: fbThreshold,
 		FailureBackoffWindow:    fbWindow,
