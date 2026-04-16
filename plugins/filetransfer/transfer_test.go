@@ -492,6 +492,148 @@ func TestCheckpointOldFormatDiscarded(t *testing.T) {
 	}
 }
 
+// TestCheckpointVersionMismatchDiscarded verifies that a checkpoint with a
+// non-current version byte (e.g. pre-FT-Y #14 0x01 checkpoint after upgrading
+// to the 0x02 binary) is silently discarded on load. Guards against the
+// regression where the version bump skipped the mismatch branch. TE-94.
+func TestCheckpointVersionMismatchDiscarded(t *testing.T) {
+	dir := t.TempDir()
+	var ck [32]byte
+	copy(ck[:], "test-content-key-for-version-mx!")
+
+	// Write a checkpoint with correct magic but an older version byte.
+	path := checkpointPath(dir, ck)
+	// SHCK magic + version 0x01 + some body bytes. Body content does not matter:
+	// loadCheckpoint must reject on the version byte alone.
+	os.WriteFile(path, []byte{'S', 'H', 'C', 'K', 0x01, 'b', 'o', 'd', 'y'}, 0600)
+
+	_, err := loadCheckpoint(dir, ck)
+	if !os.IsNotExist(err) {
+		t.Errorf("expected not-exist for old version, got: %v", err)
+	}
+
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("version-mismatched checkpoint file should have been deleted")
+	}
+}
+
+// TestLoadCheckpointVersionDiscardCleansOwnTempFiles verifies that when
+// loadCheckpoint discards a version-mismatched checkpoint, it removes the
+// temp files that checkpoint owned — using the checkpoint's own tmpPaths
+// (authoritative) rather than globbing the directory. This is the FT-Y #14
+// 0x01 -> 0x02 upgrade recovery path (TE-94) and is the ONLY safe way to
+// sweep orphans: a concurrent transfer with a different contentKey has a
+// different checkpoint on disk, and same-contentKey transfers are serialized
+// by O_EXCL at allocate time.
+func TestLoadCheckpointVersionDiscardCleansOwnTempFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	files := []fileEntry{
+		{Path: "file-a.bin", Size: 1000},
+		{Path: "file-b.bin", Size: 2000},
+	}
+	ck := contentKey(files)
+
+	// Plant the two temp files the checkpoint will claim ownership of,
+	// plus a stranger temp file that does NOT belong to this checkpoint —
+	// it must survive the cleanup.
+	ownedA := ".shurli-tmp-0-file-a.bin"
+	ownedB := ".shurli-tmp-1-file-b.bin"
+	stranger := ".shurli-tmp-0-other-transfer.bin"
+	for _, name := range []string{ownedA, ownedB, stranger} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("stale"), 0600); err != nil {
+			t.Fatalf("plant %s: %v", name, err)
+		}
+	}
+
+	// Build a valid checkpoint for `ck`, save it, then hand-rewrite the
+	// version byte to 0x01 so loadCheckpoint takes the mismatch branch.
+	hashes := make([][32]byte, 3)
+	sizes := make([]uint32, 3)
+	for i := range hashes {
+		hashes[i] = sdk.Blake3Sum([]byte{byte(i)})
+		sizes[i] = 1000
+	}
+	have := newBitfield(3)
+	have.set(0)
+
+	ckpt := &transferCheckpoint{
+		contentKey: ck,
+		files:      files,
+		totalSize:  3000,
+		flags:      0,
+		have:       have,
+		hashes:     hashes,
+		sizes:      sizes,
+		tmpPaths:   []string{ownedA, ownedB},
+	}
+	if err := ckpt.save(dir); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+	path := checkpointPath(dir, ck)
+
+	// Overwrite the version byte (offset 4) with an obsolete version.
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open checkpoint: %v", err)
+	}
+	if _, err := f.WriteAt([]byte{0x01}, 4); err != nil {
+		t.Fatalf("downgrade version byte: %v", err)
+	}
+	f.Close()
+
+	// loadCheckpoint must: discard the checkpoint file, remove the two
+	// owned temp files, and return ErrNotExist. The stranger must remain.
+	if _, err := loadCheckpoint(dir, ck); !os.IsNotExist(err) {
+		t.Fatalf("expected ErrNotExist from version discard, got: %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("version-discarded checkpoint should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ownedA)); !os.IsNotExist(err) {
+		t.Error("owned temp file A should be removed by version-discard cleanup")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ownedB)); !os.IsNotExist(err) {
+		t.Error("owned temp file B should be removed by version-discard cleanup")
+	}
+	if _, err := os.Stat(filepath.Join(dir, stranger)); err != nil {
+		t.Errorf("stranger temp file must not be touched, got stat err: %v", err)
+	}
+}
+
+// TestRemoveCheckpointTempFilesRejectsEscape guards the os.Root contract on
+// the cleanup path: a malicious/buggy checkpoint that stored an absolute or
+// traversal path in tmpPaths must not be allowed to delete files outside
+// receiveDir. We strip to basename before the Root.Remove call; this test
+// plants a file outside receiveDir and asserts it survives.
+func TestRemoveCheckpointTempFilesRejectsEscape(t *testing.T) {
+	outer := t.TempDir()
+	dir := filepath.Join(outer, "recv")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatalf("mkdir recv: %v", err)
+	}
+
+	// Victim file sits OUTSIDE receiveDir but its basename matches an
+	// entry removeCheckpointTempFiles will see.
+	victimBase := "secret.txt"
+	victim := filepath.Join(outer, victimBase)
+	if err := os.WriteFile(victim, []byte("keep"), 0600); err != nil {
+		t.Fatalf("plant victim: %v", err)
+	}
+
+	// A hostile checkpoint stores the victim's absolute path in tmpPaths.
+	removed := removeCheckpointTempFiles(dir, []string{victim})
+	if removed != 0 {
+		t.Errorf("expected 0 removals (basename %q absent in recv dir), got %d", victimBase, removed)
+	}
+
+	// Victim must still exist (Root could not escape).
+	if _, err := os.Stat(victim); err != nil {
+		t.Errorf("victim outside receiveDir must not be touched: %v", err)
+	}
+}
+
 func TestCheckpointRestoreReceiveState(t *testing.T) {
 	dir := t.TempDir()
 

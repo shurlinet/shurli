@@ -56,8 +56,12 @@ const (
 	// maxHeaderSize limits memory during header parsing. Wraps reader in LimitedReader. [R3-SEC3, N5]
 	maxHeaderSize = 32 << 20 // 32 MB
 
-	// Producer channel buffer: how many chunks can be buffered between disk reader and network sender.
-	producerChanBuffer = 16
+	// producerChanBuffer bounds chunks held between the disk reader and the
+	// network sender. With the FT-Y #14 tier bump, a single chunk can be up to
+	// 4 MB on the wire, so deep buffers translate into large resident memory.
+	// 8 slots x 4 MB = 32 MB worst case per outgoing transfer. maxConcurrentTransfers
+	// (10) caps the global worst case at ~320 MB.
+	producerChanBuffer = 8
 
 	// parityFileIdx is a sentinel fileIdx value that marks parity (erasure coding) chunks.
 	// Parity chunks don't map to any file in the file table. Using this sentinel prevents
@@ -300,12 +304,21 @@ func computeCumulativeOffsets(files []fileEntry) []int64 {
 // sortFileTable sorts files and their corresponding absolute paths by relative path
 // for deterministic wire ordering (I7). Both slices are reordered in-place to stay in sync.
 // Validates no duplicate paths (I10) or case-insensitive collisions on darwin/windows (R3-SEC7).
+//
+// Ordering (TE-69): comparison is byte-order (Go's builtin `<` on strings
+// compares bytewise), NOT locale- or filesystem-aware. This makes the sort
+// deterministic across platforms (macOS APFS case-insensitive vs Linux ext4
+// case-sensitive vs Windows NTFS) so the contentKey derived downstream is
+// identical no matter who ran filepath.WalkDir. Do NOT replace with
+// collate/strings-aware comparison: the content key in transfer_stream.go
+// contentKey() and the receiver's checkpoint resume both depend on this exact
+// byte ordering.
 func sortFileTable(files []fileEntry, filePaths []string) error {
 	if len(files) != len(filePaths) {
 		return fmt.Errorf("file table / path count mismatch: %d vs %d", len(files), len(filePaths))
 	}
 
-	// Build index for synchronized sort.
+	// Build index for synchronized sort. Byte-order compare (TE-69).
 	indices := make([]int, len(files))
 	for i := range indices {
 		indices[i] = i
@@ -881,11 +894,11 @@ func chunkProducer(
 	done chan<- producerResult,
 ) {
 	var (
-		chunkHashes    [][32]byte
-		chunkSizes     []uint32
-		rawForRS       [][]byte
-		anyCompressed  bool
-		skippedHashes  map[int][32]byte // chunk hashes for selectively skipped chunks
+		chunkHashes   [][32]byte
+		chunkSizes    []uint32
+		rawForRS      [][]byte
+		anyCompressed bool
+		skippedHashes map[int][32]byte // chunk hashes for selectively skipped chunks
 	)
 
 	// Cache selective rejection state outside the hot loop.
@@ -1167,9 +1180,30 @@ func (s *streamReceiveState) assembleFullHashList(chunkCount int, sparseHashes m
 	return result
 }
 
+// tempFileName derives the deterministic temp file name for a given file index
+// and basename. Kept in one place so allocation, finalize, and orphan cleanup
+// (in loadCheckpoint's version-discard path) cannot drift.
+func tempFileName(idx int, path string) string {
+	return fmt.Sprintf(".shurli-tmp-%d-%s", idx, filepath.Base(path))
+}
+
 // allocateTempFiles creates temp files for each accepted file entry in destDir,
 // pre-allocated to size. Opens destDir as os.Root for symlink traversal defense (R3-SEC2).
 // Empty files (Size=0) still get temp files so they can receive metadata (F5).
+//
+// Fresh-start contract: this is called only when no valid checkpoint exists
+// for the current content key. O_EXCL is used unconditionally — a pre-existing
+// file with the same name is either (a) an in-flight concurrent transfer's
+// temp file (unsafe to remove — would corrupt the other writer's output on
+// finalize/rename) or (b) an orphan from a daemon crash with no checkpoint.
+// (a) is kept safe by surfacing EEXIST; case (b) requires a user-facing
+// manual cleanup (pre-existing behavior). Orphans left behind by a
+// silently-discarded version-mismatched checkpoint are cleaned up
+// authoritatively by loadCheckpoint using that checkpoint's own tmpPaths
+// (see removeCheckpointTempFiles), which never collides with a concurrent
+// transfer because each contentKey has at most one checkpoint on disk.
+// Resume is handled by reopenTempFiles, which is a separate code path and
+// never enters this function.
 func (s *streamReceiveState) allocateTempFiles(destDir string) error {
 	root, err := os.OpenRoot(destDir)
 	if err != nil {
@@ -1186,8 +1220,7 @@ func (s *streamReceiveState) allocateTempFiles(destDir string) error {
 			continue
 		}
 
-		// Generate temp file name relative to destRoot.
-		tmpName := fmt.Sprintf(".shurli-tmp-%d-%s", i, filepath.Base(fe.Path))
+		tmpName := tempFileName(i, fe.Path)
 
 		tmpFile, err := root.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {

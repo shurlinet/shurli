@@ -17,6 +17,14 @@ const (
 
 	// defaultStripeSize is the number of data chunks per RS stripe.
 	// 100 data + 10 parity (at 10%) = 110 total, well within RS limits.
+	//
+	// Coupling (ChunkTarget + R4-SEC1): peak resident RS memory is
+	// O(defaultStripeSize x max-chunk). With FT-Y #14's 4 MB max-chunk tier
+	// this is 100 x 4 MB = 400 MB per stripe in the current batched encoder.
+	// R4-SEC1 (Batch 2) replaces this with incremental per-stripe emission so
+	// the 4 MB tier does not OOM on 2 GB MemoryMax. Until R4-SEC1 lands, RS
+	// is gated off by the transport classifier (LAN + Direct disable RS), so
+	// the worst case in production stays bounded.
 	defaultStripeSize = 100
 
 	// maxParityOverhead caps erasure overhead at 50%.

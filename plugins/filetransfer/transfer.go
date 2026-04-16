@@ -42,15 +42,15 @@ const (
 	shftMagic3 = 'T'
 
 	// Wire message types.
-	msgManifest     = 0x01 // sender -> receiver: file manifest
-	msgAccept       = 0x02 // receiver -> sender: accept transfer
-	msgReject       = 0x03 // receiver -> sender: reject transfer
-	msgChunk           = 0x04 // sender -> receiver: chunk data
-	msgTransferDone    = 0x05 // sender -> receiver: all chunks sent
-	msgResumeRequest   = 0x06 // receiver -> sender: resume with bitfield
-	msgResumeResponse  = 0x07 // sender -> receiver: resume acknowledged
-	msgRejectReason    = 0x08 // receiver -> sender: reject with reason byte
-	msgWorkerHello     = 0x09 // sender -> receiver: parallel worker stream identification
+	msgManifest       = 0x01 // sender -> receiver: file manifest
+	msgAccept         = 0x02 // receiver -> sender: accept transfer
+	msgReject         = 0x03 // receiver -> sender: reject transfer
+	msgChunk          = 0x04 // sender -> receiver: chunk data
+	msgTransferDone   = 0x05 // sender -> receiver: all chunks sent
+	msgResumeRequest  = 0x06 // receiver -> sender: resume with bitfield
+	msgResumeResponse = 0x07 // sender -> receiver: resume acknowledged
+	msgRejectReason   = 0x08 // receiver -> sender: reject with reason byte
+	msgWorkerHello    = 0x09 // sender -> receiver: parallel worker stream identification
 
 	// Reject reasons (sent after msgRejectReason).
 	RejectReasonNone  byte = 0x00 // no reason disclosed (same as silent msgReject)
@@ -62,18 +62,25 @@ const (
 	flagCompressed = 0x01 // zstd compression enabled
 
 	// Security limits.
-	maxFilenameLen         = 4096       // max filename length in bytes
-	maxFileSize            = 1 << 40    // 1 TB max single file
-	maxChunkCount          = 1 << 20    // 1M chunks max per transfer
-	maxManifestSize        = 40 << 20   // 40 MB max manifest wire size (IF12-4: tightened from 64MB)
-	maxChunkWireSize       = 4 << 20    // 4 MB max single chunk on wire (compressed)
-	maxDecompressedChunk   = 8 << 20    // 8 MB max decompressed chunk
-	maxConcurrentTransfers = 10         // global inbound transfer limit
-	maxPerPeerTransfers    = 3          // per-peer inbound limit
-	maxTrackedTransfers    = 10000      // max tracked transfer entries
+	maxFilenameLen  = 4096     // max filename length in bytes
+	maxFileSize     = 1 << 40  // 1 TB max single file
+	maxChunkCount   = 1 << 20  // 1M chunks max per transfer
+	maxManifestSize = 40 << 20 // 40 MB max manifest wire size (IF12-4: tightened from 64MB)
+	// maxChunkWireSize caps the post-compression wire size of a single chunk.
+	// This value is coupled to ChunkTarget() in chunker.go: the largest tier's
+	// max MUST be <= maxChunkWireSize, otherwise the sender produces chunks
+	// the receiver refuses. With FT-Y #14 the biggest tier returns 4 MB max
+	// (decompressed), and zstd compression never expands, so 4 MB is both the
+	// tier's uncompressed max AND the wire cap. Bumping ChunkTarget tiers
+	// without bumping this constant silently truncates the top tier.
+	maxChunkWireSize       = 4 << 20 // 4 MB max single chunk on wire (compressed)
+	maxDecompressedChunk   = 8 << 20 // 8 MB max decompressed chunk
+	maxConcurrentTransfers = 10      // global inbound transfer limit
+	maxPerPeerTransfers    = 3       // per-peer inbound limit
+	maxTrackedTransfers    = 10000   // max tracked transfer entries
 
 	// Timeouts.
-	transferStreamDeadline = 1 * time.Hour // max wall-clock for entire transfer
+	transferStreamDeadline = 1 * time.Hour   // max wall-clock for entire transfer
 	askModeTimeout         = 5 * time.Minute // receiver approval timeout in ask mode
 )
 
@@ -92,10 +99,10 @@ type ReceiveMode string
 
 const (
 	ReceiveModeOff      ReceiveMode = "off"      // reject all
-	ReceiveModeContacts ReceiveMode = "contacts"  // auto-accept from authorized peers (default)
-	ReceiveModeAsk      ReceiveMode = "ask"       // queue for manual approval
-	ReceiveModeOpen     ReceiveMode = "open"      // accept from any authorized peer
-	ReceiveModeTimed    ReceiveMode = "timed"     // temporarily open, reverts after duration
+	ReceiveModeContacts ReceiveMode = "contacts" // auto-accept from authorized peers (default)
+	ReceiveModeAsk      ReceiveMode = "ask"      // queue for manual approval
+	ReceiveModeOpen     ReceiveMode = "open"     // accept from any authorized peer
+	ReceiveModeTimed    ReceiveMode = "timed"    // temporarily open, reverts after duration
 )
 
 // rateBucket tracks transfer request count per peer within a fixed window.
@@ -160,7 +167,7 @@ type failureTracker struct {
 }
 
 type failureRecord struct {
-	failures  []time.Time // timestamps of recent failures
+	failures     []time.Time // timestamps of recent failures
 	blockedUntil time.Time
 }
 
@@ -312,28 +319,28 @@ type StreamInfo struct {
 
 // TransferProgress tracks the progress of an active transfer.
 type TransferProgress struct {
-	ID          string    `json:"id"`
-	Filename    string    `json:"filename"`
-	Size        int64     `json:"size"`
-	Transferred int64     `json:"transferred"`
-	ChunksTotal int       `json:"chunks_total"`
-	ChunksDone  int       `json:"chunks_done"`
-	Compressed      bool      `json:"compressed"`
-	CompressedSize  int64     `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
-	ErasureParity   int       `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
-	ErasureOverhead float64   `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
-	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"` // per-stream progress (parallel only)
-	Failovers       int          `json:"failovers,omitempty"`       // TS-5b: number of path failovers (F10)
-	PeerID          string    `json:"peer_id"`
-	Direction   string    `json:"direction"` // "send" or "receive"
-	Status      string    `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
-	StartTime   time.Time `json:"start_time"`
-	EndTime     time.Time `json:"end_time,omitempty"`
-	Done        bool      `json:"done"`
-	Error       string    `json:"error,omitempty"`
+	ID              string       `json:"id"`
+	Filename        string       `json:"filename"`
+	Size            int64        `json:"size"`
+	Transferred     int64        `json:"transferred"`
+	ChunksTotal     int          `json:"chunks_total"`
+	ChunksDone      int          `json:"chunks_done"`
+	Compressed      bool         `json:"compressed"`
+	CompressedSize  int64        `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
+	ErasureParity   int          `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
+	ErasureOverhead float64      `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
+	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`  // per-stream progress (parallel only)
+	Failovers       int          `json:"failovers,omitempty"`        // TS-5b: number of path failovers (F10)
+	PeerID          string       `json:"peer_id"`
+	Direction       string       `json:"direction"` // "send" or "receive"
+	Status          string       `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
+	StartTime       time.Time    `json:"start_time"`
+	EndTime         time.Time    `json:"end_time,omitempty"`
+	Done            bool         `json:"done"`
+	Error           string       `json:"error,omitempty"`
 
 	mu           sync.Mutex
-	cancelFunc   func() // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
+	cancelFunc   func()      // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
 	relayTracker func(int64) // per-chunk relay grant byte tracking (H7)
 
 	// TS-4: cancel protocol routing. Not exported to JSON/API (R4-S4).
@@ -460,9 +467,9 @@ func (p *TransferProgress) Snapshot() TransferSnapshot {
 		Transferred: p.Transferred, ChunksTotal: p.ChunksTotal,
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
 		CompressedSize: p.CompressedSize,
-		ErasureParity: p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
+		ErasureParity:  p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
 		Failovers: p.Failovers,
-		PeerID: p.PeerID, Direction: p.Direction, Status: p.Status,
+		PeerID:    p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, EndTime: p.EndTime,
 		Done: p.Done, Error: p.Error,
 	}
@@ -519,14 +526,14 @@ type TransferConfig struct {
 	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
 
 	// DDoS defense settings.
-	GlobalRateLimit  int   // max total inbound transfer requests per minute (default: 600, 0 = disabled)
-	MaxQueuedPerPeer int   // max pending+active transfers per peer (default: 10)
-	MinSpeedBytes    int   // minimum transfer speed bytes/sec (default: 1024, 0 = disabled)
-	MinSpeedSeconds  int   // speed check window seconds (default: 30)
+	GlobalRateLimit  int           // max total inbound transfer requests per minute (default: 600, 0 = disabled)
+	MaxQueuedPerPeer int           // max pending+active transfers per peer (default: 10)
+	MinSpeedBytes    int           // minimum transfer speed bytes/sec (default: 1024, 0 = disabled)
+	MinSpeedSeconds  int           // speed check window seconds (default: 30)
 	MaxTempSize      int64         // max total .tmp file size bytes (default: 1GB, 0 = unlimited)
 	TempFileExpiry   time.Duration // auto-expire .tmp files older than this (default: 1h, 0 = never)
-	BandwidthBudget  int64 // max bytes per peer per hour (default: 100MB, 0 = unlimited)
-	SendRateLimit    int64 // max send bytes/sec per transfer (0 = unlimited)
+	BandwidthBudget  int64         // max bytes per peer per hour (default: 100MB, 0 = unlimited)
+	SendRateLimit    int64         // max send bytes/sec per transfer (0 = unlimited)
 
 	// PeerBudgetFunc returns the per-peer bandwidth budget override for a peer.
 	// Returns: -1 = unlimited, 0 = use global default, >0 = bytes per hour.
@@ -605,24 +612,24 @@ type TransferService struct {
 
 	// Outbound transfer queue with priority ordering and concurrency limit.
 	queue         *TransferQueue
-	queueReady    chan struct{}          // signaled when a new job is enqueued or a slot frees up
+	queueReady    chan struct{}         // signaled when a new job is enqueued or a slot frees up
 	pendingJobs   map[string]*queuedJob // queueID -> job, consumed by queue processor
 	pendingJobsMu sync.Mutex
 	queueCtx      context.Context
 	queueCancel   context.CancelFunc
 
-	mu          sync.RWMutex
-	transfers   map[string]*TransferProgress
-	completed   []string
+	mu               sync.RWMutex
+	transfers        map[string]*TransferProgress
+	completed        []string
 	peerInbound      map[string]int
 	pending          map[string]*PendingTransfer // ask mode: transfers awaiting approval
 	parallelSessions map[[32]byte]*parallelSession
 
 	// Timed mode: temporarily switches to open/contacts then reverts.
-	timedCancel  context.CancelFunc // cancels the timer goroutine (nil = no active timer)
-	timedGen     uint64             // generation counter to identify active timer
-	timedPrevMode ReceiveMode       // mode to revert to when timer expires
-	timedDeadline time.Time         // when the timer expires
+	timedCancel   context.CancelFunc // cancels the timer goroutine (nil = no active timer)
+	timedGen      uint64             // generation counter to identify active timer
+	timedPrevMode ReceiveMode        // mode to revert to when timer expires
+	timedDeadline time.Time          // when the timer expires
 
 	// Multi-peer download config.
 	multiPeerEnabled         bool
@@ -635,28 +642,28 @@ type TransferService struct {
 	hashRegistry map[[32]byte]string
 
 	// Multi-peer serving state (IF13-1, IF12-1).
-	peerServing          map[string]int   // per-peer active serving session count
-	boundaries           *boundaryCache   // FastCDC boundary scan cache (I3)
-	sharedFileLister     func() []string  // callback for listing shared files (IF13-3)
-	totalServedBytes     atomic.Int64     // global outbound bytes counter (IF12-1)
-	servedBytesHour      atomic.Int64     // epoch hour for counter reset
+	peerServing           map[string]int  // per-peer active serving session count
+	boundaries            *boundaryCache  // FastCDC boundary scan cache (I3)
+	sharedFileLister      func() []string // callback for listing shared files (IF13-3)
+	totalServedBytes      atomic.Int64    // global outbound bytes counter (IF12-1)
+	servedBytesHour       atomic.Int64    // epoch hour for counter reset
 	maxTotalServedPerHour int64           // 0 = unlimited (IF12-1)
 
 	// Per-peer transfer request rate limiter (nil = disabled).
-	rateLimiter   *transferRateLimiter
+	rateLimiter     *transferRateLimiter
 	rateLimiterStop context.CancelFunc
 
 	// DDoS defense subsystems (nil = disabled).
-	globalRateLimiter *transferRateLimiter // single-key rate limiter for all inbound
-	failureTracker    *failureTracker      // per-peer failure backoff
-	bandwidthTracker  *bandwidthTracker    // per-peer hourly bandwidth budget
-	peerBudgetFunc    func(string) int64   // per-peer budget override lookup
-	maxQueuedPerPeer  int                  // max pending+active per peer (0 = no limit)
-	minSpeedBytes     int                  // minimum transfer speed bytes/sec
-	minSpeedSeconds   int                  // speed check window
-	maxTempSize       int64                // max total .tmp file size (0 = unlimited)
-	tempFileExpiry    time.Duration        // auto-expire stale .tmp files (0 = never)
-	defenseCleanupStop context.CancelFunc  // stops the defense cleanup goroutine
+	globalRateLimiter  *transferRateLimiter // single-key rate limiter for all inbound
+	failureTracker     *failureTracker      // per-peer failure backoff
+	bandwidthTracker   *bandwidthTracker    // per-peer hourly bandwidth budget
+	peerBudgetFunc     func(string) int64   // per-peer budget override lookup
+	maxQueuedPerPeer   int                  // max pending+active per peer (0 = no limit)
+	minSpeedBytes      int                  // minimum transfer speed bytes/sec
+	minSpeedSeconds    int                  // speed check window
+	maxTempSize        int64                // max total .tmp file size (0 = unlimited)
+	tempFileExpiry     time.Duration        // auto-expire stale .tmp files (0 = never)
+	defenseCleanupStop context.CancelFunc   // stops the defense cleanup goroutine
 
 	// Per-job cancel functions (D1 fix: CancelTransfer context propagation).
 	// Keyed by transfer/queue ID. executeQueuedJob stores its cancel func here;
@@ -801,37 +808,37 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 	}
 
 	ts := &TransferService{
-		receiveDir:        dir,
-		maxSize:           cfg.MaxSize,
-		receiveMode:       mode,
-		compress:          compress,
-		erasureOverhead:   cfg.ErasureOverhead,
-		metrics:           metrics,
-		events:            events,
-		logger:            logger,
-		notifier:          notifier,
-		inboundSem:        make(chan struct{}, maxConcurrentTransfers),
-		queue:             NewTransferQueue(maxConcurrent),
-		queueReady:        make(chan struct{}, 10),
-		pendingJobs:       make(map[string]*queuedJob),
-		transfers:         make(map[string]*TransferProgress),
-		peerInbound:       make(map[string]int),
-		pending:           make(map[string]*PendingTransfer),
+		receiveDir:               dir,
+		maxSize:                  cfg.MaxSize,
+		receiveMode:              mode,
+		compress:                 compress,
+		erasureOverhead:          cfg.ErasureOverhead,
+		metrics:                  metrics,
+		events:                   events,
+		logger:                   logger,
+		notifier:                 notifier,
+		inboundSem:               make(chan struct{}, maxConcurrentTransfers),
+		queue:                    NewTransferQueue(maxConcurrent),
+		queueReady:               make(chan struct{}, 10),
+		pendingJobs:              make(map[string]*queuedJob),
+		transfers:                make(map[string]*TransferProgress),
+		peerInbound:              make(map[string]int),
+		pending:                  make(map[string]*PendingTransfer),
 		multiPeerEnabled:         cfg.MultiPeerEnabled,
 		multiPeerMaxPeers:        multiPeerMaxPeers,
 		multiPeerMinSize:         multiPeerMinSize,
 		multiPeerStrikeThreshold: multiPeerStrikeThreshold,
 		maxTotalServedPerHour:    cfg.MaxServedBytesPerHour,
-		hashRegistry:      make(map[[32]byte]string),
-		peerServing:       make(map[string]int),
-		boundaries:        newBoundaryCache(),
-		jobCancels:        make(map[string]context.CancelFunc),
-		grantChecker:      cfg.GrantChecker,
-		connsToPeer:       cfg.ConnsToPeer,
-		isLANPeer:         cfg.IsLANPeer,
-		activeSends:       make(map[[32]byte]activeSendEntry),
-		cancelRateLimiter: newTransferRateLimiter(cancelRateMax),
-		sendRateLimit:     cfg.SendRateLimit,
+		hashRegistry:             make(map[[32]byte]string),
+		peerServing:              make(map[string]int),
+		boundaries:               newBoundaryCache(),
+		jobCancels:               make(map[string]context.CancelFunc),
+		grantChecker:             cfg.GrantChecker,
+		connsToPeer:              cfg.ConnsToPeer,
+		isLANPeer:                cfg.IsLANPeer,
+		activeSends:              make(map[[32]byte]activeSendEntry),
+		cancelRateLimiter:        newTransferRateLimiter(cancelRateMax),
+		sendRateLimit:            cfg.SendRateLimit,
 	}
 
 	// Start the single queue processor goroutine.
@@ -1148,11 +1155,11 @@ func extractCommonPrefix(files []fileEntry) string {
 
 // SendOptions configures a single send operation.
 type SendOptions struct {
-	NoCompress          bool         // override: disable compression for this transfer
-	Streams             int          // parallel stream count (0 = adaptive default based on transport)
-	StreamOpener        streamOpener // opens additional streams to the same peer (required for parallel)
-	RelativeName        string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
-	RateLimitBytesPerSec int64       // per-transfer send rate limit (0 = use service default)
+	NoCompress           bool         // override: disable compression for this transfer
+	Streams              int          // parallel stream count (0 = adaptive default based on transport)
+	StreamOpener         streamOpener // opens additional streams to the same peer (required for parallel)
+	RelativeName         string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
+	RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
 }
 
 // SendFile sends a file or directory over a libp2p stream using the streaming protocol.
@@ -2273,17 +2280,17 @@ const (
 
 // queuedJob holds everything needed to execute a queued transfer.
 type queuedJob struct {
-	queueID    string
-	filePath   string
-	isDir      bool
-	peerID     string
-	priority   TransferPriority
-	opts       SendOptions
-	openStream streamOpener
-	progress   *TransferProgress // synthetic "queued" progress visible to CLI
-	retryCount         int     // number of retries so far
-	relayReconnects    int     // relay session expiry reconnection attempts (H11)
-	lastRelayPeerID    peer.ID // relay peer from last attempt (for session expiry detection)
+	queueID         string
+	filePath        string
+	isDir           bool
+	peerID          string
+	priority        TransferPriority
+	opts            SendOptions
+	openStream      streamOpener
+	progress        *TransferProgress // synthetic "queued" progress visible to CLI
+	retryCount      int               // number of retries so far
+	relayReconnects int               // relay session expiry reconnection attempts (H11)
+	lastRelayPeerID peer.ID           // relay peer from last attempt (for session expiry detection)
 
 	// TS-5b: Send-side failover state.
 	failoverAttempts int   // path failover requeue count
@@ -3140,8 +3147,8 @@ const (
 
 // persistedQueue is the JSON structure written to disk.
 type persistedQueue struct {
-	Version int                  `json:"version"`
-	HMAC    string               `json:"hmac"` // hex-encoded HMAC-SHA256 of entries JSON
+	Version int                   `json:"version"`
+	HMAC    string                `json:"hmac"` // hex-encoded HMAC-SHA256 of entries JSON
 	Entries []persistedQueueEntry `json:"entries"`
 }
 
@@ -3835,7 +3842,7 @@ func (ts *TransferService) downloadNegotiate(
 		totalSize:       totalSize,
 		flags:           flags,
 		transferID:      transferID,
-		cumOffsets:       cumOffsets,
+		cumOffsets:      cumOffsets,
 		displayName:     displayName,
 		contentKey:      ck,
 		estimatedChunks: estimatedChunks,
