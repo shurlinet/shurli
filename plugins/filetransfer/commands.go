@@ -806,7 +806,13 @@ func printTransferTable(transfers []TransferSnapshot) {
 				t.ErasureOverhead*100, t.ErasureParity)
 		}
 
-		age := time.Since(t.StartTime).Truncate(time.Second)
+		// Use EndTime for completed/failed transfers so elapsed time freezes.
+		var age time.Duration
+		if !t.EndTime.IsZero() {
+			age = t.EndTime.Sub(t.StartTime).Truncate(time.Second)
+		} else {
+			age = time.Since(t.StartTime).Truncate(time.Second)
+		}
 
 		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
 			dir, t.ID, SanitizeDisplayName(t.Filename), peerShort,
@@ -829,7 +835,14 @@ func printTransferTable(transfers []TransferSnapshot) {
 			fmt.Print(t.Status)
 		}
 
-		fmt.Printf("  %s\n", age)
+		// Show speed: average for completed, live for active.
+		speedStr := ""
+		if t.Transferred > 0 && age > 0 {
+			bytesPerSec := float64(t.Transferred) / age.Seconds()
+			speedStr = fmt.Sprintf("  %sps", humanSize(int64(bytesPerSec)))
+		}
+
+		fmt.Printf("  %s%s\n", age, speedStr)
 		if t.Error != "" {
 			tc.Wred(os.Stdout, "    error: %s\n", sdk.HumanizeError(t.Error))
 		}

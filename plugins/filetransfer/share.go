@@ -300,18 +300,19 @@ func generateShareID() string {
 	return "share-" + randomHex(8)
 }
 
-// Share adds or updates a shared path. If the path is already shared and new
-// peers are provided, the new peers are merged into the existing peer list.
-func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) error {
+// Share adds or updates a shared path. If the path is already shared, the
+// existing entry is returned (with peers merged if new peers are provided)
+// instead of creating a duplicate. Returns the share entry and any error.
+func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) (*ShareEntry, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
+		return nil, fmt.Errorf("resolve path: %w", err)
 	}
 
 	// Validate path exists.
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return fmt.Errorf("path not accessible: %w", err)
+		return nil, fmt.Errorf("path not accessible: %w", err)
 	}
 
 	// Build peer map from new peers.
@@ -324,8 +325,9 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 	}
 
 	r.mu.Lock()
+	var entry *ShareEntry
 	if existing, ok := r.shares[absPath]; ok {
-		// Path already shared - merge new peers into existing entry.
+		// Path already shared - return existing entry, merge new peers.
 		if newPeers != nil {
 			if existing.Peers == nil {
 				// Share was open to all; now restricting to specific peers.
@@ -340,9 +342,10 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 		}
 		// Preserve existing persistence setting on merge.
 		// Persistence is a property of the share, not the add operation.
+		entry = existing
 	} else {
 		// New share.
-		r.shares[absPath] = &ShareEntry{
+		entry = &ShareEntry{
 			ID:         generateShareID(),
 			Path:       absPath,
 			Name:       filepath.Base(absPath),
@@ -351,11 +354,12 @@ func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) err
 			SharedAt:   time.Now(),
 			IsDir:      info.IsDir(),
 		}
+		r.shares[absPath] = entry
 	}
 	r.mu.Unlock()
 
 	r.savePersistentIfNeeded()
-	return nil
+	return entry, nil
 }
 
 // DenyPeer removes a peer from a share's peer list.
