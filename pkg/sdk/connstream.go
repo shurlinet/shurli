@@ -77,30 +77,41 @@ func ConnGroups(h HostNetwork, peerID peer.ID) []ConnGroup {
 // classifyConnGroup determines which failure domain a connection belongs to.
 // Relay connections are identified by the relay server's peer ID extracted
 // from the circuit address. Direct connections all share one group.
+//
+// Uses conn.Stat().Limited as the primary relay indicator (set by libp2p's
+// relay transport), with multiaddr /p2p-circuit as fallback for relay peer ID
+// extraction. This prevents misclassification when a connection's multiaddr
+// doesn't contain /p2p-circuit but the transport is actually relay-limited.
 func classifyConnGroup(conn network.Conn) string {
 	addr := conn.RemoteMultiaddr().String()
-	if !strings.Contains(addr, "/p2p-circuit") {
+	isCircuit := strings.Contains(addr, "/p2p-circuit")
+	isLimited := conn.Stat().Limited
+
+	if !isCircuit && !isLimited {
 		return "direct"
 	}
-	// Extract relay peer ID from circuit address.
-	// Circuit addrs look like: /ip4/1.2.3.4/tcp/7777/p2p/<relayPeerID>/p2p-circuit/p2p/<targetPeerID>
-	// The relay peer ID is the segment before /p2p-circuit.
-	parts := strings.Split(addr, "/p2p-circuit")
-	if len(parts) < 2 {
-		return "relay-unknown"
+
+	// Connection is relay (Limited flag set, or circuit address, or both).
+	// Try to extract relay peer ID from the circuit address for grouping.
+	if isCircuit {
+		parts := strings.Split(addr, "/p2p-circuit")
+		if len(parts) >= 2 {
+			relayPart := parts[0]
+			segments := strings.Split(relayPart, "/p2p/")
+			if len(segments) >= 2 {
+				relayPeerID := segments[len(segments)-1]
+				if idx := strings.IndexByte(relayPeerID, '/'); idx >= 0 {
+					relayPeerID = relayPeerID[:idx]
+				}
+				return "relay-" + relayPeerID
+			}
+		}
 	}
-	relayPart := parts[0]
-	// Find the last /p2p/<peerID> in the relay part.
-	segments := strings.Split(relayPart, "/p2p/")
-	if len(segments) < 2 {
-		return "relay-unknown"
-	}
-	relayPeerID := segments[len(segments)-1]
-	// Strip any trailing segments (shouldn't exist, but be safe).
-	if idx := strings.IndexByte(relayPeerID, '/'); idx >= 0 {
-		relayPeerID = relayPeerID[:idx]
-	}
-	return "relay-" + relayPeerID
+
+	// Limited but no circuit in multiaddr — relay connection with stale/wrong
+	// multiaddr metadata. Classify as relay-unknown so hedging doesn't treat
+	// it as a fast direct path.
+	return "relay-unknown"
 }
 
 // AllConnGroups merges swarm connection groups with managed relay groups from

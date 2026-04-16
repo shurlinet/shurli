@@ -2,6 +2,7 @@ package filetransfer
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/pkg/sdk"
+	"golang.org/x/time/rate"
 )
 
 // streamOpener opens a new stream to the same peer for parallel transfer.
@@ -120,6 +122,8 @@ func (ts *TransferService) sendParallel(
 	producerDone <-chan producerResult,
 	progress *TransferProgress,
 	numStreams int,
+	sendLimiter *rate.Limiter,
+	limiterCtx context.Context,
 ) (producerResult, error) {
 	var zeroResult producerResult
 
@@ -138,7 +142,7 @@ func (ts *TransferService) sendParallel(
 				"error", err, "attempted", i+1, "total", numStreams)
 
 			// Fallback: send all chunks on control stream only (header already accepted).
-			return ts.sendSingleStream(controlRW, ch, producerDone, progress)
+			return ts.sendSingleStream(controlRW, ch, producerDone, progress, sendLimiter, limiterCtx)
 		}
 		ws.SetDeadline(time.Now().Add(transferStreamDeadline))
 		workers = append(workers, ws)
@@ -197,12 +201,16 @@ func (ts *TransferService) sendParallel(
 	// Worker goroutines (streams 1..N-1): read from their channel, write to wire.
 	for i, ws := range workers {
 		wg.Add(1)
-		go func(streamIdx int, s network.Stream, wch <-chan streamChunk) {
+		var workerW io.Writer = ws
+		if sendLimiter != nil {
+			workerW = &rateLimitedWriter{w: ws, limiter: sendLimiter, ctx: limiterCtx}
+		}
+		go func(streamIdx int, s network.Stream, w io.Writer, wch <-chan streamChunk) {
 			defer wg.Done()
 			defer s.Close()
 
 			for sc := range wch {
-				if err := writeStreamChunkFrame(s, sc); err != nil {
+				if err := writeStreamChunkFrame(w, sc); err != nil {
 					recordErr(fmt.Errorf("worker %d chunk %d: %w", streamIdx, sc.chunkIdx, err))
 					return
 				}
@@ -220,16 +228,20 @@ func (ts *TransferService) sendParallel(
 			if cw, ok := s.(interface{ CloseWrite() error }); ok {
 				cw.CloseWrite()
 			}
-		}(i+1, ws, workerChs[i+1])
+		}(i+1, ws, workerW, workerChs[i+1])
 	}
 
 	// Control stream goroutine (stream 0): read from its channel, write to wire.
+	var controlW io.Writer = controlRW
+	if sendLimiter != nil {
+		controlW = &rateLimitedWriter{w: controlRW, limiter: sendLimiter, ctx: limiterCtx}
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		for sc := range workerChs[0] {
-			if err := writeStreamChunkFrame(controlRW, sc); err != nil {
+			if err := writeStreamChunkFrame(controlW, sc); err != nil {
 				recordErr(fmt.Errorf("control chunk %d: %w", sc.chunkIdx, err))
 				return
 			}
@@ -289,13 +301,20 @@ func (ts *TransferService) sendSingleStream(
 	ch <-chan streamChunk,
 	producerDone <-chan producerResult,
 	progress *TransferProgress,
+	sendLimiter *rate.Limiter,
+	limiterCtx context.Context,
 ) (producerResult, error) {
 	var zeroResult producerResult
 	var totalSent int64
 	chunksSent := 0
 
+	var w io.Writer = rw
+	if sendLimiter != nil {
+		w = &rateLimitedWriter{w: rw, limiter: sendLimiter, ctx: limiterCtx}
+	}
+
 	for sc := range ch {
-		if err := writeStreamChunkFrame(rw, sc); err != nil {
+		if err := writeStreamChunkFrame(w, sc); err != nil {
 			// Don't block on producerDone here. The caller (streamingSend) has
 			// defer cancel() which cancels the producer context. The producer then
 			// closes ch (unblocking this range) and sends to done (buffered, cap 1).

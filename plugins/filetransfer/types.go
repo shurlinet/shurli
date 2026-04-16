@@ -8,6 +8,7 @@ type SendRequest struct {
 	NoCompress bool   `json:"no_compress"` // disable zstd compression
 	Streams    int    `json:"streams"`     // parallel stream count (0 = adaptive default)
 	Priority   string `json:"priority"`    // "low", "normal" (default), "high"
+	RateLimit  string `json:"rate_limit"`  // send rate limit e.g. "100M" (empty = service default)
 }
 
 // SendResponse is returned by POST /v1/send.

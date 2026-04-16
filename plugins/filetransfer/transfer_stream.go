@@ -15,7 +15,24 @@ import (
 	"time"
 
 	"github.com/zeebo/blake3"
+	"golang.org/x/time/rate"
 )
+
+// rateLimitedWriter wraps an io.Writer with a shared token-bucket rate limiter.
+// Multiple writers sharing the same *rate.Limiter coordinate their aggregate send rate.
+// Used to prevent QUIC transfers from saturating the network link (bufferbloat fix).
+type rateLimitedWriter struct {
+	w       io.Writer
+	limiter *rate.Limiter
+	ctx     context.Context
+}
+
+func (rlw *rateLimitedWriter) Write(p []byte) (int, error) {
+	if err := rlw.limiter.WaitN(rlw.ctx, len(p)); err != nil {
+		return 0, err
+	}
+	return rlw.w.Write(p)
+}
 
 // Streaming protocol wire constants.
 const (

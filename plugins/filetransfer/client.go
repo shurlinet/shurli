@@ -230,8 +230,8 @@ func (c *daemonClient) DownloadText(peer, remotePath, localDest string) (string,
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.
-func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int, priority string) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority}
+func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int, priority, rateLimit string) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority, RateLimit: rateLimit}
 	body, _ := json.Marshal(req)
 	var resp SendResponse
 	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {

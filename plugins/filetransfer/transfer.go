@@ -22,6 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/text/unicode/norm"
+	"golang.org/x/time/rate"
 
 	"github.com/shurlinet/shurli/pkg/sdk"
 )
@@ -516,6 +517,7 @@ type TransferConfig struct {
 	MaxTempSize      int64         // max total .tmp file size bytes (default: 1GB, 0 = unlimited)
 	TempFileExpiry   time.Duration // auto-expire .tmp files older than this (default: 1h, 0 = never)
 	BandwidthBudget  int64 // max bytes per peer per hour (default: 100MB, 0 = unlimited)
+	SendRateLimit    int64 // max send bytes/sec per transfer (0 = unlimited)
 
 	// PeerBudgetFunc returns the per-peer bandwidth budget override for a peer.
 	// Returns: -1 = unlimited, 0 = use global default, >0 = bytes per hour.
@@ -689,6 +691,9 @@ type TransferService struct {
 
 	// cancelRateLimiter bounds cancel messages per peer (R2-S1).
 	cancelRateLimiter *transferRateLimiter
+
+	// Application-level send rate limit (bytes/sec). 0 = unlimited.
+	sendRateLimit int64
 }
 
 // activeSendEntry tracks an outbound send for cancel protocol routing.
@@ -696,6 +701,31 @@ type TransferService struct {
 type activeSendEntry struct {
 	cancel     func()  // context cancel for the send goroutine
 	remotePeer peer.ID // the peer we're sending TO
+}
+
+// newSendRateLimiter creates a rate limiter for a single transfer.
+// Returns nil if no rate limit is configured (0 or negative = unlimited).
+func (ts *TransferService) newSendRateLimiter(override int64) *rate.Limiter {
+	limit := override
+	if limit <= 0 {
+		limit = ts.sendRateLimit
+	}
+	if limit <= 0 {
+		return nil
+	}
+	// Burst must be >= max single write (maxChunkWireSize + header) so WaitN never
+	// returns ErrExceed. Cap at limit to avoid over-buffering at high rates.
+	minBurst := maxChunkWireSize + streamChunkHeaderSize
+	burst := minBurst
+	if int64(burst) < limit {
+		burst = int(limit)
+	}
+	// Defensive cap: prevent int overflow on 32-bit (Go int is platform-sized).
+	const maxBurst = 1 << 30 // 1 GB
+	if burst > maxBurst {
+		burst = maxBurst
+	}
+	return rate.NewLimiter(rate.Limit(limit), burst)
 }
 
 // NewTransferService creates a new chunked transfer service.
@@ -792,6 +822,7 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		isLANPeer:         cfg.IsLANPeer,
 		activeSends:       make(map[[32]byte]activeSendEntry),
 		cancelRateLimiter: newTransferRateLimiter(cancelRateMax),
+		sendRateLimit:     cfg.SendRateLimit,
 	}
 
 	// Start the single queue processor goroutine.
@@ -1108,10 +1139,11 @@ func extractCommonPrefix(files []fileEntry) string {
 
 // SendOptions configures a single send operation.
 type SendOptions struct {
-	NoCompress   bool         // override: disable compression for this transfer
-	Streams      int          // parallel stream count (0 = adaptive default based on transport)
-	StreamOpener streamOpener // opens additional streams to the same peer (required for parallel)
-	RelativeName string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
+	NoCompress          bool         // override: disable compression for this transfer
+	Streams             int          // parallel stream count (0 = adaptive default based on transport)
+	StreamOpener        streamOpener // opens additional streams to the same peer (required for parallel)
+	RelativeName        string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
+	RateLimitBytesPerSec int64       // per-transfer send rate limit (0 = use service default)
 }
 
 // SendFile sends a file or directory over a libp2p stream using the streaming protocol.
@@ -1300,9 +1332,11 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 		// Parallel stream config from SendOptions.
 		var opener streamOpener
 		var streams int
+		var perTransferRate int64
 		if len(opts) > 0 {
 			opener = opts[0].StreamOpener
 			streams = opts[0].Streams
+			perTransferRate = opts[0].RateLimitBytesPerSec
 		}
 		// Determine actual stream count based on transport + chunk estimate.
 		if opener != nil {
@@ -1312,8 +1346,9 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 			streams = 1
 		}
 
+		sendLimiter := ts.newSendRateLimiter(perTransferRate)
 		rootHash, sendErr := ts.streamingSend(s, files, filePaths, cumOffsets, totalSize,
-			flags, transferID, useCompression, useErasure, opener, streams, progress)
+			flags, transferID, useCompression, useErasure, opener, streams, progress, sendLimiter)
 		progress.finish(sendErr)
 		ts.markCompleted(progress.ID)
 
@@ -1356,6 +1391,7 @@ func (ts *TransferService) streamingSend(
 	useCompression, useErasure bool,
 	openStream streamOpener, numStreams int,
 	progress *TransferProgress,
+	sendLimiter *rate.Limiter,
 ) ([32]byte, error) {
 	var zero [32]byte
 
@@ -1450,21 +1486,31 @@ func (ts *TransferService) streamingSend(
 	go chunkProducer(ctx, files, filePaths, cumOffsets, totalSize,
 		useCompression, useErasure, skipBitfield, acceptBitfield, ch, done)
 
+	if sendLimiter != nil {
+		slog.Info("file-transfer: send rate limited",
+			"limit", sdk.FormatBytes(ts.sendRateLimit)+"ps",
+			"streams", numStreams)
+	}
+
 	// Distribute chunks: parallel (N worker streams) or single stream.
 	var result producerResult
 	if numStreams > 1 && openStream != nil {
 		var parallelErr error
-		result, parallelErr = ts.sendParallel(rw, openStream, transferID, ch, done, progress, numStreams)
+		result, parallelErr = ts.sendParallel(rw, openStream, transferID, ch, done, progress, numStreams, sendLimiter, ctx)
 		if parallelErr != nil {
 			cancel()
 			return zero, parallelErr
 		}
 	} else {
 		// Single-stream: read from producer, write directly.
+		var singleW io.Writer = rw
+		if sendLimiter != nil {
+			singleW = &rateLimitedWriter{w: rw, limiter: sendLimiter, ctx: ctx}
+		}
 		var totalSent int64
 		chunksSent := 0
 		for sc := range ch {
-			if err := writeStreamChunkFrame(rw, sc); err != nil {
+			if err := writeStreamChunkFrame(singleW, sc); err != nil {
 				cancel()
 				<-done
 				return zero, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
@@ -1505,6 +1551,11 @@ func (ts *TransferService) streamingSend(
 
 		// Send parity chunks as streaming frames (after all data chunks).
 		// Use parityFileIdx sentinel so receiver doesn't write parity to file data (S1 fix).
+		// Rate-limit parity writes the same as data chunks to prevent burst after main data.
+		var parityW io.Writer = rw
+		if sendLimiter != nil {
+			parityW = &rateLimitedWriter{w: rw, limiter: sendLimiter, ctx: ctx}
+		}
 		for i, p := range parityEntries {
 			parityIdx := len(result.chunkHashes) + i
 			sc := streamChunk{
@@ -1515,7 +1566,7 @@ func (ts *TransferService) streamingSend(
 				decompSize: uint32(len(p.data)),
 				data:       p.data,
 			}
-			if err := writeStreamChunkFrame(rw, sc); err != nil {
+			if err := writeStreamChunkFrame(parityW, sc); err != nil {
 				return zero, fmt.Errorf("send parity chunk %d: %w", i, err)
 			}
 			progress.addWireBytes(int64(len(p.data)))

@@ -600,6 +600,17 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		StreamOpener: opener,
 	}
 
+	if req.RateLimit != "" {
+		v, parseErr := sdk.ParseByteSize(req.RateLimit)
+		if parseErr != nil {
+			daemon.RespondError(w, http.StatusBadRequest, "invalid rate_limit: "+parseErr.Error())
+			return
+		}
+		if v > 0 {
+			sendOpts.RateLimitBytesPerSec = v
+		}
+	}
+
 	priority := PriorityNormal
 	switch strings.ToLower(req.Priority) {
 	case "low":
