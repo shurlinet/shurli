@@ -2,8 +2,10 @@ package filetransfer
 
 import (
 	"bytes"
-	"github.com/shurlinet/shurli/pkg/sdk"
+	"crypto/rand"
 	"testing"
+
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Erasure params tests ---
@@ -749,5 +751,224 @@ func TestErasureManifestRejectsSmallStripeSize(t *testing.T) {
 	_, _, _, err := readErasureManifest(&buf)
 	if err == nil {
 		t.Fatal("readErasureManifest should reject stripeSize=1")
+	}
+}
+
+// TestFlushStripeClearedOnError proves that erasureEncoder.flushStripe clears
+// its stripeBuf unconditionally — including when encodeStripe errors. Leaving
+// the buffer populated would let a retry re-encode the same stripe (duplicate
+// parity on the wire) or misalign parity with subsequent stripes.
+// [B2 audit fix S8]
+func TestFlushStripeClearedOnError(t *testing.T) {
+	// encodeStripe only errors when every chunk in the stripe is empty (its
+	// "all chunks empty" guard). Build a 2-chunk all-empty stripe to trigger
+	// the error path through a normal AddChunk call sequence.
+	enc := newErasureEncoder(2, 0.5)
+	if enc == nil {
+		t.Fatal("newErasureEncoder returned nil")
+	}
+
+	// First empty chunk: stripe not yet full, no emit.
+	if out, err := enc.AddChunk(nil); err != nil {
+		t.Fatalf("AddChunk[0]: unexpected error %v", err)
+	} else if len(out) != 0 {
+		t.Fatalf("AddChunk[0] emitted %d parity mid-stripe, want 0", len(out))
+	}
+
+	// Second empty chunk: stripe fills, encodeStripe errors ("all chunks empty").
+	_, err := enc.AddChunk(nil)
+	if err == nil {
+		t.Fatal("AddChunk[1] on all-empty stripe should return encodeStripe error")
+	}
+
+	// Post-error invariant: stripeBuf must be empty so a follow-up call cannot
+	// re-encode the same stripe or mis-align parity with later stripes.
+	if len(enc.stripeBuf) != 0 {
+		t.Errorf("stripeBuf length=%d after encodeStripe error, want 0 (defer cleanup)", len(enc.stripeBuf))
+	}
+	// Also verify capacity retained so the encoder could in principle be
+	// reused without reallocation — just safe-to-discard, not safe-to-continue.
+	if cap(enc.stripeBuf) == 0 {
+		t.Errorf("stripeBuf capacity=0 after error; expected capacity retained for potential reuse")
+	}
+}
+
+// TestReceiverParityProgressGated proves the receiver-side processChunk
+// wrapper in receiveParallel correctly routes parity chunks to
+// ParityChunksDone and data chunks to ChunksDone, instead of mixing their
+// index namespaces. Pre-Batch-2 parity always arrived after all data, so
+// receiver's ChunksDone = sc.chunkIdx+1 was only slightly wrong at the tail.
+// Post-Batch-2 parity interleaves with data, making jittery counters a
+// user-visible regression. [B2 audit fix B1]
+func TestReceiverParityProgressGated(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// 2 data chunks + 1 parity chunk (generated via encodeStripe over the data).
+	data := [][]byte{
+		bytes.Repeat([]byte{0xA1}, 64),
+		bytes.Repeat([]byte{0xB2}, 64),
+	}
+	totalSize := int64(128)
+	chunkHashes := [][32]byte{
+		sdk.Blake3Sum(data[0]),
+		sdk.Blake3Sum(data[1]),
+	}
+	rootHash := sdk.MerkleRoot(chunkHashes)
+	parityShards, err := encodeStripe(data, 1)
+	if err != nil {
+		t.Fatalf("encodeStripe: %v", err)
+	}
+	parityHash := sdk.Blake3Sum(parityShards[0])
+
+	files := []fileEntry{{Path: "parity-progress-test.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
+	progress := &TransferProgress{ChunksTotal: 2}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	// Control stream: parity chunk first (interleaved arrival), then the two
+	// data chunks, then trailer. If the wiring were buggy, the parity's
+	// chunkIdx=0 would reset progress.ChunksDone to 1 after data[1] had set
+	// it to 2 — or vice versa, depending on order.
+	var controlBuf bytes.Buffer
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: parityFileIdx, chunkIdx: 0, offset: 0,
+		hash: parityHash, decompSize: uint32(len(parityShards[0])), data: parityShards[0],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: chunkHashes[0], decompSize: uint32(len(data[0])), data: data[0],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 1, offset: 64,
+		hash: chunkHashes[1], decompSize: uint32(len(data[1])), data: data[1],
+	})
+	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
+		StripeSize:   2,
+		ParityCount:  1,
+		ParityHashes: [][32]byte{parityHash},
+		ParitySizes:  []uint32{uint32(len(parityShards[0]))},
+	})
+
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
+	if err != nil {
+		t.Fatalf("receiveParallel: %v", err)
+	}
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch")
+	}
+
+	// ChunksDone must equal data count (2), NOT include parity.
+	if progress.ChunksDone != 2 {
+		t.Errorf("ChunksDone=%d, want 2 (data-only; parity must not bump this counter)", progress.ChunksDone)
+	}
+	// ParityChunksDone must reflect the one parity chunk that arrived.
+	if progress.ParityChunksDone != 1 {
+		t.Errorf("ParityChunksDone=%d, want 1 (parity counter must increment on fileIdx==parityFileIdx)", progress.ParityChunksDone)
+	}
+	// ErasureParity must be populated from the trailer.
+	if progress.ErasureParity != 1 {
+		t.Errorf("ErasureParity=%d, want 1 (from trailer)", progress.ErasureParity)
+	}
+}
+
+// TestReceiverParityCountMismatchLogged proves the receiver does not fail a
+// transfer when the trailer's declared parity count disagrees with the
+// number of parity chunks actually received — it logs a warning and
+// continues. Batch 2b will tighten this to a hard fail once rsReconstruct
+// is wired and can reason about recovery vs declared-count delta. [B2-F14]
+func TestReceiverParityCountMismatchLogged(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// 2 data chunks, 1 parity chunk actually sent, but trailer will declare 5.
+	data := [][]byte{
+		bytes.Repeat([]byte{0xC3}, 32),
+		bytes.Repeat([]byte{0xD4}, 32),
+	}
+	totalSize := int64(64)
+	chunkHashes := [][32]byte{sdk.Blake3Sum(data[0]), sdk.Blake3Sum(data[1])}
+	rootHash := sdk.MerkleRoot(chunkHashes)
+	parityShards, err := encodeStripe(data, 1)
+	if err != nil {
+		t.Fatalf("encodeStripe: %v", err)
+	}
+	parityHash := sdk.Blake3Sum(parityShards[0])
+
+	files := []fileEntry{{Path: "count-mismatch.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
+	progress := &TransferProgress{ChunksTotal: 2}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	var controlBuf bytes.Buffer
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: chunkHashes[0], decompSize: uint32(len(data[0])), data: data[0],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 1, offset: 32,
+		hash: chunkHashes[1], decompSize: uint32(len(data[1])), data: data[1],
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: parityFileIdx, chunkIdx: 0, offset: 0,
+		hash: parityHash, decompSize: uint32(len(parityShards[0])), data: parityShards[0],
+	})
+	// Trailer LIES — declares 5 parity but only 1 arrived. Must still complete
+	// in Batch 2 (warn-only); Batch 2b will hard-fail when rsReconstruct is
+	// wired.
+	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
+		StripeSize:   2,
+		ParityCount:  5,
+		ParityHashes: make([][32]byte, 5),
+		ParitySizes:  []uint32{128, 128, 128, 128, 128},
+	})
+
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
+	if err != nil {
+		t.Fatalf("receiveParallel failed on trailer count mismatch (Batch 2 must warn, not fail): %v", err)
+	}
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch")
+	}
+	// Trailer value is what's surfaced — receiver trusts the declaration for
+	// reporting purposes even if actual count differs.
+	if progress.ErasureParity != 5 {
+		t.Errorf("ErasureParity=%d, want 5 (from trailer declaration)", progress.ErasureParity)
 	}
 }

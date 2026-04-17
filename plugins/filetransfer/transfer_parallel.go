@@ -601,7 +601,17 @@ func (ts *TransferService) receiveParallel(
 			return nil
 		}
 
-		progress.updateChunks(state.ReceivedBytes(), sc.chunkIdx+1)
+		// [B2 audit fix] Parity chunks must not update ChunksDone — they live
+		// in a separate index namespace (0-based, disambiguated by the
+		// parityFileIdx sentinel). Using their chunkIdx on data progress would
+		// jitter the counter backwards whenever interleaved parity arrives
+		// with a lower index than a recently-processed data chunk. Parity
+		// progress tracked separately via ParityChunksDone. [B2-F29 Option C]
+		if sc.fileIdx == parityFileIdx {
+			progress.addParityChunkDone()
+		} else {
+			progress.updateChunks(state.ReceivedBytes(), sc.chunkIdx+1)
+		}
 
 		// Periodic checkpoint save (N10).
 		saveCheckpointIfDue()
@@ -749,6 +759,26 @@ verify:
 
 	// Set erasure info on progress.
 	if ctrlResult.erasure != nil {
+		// [B2-F14] Warn when the trailer's declared parity count does not
+		// match what actually arrived. Benign causes: slow peer mid-cancel,
+		// relay budget drained parity frames, path failover mid-stripe.
+		// Adversarial causes: a sender advertising more or fewer parity than
+		// it actually emits to confuse a future rsReconstruct pass. Batch 2
+		// warns; Batch 2b will hard-fail once rsReconstruct is wired and can
+		// reason about the recovery-vs-declared-count delta. The budget cap
+		// (B2-F1) plus count cap (maxParityCount) already bound the worst
+		// case in bytes and cardinality, so logging at Warn is sufficient
+		// for Batch 2.
+		state.mu.Lock()
+		actualParity := len(state.parityData)
+		state.mu.Unlock()
+		if actualParity != ctrlResult.erasure.ParityCount {
+			slog.Warn("file-transfer: trailer parity count mismatch",
+				"declared", ctrlResult.erasure.ParityCount,
+				"actual", actualParity,
+				"transfer_id", progress.ID)
+		}
+
 		progress.mu.Lock()
 		progress.ErasureParity = ctrlResult.erasure.ParityCount
 		if chunkCount > 0 {

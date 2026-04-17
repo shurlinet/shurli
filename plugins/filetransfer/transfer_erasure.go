@@ -281,25 +281,34 @@ func (e *erasureEncoder) Finalize() ([]parityChunkOut, *erasureTrailer, error) {
 // encodeStripe copies them into padded shards so GC can reclaim ~400 MB of
 // raw buffer promptly; sustained peak drops from ~880 MB to ~400 MB between
 // stripes.
+//
+// [B2 audit fix S8] stripeBuf is cleared unconditionally via defer, even when
+// encodeStripe errors. Leaving the encoder with a non-empty stripeBuf after
+// an error would allow a subsequent AddChunk or Finalize to re-encode the
+// same stripe (duplicate parity on wire) or mis-align parity with later
+// stripes. After an error the encoder must be in a safe-to-discard state —
+// not a retryable state. Callers already abandon the encoder on error; the
+// defer guarantees that assumption holds.
 func (e *erasureEncoder) flushStripe() ([]parityChunkOut, error) {
+	// Local reference to the backing array so encodeStripe can read it; the
+	// defer then nil-s the entries through e.stripeBuf (same array).
 	stripe := e.stripeBuf
 	parityCount := int(float64(len(stripe))*e.overhead + 0.5)
 	if parityCount < 1 {
 		parityCount = 1
 	}
 
+	defer func() {
+		for i := range e.stripeBuf {
+			e.stripeBuf[i] = nil
+		}
+		e.stripeBuf = e.stripeBuf[:0]
+	}()
+
 	shards, err := encodeStripe(stripe, parityCount)
 	if err != nil {
 		return nil, fmt.Errorf("encode stripe at parity offset %d: %w", e.nextParityIdx, err)
 	}
-
-	// Free raw buffers immediately; encodeStripe has already copied into padded
-	// shards. Drop the slice header too by re-slicing to length 0 on the same
-	// backing array (cap retained for the next stripe).
-	for i := range e.stripeBuf {
-		e.stripeBuf[i] = nil
-	}
-	e.stripeBuf = e.stripeBuf[:0]
 
 	out := make([]parityChunkOut, len(shards))
 	for i, data := range shards {
