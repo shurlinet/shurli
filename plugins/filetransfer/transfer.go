@@ -364,10 +364,23 @@ type TransferProgress struct {
 	remotePeerID peer.ID  // remote peer for sendMultiPathCancel
 }
 
+// updateChunks records wire progress from a single goroutine's point of view.
+// [B2 audit round 2] Monotonic: ChunksDone and Transferred only move forward,
+// never backward. Concurrent receivers (parallel worker streams + control
+// stream) each observe the progress counters at different points in the
+// shared state-lock cycle, so a goroutine that fell behind could otherwise
+// overwrite a higher value committed by a goroutine that raced ahead. The
+// monotonic guard eliminates that jitter while preserving the fast-path
+// behaviour for single-stream transfers (old-max comparison is one int
+// compare under an already-held lock).
 func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
 	p.mu.Lock()
-	p.Transferred = transferred
-	p.ChunksDone = chunksDone
+	if transferred > p.Transferred {
+		p.Transferred = transferred
+	}
+	if chunksDone > p.ChunksDone {
+		p.ChunksDone = chunksDone
+	}
 	p.mu.Unlock()
 }
 

@@ -607,10 +607,17 @@ func (ts *TransferService) receiveParallel(
 		// jitter the counter backwards whenever interleaved parity arrives
 		// with a lower index than a recently-processed data chunk. Parity
 		// progress tracked separately via ParityChunksDone. [B2-F29 Option C]
+		//
+		// [B2 audit round 2] Data chunk ChunksDone now uses ReceivedCount
+		// (count of unique data chunks known) instead of sc.chunkIdx+1. This
+		// fixes a pre-existing bug where out-of-order arrivals would yank
+		// ChunksDone backwards (chunk 150 arrives → 151, then chunk 5 → 6).
+		// ReceivedCount is monotonic and correctly includes resumed chunks
+		// restored from the checkpoint's hashes map.
 		if sc.fileIdx == parityFileIdx {
 			progress.addParityChunkDone()
 		} else {
-			progress.updateChunks(state.ReceivedBytes(), sc.chunkIdx+1)
+			progress.updateChunks(state.ReceivedBytes(), state.ReceivedCount())
 		}
 
 		// Periodic checkpoint save (N10).

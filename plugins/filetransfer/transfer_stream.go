@@ -1150,6 +1150,22 @@ func (s *streamReceiveState) ReceivedBytes() int64 {
 	return s.receivedBytes
 }
 
+// ReceivedCount returns the number of unique data chunks the receiver has
+// accumulated (thread-safe). This is the count of distinct chunkIdx values in
+// the hashes map — a monotonic non-decreasing value regardless of arrival
+// order. Resume restores hashes from the checkpoint, so the count includes
+// chunks recovered from prior sessions.
+//
+// Used by the receive progress loop to drive `ChunksDone` so out-of-order
+// arrivals do not jitter the counter backwards (pre-Batch-2 bug where
+// `ChunksDone = sc.chunkIdx + 1` dropped from 151 to 6 when chunk 150 arrived
+// before chunk 5). [B2 audit round 2]
+func (s *streamReceiveState) ReceivedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.hashes)
+}
+
 // ReceivedBitfield returns a copy of the received chunk bitfield (thread-safe).
 // Used by TS-5b retry loop to build resume request from in-memory state
 // (more current than on-disk checkpoint if save failed). R3-F2.
