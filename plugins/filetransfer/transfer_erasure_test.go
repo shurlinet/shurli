@@ -890,6 +890,115 @@ func TestReceiverParityProgressGated(t *testing.T) {
 	}
 }
 
+// TestUpdateChunksMonotonic proves that a goroutine calling updateChunks with
+// stale lower values cannot yank Transferred / ChunksDone backwards. This
+// guards against the race where parallel receivers (worker streams + control
+// stream) each read state counters at different points in the shared-lock
+// cycle, and a slower goroutine could otherwise overwrite a newer value. [B2
+// audit round 2]
+func TestUpdateChunksMonotonic(t *testing.T) {
+	p := &TransferProgress{}
+	// Climb normally.
+	p.updateChunks(1000, 10)
+	if p.Transferred != 1000 || p.ChunksDone != 10 {
+		t.Fatalf("initial state wrong: Transferred=%d ChunksDone=%d", p.Transferred, p.ChunksDone)
+	}
+	// A stale view from a slower goroutine must NOT regress either counter.
+	p.updateChunks(500, 3)
+	if p.Transferred != 1000 {
+		t.Errorf("Transferred regressed to %d, want 1000 (monotonic)", p.Transferred)
+	}
+	if p.ChunksDone != 10 {
+		t.Errorf("ChunksDone regressed to %d, want 10 (monotonic)", p.ChunksDone)
+	}
+	// A fresher view must still advance.
+	p.updateChunks(2000, 20)
+	if p.Transferred != 2000 || p.ChunksDone != 20 {
+		t.Errorf("advance failed: Transferred=%d ChunksDone=%d, want 2000/20", p.Transferred, p.ChunksDone)
+	}
+	// Mixed: transferred advances but chunks are stale. Each counter guards
+	// independently — Transferred advances, ChunksDone holds.
+	p.updateChunks(3000, 15)
+	if p.Transferred != 3000 {
+		t.Errorf("Transferred=%d, want 3000 (independent advance)", p.Transferred)
+	}
+	if p.ChunksDone != 20 {
+		t.Errorf("ChunksDone=%d, want 20 (independent hold)", p.ChunksDone)
+	}
+}
+
+// TestReceivedCountMonotonic proves that ReceivedCount drives a monotonic
+// ChunksDone even when chunks arrive out of order. Pre-audit code used
+// `sc.chunkIdx + 1`, so receiving chunks 3,0,2,1 would drive ChunksDone
+// 4→1→3→2 — a visible user regression during out-of-order transfers over
+// parallel streams. [B2 audit round 2]
+func TestReceivedCountMonotonic(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	// 4 data chunks, delivered in reverse-ish order via control stream.
+	chunkData := [][]byte{
+		bytes.Repeat([]byte{0x10}, 32),
+		bytes.Repeat([]byte{0x20}, 48),
+		bytes.Repeat([]byte{0x30}, 56),
+		bytes.Repeat([]byte{0x40}, 40),
+	}
+	totalSize := int64(32 + 48 + 56 + 40)
+	offsets := []int64{0, 32, 80, 136}
+	hashes := make([][32]byte, 4)
+	for i, d := range chunkData {
+		hashes[i] = sdk.Blake3Sum(d)
+	}
+	rootHash := sdk.MerkleRoot(hashes)
+
+	files := []fileEntry{{Path: "monotonic-count.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, 0, cumOffsets)
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(4)
+
+	progress := &TransferProgress{ChunksTotal: 4}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	// Deliver in highly out-of-order fashion: 3, 0, 2, 1.
+	var controlBuf bytes.Buffer
+	for _, idx := range []int{3, 0, 2, 1} {
+		writeStreamChunkFrame(&controlBuf, streamChunk{
+			fileIdx: 0, chunkIdx: idx, offset: offsets[idx],
+			hash: hashes[idx], decompSize: uint32(len(chunkData[idx])), data: chunkData[idx],
+		})
+	}
+	writeTrailer(&controlBuf, 4, rootHash, nil, nil)
+
+	gotRoot, err := ts.receiveParallel(&controlBuf, session)
+	if err != nil {
+		t.Fatalf("receiveParallel: %v", err)
+	}
+	if gotRoot != rootHash {
+		t.Errorf("root hash mismatch")
+	}
+	// After all 4 data chunks: ChunksDone must be 4, regardless of arrival
+	// order. Pre-audit code would leave it at 2 (last arrival was chunkIdx=1,
+	// so ChunksDone = 2).
+	if progress.ChunksDone != 4 {
+		t.Errorf("ChunksDone=%d after 4 out-of-order chunks, want 4 (monotonic count)", progress.ChunksDone)
+	}
+}
+
 // TestReceiverParityCountMismatchLogged proves the receiver does not fail a
 // transfer when the trailer's declared parity count disagrees with the
 // number of parity chunks actually received — it logs a warning and
