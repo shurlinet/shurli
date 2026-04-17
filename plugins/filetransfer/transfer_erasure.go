@@ -18,14 +18,26 @@ const (
 	// defaultStripeSize is the number of data chunks per RS stripe.
 	// 100 data + 10 parity (at 10%) = 110 total, well within RS limits.
 	//
-	// Coupling (ChunkTarget + R4-SEC1): peak resident RS memory is
+	// Coupling (ChunkTarget + R4-SEC1 Batch 2): peak resident RS memory is
 	// O(defaultStripeSize x max-chunk). With FT-Y #14's 4 MB max-chunk tier
-	// this is 100 x 4 MB = 400 MB per stripe in the current batched encoder.
-	// R4-SEC1 (Batch 2) replaces this with incremental per-stripe emission so
-	// the 4 MB tier does not OOM on 2 GB MemoryMax. Until R4-SEC1 lands, RS
-	// is gated off by the transport classifier (LAN + Direct disable RS), so
-	// the worst case in production stays bounded.
+	// a full stripe raw buffer is 100 x 4 MB = 400 MB. encodeStripe pads
+	// shards to max-chunk size and allocates (stripeSize + parityCount) shards,
+	// so peak momentary memory during the reed-solomon call is ~880 MB:
+	// 400 MB raw stripeBuf + 440 MB padded shards + 40 MB parity output.
+	// erasureEncoder nil-s stripeBuf entries immediately after encodeStripe so
+	// GC reclaims the raw buffer promptly; sustained peak after the call is
+	// ~400 MB while the next stripe fills. RS is still gated off by the
+	// transport classifier (LAN + Direct disable RS), so sustained peak only
+	// applies to WAN/relay transfers with the top chunk tier active.
 	defaultStripeSize = 100
+
+	// minStripeSize rejects degenerate stripe layouts from malicious senders.
+	// stripeSize < 2 means RS has no recovery capability (1 data shard, 1+ parity
+	// covers nothing the data shard itself already provides). A malicious sender
+	// declaring stripeSize=1 could also force reconstruction to iterate
+	// chunkCount stripes, each allocating max-chunk-sized padded shards.
+	// [B2-F11]
+	minStripeSize = 2
 
 	// maxParityOverhead caps erasure overhead at 50%.
 	maxParityOverhead = 0.50
@@ -80,10 +92,12 @@ func computeErasureParams(dataCount int, overhead float64) erasureParams {
 	}
 }
 
-// encodeErasure generates parity chunks for all data chunks.
-// Data chunks are grouped into stripes of stripeSize. Each stripe produces
-// ceil(stripeSize * overhead) parity shards via Reed-Solomon.
-// Returns parity chunks in stripe order with their BLAKE3 hashes.
+// encodeErasure generates parity chunks for all data chunks in one batched call.
+//
+// TODO(B2-F39, Batch 2b): delete once rsReconstruct is rewritten to consume the
+// streaming erasureEncoder output directly. Currently kept as the independent
+// oracle for TestErasureEncoderMatchesBatched, which proves erasureEncoder
+// produces bit-identical parity for the same input. Dead code after 2b.
 func encodeErasure(dataChunks [][]byte, stripeSize int, overhead float64) ([]parityChunk, error) {
 	if len(dataChunks) == 0 || overhead <= 0 {
 		return nil, nil
@@ -162,6 +176,144 @@ func encodeStripe(dataChunks [][]byte, parityCount int) ([][]byte, error) {
 	}
 
 	return parity, nil
+}
+
+// --- Incremental per-stripe RS encoder (R4-SEC1, Batch 2) ---
+
+// erasureEncoder produces parity chunks one stripe at a time, emitting them as
+// each stripe fills. Replaces the O(totalSize) buffered encodeErasure path with
+// O(stripeSize * maxChunkSize) peak memory: only one stripe of raw chunks is
+// resident at any time.
+//
+// Wire layout is unchanged. Parity chunks carry fileIdx == parityFileIdx on the
+// wire and are indexed by a 0-based global counter (not dataCount+i as in the
+// legacy path). The fileIdx sentinel disambiguates parity from data chunks at
+// the receiver, so the chunkIdx namespace is independent.
+//
+// Usage (producer goroutine):
+//
+//	enc := newErasureEncoder(stripeSize, overhead)
+//	for each raw chunk:
+//	    parity, err := enc.AddChunk(raw)   // raw is a copy owned by encoder
+//	    for each p in parity: emit via ch as streamChunk{fileIdx: parityFileIdx, chunkIdx: p.idx}
+//	parity, trailer, err := enc.Finalize()
+//	emit final parity + store trailer in producerResult.erasure
+type erasureEncoder struct {
+	stripeSize    int
+	overhead      float64
+	stripeBuf     [][]byte   // current stripe's raw chunks (owned copies)
+	nextParityIdx int        // 0-based global counter for parity chunkIdx
+	parityHashes  [][32]byte // accumulated across stripes, trailer order
+	paritySizes   []uint32   // accumulated across stripes, trailer order
+}
+
+// parityChunkOut carries a parity chunk plus the chunkIdx the producer should
+// use when emitting it on the wire.
+type parityChunkOut struct {
+	chunkIdx int
+	hash     [32]byte
+	data     []byte
+}
+
+// newErasureEncoder returns an encoder ready to accept raw chunks. Returns nil
+// if overhead is disabled; callers should gate AddChunk / Finalize on nil.
+func newErasureEncoder(stripeSize int, overhead float64) *erasureEncoder {
+	if overhead <= 0 || stripeSize < minStripeSize {
+		return nil
+	}
+	if overhead > maxParityOverhead {
+		overhead = maxParityOverhead
+	}
+	return &erasureEncoder{
+		stripeSize: stripeSize,
+		overhead:   overhead,
+		stripeBuf:  make([][]byte, 0, stripeSize),
+	}
+}
+
+// AddChunk appends raw to the current stripe. The encoder takes ownership of
+// raw — callers must not mutate the slice after this call. When the stripe
+// fills, the encoder encodes it, frees the raw buffers for GC, and returns
+// the stripe's parity chunks. Returns nil when the stripe is not yet full.
+func (e *erasureEncoder) AddChunk(raw []byte) ([]parityChunkOut, error) {
+	e.stripeBuf = append(e.stripeBuf, raw)
+	if len(e.stripeBuf) < e.stripeSize {
+		return nil, nil
+	}
+	return e.flushStripe()
+}
+
+// Finalize encodes the trailing partial stripe (if any) and returns both the
+// remaining parity chunks and the fully populated trailer. Callers emit the
+// parity via ch before writing the trailer on the control stream.
+//
+// Returns (nil, nil, nil) if the encoder received zero chunks — the caller
+// should treat this as "no erasure trailer" and not set flagErasureCoded.
+// [B2-F4]
+func (e *erasureEncoder) Finalize() ([]parityChunkOut, *erasureTrailer, error) {
+	var residual []parityChunkOut
+	if len(e.stripeBuf) > 0 {
+		var err error
+		residual, err = e.flushStripe()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// Zero chunks ever encoded means no trailer to emit. Caller MUST NOT set
+	// flagErasureCoded for a zero-chunk transfer; readErasureManifest would
+	// reject stripeSize=0 on the receiving side.
+	if len(e.parityHashes) == 0 {
+		return residual, nil, nil
+	}
+
+	trailer := &erasureTrailer{
+		StripeSize:   e.stripeSize,
+		ParityCount:  len(e.parityHashes),
+		ParityHashes: e.parityHashes,
+		ParitySizes:  e.paritySizes,
+	}
+	return residual, trailer, nil
+}
+
+// flushStripe encodes the current stripeBuf, clears it for GC, and assigns
+// parity chunkIdx values. [B2-F5] nil-s stripeBuf entries immediately after
+// encodeStripe copies them into padded shards so GC can reclaim ~400 MB of
+// raw buffer promptly; sustained peak drops from ~880 MB to ~400 MB between
+// stripes.
+func (e *erasureEncoder) flushStripe() ([]parityChunkOut, error) {
+	stripe := e.stripeBuf
+	parityCount := int(float64(len(stripe))*e.overhead + 0.5)
+	if parityCount < 1 {
+		parityCount = 1
+	}
+
+	shards, err := encodeStripe(stripe, parityCount)
+	if err != nil {
+		return nil, fmt.Errorf("encode stripe at parity offset %d: %w", e.nextParityIdx, err)
+	}
+
+	// Free raw buffers immediately; encodeStripe has already copied into padded
+	// shards. Drop the slice header too by re-slicing to length 0 on the same
+	// backing array (cap retained for the next stripe).
+	for i := range e.stripeBuf {
+		e.stripeBuf[i] = nil
+	}
+	e.stripeBuf = e.stripeBuf[:0]
+
+	out := make([]parityChunkOut, len(shards))
+	for i, data := range shards {
+		hash := sdk.Blake3Sum(data)
+		out[i] = parityChunkOut{
+			chunkIdx: e.nextParityIdx,
+			hash:     hash,
+			data:     data,
+		}
+		e.parityHashes = append(e.parityHashes, hash)
+		e.paritySizes = append(e.paritySizes, uint32(len(data)))
+		e.nextParityIdx++
+	}
+	return out, nil
 }
 
 // reconstructStripe attempts to recover missing data chunks using parity.
@@ -252,8 +404,8 @@ func readErasureManifest(r io.Reader) (stripeSize int, parityHashes [][32]byte, 
 	if parityCount > maxParityCount {
 		return 0, nil, nil, fmt.Errorf("parity count too large: %d", parityCount)
 	}
-	if stripeSize <= 0 || stripeSize > maxChunkCount {
-		return 0, nil, nil, fmt.Errorf("invalid stripe size: %d", stripeSize)
+	if stripeSize < minStripeSize || stripeSize > maxChunkCount {
+		return 0, nil, nil, fmt.Errorf("invalid stripe size: %d (must be %d..%d)", stripeSize, minStripeSize, maxChunkCount)
 	}
 
 	parityHashes = make([][32]byte, parityCount)

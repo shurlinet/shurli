@@ -73,11 +73,20 @@ const (
 	// (decompressed), and zstd compression never expands, so 4 MB is both the
 	// tier's uncompressed max AND the wire cap. Bumping ChunkTarget tiers
 	// without bumping this constant silently truncates the top tier.
-	maxChunkWireSize       = 4 << 20 // 4 MB max single chunk on wire (compressed)
-	maxDecompressedChunk   = 8 << 20 // 8 MB max decompressed chunk
-	maxConcurrentTransfers = 10      // global inbound transfer limit
-	maxPerPeerTransfers    = 3       // per-peer inbound limit
-	maxTrackedTransfers    = 10000   // max tracked transfer entries
+	maxChunkWireSize     = 4 << 20 // 4 MB max single chunk on wire (compressed)
+	maxDecompressedChunk = 8 << 20 // 8 MB max decompressed chunk
+	// maxParityBudgetBytes hard-caps how much parity a receiver will buffer
+	// in memory for any single transfer, independent of the sender's declared
+	// totalSize. [B2-F1] Without this cap, a malicious sender declaring a
+	// maxTotalTransferSize (10 TB) transfer would be granted a 5 TB parity
+	// budget against receiver RAM via the `totalSize/2` heuristic. 512 MB is
+	// generous for legitimate use: at 10% overhead this covers 5 GB of data
+	// chunks per transfer, and RS is gated off on LAN/Direct so only WAN or
+	// relay transfers hit the parity path at all.
+	maxParityBudgetBytes   = 512 << 20 // 512 MB hard cap on in-memory parity per transfer
+	maxConcurrentTransfers = 10        // global inbound transfer limit
+	maxPerPeerTransfers    = 3         // per-peer inbound limit
+	maxTrackedTransfers    = 10000     // max tracked transfer entries
 
 	// Timeouts.
 	transferStreamDeadline = 1 * time.Hour   // max wall-clock for entire transfer
@@ -319,25 +328,32 @@ type StreamInfo struct {
 
 // TransferProgress tracks the progress of an active transfer.
 type TransferProgress struct {
-	ID              string       `json:"id"`
-	Filename        string       `json:"filename"`
-	Size            int64        `json:"size"`
-	Transferred     int64        `json:"transferred"`
-	ChunksTotal     int          `json:"chunks_total"`
-	ChunksDone      int          `json:"chunks_done"`
-	Compressed      bool         `json:"compressed"`
-	CompressedSize  int64        `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
-	ErasureParity   int          `json:"erasure_parity,omitempty"`   // number of parity chunks (0 if disabled)
-	ErasureOverhead float64      `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
-	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`  // per-stream progress (parallel only)
-	Failovers       int          `json:"failovers,omitempty"`        // TS-5b: number of path failovers (F10)
-	PeerID          string       `json:"peer_id"`
-	Direction       string       `json:"direction"` // "send" or "receive"
-	Status          string       `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
-	StartTime       time.Time    `json:"start_time"`
-	EndTime         time.Time    `json:"end_time,omitempty"`
-	Done            bool         `json:"done"`
-	Error           string       `json:"error,omitempty"`
+	ID              string  `json:"id"`
+	Filename        string  `json:"filename"`
+	Size            int64   `json:"size"`
+	Transferred     int64   `json:"transferred"`
+	ChunksTotal     int     `json:"chunks_total"`
+	ChunksDone      int     `json:"chunks_done"`
+	Compressed      bool    `json:"compressed"`
+	CompressedSize  int64   `json:"compressed_size,omitempty"`  // total wire bytes (compressed)
+	ErasureParity   int     `json:"erasure_parity,omitempty"`   // total parity chunks declared in trailer (0 if disabled)
+	ErasureOverhead float64 `json:"erasure_overhead,omitempty"` // configured overhead (e.g. 0.10)
+	// ParityChunksDone counts parity chunks that have actually crossed the wire
+	// for this transfer. Incremented by the sender as parity chunks are flushed
+	// through sendParallel/sendSingleStream (one counter per transfer, gated on
+	// streamChunk.fileIdx == parityFileIdx). [B2-F29, R4-SEC1 Batch 2]
+	// ChunksDone stays data-only (matches trailer semantic); ParityChunksDone
+	// is surfaced separately so "110 of 100 chunks" does not appear in UI.
+	ParityChunksDone int          `json:"parity_chunks_done,omitempty"`
+	StreamProgress   []StreamInfo `json:"stream_progress,omitempty"` // per-stream progress (parallel only)
+	Failovers        int          `json:"failovers,omitempty"`       // TS-5b: number of path failovers (F10)
+	PeerID           string       `json:"peer_id"`
+	Direction        string       `json:"direction"` // "send" or "receive"
+	Status           string       `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
+	StartTime        time.Time    `json:"start_time"`
+	EndTime          time.Time    `json:"end_time,omitempty"`
+	Done             bool         `json:"done"`
+	Error            string       `json:"error,omitempty"`
 
 	mu           sync.Mutex
 	cancelFunc   func()      // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
@@ -352,6 +368,17 @@ func (p *TransferProgress) updateChunks(transferred int64, chunksDone int) {
 	p.mu.Lock()
 	p.Transferred = transferred
 	p.ChunksDone = chunksDone
+	p.mu.Unlock()
+}
+
+// addParityChunkDone increments the live count of parity chunks that have
+// crossed the wire for this transfer. Called from sendParallel/sendSingleStream
+// when a streamChunk with fileIdx == parityFileIdx is written. Data ChunksDone
+// is NOT updated here — parity is tracked separately so the UI doesn't show
+// "110/100 data chunks" when erasure is on. [B2-F29, R4-SEC1 Batch 2]
+func (p *TransferProgress) addParityChunkDone() {
+	p.mu.Lock()
+	p.ParityChunksDone++
 	p.mu.Unlock()
 }
 
@@ -1277,7 +1304,11 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	}
 
 	// Erasure coding decision (transport-aware).
-	useErasure := ts.erasureOverhead > 0
+	// [B2-F3] Gate on totalSize > 0. Zero-byte transfers have no chunks to
+	// encode and newErasureEncoder would refuse the empty stripe anyway;
+	// setting flagErasureCoded would emit a zero-chunk trailer that
+	// readErasureManifest rejects (stripeSize < minStripeSize).
+	useErasure := ts.erasureOverhead > 0 && totalSize > 0
 	if useErasure {
 		remotePeerID := s.Conn().RemotePeer()
 		transport := sdk.ClassifyTransport(s)
@@ -1499,8 +1530,30 @@ func (ts *TransferService) streamingSend(
 		ts.activeSendsMu.Unlock()
 	}()
 
+	// Build the incremental per-stripe RS encoder if erasure is enabled.
+	// newErasureEncoder returns nil when overhead <= 0 or stripeSize is
+	// degenerate; chunkProducer treats a nil encoder as "no erasure". The
+	// encoder replaces the legacy O(totalSize) rawForRS buffer with O(stripe)
+	// peak memory. [R4-SEC1 Batch 2]
+	//
+	// Stripe size: always defaultStripeSize regardless of the transfer's chunk
+	// count. For transfers smaller than defaultStripeSize the final partial
+	// stripe handles the remainder; using the chunk-count estimate to shrink
+	// stripeSize up-front would produce many more stripes than necessary if
+	// the estimate under-counted, with no memory benefit. The encoder naturally
+	// handles partial stripes via Finalize.
+	var encoder *erasureEncoder
+	if useErasure {
+		encoder = newErasureEncoder(defaultStripeSize, ts.erasureOverhead)
+		if encoder != nil {
+			progress.mu.Lock()
+			progress.ErasureOverhead = ts.erasureOverhead
+			progress.mu.Unlock()
+		}
+	}
+
 	go chunkProducer(ctx, files, filePaths, cumOffsets, totalSize,
-		useCompression, useErasure, skipBitfield, acceptBitfield, ch, done)
+		useCompression, encoder, skipBitfield, acceptBitfield, ch, done)
 
 	if sendLimiter != nil {
 		slog.Info("file-transfer: send rate limited",
@@ -1532,8 +1585,16 @@ func (ts *TransferService) streamingSend(
 				return zero, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
 			}
 			totalSent += int64(len(sc.data))
-			chunksSent++
-			progress.updateChunks(totalSent, chunksSent)
+			// [B2-F29, R4-SEC1 Batch 2] Parity chunks do NOT increment ChunksDone.
+			// ChunksTotal is set to len(result.chunkHashes) (data count) below, so
+			// counting parity here would produce displays like "110/100 chunks".
+			// Parity crossing the wire is surfaced via ParityChunksDone instead.
+			if sc.fileIdx == parityFileIdx {
+				progress.addParityChunkDone()
+			} else {
+				chunksSent++
+				progress.updateChunks(totalSent, chunksSent)
+			}
 			progress.addWireBytes(int64(len(sc.data)))
 		}
 		result = <-done
@@ -1550,61 +1611,19 @@ func (ts *TransferService) streamingSend(
 	// Compute Merkle root.
 	rootHash := sdk.MerkleRoot(result.chunkHashes)
 
-	// Handle erasure coding (R4-SEC1: current approach buffers all data).
-	var erasure *erasureTrailer
-	if useErasure && len(result.rawForRS) > 0 {
-		params := computeErasureParams(len(result.chunkHashes), ts.erasureOverhead)
-		parityEntries, rsErr := encodeErasure(result.rawForRS, params.StripeSize, ts.erasureOverhead)
-		if rsErr != nil {
-			return zero, fmt.Errorf("erasure encode: %w", rsErr)
-		}
-
-		// Set erasure info on progress for CLI display.
+	// R4-SEC1 Batch 2: parity chunks have already been emitted by the
+	// chunkProducer goroutine as each stripe filled (and the final partial
+	// stripe at Finalize). The trailer is populated by the encoder in-band
+	// and returned via producerResult.erasure. Surface the parity count for
+	// the CLI (ErasureOverhead was set at encoder construction).
+	if result.erasure != nil {
 		progress.mu.Lock()
-		progress.ErasureParity = len(parityEntries)
-		progress.ErasureOverhead = ts.erasureOverhead
+		progress.ErasureParity = result.erasure.ParityCount
 		progress.mu.Unlock()
-
-		// Send parity chunks as streaming frames (after all data chunks).
-		// Use parityFileIdx sentinel so receiver doesn't write parity to file data (S1 fix).
-		// Rate-limit parity writes the same as data chunks to prevent burst after main data.
-		var parityW io.Writer = rw
-		if sendLimiter != nil {
-			parityW = &rateLimitedWriter{w: rw, limiter: sendLimiter, ctx: ctx}
-		}
-		for i, p := range parityEntries {
-			parityIdx := len(result.chunkHashes) + i
-			sc := streamChunk{
-				fileIdx:    parityFileIdx,
-				chunkIdx:   parityIdx,
-				offset:     0, // parity chunks don't map to file offsets
-				hash:       p.hash,
-				decompSize: uint32(len(p.data)),
-				data:       p.data,
-			}
-			if err := writeStreamChunkFrame(parityW, sc); err != nil {
-				return zero, fmt.Errorf("send parity chunk %d: %w", i, err)
-			}
-			progress.addWireBytes(int64(len(p.data)))
-		}
-
-		// Build erasure trailer.
-		parityHashes := make([][32]byte, len(parityEntries))
-		paritySizes := make([]uint32, len(parityEntries))
-		for i, p := range parityEntries {
-			parityHashes[i] = p.hash
-			paritySizes[i] = uint32(len(p.data))
-		}
-		erasure = &erasureTrailer{
-			StripeSize:   params.StripeSize,
-			ParityCount:  len(parityEntries),
-			ParityHashes: parityHashes,
-			ParitySizes:  paritySizes,
-		}
 	}
 
 	// Write trailer.
-	if err := writeTrailer(rw, len(result.chunkHashes), rootHash, result.skippedHashes, erasure); err != nil {
+	if err := writeTrailer(rw, len(result.chunkHashes), rootHash, result.skippedHashes, result.erasure); err != nil {
 		return zero, fmt.Errorf("write trailer: %w", err)
 	}
 

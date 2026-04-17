@@ -111,7 +111,7 @@ type producerResult struct {
 	chunkHashes   [][32]byte       // all chunk hashes in order (for Merkle root)
 	chunkSizes    []uint32         // all decompressed sizes in order
 	anyCompressed bool             // whether any chunk was actually compressed
-	rawForRS      [][]byte         // raw chunk data for erasure coding (nil if not needed)
+	erasure       *erasureTrailer  // R4-SEC1 Batch 2: trailer from erasureEncoder (nil if erasure disabled)
 	skippedHashes map[int][32]byte // chunk hashes for selectively skipped chunks (sparse trailer)
 	err           error
 }
@@ -879,7 +879,10 @@ func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byt
 // If skip is non-nil (resume), chunks for set bits are hashed but not sent to ch.
 // If acceptBitfield is non-nil (selective rejection), chunks touching only rejected files
 // are hashed but not sent. Their hashes are collected in skippedHashes for the sparse trailer (R3-UA3).
-// If bufferForErasure is true, raw (decompressed) chunk data is saved for RS encoding.
+// If encoder is non-nil, each raw chunk is fed to the incremental per-stripe RS encoder
+// (R4-SEC1 Batch 2). Parity chunks are emitted through ch as they're produced, stripe by
+// stripe, bounding peak memory at O(stripeSize * maxChunkSize) instead of O(totalSize).
+// The resulting erasure trailer is returned via producerResult.erasure for writeTrailer.
 func chunkProducer(
 	ctx context.Context,
 	files []fileEntry,
@@ -887,7 +890,7 @@ func chunkProducer(
 	cumOffsets []int64,
 	totalSize int64,
 	useCompression bool,
-	bufferForErasure bool,
+	encoder *erasureEncoder,
 	skip *bitfield,
 	acceptBitfield *bitfield,
 	ch chan<- streamChunk,
@@ -896,9 +899,9 @@ func chunkProducer(
 	var (
 		chunkHashes   [][32]byte
 		chunkSizes    []uint32
-		rawForRS      [][]byte
 		anyCompressed bool
 		skippedHashes map[int][32]byte // chunk hashes for selectively skipped chunks
+		erasure       *erasureTrailer
 	)
 
 	// Cache selective rejection state outside the hot loop.
@@ -911,6 +914,28 @@ func chunkProducer(
 	mfr := newMultiFileReader(files, filePaths, cumOffsets)
 	defer mfr.Close()
 
+	// emitParity sends each parity chunk from the encoder through ch as a streamChunk
+	// frame with fileIdx=parityFileIdx. Honors ctx cancellation so the producer exits
+	// cleanly if the transfer is aborted mid-stripe. [R4-SEC1 Batch 2, B2-F6]
+	emitParity := func(parity []parityChunkOut) error {
+		for _, p := range parity {
+			sc := streamChunk{
+				fileIdx:    parityFileIdx,
+				chunkIdx:   p.chunkIdx,
+				offset:     0, // parity chunks don't map to file offsets
+				hash:       p.hash,
+				decompSize: uint32(len(p.data)),
+				data:       p.data,
+			}
+			select {
+			case ch <- sc:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return nil
+	}
+
 	incompressibleCount := 0
 	probeCount := 0
 	globalChunkIdx := 0
@@ -920,10 +945,24 @@ func chunkProducer(
 		chunkHashes = append(chunkHashes, hash)
 		chunkSizes = append(chunkSizes, uint32(len(c.Data)))
 
-		if bufferForErasure {
+		// Feed the RS encoder BEFORE compression. The encoder takes a fresh
+		// copy of the raw chunk and accumulates up to stripeSize entries; when
+		// the stripe fills, it returns parity chunks to emit on the wire.
+		// Parity covers ALL chunks (including resumed/rejected) so the wire
+		// semantic matches the pre-Batch-2 encodeErasure(rawForRS) output.
+		// [R4-SEC1 Batch 2, B2-F16, Q2 approved]
+		if encoder != nil {
 			raw := make([]byte, len(c.Data))
 			copy(raw, c.Data)
-			rawForRS = append(rawForRS, raw)
+			parity, encErr := encoder.AddChunk(raw)
+			if encErr != nil {
+				return encErr
+			}
+			if len(parity) > 0 {
+				if emitErr := emitParity(parity); emitErr != nil {
+					return emitErr
+				}
+			}
 		}
 
 		// Resume: record hash but don't send data.
@@ -990,6 +1029,22 @@ func chunkProducer(
 		return nil
 	})
 
+	// Flush the encoder's trailing partial stripe (if any) BEFORE closing ch,
+	// so residual parity chunks reach the sender along the same channel. If
+	// ChunkReader already failed, skip finalize — the error is authoritative.
+	// [R4-SEC1 Batch 2]
+	if err == nil && encoder != nil {
+		residual, trailer, finErr := encoder.Finalize()
+		if finErr != nil {
+			err = finErr
+		} else {
+			if emitErr := emitParity(residual); emitErr != nil && err == nil {
+				err = emitErr
+			}
+			erasure = trailer
+		}
+	}
+
 	// Close the chunk channel to signal consumers (streamingSend, sendParallel)
 	// that all chunks have been sent. Without this, `for sc := range ch` blocks
 	// forever after the last chunk. Close BEFORE sending result to done so
@@ -1000,7 +1055,7 @@ func chunkProducer(
 		chunkHashes:   chunkHashes,
 		chunkSizes:    chunkSizes,
 		anyCompressed: anyCompressed,
-		rawForRS:      rawForRS,
+		erasure:       erasure,
 		skippedHashes: skippedHashes,
 		err:           err,
 	}
@@ -1409,6 +1464,14 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 	// Parity chunk detection (S1 fix). Parity chunks have fileIdx == parityFileIdx sentinel.
 	// They don't map to any file and must NOT be written via writeChunkGlobal.
 	if sc.fileIdx == parityFileIdx {
+		// [B2-F12] Bound parity chunkIdx to maxParityCount (= maxChunkCount/2).
+		// The erasureEncoder uses a 0-based global counter; any chunkIdx outside
+		// this range is either malicious or a bug. Without this check, a hostile
+		// sender could key parityData with arbitrarily large ints, producing
+		// sparse maps that confuse rsReconstruct index math.
+		if sc.chunkIdx < 0 || sc.chunkIdx >= maxParityCount {
+			return false, fmt.Errorf("parity chunk index %d out of range [0..%d)", sc.chunkIdx, maxParityCount)
+		}
 		hash := blake3Hash(sc.data)
 		if hash != sc.hash {
 			return false, fmt.Errorf("parity chunk %d hash mismatch", sc.chunkIdx)
@@ -1417,15 +1480,29 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 		if s.parityData == nil {
 			s.parityData = make(map[int][]byte)
 		}
-		// Enforce parity budget: count bounded by maxChunkCount/2 (matches sender's
-		// maxParityCount), bytes bounded by totalSize/2 + 8MB tolerance. Without this,
-		// a malicious sender can exhaust receiver memory by flooding parity-flagged chunks
-		// (each up to 4MB, up to 1M indices = 4TB addressable).
-		if len(s.parityData) >= maxChunkCount/2 {
+		// [B2-F2] Reject duplicate parity chunkIdx. Parity is never legitimately
+		// resent; any duplicate is either a malicious flood (attempting to
+		// inflate parityBytes counter via overwrites that don't grow the map)
+		// or a protocol bug. Reject outright, do not overwrite.
+		if _, exists := s.parityData[sc.chunkIdx]; exists {
 			s.mu.Unlock()
-			return false, fmt.Errorf("parity chunk count %d exceeds limit %d", len(s.parityData), maxChunkCount/2)
+			return false, fmt.Errorf("duplicate parity chunk %d", sc.chunkIdx)
+		}
+		// Enforce parity budget. Count bounded by maxParityCount. Bytes bounded
+		// by min(totalSize/2 + maxDecompressedChunk, maxParityBudgetBytes).
+		// [B2-F1] The declared totalSize can legitimately reach maxTotalTransferSize
+		// (10 TB), so totalSize/2 alone is NOT a meaningful bound — a malicious
+		// sender declaring a 10 TB transfer would otherwise get a 5 TB parity
+		// budget against receiver RAM. maxParityBudgetBytes hard-caps the worst
+		// case at 512 MB regardless of declared totalSize.
+		if len(s.parityData) >= maxParityCount {
+			s.mu.Unlock()
+			return false, fmt.Errorf("parity chunk count %d exceeds limit %d", len(s.parityData), maxParityCount)
 		}
 		parityBudget := s.totalSize/2 + int64(maxDecompressedChunk)
+		if parityBudget > maxParityBudgetBytes {
+			parityBudget = maxParityBudgetBytes
+		}
 		if s.parityBytes+int64(len(sc.data)) > parityBudget {
 			s.mu.Unlock()
 			return false, fmt.Errorf("parity bytes %d would exceed budget %d", s.parityBytes+int64(len(sc.data)), parityBudget)

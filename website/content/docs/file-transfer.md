@@ -131,7 +131,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 
 **Compression**: zstd compression on by default. Auto-detects incompressible data and skips re-compression. Bomb protection: decompression aborted if output exceeds 10x compressed size. Opt-out via `shurli config set transfer.compress false`.
 
-**Erasure Coding**: Reed-Solomon erasure coding, auto-enabled on Direct WAN connections only. Recovers from lost chunks without retransmission.
+**Erasure Coding**: Reed-Solomon erasure coding, auto-enabled on Direct WAN connections only. Recovers from lost chunks without retransmission. Wire overhead matches the configured `transfer.erasure_overhead` (default 10%); `transfer.bandwidth_budget` and per-peer `bandwidth_budget` ACL attributes are enforced on TOTAL wire bytes (data + parity), so a 100 MB file with 10% erasure consumes ~110 MB of budget. Memory footprint per erasure-coded transfer is bounded to roughly one stripe (≤~400 MB sustained, ≤~880 MB momentary during encode) via the incremental per-stripe encoder; LAN transfers skip erasure entirely and avoid this cost.
 
 **Parallel Streams**: Adaptive parallel QUIC streams per transfer. Defaults: 1 stream on LAN, up to 4 on WAN. Configurable via `transfer.parallel_streams`.
 

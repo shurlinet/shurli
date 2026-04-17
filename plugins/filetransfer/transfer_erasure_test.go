@@ -2,19 +2,19 @@ package filetransfer
 
 import (
 	"bytes"
-	"testing"
 	"github.com/shurlinet/shurli/pkg/sdk"
+	"testing"
 )
 
 // --- Erasure params tests ---
 
 func TestComputeErasureParams(t *testing.T) {
 	tests := []struct {
-		name        string
-		dataCount   int
-		overhead    float64
-		wantStripe  int
-		wantParity  int
+		name       string
+		dataCount  int
+		overhead   float64
+		wantStripe int
+		wantParity int
 	}{
 		{"zero overhead", 10, 0, 0, 0},
 		{"zero data", 0, 0.1, 0, 0},
@@ -22,7 +22,7 @@ func TestComputeErasureParams(t *testing.T) {
 		{"small file 5 chunks 10%", 5, 0.1, 5, 1},
 		{"exact stripe boundary", 100, 0.1, 100, 10},
 		{"two stripes", 200, 0.1, 100, 20},
-		{"partial stripe", 150, 0.1, 100, 15}, // 100->10 + 50->5
+		{"partial stripe", 150, 0.1, 100, 15},    // 100->10 + 50->5
 		{"high overhead capped", 10, 0.9, 10, 5}, // capped at 50%
 		{"single chunk", 1, 0.1, 1, 1},           // min 1 parity
 	}
@@ -384,5 +384,370 @@ func TestEncodeStripeAllEmpty(t *testing.T) {
 	_, err := encodeStripe(dataChunks, 1)
 	if err == nil {
 		t.Error("expected error for all-empty chunks")
+	}
+}
+
+// --- R4-SEC1 Batch 2: erasureEncoder tests ---
+
+// drainEncoder runs the AddChunk + Finalize loop the way chunkProducer does
+// and returns the flat sequence of parity chunks emitted plus the trailer.
+// Used by the B2 test suite below.
+func drainEncoder(t *testing.T, chunks [][]byte, stripeSize int, overhead float64) ([]parityChunkOut, *erasureTrailer) {
+	t.Helper()
+	enc := newErasureEncoder(stripeSize, overhead)
+	if enc == nil {
+		t.Fatalf("newErasureEncoder returned nil for stripeSize=%d overhead=%.2f", stripeSize, overhead)
+	}
+	var emitted []parityChunkOut
+	for i, c := range chunks {
+		// AddChunk takes ownership; copy so callers can reuse chunks.
+		raw := make([]byte, len(c))
+		copy(raw, c)
+		out, err := enc.AddChunk(raw)
+		if err != nil {
+			t.Fatalf("AddChunk[%d]: %v", i, err)
+		}
+		emitted = append(emitted, out...)
+	}
+	residual, trailer, err := enc.Finalize()
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	emitted = append(emitted, residual...)
+	return emitted, trailer
+}
+
+// TestErasureEncoderMatchesBatched proves the new encoder emits bit-identical
+// parity shards (same count, same bytes, same hashes, same trailer) as the
+// legacy encodeErasure for a range of stripe configurations. This is the wire-
+// compatibility oracle — if Batch 2 diverges from Batch 1's encodeErasure
+// output for any input, this test fails.
+// [B2-F39: delete alongside encodeErasure in Batch 2b cleanup]
+func TestErasureEncoderMatchesBatched(t *testing.T) {
+	cases := []struct {
+		name       string
+		chunkCount int
+		chunkSize  int
+		stripeSize int
+		overhead   float64
+	}{
+		{"single full stripe", 10, 64, 10, 0.10},
+		{"stripe + 1", 11, 64, 10, 0.10},
+		{"two full stripes", 20, 128, 10, 0.10},
+		{"partial final", 23, 96, 10, 0.10},
+		{"tiny stripe=2 boundary", 5, 48, 2, 0.20},
+		{"variable sizes mimicked", 8, 256, 4, 0.25},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			chunks := make([][]byte, c.chunkCount)
+			for i := range chunks {
+				// Deterministic content so old and new encoders see the same bytes.
+				chunks[i] = bytes.Repeat([]byte{byte(i + 1)}, c.chunkSize)
+			}
+
+			legacy, err := encodeErasure(chunks, c.stripeSize, c.overhead)
+			if err != nil {
+				t.Fatalf("legacy encodeErasure: %v", err)
+			}
+			emitted, trailer := drainEncoder(t, chunks, c.stripeSize, c.overhead)
+
+			if len(legacy) != len(emitted) {
+				t.Fatalf("parity count differs: legacy=%d new=%d", len(legacy), len(emitted))
+			}
+			if trailer == nil {
+				t.Fatal("new encoder returned nil trailer for non-empty input")
+			}
+			if trailer.ParityCount != len(legacy) {
+				t.Fatalf("trailer parity count %d != legacy %d", trailer.ParityCount, len(legacy))
+			}
+			for i := range legacy {
+				if !bytes.Equal(legacy[i].data, emitted[i].data) {
+					t.Errorf("parity[%d] bytes differ", i)
+				}
+				if legacy[i].hash != emitted[i].hash {
+					t.Errorf("parity[%d] hash differs", i)
+				}
+				if emitted[i].chunkIdx != i {
+					t.Errorf("parity[%d] chunkIdx=%d, want %d (0-based global)", i, emitted[i].chunkIdx, i)
+				}
+				if trailer.ParityHashes[i] != legacy[i].hash {
+					t.Errorf("trailer parityHashes[%d] mismatch", i)
+				}
+				if int(trailer.ParitySizes[i]) != len(legacy[i].data) {
+					t.Errorf("trailer paritySizes[%d]=%d, want %d", i, trailer.ParitySizes[i], len(legacy[i].data))
+				}
+			}
+		})
+	}
+}
+
+// TestErasureEncoderStripeBoundaries exercises the partial-final-stripe path,
+// exact-stripe-boundary path, and zero-chunk path. All three historically
+// hid off-by-ones in similar encoders.
+func TestErasureEncoderStripeBoundaries(t *testing.T) {
+	t.Run("exact stripe boundary emits during AddChunk only", func(t *testing.T) {
+		enc := newErasureEncoder(5, 0.2)
+		if enc == nil {
+			t.Fatal("encoder is nil")
+		}
+		var fromAdd int
+		for i := 0; i < 5; i++ {
+			out, err := enc.AddChunk(bytes.Repeat([]byte{byte(i)}, 32))
+			if err != nil {
+				t.Fatalf("AddChunk[%d]: %v", i, err)
+			}
+			fromAdd += len(out)
+		}
+		// Exact stripe boundary: all parity emitted during AddChunk, Finalize
+		// must return zero residual and a non-nil trailer.
+		residual, trailer, err := enc.Finalize()
+		if err != nil {
+			t.Fatalf("Finalize: %v", err)
+		}
+		if len(residual) != 0 {
+			t.Errorf("exact stripe boundary residual=%d, want 0", len(residual))
+		}
+		if trailer == nil {
+			t.Fatal("trailer nil on exact stripe boundary")
+		}
+		if trailer.ParityCount != fromAdd {
+			t.Errorf("trailer parityCount=%d, want %d", trailer.ParityCount, fromAdd)
+		}
+	})
+
+	t.Run("partial final stripe flushed by Finalize", func(t *testing.T) {
+		enc := newErasureEncoder(5, 0.2)
+		var fromAdd int
+		for i := 0; i < 7; i++ {
+			out, err := enc.AddChunk(bytes.Repeat([]byte{byte(i)}, 32))
+			if err != nil {
+				t.Fatalf("AddChunk[%d]: %v", i, err)
+			}
+			fromAdd += len(out)
+		}
+		residual, trailer, err := enc.Finalize()
+		if err != nil {
+			t.Fatalf("Finalize: %v", err)
+		}
+		if len(residual) == 0 {
+			t.Error("partial final stripe residual=0, expected >0")
+		}
+		if trailer == nil {
+			t.Fatal("trailer nil")
+		}
+		if trailer.ParityCount != fromAdd+len(residual) {
+			t.Errorf("trailer parityCount=%d, want %d", trailer.ParityCount, fromAdd+len(residual))
+		}
+		// Parity chunkIdx must be densely 0..ParityCount-1.
+		all := make([]parityChunkOut, 0, trailer.ParityCount)
+		// Reconstruct emitted slice for index check.
+		// (drainEncoder would re-run AddChunk; instead we just check via trailer.)
+		_ = all
+		for i, h := range trailer.ParityHashes {
+			if h == ([32]byte{}) {
+				t.Errorf("trailer ParityHashes[%d] is zero", i)
+			}
+		}
+	})
+
+	t.Run("zero chunks returns nil trailer", func(t *testing.T) {
+		enc := newErasureEncoder(10, 0.1)
+		residual, trailer, err := enc.Finalize()
+		if err != nil {
+			t.Fatalf("Finalize: %v", err)
+		}
+		if len(residual) != 0 {
+			t.Errorf("zero-chunk residual=%d, want 0", len(residual))
+		}
+		if trailer != nil {
+			t.Errorf("zero-chunk trailer=%+v, want nil (caller must not set flagErasureCoded)", trailer)
+		}
+	})
+
+	t.Run("single chunk produces one parity", func(t *testing.T) {
+		enc := newErasureEncoder(10, 0.1)
+		out, err := enc.AddChunk(bytes.Repeat([]byte{0x42}, 128))
+		if err != nil {
+			t.Fatalf("AddChunk: %v", err)
+		}
+		if len(out) != 0 {
+			t.Errorf("AddChunk returned %d parity mid-stripe, want 0", len(out))
+		}
+		residual, trailer, err := enc.Finalize()
+		if err != nil {
+			t.Fatalf("Finalize: %v", err)
+		}
+		if len(residual) != 1 {
+			t.Errorf("single-chunk residual=%d, want 1 (min 1 parity per stripe)", len(residual))
+		}
+		if trailer == nil || trailer.ParityCount != 1 {
+			t.Errorf("trailer = %+v, want ParityCount=1", trailer)
+		}
+	})
+}
+
+// TestNewErasureEncoderGates verifies newErasureEncoder refuses degenerate
+// configurations up-front: zero/negative overhead and stripeSize below
+// minStripeSize. [B2-F11, B2-F3 upstream gate]
+func TestNewErasureEncoderGates(t *testing.T) {
+	cases := []struct {
+		name       string
+		stripeSize int
+		overhead   float64
+		wantNil    bool
+	}{
+		{"zero overhead", 10, 0, true},
+		{"negative overhead", 10, -0.1, true},
+		{"stripe below min", 1, 0.1, true},
+		{"valid minimum", minStripeSize, 0.1, false},
+		{"typical", 100, 0.1, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			enc := newErasureEncoder(c.stripeSize, c.overhead)
+			if c.wantNil && enc != nil {
+				t.Errorf("expected nil encoder")
+			}
+			if !c.wantNil && enc == nil {
+				t.Errorf("expected non-nil encoder")
+			}
+		})
+	}
+}
+
+// TestParityChunkDuplicateRejected proves the receiver refuses duplicate
+// parity chunkIdx values so a malicious sender cannot inflate the
+// parityBytes counter via same-key overwrites. [B2-F2]
+func TestParityChunkDuplicateRejected(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	sc := streamChunk{
+		fileIdx:    parityFileIdx,
+		chunkIdx:   0,
+		decompSize: 8,
+		data:       []byte{1, 2, 3, 4, 5, 6, 7, 8},
+	}
+	sc.hash = blake3Hash(sc.data)
+
+	isNew, err := state.processIncomingChunk(sc)
+	if err != nil {
+		t.Fatalf("first parity chunk: %v", err)
+	}
+	if !isNew {
+		t.Error("first parity chunk should be new")
+	}
+
+	// Second arrival with same chunkIdx must be rejected — parity is never
+	// legitimately resent.
+	_, err = state.processIncomingChunk(sc)
+	if err == nil {
+		t.Fatal("duplicate parity chunk should be rejected")
+	}
+}
+
+// TestParityChunkIndexOutOfRange proves the receiver rejects parity chunkIdx
+// values outside [0, maxParityCount). [B2-F12]
+func TestParityChunkIndexOutOfRange(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	sc := streamChunk{
+		fileIdx:    parityFileIdx,
+		chunkIdx:   maxParityCount, // out of range (exclusive upper bound)
+		decompSize: 4,
+		data:       []byte{9, 9, 9, 9},
+	}
+	sc.hash = blake3Hash(sc.data)
+	_, err := state.processIncomingChunk(sc)
+	if err == nil {
+		t.Fatal("parity chunkIdx == maxParityCount should be rejected")
+	}
+}
+
+// TestParityBudgetHardCap proves that the in-memory parity budget is hard-
+// capped by maxParityBudgetBytes regardless of the sender's declared totalSize.
+// Without this cap a malicious sender declaring totalSize=10 TB would be
+// granted a 5 TB parity budget against receiver RAM. [B2-F1]
+func TestParityBudgetHardCap(t *testing.T) {
+	// Declare a totalSize large enough that totalSize/2 > maxParityBudgetBytes.
+	hugeTotal := int64(maxParityBudgetBytes) * 4 // 2 GB: totalSize/2 = 1 GB > 512 MB cap
+	state := newStreamReceiveState(nil, hugeTotal, flagErasureCoded, nil)
+
+	// Each parity chunk 1 MB; budget is 512 MB, so we expect ~512 chunks to
+	// fit and the 513th to be rejected with "exceeds budget".
+	const perChunk = 1 << 20 // 1 MB
+	data := bytes.Repeat([]byte{0xAA}, perChunk)
+	h := blake3Hash(data)
+
+	accepted := 0
+	for i := 0; i < int(maxParityBudgetBytes/perChunk)+10; i++ {
+		sc := streamChunk{
+			fileIdx:    parityFileIdx,
+			chunkIdx:   i,
+			decompSize: perChunk,
+			data:       data,
+			hash:       h,
+		}
+		_, err := state.processIncomingChunk(sc)
+		if err != nil {
+			// First rejection must be budget-related; parityBytes must never
+			// exceed the hard cap even by a single chunk.
+			if state.parityBytes > int64(maxParityBudgetBytes) {
+				t.Fatalf("parityBytes=%d exceeded hard cap %d (declared totalSize=%d)",
+					state.parityBytes, maxParityBudgetBytes, hugeTotal)
+			}
+			if accepted < 1 {
+				t.Fatalf("rejected too early at i=%d: %v", i, err)
+			}
+			return
+		}
+		accepted++
+	}
+	t.Fatalf("expected budget rejection, accepted %d chunks totalling %d bytes",
+		accepted, state.parityBytes)
+}
+
+// TestProgressParityChunksDoneTracking proves addParityChunkDone increments
+// ParityChunksDone without touching ChunksDone / ChunksTotal — parity chunks
+// are tracked in their own counter so the UI never shows "> 100% chunks".
+// [B2-F29, Option C]
+func TestProgressParityChunksDoneTracking(t *testing.T) {
+	p := &TransferProgress{ChunksTotal: 100}
+
+	// Simulate 10 data chunks + 5 parity chunks reaching the wire in any order.
+	p.updateChunks(1024, 1)
+	p.updateChunks(2048, 2)
+	p.addParityChunkDone()
+	p.updateChunks(3072, 3)
+	p.addParityChunkDone()
+	p.addParityChunkDone()
+	p.updateChunks(10240, 10)
+	p.addParityChunkDone()
+	p.addParityChunkDone()
+
+	if p.ChunksDone != 10 {
+		t.Errorf("ChunksDone=%d, want 10 (data only)", p.ChunksDone)
+	}
+	if p.ParityChunksDone != 5 {
+		t.Errorf("ParityChunksDone=%d, want 5", p.ParityChunksDone)
+	}
+	if p.ChunksTotal != 100 {
+		t.Errorf("ChunksTotal=%d, want 100 (unchanged)", p.ChunksTotal)
+	}
+}
+
+// TestErasureManifestRejectsSmallStripeSize proves the wire-level stripeSize
+// lower bound catches a malicious trailer declaring stripeSize=1, which would
+// otherwise force reconstruction to iterate chunkCount stripes allocating
+// maxChunkSize-padded shards per stripe. [B2-F11]
+func TestErasureManifestRejectsSmallStripeSize(t *testing.T) {
+	var buf bytes.Buffer
+	// Write a trailer with stripeSize=1 (below minStripeSize=2).
+	parityHashes := [][32]byte{sdk.Blake3Sum([]byte("p"))}
+	paritySizes := []uint32{16}
+	if err := writeErasureManifest(&buf, 1, 1, parityHashes, paritySizes); err != nil {
+		t.Fatalf("writeErasureManifest: %v", err)
+	}
+	_, _, _, err := readErasureManifest(&buf)
+	if err == nil {
+		t.Fatal("readErasureManifest should reject stripeSize=1")
 	}
 }
