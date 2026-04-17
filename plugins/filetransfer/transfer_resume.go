@@ -34,6 +34,15 @@ func (bf *bitfield) set(index int) {
 	}
 }
 
+// clear unmarks chunk index (used by checkpointFromState to exclude
+// corrupted chunks from the persisted have-bitfield so a resumed session
+// asks for retransmission). [Batch 2b]
+func (bf *bitfield) clear(index int) {
+	if index >= 0 && index < bf.n {
+		bf.bits[index/8] &^= 1 << (uint(index) % 8)
+	}
+}
+
 // has returns true if chunk index has been received.
 func (bf *bitfield) has(index int) bool {
 	if index < 0 || index >= bf.n {
@@ -671,6 +680,24 @@ func checkpointFromState(state *streamReceiveState, ck [32]byte, flags uint8) *t
 		copy(have.bits, state.receivedBitfield.bits)
 	} else {
 		have = newBitfield(chunkCount)
+	}
+
+	// [Batch 2b] Corrupted chunks must be represented as "not received" in the
+	// persisted bitfield so a resumed session asks the sender to retransmit
+	// them. Without this, the pre-hash-check recordChunk call has already set
+	// the have-bit, the checkpoint preserves it, the next session's resume
+	// tells the sender the chunk is on disk, and the corrupt tmp bytes (never
+	// written — the bytes are zero) survive through Merkle verify (which
+	// uses the claimed hash stored in state.hashes) into the final file as
+	// silent corruption. Clearing the bit here keeps rsReconstruct's
+	// in-session recovery path intact (state.corruptedChunks drives the
+	// trailer-time sweep) while also making cross-session / failover resume
+	// self-healing via plain retransmission — no need to persist the
+	// corrupted set itself.
+	for idx := range state.corruptedChunks {
+		if idx >= 0 && idx < have.n {
+			have.clear(idx)
+		}
 	}
 
 	// Deep copy file table (defense against future mutations).
