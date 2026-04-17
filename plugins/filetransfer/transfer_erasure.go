@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"os"
+	"log/slog"
 
 	"github.com/klauspost/reedsolomon"
 	"github.com/shurlinet/shurli/pkg/sdk"
@@ -39,18 +39,23 @@ const (
 	// [B2-F11]
 	minStripeSize = 2
 
+	// maxAcceptedStripeSize caps the stripe size a receiver will accept in an
+	// erasure trailer. rsReconstruct allocates O(stripeSize x maxChunkSize)
+	// per stripe for padded shards plus parityCount padded parity shards; an
+	// unchecked stripeSize bounded only by maxChunkCount would let a
+	// malicious sender force multi-GB reconstruction allocations against a
+	// daemon running under MemoryMax=2G. The cap at 2x defaultStripeSize
+	// keeps worst-case reconstruction below ~1.6 GB (200 x 8 MB) while
+	// leaving headroom for future legitimate larger-stripe configurations.
+	// [Batch 2b audit round 3]
+	maxAcceptedStripeSize = defaultStripeSize * 2
+
 	// maxParityOverhead caps erasure overhead at 50%.
 	maxParityOverhead = 0.50
 
 	// maxParityCount limits total parity chunks.
 	maxParityCount = maxChunkCount / 2
 )
-
-// parityChunk holds a generated parity shard with its BLAKE3 hash.
-type parityChunk struct {
-	hash [32]byte
-	data []byte // raw parity (uncompressed, full shard size)
-}
 
 // erasureParams describes the RS configuration for a transfer.
 type erasureParams struct {
@@ -78,57 +83,13 @@ func computeErasureParams(dataCount int, overhead float64) erasureParams {
 		if end > dataCount {
 			end = dataCount
 		}
-		n := end - off
-		p := int(float64(n)*overhead + 0.5) // round
-		if p < 1 {
-			p = 1
-		}
-		totalParity += p
+		totalParity += stripeParityCount(end-off, overhead)
 	}
 
 	return erasureParams{
 		StripeSize:  stripeSize,
 		ParityCount: totalParity,
 	}
-}
-
-// encodeErasure generates parity chunks for all data chunks in one batched call.
-//
-// TODO(B2-F39, Batch 2b): delete once rsReconstruct is rewritten to consume the
-// streaming erasureEncoder output directly. Currently kept as the independent
-// oracle for TestErasureEncoderMatchesBatched, which proves erasureEncoder
-// produces bit-identical parity for the same input. Dead code after 2b.
-func encodeErasure(dataChunks [][]byte, stripeSize int, overhead float64) ([]parityChunk, error) {
-	if len(dataChunks) == 0 || overhead <= 0 {
-		return nil, nil
-	}
-
-	var allParity []parityChunk
-
-	for off := 0; off < len(dataChunks); off += stripeSize {
-		end := off + stripeSize
-		if end > len(dataChunks) {
-			end = len(dataChunks)
-		}
-		stripe := dataChunks[off:end]
-
-		parityCount := int(float64(len(stripe))*overhead + 0.5)
-		if parityCount < 1 {
-			parityCount = 1
-		}
-
-		parity, err := encodeStripe(stripe, parityCount)
-		if err != nil {
-			return nil, fmt.Errorf("encode stripe at offset %d: %w", off, err)
-		}
-
-		for _, p := range parity {
-			hash := sdk.Blake3Sum(p)
-			allParity = append(allParity, parityChunk{hash: hash, data: p})
-		}
-	}
-
-	return allParity, nil
 }
 
 // encodeStripe runs RS encoding on a single stripe of data chunks.
@@ -268,10 +229,11 @@ func (e *erasureEncoder) Finalize() ([]parityChunkOut, *erasureTrailer, error) {
 	}
 
 	trailer := &erasureTrailer{
-		StripeSize:   e.stripeSize,
-		ParityCount:  len(e.parityHashes),
-		ParityHashes: e.parityHashes,
-		ParitySizes:  e.paritySizes,
+		StripeSize:       e.stripeSize,
+		ParityCount:      len(e.parityHashes),
+		OverheadPerMille: overheadToPerMille(e.overhead),
+		ParityHashes:     e.parityHashes,
+		ParitySizes:      e.paritySizes,
 	}
 	return residual, trailer, nil
 }
@@ -293,10 +255,7 @@ func (e *erasureEncoder) flushStripe() ([]parityChunkOut, error) {
 	// Local reference to the backing array so encodeStripe can read it; the
 	// defer then nil-s the entries through e.stripeBuf (same array).
 	stripe := e.stripeBuf
-	parityCount := int(float64(len(stripe))*e.overhead + 0.5)
-	if parityCount < 1 {
-		parityCount = 1
-	}
+	parityCount := stripeParityCount(len(stripe), e.overhead)
 
 	defer func() {
 		for i := range e.stripeBuf {
@@ -367,18 +326,61 @@ func reconstructStripe(dataShards, parityShards [][]byte, dataSizes []uint32) ([
 
 // --- Erasure manifest wire format ---
 
+// stripeParityCount returns how many parity chunks a stripe of
+// stripeDataCount data chunks produces at the given overhead, matching the
+// sender's encoder.flushStripe formula exactly. Single source of truth so
+// receiver-side reconstruction and sender-side encoding cannot drift. [Batch
+// 2b audit round 2]
+func stripeParityCount(stripeDataCount int, overhead float64) int {
+	p := int(float64(stripeDataCount)*overhead + 0.5)
+	if p < 1 {
+		p = 1
+	}
+	return p
+}
+
+// overheadToPerMille converts a float erasure overhead (0.10 = 10%) to the
+// uint16 per-mille representation carried on the wire. Values outside the
+// configured max are clamped to maxParityOverhead.
+func overheadToPerMille(overhead float64) uint16 {
+	if overhead <= 0 {
+		return 0
+	}
+	if overhead > maxParityOverhead {
+		overhead = maxParityOverhead
+	}
+	v := int(overhead*1000 + 0.5)
+	if v > int(uint16(0xFFFF)) {
+		v = int(uint16(0xFFFF))
+	}
+	return uint16(v)
+}
+
+// overheadFromPerMille converts the wire per-mille value back to float64.
+func overheadFromPerMille(p uint16) float64 {
+	return float64(p) / 1000.0
+}
+
 // writeErasureManifest appends erasure coding fields to the wire.
 // Written only if flagErasureCoded is set.
 //
-// Wire layout: stripeSize(2) + parityCount(4) + parityHashes(P*32) + paritySizes(P*4)
-func writeErasureManifest(w io.Writer, stripeSize, parityCount int, parityHashes [][32]byte, paritySizes []uint32) error {
+// Wire layout: stripeSize(2) + parityCount(4) + overheadPerMille(2)
+//
+//   - parityHashes(P*32) + paritySizes(P*4)
+//
+// OverheadPerMille was introduced in Batch 2b audit round 2. Without it the
+// receiver's rsReconstruct had to assume a fixed 0.1 overhead, which silently
+// mismapped per-stripe parity offsets when the sender's configured overhead
+// differed from the default. [Batch 2b audit]
+func writeErasureManifest(w io.Writer, stripeSize, parityCount int, overheadPerMille uint16, parityHashes [][32]byte, paritySizes []uint32) error {
 	if parityCount != len(parityHashes) || parityCount != len(paritySizes) {
 		return fmt.Errorf("parity count mismatch")
 	}
 
-	var header [6]byte
+	var header [8]byte
 	binary.BigEndian.PutUint16(header[0:2], uint16(stripeSize))
 	binary.BigEndian.PutUint32(header[2:6], uint32(parityCount))
+	binary.BigEndian.PutUint16(header[6:8], overheadPerMille)
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
@@ -400,27 +402,42 @@ func writeErasureManifest(w io.Writer, stripeSize, parityCount int, parityHashes
 	return nil
 }
 
-// readErasureManifest reads erasure coding fields from the wire.
-func readErasureManifest(r io.Reader) (stripeSize int, parityHashes [][32]byte, paritySizes []uint32, err error) {
-	var header [6]byte
+// readErasureManifest reads erasure coding fields from the wire and enforces
+// bounds on every value before the caller touches it.
+func readErasureManifest(r io.Reader) (stripeSize int, overheadPerMille uint16, parityHashes [][32]byte, paritySizes []uint32, err error) {
+	var header [8]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return 0, nil, nil, fmt.Errorf("read erasure header: %w", err)
+		return 0, 0, nil, nil, fmt.Errorf("read erasure header: %w", err)
 	}
 
 	stripeSize = int(binary.BigEndian.Uint16(header[0:2]))
 	parityCount := int(binary.BigEndian.Uint32(header[2:6]))
+	overheadPerMille = binary.BigEndian.Uint16(header[6:8])
 
 	if parityCount > maxParityCount {
-		return 0, nil, nil, fmt.Errorf("parity count too large: %d", parityCount)
+		return 0, 0, nil, nil, fmt.Errorf("parity count too large: %d", parityCount)
 	}
-	if stripeSize < minStripeSize || stripeSize > maxChunkCount {
-		return 0, nil, nil, fmt.Errorf("invalid stripe size: %d (must be %d..%d)", stripeSize, minStripeSize, maxChunkCount)
+	// Upper bound: maxAcceptedStripeSize caps worst-case reconstruction
+	// allocation from a malicious sender. The wire-level maxChunkCount cap
+	// kept in the error message for diagnostics (nothing above
+	// maxAcceptedStripeSize reaches reconstruction).
+	if stripeSize < minStripeSize || stripeSize > maxAcceptedStripeSize {
+		return 0, 0, nil, nil, fmt.Errorf("invalid stripe size: %d (must be %d..%d)", stripeSize, minStripeSize, maxAcceptedStripeSize)
+	}
+	// Overhead bounds: must be strictly positive (zero means no erasure,
+	// which would never have reached this code path), and capped at
+	// maxParityOverhead to block malicious senders from driving huge
+	// per-stripe allocations. Upper bound in per-mille:
+	// maxParityOverhead * 1000.
+	maxPerMille := uint16(maxParityOverhead * 1000)
+	if overheadPerMille == 0 || overheadPerMille > maxPerMille {
+		return 0, 0, nil, nil, fmt.Errorf("invalid erasure overhead per-mille: %d (must be 1..%d)", overheadPerMille, maxPerMille)
 	}
 
 	parityHashes = make([][32]byte, parityCount)
 	for i := 0; i < parityCount; i++ {
 		if _, err := io.ReadFull(r, parityHashes[i][:]); err != nil {
-			return 0, nil, nil, fmt.Errorf("read parity hash %d: %w", i, err)
+			return 0, 0, nil, nil, fmt.Errorf("read parity hash %d: %w", i, err)
 		}
 	}
 
@@ -428,123 +445,264 @@ func readErasureManifest(r io.Reader) (stripeSize int, parityHashes [][32]byte, 
 	sizeBuf := make([]byte, 4)
 	for i := 0; i < parityCount; i++ {
 		if _, err := io.ReadFull(r, sizeBuf); err != nil {
-			return 0, nil, nil, fmt.Errorf("read parity size %d: %w", i, err)
+			return 0, 0, nil, nil, fmt.Errorf("read parity size %d: %w", i, err)
 		}
 		paritySizes[i] = binary.BigEndian.Uint32(sizeBuf)
 	}
 
-	return stripeSize, parityHashes, paritySizes, nil
+	return stripeSize, overheadPerMille, parityHashes, paritySizes, nil
 }
 
 // --- RS reconstruction ---
 
-// rsReconstruct recovers corrupted data chunks using parity, then writes them to the file.
-func (ts *TransferService) rsReconstruct(tmpFile *os.File, m *transferManifest, offsets []int64, corrupted []int, parityData map[int][]byte) error {
-	if m.StripeSize <= 0 {
-		return fmt.Errorf("invalid stripe size: %d", m.StripeSize)
+// rsReconstruct recovers data chunks that failed hash verification during
+// receive by combining the intact stripe-mates (read from on-disk tmpFiles)
+// with RS parity (accumulated in state.parityData) and decoding. Writes the
+// reconstructed bytes back via writeChunkGlobal after verifying the BLAKE3
+// hash matches the sender's claimed hash (already stored in state.hashes via
+// recordChunk before the original hash check failed).
+//
+// Single-pass contract [B2-F36]: runs exactly once per transfer at trailer
+// time. Either every corrupted chunk is recovered or the whole transfer fails;
+// there is no retry loop, so a malicious sender cannot force repeated CPU
+// spending by crafting stripe boundaries that almost-but-not-quite decode.
+//
+// Scope [Batch 2b]: recovers only chunks whose frames arrived (size + claimed
+// hash live in state.sizes / state.hashes). Truly missing chunks, whose frames
+// never arrived, are unrecoverable without per-chunk size metadata in the
+// trailer; the existing missingChunks check in receiveParallel catches those
+// before this function is called.
+//
+// Selective rejection [Batch 2b]: a stripe whose layout needs sizes for
+// selectively-rejected chunks (sizes missing from state.sizes) cannot be
+// reconstructed; the function fails fast with a clear error. Adding size to
+// the sparse trailer is a future protocol change, not part of Batch 2b.
+//
+// overhead is the sender's configured erasure overhead carried over the wire
+// in the erasure trailer (overheadFromPerMille). Using the sender's value
+// instead of a hardcoded 0.1 is what makes reconstruction correct for
+// non-default configurations (erasure_overhead: 0.15, 0.20, ...); a
+// receiver-side hardcode would mismap per-stripe parity offsets whenever the
+// sender's per-stripe parity count differs from floor(stripeSize*0.1+0.5).
+// [Batch 2b audit round 2]
+func (ts *TransferService) rsReconstruct(state *streamReceiveState, chunkCount int, stripeSize int, overhead float64, corruptedIndices []int) error {
+	if stripeSize < minStripeSize {
+		return fmt.Errorf("invalid stripe size: %d (must be >= %d)", stripeSize, minStripeSize)
+	}
+	if chunkCount <= 0 {
+		return fmt.Errorf("invalid chunk count: %d", chunkCount)
+	}
+	if overhead <= 0 || overhead > maxParityOverhead {
+		return fmt.Errorf("invalid erasure overhead: %f (must be in (0, %f])", overhead, maxParityOverhead)
+	}
+	if len(corruptedIndices) == 0 {
+		return nil
 	}
 
-	// Group corrupted indices by stripe.
-	corruptedByStripe := make(map[int][]int) // stripe index -> corrupted chunk indices
-	for _, idx := range corrupted {
-		stripeIdx := idx / m.StripeSize
+	// Group corrupted indices by stripe. Indices outside [0, chunkCount) are
+	// silently dropped rather than aborting reconstruction: a malicious
+	// sender can flood corrupt frames with chunkIdx above the trailer's
+	// declared chunkCount (the per-frame upper bound is maxChunkCount, not
+	// the transfer's declared total). Their hashes never enter Merkle
+	// (assembleFullHashList iterates only 0..chunkCount), their bytes are
+	// never written to tmp files (writeChunkGlobal C3/C4 bounds), so there
+	// is nothing meaningful to reconstruct for them — and letting an
+	// attacker kill recovery by injecting one out-of-range corrupted frame
+	// would trade a real recovery for a fabricated one. [Batch 2b audit r3]
+	corruptedByStripe := make(map[int][]int)
+	droppedOutOfRange := 0
+	for _, idx := range corruptedIndices {
+		if idx < 0 || idx >= chunkCount {
+			droppedOutOfRange++
+			continue
+		}
+		stripeIdx := idx / stripeSize
 		corruptedByStripe[stripeIdx] = append(corruptedByStripe[stripeIdx], idx)
 	}
+	if droppedOutOfRange > 0 {
+		slog.Debug("file-transfer: ignoring out-of-range corrupted indices", "count", droppedOutOfRange, "chunkCount", chunkCount)
+	}
+	if len(corruptedByStripe) == 0 {
+		// Every flagged corruption was out of range; nothing to do.
+		return nil
+	}
 
-	// Process each affected stripe.
-	parityOffset := 0 // running parity index offset
-	for s := 0; s < (m.ChunkCount+m.StripeSize-1)/m.StripeSize; s++ {
-		start := s * m.StripeSize
-		end := start + m.StripeSize
-		if end > m.ChunkCount {
-			end = m.ChunkCount
+	// Precompute global offsets from state.sizes. Requires every data chunk's
+	// size to be known on the receiver. Fails fast otherwise (see selective
+	// rejection note above).
+	state.mu.Lock()
+	offsets := make([]int64, chunkCount+1)
+	for i := 0; i < chunkCount; i++ {
+		sz, ok := state.sizes[i]
+		if !ok {
+			state.mu.Unlock()
+			return fmt.Errorf("chunk %d size unknown on receiver (selective rejection with erasure is unsupported in this stripe)", i)
+		}
+		offsets[i+1] = offsets[i] + int64(sz)
+	}
+	// Snapshot chunk sizes (full list) so stripe loop doesn't re-lock.
+	chunkSizes := make([]uint32, chunkCount)
+	for i := 0; i < chunkCount; i++ {
+		chunkSizes[i] = state.sizes[i]
+	}
+	state.mu.Unlock()
+
+	numStripes := (chunkCount + stripeSize - 1) / stripeSize
+	parityOffset := 0
+
+	for s := 0; s < numStripes; s++ {
+		start := s * stripeSize
+		end := start + stripeSize
+		if end > chunkCount {
+			end = chunkCount
 		}
 		stripeDataCount := end - start
-		parityCount := int(float64(stripeDataCount)*0.1 + 0.5)
-		if parityCount < 1 {
-			parityCount = 1
-		}
+
+		// Per-stripe parity count derived through stripeParityCount — the
+		// single source of truth that sender's encoder.flushStripe shares.
+		parityCount := stripeParityCount(stripeDataCount, overhead)
 
 		corruptedInStripe := corruptedByStripe[s]
 		if len(corruptedInStripe) == 0 {
 			parityOffset += parityCount
 			continue
 		}
-
 		if len(corruptedInStripe) > parityCount {
-			return fmt.Errorf("stripe %d: %d corrupted chunks but only %d parity available",
+			return fmt.Errorf("stripe %d: %d corrupted chunks exceed %d parity (unrecoverable)",
 				s, len(corruptedInStripe), parityCount)
 		}
 
-		// Find max chunk size in this stripe (shard size for RS).
-		maxSize := 0
-		for i := start; i < end; i++ {
-			if int(m.ChunkSizes[i]) > maxSize {
-				maxSize = int(m.ChunkSizes[i])
-			}
-		}
-
-		// Build corrupted set for fast lookup.
 		corruptedSet := make(map[int]bool, len(corruptedInStripe))
 		for _, idx := range corruptedInStripe {
 			corruptedSet[idx] = true
 		}
 
-		// Read data shards from file (pad to maxSize). Nil for corrupted.
+		// Max chunk size across the stripe = RS shard size (padding target).
+		maxSize := 0
+		for i := 0; i < stripeDataCount; i++ {
+			if int(chunkSizes[start+i]) > maxSize {
+				maxSize = int(chunkSizes[start+i])
+			}
+		}
+
+		// Read intact stripe-mates from tmpFiles. Corrupted chunks contribute
+		// nil so RS knows to reconstruct them. readChunkGlobal returns an
+		// error for chunks touching rejected files; we also treat those as
+		// nil shards — the stripe then has more "unknowns" to reconstruct,
+		// which is bounded by the parity count check above.
 		dataShards := make([][]byte, stripeDataCount)
-		for i := start; i < end; i++ {
-			if corruptedSet[i] {
-				dataShards[i-start] = nil
+		for i := 0; i < stripeDataCount; i++ {
+			globalIdx := start + i
+			if corruptedSet[globalIdx] {
 				continue
 			}
-			buf := make([]byte, maxSize)
-			n, err := tmpFile.ReadAt(buf[:m.ChunkSizes[i]], offsets[i])
+			size := int(chunkSizes[globalIdx])
+			chunkBytes, err := state.readChunkGlobal(offsets[globalIdx], size)
 			if err != nil {
-				return fmt.Errorf("read data chunk %d for reconstruction: %w", i, err)
+				// Cannot read this stripe-mate (rejected file slice). Count it
+				// as missing; decoder will need another parity slot.
+				continue
 			}
-			_ = n
-			dataShards[i-start] = buf
+			if len(chunkBytes) == maxSize {
+				dataShards[i] = chunkBytes
+			} else {
+				padded := make([]byte, maxSize)
+				copy(padded, chunkBytes)
+				dataShards[i] = padded
+			}
 		}
 
-		// Collect parity shards for this stripe.
+		// Count nil data shards (corrupted + unreadable) against parity budget.
+		nilData := 0
+		for _, d := range dataShards {
+			if d == nil {
+				nilData++
+			}
+		}
+		if nilData > parityCount {
+			return fmt.Errorf("stripe %d: %d data shards unavailable (corrupted=%d, unreadable=%d) exceed %d parity",
+				s, nilData, len(corruptedInStripe), nilData-len(corruptedInStripe), parityCount)
+		}
+
+		// Load parity shards for this stripe. A missing parity is nil; RS
+		// decoder tolerates missing shards as long as data+parity losses
+		// together fit within the parity budget.
 		parityShards := make([][]byte, parityCount)
+		state.mu.Lock()
 		for p := 0; p < parityCount; p++ {
 			globalParityIdx := parityOffset + p
-			if data, ok := parityData[globalParityIdx]; ok {
-				// Pad parity to maxSize if needed.
-				if len(data) < maxSize {
-					padded := make([]byte, maxSize)
-					copy(padded, data)
-					parityShards[p] = padded
-				} else {
-					parityShards[p] = data[:maxSize]
-				}
+			data, ok := state.parityData[globalParityIdx]
+			if !ok {
+				continue
 			}
-			// nil if missing
+			if len(data) == maxSize {
+				parityShards[p] = data
+			} else if len(data) < maxSize {
+				padded := make([]byte, maxSize)
+				copy(padded, data)
+				parityShards[p] = padded
+			} else {
+				// Parity larger than the stripe's maxSize means the sender's
+				// stripe layout differs from the receiver's view — almost
+				// always a protocol violation. Fail rather than silently
+				// truncate (which would corrupt RS math).
+				state.mu.Unlock()
+				return fmt.Errorf("stripe %d: parity chunk %d size %d exceeds stripe maxSize %d",
+					s, globalParityIdx, len(data), maxSize)
+			}
+		}
+		state.mu.Unlock()
+
+		// Count total missing shards (data nil + parity nil) against parity budget.
+		nilParity := 0
+		for _, p := range parityShards {
+			if p == nil {
+				nilParity++
+			}
+		}
+		if nilData+nilParity > parityCount {
+			return fmt.Errorf("stripe %d: total missing shards %d (data=%d, parity=%d) exceed %d parity",
+				s, nilData+nilParity, nilData, nilParity, parityCount)
 		}
 
-		// Reconstruct.
-		dataSizes := m.ChunkSizes[start:end]
-		reconstructed, err := reconstructStripe(dataShards, parityShards, dataSizes)
+		dataSizesStripe := chunkSizes[start:end]
+		reconstructed, err := reconstructStripe(dataShards, parityShards, dataSizesStripe)
 		if err != nil {
-			return fmt.Errorf("stripe %d reconstruction: %w", s, err)
+			return fmt.Errorf("stripe %d reconstruct: %w", s, err)
 		}
 
-		// Verify and write reconstructed chunks.
+		// Verify each reconstructed corrupted chunk against the claimed hash
+		// stored by recordChunk, then write the bytes back via
+		// writeChunkGlobal. The fileIdx argument to writeChunkGlobal is only
+		// used for a bounds check (< len(s.files)); the actual file routing
+		// happens via globalToLocal inside the function. Passing 0 is safe as
+		// long as len(s.files) > 0, which holds for any non-empty transfer
+		// (empty transfers never set flagErasureCoded per B2-F3).
 		for _, idx := range corruptedInStripe {
 			localIdx := idx - start
 			chunk := reconstructed[localIdx]
 
-			// Verify BLAKE3 hash of reconstructed data.
-			hash := sdk.Blake3Sum(chunk)
-			if hash != m.ChunkHashes[idx] {
-				return fmt.Errorf("chunk %d hash mismatch after reconstruction", idx)
+			computed := sdk.Blake3Sum(chunk)
+			state.mu.Lock()
+			claimed := state.hashes[idx]
+			state.mu.Unlock()
+			if computed != claimed {
+				return fmt.Errorf("chunk %d reconstructed hash does not match claimed hash (RS recovered wrong bytes)", idx)
 			}
 
-			// Write to file at correct offset.
-			if _, err := tmpFile.WriteAt(chunk, offsets[idx]); err != nil {
+			if err := state.writeChunkGlobal(0, offsets[idx], len(chunk), chunk); err != nil {
 				return fmt.Errorf("write reconstructed chunk %d: %w", idx, err)
 			}
+
+			// [Batch 2b self-audit] Clear the index from state.corruptedChunks
+			// now that bytes are on disk. If rsReconstruct later errors on a
+			// subsequent stripe, saveCheckpointOnError calls checkpointFromState
+			// which clears have-bits for every index still in corruptedChunks —
+			// without this removal, a successfully-reconstructed chunk would be
+			// redundantly retransmitted on the next resume.
+			state.mu.Lock()
+			delete(state.corruptedChunks, idx)
+			state.mu.Unlock()
 		}
 
 		parityOffset += parityCount

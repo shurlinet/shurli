@@ -787,7 +787,7 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 	// Erasure fields follow if present.
 	if erasure != nil {
 		if err := writeErasureManifest(w, erasure.StripeSize, erasure.ParityCount,
-			erasure.ParityHashes, erasure.ParitySizes); err != nil {
+			erasure.OverheadPerMille, erasure.ParityHashes, erasure.ParitySizes); err != nil {
 			return fmt.Errorf("write erasure trailer: %w", err)
 		}
 	}
@@ -796,11 +796,21 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 }
 
 // erasureTrailer holds erasure coding metadata for the trailer.
+//
+// OverheadPerMille carries the sender's configured erasure overhead expressed
+// in per-mille (1/1000). Default 100 = 10%. The receiver's rsReconstruct must
+// use this value when deriving per-stripe parity counts; hardcoding 0.1 (the
+// default) silently breaks reconstruction when users configure
+// erasure_overhead: 0.15 or 0.20 because the parityOffset walk diverges from
+// the sender's actual stripe-to-parity mapping. Bounded to
+// [1, maxParityOverhead*1000] at readErasureManifest to block
+// degenerate-zero and over-half configurations. [Batch 2b audit round 2]
 type erasureTrailer struct {
-	StripeSize   int
-	ParityCount  int
-	ParityHashes [][32]byte
-	ParitySizes  []uint32
+	StripeSize       int
+	ParityCount      int
+	OverheadPerMille uint16
+	ParityHashes     [][32]byte
+	ParitySizes      []uint32
 }
 
 // readTrailer reads the trailer after the msgTrailer byte has been consumed
@@ -852,15 +862,16 @@ func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byt
 	}
 
 	if hasErasure {
-		ss, ph, ps, readErr := readErasureManifest(r)
+		ss, opm, ph, ps, readErr := readErasureManifest(r)
 		if readErr != nil {
 			return 0, [32]byte{}, nil, nil, fmt.Errorf("read erasure trailer: %w", readErr)
 		}
 		erasure = &erasureTrailer{
-			StripeSize:   ss,
-			ParityCount:  len(ph),
-			ParityHashes: ph,
-			ParitySizes:  ps,
+			StripeSize:       ss,
+			ParityCount:      len(ph),
+			OverheadPerMille: opm,
+			ParityHashes:     ph,
+			ParitySizes:      ps,
 		}
 	}
 
@@ -1096,6 +1107,17 @@ type streamReceiveState struct {
 	parityData  map[int][]byte // parityIdx -> raw parity data
 	parityBytes int64          // cumulative parity bytes stored (memory budget)
 
+	// Corrupted chunk tracking (Batch 2b). Populated when processIncomingChunk
+	// sees a hash mismatch on a transfer that carries erasure parity. The
+	// chunk's claimed hash + decompSize are already in hashes/sizes via
+	// recordChunk, but its bytes were rejected (not written to tmpFiles).
+	// rsReconstruct consumes this set pre-Merkle, recovers the bytes from
+	// parityData, verifies against the claimed hash, and writes via
+	// writeChunkGlobal. Only populated when hasErasure is true; on a transfer
+	// without parity a hash mismatch is still a hard fail at receive time.
+	// [B2-F32]
+	corruptedChunks map[int]bool
+
 	// Per-file temp files and state.
 	tmpFiles []*os.File // one per file entry
 	tmpPaths []string   // temp file paths (relative to destRoot)
@@ -1164,6 +1186,36 @@ func (s *streamReceiveState) ReceivedCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.hashes)
+}
+
+// markCorrupted records chunkIdx as having failed hash verification during
+// receive. The chunk's claimed hash + decompSize are already in hashes/sizes
+// (recordChunk ran before the hash check). rsReconstruct reads this set at
+// trailer time, rebuilds the bytes from RS parity, verifies against the
+// claimed hash, and writes to tmpFiles. [Batch 2b, B2-F32]
+func (s *streamReceiveState) markCorrupted(chunkIdx int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.corruptedChunks == nil {
+		s.corruptedChunks = make(map[int]bool)
+	}
+	s.corruptedChunks[chunkIdx] = true
+}
+
+// corruptedList returns the corrupted chunk indices in ascending order.
+// Thread-safe. [Batch 2b]
+func (s *streamReceiveState) corruptedList() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.corruptedChunks) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(s.corruptedChunks))
+	for idx := range s.corruptedChunks {
+		out = append(out, idx)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // ReceivedBitfield returns a copy of the received chunk bitfield (thread-safe).
@@ -1337,6 +1389,61 @@ func (s *streamReceiveState) reopenTempFiles(destDir string) error {
 		s.tmpFiles[i] = f
 	}
 	return nil
+}
+
+// readChunkGlobal reads `length` bytes of chunk data starting at `globalOffset`
+// from the receiver's on-disk tmpFiles. Inverse of writeChunkGlobal: walks the
+// file slices produced by globalToLocal and assembles a single contiguous
+// buffer by issuing ReadAt against each backing tmp file. Used by rsReconstruct
+// to load intact stripe-mates as data shards for RS decoding. [Batch 2b, B2-F31]
+//
+// If any slice points at a tmp file that was rejected (s.tmpFiles[idx] == nil)
+// the caller cannot assume this chunk is usable as a known data shard: the
+// receiver never held those bytes. readChunkGlobal returns an explicit error
+// in that case; rsReconstruct treats the chunk as a missing data shard (nil
+// entry in the RS input), spending a parity slot to cover it. This keeps the
+// function's contract simple ("returns the chunk's bytes exactly, or errors")
+// and keeps the selective-rejection-versus-erasure interaction explicit at
+// the call site.
+func (s *streamReceiveState) readChunkGlobal(globalOffset int64, length int) ([]byte, error) {
+	if length == 0 {
+		return nil, nil
+	}
+	if length < 0 {
+		return nil, fmt.Errorf("read chunk: negative length %d", length)
+	}
+	if globalOffset < 0 || globalOffset+int64(length) > s.totalSize {
+		return nil, fmt.Errorf("read chunk at offset %d + size %d exceeds total size %d", globalOffset, length, s.totalSize)
+	}
+
+	slices := globalToLocal(globalOffset, length, s.files, s.cumOffsets)
+	if len(slices) == 0 {
+		return nil, fmt.Errorf("chunk at offset %d mapped to no file slices", globalOffset)
+	}
+
+	buf := make([]byte, length)
+	covered := 0
+	for _, sl := range slices {
+		idx := int(sl.FileIdx)
+		if idx >= len(s.tmpFiles) || s.tmpFiles[idx] == nil {
+			return nil, fmt.Errorf("chunk touches unallocated file %d (selective rejection?)", idx)
+		}
+		if sl.DataOffset+sl.Length > length {
+			return nil, fmt.Errorf("chunk slice overflow: offset %d + length %d > buffer %d", sl.DataOffset, sl.Length, length)
+		}
+		n, err := s.tmpFiles[idx].ReadAt(buf[sl.DataOffset:sl.DataOffset+sl.Length], sl.LocalOffset)
+		if err != nil {
+			return nil, fmt.Errorf("read file %d at offset %d: %w", idx, sl.LocalOffset, err)
+		}
+		if n != sl.Length {
+			return nil, fmt.Errorf("short read file %d at offset %d: got %d want %d", idx, sl.LocalOffset, n, sl.Length)
+		}
+		covered += n
+	}
+	if covered != length {
+		return nil, fmt.Errorf("slice coverage %d != requested length %d", covered, length)
+	}
+	return buf, nil
 }
 
 // writeChunkGlobal writes decompressed chunk data using globalToLocal mapping.
@@ -1558,9 +1665,24 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 	// Verify hash.
 	hash := blake3Hash(chunkData)
 	if hash != sc.hash {
-		// TODO(RS): When RS reconstruction is wired, track corrupted indices
-		// here instead of failing. For now, fail on any hash mismatch.
-		return false, fmt.Errorf("chunk %d hash mismatch: corrupted", sc.chunkIdx)
+		// [Batch 2b, B2-F32] On a transfer that carries RS erasure parity,
+		// a hash mismatch is recoverable: mark the chunk as corrupted and
+		// let rsReconstruct rebuild the bytes from parity before Merkle
+		// verify. recordChunk already stored the claimed hash + decompSize
+		// above, so state.hashes/state.sizes are complete for the stripe's
+		// layout computation during reconstruction. Do NOT write chunkData
+		// to tmpFiles — the bytes are known-bad and would corrupt the
+		// final output.
+		//
+		// When the transfer has no erasure parity (hasErasure=false) the
+		// only honest response is to abort: Merkle is computed from claimed
+		// hashes and would pass silently while the file data is wrong.
+		// Keep the hard-fail path for that case.
+		if !s.hasErasure {
+			return false, fmt.Errorf("chunk %d hash mismatch: corrupted (no erasure parity)", sc.chunkIdx)
+		}
+		s.markCorrupted(sc.chunkIdx)
+		return true, nil
 	}
 
 	// Write via globalToLocal mapping (N3, F1).

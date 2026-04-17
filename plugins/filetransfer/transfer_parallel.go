@@ -744,14 +744,65 @@ verify:
 	progress.ChunksTotal = chunkCount
 	progress.mu.Unlock()
 
-	// Check for missing chunks (R3-IMP4).
+	// Check for missing chunks (R3-IMP4). Truly missing chunks (frame never
+	// arrived) cannot be RS-reconstructed — the receiver holds neither the
+	// claimed hash nor the decompressed size needed to trim a reconstructed
+	// stripe shard. Hard-fail here, before reconstruction would otherwise run.
 	missing := state.missingChunks(chunkCount)
 	if len(missing) > 0 {
 		saveCheckpointOnError()
 		return zero, fmt.Errorf("transfer incomplete: %d chunks missing (first: %d)", len(missing), missing[0])
 	}
 
-	// Assemble full hash list and verify Merkle root.
+	// RS erasure reconstruction sweep [Batch 2b, B2-F32/F35/F36].
+	//
+	// Runs exactly once per transfer, after the missing-check succeeds and
+	// before Merkle verify. Only fires when the transfer carries erasure
+	// parity AND processIncomingChunk actually marked chunks corrupted.
+	// Intact erasure transfers skip the sweep entirely, so a partial parity
+	// trailer (B2-F14: declared != actual) does not fail a transfer whose
+	// data all arrived cleanly. When reconstruction IS needed, the parity
+	// count mismatch becomes fatal — the stripe math depends on every
+	// declared parity being present at its declared index.
+	if ctrlResult.erasure != nil {
+		corrupted := state.corruptedList()
+		if len(corrupted) > 0 {
+			state.mu.Lock()
+			actualParity := len(state.parityData)
+			state.mu.Unlock()
+			if actualParity != ctrlResult.erasure.ParityCount {
+				saveCheckpointOnError()
+				return zero, fmt.Errorf("erasure parity count mismatch: declared %d, got %d, cannot reconstruct %d corrupted chunks",
+					ctrlResult.erasure.ParityCount, actualParity, len(corrupted))
+			}
+			overhead := overheadFromPerMille(ctrlResult.erasure.OverheadPerMille)
+			if rsErr := ts.rsReconstruct(state, chunkCount, ctrlResult.erasure.StripeSize, overhead, corrupted); rsErr != nil {
+				saveCheckpointOnError()
+				return zero, fmt.Errorf("erasure reconstruction: %w", rsErr)
+			}
+		} else {
+			// No corruption needing recovery — intact transfers are free to
+			// tolerate a declared/actual parity mismatch. Log at Warn for
+			// operator visibility; do not fail the transfer.
+			state.mu.Lock()
+			actualParity := len(state.parityData)
+			state.mu.Unlock()
+			if actualParity != ctrlResult.erasure.ParityCount {
+				slog.Warn("file-transfer: trailer parity count mismatch (no reconstruction needed)",
+					"declared", ctrlResult.erasure.ParityCount,
+					"actual", actualParity,
+					"transfer_id", progress.ID)
+			}
+		}
+	}
+
+	// Assemble full hash list and verify Merkle root. state.hashes already
+	// holds each corrupted chunk's claimed hash (stored by recordChunk before
+	// the hash check failed), so Merkle is computed from the same values the
+	// sender used regardless of whether reconstruction ran. rsReconstruct
+	// verified that the reconstructed bytes actually hash to those claimed
+	// values before writing them, so Merkle-pass now implies on-disk data is
+	// byte-correct.
 	var allHashes [][32]byte
 	if len(ctrlResult.sparseHashes) > 0 {
 		allHashes = state.assembleFullHashList(chunkCount, ctrlResult.sparseHashes)
@@ -764,28 +815,8 @@ verify:
 		return zero, fmt.Errorf("Merkle root mismatch: transfer corrupted")
 	}
 
-	// Set erasure info on progress.
+	// Surface erasure info on progress.
 	if ctrlResult.erasure != nil {
-		// [B2-F14] Warn when the trailer's declared parity count does not
-		// match what actually arrived. Benign causes: slow peer mid-cancel,
-		// relay budget drained parity frames, path failover mid-stripe.
-		// Adversarial causes: a sender advertising more or fewer parity than
-		// it actually emits to confuse a future rsReconstruct pass. Batch 2
-		// warns; Batch 2b will hard-fail once rsReconstruct is wired and can
-		// reason about the recovery-vs-declared-count delta. The budget cap
-		// (B2-F1) plus count cap (maxParityCount) already bound the worst
-		// case in bytes and cardinality, so logging at Warn is sufficient
-		// for Batch 2.
-		state.mu.Lock()
-		actualParity := len(state.parityData)
-		state.mu.Unlock()
-		if actualParity != ctrlResult.erasure.ParityCount {
-			slog.Warn("file-transfer: trailer parity count mismatch",
-				"declared", ctrlResult.erasure.ParityCount,
-				"actual", actualParity,
-				"transfer_id", progress.ID)
-		}
-
 		progress.mu.Lock()
 		progress.ErasureParity = ctrlResult.erasure.ParityCount
 		if chunkCount > 0 {
