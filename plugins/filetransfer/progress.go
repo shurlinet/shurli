@@ -40,7 +40,7 @@ func termWidth() int {
 type progressMode int
 
 const (
-	progressANSI progressMode = iota // standard TTY: \r + \033[K (erase line)
+	progressANSI  progressMode = iota // standard TTY: \r + \033[K (erase line)
 	progressPlain                     // pipe/file: milestone lines only
 )
 
@@ -108,6 +108,13 @@ func pollTransferJSON(client *daemonClient, id string) {
 			"chunks_done":     progress.ChunksDone,
 			"chunks_total":    progress.ChunksTotal,
 			"compressed_size": progress.CompressedSize,
+		}
+		// [B2-F29, R4-SEC1 Batch 2] Expose parity progress for agent/JSON
+		// consumers whenever erasure is on. Kept optional so non-erasure
+		// transfers emit the same shape as before.
+		if progress.ErasureParity > 0 {
+			ev["erasure_parity"] = progress.ErasureParity
+			ev["parity_chunks_done"] = progress.ParityChunksDone
 		}
 		if len(progress.StreamProgress) > 0 {
 			ev["stream_progress"] = progress.StreamProgress
@@ -232,6 +239,13 @@ func pollTransfer(client *daemonClient, id string, quiet bool) {
 			chunkInfo := ""
 			if !quiet && progress.ChunksTotal > 0 {
 				chunkInfo = fmt.Sprintf(" [%d/%d chunks]", progress.ChunksDone, progress.ChunksTotal)
+				// [B2-F29, R4-SEC1 Batch 2] Surface live parity progress next to
+				// the data chunk counter when erasure is active. Data stays the
+				// primary metric (what the user asked to transfer); parity is
+				// integrity overhead shown in a secondary slot.
+				if progress.ErasureParity > 0 {
+					chunkInfo += fmt.Sprintf(" +%d/%d parity", progress.ParityChunksDone, progress.ErasureParity)
+				}
 			}
 
 			compressTag := ""

@@ -221,8 +221,15 @@ func (ts *TransferService) sendParallel(
 				}
 				wireBytes := int64(len(sc.data))
 				totalSent.Add(wireBytes)
-				done := chunksDone.Add(1)
-				progress.updateChunks(totalSent.Load(), int(done))
+				// [B2-F29, R4-SEC1 Batch 2] Parity chunks don't increment
+				// ChunksDone — ChunksTotal is data-only. Surface parity via
+				// ParityChunksDone so UI never shows "> 100% chunks".
+				if sc.fileIdx == parityFileIdx {
+					progress.addParityChunkDone()
+				} else {
+					done := chunksDone.Add(1)
+					progress.updateChunks(totalSent.Load(), int(done))
+				}
 				progress.addWireBytes(wireBytes)
 				progress.updateStream(streamIdx, wireBytes)
 			}
@@ -252,8 +259,13 @@ func (ts *TransferService) sendParallel(
 			}
 			wireBytes := int64(len(sc.data))
 			totalSent.Add(wireBytes)
-			done := chunksDone.Add(1)
-			progress.updateChunks(totalSent.Load(), int(done))
+			// [B2-F29, R4-SEC1 Batch 2] Parity chunks tracked separately.
+			if sc.fileIdx == parityFileIdx {
+				progress.addParityChunkDone()
+			} else {
+				done := chunksDone.Add(1)
+				progress.updateChunks(totalSent.Load(), int(done))
+			}
 			progress.addWireBytes(wireBytes)
 			progress.updateStream(0, wireBytes)
 		}
@@ -327,8 +339,13 @@ func (ts *TransferService) sendSingleStream(
 			return zeroResult, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
 		}
 		totalSent += int64(len(sc.data))
-		chunksSent++
-		progress.updateChunks(totalSent, chunksSent)
+		// [B2-F29, R4-SEC1 Batch 2] Parity chunks tracked separately from data.
+		if sc.fileIdx == parityFileIdx {
+			progress.addParityChunkDone()
+		} else {
+			chunksSent++
+			progress.updateChunks(totalSent, chunksSent)
+		}
 		progress.addWireBytes(int64(len(sc.data)))
 	}
 
