@@ -548,9 +548,14 @@ func (ts *TransferService) receiveParallel(
 	// save progress aggressively). LAN uses 5s (fast, less disk I/O).
 	// R3-F9: For non-LAN transfers, force immediate first-chunk save by starting
 	// lastCkptSave at zero time (makes first saveCheckpointIfDue always fire).
+	//
+	// Verified-LAN check: a routed-private peer (CGNAT, Docker, VPN, multi-WAN
+	// cross-link) is actually WAN and MUST get the aggressive 1s checkpoint
+	// cadence. Bare RFC 1918 or mDNS-time-only matches would misclassify those
+	// as LAN and degrade resume safety on flaky links.
 	ckptInterval := checkpointSaveInterval // 5s default (LAN)
 	lastCkptSave := time.Now()
-	if ts.isLANPeer == nil || !ts.isLANPeer(session.controlPID) {
+	if ts.hasVerifiedLANConn == nil || !ts.hasVerifiedLANConn(session.controlPID) {
 		ckptInterval = 1 * time.Second // relay/WAN: save every 1s
 		lastCkptSave = time.Time{}     // R3-F9: force first-chunk save
 	}

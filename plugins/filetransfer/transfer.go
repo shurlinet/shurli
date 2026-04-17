@@ -608,10 +608,14 @@ type TransferConfig struct {
 	// coding. If nil, only the stream's own connection is checked.
 	ConnsToPeer func(peer.ID) []network.Conn
 
-	// IsLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
-	// Catches LAN peers communicating via public IPv6 on the same network segment.
-	// If nil, only connection IPs are checked.
-	IsLANPeer func(peer.ID) bool
+	// HasVerifiedLANConn returns true if the peer has at least one live non-relay
+	// connection whose remote IP is mDNS-verified as on the local LAN. This is
+	// the authoritative trust-making "is this peer on our LAN?" signal. Bare
+	// RFC 1918 checks are unreliable (CGNAT, Docker, VPN, multi-WAN routed-
+	// private all pass bare-mask but are not LAN). If nil, the transfer
+	// service treats every non-relay peer as WAN (conservative: more RS +
+	// bandwidth budget applied than strictly needed).
+	HasVerifiedLANConn func(peer.ID) bool
 }
 
 // PendingTransfer represents an inbound transfer waiting for user approval in ask mode.
@@ -733,9 +737,11 @@ type TransferService struct {
 	// connsToPeer returns all connections to a peer (for LAN detection across connections).
 	connsToPeer func(peer.ID) []network.Conn
 
-	// isLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
-	// This catches LAN peers even when all QUIC connections use public IPv6.
-	isLANPeer func(peer.ID) bool
+	// hasVerifiedLANConn returns true if the peer has at least one live non-relay
+	// connection with an mDNS-verified LAN remote IP. Authoritative trust-making
+	// signal for LAN classification; avoids bare-RFC1918 false positives
+	// (CGNAT, Docker, VPN, routed-private via multi-WAN).
+	hasVerifiedLANConn func(peer.ID) bool
 
 	// TS-4: Multi-path cancel support.
 	// hostRef is the libp2p host, needed by sendMultiPathCancel to enumerate connections.
@@ -886,7 +892,7 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		jobCancels:               make(map[string]context.CancelFunc),
 		grantChecker:             cfg.GrantChecker,
 		connsToPeer:              cfg.ConnsToPeer,
-		isLANPeer:                cfg.IsLANPeer,
+		hasVerifiedLANConn:       cfg.HasVerifiedLANConn,
 		activeSends:              make(map[[32]byte]activeSendEntry),
 		cancelRateLimiter:        newTransferRateLimiter(cancelRateMax),
 		sendRateLimit:            cfg.SendRateLimit,
@@ -1339,22 +1345,16 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	// encode and newErasureEncoder would refuse the empty stripe anyway;
 	// setting flagErasureCoded would emit a zero-chunk trailer that
 	// readErasureManifest rejects (stripeSize < minStripeSize).
+	//
+	// Skip RS on mDNS-verified LAN (reliable link, overhead unnecessary).
+	// Bare RFC 1918 is NOT trusted — Starlink CGNAT, Docker, VPN, and
+	// multi-WAN routed-private subnets all pass bare-mask but aren't LAN.
+	// When verification is unavailable (callback nil or no mDNS discovery),
+	// default to RS ON — correctness over perf.
 	useErasure := ts.erasureOverhead > 0 && totalSize > 0
-	if useErasure {
-		remotePeerID := s.Conn().RemotePeer()
-		transport := sdk.ClassifyTransport(s)
-		if transport == sdk.TransportLAN {
-			useErasure = false
-		} else if transport == sdk.TransportDirect {
-			// Check connection IPs for private IPv4 (LAN).
-			if ts.connsToPeer != nil && sdk.AnyConnIsLAN(ts.connsToPeer(remotePeerID)) {
-				useErasure = false
-			}
-			// Check mDNS discovery (catches LAN peers on public IPv6).
-			if useErasure && ts.isLANPeer != nil && ts.isLANPeer(remotePeerID) {
-				useErasure = false
-			}
-		}
+	if useErasure && ts.hasVerifiedLANConn != nil &&
+		ts.hasVerifiedLANConn(s.Conn().RemotePeer()) {
+		useErasure = false
 	}
 	if useErasure {
 		flags |= flagErasureCoded
@@ -1427,8 +1427,10 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 			perTransferRate = opts[0].RateLimitBytesPerSec
 		}
 		// Determine actual stream count based on transport + chunk estimate.
+		// VerifiedTransport so routed-private-IPv4 paths (CGNAT, Docker, VPN,
+		// multi-WAN cross-link) don't trigger LAN stream counts on WAN links.
 		if opener != nil {
-			transport := sdk.ClassifyTransport(s)
+			transport := sdk.VerifiedTransport(s, ts.hasVerifiedLANConn)
 			streams = adaptiveStreamCount(transport, estimatedChunks, streams)
 		} else {
 			streams = 1
@@ -1870,7 +1872,10 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 
 		// Per-peer bandwidth budget check (WAN only).
-		transport := sdk.ClassifyTransport(s)
+		// VerifiedTransport: a routed-private-IPv4 peer (CGNAT, Docker, VPN,
+		// multi-WAN) is NOT LAN — its transfers MUST count against the budget.
+		// Bare RFC 1918 match would silently let WAN peers bypass budgets.
+		transport := sdk.VerifiedTransport(s, ts.hasVerifiedLANConn)
 		if transport != sdk.TransportLAN && ts.bandwidthTracker != nil {
 			var peerBudget int64
 			if ts.peerBudgetFunc != nil {

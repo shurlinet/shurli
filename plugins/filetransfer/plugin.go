@@ -223,8 +223,11 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		ConnsToPeer: func(pid peer.ID) []libp2pnet.Conn {
 			return p.network.Host().Network().ConnsToPeer(pid)
 		},
-		IsLANPeer: func(pid peer.ID) bool {
-			return p.ctx.IsLANPeer(pid)
+		// Authoritative trust-making LAN signal: mDNS-verified connection IP.
+		// Gates RS erasure + bandwidth budget correctly for CGNAT / Docker /
+		// VPN / multi-WAN routed-private paths that bare RFC 1918 misclassifies.
+		HasVerifiedLANConn: func(pid peer.ID) bool {
+			return p.ctx.HasVerifiedLANConn(pid)
 		},
 	}
 

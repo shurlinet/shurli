@@ -617,16 +617,16 @@ func (ts *TransferService) HandleMultiPeerRequest() sdk.StreamHandler {
 		fileSize := fi.Size()
 
 		// IF3-2: Bandwidth budget check.
+		// Verified-LAN classification ensures routed-private peers (CGNAT,
+		// Docker, VPN, multi-WAN cross-links) cannot silently skip the
+		// budget by matching RFC 1918 — only mDNS-verified LAN does.
 		if ts.bandwidthTracker != nil {
 			peerBudget := int64(0)
 			if ts.peerBudgetFunc != nil {
 				peerBudget = ts.peerBudgetFunc(peerKey)
 			}
-			transport := sdk.ClassifyTransport(s)
+			transport := sdk.VerifiedTransport(s, ts.hasVerifiedLANConn)
 			isLAN := transport == sdk.TransportLAN
-			if ts.isLANPeer != nil {
-				isLAN = isLAN || ts.isLANPeer(remotePeer)
-			}
 			if !isLAN && !ts.bandwidthTracker.check(peerKey, fileSize, peerBudget) {
 				slog.Warn("multi-peer: bandwidth budget exceeded", "peer", short)
 				writeMultiPeerReject(s, rejectBandwidthExceeded)
@@ -1189,7 +1189,7 @@ func (ts *TransferService) DownloadMultiPeer(
 			// Caller has already verified manifest for this stream.
 			session.addPeerStream(stream)
 			ps.startTime = time.Now()
-			ps.transport = sdk.ClassifyTransport(stream)
+			ps.transport = sdk.VerifiedTransport(stream, ts.hasVerifiedLANConn)
 			// H7: per-peer relay grant byte tracker. Each peer stream may go through
 			// a different relay, so each needs its own tracker.
 			peerRelayTracker := ts.makeChunkTracker(stream, "recv")
@@ -1239,7 +1239,7 @@ func (ts *TransferService) DownloadMultiPeer(
 						stream = newStream
 						streamOwned = true
 						session.addPeerStream(newStream)
-						ps.transport = sdk.ClassifyTransport(newStream)
+						ps.transport = sdk.VerifiedTransport(newStream, ts.hasVerifiedLANConn)
 						peerRelayTracker = ts.makeChunkTracker(newStream, "recv") // H7: refresh relay tracker for new stream
 						ps.reconnects++
 						slog.Info("multi-peer: peer reconnected",

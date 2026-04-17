@@ -221,7 +221,7 @@ type PluginContext struct {
 	grantChecker   sdk.GrantChecker                    // data access grant check (E1)
 	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
 	relayGrantChecker  sdk.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
-	isLANPeer          func(peer.ID) bool                // mDNS LAN peer check
+	hasVerifiedLANConn func(peer.ID) bool                // mDNS-verified LAN connection check (conn-level)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -343,12 +343,22 @@ func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker {
 	return c.relayGrantChecker
 }
 
-// IsLANPeer returns true if the peer was discovered via mDNS (proven on LAN).
-func (c *PluginContext) IsLANPeer(id peer.ID) bool {
-	if c.isLANPeer == nil {
+// HasVerifiedLANConn returns true if the peer has at least one live non-relay
+// connection whose remote IP is mDNS-verified as being on the local LAN.
+//
+// This is the authoritative "is this peer on our LAN?" check for plugins making
+// trust or policy decisions (RS erasure gates, bandwidth budgets, transport
+// allow/deny). Bare RFC 1918 matches are NOT reliable: Starlink CGNAT
+// (10.1.x.x), Docker bridge networks (172.17-21.x.x), VPN tunnels, and routed
+// private subnets via multi-WAN all pass bare-mask but are not LAN.
+//
+// Only mDNS multicast reception proves LAN proximity, since mDNS is a
+// link-local protocol that cannot traverse routers.
+func (c *PluginContext) HasVerifiedLANConn(id peer.ID) bool {
+	if c.hasVerifiedLANConn == nil {
 		return false
 	}
-	return c.isLANPeer(id)
+	return c.hasVerifiedLANConn(id)
 }
 
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
@@ -414,7 +424,7 @@ type ContextProvider struct {
 	GrantChecker    sdk.GrantChecker                              // data access grant check (E1)
 	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
 	RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
-	IsLANPeer          func(peer.ID) bool                       // mDNS LAN peer check
+	HasVerifiedLANConn func(peer.ID) bool                       // mDNS-verified LAN connection check
 }
 
 // --- Info ---

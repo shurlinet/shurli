@@ -365,14 +365,12 @@ func runDaemonStart(args []string) {
 		ScoreResolver:   scoreResolver,
 	}
 
-	// Wire mDNS LAN peer detection for transport classification.
-	// Closure captures rt; mdnsDiscovery may be nil until network starts.
-	pluginProvider.IsLANPeer = func(id peer.ID) bool {
-		if rt.mdnsDiscovery != nil {
-			return rt.mdnsDiscovery.IsLANPeer(id)
-		}
-		return false
-	}
+	// Wire mDNS-verified LAN connection check. Authoritative signal for
+	// trust-making decisions (RS gates, bandwidth budgets, transport policy).
+	// Bare RFC 1918 matches are unreliable (CGNAT, Docker, VPN, routed-private
+	// subnets via multi-WAN all pass bare-mask but are not LAN). Only mDNS
+	// multicast reception proves link-local proximity.
+	pluginProvider.HasVerifiedLANConn = rt.network.HasVerifiedLANConn
 
 	// Wire peer attribute resolver for per-peer settings (bandwidth_budget, etc.).
 	if rt.authKeys != "" {

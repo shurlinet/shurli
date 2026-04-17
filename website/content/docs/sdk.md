@@ -688,13 +688,27 @@ func RelayPeerFromAddrStr(addrStr string) string
 
 RelayPeerFromAddrStr extracts the relay peer ID string from a circuit relay multiaddr string. Returns empty string if the address is not a relay circuit.
 
-### func AnyConnIsLAN
+### func VerifiedTransport
 
 ```go
-func AnyConnIsLAN(conns []network.Conn) bool
+func VerifiedTransport(s network.Stream, hasVerifiedLANConn func(peer.ID) bool) TransportType
 ```
 
-AnyConnIsLAN returns true if at least one non-relay connection uses a private IPv4 remote address (RFC 1918 / RFC 6598). Distinguishes "direct via LAN" from "direct via internet IPv6".
+VerifiedTransport classifies a stream using mDNS-verified LAN detection. Use for any trust-making decision (transport policy, erasure coding, bandwidth budgets).
+
+Precedence: Limited (relay circuit) → TransportRelay; loopback or link-local remote → TransportLAN (cannot traverse routers); `hasVerifiedLANConn` returns true → TransportLAN; otherwise → TransportDirect.
+
+Unlike `ClassifyTransport`, routable private IPv4 addresses (RFC 1918 / RFC 6598) are NOT classified as LAN unless mDNS has verified the peer. This avoids false positives from CGNAT, Docker bridge networks, VPN tunnels, and multi-WAN routed-private cross-links — only mDNS multicast (which cannot traverse routers) proves real LAN proximity.
+
+A nil `hasVerifiedLANConn` callback still classifies loopback and link-local as LAN; for routable addresses it falls back to TransportDirect (conservative).
+
+### func (*Network) HasVerifiedLANConn
+
+```go
+func (n *Network) HasVerifiedLANConn(id peer.ID) bool
+```
+
+Nil-safe convenience wrapper over the underlying mDNS-verified LAN registry. Returns true if the peer has at least one live non-relay connection whose remote IP was confirmed via mDNS multicast. This is the authoritative "is this peer on our LAN?" check; use it as the second argument to `VerifiedTransport`.
 
 ---
 
