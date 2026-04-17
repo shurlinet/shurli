@@ -1469,7 +1469,13 @@ func (q *TransferQueue) Enqueue(filePath, peerID, direction string, priority Tra
 		}
 	}
 
-	id := fmt.Sprintf("q-%d-%s", time.Now().UnixNano(), randomHex(4))
+	// Transfer ID: `t-YYYYMMDD-{hex}`. Stable from submission through
+	// completion. The `t-` prefix replaces the old `q-` which visually
+	// suggested "queued" even after the transfer went active; the status
+	// column ("queued"/"active"/"complete") is the source of truth for state.
+	// The date prefix keeps human-level forensics without the noise of a
+	// full nanosecond timestamp.
+	id := fmt.Sprintf("t-%s-%s", time.Now().Format("20060102"), randomHex(4))
 	qt := &QueuedTransfer{
 		ID:        id,
 		FilePath:  filePath,

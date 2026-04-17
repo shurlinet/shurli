@@ -79,11 +79,22 @@ const (
 	// in memory for any single transfer, independent of the sender's declared
 	// totalSize. [B2-F1] Without this cap, a malicious sender declaring a
 	// maxTotalTransferSize (10 TB) transfer would be granted a 5 TB parity
-	// budget against receiver RAM via the `totalSize/2` heuristic. 512 MB is
-	// generous for legitimate use: at 10% overhead this covers 5 GB of data
-	// chunks per transfer, and RS is gated off on LAN/Direct so only WAN or
-	// relay transfers hit the parity path at all.
-	maxParityBudgetBytes   = 512 << 20 // 512 MB hard cap on in-memory parity per transfer
+	// budget against receiver RAM via the `totalSize/2` heuristic.
+	//
+	// KNOWN LIMITATION (verified by physical test 2026-04-17): this 512 MB
+	// cap is effectively the ceiling for tier-5 RS transfers (4 MB max
+	// chunks) around 4-6 GB file size. 8 GB tier-5 generates ~1 GiB
+	// parity state and trips the cap; raising the cap is not a solution
+	// because a 2 GB MemoryMax receiver is already at ~2 GB total RSS
+	// (parity + stripe buffers + QUIC + runtime) on 8 GB transfers.
+	//
+	// The architectural fix is Option C / FT-Y item #23 (MANDATORY before
+	// merge to main): per-stripe reconstruction that releases parity as
+	// each stripe completes, bounding memory to O(stripeSize x maxChunkSize)
+	// ~400 MB independent of file size. AI-model transfers over Shurli
+	// are expected to be 100+ GB scale; the current accumulate-all design
+	// is architecturally incapable of handling them regardless of this cap.
+	maxParityBudgetBytes   = 512 << 20 // 512 MB hard cap (see Option C / item #23)
 	maxConcurrentTransfers = 10        // global inbound transfer limit
 	maxPerPeerTransfers    = 3         // per-peer inbound limit
 	maxTrackedTransfers    = 10000     // max tracked transfer entries
@@ -1200,6 +1211,13 @@ type SendOptions struct {
 	StreamOpener         streamOpener // opens additional streams to the same peer (required for parallel)
 	RelativeName         string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
 	RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
+
+	// internalShadow hides the internal streaming progress from ts.transfers.
+	// Set by executeQueuedJob: the queued job's q-* progress already appears in
+	// the tracked list and pollSendProgress mirrors updates into it. Tracking
+	// the internal xfer-* progress as well produces duplicate rows in
+	// `shurli transfers`. Lowercase so external callers cannot set it.
+	internalShadow bool
 }
 
 // SendFile sends a file or directory over a libp2p stream using the streaming protocol.
@@ -1354,8 +1372,18 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	estimatedChunks := estimateChunkCount(totalSize)
 
-	progress := ts.trackTransfer(displayName, totalSize,
-		remotePeer.String(), "send", estimatedChunks, useCompression)
+	// When internalShadow is set (queued send path), the caller already owns
+	// the user-facing progress and will mirror updates via pollSendProgress.
+	// Skip ts.transfers so the CLI shows one row per logical transfer.
+	internalShadow := len(opts) > 0 && opts[0].internalShadow
+	var progress *TransferProgress
+	if internalShadow {
+		progress = newShadowSendProgress(displayName, totalSize,
+			remotePeer.String(), estimatedChunks, useCompression)
+	} else {
+		progress = ts.trackTransfer(displayName, totalSize,
+			remotePeer.String(), "send", estimatedChunks, useCompression)
+	}
 	// D1 fix: register stream reset so CancelTransfer can stop the send goroutine.
 	progress.setCancelFunc(func() { s.Reset() })
 	// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
@@ -2239,6 +2267,24 @@ func (ts *TransferService) trackTransfer(filename string, size int64, peerID, di
 	return p
 }
 
+// newShadowSendProgress builds an xfer-* progress object that is NOT registered
+// in ts.transfers. Used by the queued send path where a parent q-* progress
+// already represents the transfer for CLI/listing purposes. Eliminates the
+// duplicate q-*/xfer-* rows that used to appear in `shurli transfers`.
+func newShadowSendProgress(filename string, size int64, peerID string, chunkCount int, compressed bool) *TransferProgress {
+	return &TransferProgress{
+		ID:          fmt.Sprintf("xfer-%s", randomHex(6)),
+		Filename:    filename,
+		Size:        size,
+		ChunksTotal: chunkCount,
+		Compressed:  compressed,
+		PeerID:      peerID,
+		Direction:   "send",
+		Status:      "pending",
+		StartTime:   time.Now(),
+	}
+}
+
 func (ts *TransferService) evictCompleted() {
 	for len(ts.completed) > 0 {
 		id := ts.completed[0]
@@ -2658,8 +2704,12 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 
 			if finalErr == nil && stream != nil {
 				// SendFile runs in background and updates progress internally.
-				// We need to wait for it to complete.
-				sendProgress, sendErr := ts.SendFile(stream, job.filePath, job.opts)
+				// We need to wait for it to complete. internalShadow keeps the
+				// xfer-* progress out of ts.transfers so the CLI shows one
+				// row per logical transfer (q-* only) instead of q-* + xfer-*.
+				sendOpts := job.opts
+				sendOpts.internalShadow = true
+				sendProgress, sendErr := ts.SendFile(stream, job.filePath, sendOpts)
 				if sendErr != nil {
 					finalErr = sendErr
 				} else {
