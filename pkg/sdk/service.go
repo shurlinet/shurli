@@ -95,6 +95,7 @@ type ServiceRegistry struct {
 	relayGrantChecker RelayGrantChecker // set once at startup; nil = no relay grant cache check
 	tokenVerifier     TokenVerifier     // set once at startup; nil = no token verification (Phase B)
 	tokenLookup       TokenLookup       // set once at startup; nil = no token presentation (Phase B)
+	lanRegistry       *LANRegistry      // set once at startup; nil = LAN classification uses Direct fallback
 	sealed            int32             // atomic; 1 after Seal() - Set* panics if sealed
 	mu                sync.RWMutex      // protects services and middleware; NOT callbacks (set-once)
 }
@@ -200,8 +201,18 @@ func (r *ServiceRegistry) handleServiceStreamInner(svc *Service, s network.Strea
 	}
 
 	// Plugin policy enforcement (transport + peer restrictions).
+	//
+	// VerifiedTransport (not ClassifyTransport) is used so that routed-private
+	// IPv4 addresses (Starlink CGNAT, Docker, VPN, multi-WAN WAN2 cross-link)
+	// correctly classify as Direct, not LAN. Only mDNS-verified connections
+	// count as LAN for policy decisions.
 	if svc.Policy != nil {
-		transport := ClassifyTransport(s)
+		transport := VerifiedTransport(s, func(pid peer.ID) bool {
+			if r.lanRegistry == nil {
+				return false
+			}
+			return r.lanRegistry.HasVerifiedLANConn(r.host, pid)
+		})
 		if !svc.Policy.TransportAllowed(transport) {
 			// Grant override: a transport-caveated grant (or plain grant under
 			// Phase A) can unlock any transport the plugin policy restricts,
@@ -475,6 +486,20 @@ func (r *ServiceRegistry) SetTokenLookup(l TokenLookup) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tokenLookup = l
+}
+
+// SetLANRegistry wires the mDNS-verified LAN registry so that plugin-policy
+// transport classification uses verified-LAN detection instead of bare
+// RFC 1918 matching. Routed-private IPs (Starlink CGNAT, Docker, VPN, or
+// multi-WAN routed-private subnets) correctly classify as Direct when the
+// peer has no mDNS-verified connection. Must be called before Seal().
+func (r *ServiceRegistry) SetLANRegistry(lanReg *LANRegistry) {
+	if atomic.LoadInt32(&r.sealed) != 0 {
+		panic("ServiceRegistry: SetLANRegistry called after Seal()")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lanRegistry = lanReg
 }
 
 // Use adds stream middleware that wraps every inbound stream handler.

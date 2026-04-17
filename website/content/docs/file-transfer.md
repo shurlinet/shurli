@@ -350,7 +350,7 @@ type TransferConfig struct {
     QueueHMACKey      []byte              // 32-byte HMAC key for queue integrity
     GrantChecker      sdk.RelayGrantChecker // relay grant checker for budget/time checks
     ConnsToPeer       func(peer.ID) []network.Conn // returns connections to a peer
-    IsLANPeer         func(peer.ID) bool  // true if peer discovered via mDNS
+    HasVerifiedLANConn func(peer.ID) bool // true if peer has live mDNS-verified LAN connection
 }
 ```
 

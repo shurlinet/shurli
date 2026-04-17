@@ -403,6 +403,10 @@ Shurli is developed with significant AI assistance (Claude). All AI-generated co
 **Other:**
 - [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) v3.0.1 - Configuration
 
+## Acknowledgments
+
+- [Laurie Kirk](https://github.com/LaurieWired) (LaurieWired) - Hedged connection racing pattern adapted from her [Tail Slayer](https://github.com/LaurieWired/tailslayer) research ([video](https://www.youtube.com/watch?v=KKbgulTp3FE)), which applied Google's ["The Tail at Scale"](https://dl.acm.org/doi/10.1145/2408776.2408794) concept to DRAM refresh stalls. Shurli applies the same principle to relay fallback, bootstrap connections, and multi-peer transfers.
+
 ## License
 
 MIT

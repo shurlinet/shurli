@@ -89,8 +89,10 @@ func (p *PluginPolicy) TransportAllowed(t TransportType) bool {
 //   - Everything else is TransportDirect.
 //
 // Note: two LAN machines connected via public IPv6 will be classified as
-// TransportDirect. Use ClassifyPeerTransport when you have access to the
-// host network and need LAN detection across all connections to a peer.
+// TransportDirect here. Use VerifiedTransport for trust-making decisions —
+// it catches mDNS-verified LAN peers regardless of the stream's IP family,
+// and correctly handles routed-private addresses (CGNAT, Docker, VPN,
+// multi-WAN cross-links) that this bare-mask check misclassifies.
 func ClassifyTransport(s network.Stream) TransportType {
 	if s.Conn().Stat().Limited {
 		return TransportRelay
@@ -109,19 +111,43 @@ func ClassifyTransport(s network.Stream) TransportType {
 	return TransportDirect
 }
 
-// ClassifyPeerTransport is like ClassifyTransport but also checks all other
-// connections to the same peer. If any connection uses a private IPv4 address
-// (i.e. the peer is on the same LAN), the result is TransportLAN even if the
-// stream itself uses a public IPv6 address. This prevents erasure coding and
-// other WAN-only behaviors between two LAN machines connected via public IPv6.
-func ClassifyPeerTransport(s network.Stream, net network.Network) TransportType {
-	t := ClassifyTransport(s)
-	if t != TransportDirect {
-		return t
+// VerifiedTransport classifies a stream using mDNS-verified LAN detection.
+//
+// Precedence:
+//   - Limited stream (relay circuit) -> TransportRelay
+//   - Loopback or link-local remote -> TransportLAN (cannot traverse routers)
+//   - hasVerifiedLANConn returns true for the peer -> TransportLAN
+//   - Otherwise -> TransportDirect
+//
+// This is the correct classifier for any trust-making decision (transport
+// policy enforcement, erasure coding, bandwidth budgets). Unlike
+// ClassifyTransport, it does NOT classify routed private IPv4 as LAN just
+// because it matches RFC 1918 — bare-mask misclassifies Starlink CGNAT
+// (10.1.x.x), Docker bridges (172.17-21.x.x), VPN tunnels, and multi-WAN
+// routed-private subnets as LAN. Only mDNS-verified connections count
+// for private-range addresses; mDNS multicast is link-local and cannot
+// traverse routers, so its reception is the only reliable proof of LAN
+// proximity.
+//
+// Loopback (127.0.0.0/8, ::1) and link-local (169.254.0.0/16, fe80::/10)
+// are treated as LAN without verification — by definition they cannot
+// cross a router, so they are not in the bare-RFC1918 false-positive trap.
+//
+// A nil hasVerifiedLANConn still classifies loopback and link-local as
+// LAN; for routable private addresses it falls back to TransportDirect
+// (conservative: treats every non-verified peer as WAN).
+func VerifiedTransport(s network.Stream, hasVerifiedLANConn func(peer.ID) bool) TransportType {
+	if s.Conn().Stat().Limited {
+		return TransportRelay
 	}
-
-	// Stream is on a public IP. Check if the peer has any LAN connection.
-	if AnyConnIsLAN(net.ConnsToPeer(s.Conn().RemotePeer())) {
+	// Loopback and link-local cannot traverse routers; always LAN.
+	first, _ := ma.SplitFirst(s.Conn().RemoteMultiaddr())
+	if first != nil {
+		if ip := net.ParseIP(first.Value()); ip != nil && (ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+			return TransportLAN
+		}
+	}
+	if hasVerifiedLANConn != nil && hasVerifiedLANConn(s.Conn().RemotePeer()) {
 		return TransportLAN
 	}
 	return TransportDirect

@@ -49,7 +49,7 @@ All rejections are silent (stream reset, no error message). Silent rejection pre
 
 No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Queue depth doesn't prevent bandwidth exhaustion. Temp budget doesn't prevent in-memory queue flooding. Each layer catches what the others miss. The configuration defaults are tuned for a personal network (3-20 peers) but scale to larger deployments.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` (defense subsystem initialization, lines 660-780)
+**Reference**: `plugins/filetransfer/transfer.go` (defense subsystem initialization, lines 660-780)
 
 ---
 
@@ -85,7 +85,7 @@ The queue file contains file paths. Without integrity verification, a tampered q
 
 Encryption would hide the file paths, but the daemon needs to read them to re-submit. The paths are local-only (never sent to peers). HMAC integrity is the right tool: verify authenticity without hiding content from the legitimate reader.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
+**Reference**: `plugins/filetransfer/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
 
 ---
 
@@ -122,7 +122,7 @@ Any single control could have a bypass. The combination of five controls means a
 
 Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
+**Reference**: `plugins/filetransfer/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
 
 ---
 
@@ -151,7 +151,7 @@ Bitfield-based checkpoint tracking:
 
 Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allows out-of-order chunk delivery, which is essential for: parallel streams (ADR-R06), multi-peer download (ADR-R05), and network-interrupted transfers where chunks arrive from different paths at different times.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer_resume.go` (bitfield), `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` (checkpoint save/load)
+**Reference**: `plugins/filetransfer/transfer_resume.go` (bitfield), `plugins/filetransfer/transfer.go` (checkpoint save/load)
 
 ---
 
@@ -182,7 +182,7 @@ Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pen
 
 100 queued transfers to a single peer is generous for real use (batch file operations) but prevents one peer from consuming all 1000 slots. Other peers can always enqueue their transfers.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/share.go` (TransferQueue.Enqueue), `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` (runQueueProcessor cleanup ticker)
+**Reference**: `plugins/filetransfer/share.go` (TransferQueue.Enqueue), `plugins/filetransfer/transfer.go` (runQueueProcessor cleanup ticker)
 
 ---
 
@@ -239,7 +239,7 @@ Additionally, the relay ACL requires an active time-limited grant for at least o
 
 Auto-granting relay data access to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer, and for what duration. Time-limited grants enforce this without requiring manual revocation.
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/share.go` (plugin registration), `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl.go` (AllowConnect)
+**Reference**: `plugins/filetransfer/share.go` (plugin registration), `https://github.com/shurlinet/shurli/blob/main/internal/relay/circuit_acl.go` (AllowConnect)
 
 ---
 

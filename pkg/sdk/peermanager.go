@@ -1356,31 +1356,6 @@ func allConnsRelayed(conns []network.Conn) bool {
 	return true
 }
 
-// AnyConnIsLAN returns true if at least one non-relay connection uses a
-// private IPv4 remote address (RFC 1918 / RFC 6598). This distinguishes
-// "direct via LAN" from "direct via internet IPv6". On networks with
-// client isolation (e.g. satellite routers), an IPv6 direct connection may be
-// silently dead while a private IPv4 LAN path works fine. mDNS should
-// establish a LAN connection even when a direct (but non-LAN) connection
-// already exists.
-func AnyConnIsLAN(conns []network.Conn) bool {
-	for _, c := range conns {
-		if c.Stat().Limited {
-			continue
-		}
-		remoteMA := c.RemoteMultiaddr()
-		first, _ := ma.SplitFirst(remoteMA)
-		if first == nil || first.Protocol().Code != ma.P_IP4 {
-			continue
-		}
-		ip := net.ParseIP(first.Value())
-		if ip != nil && isPrivateIPv4(ip) {
-			return true
-		}
-	}
-	return false
-}
-
 // IsLANMultiaddr returns true if the multiaddr starts with a private IPv4
 // address (RFC 1918 / RFC 6598). Used to distinguish LAN addresses from
 // public internet paths. Relay circuit addresses return false.
@@ -1416,64 +1391,6 @@ func StripNonLANAddrs(h host.Host, pid peer.ID) {
 	if len(keepers) > 0 {
 		h.Peerstore().AddAddrs(pid, keepers, discoveredAddrTTL)
 	}
-}
-
-// HasLiveLANConnection returns true if the peer has at least one non-relay
-// connection that (a) uses a private IPv4 remote address and (b) whose local
-// IP is still on an active interface. This is the zombie-safe version of
-// AnyConnIsLAN — it prevents a zombie LAN connection (interface unplugged but
-// TCP socket lingering) from blocking non-LAN fallback dials (BUG-MP-4 C1).
-func HasLiveLANConnection(h host.Host, pid peer.ID) bool {
-	conns := h.Network().ConnsToPeer(pid)
-	if len(conns) == 0 {
-		return false
-	}
-
-	// Build active IPs from all up interfaces.
-	activeIPs := make(map[string]struct{})
-	if ifaces, err := net.Interfaces(); err == nil {
-		for _, iface := range ifaces {
-			if iface.Flags&net.FlagUp == 0 {
-				continue
-			}
-			addrs, _ := iface.Addrs()
-			for _, a := range addrs {
-				ipNet, ok := a.(*net.IPNet)
-				if !ok {
-					continue
-				}
-				activeIPs[ipNet.IP.String()] = struct{}{}
-			}
-		}
-	}
-
-	for _, c := range conns {
-		if c.Stat().Limited {
-			continue
-		}
-		// Check remote is private IPv4 (LAN).
-		remoteMA := c.RemoteMultiaddr()
-		if !IsLANMultiaddr(remoteMA) {
-			continue
-		}
-		// Check local IP is on an active interface (not zombie).
-		// QUIC listeners bind to 0.0.0.0 (wildcard), so the local address
-		// reported by the connection is always 0.0.0.0, never a specific
-		// interface IP. For wildcard addresses, we trust the remote IP check
-		// alone — if the remote is private IPv4 and the connection exists,
-		// the kernel routed it through some active interface (BUG-MP-5).
-		localIP := extractIPFromMultiaddrObj(c.LocalMultiaddr())
-		if localIP == "" {
-			continue
-		}
-		if localIP == "0.0.0.0" || localIP == "::" {
-			return true // wildcard listener — remote LAN check is sufficient
-		}
-		if _, ok := activeIPs[localIP]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // hasLiveDirectConnection returns true if the peer has at least one
@@ -1646,8 +1563,11 @@ func (r *LANRegistry) IsVerifiedLAN(pid peer.ID, remoteAddr ma.Multiaddr) bool {
 
 // HasVerifiedLANConn returns true if the peer has at least one live
 // non-relay connection whose remote IP is mDNS-verified. This is the
-// authoritative "does this peer have a real LAN connection?" check —
-// replaces HasLiveLANConnection for trust decisions.
+// authoritative "does this peer have a real LAN connection?" check for
+// all trust-making code (RS gates, bandwidth budgets, transport policy).
+// Bare RFC 1918 matches misclassify CGNAT, Docker, VPN, and multi-WAN
+// routed-private subnets as LAN — only mDNS multicast reception proves
+// link-local proximity.
 func (r *LANRegistry) HasVerifiedLANConn(h host.Host, pid peer.ID) bool {
 	conns := h.Network().ConnsToPeer(pid)
 	if len(conns) == 0 {

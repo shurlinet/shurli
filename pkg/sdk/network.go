@@ -503,7 +503,25 @@ func New(cfg *Config) (*Network, error) {
 		ipv6BlackHole:   ipv6BH,
 	}
 
+	// Share the mDNS-verified LAN registry with the service registry so that
+	// plugin-policy transport classification uses verified-LAN detection.
+	net.serviceRegistry.SetLANRegistry(lanReg)
+
 	return net, nil
+}
+
+// HasVerifiedLANConn returns true if the peer has at least one live non-relay
+// connection whose remote IP is mDNS-verified as being on the local LAN.
+// Nil-safe convenience wrapper over LANRegistry.HasVerifiedLANConn; callers
+// (service registry, plugin-context wiring) don't need to know about the
+// registry type or host binding.
+//
+// Returns false if the network is nil or the registry has not been wired.
+func (n *Network) HasVerifiedLANConn(id peer.ID) bool {
+	if n == nil || n.lanRegistry == nil {
+		return false
+	}
+	return n.lanRegistry.HasVerifiedLANConn(n.host, id)
 }
 
 // sourceBindDialerForAddr returns a source-bound TCP dialer for global IPv6
@@ -966,8 +984,12 @@ func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceN
 
 	// Post-dial transport verification: the dialer may have chosen a path
 	// that the policy forbids (e.g., relay fallback despite direct attempt).
+	//
+	// VerifiedTransport is used instead of ClassifyTransport so routed-private
+	// IPv4 paths (CGNAT, Docker, VPN, multi-WAN cross-links) correctly
+	// classify as Direct rather than falsely passing a LAN-only policy gate.
 	if svc.Policy != nil {
-		transport := ClassifyTransport(s)
+		transport := VerifiedTransport(s, n.HasVerifiedLANConn)
 		if !svc.Policy.TransportAllowed(transport) {
 			relayGranted := false
 			if transport == TransportRelay {
@@ -1030,7 +1052,10 @@ func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, se
 
 	// Pre-stream transport check (R4-I2): check BEFORE opening stream, not after.
 	// This avoids opening+resetting a stream when transport is disallowed.
-	transport := classifyConnTransport(conn)
+	// Verified-LAN classification: routed-private addresses (CGNAT, Docker,
+	// VPN, multi-WAN cross-links) correctly classify as Direct rather than
+	// LAN, matching the inbound policy check in service.go.
+	transport := verifiedClassifyConnTransport(conn, n.HasVerifiedLANConn)
 	if svc.Policy != nil && !svc.Policy.TransportAllowed(transport) {
 		// Check relay grant exceptions (same logic as OpenPluginStream post-dial check).
 		if transport == TransportRelay {
@@ -1095,20 +1120,32 @@ func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, se
 	return s, nil
 }
 
-// classifyConnTransport determines the TransportType for a connection.
-// Same logic as ClassifyTransport but takes a Conn instead of a Stream.
-// Used by OpenPluginStreamOnConn for pre-stream transport policy checks.
-func classifyConnTransport(conn network.Conn) TransportType {
+// verifiedClassifyConnTransport determines the TransportType for a
+// connection using mDNS-verified LAN detection. Mirrors VerifiedTransport
+// but takes a Conn instead of a Stream. Used by OpenPluginStreamOnConn
+// for pre-stream transport policy checks (TS-4 hedged streams + any
+// caller that opens a stream on a chosen connection).
+//
+// Precedence:
+//   - Limited connection (relay circuit) -> TransportRelay
+//   - Loopback or link-local remote -> TransportLAN (cannot traverse routers)
+//   - mDNS-verified LAN connection for the peer -> TransportLAN
+//   - Otherwise -> TransportDirect
+//
+// A nil hasVerifiedLANConn still classifies loopback and link-local as LAN
+// but treats every other non-relay connection as Direct (conservative).
+func verifiedClassifyConnTransport(conn network.Conn, hasVerifiedLANConn func(peer.ID) bool) TransportType {
 	if conn.Stat().Limited {
 		return TransportRelay
 	}
-	addr := conn.RemoteMultiaddr()
-	first, _ := ma.SplitFirst(addr)
+	first, _ := ma.SplitFirst(conn.RemoteMultiaddr())
 	if first != nil {
-		ip := net.ParseIP(first.Value())
-		if ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+		if ip := net.ParseIP(first.Value()); ip != nil && (ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
 			return TransportLAN
 		}
+	}
+	if hasVerifiedLANConn != nil && hasVerifiedLANConn(conn.RemotePeer()) {
+		return TransportLAN
 	}
 	return TransportDirect
 }

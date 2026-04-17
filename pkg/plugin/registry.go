@@ -225,8 +225,8 @@ func (r *Registry) Register(p Plugin) error {
 		scoreResolver:  scoreResolver,
 		grantChecker:      grantChecker,
 		peerAttrFunc:      peerAttrFunc,
-		relayGrantChecker: r.provider.RelayGrantChecker,
-		isLANPeer:         r.provider.IsLANPeer,
+		relayGrantChecker:  r.provider.RelayGrantChecker,
+		hasVerifiedLANConn: r.provider.HasVerifiedLANConn,
 	}
 
 	entry := &pluginEntry{
