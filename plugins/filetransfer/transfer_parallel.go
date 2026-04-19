@@ -772,25 +772,28 @@ verify:
 	if ctrlResult.erasure != nil {
 		corrupted := state.corruptedList()
 		if len(corrupted) > 0 {
+			// Use totalParityReceived (monotonic wire counter) for mismatch
+			// check, not current slot sizes which undercount after eager
+			// reconstruction freed parity. [OC-F14]
 			state.mu.Lock()
-			actualParity := len(state.parityData)
+			actualParity := state.totalParityReceived
 			state.mu.Unlock()
 			if actualParity != ctrlResult.erasure.ParityCount {
 				saveCheckpointOnError()
 				return zero, fmt.Errorf("erasure parity count mismatch: declared %d, got %d, cannot reconstruct %d corrupted chunks",
 					ctrlResult.erasure.ParityCount, actualParity, len(corrupted))
 			}
-			overhead := overheadFromPerMille(ctrlResult.erasure.OverheadPerMille)
-			if rsErr := ts.rsReconstruct(state, chunkCount, ctrlResult.erasure.StripeSize, overhead, corrupted); rsErr != nil {
+			// stripeSize and overhead come from the header (stored in state
+			// by initPerStripeState), not from the trailer. [Option C]
+			if rsErr := ts.rsReconstruct(state, chunkCount, state.stripeSize, state.overhead, corrupted); rsErr != nil {
 				saveCheckpointOnError()
 				return zero, fmt.Errorf("erasure reconstruction: %w", rsErr)
 			}
 		} else {
-			// No corruption needing recovery — intact transfers are free to
-			// tolerate a declared/actual parity mismatch. Log at Warn for
-			// operator visibility; do not fail the transfer.
+			// No corruption needing recovery — intact transfers tolerate
+			// declared/actual parity mismatch. Log at Warn.
 			state.mu.Lock()
-			actualParity := len(state.parityData)
+			actualParity := state.totalParityReceived
 			state.mu.Unlock()
 			if actualParity != ctrlResult.erasure.ParityCount {
 				slog.Warn("file-transfer: trailer parity count mismatch (no reconstruction needed)",
@@ -798,6 +801,19 @@ verify:
 					"actual", actualParity,
 					"transfer_id", progress.ID)
 			}
+			// Clean transfer: free any remaining parity slots. Eager
+			// reconstruction already freed full stripes; this catches the
+			// last partial stripe's parity.
+			state.mu.Lock()
+			for _, slot := range state.paritySlots {
+				if !slot.done {
+					state.totalParityBytes -= slot.bytes
+					slot.parity = nil
+					slot.bytes = 0
+					slot.done = true
+				}
+			}
+			state.mu.Unlock()
 		}
 	}
 

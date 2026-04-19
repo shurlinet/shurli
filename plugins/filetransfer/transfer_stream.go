@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/klauspost/reedsolomon"
 	"github.com/zeebo/blake3"
 	"golang.org/x/time/rate"
 )
@@ -364,7 +365,7 @@ func sortFileTable(files []fileEntry, filePaths []string) error {
 // IMPORTANT: Caller must call sortFileTable(files, filePaths) BEFORE writeHeader
 // to ensure deterministic ordering (I7) and synchronized file table / path arrays.
 // transferID is a random 32-byte session identifier for worker stream routing.
-func writeHeader(w io.Writer, files []fileEntry, flags uint8, totalSize int64, transferID [32]byte) error {
+func writeHeader(w io.Writer, files []fileEntry, flags uint8, totalSize int64, transferID [32]byte, erasure *erasureHeaderParams) error {
 	if len(files) == 0 {
 		return fmt.Errorf("empty file table")
 	}
@@ -438,13 +439,26 @@ func writeHeader(w io.Writer, files []fileEntry, flags uint8, totalSize int64, t
 		}
 	}
 
+	// Erasure header fields (Option C, OC-F16): stripeSize(2) + overheadPerMille(2)
+	// written after the file table when flagErasureCoded is set. Enables the
+	// receiver to initialize per-stripe parity tracking before any chunks arrive.
+	if erasure != nil && flags&flagErasureCoded != 0 {
+		var ehdr [4]byte
+		binary.BigEndian.PutUint16(ehdr[0:2], uint16(erasure.StripeSize))
+		binary.BigEndian.PutUint16(ehdr[2:4], erasure.OverheadPerMille)
+		if _, err := w.Write(ehdr[:]); err != nil {
+			return fmt.Errorf("write erasure header: %w", err)
+		}
+	}
+
 	return nil
 }
 
 // readHeader reads an SHFT streaming header from r.
-// Returns the file table, total size, flags, transfer ID, and precomputed cumulative offsets.
+// Returns the file table, total size, flags, transfer ID, precomputed
+// cumulative offsets, and erasure header params (nil when no erasure).
 // Wraps reader in LimitedReader to prevent header bomb attacks (R3-SEC3).
-func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, error) {
+func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, *erasureHeaderParams, error) {
 	var zeroID [32]byte
 
 	// Wrap in LimitedReader to enforce maxHeaderSize during parsing (R3-SEC3).
@@ -453,15 +467,15 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 	// Read prefix: magic(4) + version(1) + flags(1) + fileCount(2) + totalSize(8) + transferID(32).
 	var prefix [48]byte
 	if _, err := io.ReadFull(lr, prefix[:]); err != nil {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("read header prefix: %w", err)
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read header prefix: %w", err)
 	}
 
 	if prefix[0] != shftMagic0 || prefix[1] != shftMagic1 ||
 		prefix[2] != shftMagic2 || prefix[3] != shftMagic3 {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("invalid magic bytes: not SHFT")
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("invalid magic bytes: not SHFT")
 	}
 	if prefix[4] != shftVersion {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("unsupported SHFT version: %d (expected %d)", prefix[4], shftVersion)
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("unsupported SHFT version: %d (expected %d)", prefix[4], shftVersion)
 	}
 
 	flags := prefix[5]
@@ -471,13 +485,13 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 	copy(transferID[:], prefix[16:48])
 
 	if fileCount == 0 {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("empty file table")
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("empty file table")
 	}
 	if fileCount > maxFileCount {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("too many files: %d (max %d)", fileCount, maxFileCount)
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("too many files: %d (max %d)", fileCount, maxFileCount)
 	}
 	if totalSize < 0 || totalSize > maxTotalTransferSize {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("invalid total size: %d", totalSize)
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("invalid total size: %d", totalSize)
 	}
 
 	// Read file table from LimitedReader.
@@ -489,34 +503,34 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 	for i := 0; i < fileCount; i++ {
 		var pathLenBuf [2]byte
 		if _, err := io.ReadFull(lr, pathLenBuf[:]); err != nil {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d path length: %w", i, err)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d path length: %w", i, err)
 		}
 		pathLen := int(binary.BigEndian.Uint16(pathLenBuf[:]))
 		if pathLen > maxFilenameLen {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("file %d path too long: %d", i, pathLen)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("file %d path too long: %d", i, pathLen)
 		}
 
 		pathBuf := make([]byte, pathLen)
 		if _, err := io.ReadFull(lr, pathBuf); err != nil {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d path: %w", i, err)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d path: %w", i, err)
 		}
 
 		var sizeBuf [8]byte
 		if _, err := io.ReadFull(lr, sizeBuf[:]); err != nil {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d size: %w", i, err)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d size: %w", i, err)
 		}
 		fSize := int64(binary.BigEndian.Uint64(sizeBuf[:]))
 
 		// Per-file size validation (R4-IMP1).
 		// Check fSize >= 0: uint64 > MaxInt64 wraps to negative int64.
 		if fSize < 0 || fSize > maxFileSize {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("file %d invalid size: %d", i, fSize)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("file %d invalid size: %d", i, fSize)
 		}
 
 		// Read metadata flags (F3).
 		var metaBuf [1]byte
 		if _, err := io.ReadFull(lr, metaBuf[:]); err != nil {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d meta flags: %w", i, err)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d meta flags: %w", i, err)
 		}
 		metaFlags := metaBuf[0]
 
@@ -524,7 +538,7 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 		if metaFlags&metaHasMode != 0 {
 			var modeBuf [4]byte
 			if _, err := io.ReadFull(lr, modeBuf[:]); err != nil {
-				return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d mode: %w", i, err)
+				return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d mode: %w", i, err)
 			}
 			mode = binary.BigEndian.Uint32(modeBuf[:])
 		}
@@ -533,7 +547,7 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 		if metaFlags&metaHasMtime != 0 {
 			var mtimeBuf [8]byte
 			if _, err := io.ReadFull(lr, mtimeBuf[:]); err != nil {
-				return nil, 0, 0, zeroID, nil, fmt.Errorf("read file %d mtime: %w", i, err)
+				return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read file %d mtime: %w", i, err)
 			}
 			mtime = int64(binary.BigEndian.Uint64(mtimeBuf[:]))
 		}
@@ -541,7 +555,7 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 		// Sanitize path.
 		sanitized := sanitizeRelativePath(string(pathBuf))
 		if sanitized == "" {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("file %d path empty after sanitization", i)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("file %d path empty after sanitization", i)
 		}
 
 		// Duplicate path detection (I10) + case-insensitive on darwin/windows (R3-SEC7).
@@ -550,7 +564,7 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 			pathKey = strings.ToLower(sanitized)
 		}
 		if seenPaths[pathKey] {
-			return nil, 0, 0, zeroID, nil, fmt.Errorf("duplicate path in file table: %s (file %d)", sanitized, i)
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("duplicate path in file table: %s (file %d)", sanitized, i)
 		}
 		seenPaths[pathKey] = true
 
@@ -566,13 +580,38 @@ func readHeader(r io.Reader) ([]fileEntry, int64, uint8, [32]byte, []int64, erro
 
 	// Cross-check: sum of file sizes should match totalSize.
 	if sumSize != totalSize {
-		return nil, 0, 0, zeroID, nil, fmt.Errorf("file sizes sum %d does not match header totalSize %d", sumSize, totalSize)
+		return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("file sizes sum %d does not match header totalSize %d", sumSize, totalSize)
 	}
 
 	// Precompute cumulative offsets for globalToLocal lookups.
 	cumOffsets := computeCumulativeOffsets(files)
 
-	return files, totalSize, flags, transferID, cumOffsets, nil
+	// Read erasure header params if flagErasureCoded is set (Option C, OC-F41).
+	// Placed after file table, conditional on the flag. Validates bounds
+	// identically to the old readErasureManifest to block malicious values.
+	var ehdr *erasureHeaderParams
+	if flags&flagErasureCoded != 0 {
+		var ehdrBuf [4]byte
+		if _, err := io.ReadFull(lr, ehdrBuf[:]); err != nil {
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("read erasure header: %w", err)
+		}
+		stripeSize := int(binary.BigEndian.Uint16(ehdrBuf[0:2]))
+		overheadPerMille := binary.BigEndian.Uint16(ehdrBuf[2:4])
+
+		if stripeSize < minStripeSize || stripeSize > maxAcceptedStripeSize {
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("invalid stripe size: %d (must be %d..%d)", stripeSize, minStripeSize, maxAcceptedStripeSize)
+		}
+		maxPerMille := uint16(maxParityOverhead * 1000)
+		if overheadPerMille == 0 || overheadPerMille > maxPerMille {
+			return nil, 0, 0, zeroID, nil, nil, fmt.Errorf("invalid erasure overhead per-mille: %d (must be 1..%d)", overheadPerMille, maxPerMille)
+		}
+		ehdr = &erasureHeaderParams{
+			StripeSize:       stripeSize,
+			OverheadPerMille: overheadPerMille,
+		}
+	}
+
+	return files, totalSize, flags, transferID, cumOffsets, ehdr, nil
 }
 
 // --- Streaming wire format: Chunk frame ---
@@ -743,7 +782,7 @@ const (
 //
 //	msgTrailer(1) + flags(1) + chunkCount(4) + rootHash(32)
 //	[if trailerFlagSparseHashes: + missingHashCount(4) + [chunkIdx(4)+hash(32)]*N]
-//	[if erasure: + stripeSize(2) + parityCount(4) + parityHashes(N*32) + paritySizes(N*4)]
+//	[if erasure: + parityCount(4) + parityHashes(N*32) + paritySizes(N*4)]
 func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes map[int][32]byte, erasure *erasureTrailer) error {
 	var flags byte
 	if len(sparseHashes) > 0 {
@@ -784,10 +823,11 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 		}
 	}
 
-	// Erasure fields follow if present.
+	// Erasure fields follow if present. stripeSize + overheadPerMille are in
+	// the header (Option C); trailer carries only parityCount + hashes + sizes.
 	if erasure != nil {
-		if err := writeErasureManifest(w, erasure.StripeSize, erasure.ParityCount,
-			erasure.OverheadPerMille, erasure.ParityHashes, erasure.ParitySizes); err != nil {
+		if err := writeErasureManifest(w, erasure.ParityCount,
+			erasure.ParityHashes, erasure.ParitySizes); err != nil {
 			return fmt.Errorf("write erasure trailer: %w", err)
 		}
 	}
@@ -797,20 +837,13 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 
 // erasureTrailer holds erasure coding metadata for the trailer.
 //
-// OverheadPerMille carries the sender's configured erasure overhead expressed
-// in per-mille (1/1000). Default 100 = 10%. The receiver's rsReconstruct must
-// use this value when deriving per-stripe parity counts; hardcoding 0.1 (the
-// default) silently breaks reconstruction when users configure
-// erasure_overhead: 0.15 or 0.20 because the parityOffset walk diverges from
-// the sender's actual stripe-to-parity mapping. Bounded to
-// [1, maxParityOverhead*1000] at readErasureManifest to block
-// degenerate-zero and over-half configurations. [Batch 2b audit round 2]
+// StripeSize and OverheadPerMille moved to the SHFT header (Option C, OC-F28)
+// so the receiver can initialize per-stripe parity tracking before any chunks
+// arrive. The trailer retains only parity count + per-parity hashes and sizes.
 type erasureTrailer struct {
-	StripeSize       int
-	ParityCount      int
-	OverheadPerMille uint16
-	ParityHashes     [][32]byte
-	ParitySizes      []uint32
+	ParityCount  int
+	ParityHashes [][32]byte
+	ParitySizes  []uint32
 }
 
 // readTrailer reads the trailer after the msgTrailer byte has been consumed
@@ -862,16 +895,14 @@ func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byt
 	}
 
 	if hasErasure {
-		ss, opm, ph, ps, readErr := readErasureManifest(r)
+		ph, ps, readErr := readErasureManifest(r)
 		if readErr != nil {
 			return 0, [32]byte{}, nil, nil, fmt.Errorf("read erasure trailer: %w", readErr)
 		}
 		erasure = &erasureTrailer{
-			StripeSize:       ss,
-			ParityCount:      len(ph),
-			OverheadPerMille: opm,
-			ParityHashes:     ph,
-			ParitySizes:      ps,
+			ParityCount:  len(ph),
+			ParityHashes: ph,
+			ParitySizes:  ps,
 		}
 	}
 
@@ -1101,21 +1132,29 @@ type streamReceiveState struct {
 	// Destination root for symlink-safe file operations (R3-SEC2).
 	destRoot *os.Root
 
-	// Parity chunk storage. Parity chunks (fileIdx == parityFileIdx) are accumulated
-	// here instead of being written to temp files. Used for RS reconstruction.
-	// Budget enforced: max parityCount entries, max parityBytes total.
-	parityData  map[int][]byte // parityIdx -> raw parity data
-	parityBytes int64          // cumulative parity bytes stored (memory budget)
+	// Per-stripe RS parity tracking (Option C). Replaces the old flat
+	// parityData map with per-stripe slots bounded by a dynamic inflight
+	// cap. Memory becomes O(inflight_stripes x parityPerStripe x maxChunk)
+	// instead of O(totalParity). [OC-F53 decoupled tracking]
+	stripeSize          int                // from header (0 if no erasure)
+	overhead            float64            // from header (0 if no erasure)
+	parityPerFullStripe int                // stripeParityCount(stripeSize, overhead)
+	maxInflightStripes  int                // dynamic cap from budget formula (OC-F10)
+	stripeDataCounts    map[int]int        // stripe -> count of data chunks arrived
+	paritySlots         map[int]*paritySlot // stripe -> parity storage (bounded)
+	totalParityBytes    int64              // aggregate across all inflight slots
+	totalParityReceived int                // monotonic wire counter (OC-F14)
+	rsFullStripeEnc     reedsolomon.Encoder // reused across full-stripe reconstructions (R5)
 
 	// Corrupted chunk tracking (Batch 2b). Populated when processIncomingChunk
 	// sees a hash mismatch on a transfer that carries erasure parity. The
 	// chunk's claimed hash + decompSize are already in hashes/sizes via
 	// recordChunk, but its bytes were rejected (not written to tmpFiles).
-	// rsReconstruct consumes this set pre-Merkle, recovers the bytes from
-	// parityData, verifies against the claimed hash, and writes via
+	// rsReconstruct / reconstructSingleStripe consumes this set, recovers
+	// bytes from parity, verifies against the claimed hash, and writes via
 	// writeChunkGlobal. Only populated when hasErasure is true; on a transfer
 	// without parity a hash mismatch is still a hard fail at receive time.
-	// [B2-F32]
+	// [B2-F32, Option C]
 	corruptedChunks map[int]bool
 
 	// Per-file temp files and state.
@@ -1140,6 +1179,58 @@ func newStreamReceiveState(files []fileEntry, totalSize int64, flags uint8, cumO
 		hashes:     make(map[int][32]byte, 1024),
 		sizes:      make(map[int]uint32, 1024),
 	}
+}
+
+// initPerStripeState initializes per-stripe parity tracking from the erasure
+// header params. Must be called after readHeader when flagErasureCoded is set
+// and before any chunks are processed. If resuming from checkpoint, call this
+// AFTER restoreReceiveState so the pre-computed stripeDataCounts reflect
+// already-received chunks. [Option C, OC-F5/F24]
+func (s *streamReceiveState) initPerStripeState(ehdr *erasureHeaderParams) {
+	s.stripeSize = ehdr.StripeSize
+	s.overhead = overheadFromPerMille(ehdr.OverheadPerMille)
+	s.parityPerFullStripe = stripeParityCount(s.stripeSize, s.overhead)
+	s.stripeDataCounts = make(map[int]int)
+	s.paritySlots = make(map[int]*paritySlot)
+
+	// Dynamic inflight cap: max(2, min(8, budget / perStripeParity)).
+	// Self-adapts to overhead: overhead=0.1 -> 6, overhead=0.5 -> 2. [OC-F10]
+	perStripeParity := int64(s.parityPerFullStripe) * int64(maxDecompressedChunk)
+	if perStripeParity > 0 {
+		cap := int(maxParityBudgetBytes / perStripeParity)
+		if cap < 2 {
+			cap = 2
+		}
+		if cap > 8 {
+			cap = 8
+		}
+		s.maxInflightStripes = cap
+	} else {
+		s.maxInflightStripes = 8
+	}
+
+	// Reusable encoder for full stripes (R5). Partial last stripe creates
+	// its own encoder with different shard counts.
+	enc, err := reedsolomon.New(s.stripeSize, s.parityPerFullStripe)
+	if err == nil {
+		s.rsFullStripeEnc = enc
+	}
+
+	// Pre-compute stripeDataCounts from already-received chunks (OC-F5/F24).
+	// On resume, state.hashes is populated from the checkpoint. On fresh
+	// start, hashes is empty and this loop is a no-op. Corrupted chunks
+	// are excluded — they have hashes/sizes (from recordChunk) but their
+	// bytes were rejected and need retransmission/reconstruction.
+	// [Self-audit round 1 fix]
+	s.mu.Lock()
+	for chunkIdx := range s.hashes {
+		if s.corruptedChunks[chunkIdx] {
+			continue
+		}
+		stripeIdx := chunkIdx / s.stripeSize
+		s.stripeDataCounts[stripeIdx]++
+	}
+	s.mu.Unlock()
 }
 
 // recordChunk stores a chunk's hash and size for later Merkle root verification.
@@ -1587,11 +1678,7 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 	// Parity chunk detection (S1 fix). Parity chunks have fileIdx == parityFileIdx sentinel.
 	// They don't map to any file and must NOT be written via writeChunkGlobal.
 	if sc.fileIdx == parityFileIdx {
-		// [B2-F12] Bound parity chunkIdx to maxParityCount (= maxChunkCount/2).
-		// The erasureEncoder uses a 0-based global counter; any chunkIdx outside
-		// this range is either malicious or a bug. Without this check, a hostile
-		// sender could key parityData with arbitrarily large ints, producing
-		// sparse maps that confuse rsReconstruct index math.
+		// [B2-F12] Bound parity chunkIdx to maxParityCount.
 		if sc.chunkIdx < 0 || sc.chunkIdx >= maxParityCount {
 			return false, fmt.Errorf("parity chunk index %d out of range [0..%d)", sc.chunkIdx, maxParityCount)
 		}
@@ -1599,45 +1686,77 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 		if hash != sc.hash {
 			return false, fmt.Errorf("parity chunk %d hash mismatch", sc.chunkIdx)
 		}
+
+		// Per-stripe routing (Option C). Compute stripe from global parity index.
+		if s.parityPerFullStripe <= 0 {
+			return false, fmt.Errorf("parity chunk %d arrived but no stripe config", sc.chunkIdx)
+		}
+		stripeIdx := sc.chunkIdx / s.parityPerFullStripe
+		localIdx := sc.chunkIdx % s.parityPerFullStripe
+
+		// Validate stripe index (OC-F22).
+		maxStripeIdx := maxChunkCount/s.stripeSize + 1
+		if stripeIdx >= maxStripeIdx {
+			return false, fmt.Errorf("parity stripe index %d out of range (max %d)", stripeIdx, maxStripeIdx)
+		}
+
 		s.mu.Lock()
-		if s.parityData == nil {
-			s.parityData = make(map[int][]byte)
-		}
-		// [B2-F2] Reject duplicate parity chunkIdx. Parity is never legitimately
-		// resent; any duplicate is either a malicious flood (attempting to
-		// inflate parityBytes counter via overwrites that don't grow the map)
-		// or a protocol bug. Reject outright, do not overwrite.
-		if _, exists := s.parityData[sc.chunkIdx]; exists {
+		// Check if stripe is already done or mid-reconstruction (OC-F19).
+		// Late parity for a done stripe is silently dropped. Parity arriving
+		// during active reconstruction is also dropped — reconstructSingleStripe
+		// already has a snapshot of parity shards and won't see new entries.
+		// [Self-audit round 2 fix: added slot.reconstructing check]
+		slot := s.paritySlots[stripeIdx]
+		if slot != nil && (slot.done || slot.reconstructing) {
+			s.totalParityReceived++ // wire accounting (OC-F20)
 			s.mu.Unlock()
-			return false, fmt.Errorf("duplicate parity chunk %d", sc.chunkIdx)
+			return true, nil
 		}
-		// Enforce parity budget. Count bounded by maxParityCount. Bytes bounded
-		// by min(totalSize/2 + maxDecompressedChunk, maxParityBudgetBytes).
-		// [B2-F1] The declared totalSize can legitimately reach maxTotalTransferSize
-		// (10 TB), so totalSize/2 alone is NOT a meaningful bound — a malicious
-		// sender declaring a 10 TB transfer would otherwise get a 5 TB parity
-		// budget against receiver RAM. maxParityBudgetBytes hard-caps the worst
-		// case at 512 MB regardless of declared totalSize.
-		if len(s.parityData) >= maxParityCount {
+
+		// Inflight cap check — count active (not done) slots.
+		if slot == nil {
+			activeSlots := 0
+			for _, sl := range s.paritySlots {
+				if !sl.done {
+					activeSlots++
+				}
+			}
+			if activeSlots >= s.maxInflightStripes {
+				s.mu.Unlock()
+				return false, fmt.Errorf("parity inflight stripe limit %d exceeded", s.maxInflightStripes)
+			}
+			slot = &paritySlot{parity: make(map[int][]byte)}
+			s.paritySlots[stripeIdx] = slot
+		}
+
+		// Duplicate check within slot (B2-F2).
+		if _, exists := slot.parity[localIdx]; exists {
 			s.mu.Unlock()
-			return false, fmt.Errorf("parity chunk count %d exceeds limit %d", len(s.parityData), maxParityCount)
+			return false, fmt.Errorf("duplicate parity chunk %d (stripe %d)", sc.chunkIdx, stripeIdx)
 		}
-		parityBudget := s.totalSize/2 + int64(maxDecompressedChunk)
-		if parityBudget > maxParityBudgetBytes {
-			parityBudget = maxParityBudgetBytes
-		}
-		if s.parityBytes+int64(len(sc.data)) > parityBudget {
+
+		// Global parity budget (OC-F12 belt-and-braces).
+		if s.totalParityBytes+int64(len(sc.data)) > maxParityBudgetBytes {
 			s.mu.Unlock()
-			return false, fmt.Errorf("parity bytes %d would exceed budget %d", s.parityBytes+int64(len(sc.data)), parityBudget)
+			return false, fmt.Errorf("parity bytes %d would exceed budget %d",
+				s.totalParityBytes+int64(len(sc.data)), maxParityBudgetBytes)
 		}
-		s.parityData[sc.chunkIdx] = sc.data
-		s.parityBytes += int64(len(sc.data))
-		// DO NOT store parity hashes in s.hashes - that map is used for Merkle root
-		// computation which must only include data chunk hashes. Parity hashes stored
-		// separately in parityData are verified via the erasure trailer.
+
+		slot.parity[localIdx] = sc.data
+		slot.bytes += int64(len(sc.data))
+		s.totalParityBytes += int64(len(sc.data))
+		s.totalParityReceived++
+		parityComplete := len(slot.parity) >= s.parityPerFullStripe
 		s.mu.Unlock()
+
+		// Check eager reconstruction trigger (parity side).
+		if parityComplete {
+			s.tryEagerReconstruct(stripeIdx)
+		}
 		return true, nil
 	}
+
+	// --- Data chunk path ---
 
 	// Duplicate detection (R3-IMP3).
 	isNew := s.recordChunk(sc.chunkIdx, sc.hash, sc.decompSize)
@@ -1665,32 +1784,113 @@ func (s *streamReceiveState) processIncomingChunk(sc streamChunk) (bool, error) 
 	// Verify hash.
 	hash := blake3Hash(chunkData)
 	if hash != sc.hash {
-		// [Batch 2b, B2-F32] On a transfer that carries RS erasure parity,
-		// a hash mismatch is recoverable: mark the chunk as corrupted and
-		// let rsReconstruct rebuild the bytes from parity before Merkle
-		// verify. recordChunk already stored the claimed hash + decompSize
-		// above, so state.hashes/state.sizes are complete for the stripe's
-		// layout computation during reconstruction. Do NOT write chunkData
-		// to tmpFiles — the bytes are known-bad and would corrupt the
-		// final output.
-		//
-		// When the transfer has no erasure parity (hasErasure=false) the
-		// only honest response is to abort: Merkle is computed from claimed
-		// hashes and would pass silently while the file data is wrong.
-		// Keep the hard-fail path for that case.
+		// [Batch 2b, B2-F32] Erasure-recoverable: mark corrupted, don't write bad data.
 		if !s.hasErasure {
 			return false, fmt.Errorf("chunk %d hash mismatch: corrupted (no erasure parity)", sc.chunkIdx)
 		}
 		s.markCorrupted(sc.chunkIdx)
+
+		// Track per-stripe data count even for corrupted chunks (OC-F4).
+		if s.stripeSize > 0 {
+			stripeIdx := sc.chunkIdx / s.stripeSize
+			s.mu.Lock()
+			s.stripeDataCounts[stripeIdx]++
+			dataCount := s.stripeDataCounts[stripeIdx]
+			s.mu.Unlock()
+			if dataCount == s.stripeSize {
+				s.tryEagerReconstruct(stripeIdx)
+			}
+		}
 		return true, nil
 	}
 
-	// Write via globalToLocal mapping (N3, F1).
+	// Write via globalToLocal mapping (N3, F1). OC-F17: write completes
+	// BEFORE incrementing stripeDataCounts so reconstruction reads stable data.
 	if writeErr := s.writeChunkGlobal(sc.fileIdx, sc.offset, len(chunkData), chunkData); writeErr != nil {
 		return false, fmt.Errorf("write chunk %d: %w", sc.chunkIdx, writeErr)
 	}
 
+	// Per-stripe data count tracking + eager trigger (Option C).
+	if s.stripeSize > 0 {
+		stripeIdx := sc.chunkIdx / s.stripeSize
+		s.mu.Lock()
+		s.stripeDataCounts[stripeIdx]++
+		dataCount := s.stripeDataCounts[stripeIdx]
+		s.mu.Unlock()
+		if dataCount == s.stripeSize {
+			s.tryEagerReconstruct(stripeIdx)
+		}
+	}
+
 	return true, nil
+}
+
+// tryEagerReconstruct checks if a full stripe is ready for eager per-stripe
+// reconstruction and executes it if so. For clean stripes (no corruption),
+// frees parity immediately in O(1). For corrupted stripes, runs RS decode
+// (~200ms at tier-5) then frees parity. [Option C, OC-F9]
+//
+// Safe to call from multiple goroutines; OC-F18 reconstructing flag prevents
+// double entry. Errors are logged but do not fail the transfer — trailer
+// sweep retries any stripes that failed eager reconstruction.
+func (s *streamReceiveState) tryEagerReconstruct(stripeIdx int) {
+	s.mu.Lock()
+	dataCount := s.stripeDataCounts[stripeIdx]
+	slot := s.paritySlots[stripeIdx]
+
+	// Both conditions required: full stripe of data AND full parity.
+	if dataCount < s.stripeSize || slot == nil || len(slot.parity) < s.parityPerFullStripe {
+		s.mu.Unlock()
+		return
+	}
+	if slot.done || slot.reconstructing {
+		s.mu.Unlock()
+		return
+	}
+
+	// Check if any corruption exists in this stripe.
+	stripeStart := stripeIdx * s.stripeSize
+	stripeEnd := stripeStart + s.stripeSize
+	hasCorruption := false
+	for idx := range s.corruptedChunks {
+		if idx >= stripeStart && idx < stripeEnd {
+			hasCorruption = true
+			break
+		}
+	}
+
+	if !hasCorruption {
+		// Clean stripe — free parity immediately. [OC-F13]
+		s.totalParityBytes -= slot.bytes
+		slot.parity = nil
+		slot.bytes = 0
+		slot.done = true
+		s.mu.Unlock()
+		return
+	}
+
+	// Mark as reconstructing to prevent double entry (OC-F18).
+	slot.reconstructing = true
+	s.mu.Unlock()
+
+	// Reconstruct (potentially expensive). Use reusable encoder for full stripes (R5).
+	err := s.reconstructSingleStripe(stripeIdx, stripeStart, stripeEnd, slot, s.rsFullStripeEnc)
+
+	s.mu.Lock()
+	slot.reconstructing = false
+	if err != nil {
+		// Don't mark done — trailer sweep will retry.
+		s.mu.Unlock()
+		slog.Warn("file-transfer: eager reconstruction failed, deferring to trailer",
+			"stripe", stripeIdx, "error", err)
+		return
+	}
+	// Free parity after successful reconstruction. [OC-F13]
+	s.totalParityBytes -= slot.bytes
+	slot.parity = nil
+	slot.bytes = 0
+	slot.done = true
+	s.mu.Unlock()
 }
 
 // --- Content-based resume key [R3-IMP5, R4-IMP2] ---

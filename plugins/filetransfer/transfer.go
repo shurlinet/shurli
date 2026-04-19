@@ -1485,8 +1485,16 @@ func (ts *TransferService) streamingSend(
 ) ([32]byte, error) {
 	var zero [32]byte
 
-	// Write header.
-	if err := writeHeader(rw, files, flags, totalSize, transferID); err != nil {
+	// Write header. Include erasure stripe config when erasure is active
+	// (Option C: receiver needs this before any chunks arrive).
+	var erasureHdr *erasureHeaderParams
+	if useErasure {
+		erasureHdr = &erasureHeaderParams{
+			StripeSize:       defaultStripeSize,
+			OverheadPerMille: overheadToPerMille(ts.erasureOverhead),
+		}
+	}
+	if err := writeHeader(rw, files, flags, totalSize, transferID, erasureHdr); err != nil {
 		return zero, fmt.Errorf("write header: %w", err)
 	}
 
@@ -1835,12 +1843,13 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		s.SetDeadline(time.Now().Add(30 * time.Second))
 
 		// Read streaming header.
-		files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
+		files, totalSize, flags, transferID, cumOffsets, erasureHdr, err := readHeader(rw)
 		if err != nil {
 			slog.Warn("file-transfer: bad header", "peer", short, "error", err)
 			writeMsg(s, msgReject)
 			return
 		}
+		_ = erasureHdr // wired into state below via initPerStripeState
 		// Display name for notification and progress (R4-IMP6).
 		var displayName string
 		if len(files) == 1 {
@@ -2097,6 +2106,12 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 
 			// Initialize duplicate detection bitfield (R3-IMP3).
 			state.initReceivedBitfield(estimatedChunks)
+		}
+
+		// Initialize per-stripe parity tracking (Option C). Must run for both
+		// fresh and resumed states so the receiver can route parity to slots.
+		if erasureHdr != nil {
+			state.initPerStripeState(erasureHdr)
 		}
 		defer state.cleanup() // R4-SEC2: always clean up temp files on any exit
 
@@ -3737,7 +3752,8 @@ type downloadContext struct {
 	contentKey      [32]byte
 	estimatedChunks int
 	session         *parallelSession
-	state           *streamReceiveState // non-nil if checkpoint restored or passed in
+	state           *streamReceiveState  // non-nil if checkpoint restored or passed in
+	erasureHdr      *erasureHeaderParams // Option C: stripe config from header
 }
 
 // TS-5b failover constants.
@@ -3795,7 +3811,7 @@ func (ts *TransferService) downloadNegotiate(
 	s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 	// Read header from sender.
-	files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
+	files, totalSize, flags, transferID, cumOffsets, erasureHdr, err := readHeader(rw)
 	if err != nil {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
@@ -3819,6 +3835,7 @@ func (ts *TransferService) downloadNegotiate(
 	}
 
 	// Disk space check (R6-F4: re-check on retry, account for existing temp data).
+	_ = erasureHdr // wired into downloadContext for initPerStripeState
 	neededSpace := totalSize
 	if existingState != nil {
 		neededSpace = totalSize - existingState.ReceivedBytes()
@@ -3894,6 +3911,12 @@ func (ts *TransferService) downloadNegotiate(
 					restored.cleanup()
 					return nil, fmt.Errorf("resume response: err=%v resp=0x%02x", respErr, resp)
 				}
+				// Initialize per-stripe state on the restored state so parity
+				// routing works immediately when chunks arrive on the new
+				// stream. [Deep audit fix: Bug #2]
+				if erasureHdr != nil {
+					restored.initPerStripeState(erasureHdr)
+				}
 				slog.Info("file-download: resuming from checkpoint",
 					"file", displayName, "have", ckpt.have.count())
 			} else {
@@ -3935,6 +3958,7 @@ func (ts *TransferService) downloadNegotiate(
 		estimatedChunks: estimatedChunks,
 		session:         session,
 		state:           existingState,
+		erasureHdr:      erasureHdr,
 	}, nil
 }
 
@@ -3972,7 +3996,7 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 	// Read streaming header (I1: updated from readManifest to readHeader).
-	files, totalSize, flags, transferID, cumOffsets, err := readHeader(rw)
+	files, totalSize, flags, transferID, cumOffsets, erasureHdr2, err := readHeader(rw)
 	if err != nil {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
@@ -4136,6 +4160,11 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			}
 
 			state.initReceivedBitfield(estimatedChunks)
+		}
+
+		// Initialize per-stripe parity tracking (Option C).
+		if erasureHdr2 != nil {
+			state.initPerStripeState(erasureHdr2)
 		}
 
 		// Wire state and progress into session now that they're ready.
@@ -4423,12 +4452,23 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 					break
 				}
 				state.initReceivedBitfield(dlCtx.estimatedChunks)
+				if dlCtx.erasureHdr != nil {
+					state.initPerStripeState(dlCtx.erasureHdr)
+				}
 			} else if state.destRoot == nil {
 				// TS-5b failover: cleanup() closed destRoot and tmpFiles.
 				// Re-open existing temp files so writeChunkGlobal and finalize work.
 				if reopenErr := state.reopenTempFiles(destDir); reopenErr != nil {
 					recvErr = fmt.Errorf("reopen temp files after failover: %w", reopenErr)
 					break
+				}
+				// Re-initialize per-stripe state for the new stream's erasure
+				// config. cleanup() doesn't clear stripe fields, but the new
+				// header may carry different params. initPerStripeState creates
+				// fresh maps, so stale entries from the prior session are
+				// discarded. [Deep audit fix: Bug #1]
+				if dlCtx.erasureHdr != nil {
+					state.initPerStripeState(dlCtx.erasureHdr)
 				}
 			}
 
