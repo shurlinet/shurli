@@ -198,8 +198,6 @@ func TestEncodeStripeTooManyLosses(t *testing.T) {
 
 func TestErasureManifestRoundtrip(t *testing.T) {
 	parityCount := 3
-	stripeSize := 50
-	overheadPerMille := uint16(200) // 20% — deliberately non-default
 	parityHashes := make([][32]byte, parityCount)
 	paritySizes := make([]uint32, parityCount)
 
@@ -209,22 +207,18 @@ func TestErasureManifestRoundtrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := writeErasureManifest(&buf, stripeSize, parityCount, overheadPerMille, parityHashes, paritySizes)
+	// Option C: writeErasureManifest no longer carries stripeSize/overheadPerMille
+	// (those moved to the SHFT header).
+	err := writeErasureManifest(&buf, parityCount, parityHashes, paritySizes)
 	if err != nil {
 		t.Fatalf("writeErasureManifest: %v", err)
 	}
 
-	gotStripe, gotOverhead, gotHashes, gotSizes, err := readErasureManifest(&buf)
+	gotHashes, gotSizes, err := readErasureManifest(&buf)
 	if err != nil {
 		t.Fatalf("readErasureManifest: %v", err)
 	}
 
-	if gotStripe != stripeSize {
-		t.Errorf("stripeSize: got %d, want %d", gotStripe, stripeSize)
-	}
-	if gotOverhead != overheadPerMille {
-		t.Errorf("overheadPerMille: got %d, want %d", gotOverhead, overheadPerMille)
-	}
 	if len(gotHashes) != parityCount {
 		t.Fatalf("hash count: got %d, want %d", len(gotHashes), parityCount)
 	}
@@ -244,66 +238,68 @@ func TestErasureManifestRoundtrip(t *testing.T) {
 
 func TestErasureManifestMismatchCount(t *testing.T) {
 	var buf bytes.Buffer
-	err := writeErasureManifest(&buf, 10, 3, 100, make([][32]byte, 2), make([]uint32, 3))
+	err := writeErasureManifest(&buf, 3, make([][32]byte, 2), make([]uint32, 3))
 	if err == nil {
 		t.Error("expected error for hash/count mismatch")
 	}
 }
 
-// TestErasureManifestStripeSizeUpperCap proves the audit-round-3 cap:
-// stripeSize values above maxAcceptedStripeSize are rejected at the wire
-// level so a malicious sender cannot force reconstruction to allocate
-// stripeSize x maxChunkSize padded shards (multi-GB on large stripes).
-// [Batch 2b audit round 3]
-func TestErasureManifestStripeSizeUpperCap(t *testing.T) {
-	hashes := [][32]byte{sdk.Blake3Sum([]byte{0})}
-	sizes := []uint32{64}
+// TestErasureHeaderStripeSizeUpperCap proves the OC-F41 cap: stripeSize
+// values above maxAcceptedStripeSize in the SHFT header are rejected so a
+// malicious sender cannot force reconstruction to allocate stripeSize x
+// maxChunkSize padded shards. [Option C, moved from trailer to header]
+func TestErasureHeaderStripeSizeUpperCap(t *testing.T) {
+	files := []fileEntry{{Path: "test.bin", Size: 1024}}
+	var transferID [32]byte
 
-	// Above the cap (maxAcceptedStripeSize + 1).
+	// Above the cap: must be rejected by readHeader.
 	var aboveBuf bytes.Buffer
-	if err := writeErasureManifest(&aboveBuf, maxAcceptedStripeSize+1, 1, 100, hashes, sizes); err != nil {
-		t.Fatalf("writeErasureManifest: %v", err)
+	aboveHdr := &erasureHeaderParams{StripeSize: maxAcceptedStripeSize + 1, OverheadPerMille: 100}
+	if err := writeHeader(&aboveBuf, files, flagErasureCoded, 1024, transferID, aboveHdr); err != nil {
+		t.Fatalf("writeHeader: %v", err)
 	}
-	if _, _, _, _, err := readErasureManifest(&aboveBuf); err == nil {
-		t.Errorf("readErasureManifest accepted stripeSize > maxAcceptedStripeSize; must reject")
+	if _, _, _, _, _, _, err := readHeader(&aboveBuf); err == nil {
+		t.Error("readHeader accepted stripeSize > maxAcceptedStripeSize; must reject")
 	}
 
-	// At the cap — must succeed.
+	// At the cap: must succeed.
 	var atBuf bytes.Buffer
-	if err := writeErasureManifest(&atBuf, maxAcceptedStripeSize, 1, 100, hashes, sizes); err != nil {
-		t.Fatalf("writeErasureManifest: %v", err)
+	atHdr := &erasureHeaderParams{StripeSize: maxAcceptedStripeSize, OverheadPerMille: 100}
+	if err := writeHeader(&atBuf, files, flagErasureCoded, 1024, transferID, atHdr); err != nil {
+		t.Fatalf("writeHeader: %v", err)
 	}
-	if _, _, _, _, err := readErasureManifest(&atBuf); err != nil {
-		t.Errorf("readErasureManifest rejected stripeSize == maxAcceptedStripeSize: %v", err)
+	if _, _, _, _, _, ehdr, err := readHeader(&atBuf); err != nil {
+		t.Errorf("readHeader rejected stripeSize == maxAcceptedStripeSize: %v", err)
+	} else if ehdr == nil || ehdr.StripeSize != maxAcceptedStripeSize {
+		t.Errorf("expected stripeSize=%d, got %v", maxAcceptedStripeSize, ehdr)
 	}
 }
 
-// TestErasureManifestOverheadBounds proves readErasureManifest rejects
-// out-of-range overheads: zero (which the sender would never emit — a
-// useErasure=true transfer implies a positive configured overhead) and
-// values above maxParityOverhead (which a malicious sender could use to
-// force larger per-stripe parity allocations on the receiver).
-// [Batch 2b audit round 2]
-func TestErasureManifestOverheadBounds(t *testing.T) {
-	hashes := [][32]byte{sdk.Blake3Sum([]byte{0})}
-	sizes := []uint32{64}
+// TestErasureHeaderOverheadBounds proves readHeader rejects out-of-range
+// overheads in the erasure header: zero and above maxParityOverhead.
+// [Option C, moved from trailer to header]
+func TestErasureHeaderOverheadBounds(t *testing.T) {
+	files := []fileEntry{{Path: "test.bin", Size: 1024}}
+	var transferID [32]byte
 
-	// Zero per-mille: write still succeeds (writer trusts caller) but read rejects.
+	// Zero per-mille: write succeeds but read rejects.
 	var zeroBuf bytes.Buffer
-	if err := writeErasureManifest(&zeroBuf, 10, 1, 0, hashes, sizes); err != nil {
-		t.Fatalf("writeErasureManifest zero overhead: %v", err)
+	zeroHdr := &erasureHeaderParams{StripeSize: 100, OverheadPerMille: 0}
+	if err := writeHeader(&zeroBuf, files, flagErasureCoded, 1024, transferID, zeroHdr); err != nil {
+		t.Fatalf("writeHeader zero overhead: %v", err)
 	}
-	if _, _, _, _, err := readErasureManifest(&zeroBuf); err == nil {
-		t.Error("readErasureManifest accepted overhead_permille=0; must reject")
+	if _, _, _, _, _, _, err := readHeader(&zeroBuf); err == nil {
+		t.Error("readHeader accepted overhead_permille=0; must reject")
 	}
 
 	// Over-max per-mille: must reject.
 	var overBuf bytes.Buffer
-	if err := writeErasureManifest(&overBuf, 10, 1, uint16(maxParityOverhead*1000)+1, hashes, sizes); err != nil {
-		t.Fatalf("writeErasureManifest over-max overhead: %v", err)
+	overHdr := &erasureHeaderParams{StripeSize: 100, OverheadPerMille: uint16(maxParityOverhead*1000) + 1}
+	if err := writeHeader(&overBuf, files, flagErasureCoded, 1024, transferID, overHdr); err != nil {
+		t.Fatalf("writeHeader over-max overhead: %v", err)
 	}
-	if _, _, _, _, err := readErasureManifest(&overBuf); err == nil {
-		t.Error("readErasureManifest accepted overhead_permille > maxParityOverhead*1000; must reject")
+	if _, _, _, _, _, _, err := readHeader(&overBuf); err == nil {
+		t.Error("readHeader accepted overhead_permille > maxParityOverhead*1000; must reject")
 	}
 }
 
@@ -319,11 +315,9 @@ func TestTrailerWithErasureRoundtrip(t *testing.T) {
 	parityHashes := make([][32]byte, 1)
 	parityHashes[0] = sdk.Blake3Sum([]byte("parity0"))
 	erasure := &erasureTrailer{
-		StripeSize:       3,
-		ParityCount:      1,
-		OverheadPerMille: 100,
-		ParityHashes:     parityHashes,
-		ParitySizes:      []uint32{1000},
+		ParityCount:  1,
+		ParityHashes: parityHashes,
+		ParitySizes:  []uint32{1000},
 	}
 
 	var buf bytes.Buffer
@@ -349,9 +343,6 @@ func TestTrailerWithErasureRoundtrip(t *testing.T) {
 	}
 	if parsedErasure == nil {
 		t.Fatal("erasure should not be nil")
-	}
-	if parsedErasure.StripeSize != 3 {
-		t.Errorf("stripeSize: got %d, want 3", parsedErasure.StripeSize)
 	}
 	if parsedErasure.ParityCount != 1 {
 		t.Errorf("parityCount: got %d, want 1", parsedErasure.ParityCount)
@@ -541,9 +532,10 @@ func TestNewErasureEncoderGates(t *testing.T) {
 
 // TestParityChunkDuplicateRejected proves the receiver refuses duplicate
 // parity chunkIdx values so a malicious sender cannot inflate the
-// parityBytes counter via same-key overwrites. [B2-F2]
+// totalParityBytes counter via same-key overwrites. [B2-F2]
 func TestParityChunkDuplicateRejected(t *testing.T) {
 	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	sc := streamChunk{
 		fileIdx:    parityFileIdx,
 		chunkIdx:   0,
@@ -572,6 +564,7 @@ func TestParityChunkDuplicateRejected(t *testing.T) {
 // values outside [0, maxParityCount). [B2-F12]
 func TestParityChunkIndexOutOfRange(t *testing.T) {
 	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	sc := streamChunk{
 		fileIdx:    parityFileIdx,
 		chunkIdx:   maxParityCount, // out of range (exclusive upper bound)
@@ -593,6 +586,7 @@ func TestParityBudgetHardCap(t *testing.T) {
 	// Declare a totalSize large enough that totalSize/2 > maxParityBudgetBytes.
 	hugeTotal := int64(maxParityBudgetBytes) * 4 // 2 GB: totalSize/2 = 1 GB > 512 MB cap
 	state := newStreamReceiveState(nil, hugeTotal, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 
 	// Each parity chunk 1 MB; budget is 512 MB, so we expect ~512 chunks to
 	// fit and the 513th to be rejected with "exceeds budget".
@@ -611,11 +605,11 @@ func TestParityBudgetHardCap(t *testing.T) {
 		}
 		_, err := state.processIncomingChunk(sc)
 		if err != nil {
-			// First rejection must be budget-related; parityBytes must never
+			// First rejection must be budget-related; totalParityBytes must never
 			// exceed the hard cap even by a single chunk.
-			if state.parityBytes > int64(maxParityBudgetBytes) {
-				t.Fatalf("parityBytes=%d exceeded hard cap %d (declared totalSize=%d)",
-					state.parityBytes, maxParityBudgetBytes, hugeTotal)
+			if state.totalParityBytes > int64(maxParityBudgetBytes) {
+				t.Fatalf("totalParityBytes=%d exceeded hard cap %d (declared totalSize=%d)",
+					state.totalParityBytes, maxParityBudgetBytes, hugeTotal)
 			}
 			if accepted < 1 {
 				t.Fatalf("rejected too early at i=%d: %v", i, err)
@@ -625,7 +619,7 @@ func TestParityBudgetHardCap(t *testing.T) {
 		accepted++
 	}
 	t.Fatalf("expected budget rejection, accepted %d chunks totalling %d bytes",
-		accepted, state.parityBytes)
+		accepted, state.totalParityBytes)
 }
 
 // TestProgressParityChunksDoneTracking proves addParityChunkDone increments
@@ -657,21 +651,20 @@ func TestProgressParityChunksDoneTracking(t *testing.T) {
 	}
 }
 
-// TestErasureManifestRejectsSmallStripeSize proves the wire-level stripeSize
-// lower bound catches a malicious trailer declaring stripeSize=1, which would
-// otherwise force reconstruction to iterate chunkCount stripes allocating
-// maxChunkSize-padded shards per stripe. [B2-F11]
-func TestErasureManifestRejectsSmallStripeSize(t *testing.T) {
+// TestErasureHeaderRejectsSmallStripeSize proves the wire-level stripeSize
+// lower bound in readHeader catches a malicious header declaring stripeSize=1.
+// [B2-F11, Option C: moved from trailer to header]
+func TestErasureHeaderRejectsSmallStripeSize(t *testing.T) {
+	files := []fileEntry{{Path: "test.bin", Size: 1024}}
+	var transferID [32]byte
 	var buf bytes.Buffer
-	// Write a trailer with stripeSize=1 (below minStripeSize=2).
-	parityHashes := [][32]byte{sdk.Blake3Sum([]byte("p"))}
-	paritySizes := []uint32{16}
-	if err := writeErasureManifest(&buf, 1, 1, 100, parityHashes, paritySizes); err != nil {
-		t.Fatalf("writeErasureManifest: %v", err)
+	// Write a header with stripeSize=1 (below minStripeSize=2).
+	hdr := &erasureHeaderParams{StripeSize: 1, OverheadPerMille: 100}
+	if err := writeHeader(&buf, files, flagErasureCoded, 1024, transferID, hdr); err != nil {
+		t.Fatalf("writeHeader: %v", err)
 	}
-	_, _, _, _, err := readErasureManifest(&buf)
-	if err == nil {
-		t.Fatal("readErasureManifest should reject stripeSize=1")
+	if _, _, _, _, _, _, err := readHeader(&buf); err == nil {
+		t.Fatal("readHeader should reject stripeSize=1")
 	}
 }
 
@@ -748,6 +741,7 @@ func TestReceiverParityProgressGated(t *testing.T) {
 	files := []fileEntry{{Path: "parity-progress-test.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -783,11 +777,9 @@ func TestReceiverParityProgressGated(t *testing.T) {
 		hash: chunkHashes[1], decompSize: uint32(len(data[1])), data: data[1],
 	})
 	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
-		StripeSize:       2,
-		ParityCount:      1,
-		OverheadPerMille: 100,
-		ParityHashes:     [][32]byte{parityHash},
-		ParitySizes:      []uint32{uint32(len(parityShards[0]))},
+		ParityCount:  1,
+		ParityHashes: [][32]byte{parityHash},
+		ParitySizes:  []uint32{uint32(len(parityShards[0]))},
 	})
 
 	gotRoot, err := ts.receiveParallel(&controlBuf, session)
@@ -953,6 +945,7 @@ func TestReceiverParityCountMismatchLogged(t *testing.T) {
 	files := []fileEntry{{Path: "count-mismatch.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -988,11 +981,9 @@ func TestReceiverParityCountMismatchLogged(t *testing.T) {
 	// TestReceiveParallelParityCountMismatchHardFailOnCorruption covers
 	// the hard-fail branch when corruption needs reconstruction.
 	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
-		StripeSize:       2,
-		ParityCount:      5,
-		OverheadPerMille: 100,
-		ParityHashes:     make([][32]byte, 5),
-		ParitySizes:      []uint32{128, 128, 128, 128, 128},
+		ParityCount:  5,
+		ParityHashes: make([][32]byte, 5),
+		ParitySizes:  []uint32{128, 128, 128, 128, 128},
 	})
 
 	gotRoot, err := ts.receiveParallel(&controlBuf, session)
@@ -1017,6 +1008,7 @@ func TestReceiverParityCountMismatchLogged(t *testing.T) {
 // out-of-order stripe groupings at reconstruction time. [Batch 2b]
 func TestMarkCorruptedAndCorruptedList(t *testing.T) {
 	state := newStreamReceiveState(nil, 1<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	if got := state.corruptedList(); len(got) != 0 {
 		t.Errorf("empty state: corruptedList=%v, want nil/empty", got)
 	}
@@ -1122,6 +1114,7 @@ func TestProcessIncomingChunkHashMismatchWithErasure(t *testing.T) {
 	files := []fileEntry{{Path: "x.bin", Size: 64}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, 64, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	state.initReceivedBitfield(1)
 
 	// Frame claims hash H(correct), sends corrupt bytes instead.
@@ -1185,7 +1178,7 @@ func TestProcessIncomingChunkHashMismatchWithoutErasure(t *testing.T) {
 // bytes to tmp files except for `corruptedIdx` (which gets wrong bytes),
 // seeds state.hashes + state.sizes (as recordChunk would have), marks the
 // corrupted indices via markCorrupted, and stores the encoded parity in
-// state.parityData. Returns the state ready for rsReconstruct.
+// state.paritySlots. Returns the state ready for rsReconstruct.
 type rsReconstructFixture struct {
 	state   *streamReceiveState
 	chunks  [][]byte
@@ -1219,6 +1212,12 @@ func setupRsReconstructSingleFile(t *testing.T, dir string, stripeSize int, corr
 	files := []fileEntry{{Path: "recon-test.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	// Init per-stripe with overhead that yields 2 parity per stripe (matching encodeStripe(chunks, 2)).
+	testOverhead := float64(2) / float64(stripeSize)
+	if testOverhead < 0.01 {
+		testOverhead = 0.01
+	}
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: stripeSize, OverheadPerMille: overheadToPerMille(testOverhead)})
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
 	}
@@ -1242,11 +1241,15 @@ func setupRsReconstructSingleFile(t *testing.T, dir string, stripeSize int, corr
 			t.Fatalf("write chunk %d: %v", i, err)
 		}
 	}
-	// Store parity as rsReconstruct expects: state.parityData[globalParityIdx].
-	state.parityData = make(map[int][]byte, len(parity))
+	// Store parity as rsReconstruct expects: per-stripe paritySlots.
+	// Single stripe (stripe 0), all parity shards are local indices.
+	state.paritySlots = make(map[int]*paritySlot)
+	slot := &paritySlot{parity: make(map[int][]byte, len(parity))}
 	for i, p := range parity {
-		state.parityData[i] = p
+		slot.parity[i] = p
+		slot.bytes += int64(len(p))
 	}
+	state.paritySlots[0] = slot
 	return &rsReconstructFixture{
 		state:   state,
 		chunks:  chunks,
@@ -1374,6 +1377,7 @@ func TestRsReconstructMultiFileBoundary(t *testing.T) {
 	// file boundary (offsets 40..60 straddle the 50-byte cut between files).
 	chunkBytes := 20
 	chunkCount := 5
+	testStripeSize := chunkCount
 	chunks := make([][]byte, chunkCount)
 	for i := range chunks {
 		chunks[i] = bytes.Repeat([]byte{byte(i + 1)}, chunkBytes)
@@ -1392,6 +1396,7 @@ func TestRsReconstructMultiFileBoundary(t *testing.T) {
 	}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: testStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -1416,10 +1421,14 @@ func TestRsReconstructMultiFileBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeStripe: %v", err)
 	}
-	state.parityData = make(map[int][]byte, len(parity))
+	// Single stripe (stripe 0), all parity shards are local indices.
+	state.paritySlots = make(map[int]*paritySlot)
+	slot := &paritySlot{parity: make(map[int][]byte, len(parity))}
 	for i, p := range parity {
-		state.parityData[i] = p
+		slot.parity[i] = p
+		slot.bytes += int64(len(p))
 	}
+	state.paritySlots[0] = slot
 
 	if err := ts.rsReconstruct(state, chunkCount, chunkCount, 0.1, []int{2}); err != nil {
 		t.Fatalf("rsReconstruct multi-file: %v", err)
@@ -1465,6 +1474,7 @@ func TestReceiveParallelReconstructsCorrupted(t *testing.T) {
 	files := []fileEntry{{Path: "recon-e2e.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -1498,11 +1508,9 @@ func TestReceiveParallelReconstructsCorrupted(t *testing.T) {
 		hash: parityHash, decompSize: uint32(len(parity[0])), data: parity[0],
 	})
 	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
-		StripeSize:       2,
-		ParityCount:      1,
-		OverheadPerMille: 100,
-		ParityHashes:     [][32]byte{parityHash},
-		ParitySizes:      []uint32{uint32(len(parity[0]))},
+		ParityCount:  1,
+		ParityHashes: [][32]byte{parityHash},
+		ParitySizes:  []uint32{uint32(len(parity[0]))},
 	})
 
 	gotRoot, err := ts.receiveParallel(&controlBuf, session)
@@ -1550,6 +1558,7 @@ func TestCheckpointExcludesCorruptedChunks(t *testing.T) {
 	files := []fileEntry{{Path: "ckpt-corrupted.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -1705,6 +1714,7 @@ func TestReceiveParallelReconstructsNonDefaultOverhead(t *testing.T) {
 	files := []fileEntry{{Path: "recon-overhead.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: stripeSize, OverheadPerMille: overheadToPerMille(overhead)})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -1723,7 +1733,7 @@ func TestReceiveParallelReconstructsNonDefaultOverhead(t *testing.T) {
 	}
 
 	// Corrupt chunk 12 (lives in stripe 1). Receiver-side hardcode of 0.1
-	// would look at parityData[1] for stripe 1 (parityOffset=1, parityCount=1),
+	// would look at paritySlots[1] for stripe 1 (parityOffset=1, parityCount=1),
 	// but sender put stripe-1 parity at indices [2..3] under overhead=0.2.
 	// Reconstruction with wrong offsets would fail (either read stripe-0's
 	// parity, or fail the hash-match guard). Only the overhead-aware code
@@ -1748,11 +1758,9 @@ func TestReceiveParallelReconstructsNonDefaultOverhead(t *testing.T) {
 		})
 	}
 	writeTrailer(&controlBuf, chunkCount, rootHash, nil, &erasureTrailer{
-		StripeSize:       stripeSize,
-		ParityCount:      len(allParity),
-		OverheadPerMille: overheadToPerMille(overhead),
-		ParityHashes:     allParityHashes,
-		ParitySizes:      allParitySizes,
+		ParityCount:  len(allParity),
+		ParityHashes: allParityHashes,
+		ParitySizes:  allParitySizes,
 	})
 
 	gotRoot, err := ts.receiveParallel(&controlBuf, session)
@@ -1802,6 +1810,7 @@ func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
 	files := []fileEntry{{Path: "count-fail.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
 	defer state.cleanup()
 	if err := state.allocateTempFiles(dir); err != nil {
 		t.Fatalf("allocateTempFiles: %v", err)
@@ -1836,15 +1845,218 @@ func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
 	// Trailer LIES: declares 5 parity but only 1 arrived. With corruption
 	// needing recovery, this MUST hard-fail.
 	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
-		StripeSize:       2,
-		ParityCount:      5,
-		OverheadPerMille: 100,
-		ParityHashes:     make([][32]byte, 5),
-		ParitySizes:      []uint32{64, 64, 64, 64, 64},
+		ParityCount:  5,
+		ParityHashes: make([][32]byte, 5),
+		ParitySizes:  []uint32{64, 64, 64, 64, 64},
 	})
 
 	_, err = ts.receiveParallel(&controlBuf, session)
 	if err == nil {
 		t.Fatal("receiveParallel returned nil on parity count mismatch with corruption present; must hard-fail")
 	}
+}
+
+// --- Option C: per-stripe RS reconstruction tests ---
+
+// TestEagerReconstructCleansStripe proves that tryEagerReconstruct frees
+// parity for a clean full stripe (no corruption) immediately, and that a
+// corrupted stripe triggers reconstructSingleStripe. [Option C, OC-F13]
+func TestEagerReconstructCleansStripe(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: 5, OverheadPerMille: 200})
+
+	// Simulate a full stripe of data (5 chunks) with all parity (1 chunk).
+	// No corruption — eager path should free parity in O(1).
+	state.mu.Lock()
+	for i := 0; i < 5; i++ {
+		state.stripeDataCounts[0]++
+	}
+	slot := &paritySlot{parity: map[int][]byte{0: {1, 2, 3}}, bytes: 3}
+	state.paritySlots[0] = slot
+	state.totalParityBytes = 3
+	state.mu.Unlock()
+
+	state.tryEagerReconstruct(0)
+
+	state.mu.Lock()
+	if !slot.done {
+		t.Error("clean stripe: slot.done should be true after eager reconstruct")
+	}
+	if slot.parity != nil {
+		t.Error("clean stripe: slot.parity should be nil (freed for GC)")
+	}
+	if state.totalParityBytes != 0 {
+		t.Errorf("clean stripe: totalParityBytes=%d, want 0", state.totalParityBytes)
+	}
+	state.mu.Unlock()
+}
+
+// TestDynamicInflightCap proves the dynamic inflight formula from OC-F10.
+// At overhead=0.1, parityPerFullStripe=10 for stripeSize=100.
+// perStripeParity = 10 * 8MB = 80MB. cap = 512MB / 80MB = 6.
+// At overhead=0.5, parityPerFullStripe=50.
+// perStripeParity = 50 * 8MB = 400MB. cap = 512MB / 400MB = 1 → clamped to 2.
+func TestDynamicInflightCap(t *testing.T) {
+	tests := []struct {
+		name       string
+		overhead   uint16
+		wantCap    int
+	}{
+		{"10% overhead", 100, 6},
+		{"50% overhead", 500, 2},
+		{"20% overhead", 200, 3},
+		{"1% overhead", 10, 8}, // capped at 8
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+			state.initPerStripeState(&erasureHeaderParams{
+				StripeSize:       defaultStripeSize,
+				OverheadPerMille: tt.overhead,
+			})
+			if state.maxInflightStripes != tt.wantCap {
+				t.Errorf("maxInflightStripes=%d, want %d", state.maxInflightStripes, tt.wantCap)
+			}
+		})
+	}
+}
+
+// TestInflightCapEnforced proves the receiver rejects parity chunks when
+// the inflight stripe limit is reached. [Option C, OC-F10]
+func TestInflightCapEnforced(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	// stripeSize=100, overhead=50% → parityPerFullStripe=50, cap=2.
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: 100, OverheadPerMille: 500})
+	if state.maxInflightStripes != 2 {
+		t.Fatalf("maxInflightStripes=%d, want 2", state.maxInflightStripes)
+	}
+
+	// Fill 2 stripe slots (each with one parity chunk).
+	for stripe := 0; stripe < 2; stripe++ {
+		data := []byte{byte(stripe)}
+		sc := streamChunk{
+			fileIdx:  parityFileIdx,
+			chunkIdx: stripe * state.parityPerFullStripe, // first parity of each stripe
+			hash:     blake3Hash(data),
+			data:     data,
+		}
+		if _, err := state.processIncomingChunk(sc); err != nil {
+			t.Fatalf("stripe %d first parity: %v", stripe, err)
+		}
+	}
+
+	// Third stripe should be rejected.
+	data := []byte{0xFF}
+	sc := streamChunk{
+		fileIdx:  parityFileIdx,
+		chunkIdx: 2 * state.parityPerFullStripe,
+		hash:     blake3Hash(data),
+		data:     data,
+	}
+	_, err := state.processIncomingChunk(sc)
+	if err == nil {
+		t.Fatal("third stripe parity should be rejected (inflight cap=2)")
+	}
+}
+
+// TestLateParityForDoneStripeDropped proves that parity arriving for an
+// already-completed stripe is silently accepted (returns true) but NOT
+// stored. The totalParityReceived counter increments for wire accounting.
+// [Option C, OC-F19/F20]
+func TestLateParityForDoneStripeDropped(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: 100, OverheadPerMille: 100})
+
+	// Mark stripe 0 as done (simulate eager reconstruction completed).
+	state.mu.Lock()
+	state.paritySlots[0] = &paritySlot{done: true}
+	state.mu.Unlock()
+
+	// Send a late parity chunk for stripe 0.
+	data := []byte{0xAA, 0xBB}
+	sc := streamChunk{
+		fileIdx:  parityFileIdx,
+		chunkIdx: 0, // stripe 0, local index 0
+		hash:     blake3Hash(data),
+		data:     data,
+	}
+	isNew, err := state.processIncomingChunk(sc)
+	if err != nil {
+		t.Fatalf("late parity should not error: %v", err)
+	}
+	if !isNew {
+		t.Error("late parity should return isNew=true (accepted for wire accounting)")
+	}
+
+	// Verify counter incremented but no bytes stored.
+	state.mu.Lock()
+	if state.totalParityReceived != 1 {
+		t.Errorf("totalParityReceived=%d, want 1", state.totalParityReceived)
+	}
+	if state.totalParityBytes != 0 {
+		t.Errorf("totalParityBytes=%d, want 0 (late parity must not be stored)", state.totalParityBytes)
+	}
+	state.mu.Unlock()
+}
+
+// TestParityDuringReconstructionDropped proves that parity arriving while
+// reconstruction is in progress is silently dropped. [Self-audit round 2]
+func TestParityDuringReconstructionDropped(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: 100, OverheadPerMille: 100})
+
+	// Mark stripe 0 as mid-reconstruction.
+	state.mu.Lock()
+	state.paritySlots[0] = &paritySlot{reconstructing: true, parity: map[int][]byte{}}
+	state.mu.Unlock()
+
+	data := []byte{0xCC}
+	sc := streamChunk{
+		fileIdx:  parityFileIdx,
+		chunkIdx: 0,
+		hash:     blake3Hash(data),
+		data:     data,
+	}
+	isNew, err := state.processIncomingChunk(sc)
+	if err != nil {
+		t.Fatalf("parity during reconstruction should not error: %v", err)
+	}
+	if !isNew {
+		t.Error("should return isNew=true (wire accounting)")
+	}
+
+	state.mu.Lock()
+	if state.totalParityReceived != 1 {
+		t.Errorf("totalParityReceived=%d, want 1", state.totalParityReceived)
+	}
+	if state.totalParityBytes != 0 {
+		t.Errorf("totalParityBytes=%d, want 0 (mid-reconstruction parity must not be stored)", state.totalParityBytes)
+	}
+	state.mu.Unlock()
+}
+
+// TestResumePreComputesStripeDataCounts proves that initPerStripeState
+// correctly pre-computes stripeDataCounts from checkpoint-restored hashes,
+// excluding corrupted chunks. [Option C, OC-F5/F24]
+func TestResumePreComputesStripeDataCounts(t *testing.T) {
+	state := newStreamReceiveState(nil, 10<<20, flagErasureCoded, nil)
+	// Simulate a resumed state: 10 chunks received, chunk 3 corrupted.
+	for i := 0; i < 10; i++ {
+		state.hashes[i] = [32]byte{byte(i)}
+		state.sizes[i] = 64
+	}
+	state.corruptedChunks = map[int]bool{3: true}
+
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: 5, OverheadPerMille: 200})
+
+	state.mu.Lock()
+	// Stripe 0 (chunks 0-4): 4 valid + 1 corrupted = count should be 4.
+	if state.stripeDataCounts[0] != 4 {
+		t.Errorf("stripe 0 dataCount=%d, want 4 (chunk 3 is corrupted, excluded)", state.stripeDataCounts[0])
+	}
+	// Stripe 1 (chunks 5-9): all 5 valid.
+	if state.stripeDataCounts[1] != 5 {
+		t.Errorf("stripe 1 dataCount=%d, want 5 (all valid)", state.stripeDataCounts[1])
+	}
+	state.mu.Unlock()
 }

@@ -44,11 +44,11 @@ func TestStreamingHeaderRoundtrip(t *testing.T) {
 	copy(transferID[:], "test-transfer-id-32-bytes-long!!")
 
 	var buf bytes.Buffer
-	if err := writeHeader(&buf, files, flagCompressed, totalSize, transferID); err != nil {
+	if err := writeHeader(&buf, files, flagCompressed, totalSize, transferID, nil); err != nil {
 		t.Fatalf("writeHeader: %v", err)
 	}
 
-	parsedFiles, parsedTotal, parsedFlags, parsedID, cumOffsets, err := readHeader(&buf)
+	parsedFiles, parsedTotal, parsedFlags, parsedID, cumOffsets, _, err := readHeader(&buf)
 	if err != nil {
 		t.Fatalf("readHeader: %v", err)
 	}
@@ -105,10 +105,10 @@ func TestStreamingHeaderPathTraversal(t *testing.T) {
 
 		var transferID [32]byte
 		var buf bytes.Buffer
-		if err := writeHeader(&buf, files, 0, 1, transferID); err != nil {
+		if err := writeHeader(&buf, files, 0, 1, transferID, nil); err != nil {
 			t.Fatalf("write %q: %v", tt.input, err)
 		}
-		parsed, _, _, _, _, err := readHeader(&buf)
+		parsed, _, _, _, _, _, err := readHeader(&buf)
 		if err != nil {
 			t.Fatalf("read %q: %v", tt.input, err)
 		}
@@ -124,10 +124,10 @@ func TestStreamingHeaderRejectDotFilenames(t *testing.T) {
 		files := []fileEntry{{Path: name, Size: 1}}
 		var transferID [32]byte
 		var buf bytes.Buffer
-		if err := writeHeader(&buf, files, 0, 1, transferID); err != nil {
+		if err := writeHeader(&buf, files, 0, 1, transferID, nil); err != nil {
 			t.Fatalf("write %q: %v", name, err)
 		}
-		_, _, _, _, _, err := readHeader(&buf)
+		_, _, _, _, _, _, err := readHeader(&buf)
 		if err == nil {
 			t.Errorf("expected error for path %q", name)
 		}
@@ -136,7 +136,7 @@ func TestStreamingHeaderRejectDotFilenames(t *testing.T) {
 
 func TestStreamingHeaderInvalidMagic(t *testing.T) {
 	buf := bytes.NewReader([]byte{0x99, 0x99, 0x99, 0x99, shftVersion, 0})
-	_, _, _, _, _, err := readHeader(buf)
+	_, _, _, _, _, _, err := readHeader(buf)
 	if err == nil {
 		t.Error("expected error for invalid magic")
 	}
@@ -144,7 +144,7 @@ func TestStreamingHeaderInvalidMagic(t *testing.T) {
 
 func TestStreamingHeaderInvalidVersion(t *testing.T) {
 	buf := bytes.NewReader([]byte{shftMagic0, shftMagic1, shftMagic2, shftMagic3, 0x99, 0})
-	_, _, _, _, _, err := readHeader(buf)
+	_, _, _, _, _, _, err := readHeader(buf)
 	if err == nil {
 		t.Error("expected error for invalid version")
 	}
