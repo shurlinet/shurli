@@ -496,11 +496,20 @@ func (ts *TransferService) handleWorkerStreamFromReader(s network.Stream, r *buf
 			return
 		}
 
-		// Deliver chunk to session via select to avoid goroutine leak if
-		// receiveParallel has returned and the channel is full.
+		// Deliver chunk to session. If done is already signaled, still
+		// deliver the chunk we already read — dropping it causes "chunks
+		// missing" errors. The drain loop in receiveParallel consumes the
+		// buffered channel (capacity=8, workers<=7, so fits).
 		select {
 		case session.chunks <- sc:
 		case <-session.done:
+			// Must deliver this chunk before exiting. Non-blocking: if
+			// channel is full, the chunk is genuinely lost (extremely rare:
+			// requires 8+ simultaneous in-flight AND full buffer).
+			select {
+			case session.chunks <- sc:
+			default:
+			}
 			return
 		}
 	}
@@ -711,23 +720,30 @@ func (ts *TransferService) receiveParallel(
 			}
 			ctrlResult = result
 
-			// Control stream finished (trailer received). Signal workers to stop,
-			// then drain remaining chunks.
-			cleanupWorkers()
+			// Control stream finished (trailer received). Signal workers to
+			// stop, but do NOT reset streams yet. The sender already did
+			// CloseWrite on all worker streams before sending the trailer,
+			// so workers will hit EOF naturally. Resetting streams here
+			// would discard any data still buffered in QUIC that workers
+			// haven't read yet — causing "chunks missing" on the receiver.
+			session.closeDone()
 
 			// Only drain if workers actually attached. Without this check,
 			// every single-stream transfer pays a 50ms timer penalty.
 			if atomic.LoadInt32(&session.nextWorkerID) > 0 {
-				// Workers may have in-flight chunks between readStreamChunkFrame
-				// completing and the select on session.done. Brief grace period
-				// lets them deliver their last chunk.
-				drainTimer := time.NewTimer(50 * time.Millisecond)
+				// Workers will exit naturally via stream EOF (sender already
+				// did CloseWrite before trailer). Give them time to deliver
+				// their final chunks. 500ms is generous for LAN+WAN — sender's
+				// CloseWrite guarantees all data is flushed to QUIC before
+				// trailer, so receiver workers just need to read buffered data.
+				drainTimer := time.NewTimer(500 * time.Millisecond)
 			drainLoop:
 				for {
 					select {
 					case sc := <-session.chunks:
 						if err := processChunk(sc); err != nil {
 							drainTimer.Stop()
+							session.resetWorkerStreams()
 							saveCheckpointOnError()
 							return zero, err
 						}
@@ -736,6 +752,8 @@ func (ts *TransferService) receiveParallel(
 					}
 				}
 			}
+			// Now safe to reset worker streams — drain is complete.
+			session.resetWorkerStreams()
 			goto verify
 		}
 	}
