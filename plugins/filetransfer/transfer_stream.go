@@ -1438,8 +1438,17 @@ func (s *streamReceiveState) allocateTempFiles(destDir string) error {
 
 		tmpFile, err := root.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
-			s.cleanup()
-			return fmt.Errorf("create temp file for %s: %w", fe.Path, err)
+			// Orphan temp file from a prior interrupted transfer with no
+			// checkpoint (daemon crash or manual checkpoint deletion). Safe
+			// to remove: no checkpoint means no concurrent writer owns it.
+			// Remove and retry once before failing.
+			if root.Remove(tmpName) == nil {
+				tmpFile, err = root.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+			}
+			if err != nil {
+				s.cleanup()
+				return fmt.Errorf("create temp file for %s: %w", fe.Path, err)
+			}
 		}
 		// Store immediately so cleanup can find this file on any subsequent failure.
 		s.tmpFiles[i] = tmpFile
