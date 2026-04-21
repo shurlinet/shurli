@@ -230,6 +230,7 @@ _shurli_completions() {
 
     local commands="init daemon proxy ping traceroute resolve whoami auth relay config invite join verify service plugin notify reconnect status recover change-password lock unlock session doctor completion man version help PLUGIN_COMMANDS_PLACEHOLDER"
 
+    local proxy_cmds="add list ls remove rm enable disable"
     local daemon_cmds="start status stop ping services peers paths connect disconnect"
     local auth_cmds="add list remove validate set-attr grant grants revoke extend delegate pouch audit"
     local config_cmds="validate show set reload rollback apply confirm"
@@ -442,7 +443,10 @@ _shurli_completions() {
             return ;;
         # PLUGIN_CASES_PLACEHOLDER
         proxy)
-            COMPREPLY=($(compgen -W "--config --standalone" -- "$cur"))
+            COMPREPLY=($(compgen -W "add list ls remove rm enable disable --config --standalone" -- "$cur"))
+            return ;;
+        proxy\ list|proxy\ ls)
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
             return ;;
         whoami|verify|status)
             COMPREPLY=($(compgen -W "--config" -- "$cur"))
@@ -492,7 +496,7 @@ _shurli() {
     commands=(
         'init:Set up shurli configuration'
         'daemon:Daemon management'
-        'proxy:Forward TCP port'
+        'proxy:Proxy management (add/list/remove/enable/disable)'
         'ping:P2P ping'
         'traceroute:P2P traceroute'
         'resolve:Resolve name to peer ID'
@@ -815,6 +819,15 @@ _shurli() {
             _arguments '--config[Config file]:file:_files' '--json[Output as JSON]' ;;
         # PLUGIN_CASES_PLACEHOLDER
         proxy)
+            local -a proxy_cmds
+            proxy_cmds=(
+                'add:Create persistent proxy'
+                'list:List all proxies'
+                'remove:Remove a proxy'
+                'enable:Enable a disabled proxy'
+                'disable:Disable a proxy'
+            )
+            _describe 'proxy command' proxy_cmds
             _arguments '--config[Config file]:file:_files' '--standalone[Direct P2P mode]' ;;
         whoami|verify|status)
             _arguments '--config[Config file]:file:_files' ;;
@@ -886,7 +899,7 @@ end
 # --- Top-level commands ---
 complete -c shurli -n __shurli_no_subcommand -a init        -d 'Set up shurli configuration'
 complete -c shurli -n __shurli_no_subcommand -a daemon      -d 'Daemon management'
-complete -c shurli -n __shurli_no_subcommand -a proxy       -d 'Forward TCP port'
+complete -c shurli -n __shurli_no_subcommand -a proxy       -d 'Proxy management'
 complete -c shurli -n __shurli_no_subcommand -a ping        -d 'P2P ping'
 complete -c shurli -n __shurli_no_subcommand -a traceroute  -d 'P2P traceroute'
 complete -c shurli -n __shurli_no_subcommand -a resolve     -d 'Resolve name to peer ID'
@@ -1137,6 +1150,11 @@ complete -c shurli -n '__shurli_using_command traceroute' -l json       -d 'Outp
 complete -c shurli -n '__shurli_using_command traceroute' -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command resolve'    -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command resolve'    -l json       -d 'Output as JSON'
+complete -c shurli -n '__shurli_using_command proxy'      -a add        -d 'Create persistent proxy'
+complete -c shurli -n '__shurli_using_command proxy'      -a list       -d 'List all proxies'
+complete -c shurli -n '__shurli_using_command proxy'      -a remove     -d 'Remove a proxy'
+complete -c shurli -n '__shurli_using_command proxy'      -a enable     -d 'Enable a disabled proxy'
+complete -c shurli -n '__shurli_using_command proxy'      -a disable    -d 'Disable a proxy'
 complete -c shurli -n '__shurli_using_command proxy'      -l config     -d 'Config file'
 complete -c shurli -n '__shurli_using_command proxy'      -l standalone -d 'Direct P2P mode'
 complete -c shurli -n '__shurli_using_command whoami'     -l config     -d 'Config file'

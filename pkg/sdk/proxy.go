@@ -5,9 +5,11 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"golang.org/x/net/netutil"
 )
 
 // HalfCloseConn is a connection that supports half-close (CloseWrite).
@@ -117,26 +119,38 @@ func ProxyStreamToTCP(stream network.Stream, tcpAddr string) error {
 	return nil
 }
 
-// TCPListener creates a local TCP listener that forwards connections to a P2P service
+// DefaultMaxProxyConns is the per-proxy connection limit (SEC-5).
+// Protects both local TCP stack and remote peer's stream limits.
+const DefaultMaxProxyConns = 64
+
+// TCPListener creates a local TCP listener that forwards connections to a P2P service.
+// Tracks active connections for graceful shutdown (F9) and limits concurrent
+// connections via netutil.LimitListener (SEC-5).
 type TCPListener struct {
 	listener net.Listener
 	dialFunc func() (ServiceConn, error)
+
+	mu    sync.Mutex
+	conns map[net.Conn]struct{} // tracked for graceful shutdown
+	wg    sync.WaitGroup        // counts active handleConnection goroutines
 }
 
-// NewTCPListener creates a new TCP listener for a P2P service
+// NewTCPListener creates a new TCP listener for a P2P service.
+// Binds to localAddr and wraps with a connection limiter (SEC-5).
 func NewTCPListener(localAddr string, dialFunc func() (ServiceConn, error)) (*TCPListener, error) {
-	listener, err := net.Listen("tcp", localAddr)
+	raw, err := net.Listen("tcp", localAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	return &TCPListener{
-		listener: listener,
+		listener: netutil.LimitListener(raw, DefaultMaxProxyConns),
 		dialFunc: dialFunc,
+		conns:    make(map[net.Conn]struct{}),
 	}, nil
 }
 
-// Serve accepts connections and forwards them to the P2P service
+// Serve accepts connections and forwards them to the P2P service.
 func (l *TCPListener) Serve() error {
 	for {
 		conn, err := l.listener.Accept()
@@ -144,12 +158,31 @@ func (l *TCPListener) Serve() error {
 			return err
 		}
 
+		// F13: Set explicit TCP keepalive for consistent dead-connection detection.
+		if tc, ok := conn.(*net.TCPConn); ok {
+			tc.SetKeepAlive(true)
+			tc.SetKeepAlivePeriod(30 * time.Second)
+		}
+
+		l.wg.Add(1)
 		go l.handleConnection(conn)
 	}
 }
 
-// handleConnection handles a single TCP connection
+// handleConnection handles a single TCP connection with tracking.
 func (l *TCPListener) handleConnection(tcpConn net.Conn) {
+	defer l.wg.Done()
+
+	l.mu.Lock()
+	l.conns[tcpConn] = struct{}{}
+	l.mu.Unlock()
+
+	defer func() {
+		l.mu.Lock()
+		delete(l.conns, tcpConn)
+		l.mu.Unlock()
+	}()
+
 	serviceConn, err := l.dialFunc()
 	if err != nil {
 		slog.Error("failed to dial P2P service", "error", err)
@@ -160,14 +193,53 @@ func (l *TCPListener) handleConnection(tcpConn net.Conn) {
 	BidirectionalProxy(&tcpHalfCloser{tcpConn}, serviceConn, "proxy")
 }
 
-// Close closes the TCP listener
+// Close closes the TCP listener (stops accepting new connections).
 func (l *TCPListener) Close() error {
 	return l.listener.Close()
 }
 
-// Addr returns the listener's network address
+// GracefulClose closes the listener, sets a deadline on active connections,
+// and waits for all handleConnection goroutines to finish (F9).
+func (l *TCPListener) GracefulClose(timeout time.Duration) {
+	l.listener.Close()
+
+	// Set deadline on all tracked connections to break io.Copy.
+	deadline := time.Now().Add(timeout)
+	l.mu.Lock()
+	for c := range l.conns {
+		c.SetDeadline(deadline)
+	}
+	l.mu.Unlock()
+
+	// Wait for all goroutines to return.
+	done := make(chan struct{})
+	go func() {
+		l.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout + time.Second):
+		// Force close any remaining.
+		l.mu.Lock()
+		for c := range l.conns {
+			c.Close()
+		}
+		l.mu.Unlock()
+	}
+}
+
+// Addr returns the listener's network address.
 func (l *TCPListener) Addr() net.Addr {
 	return l.listener.Addr()
+}
+
+// ActiveConns returns the number of active proxy connections.
+func (l *TCPListener) ActiveConns() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.conns)
 }
 
 // DialWithRetry wraps a dial function with exponential backoff retry.

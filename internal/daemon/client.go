@@ -324,9 +324,44 @@ func (c *Client) Connect(peer, service, listen string) (*ConnectResponse, error)
 	return &resp, nil
 }
 
-// Disconnect tears down a proxy.
+// Disconnect tears down an ephemeral proxy.
 func (c *Client) Disconnect(id string) error {
 	return c.doJSON("DELETE", "/v1/connect/"+id, nil, nil)
+}
+
+// ProxyAdd creates a persistent proxy.
+func (c *Client) ProxyAdd(name, peer, service string, port int) (*ProxyAddResponse, error) {
+	req := ProxyAddRequest{Name: name, Peer: peer, Service: service, Port: port}
+	body, _ := json.Marshal(req)
+	var resp ProxyAddResponse
+	if err := c.doJSON("POST", "/v1/proxies", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProxyList returns all persistent proxies.
+func (c *Client) ProxyList() (*ProxyListResponse, error) {
+	var resp ProxyListResponse
+	if err := c.doJSON("GET", "/v1/proxies", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProxyRemove deletes a persistent proxy.
+func (c *Client) ProxyRemove(name string) error {
+	return c.doJSON("DELETE", "/v1/proxies/"+name, nil, nil)
+}
+
+// ProxyEnable enables a disabled persistent proxy.
+func (c *Client) ProxyEnable(name string) error {
+	return c.doJSON("POST", "/v1/proxies/"+name+"/enable", nil, nil)
+}
+
+// ProxyDisable disables a persistent proxy without removing it.
+func (c *Client) ProxyDisable(name string) error {
+	return c.doJSON("POST", "/v1/proxies/"+name+"/disable", nil, nil)
 }
 
 // Expose registers a service on the P2P host.
@@ -570,6 +605,31 @@ func (c *Client) NotifyTest() (map[string]string, error) {
 	var result map[string]string
 	if err := c.doJSON("POST", "/v1/notify/test", nil, &result); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+// ProxyListOffline reads proxies.json directly when the daemon is not running (EDGE-7).
+func ProxyListOffline(configDir string) ([]ProxyStatusInfo, error) {
+	store, err := NewProxyStore(ProxiesFilePath(configDir))
+	if err != nil {
+		return nil, err
+	}
+	entries := store.All()
+	result := make([]ProxyStatusInfo, 0, len(entries))
+	for _, e := range entries {
+		status := "unknown (daemon not running)"
+		if !e.Enabled {
+			status = "disabled"
+		}
+		result = append(result, ProxyStatusInfo{
+			Name:    e.Name,
+			Peer:    e.Peer,
+			Service: e.Service,
+			Port:    e.Port,
+			Enabled: e.Enabled,
+			Status:  status,
+		})
 	}
 	return result, nil
 }

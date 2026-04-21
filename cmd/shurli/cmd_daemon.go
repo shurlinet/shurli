@@ -773,10 +773,27 @@ func runDaemonStart(args []string) {
 	srv := daemon.NewServer(rt, socketPath, cookiePath, version)
 	srv.SetInstrumentation(rt.metrics, rt.audit)
 	srv.SetRegistry(pluginRegistry)
+
+	// Persistent proxy store (Item #24).
+	configDir := filepath.Dir(rt.configFile)
+	proxyStore, psErr := daemon.NewProxyStore(daemon.ProxiesFilePath(configDir))
+	if psErr != nil {
+		slog.Warn("proxy store init failed", "error", psErr)
+	} else {
+		srv.SetProxyStore(proxyStore)
+	}
+
 	if err := srv.Start(); err != nil {
 		rt.Shutdown()
 		fatal("Daemon API failed to start: %v", err)
 	}
+
+	// Restore persistent proxies AFTER server start + bootstrap (F3).
+	srv.RestoreProxies()
+
+	// F1: Subscribe to libp2p peer connectivity events for proxy state management.
+	rt.startProxyEventLoop(srv)
+
 
 	// Start metrics endpoint (no-op if telemetry disabled)
 	rt.StartMetricsServer()
