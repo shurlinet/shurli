@@ -330,9 +330,31 @@ and the relay hops involved.
 Look up a friendly name in your config and resolve it to a peer ID. Also queries
 the DHT if the name is not found locally.
 .TP
+.B proxy add \fIname\fR \fIpeer\fR \fIservice\fR \fIport\fR
+Create a persistent proxy that survives daemon restarts. The proxy binds
+127.0.0.1:\fIport\fR and forwards TCP connections to the remote peer's service.
+.TP
+.B proxy list \fR[\fB--json\fR]
+List all configured proxies with their current status (active, waiting, disabled, error).
+Works even when the daemon is not running (reads proxies.json directly).
+.TP
+.B proxy remove \fIname\fR
+Remove a persistent proxy and stop its TCP listener.
+.TP
+.B proxy enable \fIname\fR
+Enable a previously disabled proxy.
+.TP
+.B proxy disable \fIname\fR
+Disable a proxy without removing it. The configuration is preserved.
+.TP
 .B proxy \fItarget\fR \fIservice\fR \fIlocal-port\fR
-Forward a local TCP port to a remote peer's service. Runs in the foreground
-until interrupted with Ctrl-C.
+Ephemeral foreground proxy. Runs until interrupted with Ctrl-C. Does not persist.
+.PP
+.B Security note:
+Proxy listeners bind to 127.0.0.1 and are accessible to all local users on
+multi-user systems. This matches the trust model of SSH's \fB-L\fR flag. On
+shared machines, consider using SSH ProxyCommand with a Unix domain socket
+instead.
 .TP
 .B reconnect \fIpeer\fR [\fB--json\fR]
 Clear all dial backoffs for a peer and trigger immediate reconnection. Resets both

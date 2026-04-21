@@ -19,6 +19,7 @@ import (
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/notify"
@@ -1652,6 +1654,62 @@ func (rt *serveRuntime) StartReputationScoreUpdater() func(peer.ID) int {
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 // Transfer service shutdown is handled by plugin Stop() via registry.StopAll().
+// startProxyEventLoop subscribes to libp2p peer connectivity events and
+// forwards them to the daemon server's proxy manager (F1).
+// Also chains the deauth callback for proxy cleanup (F2).
+func (rt *serveRuntime) startProxyEventLoop(srv *daemon.Server) {
+	h := rt.network.Host()
+
+	// F1: Subscribe to libp2p's native event bus for peer connectivity.
+	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
+	if err != nil {
+		slog.Warn("proxy event loop: failed to subscribe to peer events", "error", err)
+		return
+	}
+
+	// Detect peers that connected during bootstrap before we subscribed.
+	srv.DetectAlreadyConnected()
+
+	// EDGE-4: Periodic port conflict retry ticker.
+	portRetryTicker := time.NewTicker(daemon.ProxyPortRetryInterval)
+
+	go func() {
+		defer sub.Close()
+		defer portRetryTicker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case evt, ok := <-sub.Out():
+				if !ok {
+					return
+				}
+				e := evt.(event.EvtPeerConnectednessChanged)
+				switch e.Connectedness {
+				case network.Connected:
+					srv.OnPeerConnected(e.Peer)
+				case network.NotConnected:
+					srv.OnPeerDisconnected(e.Peer)
+				}
+			case <-portRetryTicker.C:
+				srv.RetryPortConflicts()
+				srv.PollProxyStatus()
+			}
+		}
+	}()
+
+	// F2: Chain deauth callback — add proxy cleanup after PathProtector cleanup.
+	if rt.peerManager != nil {
+		existing := rt.peerManager.OnWatchlistRemovedFunc()
+		rt.peerManager.SetOnWatchlistRemoved(func(pid peer.ID) {
+			if existing != nil {
+				existing(pid)
+			}
+			srv.OnPeerDeauthorized(pid)
+		})
+	}
+}
+
 func (rt *serveRuntime) Shutdown() {
 	// Stop deferred network-change timers before any subsystem cleanup.
 	// Prevents callbacks from firing on partially-torn-down state.

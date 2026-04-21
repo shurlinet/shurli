@@ -319,6 +319,11 @@ func (pm *PeerManager) SetOnWatchlistRemoved(fn func(peer.ID)) {
 	pm.onWatchlistRemoved = fn
 }
 
+// OnWatchlistRemovedFunc returns the current watchlist-removed callback (for chaining).
+func (pm *PeerManager) OnWatchlistRemovedFunc() func(peer.ID) {
+	return pm.onWatchlistRemoved
+}
+
 // SetConnGracePeriod overrides the per-connection grace period for closeOnce.
 // Used in tests (R9-D2). Production default: DefaultConnGracePeriod (30s).
 func (pm *PeerManager) SetConnGracePeriod(d time.Duration) {

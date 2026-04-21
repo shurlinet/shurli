@@ -72,6 +72,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/grants/delegate", s.handleGrantDelegate)
 	mux.HandleFunc("GET /v1/grants/pouch", s.handlePouchList)
 
+	// Persistent proxies (Item #24)
+	mux.HandleFunc("GET /v1/proxies", s.handleProxyList)
+	mux.HandleFunc("POST /v1/proxies", s.handleProxyAdd)
+	mux.HandleFunc("DELETE /v1/proxies/{name}", s.handleProxyRemove)
+	mux.HandleFunc("POST /v1/proxies/{name}/enable", s.handleProxyEnable)
+	mux.HandleFunc("POST /v1/proxies/{name}/disable", s.handleProxyDisable)
+
 	// Reconnect (manual backoff reset + redial)
 	mux.HandleFunc("POST /v1/reconnect", s.handleReconnect)
 
@@ -102,6 +109,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			"POST /v1/config/reload": true, "GET /v1/config/reload": true,
 			"GET /v1/grants": true, "POST /v1/grants": true, "POST /v1/grants/revoke": true, "POST /v1/grants/extend": true, "POST /v1/grants/delegate": true, "GET /v1/grants/pouch": true,
 			"POST /v1/reconnect": true,
+			"GET /v1/proxies": true, "POST /v1/proxies": true,
+			"DELETE /v1/proxies/{name}": true, "POST /v1/proxies/{name}/enable": true, "POST /v1/proxies/{name}/disable": true,
 			"GET /v1/notify/sinks": true, "POST /v1/notify/test": true,
 			"GET /v1/plugins": true, "POST /v1/plugins/disable-all": true,
 			"GET /v1/plugins/{name}": true, "POST /v1/plugins/{name}/enable": true, "POST /v1/plugins/{name}/disable": true,
@@ -418,6 +427,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			resp.RelayGrants = append(resp.RelayGrants, rgi)
 		}
 	}
+
+	// Proxy status (F8: single-command overview).
+	resp.Proxies = s.ProxyStatusList()
 
 	if WantsText(r) {
 		var sb strings.Builder
@@ -997,6 +1009,213 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusOK, resp)
 }
 
+// --- Persistent proxy handlers (Item #24) ---
+
+func (s *Server) handleProxyList(w http.ResponseWriter, r *http.Request) {
+	resp := ProxyListResponse{Proxies: s.ProxyStatusList()}
+	RespondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProxyAdd(w http.ResponseWriter, r *http.Request) {
+	var req ProxyAddRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.Peer == "" || req.Service == "" || req.Port == 0 {
+		RespondError(w, http.StatusBadRequest, "name, peer, service, and port are required")
+		return
+	}
+	if req.Port < 1 || req.Port > 65535 {
+		RespondError(w, http.StatusBadRequest, "port must be 1-65535")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	entry := &ProxyEntry{
+		Name:    req.Name,
+		Peer:    req.Peer,
+		Service: req.Service,
+		Port:    req.Port,
+		Enabled: true,
+	}
+	if err := s.proxyStore.Add(entry); err != nil {
+		RespondError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	// R4: Bind to explicit 127.0.0.1.
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", req.Port)
+
+	// Capture status and listen inside the lock to avoid data race with event loop.
+	pnet := s.runtime.Network()
+	status := "waiting"
+	listen := listenAddr
+	s.mu.Lock()
+	proxy := s.startPersistentProxy(req.Name, req.Peer, req.Service, listenAddr, req.Port)
+	if proxy != nil {
+		s.proxies[req.Name] = proxy
+		// Check if peer is already connected — flip to active immediately.
+		if proxy.status == "waiting" {
+			if targetPeerID, err := pnet.ResolveName(req.Peer); err == nil {
+				if pnet.Host().Network().Connectedness(targetPeerID) == network.Connected {
+					proxy.status = "active"
+					proxy.connectedAt = time.Now()
+				}
+			}
+		}
+		status = proxy.status
+		if proxy.Listen != "" {
+			listen = proxy.Listen
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Info("persistent proxy added", "name", req.Name, "peer", req.Peer, "service", req.Service, "port", req.Port)
+	RespondJSON(w, http.StatusCreated, ProxyAddResponse{
+		Name:          req.Name,
+		ListenAddress: listen,
+		Status:        status,
+	})
+}
+
+func (s *Server) handleProxyRemove(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.Remove(name); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Stop the running proxy if active.
+	s.mu.Lock()
+	proxy, exists := s.proxies[name]
+	if exists {
+		delete(s.proxies, name)
+	}
+	s.mu.Unlock()
+
+	if exists {
+		proxy.cancel()
+		if proxy.listener != nil {
+			proxy.listener.GracefulClose(5 * time.Second)
+		}
+		<-proxy.done
+	}
+
+	slog.Info("persistent proxy removed", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (s *Server) handleProxyEnable(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.SetEnabled(name, true); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Start the proxy if not already running.
+	entry := s.proxyStore.Get(name)
+	if entry == nil {
+		RespondError(w, http.StatusNotFound, "proxy entry disappeared")
+		return
+	}
+
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
+
+	pnet := s.runtime.Network()
+	s.mu.Lock()
+	existing, exists := s.proxies[name]
+	if exists && existing.status == "disabled" {
+		// Replace the disabled placeholder with a live proxy.
+		proxy := s.startPersistentProxy(name, entry.Peer, entry.Service, listenAddr, entry.Port)
+		if proxy != nil {
+			s.proxies[name] = proxy
+			// Check if peer is already connected — the libp2p event already fired
+			// before this proxy existed, so DetectAlreadyConnected won't catch it.
+			if proxy.status == "waiting" {
+				if targetPeerID, err := pnet.ResolveName(entry.Peer); err == nil {
+					if pnet.Host().Network().Connectedness(targetPeerID) == network.Connected {
+						proxy.status = "active"
+						proxy.connectedAt = time.Now()
+					}
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Info("persistent proxy enabled", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+}
+
+func (s *Server) handleProxyDisable(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.SetEnabled(name, false); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Stop the running proxy. Release mutex before GracefulClose (up to 5s).
+	s.mu.Lock()
+	proxy, exists := s.proxies[name]
+	var oldListener *sdk.TCPListener
+	if exists && proxy.persistent {
+		proxy.cancel()
+		oldListener = proxy.listener
+		// Replace with disabled placeholder immediately (pre-closed done).
+		s.proxies[name] = newPlaceholderProxy(
+			name, proxy.Peer, proxy.Service, proxy.Listen, "disabled", proxy.Port)
+	}
+	s.mu.Unlock()
+
+	// GracefulClose + wait outside the mutex.
+	if exists {
+		if oldListener != nil {
+			oldListener.GracefulClose(5 * time.Second)
+		}
+		<-proxy.done
+	}
+
+	slog.Info("persistent proxy disabled", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
+
+// --- Ephemeral proxy handlers (existing) ---
+
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var req ConnectRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
@@ -1038,7 +1257,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Generate proxy ID
 	s.mu.Lock()
 	s.nextID++
-	id := fmt.Sprintf("proxy-%d", s.nextID)
+	id := fmt.Sprintf("~proxy-%d", s.nextID)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	proxy := &activeProxy{

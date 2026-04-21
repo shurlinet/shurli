@@ -25,6 +25,7 @@ type StatusResponse struct {
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 	PeerPaths         map[string]PeerPathSummary `json:"peer_paths,omitempty"` // peer ID -> connection summary
+	Proxies           []ProxyStatusInfo          `json:"proxies,omitempty"`
 }
 
 // PeerPathSummary describes how a peer is connected (for status display).
@@ -213,6 +214,39 @@ type RemoteServiceResponse struct {
 	Services []sdk.RemoteServiceInfo `json:"services"`
 }
 
+
+// --- Persistent proxy types ---
+
+// ProxyAddRequest is the body for POST /v1/proxies.
+type ProxyAddRequest struct {
+	Name    string `json:"name"`
+	Peer    string `json:"peer"`
+	Service string `json:"service"`
+	Port    int    `json:"port"`
+}
+
+// ProxyAddResponse is returned by POST /v1/proxies.
+type ProxyAddResponse struct {
+	Name          string `json:"name"`
+	ListenAddress string `json:"listen_address"`
+	Status        string `json:"status"`
+}
+
+// ProxyStatusInfo describes a proxy in API responses (list + status).
+type ProxyStatusInfo struct {
+	Name    string `json:"name"`
+	Peer    string `json:"peer"`
+	Service string `json:"service"`
+	Port    int    `json:"port"`
+	Listen  string `json:"listen,omitempty"`
+	Status  string `json:"status"`           // "active", "waiting", "disabled", "error: ...", "port_conflict"
+	Enabled bool   `json:"enabled"`
+}
+
+// ProxyListResponse is returned by GET /v1/proxies.
+type ProxyListResponse struct {
+	Proxies []ProxyStatusInfo `json:"proxies"`
+}
 
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
