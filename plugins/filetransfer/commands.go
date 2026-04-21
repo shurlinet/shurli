@@ -813,9 +813,14 @@ func printTransferTable(transfers []TransferSnapshot) {
 		} else {
 			age = time.Since(t.StartTime).Truncate(time.Second)
 		}
+		if age < 0 {
+			age = 0
+		}
+
+		name := truncateDisplay(SanitizeDisplayName(t.Filename), 20) // R2-F24
 
 		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
-			dir, t.ID, SanitizeDisplayName(t.Filename), peerShort,
+			dir, t.ID, name, peerShort,
 			humanSize(t.Transferred), humanSize(t.Size),
 			pctStr, compressTag, erasureTag,
 		)
@@ -849,18 +854,27 @@ func printTransferTable(transfers []TransferSnapshot) {
 	}
 }
 
+// watchSnapshot tracks per-transfer state across --watch refresh cycles (R2-F21).
+type watchSnapshot struct {
+	transferred int64
+	sampleCount int
+}
+
 func watchTransfers(client *daemonClient, jsonOutput bool) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	printWatchRound(client, jsonOutput)
+	prevSnap := make(map[string]watchSnapshot)
+	prevTime := time.Now()
+
+	printWatchRound(client, jsonOutput, prevSnap, &prevTime)
 	for range ticker.C {
 		fmt.Print("\033[2J\033[H")
-		printWatchRound(client, jsonOutput)
+		printWatchRound(client, jsonOutput, prevSnap, &prevTime)
 	}
 }
 
-func printWatchRound(client *daemonClient, jsonOutput bool) {
+func printWatchRound(client *daemonClient, jsonOutput bool, prevSnap map[string]watchSnapshot, prevTime *time.Time) {
 	transfers, err := client.TransferList()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
@@ -886,9 +900,146 @@ func printWatchRound(client *daemonClient, jsonOutput bool) {
 	tc.Wfaint(os.Stdout, "Transfers (live, Ctrl+C to exit)  %s\n\n", time.Now().Format("15:04:05"))
 	if len(transfers) == 0 {
 		tc.Wfaint(os.Stdout, "No transfers.\n")
+		for k := range prevSnap {
+			delete(prevSnap, k)
+		}
 		return
 	}
-	printTransferTable(transfers)
+
+	now := time.Now()
+	dt := now.Sub(*prevTime).Seconds()
+	printWatchTable(transfers, prevSnap, dt)
+
+	// Update state for next round.
+	seen := make(map[string]bool)
+	for _, t := range transfers {
+		seen[t.ID] = true
+		prev, exists := prevSnap[t.ID]
+		if exists {
+			prevSnap[t.ID] = watchSnapshot{transferred: t.Transferred, sampleCount: prev.sampleCount + 1}
+		} else {
+			prevSnap[t.ID] = watchSnapshot{transferred: t.Transferred, sampleCount: 0}
+		}
+	}
+	// R3-F9: cleanup stale entries to prevent unbounded map growth.
+	for id := range prevSnap {
+		if !seen[id] {
+			delete(prevSnap, id)
+		}
+	}
+	*prevTime = now
+}
+
+// printWatchTable renders the transfer table with interval speed and ETA.
+// Separate from printTransferTable (R3-F8) because it needs cross-cycle state.
+func printWatchTable(transfers []TransferSnapshot, prevSnap map[string]watchSnapshot, dtSec float64) {
+	sort.Slice(transfers, func(i, j int) bool {
+		if transfers[i].Done != transfers[j].Done {
+			return !transfers[i].Done
+		}
+		return transfers[i].StartTime.After(transfers[j].StartTime)
+	})
+
+	tw := termWidth()
+
+	for i := range transfers {
+		t := &transfers[i]
+		dir := "\u2191"
+		if t.Direction == "receive" {
+			dir = "\u2193"
+		}
+
+		peerShort := t.PeerID
+		if len(peerShort) > 16 {
+			peerShort = peerShort[:16] + "..."
+		}
+
+		name := truncateDisplay(SanitizeDisplayName(t.Filename), 20) // R2-F24
+
+		pctStr := ""
+		if t.Size > 0 && !t.Done {
+			pct := float64(t.Transferred) / float64(t.Size) * 100
+			pctStr = fmt.Sprintf(" %.0f%%", pct)
+		}
+
+		// R3-F10: adaptive field dropping based on terminal width.
+		compressTag := ""
+		if tw >= 100 {
+			if t.Compressed && t.CompressedSize > 0 && t.Size > 0 {
+				ratio := float64(t.Size) / float64(t.CompressedSize)
+				compressTag = fmt.Sprintf(" [zstd %.1f:1]", ratio)
+			} else if t.Compressed {
+				compressTag = " [zstd]"
+			}
+		}
+
+		erasureTag := ""
+		if tw >= 120 && t.ErasureParity > 0 {
+			erasureTag = fmt.Sprintf(" [RS %.0f%%, %d parity]",
+				t.ErasureOverhead*100, t.ErasureParity)
+		}
+
+		var age time.Duration
+		if !t.EndTime.IsZero() {
+			age = t.EndTime.Sub(t.StartTime).Truncate(time.Second)
+		} else {
+			age = time.Since(t.StartTime).Truncate(time.Second)
+		}
+		if age < 0 {
+			age = 0
+		}
+
+		// Interval speed for active transfers, lifetime avg for completed/first refresh.
+		speedStr := ""
+		etaStr := ""
+		prev, hasPrev := prevSnap[t.ID]
+		if t.Status == "active" && hasPrev && dtSec > 0.5 {
+			bytesDelta := t.Transferred - prev.transferred
+			if bytesDelta > 0 {
+				intervalSpeed := float64(bytesDelta) / dtSec
+				speedStr = fmt.Sprintf("  %s/s", humanSize(int64(intervalSpeed)))
+				// R2-F22: show ETA only after 3+ refresh cycles (6s of data).
+				if tw >= 140 && prev.sampleCount >= 2 && t.Size > 0 {
+					remaining := t.Size - t.Transferred
+					if remaining > 0 {
+						etaSec := float64(remaining) / intervalSpeed
+						if etaFmt := formatETA(etaSec); etaFmt != "" {
+							etaStr = fmt.Sprintf("  ETA %s", etaFmt)
+						}
+					}
+				}
+			}
+		} else if t.Transferred > 0 && age > 0 {
+			bytesPerSec := float64(t.Transferred) / age.Seconds()
+			speedStr = fmt.Sprintf("  %s/s", humanSize(int64(bytesPerSec)))
+		}
+
+		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
+			dir, t.ID, name, peerShort,
+			humanSize(t.Transferred), humanSize(t.Size),
+			pctStr, compressTag, erasureTag,
+		)
+
+		switch t.Status {
+		case "complete":
+			tc.Wgreen(os.Stdout, "complete")
+		case "failed":
+			tc.Wred(os.Stdout, "failed")
+		case "active":
+			tc.Wyellow(os.Stdout, "active")
+		case "pending":
+			tc.Wfaint(os.Stdout, "pending")
+		case "awaiting_approval":
+			tc.Wcyan(os.Stdout, "awaiting approval")
+		default:
+			fmt.Print(t.Status)
+		}
+
+		fmt.Printf("  %s%s%s\n", age, speedStr, etaStr)
+		if t.Error != "" {
+			tc.Wred(os.Stdout, "    error: %s\n", sdk.HumanizeError(t.Error))
+		}
+	}
 }
 
 func runAccept(args []string) {

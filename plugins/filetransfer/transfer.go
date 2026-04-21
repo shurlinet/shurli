@@ -483,25 +483,26 @@ func (p *TransferProgress) finish(err error) {
 // TransferSnapshot is a mutex-free copy of TransferProgress, safe for JSON
 // serialization and value passing.
 type TransferSnapshot struct {
-	ID              string       `json:"id"`
-	Filename        string       `json:"filename"`
-	Size            int64        `json:"size"`
-	Transferred     int64        `json:"transferred"`
-	ChunksTotal     int          `json:"chunks_total"`
-	ChunksDone      int          `json:"chunks_done"`
-	Compressed      bool         `json:"compressed"`
-	CompressedSize  int64        `json:"compressed_size,omitempty"`
-	ErasureParity   int          `json:"erasure_parity,omitempty"`
-	ErasureOverhead float64      `json:"erasure_overhead,omitempty"`
-	StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`
-	Failovers       int          `json:"failovers,omitempty"`
-	PeerID          string       `json:"peer_id"`
-	Direction       string       `json:"direction"`
-	Status          string       `json:"status"`
-	StartTime       time.Time    `json:"start_time"`
-	EndTime         time.Time    `json:"end_time,omitempty"`
-	Done            bool         `json:"done"`
-	Error           string       `json:"error,omitempty"`
+	ID               string       `json:"id"`
+	Filename         string       `json:"filename"`
+	Size             int64        `json:"size"`
+	Transferred      int64        `json:"transferred"`
+	ChunksTotal      int          `json:"chunks_total"`
+	ChunksDone       int          `json:"chunks_done"`
+	Compressed       bool         `json:"compressed"`
+	CompressedSize   int64        `json:"compressed_size,omitempty"`
+	ErasureParity    int          `json:"erasure_parity,omitempty"`
+	ErasureOverhead  float64      `json:"erasure_overhead,omitempty"`
+	ParityChunksDone int          `json:"parity_chunks_done,omitempty"`
+	StreamProgress   []StreamInfo `json:"stream_progress,omitempty"`
+	Failovers        int          `json:"failovers,omitempty"`
+	PeerID           string       `json:"peer_id"`
+	Direction        string       `json:"direction"`
+	Status           string       `json:"status"`
+	StartTime        time.Time    `json:"start_time"`
+	EndTime          time.Time    `json:"end_time,omitempty"`
+	Done             bool         `json:"done"`
+	Error            string       `json:"error,omitempty"`
 }
 
 // Snapshot returns a mutex-free copy safe for JSON serialization.
@@ -514,8 +515,9 @@ func (p *TransferProgress) Snapshot() TransferSnapshot {
 		ChunksDone: p.ChunksDone, Compressed: p.Compressed,
 		CompressedSize: p.CompressedSize,
 		ErasureParity:  p.ErasureParity, ErasureOverhead: p.ErasureOverhead,
-		Failovers: p.Failovers,
-		PeerID:    p.PeerID, Direction: p.Direction, Status: p.Status,
+		ParityChunksDone: p.ParityChunksDone,
+		Failovers:        p.Failovers,
+		PeerID:           p.PeerID, Direction: p.Direction, Status: p.Status,
 		StartTime: p.StartTime, EndTime: p.EndTime,
 		Done: p.Done, Error: p.Error,
 	}
