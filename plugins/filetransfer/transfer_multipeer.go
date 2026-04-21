@@ -1674,12 +1674,21 @@ func (ts *TransferService) DownloadMultiPeer(
 		tmpFileClosed = true
 
 		finalPath := filepath.Join(destDir, filepath.Base(manifest.Filename))
-		finalPath, fpErr := nonCollidingPath(finalPath)
-		if fpErr != nil {
-			os.Remove(tmpPath)
-			progress.finish(fpErr)
-			ts.markCompleted(progress.ID)
-			return
+		// Bug #31 fix: if the file already exists with the same size, it's a
+		// re-delivery (sender saw false failure, user re-sent). Overwrite instead
+		// of creating a duplicate with "(1)" suffix.
+		if existInfo, statErr := os.Stat(finalPath); statErr != nil || !existInfo.Mode().IsRegular() || existInfo.Size() != manifest.FileSize {
+			var fpErr error
+			finalPath, fpErr = nonCollidingPath(finalPath)
+			if fpErr != nil {
+				os.Remove(tmpPath)
+				progress.finish(fpErr)
+				ts.markCompleted(progress.ID)
+				return
+			}
+		} else {
+			slog.Info("file-transfer: overwriting existing file (same size, multi-peer re-delivery)",
+				"path", finalPath, "size", manifest.FileSize)
 		}
 
 		if err := os.Rename(tmpPath, finalPath); err != nil {

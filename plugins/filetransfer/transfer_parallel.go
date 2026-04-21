@@ -200,6 +200,7 @@ func (ts *TransferService) sendParallel(
 	}
 
 	// Track progress atomically across goroutines.
+	// totalSent tracks decompressed (logical) bytes for accurate progress vs Size.
 	var totalSent atomic.Int64
 	var chunksDone atomic.Int32
 
@@ -220,13 +221,13 @@ func (ts *TransferService) sendParallel(
 					return
 				}
 				wireBytes := int64(len(sc.data))
-				totalSent.Add(wireBytes)
 				// [B2-F29, R4-SEC1 Batch 2] Parity chunks don't increment
 				// ChunksDone — ChunksTotal is data-only. Surface parity via
 				// ParityChunksDone so UI never shows "> 100% chunks".
 				if sc.fileIdx == parityFileIdx {
 					progress.addParityChunkDone()
 				} else {
+					totalSent.Add(int64(sc.decompSize))
 					done := chunksDone.Add(1)
 					progress.updateChunks(totalSent.Load(), int(done))
 				}
@@ -258,11 +259,11 @@ func (ts *TransferService) sendParallel(
 				return
 			}
 			wireBytes := int64(len(sc.data))
-			totalSent.Add(wireBytes)
 			// [B2-F29, R4-SEC1 Batch 2] Parity chunks tracked separately.
 			if sc.fileIdx == parityFileIdx {
 				progress.addParityChunkDone()
 			} else {
+				totalSent.Add(int64(sc.decompSize))
 				done := chunksDone.Add(1)
 				progress.updateChunks(totalSent.Load(), int(done))
 			}
@@ -338,11 +339,11 @@ func (ts *TransferService) sendSingleStream(
 			// Blocking here would deadlock: producer blocked on ch <- sc, us on <-done.
 			return zeroResult, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
 		}
-		totalSent += int64(len(sc.data))
 		// [B2-F29, R4-SEC1 Batch 2] Parity chunks tracked separately from data.
 		if sc.fileIdx == parityFileIdx {
 			progress.addParityChunkDone()
 		} else {
+			totalSent += int64(sc.decompSize)
 			chunksSent++
 			progress.updateChunks(totalSent, chunksSent)
 		}

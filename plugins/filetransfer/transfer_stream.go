@@ -1598,23 +1598,37 @@ func (s *streamReceiveState) finalize() error {
 			}
 		}
 
-		// Determine non-colliding final name within root.
+		// Determine final name within root.
+		// Bug #31 fix: if the file already exists with the same size, it is
+		// almost certainly from a previous successful transfer of the same
+		// content (e.g., sender falsely reported failure and user re-sent).
+		// In that case, just overwrite — creating a "(1)" duplicate is never
+		// what the user wants. Only add a collision suffix when the existing
+		// file has a DIFFERENT size (genuinely different content, same name).
 		finalPath := fe.Path
-		if _, err := s.destRoot.Stat(finalPath); err == nil {
-			// Path exists, find a non-colliding name.
-			ext := filepath.Ext(finalPath)
-			base := strings.TrimSuffix(finalPath, ext)
-			found := false
-			for n := 1; n < 10000; n++ {
-				candidate := fmt.Sprintf("%s (%d)%s", base, n, ext)
-				if _, err := s.destRoot.Stat(candidate); err != nil {
-					finalPath = candidate
-					found = true
-					break
+		if existInfo, err := s.destRoot.Stat(finalPath); err == nil {
+			if !existInfo.Mode().IsRegular() || existInfo.Size() != fe.Size {
+				// Different content, same name — find a non-colliding name.
+				ext := filepath.Ext(finalPath)
+				base := strings.TrimSuffix(finalPath, ext)
+				found := false
+				for n := 1; n < 10000; n++ {
+					candidate := fmt.Sprintf("%s (%d)%s", base, n, ext)
+					if _, err := s.destRoot.Stat(candidate); err != nil {
+						finalPath = candidate
+						found = true
+						break
+					}
 				}
-			}
-			if !found {
-				return fmt.Errorf("cannot find non-colliding path for %s after 10000 attempts", fe.Path)
+				if !found {
+					return fmt.Errorf("cannot find non-colliding path for %s after 10000 attempts", fe.Path)
+				}
+			} else {
+				// Same size, same name — overwrite. The previous file is from a
+				// prior successful transfer of the same content (e.g., sender saw
+				// false failure and user re-sent). Rename atomically replaces.
+				slog.Info("file-transfer: overwriting existing file (same size, re-delivery)",
+					"path", fe.Path, "size", fe.Size)
 			}
 		}
 

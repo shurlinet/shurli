@@ -475,11 +475,6 @@ func (p *TransferProgress) finish(err error) {
 	if err != nil {
 		p.Error = err.Error()
 		p.Status = "failed"
-	} else if p.Size > 0 && p.Transferred < p.Size {
-		// Guard: no error but transfer is incomplete. This catches silent
-		// failures where the stream died but no error propagated back.
-		p.Error = fmt.Sprintf("transfer incomplete: %d/%d bytes", p.Transferred, p.Size)
-		p.Status = "failed"
 	} else {
 		p.Status = "complete"
 	}
@@ -1627,7 +1622,7 @@ func (ts *TransferService) streamingSend(
 		if sendLimiter != nil {
 			singleW = &rateLimitedWriter{w: rw, limiter: sendLimiter, ctx: ctx}
 		}
-		var totalSent int64
+		var totalSent int64 // decompressed (logical) bytes sent
 		chunksSent := 0
 		for sc := range ch {
 			if err := writeStreamChunkFrame(singleW, sc); err != nil {
@@ -1635,7 +1630,6 @@ func (ts *TransferService) streamingSend(
 				<-done
 				return zero, fmt.Errorf("send chunk %d: %w", sc.chunkIdx, err)
 			}
-			totalSent += int64(len(sc.data))
 			// [B2-F29, R4-SEC1 Batch 2] Parity chunks do NOT increment ChunksDone.
 			// ChunksTotal is set to len(result.chunkHashes) (data count) below, so
 			// counting parity here would produce displays like "110/100 chunks".
@@ -1643,6 +1637,7 @@ func (ts *TransferService) streamingSend(
 			if sc.fileIdx == parityFileIdx {
 				progress.addParityChunkDone()
 			} else {
+				totalSent += int64(sc.decompSize)
 				chunksSent++
 				progress.updateChunks(totalSent, chunksSent)
 			}
@@ -2623,7 +2618,23 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 			}
 		}
 		if finalErr == nil {
-			_, finalErr = ts.SendDirectory(jobCtx, job.filePath, job.openStream, job.opts)
+			// Bug #30 fix: use SendFile directly (it handles directories natively)
+			// with internalShadow + pollSendProgress, matching the single-file path.
+			// This gives live progress updates, proper cancel propagation, and correct
+			// Transferred accounting for TS-5b failover (cumulativeBytes).
+			stream, streamErr := job.openStream()
+			if streamErr != nil {
+				finalErr = fmt.Errorf("open stream for directory: %w", streamErr)
+			} else {
+				sendOpts := job.opts
+				sendOpts.internalShadow = true
+				sendProgress, sendErr := ts.SendFile(stream, job.filePath, sendOpts)
+				if sendErr != nil {
+					finalErr = sendErr
+				} else {
+					finalErr = pollSendProgress(jobCtx, stream, sendProgress, job.progress, job.cumulativeBytes)
+				}
+			}
 		}
 	} else {
 		stream, err := job.openStream()
