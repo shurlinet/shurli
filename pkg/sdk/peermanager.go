@@ -158,7 +158,7 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 					"direction", dir)
 				go func() {
 					c.Close()
-					StripNonLANAddrs(cl.pm.host, pid)
+					StripNonLANAddrs(cl.pm.host, pid, cl.pm.lanRegistry)
 				}()
 				return
 			}
@@ -194,7 +194,7 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 				closedAny = true
 			}
 			if closedAny {
-				go StripNonLANAddrs(cl.pm.host, pid)
+				go StripNonLANAddrs(cl.pm.host, pid, cl.pm.lanRegistry)
 			}
 		}
 	}
@@ -1377,18 +1377,32 @@ func IsLANMultiaddr(addr ma.Multiaddr) bool {
 }
 
 // StripNonLANAddrs removes all non-LAN, non-relay addresses from the
-// peerstore for a given peer. Keeps only private IPv4 (LAN) and relay
-// circuit addresses. Used by both mDNS upgrade and connLogger to prevent
-// identify/DHT from re-populating non-LAN addresses that would cause
-// unwanted reconnection attempts (BUG-MP-4 I1/I2).
+// peerstore for a given peer. Keeps only relay circuit addresses and
+// addresses verified as LAN by the LANRegistry (mDNS-proven). When
+// lanReg is nil, falls back to bare IsLANMultiaddr (private IPv4 check).
+//
+// Using LANRegistry instead of IsLANMultiaddr aligns this function with
+// connLogger's trust model (F17-U1): connLogger uses IsVerifiedLAN to
+// decide which connections to close, so the peerstore filter must use the
+// same source of truth. Without this, a private IPv4 address added by
+// identify (not mDNS-verified) survives the strip but gets its connection
+// closed by connLogger, causing unnecessary close-and-redial churn.
 //
 // Collects keepers first, then does a single ClearAddrs + AddAddrs to
 // minimize the window where the peer has no addresses in the peerstore.
-func StripNonLANAddrs(h host.Host, pid peer.ID) {
+func StripNonLANAddrs(h host.Host, pid peer.ID, lanReg *LANRegistry) {
 	allAddrs := h.Peerstore().Addrs(pid)
 	keepers := make([]ma.Multiaddr, 0, len(allAddrs))
 	for _, addr := range allAddrs {
-		if isCircuitAddr(addr) || IsLANMultiaddr(addr) {
+		if isCircuitAddr(addr) {
+			keepers = append(keepers, addr)
+			continue
+		}
+		if lanReg != nil {
+			if lanReg.IsVerifiedLAN(pid, addr) {
+				keepers = append(keepers, addr)
+			}
+		} else if IsLANMultiaddr(addr) {
 			keepers = append(keepers, addr)
 		}
 	}

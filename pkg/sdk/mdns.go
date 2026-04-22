@@ -517,7 +517,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 
 			// Strip non-LAN addresses from peerstore to prevent re-dial.
 			// Uses shared function (also called by connLogger for BUG-MP-4).
-			StripNonLANAddrs(md.host, pi.ID)
+			StripNonLANAddrs(md.host, pi.ID, md.lanRegistry)
 		} else {
 			// Strip non-LAN addresses from peerstore BEFORE connecting.
 			// host.Connect dials ALL peerstore addresses, not just pi.Addrs.
@@ -525,7 +525,7 @@ func (md *MDNSDiscovery) HandlePeerFound(pi peer.AddrInfo) {
 			// the dial race against LAN IPv4 (BUG-MP-4 root cause: gater
 			// can't protect a LAN path that was never established).
 			savedAddrs := md.host.Peerstore().Addrs(pi.ID)
-			StripNonLANAddrs(md.host, pi.ID)
+			StripNonLANAddrs(md.host, pi.ID, md.lanRegistry)
 
 			ctx, cancel := context.WithTimeout(md.ctx, mdnsConnectTimeout)
 			defer cancel()
@@ -851,26 +851,40 @@ func isPrivateIPv4(ip net.IP) bool {
 	return false
 }
 
-// filterLANAddrs returns only the multiaddrs with a private IPv4 address
-// (RFC 1918 / RFC 6598). mDNS multicast is link-local — receiving a peer's
-// advertisement proves the peer is on the same physical network. The peer's
-// private IPv4 addresses are therefore directly reachable regardless of the
-// subnet mask size (/16, /24, etc.). Public IPv6, ULA, and relay addresses
-// are excluded: many routers block inter-client IPv6 (client isolation), and
-// relay addresses should never be used for direct LAN connects.
+// filterLANAddrs returns multiaddrs that are directly reachable on the
+// local network: private IPv4 (RFC 1918 / RFC 6598) and IPv6 link-local
+// (fe80::/10). mDNS multicast is link-local — receiving a peer's
+// advertisement proves the peer is on the same physical network.
+//
+// IPv6 link-local is included because on IPv6-only LANs (no private IPv4),
+// it is the only reliable LAN address. Without it, filterLANAddrs returns
+// empty and the caller falls through to adding ALL addresses (including
+// public IPv6) to the peerstore.
+//
+// Public IPv6, ULA, and relay addresses are excluded: many routers block
+// inter-client IPv6 (client isolation), and relay addresses should never
+// be used for direct LAN connects.
 func filterLANAddrs(addrs []ma.Multiaddr) []ma.Multiaddr {
 	var lan []ma.Multiaddr
 	for _, addr := range addrs {
 		first, _ := ma.SplitFirst(addr)
-		if first == nil || first.Protocol().Code != ma.P_IP4 {
+		if first == nil {
 			continue
 		}
-		ip := net.ParseIP(first.Value())
-		if ip == nil || ip.IsLoopback() {
-			continue
-		}
-		if isPrivateIPv4(ip) {
-			lan = append(lan, addr)
+		switch first.Protocol().Code {
+		case ma.P_IP4:
+			ip := net.ParseIP(first.Value())
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			if isPrivateIPv4(ip) {
+				lan = append(lan, addr)
+			}
+		case ma.P_IP6:
+			ip := net.ParseIP(first.Value())
+			if ip != nil && ip.IsLinkLocalUnicast() {
+				lan = append(lan, addr)
+			}
 		}
 	}
 	return lan
