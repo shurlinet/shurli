@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -71,6 +72,16 @@ const (
 	// the local node's network didn't change but the remote peer gained
 	// new addresses (e.g., via identify exchange).
 	probeInterval = 2 * time.Minute
+
+	// Connection churn detection (#28): prevents exhausting the remote
+	// peer's rcmgr via rapid reconnection attempts. A connection that
+	// lives shorter than churnThreshold counts as churn. When churnCount
+	// reaches churnBackoffThreshold within churnWindow, the peer gets
+	// an exponential backoff applied. Resets when a connection survives
+	// longer than churnThreshold.
+	churnThreshold        = 5 * time.Second  // connections shorter than this = churn
+	churnWindow           = 60 * time.Second // sliding window for churn counting
+	churnBackoffThreshold = 5                // churn events before backoff kicks in
 )
 
 // ConnectionRecorder is called on each successful reconnection with
@@ -110,12 +121,32 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
+	// Diagnostic: snapshot all existing connections to this peer at open time.
+	existingConns := n.ConnsToPeer(c.RemotePeer())
+	var existingSummary []string
+	for _, ec := range existingConns {
+		if ec == c {
+			continue
+		}
+		ecType := "direct"
+		if ec.Stat().Limited {
+			ecType = "relay"
+		}
+		ecDir := "out"
+		if ec.Stat().Direction == network.DirInbound {
+			ecDir = "in"
+		}
+		age := time.Since(ec.Stat().Opened).Round(time.Millisecond)
+		existingSummary = append(existingSummary, fmt.Sprintf("%s/%s/%s/age=%s", ecType, ecDir, ec.RemoteMultiaddr(), age))
+	}
 	slog.Info("peermanager: connection opened",
 		"peer", short,
 		"type", connType,
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
-		"local", c.LocalMultiaddr())
+		"local", c.LocalMultiaddr(),
+		"existing_conns", len(existingConns)-1,
+		"existing", existingSummary)
 
 	// When a direct connection arrives (especially inbound from home-node
 	// after pathDialer already established relay), clean up the idle relay
@@ -220,12 +251,75 @@ func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
+	// Diagnostic: connection age and remaining connections at close time.
+	age := time.Since(c.Stat().Opened).Round(time.Millisecond)
+	remainingConns := n.ConnsToPeer(c.RemotePeer())
+	var remainingSummary []string
+	for _, rc := range remainingConns {
+		if rc == c {
+			continue
+		}
+		rcType := "direct"
+		if rc.Stat().Limited {
+			rcType = "relay"
+		}
+		rcDir := "out"
+		if rc.Stat().Direction == network.DirInbound {
+			rcDir = "in"
+		}
+		rcAge := time.Since(rc.Stat().Opened).Round(time.Millisecond)
+		remainingSummary = append(remainingSummary, fmt.Sprintf("%s/%s/%s/age=%s", rcType, rcDir, rc.RemoteMultiaddr(), rcAge))
+	}
 	slog.Info("peermanager: connection closed",
 		"peer", short,
 		"type", connType,
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
-		"local", c.LocalMultiaddr())
+		"local", c.LocalMultiaddr(),
+		"age", age,
+		"remaining_conns", len(remainingSummary),
+		"remaining", remainingSummary)
+
+	// Connection churn detection (#28): if the connection lived shorter than
+	// churnThreshold, count it. When too many short-lived connections accumulate,
+	// apply backoff to prevent exhausting the remote peer's rcmgr.
+	if age < churnThreshold {
+		pid := c.RemotePeer()
+		cl.pm.mu.Lock()
+		mp, ok := cl.pm.peers[pid]
+		if ok {
+			now := time.Now()
+			// Reset window if it expired.
+			if now.Sub(mp.churnWindowStart) > churnWindow {
+				mp.churnCount = 0
+				mp.churnWindowStart = now
+			}
+			mp.churnCount++
+			if mp.churnCount >= churnBackoffThreshold {
+				// Apply exponential backoff based on churn count.
+				backoff := backoffBase * time.Duration(1<<min(mp.churnCount/churnBackoffThreshold, 5))
+				if backoff > backoffMax {
+					backoff = backoffMax
+				}
+				mp.BackoffUntil = now.Add(backoff)
+				slog.Warn("peermanager: connection churn detected, backing off",
+					"peer", short,
+					"churn_count", mp.churnCount,
+					"backoff", backoff.Round(time.Second))
+			}
+		}
+		cl.pm.mu.Unlock()
+	} else {
+		// Connection survived > churnThreshold: reset churn counter.
+		pid := c.RemotePeer()
+		cl.pm.mu.Lock()
+		mp, ok := cl.pm.peers[pid]
+		if ok && mp.churnCount > 0 {
+			mp.churnCount = 0
+			mp.churnWindowStart = time.Time{}
+		}
+		cl.pm.mu.Unlock()
+	}
 }
 
 // ManagedPeer tracks the lifecycle state of a single watched peer.
@@ -238,6 +332,14 @@ type ManagedPeer struct {
 	ConsecFailures  int       // consecutive failures (resets on success or network change)
 	BackoffUntil    time.Time // don't retry before this time
 	ProbeUntil      time.Time // probe cooldown: reconnect loop skips this peer until expired
+
+	// Connection churn detection (#28): tracks short-lived connections to prevent
+	// exhausting the remote peer's rcmgr via rapid reconnection attempts.
+	// A connection that lives <churnThreshold is counted as churn. When churnCount
+	// reaches churnBackoffThreshold within churnWindow, the peer is backed off
+	// exponentially. Resets when a connection survives >churnThreshold.
+	churnCount    int
+	churnWindowStart time.Time
 }
 
 // ManagedPeerInfo is a read-only snapshot for the daemon API and status display.
@@ -346,10 +448,11 @@ func (pm *PeerManager) Start(ctx context.Context) {
 	pm.connLog = &connLogger{pm: pm}
 	pm.host.Network().Notify(pm.connLog)
 
-	pm.wg.Add(3)
+	pm.wg.Add(4)
 	go pm.eventLoop()
 	go pm.reconnectLoop()
 	go pm.probeLoop()
+	go pm.rcmgrMonitorLoop()
 
 	slog.Info("peermanager: started", "watched", len(pm.peers))
 }
@@ -848,6 +951,52 @@ func (pm *PeerManager) probeLoop() {
 				}()
 				pm.ProbeAndUpgradeRelayed()
 			}()
+		}
+	}
+}
+
+// rcmgrMonitorLoop periodically logs per-peer connection counts and churn state.
+// This is diagnostic instrumentation for #28: validates that per-peer rcmgr
+// resources stay bounded over long runs (8-15h). Remove after stability is
+// confirmed across multiple overnight runs.
+func (pm *PeerManager) rcmgrMonitorLoop() {
+	defer pm.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pm.ctx.Done():
+			return
+		case <-ticker.C:
+			pm.mu.RLock()
+			for pid, mp := range pm.peers {
+				short := pid.String()
+				if len(short) > 16 {
+					short = short[:16] + "..."
+				}
+				conns := pm.host.Network().ConnsToPeer(pid)
+				var directCount, relayCount int
+				for _, c := range conns {
+					if c.Stat().Limited {
+						relayCount++
+					} else {
+						directCount++
+					}
+				}
+				if len(conns) > 0 || mp.churnCount > 0 {
+					slog.Info("rcmgr-monitor: peer state",
+						"peer", short,
+						"conns_total", len(conns),
+						"conns_direct", directCount,
+						"conns_relay", relayCount,
+						"churn_count", mp.churnCount,
+						"connected", mp.Connected,
+						"consec_failures", mp.ConsecFailures)
+				}
+			}
+			pm.mu.RUnlock()
 		}
 	}
 }
