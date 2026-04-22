@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
-	"syscall"
 )
 
 // proxyNameRe validates persistent proxy names: must start with a letter,
@@ -119,7 +118,7 @@ func (s *proxyStore) save() error {
 
 	// O_NOFOLLOW: kernel refuses to follow symlinks atomically (no TOCTOU).
 	// O_CREATE|O_WRONLY|O_TRUNC: standard write pattern.
-	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0600)
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|openFlagNoFollow, 0600)
 	if err != nil {
 		return fmt.Errorf("open tmp: %w", err)
 	}
@@ -217,7 +216,7 @@ func (s *proxyStore) All() []*ProxyEntry {
 // readFileNoFollow opens a file with O_NOFOLLOW and reads its full contents.
 // Uses io.ReadAll to avoid partial reads from f.Read on large files.
 func readFileNoFollow(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|openFlagNoFollow, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -239,20 +238,6 @@ func isSymlinkError(err error) bool {
 	return os.IsPermission(err) || isELOOP(err)
 }
 
-// isELOOP checks for syscall.ELOOP in the error chain.
-func isELOOP(err error) bool {
-	for err != nil {
-		if pe, ok := err.(*os.PathError); ok {
-			if pe.Err == syscall.ELOOP {
-				return true
-			}
-			err = pe.Err
-			continue
-		}
-		break
-	}
-	return false
-}
 
 // ProxiesFilePath returns the path to proxies.json given a config directory.
 func ProxiesFilePath(configDir string) string {
