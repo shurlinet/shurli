@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -132,6 +133,13 @@ func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult
 					resultCh <- raceResult{err: fmt.Errorf("relay: no valid relay addresses")}
 				}
 				return
+			}
+
+			// Clear stale backoffs for target (F33-R2-7). groupRelayAddrsByPeer
+			// just added fresh circuit addresses to the peerstore, but the swarm
+			// checks backoffs BEFORE peerstore — stale entries block new addrs.
+			if sw, ok := pd.host.Network().(*swarm.Swarm); ok {
+				sw.Backoff().Clear(peerID)
 			}
 
 			// Single relay - no need to hedge, just connect directly.

@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -875,6 +876,13 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 
 	dialCtx, dialCancel := context.WithTimeout(pm.ctx, reconnectDialTimeout)
 	defer dialCancel()
+
+	// Clear stale swarm dial backoffs for target (F33-R2-6). Without this,
+	// failed relay circuits create per-address backoffs that compound across
+	// PM cycles (30s, 60s, 120s... up to 8 min unreachable).
+	if sw, ok := pm.host.Network().(*swarm.Swarm); ok {
+		sw.Backoff().Clear(target)
+	}
 
 	result, err := pm.pathDialer.DialPeer(dialCtx, target)
 

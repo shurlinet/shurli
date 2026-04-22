@@ -653,11 +653,24 @@ func (rt *serveRuntime) Bootstrap() error {
 		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
 		rt.network.ResetBlackHoles()
 
-		// Clear swarm dial backoffs for watched peers. Previous "no route to
-		// host" failures are invalid after a network change (e.g., VPN with
-		// local network sharing now allows LAN paths that previously failed).
+		// Clear swarm dial backoffs for all relevant peers. Previous "no route
+		// to host" failures are invalid after a network change. Includes:
+		//  - Authorized peers (watched by PeerManager)
+		//  - Relay servers (F33-R2-1: disconnected relays survive Peers()
+		//    but their backoffs block circuit dials for 5+ minutes)
+		//  - All currently-connected peers (DHT peers whose backoffs
+		//    compound during network transitions, F33-R2-8)
 		if rt.peerManager != nil && rt.gater != nil {
-			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+			clearIDs := rt.gater.GetAuthorizedPeerIDs()
+			if rt.relayDiscovery != nil {
+				for _, ai := range rt.relayDiscovery.AllRelays() {
+					clearIDs = append(clearIDs, ai.ID)
+				}
+			}
+			for _, pid := range rt.network.Host().Network().Peers() {
+				clearIDs = append(clearIDs, pid)
+			}
+			rt.network.ClearDialBackoffs(clearIDs)
 		}
 
 		// Re-evaluate peer relay eligibility on network change
@@ -676,6 +689,26 @@ func (rt *serveRuntime) Bootstrap() error {
 		// Reconnect trigger is DEFERRED (below) to give mDNS priority.
 		if rt.peerManager != nil {
 			rt.peerManager.ResetBackoffsForNetworkChange()
+		}
+
+		// Proactively reconnect to relay servers (F33-R2-3). Relay is critical
+		// infrastructure — peers on CGNAT/mobile are unreachable without it.
+		// Don't wait for AutoRelay's periodic cycle; reconnect immediately so
+		// relay paths are available when PM fires its deferred reconnect.
+		if rt.relayDiscovery != nil {
+			relays := rt.relayDiscovery.AllRelays()
+			if len(relays) > 0 {
+				go func() {
+					for _, ai := range relays {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						if err := rt.network.Host().Connect(ctx, ai); err != nil {
+							slog.Debug("network change: relay reconnect failed",
+								"relay", ai.ID.String()[:16], "error", err)
+						}
+						cancel()
+					}
+				}()
+			}
 		}
 
 		// Trigger mDNS re-browse BEFORE PeerManager reconnect. mDNS discovers
@@ -1512,7 +1545,16 @@ func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error
 			c.Close()
 		}
 	}
-	rt.network.ClearDialBackoffs([]peer.ID{peerID})
+	// Clear backoffs for target AND relay servers (F33-R2-4/R2-5). The retry
+	// may dial THROUGH relay servers — if those relay peer IDs have backoffs
+	// from a previous network state, the circuit leg fails before it starts.
+	clearIDs := []peer.ID{peerID}
+	if rt.relayDiscovery != nil {
+		for _, ai := range rt.relayDiscovery.AllRelays() {
+			clearIDs = append(clearIDs, ai.ID)
+		}
+	}
+	rt.network.ClearDialBackoffs(clearIDs)
 	if rt.peerManager != nil {
 		rt.peerManager.ResetPeerBackoff(peerID)
 	}
