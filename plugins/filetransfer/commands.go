@@ -883,6 +883,13 @@ func watchTransfers(client *daemonClient, jsonOutput bool) {
 func printWatchRound(client *daemonClient, jsonOutput bool, prevSnap map[string]watchSnapshot, prevTime *time.Time, consecErrors *int) {
 	transfers, err := client.TransferList()
 	if err != nil {
+		// Unauthorized means daemon restarted with a new cookie — this
+		// watch process is permanently stale. Exit immediately.
+		if strings.Contains(err.Error(), "unauthorized") {
+			fmt.Fprintf(os.Stderr, "\nDaemon restarted (auth token changed). Exiting.\n")
+			fmt.Fprintf(os.Stderr, "Run 'shurli transfers --watch' again.\n")
+			os.Exit(1)
+		}
 		*consecErrors++
 		fmt.Fprintf(os.Stderr, "Warning: %v (attempt %d/3)\n", err, *consecErrors)
 		return
