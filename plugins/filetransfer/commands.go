@@ -866,20 +866,28 @@ func watchTransfers(client *daemonClient, jsonOutput bool) {
 
 	prevSnap := make(map[string]watchSnapshot)
 	prevTime := time.Now()
+	consecErrors := 0
 
-	printWatchRound(client, jsonOutput, prevSnap, &prevTime)
+	printWatchRound(client, jsonOutput, prevSnap, &prevTime, &consecErrors)
 	for range ticker.C {
+		if consecErrors >= 3 {
+			fmt.Fprintf(os.Stderr, "\nDaemon unreachable after %d attempts. Exiting.\n", consecErrors)
+			fmt.Fprintf(os.Stderr, "Run 'shurli transfers --watch' again after daemon restarts.\n")
+			os.Exit(1)
+		}
 		fmt.Print("\033[2J\033[H")
-		printWatchRound(client, jsonOutput, prevSnap, &prevTime)
+		printWatchRound(client, jsonOutput, prevSnap, &prevTime, &consecErrors)
 	}
 }
 
-func printWatchRound(client *daemonClient, jsonOutput bool, prevSnap map[string]watchSnapshot, prevTime *time.Time) {
+func printWatchRound(client *daemonClient, jsonOutput bool, prevSnap map[string]watchSnapshot, prevTime *time.Time, consecErrors *int) {
 	transfers, err := client.TransferList()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		*consecErrors++
+		fmt.Fprintf(os.Stderr, "Warning: %v (attempt %d/3)\n", err, *consecErrors)
 		return
 	}
+	*consecErrors = 0
 
 	pending, _ := client.TransferPending()
 	for _, p := range pending {
