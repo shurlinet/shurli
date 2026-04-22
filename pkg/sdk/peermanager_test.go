@@ -368,6 +368,67 @@ func TestCloseStaleConnections_EmptyRemoved(t *testing.T) {
 	pm.CloseStaleConnections([]string{})
 }
 
+func TestCloseAllPeerConnections(t *testing.T) {
+	netA := newListeningNetwork(t)
+	netB := newListeningNetwork(t)
+
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
+	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pm.Start(ctx)
+	defer pm.Close()
+
+	// Connect A to B (direct, non-relay).
+	connectNetworks(t, netA, netB)
+	time.Sleep(200 * time.Millisecond)
+
+	conns := netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Fatal("expected at least one connection")
+	}
+
+	// CloseAllPeerConnections should close all non-relay connections.
+	pm.CloseAllPeerConnections()
+	time.Sleep(200 * time.Millisecond)
+
+	conns = netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) != 0 {
+		t.Errorf("expected 0 connections after CloseAllPeerConnections, got %d", len(conns))
+	}
+}
+
+func TestCloseAllPeerConnections_UnwatchedPreserved(t *testing.T) {
+	netA := newListeningNetwork(t)
+	netB := newListeningNetwork(t)
+
+	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
+	// B is NOT in the watchlist.
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pm.Start(ctx)
+	defer pm.Close()
+
+	connectNetworks(t, netA, netB)
+	time.Sleep(200 * time.Millisecond)
+
+	conns := netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Fatal("expected at least one connection")
+	}
+
+	// CloseAllPeerConnections should NOT close connections to unwatched peers.
+	pm.CloseAllPeerConnections()
+	time.Sleep(200 * time.Millisecond)
+
+	conns = netA.Host().Network().ConnsToPeer(netB.Host().ID())
+	if len(conns) == 0 {
+		t.Error("expected connection to unwatched peer preserved")
+	}
+}
+
 func TestOnNetworkChange_TriggersImmediateReconnect(t *testing.T) {
 	netA := newListeningNetwork(t)
 	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)

@@ -685,6 +685,17 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerManager.CloseStaleConnections(change.Removed)
 		}
 
+		// Close ALL connections (direct + relay circuits) to watched peers.
+		// After a WiFi switch, both direct QUIC connections and relay
+		// circuits become zombies: the underlying transport was on the old
+		// interface. CloseStaleConnections' IP matching misses these when
+		// returning to the same network (direct: IP comes back; circuits:
+		// local IP is the relay server's). Relay reconnect (below) creates
+		// fresh relay transport, and mDNS/PM re-establish peer connections.
+		if rt.peerManager != nil {
+			rt.peerManager.CloseAllPeerConnections()
+		}
+
 		// Reset backoffs immediately so mDNS can dial without hitting stale state.
 		// Reconnect trigger is DEFERRED (below) to give mDNS priority.
 		if rt.peerManager != nil {
