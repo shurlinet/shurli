@@ -367,6 +367,18 @@ func New(cfg *Config) (*Network, error) {
 	// Add resource manager if enabled (bounds connections, streams, memory)
 	if cfg.ResourceLimitsEnabled {
 		limits := rcmgr.DefaultLimits
+
+		// Override per-peer connection limits. libp2p defaults to 8 connections
+		// per peer (PeerBaseLimit.Conns = 8), designed for single-path DHT nodes.
+		// Shurli's multi-path architecture (mDNS + PeerManager + DHT + PathDialer
+		// hedged racing + AutoRelay) opens connections from multiple subsystems
+		// concurrently. With only 8 slots, the per-peer rcmgr limit exhausts in
+		// minutes, causing "cannot reserve connection: resource limit exceeded"
+		// for ALL transports (QUIC, TCP, relay circuits). Root cause of #28.
+		limits.PeerBaseLimit.ConnsInbound = 32
+		limits.PeerBaseLimit.ConnsOutbound = 32
+		limits.PeerBaseLimit.Conns = 32
+
 		libp2p.SetDefaultServiceLimits(&limits)
 		scaled := limits.AutoScale()
 
@@ -388,7 +400,9 @@ func New(cfg *Config) (*Network, error) {
 			return nil, fmt.Errorf("failed to create resource manager: %w", err)
 		}
 		hostOpts = append(hostOpts, libp2p.ResourceManager(rm))
-		slog.Info("resource manager enabled", "limits", "auto-scaled")
+		slog.Info("resource manager enabled",
+			"limits", "auto-scaled",
+			"peer_conns", limits.PeerBaseLimit.Conns)
 	}
 
 	// Add connection gater: use pre-created Gater if provided (enables hot-reload),
