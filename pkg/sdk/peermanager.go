@@ -544,6 +544,43 @@ func (pm *PeerManager) StripPrivateAddrs() {
 	}
 }
 
+// CloseAllPeerConnections closes ALL connections (direct AND relay circuits)
+// to watched peers. Called during network changes to eliminate zombie
+// connections of every type.
+//
+// After a WiFi switch, BOTH direct QUIC connections and relay circuits become
+// zombies. Direct connections die because the local interface changed. Relay
+// circuits die because the underlying transport to the relay server was on
+// the old interface — the circuit stream errors but libp2p may not detect
+// it immediately (IsClosed returns false until the next read/write).
+//
+// CloseStaleConnections' IP matching misses both classes:
+//   - Direct zombies when returning to the same network (IP comes back)
+//   - Relay circuit zombies (local IP is the relay server's, not the old interface)
+//
+// Closing everything is safe: the network change handler reconnects to relays
+// immediately (step 9), mDNS re-establishes LAN connections in 1-2s, and
+// PeerManager's deferred reconnect handles remaining peers via DHT/relay.
+func (pm *PeerManager) CloseAllPeerConnections() {
+	pm.mu.RLock()
+	watchedPeers := make([]peer.ID, 0, len(pm.peers))
+	for pid := range pm.peers {
+		watchedPeers = append(watchedPeers, pid)
+	}
+	pm.mu.RUnlock()
+
+	var closed int
+	for _, pid := range watchedPeers {
+		for _, c := range pm.host.Network().ConnsToPeer(pid) {
+			c.Close()
+			closed++
+		}
+	}
+	if closed > 0 {
+		slog.Info("peermanager: closed all peer connections (network change)", "count", closed)
+	}
+}
+
 // CloseStaleConnections closes connections to watched peers whose local
 // address is no longer present on any active interface. When a network
 // interface disappears (WiFi switch, USB LAN unplug), connections bound

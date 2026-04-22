@@ -73,7 +73,12 @@ func (pt *PathTracker) Start(ctx context.Context) {
 			}
 			e := evt.(event.EvtPeerConnectednessChanged)
 			switch e.Connectedness {
-			case network.Connected:
+			case network.Connected, network.Limited:
+				// Reclassify on both Connected and Limited. When a direct
+				// connection is closed (e.g., network change kills QUIC) but
+				// a relay circuit remains, the event is Limited. Without
+				// handling this, PathTracker keeps stale "DIRECT" info from
+				// the old connection. Reclassifying updates to RELAYED.
 				pt.onConnect(e.Peer)
 			case network.NotConnected:
 				pt.onDisconnect(e.Peer)
