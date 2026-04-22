@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -121,32 +120,12 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
-	// Diagnostic: snapshot all existing connections to this peer at open time.
-	existingConns := n.ConnsToPeer(c.RemotePeer())
-	var existingSummary []string
-	for _, ec := range existingConns {
-		if ec == c {
-			continue
-		}
-		ecType := "direct"
-		if ec.Stat().Limited {
-			ecType = "relay"
-		}
-		ecDir := "out"
-		if ec.Stat().Direction == network.DirInbound {
-			ecDir = "in"
-		}
-		age := time.Since(ec.Stat().Opened).Round(time.Millisecond)
-		existingSummary = append(existingSummary, fmt.Sprintf("%s/%s/%s/age=%s", ecType, ecDir, ec.RemoteMultiaddr(), age))
-	}
 	slog.Info("peermanager: connection opened",
 		"peer", short,
 		"type", connType,
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
-		"local", c.LocalMultiaddr(),
-		"existing_conns", len(existingConns)-1,
-		"existing", existingSummary)
+		"local", c.LocalMultiaddr())
 
 	// When a direct connection arrives (especially inbound from home-node
 	// after pathDialer already established relay), clean up the idle relay
@@ -251,34 +230,14 @@ func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
 	if len(short) > 16 {
 		short = short[:16] + "..."
 	}
-	// Diagnostic: connection age and remaining connections at close time.
 	age := time.Since(c.Stat().Opened).Round(time.Millisecond)
-	remainingConns := n.ConnsToPeer(c.RemotePeer())
-	var remainingSummary []string
-	for _, rc := range remainingConns {
-		if rc == c {
-			continue
-		}
-		rcType := "direct"
-		if rc.Stat().Limited {
-			rcType = "relay"
-		}
-		rcDir := "out"
-		if rc.Stat().Direction == network.DirInbound {
-			rcDir = "in"
-		}
-		rcAge := time.Since(rc.Stat().Opened).Round(time.Millisecond)
-		remainingSummary = append(remainingSummary, fmt.Sprintf("%s/%s/%s/age=%s", rcType, rcDir, rc.RemoteMultiaddr(), rcAge))
-	}
 	slog.Info("peermanager: connection closed",
 		"peer", short,
 		"type", connType,
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
 		"local", c.LocalMultiaddr(),
-		"age", age,
-		"remaining_conns", len(remainingSummary),
-		"remaining", remainingSummary)
+		"age", age)
 
 	// Connection churn detection (#28): if the connection lived shorter than
 	// churnThreshold, count it. When too many short-lived connections accumulate,
@@ -448,11 +407,10 @@ func (pm *PeerManager) Start(ctx context.Context) {
 	pm.connLog = &connLogger{pm: pm}
 	pm.host.Network().Notify(pm.connLog)
 
-	pm.wg.Add(4)
+	pm.wg.Add(3)
 	go pm.eventLoop()
 	go pm.reconnectLoop()
 	go pm.probeLoop()
-	go pm.rcmgrMonitorLoop()
 
 	slog.Info("peermanager: started", "watched", len(pm.peers))
 }
@@ -951,52 +909,6 @@ func (pm *PeerManager) probeLoop() {
 				}()
 				pm.ProbeAndUpgradeRelayed()
 			}()
-		}
-	}
-}
-
-// rcmgrMonitorLoop periodically logs per-peer connection counts and churn state.
-// This is diagnostic instrumentation for #28: validates that per-peer rcmgr
-// resources stay bounded over long runs (8-15h). Remove after stability is
-// confirmed across multiple overnight runs.
-func (pm *PeerManager) rcmgrMonitorLoop() {
-	defer pm.wg.Done()
-
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-pm.ctx.Done():
-			return
-		case <-ticker.C:
-			pm.mu.RLock()
-			for pid, mp := range pm.peers {
-				short := pid.String()
-				if len(short) > 16 {
-					short = short[:16] + "..."
-				}
-				conns := pm.host.Network().ConnsToPeer(pid)
-				var directCount, relayCount int
-				for _, c := range conns {
-					if c.Stat().Limited {
-						relayCount++
-					} else {
-						directCount++
-					}
-				}
-				if len(conns) > 0 || mp.churnCount > 0 {
-					slog.Info("rcmgr-monitor: peer state",
-						"peer", short,
-						"conns_total", len(conns),
-						"conns_direct", directCount,
-						"conns_relay", relayCount,
-						"churn_count", mp.churnCount,
-						"connected", mp.Connected,
-						"consec_failures", mp.ConsecFailures)
-				}
-			}
-			pm.mu.RUnlock()
 		}
 	}
 }
