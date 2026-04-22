@@ -15,6 +15,24 @@ docs:
   # Weights 6-10 reserved for manual user journey guides:
   # relay-security(6), inviting-peers(7), managing-network(8), zkp-setup(9), zkp-anonymous-auth(10)
 
+  - source: FILE-TRANSFER.md
+    output: file-transfer.md
+    weight: 9
+    title: File Transfer
+    description: "Chunked P2P file transfer with BLAKE3 integrity, zstd compression, erasure coding, multi-source download, and AirDrop-style receive permissions."
+
+  - source: SDK.md
+    output: sdk.md
+    weight: 10
+    title: Go SDK
+    description: "Shurli Go SDK reference: PeerNetwork, ServiceManager, Resolver, Authorizer interfaces, events, plugin policies, and network tools."
+
+  - source: PLUGINS.md
+    output: plugins.md
+    weight: 11
+    title: Plugin System
+    description: "How Shurli's plugin system works: the Plugin interface, lifecycle states, CLI commands, configuration, transport policy, supervisor, and file transfer as the reference implementation."
+
   - source: ARCHITECTURE.md
     output: architecture.md
     weight: 11

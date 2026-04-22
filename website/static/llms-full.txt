@@ -680,6 +680,4009 @@ Continuous ping (`shurli ping home-server` without `-c`) requires standalone mod
 
 ---
 
+# File Transfer
+
+Shurli includes a built-in file transfer plugin that sends files directly between peers over the P2P network. Files are chunked with FastCDC, compressed with zstd, and verified with a BLAKE3 Merkle tree. Relay is blocked for file transfer by default (drives own-relay adoption).
+
+## Sending a File
+
+```bash
+# By peer name (fire-and-forget - exits immediately)
+shurli send photo.jpg home-server
+
+# With live progress
+shurli send photo.jpg home-server --follow
+
+# With priority (jumps the queue)
+shurli send photo.jpg home-server --priority
+
+# Send a directory
+shurli send ./folder home-server
+
+# JSON output (for scripting)
+shurli send photo.jpg home-server --json
+```
+
+`shurli send` is fire-and-forget by default. The daemon handles the transfer in the background. Use `--follow` to watch progress inline.
+
+## Receiving Files
+
+Receive behavior is controlled by the **receive mode** (AirDrop-style):
+
+| Mode | Behavior |
+|------|----------|
+| `off` | Reject all incoming transfers |
+| `contacts` | Auto-accept from authorized peers (default) |
+| `ask` | Queue for manual approval via `shurli accept`/`shurli reject` |
+| `open` | Accept from any authorized peer without prompting |
+| `timed` | Temporarily open, reverts to previous mode after duration |
+
+Set the receive mode:
+```bash
+shurli config set transfer.receive_mode ask
+
+# Timed mode: open for 10 minutes then revert
+shurli config set transfer.receive_mode timed --duration 10m
+```
+
+**Default receive directory:** `~/Downloads/shurli/`
+
+Change it with:
+```bash
+shurli config set transfer.receive_dir /path/to/your/dir
+```
+
+If a file with the same name already exists, Shurli creates `photo (1).jpg`, `photo (2).jpg`, etc.
+
+## Managing Transfers
+
+```bash
+# View transfer inbox (pending + active)
+shurli transfers
+
+# Watch live (auto-refresh)
+shurli transfers --watch
+
+# View completed transfers
+shurli transfers --history
+
+# Accept a pending transfer
+shurli accept <transfer-id>
+
+# Accept all pending
+shurli accept --all
+
+# Reject a pending transfer
+shurli reject <transfer-id>
+
+# Cancel an outbound transfer
+shurli cancel <transfer-id>
+```
+
+## Sharing Files
+
+Share files for other peers to browse and download on demand:
+
+```bash
+# Share a file with all authorized peers
+shurli share add /path/to/file.pdf
+
+# Share with a specific peer only
+shurli share add /path/to/file.pdf --to home-server
+
+# List your shares
+shurli share list
+
+# Remove a share
+shurli share remove /path/to/file.pdf
+
+# Browse a peer's shared files
+shurli browse home-server
+
+# Download a specific file from a peer's shares
+shurli download document.pdf home-server
+```
+
+Shares persist across daemon restarts (stored in `~/.shurli/shares.json`).
+
+## Multi-Source Download
+
+Download a file from multiple peers simultaneously using RaptorQ fountain codes:
+
+```bash
+shurli download large-file.zip home-server --multi-peer --peers home-server,laptop
+```
+
+Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstructs the file. Faster than single-source for large files across multiple peers.
+
+## Requirements
+
+- Both peers must be running the daemon (`shurli daemon`)
+- Peers must be paired (via `shurli invite` / `shurli join`)
+- Works over LAN (mDNS) or direct connections. Relay is blocked by default.
+
+## How It Works
+
+**Chunking**: FastCDC content-defined chunking with 5 adaptive tiers (64KB-4MB based on file size). Single-pass with BLAKE3 hash per chunk.
+
+**Integrity**: BLAKE3 Merkle tree over all chunk hashes. Root hash verified after all chunks received. Each chunk verified before writing to disk.
+
+**Compression**: zstd compression on by default. Auto-detects incompressible data and skips re-compression. Bomb protection: decompression aborted if output exceeds 10x compressed size. Opt-out via `shurli config set transfer.compress false`.
+
+**Erasure Coding**: Reed-Solomon erasure coding, auto-enabled on Direct WAN connections only. Recovers from lost chunks without retransmission. Wire overhead matches the configured `transfer.erasure_overhead` (default 10%); `transfer.bandwidth_budget` and per-peer `bandwidth_budget` ACL attributes are enforced on TOTAL wire bytes (data + parity), so a 100 MB file with 10% erasure consumes ~110 MB of budget. Memory footprint per erasure-coded transfer is bounded to roughly one stripe (≤~400 MB sustained, ≤~880 MB momentary during encode) via the incremental per-stripe encoder; LAN transfers skip erasure entirely and avoid this cost.
+
+**Parallel Streams**: Adaptive parallel QUIC streams per transfer. Defaults: 8 on LAN (max 32), 4 on WAN (max 20). Minimum 4 chunks per stream to justify parallelism.
+
+**Resume**: Checkpoint files (`.shurli-ckpt-<hash>`) store a bitfield of received chunks. Interrupted transfers resume from the last checkpoint. Checkpoints cleaned up on successful completion.
+
+## Security
+
+- **Integrity**: BLAKE3 Merkle tree verification. Corrupted chunks are rejected before writing to disk.
+- **Path traversal**: Filenames like `../../../etc/passwd` are sanitized. Only the base filename is used. Receive directory is a jail.
+- **Transport encryption**: All data travels over libp2p's encrypted transport (TLS 1.3 or Noise).
+- **Authorization**: Only paired peers can send files. Unauthorized peers are silently rejected at the connection gating layer.
+- **Resource limits**: Max 3 pending transfers per peer, 5 concurrent active, 1M chunk limit, 40MB manifest limit, 1h timeout.
+- **Disk space**: Re-checked before each chunk write, not just at accept time.
+- **Transfer IDs**: Random hex (`xfer-<12hex>`), not sequential (prevents enumeration).
+- **Compression bombs**: zstd decompression capped at 10x ratio per chunk.
+- **No symlink following** in share paths. Regular files only.
+
+## Configuration
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `transfer.receive_mode` | `contacts` | Receive mode: off, contacts, ask, open, timed |
+| `transfer.receive_dir` | `~/Downloads/shurli/` | Directory for received files |
+| `transfer.compress` | `true` | Enable zstd compression |
+| `transfer.erasure_overhead` | `0.1` | Reed-Solomon parity ratio (0.0-0.5) |
+| `transfer.max_concurrent` | `5` | Max concurrent outbound transfers |
+| `transfer.max_file_size` | `0` (unlimited) | Max file size to accept (bytes) |
+| `transfer.timed_duration` | `10m` | Default duration for timed receive mode |
+| `transfer.notify` | `none` | Notification mode: none, desktop, command |
+| `transfer.notify_command` | `""` | Command template with {from}, {file}, {size} |
+| `transfer.log_path` | `~/.shurli/logs/transfers.log` | Transfer event log path |
+| `transfer.multi_peer_enabled` | `true` | Enable multi-peer swarming downloads |
+| `transfer.multi_peer_max_peers` | `4` | Max peers for multi-source download |
+
+## Daemon API
+
+For programmatic use (SDK consumers, scripts, other applications):
+
+### Send a file
+
+```bash
+curl -X POST --unix-socket ~/.shurli/shurli.sock \
+  http://localhost/v1/send \
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)" \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/absolute/path/to/file.pdf", "peer": "home-server"}'
+```
+
+Response:
+```json
+{
+  "transfer_id": "xfer-a1b2c3d4e5f6"
+}
+```
+
+### Check transfer progress
+
+```bash
+curl --unix-socket ~/.shurli/shurli.sock \
+  "http://localhost/v1/transfers/xfer-a1b2c3d4e5f6" \
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)"
+```
+
+### List all transfers
+
+```bash
+curl --unix-socket ~/.shurli/shurli.sock \
+  http://localhost/v1/transfers \
+  -H "Cookie: auth=$(cat ~/.shurli/.daemon-cookie)"
+```
+
+See the [Daemon API reference](/docs/daemon-api/) for the full list of 15 file transfer endpoints.
+
+---
+
+## Go API Reference
+
+The file transfer engine lives in `plugins/filetransfer/`. Import path:
+
+```go
+import "github.com/shurlinet/shurli/plugins/filetransfer"
+```
+
+Generic SDK utilities (MerkleRoot, transport classification, relay grant interface) are imported from `pkg/sdk/`. See the [Go SDK reference](/docs/sdk/) for those types. See the [Plugin System](/docs/plugins/) for the plugin framework (Plugin interface, PluginContext, lifecycle, registration).
+
+### type FileTransferPlugin
+
+```go
+type FileTransferPlugin struct {
+    // unexported fields
+}
+```
+
+Implements the Plugin interface. Owns the TransferService and ShareRegistry.
+
+```go
+func New() *FileTransferPlugin
+```
+
+Creates a new FileTransferPlugin instance. Called by the plugin registry at startup.
+
+### type PluginConfig
+
+```go
+type PluginConfig struct {
+    ReceiveDir        string   `yaml:"receive_dir"`
+    MaxFileSize       int64    `yaml:"max_file_size"`
+    ReceiveMode       string   `yaml:"receive_mode"`
+    TimedDuration     string   `yaml:"timed_duration"`
+    Compress          *bool    `yaml:"compress"`
+    Notify            string   `yaml:"notify"`
+    NotifyCommand     string   `yaml:"notify_command"`
+    LogPath           string   `yaml:"log_path"`
+    MaxConcurrent     int      `yaml:"max_concurrent"`
+    RateLimit         int      `yaml:"rate_limit"`
+    BrowseRateLimit   int      `yaml:"browse_rate_limit"`
+    QueueFile         string   `yaml:"queue_file"`
+    MultiPeerEnabled  *bool    `yaml:"multi_peer_enabled"`
+    MultiPeerMaxPeers int      `yaml:"multi_peer_max_peers"`
+    MultiPeerMinSize  int64    `yaml:"multi_peer_min_size"`
+    ErasureOverhead   *float64 `yaml:"erasure_overhead"`
+    GlobalRateLimit   int      `yaml:"global_rate_limit"`
+    MaxQueuedPerPeer  int      `yaml:"max_queued_per_peer"`
+    MinSpeedBytes     int      `yaml:"min_speed_bytes"`
+    MinSpeedSeconds   int      `yaml:"min_speed_seconds"`
+    MaxTempSize       int64    `yaml:"max_temp_size"`
+    TempFileExpiry    string   `yaml:"temp_file_expiry"`
+    BandwidthBudget   string   `yaml:"bandwidth_budget"`
+    DefaultPersistent *bool    `yaml:"default_persistent"`
+}
+```
+
+YAML configuration loaded from the plugin's config directory. Parsed by loadConfig(), hot-reloaded by reloadConfig().
+
+---
+
+### Protocol Constants
+
+```go
+const (
+    TransferProtocol  = "/shurli/file-transfer/2.0.0"
+    BrowseProtocol    = "/shurli/file-browse/1.0.0"
+    DownloadProtocol  = "/shurli/file-download/1.0.0"
+    MultiPeerProtocol = "/shurli/file-multi-peer/1.0.0"
+    CancelProtocol    = "/shurli/transfer-cancel/1.0.0"
+)
+```
+
+### Cancel Protocol
+
+```go
+func RegisterCancelHandler(h host.Host, ts *TransferService)
+```
+
+Registers the multi-path cancel protocol handler on the host. Called from plugin.Start(). Handles inbound cancel messages: reads a 32-byte transferID, verifies the sender matches the active transfer peer, and cancels the matching send or receive session. Rate-limited to 10 messages per peer per minute with a 5-second stream deadline.
+
+```go
+func UnregisterCancelHandler(h host.Host)
+```
+
+Removes the cancel protocol handler from the host. Called from plugin.Stop() to prevent handler access after TransferService is closed.
+
+### Reject Reasons
+
+```go
+const (
+    RejectReasonNone  byte = 0x00 // no reason disclosed
+    RejectReasonSpace byte = 0x01 // insufficient disk space
+    RejectReasonBusy  byte = 0x02 // receiver busy
+    RejectReasonSize  byte = 0x03 // file too large
+)
+```
+
+### type ReceiveMode
+
+```go
+type ReceiveMode string
+
+const (
+    ReceiveModeOff      ReceiveMode = "off"      // reject all
+    ReceiveModeContacts ReceiveMode = "contacts"  // auto-accept from authorized peers (default)
+    ReceiveModeAsk      ReceiveMode = "ask"       // queue for manual approval
+    ReceiveModeOpen     ReceiveMode = "open"      // accept from any authorized peer
+    ReceiveModeTimed    ReceiveMode = "timed"     // temporarily open, reverts after duration
+)
+```
+
+### type TransferPriority
+
+```go
+type TransferPriority int
+
+const (
+    PriorityLow    TransferPriority = 0
+    PriorityNormal TransferPriority = 1
+    PriorityHigh   TransferPriority = 2
+)
+```
+
+---
+
+### type TransferConfig
+
+```go
+type TransferConfig struct {
+    ReceiveDir        string              // directory for received files
+    MaxSize           int64               // max file size (0 = unlimited)
+    ReceiveMode       ReceiveMode         // default: contacts
+    Compress          bool                // enable zstd compression (default: true)
+    ErasureOverhead   float64             // RS parity overhead (0.10 = 10%, 0 = disabled)
+    LogPath           string              // transfer event log path (empty = disabled)
+    Notify            string              // "none" (default), "desktop", "command"
+    NotifyCommand     string              // command template for "command" mode
+    MaxConcurrent     int                 // max concurrent outbound transfers (default: 5)
+    MultiPeerEnabled  bool                // enable multi-peer downloads (default: true)
+    MultiPeerMaxPeers int                 // max peers for multi-peer (default: 4)
+    MultiPeerMinSize  int64               // min file size for multi-peer (default: 10 MB)
+    RateLimit         int                 // max requests per peer per minute (default: 600)
+    GlobalRateLimit   int                 // max total inbound requests per minute (default: 600)
+    MaxQueuedPerPeer  int                 // max pending+active per peer (default: 10)
+    MinSpeedBytes     int                 // min transfer speed bytes/sec (default: 1024)
+    MinSpeedSeconds   int                 // speed check window seconds (default: 30)
+    MaxTempSize       int64               // max total .tmp size (default: 1GB)
+    TempFileExpiry    time.Duration       // auto-expire old .tmp files (default: 1h)
+    BandwidthBudget   int64               // max bytes per peer per hour (default: 100MB)
+    PeerBudgetFunc    func(string) int64  // per-peer budget override (-1=unlimited, 0=global)
+    FailureBackoffThreshold int           // fails to trigger block (default: 3)
+    FailureBackoffWindow    time.Duration // failure counting window (default: 5m)
+    FailureBackoffBlock     time.Duration // block duration (default: 60s)
+    QueueFile         string              // persisted queue path (empty = disabled)
+    QueueHMACKey      []byte              // 32-byte HMAC key for queue integrity
+    GrantChecker      sdk.RelayGrantChecker // relay grant checker for budget/time checks
+    ConnsToPeer       func(peer.ID) []network.Conn // returns connections to a peer
+    HasVerifiedLANConn func(peer.ID) bool // true if peer has live mDNS-verified LAN connection
+}
+```
+
+TransferConfig configures the transfer service. Passed to NewTransferService.
+
+#### func NewTransferService
+
+```go
+func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.EventBus) (*TransferService, error)
+```
+
+Creates a new chunked transfer service. Returns error if receive directory cannot be created.
+
+---
+
+### type TransferService
+
+```go
+type TransferService struct {
+    // unexported fields
+}
+```
+
+Manages chunked file transfers over libp2p streams. Thread-safe.
+
+#### Sending
+
+```go
+func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...SendOptions) (*TransferProgress, error)
+```
+
+Sends a file over a libp2p stream. Runs transfer in background goroutine.
+
+```go
+func (ts *TransferService) SendDirectory(ctx context.Context, dirPath string, openStream func() (network.Stream, error), opts SendOptions) ([]*TransferProgress, error)
+```
+
+Sends all files in a directory. Opens one stream per file.
+
+```go
+func (ts *TransferService) SubmitSend(filePath, peerID string, priority TransferPriority, openStream streamOpener, opts SendOptions) (*TransferProgress, error)
+```
+
+Enqueues outbound transfer to the queue processor.
+
+#### Receiving
+
+```go
+func (ts *TransferService) HandleInbound() sdk.StreamHandler
+```
+
+Returns handler for inbound transfer protocol. Register with libp2p.
+
+```go
+func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error)
+```
+
+Initiates receiver-side download from a peer's shared file.
+
+```go
+func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error)
+```
+
+Sends hash probe request and reads 45-byte response. Used by multi-peer download.
+
+#### Transfer Management
+
+```go
+func (ts *TransferService) GetTransfer(id string) (*TransferProgress, bool)
+func (ts *TransferService) ListTransfers() []TransferSnapshot
+func (ts *TransferService) CancelTransfer(id string) error
+func (ts *TransferService) CleanTempFiles() (int, int64)
+func (ts *TransferService) Close() error
+```
+
+#### Configuration
+
+```go
+func (ts *TransferService) SetReceiveMode(mode ReceiveMode)
+func (ts *TransferService) SetTimedMode(duration time.Duration) error
+func (ts *TransferService) TimedModeRemaining() time.Duration
+func (ts *TransferService) GetReceiveMode() ReceiveMode
+func (ts *TransferService) SetReceiveDir(dir string)
+func (ts *TransferService) SetCompress(enabled bool)
+func (ts *TransferService) SetMaxSize(maxBytes int64)
+func (ts *TransferService) SetNotifyMode(mode string)
+func (ts *TransferService) SetNotifyCommand(cmd string)
+func (ts *TransferService) ReceiveDir() string
+```
+
+#### Multi-Peer Download
+
+### type MultiPeerStreamOpener
+
+```go
+type MultiPeerStreamOpener func(peerID peer.ID) (network.Stream, error)
+```
+
+Opens a stream to a specific peer for the multi-peer download protocol.
+
+```go
+func (ts *TransferService) MultiPeerEnabled() bool
+func (ts *TransferService) MultiPeerMaxPeers() int
+func (ts *TransferService) MultiPeerMinSize() int64
+func (ts *TransferService) HandleMultiPeerRequest() sdk.StreamHandler
+func (ts *TransferService) DownloadMultiPeer(ctx context.Context, rootHash [32]byte, peers []peer.ID, openStream MultiPeerStreamOpener, destDir string) (*TransferProgress, error)
+```
+
+#### Hash Registry
+
+```go
+func (ts *TransferService) RegisterHash(rootHash [32]byte, localPath string)
+func (ts *TransferService) LookupHash(rootHash [32]byte) (string, bool)
+```
+
+Register hash-to-path mappings for multi-peer serving.
+
+#### Queue
+
+```go
+func (ts *TransferService) LogPath() string
+func (ts *TransferService) FlushQueue()
+func (ts *TransferService) RequeuePersisted(streamFactory func(peerID string) func() (network.Stream, error))
+```
+
+#### Ask Mode
+
+```go
+func (ts *TransferService) ListPending() []PendingTransfer
+func (ts *TransferService) AcceptTransfer(id, dest string) error
+func (ts *TransferService) RejectTransfer(id string, reason byte) error
+```
+
+---
+
+### type TransferProgress
+
+```go
+type TransferProgress struct {
+    ID              string       `json:"id"`
+    Filename        string       `json:"filename"`
+    Size            int64        `json:"size"`
+    Transferred     int64        `json:"transferred"`
+    ChunksTotal     int          `json:"chunks_total"`
+    ChunksDone      int          `json:"chunks_done"`
+    Compressed      bool         `json:"compressed"`
+    CompressedSize  int64        `json:"compressed_size,omitempty"`
+    ErasureParity   int          `json:"erasure_parity,omitempty"`
+    ErasureOverhead float64      `json:"erasure_overhead,omitempty"`
+    StreamProgress  []StreamInfo `json:"stream_progress,omitempty"`
+    PeerID          string       `json:"peer_id"`
+    Direction       string       `json:"direction"`
+    Status          string       `json:"status"`
+    StartTime       time.Time    `json:"start_time"`
+    Done            bool         `json:"done"`
+    Error           string       `json:"error,omitempty"`
+}
+```
+
+Tracks progress of an active transfer.
+
+```go
+func (p *TransferProgress) Snapshot() TransferSnapshot
+func (p *TransferProgress) Sent() int64
+```
+
+### type TransferSnapshot
+
+Same fields as TransferProgress. Mutex-free copy safe for JSON serialization and API responses.
+
+### type StreamInfo
+
+```go
+type StreamInfo struct {
+    ChunksDone int   `json:"chunks_done"`
+    BytesDone  int64 `json:"bytes_done"`
+}
+```
+
+Per-stream progress for parallel transfers.
+
+### type PendingTransfer
+
+```go
+type PendingTransfer struct {
+    ID       string    `json:"id"`
+    Filename string    `json:"filename"`
+    Size     int64     `json:"size"`
+    PeerID   string    `json:"peer_id"`
+    Time     time.Time `json:"time"`
+}
+```
+
+Inbound transfer awaiting approval in ask mode.
+
+### type SendOptions
+
+```go
+type SendOptions struct {
+    NoCompress           bool         // disable compression for this transfer
+    Streams              int          // parallel stream count (0 = adaptive default based on transport)
+    StreamOpener         streamOpener // opens additional streams for parallel transfer
+    RelativeName         string       // override manifest filename (for directory transfer)
+    RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
+}
+```
+
+---
+
+### type ShareRegistry
+
+```go
+type ShareRegistry struct {
+    // unexported fields
+}
+```
+
+Manages shared paths with per-peer ACLs. Thread-safe. Persistent shares survive restarts.
+
+#### func NewShareRegistry
+
+```go
+func NewShareRegistry() *ShareRegistry
+```
+
+Creates an empty share registry.
+
+#### func LoadShareRegistry
+
+```go
+func LoadShareRegistry(path string) (*ShareRegistry, error)
+```
+
+Loads persistent shares from JSON file with HMAC verification.
+
+#### Configuration
+
+```go
+func (r *ShareRegistry) SetPersistPath(path string)
+func (r *ShareRegistry) SetHMACKey(key []byte)
+func (r *ShareRegistry) SetBrowseRateLimit(maxPerMin int)
+```
+
+#### Share Management
+
+```go
+func (r *ShareRegistry) Share(path string, peers []peer.ID, persistent bool) error
+func (r *ShareRegistry) Unshare(path string) error
+func (r *ShareRegistry) DenyPeer(path string, peerID peer.ID) error
+func (r *ShareRegistry) ListShares(forPeer *peer.ID) []*ShareEntry
+func (r *ShareRegistry) LookupShare(path string) (*ShareEntry, bool)
+func (r *ShareRegistry) LookupShareByID(shareID string, peerID peer.ID) (*ShareEntry, bool)
+func (r *ShareRegistry) IsPathShared(path string, peerID peer.ID) bool
+func (r *ShareRegistry) SavePersistent(path string) error
+```
+
+#### Protocol Handlers
+
+```go
+func (r *ShareRegistry) BrowseForPeer(peerID peer.ID) []BrowseEntry
+func (r *ShareRegistry) HandleBrowse() sdk.StreamHandler
+func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler
+```
+
+### type ShareEntry
+
+```go
+type ShareEntry struct {
+    ID         string           `json:"id"`
+    Path       string           `json:"path"`
+    Name       string           `json:"name"`
+    Peers      map[peer.ID]bool `json:"-"`
+    PeerIDs    []string         `json:"peers"`
+    Persistent bool             `json:"persistent"`
+    SharedAt   time.Time        `json:"shared_at"`
+    IsDir      bool             `json:"is_dir"`
+}
+```
+
+Single shared path with its ACL. Path is never sent to peers. ID is opaque.
+
+### type BrowseEntry
+
+```go
+type BrowseEntry struct {
+    Name    string `json:"name"`
+    Path    string `json:"path"`
+    ShareID string `json:"share_id"`
+    Size    int64  `json:"size"`
+    IsDir   bool   `json:"is_dir"`
+    ModTime int64  `json:"mod_time"`
+}
+```
+
+Item in browse results. Path is always relative to share root.
+
+### type BrowseResult
+
+```go
+type BrowseResult struct {
+    Entries []BrowseEntry `json:"entries"`
+    Error   string        `json:"error,omitempty"`
+}
+```
+
+### type HashProbeResult
+
+```go
+type HashProbeResult struct {
+    RootHash   [32]byte
+    TotalSize  int64
+    ChunkCount uint32
+}
+```
+
+Response from hash probe request. Used by multi-peer download to discover Merkle root hash.
+
+#### Client Functions
+
+```go
+func BrowsePeer(s network.Stream, subPath string) (*BrowseResult, error)
+func RequestDownload(s network.Stream, remotePath string) (io.Reader, error)
+func RequestProbe(s network.Stream, remotePath string) (*HashProbeResult, error)
+```
+
+---
+
+### type TransferQueue
+
+```go
+type TransferQueue struct {
+    // unexported fields
+}
+```
+
+Manages ordered transfer execution with priority queue.
+
+```go
+func NewTransferQueue(maxActive int) *TransferQueue
+func (q *TransferQueue) Enqueue(filePath, peerID, direction string, priority TransferPriority) (string, error)
+func (q *TransferQueue) Dequeue() *QueuedTransfer
+func (q *TransferQueue) Complete(id string)
+func (q *TransferQueue) Requeue(id, filePath, peerID, direction string, priority TransferPriority)
+func (q *TransferQueue) Cancel(id string) bool
+func (q *TransferQueue) Pending() []*QueuedTransfer
+func (q *TransferQueue) ActiveCount() int
+```
+
+### type QueuedTransfer
+
+```go
+type QueuedTransfer struct {
+    ID        string           `json:"id"`
+    FilePath  string           `json:"file_path"`
+    PeerID    string           `json:"peer_id"`
+    Priority  TransferPriority `json:"priority"`
+    Direction string           `json:"direction"`
+    QueuedAt  time.Time        `json:"queued_at"`
+}
+```
+
+### type DirectoryTransfer
+
+```go
+type DirectoryTransfer struct {
+    RootDir   string
+    Files     []dirFileEntry
+    TotalSize int64
+}
+```
+
+```go
+func WalkDirectory(dirPath string) (*DirectoryTransfer, error)
+func (d *DirectoryTransfer) RegularFiles() []dirFileEntry
+```
+
+---
+
+### type TransferEvent
+
+```go
+type TransferEvent struct {
+    Timestamp time.Time `json:"timestamp"`
+    EventType string    `json:"event_type"`
+    Direction string    `json:"direction"`
+    PeerID    string    `json:"peer_id"`
+    FileName  string    `json:"file_name"`
+    FileSize  int64     `json:"file_size,omitempty"`
+    BytesDone int64     `json:"bytes_done,omitempty"`
+    Error     string    `json:"error,omitempty"`
+    Duration  string    `json:"duration,omitempty"`
+}
+```
+
+Structured log entry for file transfer event.
+
+#### Event Type Constants
+
+```go
+const (
+    EventLogRequestReceived   = "request_received"
+    EventLogAccepted          = "accepted"
+    EventLogRejected          = "rejected"
+    EventLogStarted           = "started"
+    EventLogProgress25        = "progress_25"
+    EventLogProgress50        = "progress_50"
+    EventLogProgress75        = "progress_75"
+    EventLogCompleted         = "completed"
+    EventLogFailed            = "failed"
+    EventLogResumed           = "resumed"
+    EventLogCancelled         = "cancelled"
+    EventLogSpamBlocked       = "spam_blocked"
+    EventLogDiskSpaceRejected = "disk_space_rejected"
+    EventLogMultiPeerRejected = "multi_peer_rejected"
+    EventLogPathFailover      = "path_failover"
+)
+```
+
+### type TransferLogger
+
+```go
+type TransferLogger struct {
+    // unexported fields
+}
+```
+
+JSON-lines logger for transfer events. Rotation: 10 MB per file, 3 rotated files.
+
+```go
+func NewTransferLogger(path string) (*TransferLogger, error)
+func (l *TransferLogger) Log(event TransferEvent)
+func (l *TransferLogger) Close() error
+func ReadTransferEvents(path string, max int) ([]TransferEvent, error)
+```
+
+### type TransferNotifier
+
+```go
+type TransferNotifier struct {
+    // unexported fields
+}
+```
+
+Sends notifications on incoming file transfers. Modes: "none" (default), "desktop" (OS-native), "command" (user template).
+
+```go
+func NewTransferNotifier(mode, command string) *TransferNotifier
+func (n *TransferNotifier) SetMode(mode string)
+func (n *TransferNotifier) SetCommand(cmd string)
+func (n *TransferNotifier) Notify(from, fileName string, fileSize int64) error
+```
+
+---
+
+### type Chunk
+
+```go
+type Chunk struct {
+    Data   []byte
+    Hash   [32]byte
+    Offset int64
+}
+```
+
+Single content-defined chunk with BLAKE3 hash.
+
+```go
+func ChunkTarget(fileSize int64) (minSize, avgSize, maxSize int)
+```
+
+Selects adaptive chunk sizes (min/avg/max) based on file size across 5 tiers: 64K/128K/256K for <64MB, 128K/256K/512K for <512MB, 256K/512K/1M for <2GB, 512K/1M/2M for <8GB, 1M/2M/4M for >=8GB.
+
+```go
+func ChunkReader(r io.Reader, fileSize int64, cb func(Chunk) error) error
+```
+
+Reads from reader and produces content-defined chunks using FastCDC with BLAKE3. Single-pass: each byte is hashed as the chunk boundary is found.
+
+---
+
+### Utility Functions
+
+```go
+func RejectReasonString(reason byte) string
+```
+
+Returns human-readable string for reject reason byte.
+
+```go
+func SanitizeDisplayName(name string) string
+```
+
+Sanitizes filename for safe terminal display, stripping ANSI escapes, BiDi overrides, and zero-width characters.
+
+---
+
+### HTTP API Types
+
+Request and response types used by the daemon HTTP API for file transfer endpoints.
+
+```go
+type SendRequest struct {
+    Path       string `json:"path"`
+    Peer       string `json:"peer"`
+    NoCompress bool   `json:"no_compress"`
+    Streams    int    `json:"streams"`
+    Priority   string `json:"priority"`
+}
+
+type SendResponse struct {
+    TransferID string `json:"transfer_id"`
+    Filename   string `json:"filename"`
+    Size       int64  `json:"size"`
+    PeerID     string `json:"peer_id"`
+}
+
+type TransferAcceptRequest struct {
+    Dest string `json:"dest,omitempty"`
+}
+
+type TransferRejectRequest struct {
+    Reason string `json:"reason,omitempty"`
+}
+
+type PendingTransferInfo struct {
+    ID       string `json:"id"`
+    Filename string `json:"filename"`
+    Size     int64  `json:"size"`
+    PeerID   string `json:"peer_id"`
+    Time     string `json:"time"`
+}
+
+type ShareRequest struct {
+    Path       string   `json:"path"`
+    Peers      []string `json:"peers,omitempty"`
+    Persistent *bool    `json:"persistent,omitempty"`
+}
+
+type UnshareRequest struct {
+    Path string `json:"path"`
+}
+
+type ShareDenyRequest struct {
+    Path string `json:"path"` // shared path
+    Peer string `json:"peer"` // peer name or ID to remove
+}
+
+type ShareInfo struct {
+    Path       string   `json:"path"`
+    Peers      []string `json:"peers,omitempty"`
+    Persistent bool     `json:"persistent"`
+    IsDir      bool     `json:"is_dir"`
+    SharedAt   string   `json:"shared_at"`
+}
+
+type BrowseRequest struct {
+    Peer    string `json:"peer"`
+    SubPath string `json:"sub_path,omitempty"`
+}
+
+type BrowseResponse struct {
+    Entries []BrowseEntry `json:"entries"`
+    Error   string        `json:"error,omitempty"`
+}
+
+type DownloadRequest struct {
+    Peer       string   `json:"peer"`
+    RemotePath string   `json:"remote_path"`
+    LocalDest  string   `json:"local_dest"`
+    MultiPeer  bool     `json:"multi_peer,omitempty"`
+    ExtraPeers []string `json:"extra_peers,omitempty"`
+}
+
+type DownloadResponse struct {
+    TransferID string `json:"transfer_id"`
+    FileName   string `json:"filename"`
+    FileSize   int64  `json:"file_size"`
+}
+```
+
+### Security Limits
+
+```go
+const (
+    maxFilenameLen         = 4096     // max filename length in bytes
+    maxFileSize            = 1 << 40  // 1 TB max single file
+    maxChunkCount          = 1 << 20  // 1M chunks max per transfer
+    maxManifestSize        = 40 << 20 // 40 MB max manifest wire size
+    maxChunkWireSize       = 4 << 20  // 4 MB max single chunk on wire
+    maxDecompressedChunk   = 8 << 20  // 8 MB max decompressed chunk
+    maxConcurrentTransfers = 10       // global inbound transfer limit
+    maxPerPeerTransfers    = 3        // per-peer inbound limit
+    maxTrackedTransfers    = 10000    // max tracked transfer entries
+)
+```
+
+
+---
+
+# Shurli Go SDK
+
+Package sdk provides the core P2P networking library for Shurli.
+
+This package is the primary SDK surface for Go consumers. External code should depend on the interfaces defined here (PeerNetwork, Resolver, ServiceManager, Authorizer) rather than concrete types where possible.
+
+```go
+import "github.com/shurlinet/shurli/pkg/sdk"
+```
+
+## Architecture
+
+The package is organized around these concepts:
+
+- **Network**: creates and manages a libp2p host with relay, NAT traversal, DHT discovery, and resource limits. Entry point: `New()`.
+
+- **Services**: the plugin system. TCP proxy services (`ExposeService`) forward streams to local ports. Plugin services (`RegisterHandler`) process streams directly. All services are managed through `ServiceRegistry`.
+
+- **Plugin Policies**: transport-aware access control for plugins. By default, all plugins only operate over LAN and Direct connections. Relay transport is excluded unless explicitly allowed per-plugin. See `PluginPolicy` and `DefaultPluginPolicy`.
+
+- **Events**: the `EventBus` dispatches connection, service, and authorization events to registered handlers.
+
+- **Naming**: the `NameResolver` maps human-readable names to peer IDs, with support for fallback resolver chains.
+
+- **Standalone**: `NewStandaloneHost` and `StandaloneResult.ResolveAndConnect` provide a consolidated path for one-shot CLI commands that operate without a running daemon.
+
+- **Bootstrap**: `BootstrapAndConnect` handles DHT client-mode bootstrap, peer discovery, and relay circuit fallback.
+
+- **Protocol IDs**: `ProtocolID` and `MustValidateProtocolIDs` enforce valid protocol ID construction at init time.
+
+### Relay Separation
+
+Relay server protocols (pairing, admin, MOTD, unseal) live in `internal/relay` and register directly on the libp2p host. They are architecturally separate from the plugin system in this package. Plugins are peer-to-peer only.
+
+### Thread Safety
+
+All exported types are safe for concurrent use. The Network, ServiceRegistry, EventBus, NameResolver, and TransferService use internal locking.
+
+---
+
+## Constants
+
+```go
+const DHTProtocolPrefix = "/shurli"
+const ProtocolPrefix = "/shurli"
+const PresenceProtocol = "/shurli/presence/1.0.0"
+const RTTProbeProtocol = "/shurli/rtt-probe/1.0.0"
+```
+
+### Transport Types
+
+```go
+const (
+    TransportLAN    TransportType = 1 << iota // private/link-local IP
+    TransportDirect                            // public internet, non-relay
+    TransportRelay                             // mediated through relay (p2p-circuit)
+)
+
+const DefaultTransport = TransportLAN | TransportDirect
+const MaxHedgeFanOut = 3
+```
+
+DefaultTransport permits LAN and Direct connections. MaxHedgeFanOut caps the number of concurrent hedged stream attempts. Relay is excluded. This is the default for ALL plugins: no data flows through relays unless explicitly allowed per-plugin.
+
+### Event Types
+
+```go
+const (
+    EventPeerConnected    EventType = iota + 1
+    EventPeerDisconnected
+    EventServiceRegistered
+    EventServiceRemoved
+    EventStreamOpened
+    EventStreamClosed
+    EventAuthAllow
+    EventAuthDeny
+    EventTransferPending
+)
+```
+
+### NAT Types
+
+```go
+type NATType string
+
+const (
+    NATNone              NATType = "none"
+    NATFullCone          NATType = "full-cone"
+    NATAddressRestricted NATType = "address-restricted"
+    NATPortRestricted    NATType = "port-restricted"
+    NATSymmetric         NATType = "symmetric"
+    NATUnknown           NATType = "unknown"
+)
+```
+
+### Path Types
+
+```go
+type PathType string
+
+const (
+    PathDirect  PathType = "DIRECT"
+    PathRelayed PathType = "RELAYED"
+)
+```
+
+---
+
+## Variables
+
+```go
+var ErrServiceAlreadyRegistered = errors.New("service already registered")
+var ErrServiceNotFound          = errors.New("service not found")
+var ErrNameNotFound             = errors.New("name not found")
+var ErrResponseTooLarge         = errors.New("response too large")
+```
+
+---
+
+## Core Interfaces
+
+### type PeerNetwork
+
+```go
+type PeerNetwork interface {
+    PeerID() peer.ID
+    ExposeService(name, localAddress string, allowedPeers map[peer.ID]struct{}) error
+    UnexposeService(name string) error
+    ListServices() []*Service
+    ConnectToService(peerID peer.ID, serviceName string) (ServiceConn, error)
+    ConnectToServiceContext(ctx context.Context, peerID peer.ID, serviceName string) (ServiceConn, error)
+    ResolveName(name string) (peer.ID, error)
+    RegisterName(name string, peerID peer.ID) error
+    OnEvent(handler EventHandler) func()
+    Close() error
+}
+```
+
+PeerNetwork is the top-level interface for interacting with a Shurli P2P network. Create a concrete `*Network` with `sdk.New()`.
+
+### type Resolver
+
+```go
+type Resolver interface {
+    Resolve(name string) (peer.ID, error)
+}
+```
+
+Resolver maps human-readable names to peer IDs. Supports chaining: local config, DNS, DHT, custom backends.
+
+### type ServiceManager
+
+```go
+type ServiceManager interface {
+    RegisterService(svc *Service) error
+    UnregisterService(name string) error
+    GetService(name string) (*Service, bool)
+    ListServices() []*Service
+    DialService(ctx context.Context, peerID peer.ID, protocolID string) (ServiceConn, error)
+    Use(middleware ...StreamMiddleware)
+}
+```
+
+ServiceManager manages service registration, discovery, and dialing. Supports stream middleware for cross-cutting concerns.
+
+### type Authorizer
+
+```go
+type Authorizer interface {
+    IsAuthorized(p peer.ID) bool
+}
+```
+
+Authorizer makes authorization decisions about peers. Default implementation uses Shurli's `authorized_keys` file.
+
+### type ServiceConn
+
+```go
+type ServiceConn interface {
+    io.ReadWriteCloser
+    CloseWrite() error
+}
+```
+
+ServiceConn is a connection to a remote service. Supports half-close for HTTP-style request/response patterns.
+
+### type RelayGrantChecker
+
+```go
+type RelayGrantChecker interface {
+    GrantStatus(relayID peer.ID) (remaining time.Duration, budget int64, sessionDuration time.Duration, ok bool)
+    HasSufficientBudget(relayID peer.ID, fileSize int64, direction string) bool
+    TrackCircuitBytes(relayID peer.ID, direction string, n int64)
+    ResetCircuitCounters(relayID peer.ID)
+}
+```
+
+RelayGrantChecker provides relay grant information for transfer budget/time checks. Used by the file transfer plugin to verify relay data grants before initiating transfers.
+
+### type RelaySource
+
+```go
+type RelaySource interface {
+    RelayAddrs() []string
+}
+```
+
+RelaySource provides relay addresses for dial racing.
+
+### type HalfCloseConn
+
+```go
+type HalfCloseConn interface {
+    io.ReadWriteCloser
+    CloseWrite() error
+}
+```
+
+HalfCloseConn is a connection supporting half-close. Used by the proxy subsystem for bidirectional copy.
+
+---
+
+## Type Aliases
+
+```go
+type StreamMiddleware func(next network.StreamHandler) network.StreamHandler
+type StreamHandler    func(serviceName string, s network.Stream)
+type EventHandler     func(Event)
+type EventType        int
+type TransportType    int
+type GrantChecker     func(peerID peer.ID, service string, transport TransportType) bool
+type TokenVerifier    func(tokenBase64 string, peerID peer.ID, service string, transport TransportType) bool
+type TokenLookup      func(peerID peer.ID, service string) string
+type ConnectionRecorder func(peerID peer.ID)
+type PeerFilter       func(peer.ID) bool
+type NodeStateProvider func() *NodeAnnouncement
+```
+
+---
+
+## Network
+
+### type Config
+
+```go
+type Config struct {
+    KeyFile              string
+    KeyPassword          string
+    AuthorizedKeys       string
+    Gater                *auth.AuthorizedPeerGater
+    Config               *config.Config
+    UserAgent            string
+    EnableRelay          bool
+    RelayAddrs           []string
+    ForcePrivate         bool
+    EnableNATPortMap     bool
+    EnableHolePunching   bool
+    Namespace            string
+    Resolver             Resolver
+    ResourceLimitsEnabled bool
+    Metrics              *Metrics
+    BandwidthTracker     *BandwidthTracker
+}
+```
+
+Config holds configuration for creating a new P2P network.
+
+### type Network
+
+```go
+type Network struct {
+    // contains unexported fields
+}
+```
+
+Network is the core P2P host. Implements PeerNetwork. Created with `New()`.
+
+#### func New
+
+```go
+func New(cfg *Config) (*Network, error)
+```
+
+New creates a new P2P network instance with the given configuration.
+
+#### func (*Network) PeerID
+
+```go
+func (n *Network) PeerID() peer.ID
+```
+
+PeerID returns this node's peer ID.
+
+#### func (*Network) Host
+
+```go
+func (n *Network) Host() host.Host
+```
+
+Host returns the underlying libp2p host.
+
+#### func (*Network) ExposeService
+
+```go
+func (n *Network) ExposeService(name, localAddress string, allowedPeers map[peer.ID]struct{}) error
+```
+
+ExposeService exposes a local TCP service over the P2P network.
+
+#### func (*Network) UnexposeService
+
+```go
+func (n *Network) UnexposeService(name string) error
+```
+
+UnexposeService removes a previously exposed service.
+
+#### func (*Network) ListServices
+
+```go
+func (n *Network) ListServices() []*Service
+```
+
+ListServices returns all registered services.
+
+#### func (*Network) ConnectToService
+
+```go
+func (n *Network) ConnectToService(peerID peer.ID, serviceName string) (ServiceConn, error)
+```
+
+ConnectToService connects to a remote peer's exposed service.
+
+#### func (*Network) ConnectToServiceContext
+
+```go
+func (n *Network) ConnectToServiceContext(ctx context.Context, peerID peer.ID, serviceName string) (ServiceConn, error)
+```
+
+ConnectToServiceContext connects with a cancellable context.
+
+#### func (*Network) ResolveName
+
+```go
+func (n *Network) ResolveName(name string) (peer.ID, error)
+```
+
+ResolveName resolves a human-readable name to a peer ID.
+
+#### func (*Network) RegisterName
+
+```go
+func (n *Network) RegisterName(name string, peerID peer.ID) error
+```
+
+RegisterName registers a name-to-peer-ID mapping.
+
+#### func (*Network) LoadNames
+
+```go
+func (n *Network) LoadNames(names map[string]string) error
+```
+
+LoadNames loads peer name mappings from a string map.
+
+#### func (*Network) OnEvent
+
+```go
+func (n *Network) OnEvent(handler EventHandler) func()
+```
+
+OnEvent subscribes to network events. Returns an unsubscribe function.
+
+#### func (*Network) AddRelayAddressesForPeer
+
+```go
+func (n *Network) AddRelayAddressesForPeer(relayAddrs []string, target peer.ID) error
+```
+
+AddRelayAddressesForPeer adds relay circuit addresses for a target peer.
+
+#### func (*Network) ResetBlackHoles
+
+```go
+func (n *Network) ResetBlackHoles()
+```
+
+ResetBlackHoles resets the libp2p black hole detectors for both IPv4 and IPv6 UDP, allowing immediate retry after a network change.
+
+#### func (*Network) ClearDialBackoffs
+
+```go
+func (n *Network) ClearDialBackoffs(peers []peer.ID)
+```
+
+ClearDialBackoffs clears the swarm's dial backoff for the given peers, enabling immediate reconnection.
+
+#### func (*Network) GetPathProtector
+
+```go
+func (n *Network) GetPathProtector() *PathProtector
+```
+
+GetPathProtector returns the path protector, if set.
+
+#### func (*Network) SetPathProtector
+
+```go
+func (n *Network) SetPathProtector(pp *PathProtector)
+```
+
+SetPathProtector sets the path protector for managed relay connections.
+
+#### func (*Network) GetLANRegistry
+
+```go
+func (n *Network) GetLANRegistry() *LANRegistry
+```
+
+GetLANRegistry returns the mDNS-verified LAN registry.
+
+#### func (*Network) ServiceRegistry
+
+```go
+func (n *Network) ServiceRegistry() *ServiceRegistry
+```
+
+ServiceRegistry returns the network's service registry.
+
+#### func (*Network) RegisterHandler
+
+```go
+func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error
+```
+
+RegisterHandler registers a P2P stream handler for a named service. Uses default plugin policy (LAN + Direct, no relay).
+
+#### func (*Network) RegisterHandlerRelayAllowed
+
+```go
+func (n *Network) RegisterHandlerRelayAllowed(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error
+```
+
+RegisterHandlerRelayAllowed registers a handler that also accepts relay connections.
+
+#### func (*Network) RegisterServiceQuery
+
+```go
+func (n *Network) RegisterServiceQuery() error
+```
+
+RegisterServiceQuery registers the service-query protocol handler for remote service discovery.
+
+#### func (*Network) OpenPluginStream
+
+```go
+func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceName string) (network.Stream, error)
+```
+
+OpenPluginStream opens a stream to a remote peer for a plugin service. Applies transport policy and grant verification.
+
+#### func (*Network) OpenPluginStreamOnConn
+
+```go
+func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, serviceName string, conn network.Conn) (network.Stream, error)
+```
+
+OpenPluginStreamOnConn opens a plugin stream on a specific connection. Used by hedged open to target a particular path.
+
+#### func (*Network) ReplaceNames
+
+```go
+func (n *Network) ReplaceNames(names map[string]string) error
+```
+
+ReplaceNames replaces all name mappings atomically.
+
+#### func (*Network) ListNames
+
+```go
+func (n *Network) ListNames() map[string]peer.ID
+```
+
+ListNames returns all registered name-to-peer-ID mappings.
+
+#### func (*Network) Events
+
+```go
+func (n *Network) Events() *EventBus
+```
+
+Events returns the network's event bus.
+
+#### func (*Network) Close
+
+```go
+func (n *Network) Close() error
+```
+
+Close shuts down the network and releases resources.
+
+### func ParseRelayAddrs
+
+```go
+func ParseRelayAddrs(relayAddrs []string) ([]peer.AddrInfo, error)
+```
+
+ParseRelayAddrs parses multiaddr relay addresses into AddrInfo. Standalone function, not a Network method.
+
+### func DHTProtocolPrefixForNamespace
+
+```go
+func DHTProtocolPrefixForNamespace(namespace string) string
+```
+
+DHTProtocolPrefixForNamespace returns DHT protocol prefix for a private namespace.
+
+### func HumanizeError
+
+```go
+func HumanizeError(err string) string
+```
+
+HumanizeError translates libp2p stream errors into user-friendly messages.
+
+### func ValidateServiceName
+
+```go
+func ValidateServiceName(name string) error
+```
+
+ValidateServiceName checks that a service name is safe for use in protocol IDs.
+
+---
+
+## Service Registry
+
+### type Service
+
+```go
+type Service struct {
+    Name         string
+    Protocol     string
+    LocalAddress string
+    Handler      StreamHandler
+    Enabled      bool
+    AllowedPeers map[peer.ID]struct{}
+    Policy       *PluginPolicy
+}
+```
+
+Service represents a service exposed over P2P.
+
+### type ServiceRegistry
+
+```go
+type ServiceRegistry struct {
+    // contains unexported fields
+}
+```
+
+ServiceRegistry manages service registration, stream routing, and connection dialing.
+
+#### func NewServiceRegistry
+
+```go
+func NewServiceRegistry(h host.Host, metrics *Metrics) *ServiceRegistry
+```
+
+#### func (*ServiceRegistry) RegisterService
+
+```go
+func (r *ServiceRegistry) RegisterService(svc *Service) error
+```
+
+#### func (*ServiceRegistry) UnregisterService
+
+```go
+func (r *ServiceRegistry) UnregisterService(name string) error
+```
+
+#### func (*ServiceRegistry) GetService
+
+```go
+func (r *ServiceRegistry) GetService(name string) (*Service, bool)
+```
+
+#### func (*ServiceRegistry) ListServices
+
+```go
+func (r *ServiceRegistry) ListServices() []*Service
+```
+
+#### func (*ServiceRegistry) DialService
+
+```go
+func (r *ServiceRegistry) DialService(ctx context.Context, peerID peer.ID, protocolID string) (ServiceConn, error)
+```
+
+#### func (*ServiceRegistry) Seal
+
+```go
+func (r *ServiceRegistry) Seal()
+```
+
+Seal prevents further service registration. Called after daemon startup.
+
+#### func (*ServiceRegistry) SetGrantChecker
+
+```go
+func (r *ServiceRegistry) SetGrantChecker(checker GrantChecker)
+```
+
+#### func (*ServiceRegistry) SetTokenVerifier
+
+```go
+func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier)
+```
+
+#### func (*ServiceRegistry) SetTokenLookup
+
+```go
+func (r *ServiceRegistry) SetTokenLookup(l TokenLookup)
+```
+
+#### func (*ServiceRegistry) SetLANRegistry
+
+```go
+func (r *ServiceRegistry) SetLANRegistry(lanReg *LANRegistry)
+```
+
+SetLANRegistry sets the LAN registry for mDNS-verified transport classification in stream handlers.
+
+#### func (*ServiceRegistry) SetRelayGrantChecker
+
+```go
+func (r *ServiceRegistry) SetRelayGrantChecker(checker RelayGrantChecker)
+```
+
+SetRelayGrantChecker sets the relay grant checker for verifying data access grants on relay streams.
+
+#### func (*ServiceRegistry) Use
+
+```go
+func (r *ServiceRegistry) Use(middleware ...StreamMiddleware)
+```
+
+Use adds stream middleware. Middleware wraps every stream handler in the order added (first added = outermost wrapper).
+
+---
+
+## Events
+
+### type Event
+
+```go
+type Event struct {
+    Type        EventType
+    PeerID      peer.ID
+    ServiceName string
+    Detail      string
+}
+```
+
+### type EventBus
+
+```go
+type EventBus struct {
+    // contains unexported fields
+}
+```
+
+#### func NewEventBus
+
+```go
+func NewEventBus() *EventBus
+```
+
+#### func (*EventBus) Subscribe
+
+```go
+func (b *EventBus) Subscribe(handler EventHandler) func()
+```
+
+Subscribe registers an event handler. Returns an unsubscribe function.
+
+#### func (*EventBus) Emit
+
+```go
+func (b *EventBus) Emit(e Event)
+```
+
+Emit dispatches event to all registered handlers.
+
+---
+
+## Name Resolution
+
+### type NameResolver
+
+```go
+type NameResolver struct {
+    // contains unexported fields
+}
+```
+
+#### func NewNameResolver
+
+```go
+func NewNameResolver() *NameResolver
+```
+
+#### func (*NameResolver) Register
+
+```go
+func (r *NameResolver) Register(name string, peerID peer.ID) error
+```
+
+#### func (*NameResolver) Unregister
+
+```go
+func (r *NameResolver) Unregister(name string)
+```
+
+#### func (*NameResolver) Resolve
+
+```go
+func (r *NameResolver) Resolve(name string) (peer.ID, error)
+```
+
+#### func (*NameResolver) List
+
+```go
+func (r *NameResolver) List() map[string]peer.ID
+```
+
+#### func (*NameResolver) LoadFromMap
+
+```go
+func (r *NameResolver) LoadFromMap(names map[string]string) error
+```
+
+LoadFromMap adds name mappings from string map (additive).
+
+#### func (*NameResolver) ReplaceFromMap
+
+```go
+func (r *NameResolver) ReplaceFromMap(names map[string]string) error
+```
+
+ReplaceFromMap replaces all name mappings with the given map.
+
+---
+
+
+## Byte Size Utilities
+
+### func ParseByteSize
+
+```go
+func ParseByteSize(s string) (int64, error)
+```
+
+ParseByteSize parses a human-readable byte size string (e.g., "500MB", "1GB", "unlimited").
+
+### func FormatBytes
+
+```go
+func FormatBytes(b int64) string
+```
+
+FormatBytes formats a byte count for user-facing display (e.g. "1.2 GB", "500 MB").
+
+---
+
+## Cryptographic Utilities
+
+### func Blake3Sum
+
+```go
+func Blake3Sum(data []byte) [32]byte
+```
+
+Blake3Sum computes the BLAKE3-256 hash of data.
+
+### func MerkleRoot
+
+```go
+func MerkleRoot(hashes [][32]byte) [32]byte
+```
+
+MerkleRoot computes the BLAKE3 Merkle root hash from a list of chunk hashes. Leaf nodes are chunk hashes (already BLAKE3). Internal nodes are BLAKE3(left || right). Odd nodes are promoted unchanged. Single hash is returned as-is. Empty list returns zero hash.
+
+---
+
+## Relay Utilities
+
+### func RelayPeerFromAddr
+
+```go
+func RelayPeerFromAddr(addr ma.Multiaddr) peer.ID
+```
+
+RelayPeerFromAddr extracts the relay peer ID from a circuit relay multiaddr. Returns empty peer.ID if the address is not a circuit relay address.
+
+### func RelayPeerFromAddrStr
+
+```go
+func RelayPeerFromAddrStr(addrStr string) string
+```
+
+RelayPeerFromAddrStr extracts the relay peer ID string from a circuit relay multiaddr string. Returns empty string if the address is not a relay circuit.
+
+### func VerifiedTransport
+
+```go
+func VerifiedTransport(s network.Stream, hasVerifiedLANConn func(peer.ID) bool) TransportType
+```
+
+VerifiedTransport classifies a stream using mDNS-verified LAN detection. Use for any trust-making decision (transport policy, erasure coding, bandwidth budgets).
+
+Precedence: Limited (relay circuit) → TransportRelay; loopback or link-local remote → TransportLAN (cannot traverse routers); `hasVerifiedLANConn` returns true → TransportLAN; otherwise → TransportDirect.
+
+Unlike `ClassifyTransport`, routable private IPv4 addresses (RFC 1918 / RFC 6598) are NOT classified as LAN unless mDNS has verified the peer. This avoids false positives from CGNAT, Docker bridge networks, VPN tunnels, and multi-WAN routed-private cross-links — only mDNS multicast (which cannot traverse routers) proves real LAN proximity.
+
+A nil `hasVerifiedLANConn` callback still classifies loopback and link-local as LAN; for routable addresses it falls back to TransportDirect (conservative).
+
+### func (*Network) HasVerifiedLANConn
+
+```go
+func (n *Network) HasVerifiedLANConn(id peer.ID) bool
+```
+
+Nil-safe convenience wrapper over the underlying mDNS-verified LAN registry. Returns true if the peer has at least one live non-relay connection whose remote IP was confirmed via mDNS multicast. This is the authoritative "is this peer on our LAN?" check; use it as the second argument to `VerifiedTransport`.
+
+---
+
+## Connection Groups & Hedging
+
+### type ConnGroup
+
+```go
+type ConnGroup struct {
+    Type  string         // "DIRECT", "RELAYED", or relay peer ID
+    Conns []network.Conn
+}
+```
+
+ConnGroup groups a peer's connections by transport path. Direct connections (LAN or WAN) are in one group, each relay circuit is its own group.
+
+### type HostNetwork
+
+```go
+type HostNetwork interface {
+    Network() network.Network
+}
+```
+
+HostNetwork is satisfied by `host.Host`. Used by ConnGroups/AllConnGroups to access connection lists.
+
+### func ConnGroups
+
+```go
+func ConnGroups(h HostNetwork, peerID peer.ID) []ConnGroup
+```
+
+ConnGroups groups all connections to a peer by transport type. Direct (non-relay) connections are grouped together; each relay circuit forms a separate group.
+
+### func AllConnGroups
+
+```go
+func AllConnGroups(h HostNetwork, peerID peer.ID, pp *PathProtector) []ConnGroup
+```
+
+AllConnGroups returns connection groups including managed relay connections from the PathProtector that may not appear in the host's connection list.
+
+### func OpenStreamOnConn
+
+```go
+func OpenStreamOnConn(ctx context.Context, conn network.Conn, proto protocol.ID) (network.Stream, error)
+```
+
+OpenStreamOnConn opens a new stream on a specific connection using protocol negotiation. Used to target a particular network path (e.g., direct vs relay).
+
+### func HedgedOpenStream
+
+```go
+func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceName string) (network.Stream, error)
+```
+
+HedgedOpenStream opens a plugin stream using hedged racing across all available connection groups. Direct groups are tried first, then relay groups with staggered starts. First success wins, losers are cancelled. Capped at MaxHedgeFanOut concurrent attempts.
+
+---
+
+## Path Protection
+
+### type PathProtector
+
+```go
+type PathProtector struct {
+    // contains unexported fields
+}
+```
+
+PathProtector manages protected relay connections for peers. Prevents relay circuits from being garbage-collected by keeping them alive and tracked. Supports connection reaping and deauth callbacks.
+
+```go
+const MaxProtectedPeers = 10
+const MaxManagedRelayConns = 5
+```
+
+### type ManagedPathInfo
+
+```go
+type ManagedPathInfo struct {
+    PeerID      peer.ID
+    RelayPeerID peer.ID
+    RemoteAddr  string
+    Created     time.Time
+    Streams     int
+    Dead        bool
+}
+```
+
+ManagedPathInfo describes a managed relay connection tracked by PathProtector.
+
+---
+
+## LAN Registry
+
+### type LANRegistry
+
+```go
+type LANRegistry struct {
+    // contains unexported fields
+}
+```
+
+LANRegistry tracks which peers have been verified as LAN-local via mDNS multicast. The authoritative source for "is this peer on our LAN?" decisions. Bare RFC 1918 matching is unreliable (CGNAT, Docker, VPN); only mDNS proves link-local proximity.
+
+### func StripNonLANAddrs
+
+```go
+func StripNonLANAddrs(h host.Host, pid peer.ID, lanReg *LANRegistry)
+```
+
+StripNonLANAddrs removes non-LAN addresses from the peerstore for a peer that has a verified LAN connection, preventing mDNS-discovered peers from accumulating stale public addresses.
+
+### func IsLANMultiaddr
+
+```go
+func IsLANMultiaddr(addr ma.Multiaddr) bool
+```
+
+IsLANMultiaddr returns true if the multiaddr points to a LAN address (private IPv4, link-local IPv6, loopback).
+
+---
+
+## Grant Headers
+
+### func WriteGrantHeader
+
+```go
+func WriteGrantHeader(s network.Stream, tokenBase64 string) error
+```
+
+WriteGrantHeader writes a grant token header onto a stream before the application payload. Used by relay-allowed protocols to present data access credentials.
+
+### func ReadGrantHeader
+
+```go
+func ReadGrantHeader(s network.Stream) (string, error)
+```
+
+ReadGrantHeader reads a grant token header from a stream. Returns the base64-encoded token string.
+
+---
+
+## Plugin Transport Policy
+
+### type PluginPolicy
+
+```go
+type PluginPolicy struct {
+    AllowedTransports TransportType
+    AllowPeers        map[peer.ID]struct{}
+    DenyPeers         map[peer.ID]struct{}
+}
+```
+
+PluginPolicy defines transport restrictions and peer access control for plugin protocols.
+
+#### func DefaultPluginPolicy
+
+```go
+func DefaultPluginPolicy() *PluginPolicy
+```
+
+DefaultPluginPolicy returns a policy allowing LAN + Direct, no relay.
+
+#### func (*PluginPolicy) RelayAllowed
+
+```go
+func (p *PluginPolicy) RelayAllowed() bool
+```
+
+#### func (*PluginPolicy) PeerAllowed
+
+```go
+func (p *PluginPolicy) PeerAllowed(id peer.ID) bool
+```
+
+#### func (*PluginPolicy) TransportAllowed
+
+```go
+func (p *PluginPolicy) TransportAllowed(t TransportType) bool
+```
+
+### func ClassifyTransport
+
+```go
+func ClassifyTransport(s network.Stream) TransportType
+```
+
+ClassifyTransport determines the transport type of a stream. Limited connections are classified as TransportRelay. Private/loopback/link-local IPs are TransportLAN. Everything else is TransportDirect.
+
+---
+
+## Protocol IDs
+
+### func ProtocolID
+
+```go
+func ProtocolID(name, version string) string
+```
+
+ProtocolID constructs a validated Shurli protocol identifier: `/shurli/<name>/<version>`. Panics on invalid input (intended for init-time registration).
+
+### func ValidateProtocolID
+
+```go
+func ValidateProtocolID(id string) error
+```
+
+ValidateProtocolID checks if a protocol ID is well-formed.
+
+### func MustValidateProtocolIDs
+
+```go
+func MustValidateProtocolIDs(ids ...string)
+```
+
+MustValidateProtocolIDs validates a batch of protocol IDs at init time. Panics if any are malformed.
+
+---
+
+## Bootstrap
+
+### type BootstrapConfig
+
+```go
+type BootstrapConfig struct {
+    Namespace      string
+    BootstrapPeers []string
+    RelayAddrs     []string
+}
+```
+
+### func BootstrapAndConnect
+
+```go
+func BootstrapAndConnect(ctx context.Context, h host.Host, net *Network, target peer.ID, cfg BootstrapConfig) error
+```
+
+BootstrapAndConnect bootstraps the DHT and connects to a target peer.
+
+---
+
+## Standalone Host
+
+### type StandaloneConfig
+
+```go
+type StandaloneConfig struct {
+    ConfigPath string
+    Password   string
+    UserAgent  string
+}
+```
+
+### type StandaloneResult
+
+```go
+type StandaloneResult struct {
+    Network    *Network
+    NodeConfig *config.NodeConfig
+    ConfigDir  string
+}
+```
+
+#### func (*StandaloneResult) ResolveAndConnect
+
+```go
+func (r *StandaloneResult) ResolveAndConnect(ctx context.Context, target string) (peer.ID, error)
+```
+
+ResolveAndConnect resolves a peer name or ID and connects.
+
+### func NewStandaloneHost
+
+```go
+func NewStandaloneHost(cfg StandaloneConfig) (*StandaloneResult, error)
+```
+
+NewStandaloneHost creates a P2P Network from a config file. Used by CLI commands that need a network connection without running the full daemon.
+
+---
+
+## Network Tools
+
+### Ping
+
+#### type PingResult
+
+```go
+type PingResult struct {
+    Seq    int     `json:"seq"`
+    PeerID string  `json:"peer_id"`
+    RttMs  float64 `json:"rtt_ms"`
+    Path   string  `json:"path"`
+    Error  string  `json:"error,omitempty"`
+}
+```
+
+#### type PingStats
+
+```go
+type PingStats struct {
+    Sent     int     `json:"sent"`
+    Received int     `json:"received"`
+    Lost     int     `json:"lost"`
+    LossPct  float64 `json:"loss_pct"`
+    MinMs    float64 `json:"min_ms"`
+    AvgMs    float64 `json:"avg_ms"`
+    MaxMs    float64 `json:"max_ms"`
+}
+```
+
+#### func PingPeer
+
+```go
+func PingPeer(ctx context.Context, h host.Host, peerID peer.ID, protocolID string, count int, interval time.Duration) <-chan PingResult
+```
+
+PingPeer sends pings to a peer and streams results on the returned channel.
+
+#### func ComputePingStats
+
+```go
+func ComputePingStats(results []PingResult) PingStats
+```
+
+### Traceroute
+
+#### type TraceHop
+
+```go
+type TraceHop struct {
+    Hop     int     `json:"hop"`
+    PeerID  string  `json:"peer_id"`
+    Name    string  `json:"name,omitempty"`
+    Address string  `json:"address"`
+    RttMs   float64 `json:"rtt_ms"`
+    Error   string  `json:"error,omitempty"`
+}
+```
+
+#### type TraceResult
+
+```go
+type TraceResult struct {
+    Target   string     `json:"target"`
+    TargetID string     `json:"target_id"`
+    Path     string     `json:"path"`
+    Hops     []TraceHop `json:"hops"`
+}
+```
+
+#### func TracePeer
+
+```go
+func TracePeer(ctx context.Context, h host.Host, targetPeerID peer.ID) (*TraceResult, error)
+```
+
+TracePeer traces the network path to a peer.
+
+---
+
+## Peer Management
+
+### type PeerManager
+
+```go
+type PeerManager struct {
+    // contains unexported fields
+}
+```
+
+PeerManager maintains connections to watched peers with exponential backoff reconnection.
+
+#### func NewPeerManager
+
+```go
+func NewPeerManager(h host.Host, pd *PathDialer, m *Metrics, onReconnect ConnectionRecorder) *PeerManager
+```
+
+#### func (*PeerManager) Start
+
+```go
+func (pm *PeerManager) Start(ctx context.Context)
+```
+
+#### func (*PeerManager) Close
+
+```go
+func (pm *PeerManager) Close()
+```
+
+#### func (*PeerManager) SetWatchlist
+
+```go
+func (pm *PeerManager) SetWatchlist(peerIDs []peer.ID)
+```
+
+#### func (*PeerManager) OnNetworkChange
+
+```go
+func (pm *PeerManager) OnNetworkChange()
+```
+
+OnNetworkChange triggers immediate reconnection attempts.
+
+#### func (*PeerManager) GetPeer
+
+```go
+func (pm *PeerManager) GetPeer(id peer.ID) (*ManagedPeerInfo, bool)
+```
+
+#### func (*PeerManager) SetPathProtector
+
+```go
+func (pm *PeerManager) SetPathProtector(pp *PathProtector)
+```
+
+SetPathProtector sets the path protector for managed relay connections.
+
+#### func (*PeerManager) GetLANRegistry
+
+```go
+func (pm *PeerManager) GetLANRegistry() *LANRegistry
+```
+
+GetLANRegistry returns the PeerManager's LAN registry.
+
+#### func (*PeerManager) ResetPeerBackoff
+
+```go
+func (pm *PeerManager) ResetPeerBackoff(pid peer.ID)
+```
+
+ResetPeerBackoff clears the reconnection backoff for a specific peer, enabling immediate reconnection.
+
+#### func (*PeerManager) CloseAllPeerConnections
+
+```go
+func (pm *PeerManager) CloseAllPeerConnections()
+```
+
+CloseAllPeerConnections closes all connections to all watched peers. Used on network change to force path re-evaluation.
+
+#### func (*PeerManager) ListPeers
+
+```go
+func (pm *PeerManager) ListPeers() []ManagedPeerInfo
+```
+
+### type ManagedPeerInfo
+
+```go
+type ManagedPeerInfo struct {
+    PeerID         string `json:"peer_id"`
+    Connected      bool   `json:"connected"`
+    LastSeen       string `json:"last_seen"`
+    LastDialError  string `json:"last_dial_error,omitempty"`
+    ConsecFailures int    `json:"consec_failures"`
+    BackoffUntil   string `json:"backoff_until,omitempty"`
+}
+```
+
+---
+
+## Path Dialer
+
+### type PathDialer
+
+```go
+type PathDialer struct {
+    // contains unexported fields
+}
+```
+
+PathDialer connects to peers using parallel path racing across direct and relay paths.
+
+#### func NewPathDialer
+
+```go
+func NewPathDialer(h host.Host, kdht *dht.IpfsDHT, relaySource RelaySource, m *Metrics) *PathDialer
+```
+
+#### func (*PathDialer) DialPeer
+
+```go
+func (pd *PathDialer) DialPeer(ctx context.Context, peerID peer.ID) (*DialResult, error)
+```
+
+### type DialResult
+
+```go
+type DialResult struct {
+    PathType PathType
+    Duration time.Duration
+    Address  string
+}
+```
+
+### func PeerConnInfo
+
+```go
+func PeerConnInfo(h host.Host, peerID peer.ID) (pathType string, addr string)
+```
+
+### func ClassifyMultiaddr
+
+```go
+func ClassifyMultiaddr(addr string) (pathType PathType, transport string, ipVersion string)
+```
+
+### func AddRelayAddressesForPeerFunc
+
+```go
+func AddRelayAddressesForPeerFunc(h host.Host, relayAddrs []string, target peer.ID) error
+```
+
+### func RelayServiceCID
+
+```go
+func RelayServiceCID(namespace string) cid.Cid
+```
+
+RelayServiceCID returns the DHT content ID used for relay service advertisement in a given namespace.
+
+---
+
+## Path Tracker
+
+### type PathTracker
+
+```go
+type PathTracker struct {
+    // contains unexported fields
+}
+```
+
+PathTracker monitors peer connections and tracks per-peer path quality.
+
+#### func NewPathTracker
+
+```go
+func NewPathTracker(h host.Host, m *Metrics) *PathTracker
+```
+
+#### func (*PathTracker) Start
+
+```go
+func (pt *PathTracker) Start(ctx context.Context)
+```
+
+#### func (*PathTracker) UpdateRTT
+
+```go
+func (pt *PathTracker) UpdateRTT(pid peer.ID, rttMs float64)
+```
+
+#### func (*PathTracker) GetPeerPath
+
+```go
+func (pt *PathTracker) GetPeerPath(pid peer.ID) (*PeerPathInfo, bool)
+```
+
+#### func (*PathTracker) ListPeerPaths
+
+```go
+func (pt *PathTracker) ListPeerPaths() []*PeerPathInfo
+```
+
+### type PeerPathInfo
+
+```go
+type PeerPathInfo struct {
+    PeerID      string   `json:"peer_id"`
+    PathType    PathType `json:"path_type"`
+    Address     string   `json:"address"`
+    ConnectedAt string   `json:"connected_at"`
+    Transport   string   `json:"transport"`
+    IPVersion   string   `json:"ip_version"`
+    LastRTTMs   float64  `json:"last_rtt_ms"`
+}
+```
+
+---
+
+## LAN Discovery
+
+### type MDNSDiscovery
+
+```go
+type MDNSDiscovery struct {
+    // contains unexported fields
+}
+```
+
+MDNSDiscovery discovers peers on the local network via mDNS/Zeroconf.
+
+---
+
+## Network Intelligence
+
+### type NetIntel
+
+```go
+type NetIntel struct {
+    // contains unexported fields
+}
+```
+
+NetIntel manages the presence announcement protocol. Peers exchange presence info (NAT type, addresses, capabilities, uptime) at regular intervals.
+
+#### func NewNetIntel
+
+```go
+func NewNetIntel(h host.Host, m *Metrics, pf PeerFilter, sp NodeStateProvider, interval time.Duration) *NetIntel
+```
+
+#### func (*NetIntel) Start
+
+```go
+func (ni *NetIntel) Start(ctx context.Context)
+```
+
+#### func (*NetIntel) Close
+
+```go
+func (ni *NetIntel) Close()
+```
+
+#### func (*NetIntel) AnnounceNow
+
+```go
+func (ni *NetIntel) AnnounceNow()
+```
+
+AnnounceNow triggers an immediate presence announcement to all connected peers.
+
+#### func (*NetIntel) GetPeerState
+
+```go
+func (ni *NetIntel) GetPeerState(pid peer.ID) *PeerAnnouncement
+```
+
+#### func (*NetIntel) GetAllPeerState
+
+```go
+func (ni *NetIntel) GetAllPeerState() []PeerAnnouncement
+```
+
+### type NodeAnnouncement
+
+```go
+type NodeAnnouncement struct {
+    Version       int    `json:"version"`
+    From          string `json:"from"`
+    Grade         string `json:"grade"`
+    NATType       string `json:"nat_type"`
+    HasIPv4       bool   `json:"has_ipv4"`
+    HasIPv6       bool   `json:"has_ipv6"`
+    BehindCGNAT   bool   `json:"behind_cgnat"`
+    UptimeSec     int64  `json:"uptime_sec"`
+    PeerCount     int    `json:"peer_count"`
+    Timestamp     int64  `json:"timestamp"`
+    Hops          int    `json:"hops"`
+    AnonymousMode bool   `json:"anonymous_mode"`
+    ZKPProof      []byte `json:"zkp_proof,omitempty"`
+}
+```
+
+### type PeerAnnouncement
+
+```go
+type PeerAnnouncement struct {
+    PeerID       peer.ID
+    Announcement NodeAnnouncement
+    ReceivedAt   time.Time
+}
+```
+
+---
+
+## Network Monitor
+
+### type NetworkMonitor
+
+```go
+type NetworkMonitor struct {
+    // contains unexported fields
+}
+```
+
+NetworkMonitor watches for OS-level network interface changes (WiFi switches, cable plug/unplug, VPN up/down).
+
+#### func NewNetworkMonitor
+
+```go
+func NewNetworkMonitor(onChange func(*NetworkChange), m *Metrics) *NetworkMonitor
+```
+
+#### func (*NetworkMonitor) Run
+
+```go
+func (nm *NetworkMonitor) Run(ctx context.Context)
+```
+
+### type NetworkChange
+
+```go
+type NetworkChange struct {
+    Added          []string
+    Removed        []string
+    IPv6Changed    bool
+    IPv4Changed    bool
+    TunnelChanged  bool
+    GatewayChanged bool
+}
+```
+
+---
+
+## Interface Discovery
+
+### type InterfaceSummary
+
+```go
+type InterfaceSummary struct {
+    Interfaces       []InterfaceInfo
+    HasGlobalIPv6    bool
+    HasGlobalIPv4    bool
+    GlobalIPv6Addrs  []string
+    GlobalIPv4Addrs  []string
+    TunnelInterfaces []string
+    DefaultGateway   string
+}
+```
+
+### type InterfaceInfo
+
+```go
+type InterfaceInfo struct {
+    Name       string
+    IPv4Addrs  []string
+    IPv6Addrs  []string
+    IsLoopback bool
+}
+```
+
+### func DiscoverInterfaces
+
+```go
+func DiscoverInterfaces() (*InterfaceSummary, error)
+```
+
+DiscoverInterfaces enumerates all network interfaces with their addresses, detecting IPv4/IPv6 global addresses, tunnels, and the default gateway.
+
+---
+
+## STUN Prober
+
+### type STUNProber
+
+```go
+type STUNProber struct {
+    // contains unexported fields
+}
+```
+
+STUNProber discovers external addresses via STUN servers and classifies NAT type.
+
+#### func NewSTUNProber
+
+```go
+func NewSTUNProber(servers []string, m *Metrics) *STUNProber
+```
+
+#### func (*STUNProber) Probe
+
+```go
+func (sp *STUNProber) Probe(ctx context.Context) (*STUNResult, error)
+```
+
+#### func (*STUNProber) Result
+
+```go
+func (sp *STUNProber) Result() *STUNResult
+```
+
+Result returns the most recent probe result.
+
+### type STUNResult
+
+```go
+type STUNResult struct {
+    Probes        []ProbeResult
+    NATType       NATType
+    ExternalAddrs []string
+    ProbedAt      time.Time
+    BehindCGNAT   bool
+    CGNATNote     string
+}
+```
+
+### type ProbeResult
+
+```go
+type ProbeResult struct {
+    ServerAddr   string
+    ExternalAddr string
+    ExternalIP   string
+    ExternalPort int
+    Latency      time.Duration
+    Error        string
+}
+```
+
+#### func (NATType) HolePunchable
+
+```go
+func (n NATType) HolePunchable() bool
+```
+
+HolePunchable returns true if the NAT type supports hole punching (full-cone, address-restricted, or port-restricted).
+
+---
+
+## Relay Discovery
+
+### type RelayDiscovery
+
+```go
+type RelayDiscovery struct {
+    // contains unexported fields
+}
+```
+
+RelayDiscovery manages static + DHT relay discovery with health-ranked ordering.
+
+#### func NewRelayDiscovery
+
+```go
+func NewRelayDiscovery(staticRelays []peer.AddrInfo, namespace string, m *Metrics) *RelayDiscovery
+```
+
+#### func (*RelayDiscovery) SetBudgetChecker
+
+```go
+func (rd *RelayDiscovery) SetBudgetChecker(gc RelayGrantChecker)
+```
+
+SetBudgetChecker sets the grant checker for budget-aware relay ranking. Relay addresses are ranked by health score + budget bonus.
+
+### type StaticRelaySource
+
+```go
+type StaticRelaySource struct {
+    Addrs []string
+}
+```
+
+StaticRelaySource wraps a fixed relay address list.
+
+#### func (*StaticRelaySource) RelayAddrs
+
+```go
+func (s *StaticRelaySource) RelayAddrs() []string
+```
+
+---
+
+## Relay Health
+
+### type RelayHealth
+
+```go
+type RelayHealth struct {
+    // contains unexported fields
+}
+```
+
+RelayHealth tracks relay liveness and quality using EWMA-based health scoring.
+
+#### func NewRelayHealth
+
+```go
+func NewRelayHealth(h host.Host, m *Metrics) *RelayHealth
+```
+
+---
+
+## Peer Relay
+
+### type PeerRelay
+
+```go
+type PeerRelay struct {
+    // contains unexported fields
+}
+```
+
+PeerRelay auto-enables relay functionality when a node has a public IP.
+
+#### func NewPeerRelay
+
+```go
+func NewPeerRelay(h host.Host, m *Metrics, cfg PeerRelayConfig) *PeerRelay
+```
+
+---
+
+## Proxy
+
+### type TCPListener
+
+```go
+type TCPListener struct {
+    // contains unexported fields
+}
+```
+
+TCPListener is a TCP listener that forwards connections to a P2P service.
+
+#### func NewTCPListener
+
+```go
+func NewTCPListener(localAddr string, dialFunc func() (ServiceConn, error)) (*TCPListener, error)
+```
+
+#### func (*TCPListener) Serve
+
+```go
+func (l *TCPListener) Serve() error
+```
+
+#### func (*TCPListener) Close
+
+```go
+func (l *TCPListener) Close() error
+```
+
+#### func (*TCPListener) Addr
+
+```go
+func (l *TCPListener) Addr() net.Addr
+```
+
+#### func (*TCPListener) ActiveConns
+
+```go
+func (l *TCPListener) ActiveConns() int
+```
+
+ActiveConns returns the number of active proxied connections.
+
+#### func (*TCPListener) GracefulClose
+
+```go
+func (l *TCPListener) GracefulClose(timeout time.Duration)
+```
+
+GracefulClose stops accepting new connections, waits for active connections to drain (up to timeout), then closes.
+
+### func BidirectionalProxy
+
+```go
+func BidirectionalProxy(a, b HalfCloseConn, logPrefix string)
+```
+
+BidirectionalProxy copies data between two connections with half-close propagation.
+
+### func InstrumentedBidirectionalProxy
+
+```go
+func InstrumentedBidirectionalProxy(a, b HalfCloseConn, service string, metrics *Metrics)
+```
+
+### func ProxyStreamToTCP
+
+```go
+func ProxyStreamToTCP(stream network.Stream, tcpAddr string) error
+```
+
+ProxyStreamToTCP proxies a libp2p stream to a local TCP address.
+
+### func DialWithRetry
+
+```go
+func DialWithRetry(dialFunc func() (ServiceConn, error), maxRetries int) func() (ServiceConn, error)
+```
+
+DialWithRetry wraps a dial function with exponential backoff retry.
+
+---
+
+## Metrics
+
+### type Metrics
+
+```go
+type Metrics struct {
+    Registry                       *prometheus.Registry
+    ProxyBytesTotal                *prometheus.CounterVec
+    ProxyConnectionsTotal          *prometheus.CounterVec
+    ProxyActiveConns               *prometheus.GaugeVec
+    ProxyDurationSeconds           *prometheus.HistogramVec
+    AuthDecisionsTotal             *prometheus.CounterVec
+    HolePunchTotal                 *prometheus.CounterVec
+    HolePunchDurationSeconds       *prometheus.HistogramVec
+    DaemonRequestsTotal            *prometheus.CounterVec
+    DaemonRequestDurationSeconds   *prometheus.HistogramVec
+    PathDialTotal                  *prometheus.CounterVec
+    PathDialDurationSeconds        *prometheus.HistogramVec
+    ConnectedPeers                 *prometheus.GaugeVec
+    NetworkChangeTotal             *prometheus.CounterVec
+    STUNProbeTotal                 *prometheus.CounterVec
+    MDNSDiscoveredTotal            *prometheus.CounterVec
+    PeerManagerReconnectTotal      *prometheus.CounterVec
+    NetIntelSentTotal              *prometheus.CounterVec
+    NetIntelReceivedTotal          *prometheus.CounterVec
+    InterfaceCount                 *prometheus.GaugeVec
+    VaultSealed                    prometheus.Gauge
+    VaultSealOpsTotal              *prometheus.CounterVec
+    VaultUnsealTotal               *prometheus.CounterVec
+    VaultUnsealLockedPeers         prometheus.Gauge
+    DepositOpsTotal                *prometheus.CounterVec
+    DepositPending                 prometheus.Gauge
+    PairingTotal                   *prometheus.CounterVec
+    MacaroonVerifyTotal            *prometheus.CounterVec
+    AdminRequestTotal              *prometheus.CounterVec
+    AdminRequestDurationSeconds    *prometheus.HistogramVec
+    ZKPProveTotal                  *prometheus.CounterVec
+    ZKPProveDurationSeconds        *prometheus.HistogramVec
+    ZKPVerifyTotal                 *prometheus.CounterVec
+    ZKPVerifyDurationSeconds       *prometheus.HistogramVec
+    ZKPAuthTotal                   *prometheus.CounterVec
+    ZKPTreeRebuildTotal            *prometheus.CounterVec
+    ZKPTreeRebuildDurationSeconds  *prometheus.HistogramVec
+    ZKPTreeLeaves                  prometheus.Gauge
+    ZKPChallengesPending           prometheus.Gauge
+    ZKPRangeProveTotal             *prometheus.CounterVec
+    ZKPRangeProveDuration          *prometheus.HistogramVec
+    ZKPRangeVerifyTotal            *prometheus.CounterVec
+    ZKPRangeVerifyDuration         *prometheus.HistogramVec
+    ZKPAnonAnnouncementsTotal      *prometheus.CounterVec
+    PeerBandwidthBytesTotal        *prometheus.GaugeVec
+    PeerBandwidthRate              *prometheus.GaugeVec
+    ProtocolBandwidthBytesTotal    *prometheus.GaugeVec
+    BandwidthBytesTotal            *prometheus.GaugeVec
+    RelayHealthScore               *prometheus.GaugeVec
+    RelayProbeTotal                *prometheus.CounterVec
+    BuildInfo                      *prometheus.GaugeVec
+}
+```
+
+Metrics holds all custom Shurli Prometheus metrics (50+ counters, gauges, histograms).
+
+#### func NewMetrics
+
+```go
+func NewMetrics(version, goVersion string) *Metrics
+```
+
+---
+
+## Audit Logger
+
+### type AuditLogger
+
+```go
+type AuditLogger struct {
+    // contains unexported fields
+}
+```
+
+AuditLogger writes structured audit events for security-relevant actions. Nil-safe: all methods are no-ops on a nil receiver.
+
+#### func NewAuditLogger
+
+```go
+func NewAuditLogger(handler slog.Handler) *AuditLogger
+```
+
+#### func (*AuditLogger) AuthDecision
+
+```go
+func (a *AuditLogger) AuthDecision(peerID, direction, result string)
+```
+
+#### func (*AuditLogger) ServiceACLDenied
+
+```go
+func (a *AuditLogger) ServiceACLDenied(peerID, service string)
+```
+
+#### func (*AuditLogger) DaemonAPIAccess
+
+```go
+func (a *AuditLogger) DaemonAPIAccess(method, path string, status int)
+```
+
+#### func (*AuditLogger) AuthChange
+
+```go
+func (a *AuditLogger) AuthChange(action, peerID string)
+```
+
+---
+
+## Bandwidth Tracker
+
+### type BandwidthTracker
+
+```go
+type BandwidthTracker struct {
+    // contains unexported fields
+}
+```
+
+BandwidthTracker wraps libp2p's BandwidthCounter and bridges to Prometheus metrics.
+
+#### func NewBandwidthTracker
+
+```go
+func NewBandwidthTracker(prom *Metrics) *BandwidthTracker
+```
+
+#### func (*BandwidthTracker) Counter
+
+```go
+func (bt *BandwidthTracker) Counter() *metrics.BandwidthCounter
+```
+
+Counter returns the underlying libp2p bandwidth counter for host construction.
+
+#### func (*BandwidthTracker) PeerStats
+
+```go
+func (bt *BandwidthTracker) PeerStats(p peer.ID) metrics.Stats
+```
+
+#### func (*BandwidthTracker) AllPeerStats
+
+```go
+func (bt *BandwidthTracker) AllPeerStats() map[peer.ID]metrics.Stats
+```
+
+#### func (*BandwidthTracker) ProtocolStats
+
+```go
+func (bt *BandwidthTracker) ProtocolStats(proto protocol.ID) metrics.Stats
+```
+
+#### func (*BandwidthTracker) Totals
+
+```go
+func (bt *BandwidthTracker) Totals() metrics.Stats
+```
+
+#### func (*BandwidthTracker) PublishMetrics
+
+```go
+func (bt *BandwidthTracker) PublishMetrics()
+```
+
+#### func (*BandwidthTracker) Start
+
+```go
+func (bt *BandwidthTracker) Start(ctx context.Context, interval time.Duration)
+```
+
+Start begins periodic metric publishing.
+
+---
+
+## Identity Utilities
+
+### func LoadOrCreateIdentity
+
+```go
+func LoadOrCreateIdentity(path, password string) (crypto.PrivKey, error)
+```
+
+LoadOrCreateIdentity loads an Ed25519 private key from the given path, or creates one if it does not exist.
+
+### func PeerIDFromKeyFile
+
+```go
+func PeerIDFromKeyFile(path, password string) (peer.ID, error)
+```
+
+PeerIDFromKeyFile reads a key file and returns the corresponding peer ID without loading the full network.
+
+---
+
+## DNS Seeds
+
+### func ResolveDNSSeeds
+
+```go
+func ResolveDNSSeeds(ctx context.Context, domain string) []peer.AddrInfo
+```
+
+ResolveDNSSeeds resolves DNS TXT records for peer bootstrap addresses.
+
+---
+
+## STUN Utilities
+
+### func BuildSTUNBindingRequest
+
+```go
+func BuildSTUNBindingRequest(txID [12]byte) []byte
+```
+
+BuildSTUNBindingRequest constructs a raw STUN Binding Request packet.
+
+### func BuildSTUNBindingResponse
+
+```go
+func BuildSTUNBindingResponse(txID [12]byte, ip net.IP, port int) []byte
+```
+
+BuildSTUNBindingResponse constructs a raw STUN Binding Response packet with an XOR-MAPPED-ADDRESS attribute.
+
+---
+
+## Verification Utilities
+
+### func ComputeFingerprint
+
+```go
+func ComputeFingerprint(a, b peer.ID) (emoji string, numeric string)
+```
+
+ComputeFingerprint computes an OMEMO-style SAS fingerprint (4 emojis + 8 digits) from two peer IDs. Order-independent.
+
+### func FingerprintPrefix
+
+```go
+func FingerprintPrefix(a, b peer.ID) string
+```
+
+FingerprintPrefix returns the short emoji fingerprint prefix for display in peer status.
+
+---
+
+## Reachability
+
+### func ComputeReachabilityGrade
+
+```go
+func ComputeReachabilityGrade(ifaces *InterfaceSummary, stun *STUNResult) ReachabilityGrade
+```
+
+ComputeReachabilityGrade computes a reachability grade (A-F) from interface discovery and STUN results. Grade A = globally reachable, Grade F = no connectivity.
+
+---
+
+## Service Query
+
+### func HandleServiceQuery
+
+```go
+func HandleServiceQuery(registry *ServiceRegistry) StreamHandler
+```
+
+HandleServiceQuery returns a stream handler for remote service discovery. Peers can query which services a node provides.
+
+---
+
+## Errors
+
+### type RemoteError
+
+```go
+type RemoteError struct {
+    Message string
+}
+```
+
+RemoteError wraps an error message received from a remote peer.
+
+#### func (*RemoteError) Error
+
+```go
+func (e *RemoteError) Error() string
+```
+
+---
+
+## Go Documentation
+
+Full API reference with doc comments is available locally via pkgsite:
+
+```bash
+go install golang.org/x/pkgsite/cmd/pkgsite@latest
+cd /path/to/shurli
+pkgsite -open .
+```
+
+Then navigate to `pkg/sdk` and `pkg/plugin` for browsable documentation with full source links.
+
+
+---
+
+# Shurli Plugin System
+
+Package plugin defines the Shurli plugin framework.
+
+Plugins extend Shurli with new capabilities (file transfer, Wake-on-LAN, etc.). Modules swap core implementations (reputation scoring, auth).
+
+Three-layer evolution:
+
+- **Layer 1**: Compiled-in Go plugins (this package). Official plugins only.
+- **Layer 2**: WASM via wazero (future). Any language, sandboxed.
+- **Layer 3**: AI-driven plugin generation (future). Skills.md -> WASM.
+
+Layer 1 design constraints (keeps Layer 2 door open):
+
+- Explicit capability grants via PluginContext (not raw internal access)
+- No global state assumptions
+- Inside the plugin: full Go capabilities, zero restrictions
+
+Security invariants (must hold for ALL plugins, ALL layers):
+
+1. **Credential isolation**: PluginContext never holds daemon auth tokens, cookie paths, vault keys, or Ed25519 private keys. Enforced by TestCredentialIsolation. DeriveKey() provides HKDF-derived keys only.
+2. **Auth delegation**: plugin HTTP routes are wrapped with daemon auth middleware. Plugins MUST NOT implement their own authentication.
+3. **State gating**: plugin P2P stream handlers only execute in ACTIVE state. The registry's wrapHandler rejects streams in any other state.
+4. **Namespace isolation**: OpenStream enforces that plugins can only open streams on protocols they declared via Protocols(). Violations return ErrCodeNamespaceViolation.
+
+```go
+import "github.com/shurlinet/shurli/pkg/plugin"
+```
+
+---
+
+## Constants
+
+### Error Codes
+
+Structured error codes returned by PluginContext methods. Messages are generic and safe - they never contain peer IDs, IPs, or file paths. This prevents identity/topology leakage through error messages.
+
+```go
+const (
+    ErrCodePermissionDenied   = 1 // operation not allowed for this plugin
+    ErrCodeTimeout            = 2 // operation timed out
+    ErrCodePeerUnreachable    = 3 // could not connect to or reach the peer
+    ErrCodePluginDisabled     = 4 // plugin is not in ACTIVE state
+    ErrCodeInvalidArgument    = 5 // invalid argument provided by the plugin
+    ErrCodeNamespaceViolation = 6 // protocol not in plugin's declared namespace
+    ErrCodeResourceExhausted  = 7 // resource limit exceeded
+    ErrCodeNotFound           = 8 // requested resource not found
+    ErrCodeInternal           = 9 // internal framework error (not plugin's fault)
+)
+```
+
+---
+
+## Variables
+
+```go
+var ErrSkipCheckpoint = errors.New("skip checkpoint: no state to save")
+```
+
+ErrSkipCheckpoint is returned by Checkpoint() when a plugin has no state worth saving. The supervisor proceeds with a stateless restart.
+
+---
+
+## Functions
+
+### func AtomicWriteFile
+
+```go
+func AtomicWriteFile(path string, data []byte, perm os.FileMode) error
+```
+
+AtomicWriteFile writes data to a file atomically using temp file + fsync + rename. This ensures that a crash during write leaves either the old file or the new file, never a half-written file. Used for queue.json, shares.json, config writes.
+
+### func RegisterCLICommand
+
+```go
+func RegisterCLICommand(entry CLICommandEntry)
+```
+
+RegisterCLICommand adds a CLI command to the global registry. Validates command names to prevent shell injection in completion scripts.
+
+### func UnregisterCLICommands
+
+```go
+func UnregisterCLICommands(pluginName string)
+```
+
+UnregisterCLICommands removes all CLI commands for a plugin.
+
+### func FindCLICommand
+
+```go
+func FindCLICommand(name string) (*CLICommandEntry, bool)
+```
+
+FindCLICommand looks up a CLI command by name.
+
+### func CLICommandDescriptions
+
+```go
+func CLICommandDescriptions() []CLICommandEntry
+```
+
+CLICommandDescriptions returns all registered CLI commands sorted by name. Deep-copies Flags and Subcommands slices so callers cannot mutate originals.
+
+### func ValidTransition
+
+```go
+func ValidTransition(from, to State) error
+```
+
+ValidTransition checks whether a state transition is allowed.
+
+Valid transitions:
+
+```
+LOADING  -> READY     (Init succeeded)
+READY    -> ACTIVE    (Start succeeded, first enable)
+ACTIVE   -> DRAINING  (Stop called)
+DRAINING -> STOPPED   (drain complete)
+STOPPED  -> ACTIVE    (re-enable, Start called)
+READY    -> STOPPED   (never started, daemon shutting down)
+```
+
+### func GenerateBashCompletion
+
+```go
+func GenerateBashCompletion(cmds []CLICommandEntry) string
+```
+
+GenerateBashCompletion returns bash completion additions for all registered plugin commands. Output is inserted into the bash completion script's command list and case branches.
+
+### func GenerateZshCompletion
+
+```go
+func GenerateZshCompletion(cmds []CLICommandEntry) string
+```
+
+GenerateZshCompletion returns zsh completion additions for all registered plugin commands.
+
+### func GenerateFishCompletion
+
+```go
+func GenerateFishCompletion(cmds []CLICommandEntry) string
+```
+
+GenerateFishCompletion returns fish completion additions for all registered plugin commands.
+
+### func GenerateManSection
+
+```go
+func GenerateManSection(cmds []CLICommandEntry) string
+```
+
+GenerateManSection returns troff-formatted man page section for all registered plugin commands.
+
+---
+
+## Interfaces
+
+### type Plugin
+
+```go
+type Plugin interface {
+    ID() string      // "shurli.io/official/filetransfer" - globally unique
+    Name() string    // "filetransfer" - short display name for CLI/help
+    Version() string
+
+    // Lifecycle
+    Init(ctx *PluginContext) error        // called ONCE at load time, gives context
+    Start(ctx context.Context) error      // called on enable, ctx cancelled on shutdown/kill
+    Stop() error                          // called on disable, clean shutdown
+    OnNetworkReady() error               // called after bootstrap + relay connected
+
+    // Registration (static declarations, read by registry)
+    Commands() []Command      // CLI commands this plugin provides
+    Routes() []Route          // daemon HTTP endpoints
+    Protocols() []Protocol    // P2P stream handlers
+    ConfigSection() string    // YAML key this plugin owns (e.g. "filetransfer")
+}
+```
+
+Plugin is the interface that all Shurli plugins must implement.
+
+Lifecycle:
+
+- Init() is called ONCE when the plugin is first loaded. It receives the PluginContext.
+- Start() is called on enable. Can be called multiple times across enable/disable cycles.
+- Stop() is called on disable. Clean shutdown of background work.
+- OnNetworkReady() is called after bootstrap completes and relay is connected.
+
+Registration methods return static declarations read by the registry:
+
+- Commands(), Routes(), Protocols() declare what the plugin provides.
+- The registry handles registration/unregistration during Start()/Stop().
+
+Plugin identification uses a Terraform-style address: `host/namespace/name`. Official: `shurli.io/official/filetransfer`. Third-party: `github.com/someone/shurli-wakeonlan`. Names must be lowercase alphanumeric with hyphens (`a-z`, `0-9`, `-`), max 64 characters. IDs max 128 characters with at least 2 segments.
+
+### type Checkpointer
+
+```go
+type Checkpointer interface {
+    Checkpoint() ([]byte, error)
+    Restore([]byte) error
+}
+```
+
+Checkpointer is optionally implemented by plugins that want state preserved across auto-restart cycles. When a plugin crashes and the supervisor triggers a restart, Checkpoint() is called before Stop() and Restore() after Start(). Plugins that don't implement this interface restart with fresh state.
+
+IMPORTANT: Checkpoint() is called after a panic recovery in a handler, not during normal operation. The plugin's internal state may be inconsistent (half-written buffers, partial operations). Implementations MUST:
+
+- Use internal synchronization to ensure only committed state is serialized
+- Return ErrSkipCheckpoint if internal state may be inconsistent
+
+The framework cannot validate plugin-specific state semantics - this is the plugin author's responsibility. The framework provides HMAC integrity (detects external tampering) and timeout (detects hangs), but only the plugin knows whether its own internal state is consistent.
+
+The framework enforces a timeout on Checkpoint() (same as Start timeout, 30s). A hanging Checkpoint() results in a stateless restart. Maximum checkpoint size is 10MB per plugin.
+
+### type StatusContributor
+
+```go
+type StatusContributor interface {
+    StatusFields() map[string]any
+}
+```
+
+StatusContributor is optionally implemented by plugins that contribute fields to the daemon status response. Any plugin can implement this - no special treatment. The returned map is included under `plugin_status.<name>` in the JSON response.
+
+---
+
+## Types
+
+### type State
+
+```go
+type State int
+```
+
+State represents a plugin's lifecycle state.
+
+```go
+const (
+    StateLoading  State = iota // being registered
+    StateReady                  // Init() completed, not started
+    StateActive                 // Start() completed, handling streams
+    StateDraining               // Stop() called, waiting for in-progress
+    StateStopped                // fully stopped, can re-enable via Start()
+)
+```
+
+State machine:
+
+```
+LOADING ──> READY ──> ACTIVE ──> DRAINING ──> STOPPED
+                        ^                        |
+                        |________________________|
+                              (re-enable)
+```
+
+#### func (State) String
+
+```go
+func (s State) String() string
+```
+
+String returns the human-readable state name: "loading", "ready", "active", "draining", or "stopped".
+
+### type PluginError
+
+```go
+type PluginError struct {
+    Code    int
+    Message string
+}
+```
+
+PluginError is a structured error returned by PluginContext methods. Messages are generic and safe - they never contain peer IDs, IPs, or file paths. This prevents identity/topology leakage through error messages.
+
+#### func (*PluginError) Error
+
+```go
+func (e *PluginError) Error() string
+```
+
+Error returns the formatted error string: `"plugin error <code>: <message>"`.
+
+### type Command
+
+```go
+type Command struct {
+    Name        string              // e.g. "send"
+    Description string              // one-line for help output
+    Usage       string              // e.g. "shurli send <file> <peer>"
+    Run         func(args []string) // execution entry point
+    Hidden      bool                // hidden when plugin disabled
+}
+```
+
+Command describes a CLI command provided by a plugin.
+
+### type Route
+
+```go
+type Route struct {
+    Method  string                                   // "GET", "POST", "DELETE"
+    Path    string                                   // "/v1/send"
+    Handler func(http.ResponseWriter, *http.Request) // standard http handler
+}
+```
+
+Route describes a daemon HTTP endpoint provided by a plugin. Handler is wrapped with the daemon's auth middleware before registration. Plugins should NOT implement their own auth.
+
+### type Protocol
+
+```go
+type Protocol struct {
+    Name    string               // e.g. "file-transfer" (a-z, 0-9, hyphens only, max 64 chars)
+    Version string               // e.g. "2.0.0" - exact match, no semver negotiation
+    Handler sdk.StreamHandler    // func(serviceName string, s network.Stream)
+    Policy  *sdk.PluginPolicy   // transport + peer restrictions (nil = default)
+}
+```
+
+Protocol describes a P2P stream handler provided by a plugin.
+
+Version matching is EXACT: the full protocol ID is `/shurli/<name>/<version>`. There is no semver negotiation. To support multiple versions, register separate Protocol entries with different Version strings and route internally.
+
+Protocol names must be lowercase alphanumeric with hyphens only. Core Shurli protocol names (relay-pair, relay-unseal, relay-admin, relay-motd, peer-notify, zkp-auth, ping, kad) are reserved and cannot be used by plugins.
+
+### type PluginContext
+
+```go
+type PluginContext struct {
+    // contains unexported fields
+}
+```
+
+PluginContext provides a plugin with controlled access to Shurli's runtime. It is a concrete struct, NOT an interface. Only exported methods are available to plugins.
+
+CREDENTIAL ISOLATION: This struct has no field that holds daemon auth tokens, cookie paths, vault keys, or Ed25519 private keys. No method returns types from internal/identity or internal/vault. This is enforced by TestCredentialIsolation.
+
+Network methods (ConnectToPeer, OpenStream, ResolveName) are only valid during or after Start(), not during Init(). Init() is for receiving context and parsing config.
+
+#### func (*PluginContext) Logger
+
+```go
+func (c *PluginContext) Logger() *slog.Logger
+```
+
+Logger returns a plugin-scoped structured logger. All log entries are tagged with `plugin=<name>`.
+
+#### func (*PluginContext) ConnectToPeer
+
+```go
+func (c *PluginContext) ConnectToPeer(ctx context.Context, peerID peer.ID) *PluginError
+```
+
+ConnectToPeer establishes a connection to a remote peer using DHT + relay fallback. Only valid during or after Start(), not during Init().
+
+#### func (*PluginContext) OpenStream
+
+```go
+func (c *PluginContext) OpenStream(ctx context.Context, peerID peer.ID, protocolID string) (network.Stream, *PluginError)
+```
+
+OpenStream opens a P2P stream to a remote peer on the given protocol. The protocolID must be one of the protocols declared by this plugin's Protocols() method. Attempting to open a stream on an undeclared protocol returns ErrCodeNamespaceViolation. Only valid during or after Start(), not during Init().
+
+#### func (*PluginContext) ResolveName
+
+```go
+func (c *PluginContext) ResolveName(name string) (peer.ID, *PluginError)
+```
+
+ResolveName resolves a peer name to a peer ID using Shurli's name resolution chain. Only valid during or after Start(), not during Init().
+
+#### func (*PluginContext) Config
+
+```go
+func (c *PluginContext) Config() []byte
+```
+
+Config returns the raw YAML bytes for this plugin's own config section. The plugin unmarshals this into its own config struct during Init().
+
+#### func (*PluginContext) ConfigDir
+
+```go
+func (c *PluginContext) ConfigDir() string
+```
+
+ConfigDir returns the plugin's config directory path. e.g. `~/.shurli/plugins/shurli.io/official/filetransfer/`
+
+#### func (*PluginContext) OnConfigReload
+
+```go
+func (c *PluginContext) OnConfigReload(callback func([]byte))
+```
+
+OnConfigReload registers a callback that is invoked when the daemon's config is hot-reloaded and this plugin's section has changed. The callback receives the new raw YAML bytes for the plugin's section.
+
+MUST be called from Init() only. The callback field is not synchronized - calling this from a goroutine after Init() races with NotifyConfigReload.
+
+#### func (*PluginContext) DeriveKey
+
+```go
+func (c *PluginContext) DeriveKey(domain string) []byte
+```
+
+DeriveKey returns a 32-byte cryptographic key derived from the node's identity and the given domain string using HKDF-SHA256 (RFC 5869). Each (identity, domain) pair produces a unique, stable key. The raw identity key is never exposed to plugins. Used for HMAC integrity (e.g. queue.json persistence). Returns nil if no key deriver is configured or domain is empty.
+
+#### func (*PluginContext) HasGrant
+
+```go
+func (c *PluginContext) HasGrant(peerID peer.ID, service string) bool
+```
+
+HasGrant checks if a peer has a valid data access grant for the given service. Returns false if no grant checker is configured.
+
+#### func (*PluginContext) PeerAttr
+
+```go
+func (c *PluginContext) PeerAttr(peerID string, key string) string
+```
+
+PeerAttr returns the value of a peer attribute from authorized_keys. Returns empty string if no resolver is configured or attribute not found.
+
+#### func (*PluginContext) EngineHost
+
+```go
+func (c *PluginContext) EngineHost() *sdk.Network
+```
+
+EngineHost returns the sdk.Network for protocol engine initialization. LAYER 1 ONLY: compiled-in plugins use this to create their protocol engines AND for request-time stream operations (OpenPluginStream, ResolveName, etc.). Layer 2 WASM plugins will NOT have this - they use host functions instead.
+
+#### func (*PluginContext) RelayGrantChecker
+
+```go
+func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker
+```
+
+RelayGrantChecker returns the relay grant checker for transfer budget/time checks. Returns nil if no grant cache is configured.
+
+#### func (*PluginContext) HasVerifiedLANConn
+
+```go
+func (c *PluginContext) HasVerifiedLANConn(id peer.ID) bool
+```
+
+HasVerifiedLANConn returns true if the peer has at least one live non-relay connection whose remote IP is mDNS-verified as being on the local LAN.
+
+This is the authoritative "is this peer on our LAN?" check for plugins making trust or policy decisions (RS erasure gates, bandwidth budgets, transport allow/deny). Bare RFC 1918 matches are NOT reliable: Starlink CGNAT (10.1.x.x), Docker bridge networks (172.17-21.x.x), VPN tunnels, and routed private subnets via multi-WAN all pass bare-mask but are not LAN.
+
+Only mDNS multicast reception proves LAN proximity, since mDNS is a link-local protocol that cannot traverse routers. Returns false if no LAN registry is configured.
+
+### type ContextProvider
+
+```go
+type ContextProvider struct {
+    Network           *sdk.Network
+    ServiceRegistry   *sdk.ServiceRegistry
+    ConfigDir         string                                      // base config dir (~/.shurli/)
+    NameResolver      func(name string) (peer.ID, error)
+    PeerConnector     func(ctx context.Context, id peer.ID) error // DHT + relay fallback
+    KeyDeriver        func(domain string) []byte                  // HKDF-SHA256 from identity
+    ScoreResolver     func(peerID peer.ID) int                    // reputation score (0-100)
+    GrantChecker      func(peerID peer.ID, service string, transport sdk.TransportType) bool // data access grant check (C2)
+    PeerAttrFunc      func(peerID string, key string) string      // peer attribute lookup
+    RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache
+    HasVerifiedLANConn func(peer.ID) bool                       // mDNS-verified LAN connection check
+}
+```
+
+ContextProvider supplies runtime dependencies for building PluginContexts. Constructed in cmd_daemon.go where all runtime components are available. ServiceRegistry is held by the Registry for protocol registration, NOT passed to PluginContext.
+
+### type Info
+
+```go
+type Info struct {
+    Name            string
+    Version         string
+    Type            string // "built-in" or "installed"
+    State           State
+    Enabled         bool
+    Commands        []string
+    Routes          []string
+    Protocols       []string
+    ConfigKey       string
+    CrashCount      int // crashes in current window (resets after 5 min)
+    LifetimeCrashes int // total crashes ever (resets only on daemon restart, limit: 10)
+}
+```
+
+Info holds plugin metadata for introspection. Returned by Registry.List() and Registry.GetInfo().
+
+### type CLICommandEntry
+
+```go
+type CLICommandEntry struct {
+    Name        string
+    Description string
+    Usage       string
+    PluginName  string             // which plugin provides this
+    Run         func(args []string)
+    Flags       []CLIFlagEntry     // for dynamic completion/man generation
+    Subcommands []CLISubcommand    // for commands like "share" with add/remove/list
+}
+```
+
+CLICommandEntry describes a CLI command provided by a plugin. Used for dynamic help, man page generation, and shell completion.
+
+### type CLIFlagEntry
+
+```go
+type CLIFlagEntry struct {
+    Long        string   // e.g. "follow"
+    Short       string   // e.g. "f" (empty = no short flag)
+    Description string   // e.g. "Follow transfer progress"
+    Type        string   // "bool", "string", "int", "enum", "file", "directory"
+    Enum        []string // non-nil only when Type="enum" (e.g. ["low","normal","high"])
+    RequiresArg bool     // true if flag takes a value (non-bool flags)
+}
+```
+
+CLIFlagEntry describes a CLI flag for dynamic completion generation.
+
+### type CLISubcommand
+
+```go
+type CLISubcommand struct {
+    Name        string
+    Description string
+    Flags       []CLIFlagEntry
+}
+```
+
+CLISubcommand describes a subcommand (e.g. "share add", "share remove").
+
+### type Registry
+
+```go
+type Registry struct {
+    // contains unexported fields
+}
+```
+
+Registry manages plugin lifecycle: registration, enable/disable, and introspection.
+
+Plugins cannot install, register, or discover other plugins. This is a hard-coded architectural constraint, not a permission that can be granted. The Registry.Register() method is called by the daemon startup code, never by plugins. PluginContext has no method for plugin installation or registration.
+
+#### func NewRegistry
+
+```go
+func NewRegistry(provider *ContextProvider) *Registry
+```
+
+NewRegistry creates a plugin registry with the given runtime dependencies. provider may be nil for testing (no network, no service registry).
+
+#### func (*Registry) Register
+
+```go
+func (r *Registry) Register(p Plugin) error
+```
+
+Register adds a plugin to the registry and calls Init(). Transitions: LOADING -> READY on success. Panics in Init() are recovered and returned as errors.
+
+Validates the plugin name (alphanumeric + hyphens, max 64 chars) and ID (host/namespace/name format, max 128 chars). Creates the plugin's config directory at `~/.shurli/plugins/<id>/` with 0700 permissions. Reads config.yaml from the config directory (limited to 1MB).
+
+#### func (*Registry) Enable
+
+```go
+func (r *Registry) Enable(name string) error
+```
+
+Enable starts a plugin, registering its protocols with the service registry. Valid from READY or STOPPED state. Idempotent if already ACTIVE. Enforces a 5-second cooldown between transitions.
+
+Start() is called with a 30-second timeout. If Start() exceeds the timeout, the plugin is stopped and returned to its previous state. On success, protocols are registered with the service registry and the plugin transitions to ACTIVE.
+
+#### func (*Registry) Disable
+
+```go
+func (r *Registry) Disable(name string) error
+```
+
+Disable stops a plugin, unregistering its protocols. Transitions: ACTIVE -> DRAINING -> STOPPED. Idempotent if already STOPPED. Stop() has a 30-second timeout.
+
+On disable, PluginContext runtime fields (network, nameResolver, peerConnector) are nilled so the disabled plugin cannot use them. The supervisor is marked as disabled to prevent auto-restart.
+
+#### func (*Registry) DisableAll
+
+```go
+func (r *Registry) DisableAll() (int, error)
+```
+
+DisableAll stops every active plugin. Errors are collected but never stop iteration. This is the kill switch for incident response. It also catches plugins in LOADING state (mid-Enable) by forcing them to STOPPED, ensuring the kill switch is truly atomic. Disables in reverse registration order for deterministic shutdown.
+
+#### func (*Registry) StartAll
+
+```go
+func (r *Registry) StartAll() error
+```
+
+StartAll starts all plugins that are in READY state (post-registration, pre-bootstrap).
+
+#### func (*Registry) StopAll
+
+```go
+func (r *Registry) StopAll() error
+```
+
+StopAll stops all active plugins during daemon shutdown. Also handles LOADING and READY plugins by transitioning them to STOPPED.
+
+#### func (*Registry) ApplyConfig
+
+```go
+func (r *Registry) ApplyConfig(pluginStates map[string]bool) error
+```
+
+ApplyConfig enables or disables plugins based on config state. key = plugin name, value = enabled. Unknown names are collected as errors.
+
+#### func (*Registry) NotifyNetworkReady
+
+```go
+func (r *Registry) NotifyNetworkReady() error
+```
+
+NotifyNetworkReady fans out OnNetworkReady() to all ACTIVE plugins. Called after bootstrap completes and relay is connected. Each plugin has a 30-second timeout to prevent one hanging plugin from blocking all subsequent plugins.
+
+#### func (*Registry) NotifyConfigReload
+
+```go
+func (r *Registry) NotifyConfigReload()
+```
+
+NotifyConfigReload re-reads each active plugin's config.yaml and calls their OnConfigReload callback if the bytes changed. Panic recovery ensures one panicking callback does not prevent subsequent reloads.
+
+#### func (*Registry) List
+
+```go
+func (r *Registry) List() []Info
+```
+
+List returns metadata for all registered plugins.
+
+#### func (*Registry) GetInfo
+
+```go
+func (r *Registry) GetInfo(name string) (*Info, error)
+```
+
+GetInfo returns metadata for a single plugin.
+
+#### func (*Registry) GetPlugin
+
+```go
+func (r *Registry) GetPlugin(name string) Plugin
+```
+
+GetPlugin returns the Plugin instance by name. Used for direct plugin interaction (e.g., fetching StatusContributor). Returns nil if not found.
+
+#### func (*Registry) AllCommands
+
+```go
+func (r *Registry) AllCommands() []Command
+```
+
+AllCommands returns commands from all ACTIVE plugins.
+
+#### func (*Registry) AllRoutes
+
+```go
+func (r *Registry) AllRoutes() []Route
+```
+
+AllRoutes returns routes from all ACTIVE plugins.
+
+#### func (*Registry) AllRegisteredRoutes
+
+```go
+func (r *Registry) AllRegisteredRoutes() []Route
+```
+
+AllRegisteredRoutes returns routes from ALL registered plugins regardless of state. Used for mux setup at server start. Different from AllRoutes() which returns only ACTIVE. Callers MUST use IsRouteActive() per-request to gate disabled plugin routes.
+
+#### func (*Registry) IsRouteActive
+
+```go
+func (r *Registry) IsRouteActive(method, path string) bool
+```
+
+IsRouteActive checks if the plugin providing a route is in ACTIVE state. Used per-request to return 404 when a plugin is disabled.
+
+#### func (*Registry) ActiveProtocols
+
+```go
+func (r *Registry) ActiveProtocols() []Protocol
+```
+
+ActiveProtocols returns protocols from all ACTIVE plugins (for introspection).
+
+#### func (*Registry) StatusContributions
+
+```go
+func (r *Registry) StatusContributions() map[string]map[string]any
+```
+
+StatusContributions returns status fields from all ACTIVE plugins that implement StatusContributor. Keyed by plugin Name().
+
+---
+
+## Supervisor
+
+Every plugin gets an Erlang-style supervisor that handles crash recovery:
+
+1. **Panic recovery** - stream handler panics are caught, logged with full stack trace, and the stream is reset. The plugin stays running.
+
+2. **Crash counting** - panics are counted within a 5-minute sliding window.
+
+3. **Auto-restart** - after a handler crash, the supervisor automatically restarts the plugin with exponential backoff (0s, 1s, 2s + random 0-500ms jitter).
+
+4. **Circuit breaker** - 3 crashes within 5 minutes or 10 lifetime crashes (per daemon session) triggers automatic disable. No more restarts. The plugin stays stopped until manually re-enabled or the daemon is restarted.
+
+5. **Checkpoint/Restore** - plugins that implement the Checkpointer interface can save state before a crash restart and restore it after. Checkpoint data is HMAC-SHA256 verified using keys derived from the node's identity via DeriveKey().
+
+Lifecycle method panics (Init/Start/Stop/OnNetworkReady) record crashes for the circuit breaker but do NOT trigger auto-restart. Auto-restart is only triggered by stream handler panics during ACTIVE state (transient failures).
+
+---
+
+## Transport Policy
+
+By default, plugins only operate over LAN and direct connections. Relay transport is excluded unless the plugin explicitly opts in via the Policy field on its Protocol declaration.
+
+```go
+const DefaultTransport = TransportLAN | TransportDirect
+```
+
+| Transport | Flag | Description |
+|-----------|------|-------------|
+| LAN | `sdk.TransportLAN` | Private/link-local network (same WiFi, same LAN) |
+| Direct | `sdk.TransportDirect` | Public internet, direct peer-to-peer |
+| Relay | `sdk.TransportRelay` | Mediated through a relay server (p2p-circuit) |
+
+To allow relay transport for a protocol:
+
+```go
+plugin.Protocol{
+    Name:    "file-transfer",
+    Version: "1.0.0",
+    Handler: handler,
+    Policy:  &sdk.PluginPolicy{
+        AllowedTransports: sdk.TransportLAN | sdk.TransportDirect | sdk.TransportRelay,
+    },
+}
+```
+
+When a relay connection requires a data access grant, the framework checks the peer's grant token before allowing the stream through.
+
+---
+
+## CLI Commands
+
+Manage plugins through the `shurli plugin` command:
+
+```bash
+# List all plugins with their state
+shurli plugin list
+shurli plugin list --json
+
+# Enable a plugin (starts it immediately)
+shurli plugin enable <name>
+
+# Disable a plugin (stops it, unregisters everything)
+shurli plugin disable <name>
+
+# Show detailed info about a plugin
+shurli plugin info <name>
+shurli plugin info <name> --json
+
+# Emergency: disable ALL plugins immediately
+shurli plugin disable-all
+```
+
+Example output:
+
+```
+$ shurli plugin list
+NAME            VERSION  TYPE      STATE
+filetransfer    1.0.0    built-in  active
+
+$ shurli plugin info filetransfer
+Name:        filetransfer
+Version:     1.0.0
+Type:        built-in
+State:       active
+Config key:  filetransfer
+Commands:    [send download browse share transfers accept reject cancel clean]
+Routes:      [GET /v1/shares POST /v1/shares DELETE /v1/shares ...]
+Protocols:   [file-transfer/1.0.0 file-browse/1.0.0 file-download/1.0.0 file-multi-peer/1.0.0]
+```
+
+When the daemon is not running, `plugin list` and `plugin info` fall back to reading the config file and show which plugins are configured as enabled or disabled.
+
+---
+
+## Configuration
+
+Plugins are configured in your `config.yaml` under the `plugins:` section. Each plugin gets its own key matching its Name().
+
+```yaml
+plugins:
+  filetransfer:
+    enabled: true
+    receive_dir: ~/Downloads
+    receive_mode: contacts    # off, contacts, ask, open, timed
+    timed_duration: "10m"     # duration for timed mode
+    max_file_size: 0          # 0 = unlimited
+    compress: true
+    bandwidth_budget: "1GB"   # daily budget per peer (unlimited, 500MB, 1GB, etc.)
+    max_concurrent: 5
+    notify: desktop           # none, desktop, command
+    notify_command: ""        # custom command (shell metacharacters rejected)
+    browse_rate_limit: 10     # requests per minute per peer
+    rate_limit: 0             # per-peer transfer rate limit (bytes/sec, 0 = unlimited)
+    multi_peer_enabled: true
+    multi_peer_max_peers: 0   # 0 = auto
+    multi_peer_min_size: 0    # minimum file size for multi-peer swarming
+    erasure_overhead: 0.1     # 10% erasure coding overhead
+    global_rate_limit: 0      # global transfer rate limit
+    max_queued_per_peer: 0    # max pending transfers per peer
+    min_speed_bytes: 0        # minimum speed before disconnect
+    min_speed_seconds: 0      # grace period for min speed check
+    max_temp_size: 0          # max temp directory size
+    temp_file_expiry: ""      # e.g. "24h"
+    default_persistent: true  # default for --persist flag on share add
+    failure_backoff:
+      threshold: 0
+      window: ""              # e.g. "5m"
+      block: ""               # e.g. "10m"
+```
+
+The `enabled` field is handled by the framework. Everything else is passed as raw YAML bytes to the plugin via PluginContext.Config(). The plugin parses its own config independently.
+
+### Plugin config directory
+
+Each plugin gets its own config directory at `~/.shurli/plugins/<plugin-id>/`:
+
+```
+~/.shurli/plugins/shurli.io/official/filetransfer/
+  config.yaml       # plugin-specific config
+  queue.json         # persistent transfer queue (HMAC-verified)
+  shares.json        # shared file registry (HMAC-verified)
+  logs/
+    transfers.log    # transfer history
+```
+
+Directory permissions are enforced at 0700. The plugin framework rejects directories with looser permissions. Config file size is limited to 1MB.
+
+### Hot reload
+
+When the daemon's config is reloaded, each active plugin that registered an OnConfigReload callback is notified with its new config bytes. The file transfer plugin supports hot-reloading these fields without restart:
+
+- `receive_mode` (including timed mode with duration)
+- `receive_dir`
+- `max_file_size`
+- `compress`
+- `notify`
+- `notify_command` (shell metacharacters rejected)
+
+If any field fails validation during reload, all changes are rolled back atomically.
+
+---
+
+## File Transfer: The Reference Plugin
+
+The file transfer plugin (`plugins/filetransfer/`) is the first and currently only plugin. It demonstrates the full plugin pattern.
+
+| Property | Value |
+|----------|-------|
+| ID | `shurli.io/official/filetransfer` |
+| Name | `filetransfer` |
+| Version | `1.0.0` |
+| Config key | `filetransfer` |
+
+**9 CLI commands**: send, download, browse, share (add/remove/list/deny), transfers, accept, reject, cancel, clean
+
+**15 HTTP routes**: shares CRUD, browse, download, send, transfer management (list, history, pending, status, accept, reject, cancel), clean
+
+**4 P2P protocols**: file-transfer/1.0.0, file-browse/1.0.0, file-download/1.0.0, file-multi-peer/1.0.0
+
+**Optional interfaces implemented**:
+- `StatusContributor`: adds `receive_mode` and `timed_mode_remaining_seconds` to daemon status
+- `Checkpointer`: saves transfer snapshots for crash recovery
+
+**Transport policy**: explicitly allows relay transport for all file transfer protocols (most plugins would not need this)
+
+**Drain mechanism**: on Stop(), sets a drain gate to reject new HTTP requests, cancels the active context (signals all transfer goroutines), then waits up to 25 seconds for in-progress transfers to complete before the framework's 30-second drain timeout
+
+The entire file transfer engine (TransferService, ShareRegistry, chunker, Merkle tree, compression, erasure coding, multi-peer, checkpoint/resume) lives in `plugins/filetransfer/`. The plugin owns both the protocol engine and the integration layer (daemon routes, CLI commands, protocol handlers). Generic SDK utilities (MerkleRoot, transport classification, relay grant interface) are imported from `pkg/sdk/`.
+
+
+---
+
 # Shurli Architecture
 
 This document describes the technical architecture of Shurli, from current implementation to future vision.

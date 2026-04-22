@@ -3,6 +3,8 @@ title: "Plugin System"
 weight: 11
 description: "How Shurli's plugin system works: the Plugin interface, lifecycle states, CLI commands, configuration, transport policy, supervisor, and file transfer as the reference implementation."
 ---
+<!-- Auto-synced from docs/PLUGINS.md by sync-docs - do not edit directly -->
+
 
 Package plugin defines the Shurli plugin framework.
 
@@ -443,6 +445,18 @@ func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker
 
 RelayGrantChecker returns the relay grant checker for transfer budget/time checks. Returns nil if no grant cache is configured.
 
+#### func (*PluginContext) HasVerifiedLANConn
+
+```go
+func (c *PluginContext) HasVerifiedLANConn(id peer.ID) bool
+```
+
+HasVerifiedLANConn returns true if the peer has at least one live non-relay connection whose remote IP is mDNS-verified as being on the local LAN.
+
+This is the authoritative "is this peer on our LAN?" check for plugins making trust or policy decisions (RS erasure gates, bandwidth budgets, transport allow/deny). Bare RFC 1918 matches are NOT reliable: Starlink CGNAT (10.1.x.x), Docker bridge networks (172.17-21.x.x), VPN tunnels, and routed private subnets via multi-WAN all pass bare-mask but are not LAN.
+
+Only mDNS multicast reception proves LAN proximity, since mDNS is a link-local protocol that cannot traverse routers. Returns false if no LAN registry is configured.
+
 ### type ContextProvider
 
 ```go
@@ -456,7 +470,8 @@ type ContextProvider struct {
     ScoreResolver     func(peerID peer.ID) int                    // reputation score (0-100)
     GrantChecker      func(peerID peer.ID, service string, transport sdk.TransportType) bool // data access grant check (C2)
     PeerAttrFunc      func(peerID string, key string) string      // peer attribute lookup
-    RelayGrantChecker sdk.RelayGrantChecker                       // relay grant cache
+    RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache
+    HasVerifiedLANConn func(peer.ID) bool                       // mDNS-verified LAN connection check
 }
 ```
 

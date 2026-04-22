@@ -26,8 +26,6 @@ The package is organized around these concepts:
 
 - **Bootstrap**: `BootstrapAndConnect` handles DHT client-mode bootstrap, peer discovery, and relay circuit fallback.
 
-- **Transfer**: `TransferService` implements chunked file transfer with the SHFT wire format (v2). Features: FastCDC content-defined chunking, BLAKE3 Merkle integrity, zstd compression (on by default), receive permissions (off/contacts/ask/open), disk space checks, atomic writes, per-chunk hash verification, resumable transfers (bitfield checkpoint persistence + sparse file writes for out-of-order chunks), ResumeRequest/ResumeResponse protocol, and Reed-Solomon erasure coding (auto-enabled on Direct WAN, configurable overhead, stripe-based encoding via klauspost/reedsolomon). Protocol: `/shurli/file-transfer/2.0.0`.
-
 - **Protocol IDs**: `ProtocolID` and `MustValidateProtocolIDs` enforce valid protocol ID construction at init time.
 
 ### Relay Separation
@@ -45,7 +43,6 @@ All exported types are safe for concurrent use. The Network, ServiceRegistry, Ev
 ```go
 const DHTProtocolPrefix = "/shurli"
 const ProtocolPrefix = "/shurli"
-const TransferProtocol = "/shurli/file-transfer/2.0.0"
 const PresenceProtocol = "/shurli/presence/1.0.0"
 const RTTProbeProtocol = "/shurli/rtt-probe/1.0.0"
 ```
@@ -60,15 +57,16 @@ const (
 )
 
 const DefaultTransport = TransportLAN | TransportDirect
+const MaxHedgeFanOut = 3
 ```
 
-DefaultTransport permits LAN and Direct connections. Relay is excluded. This is the default for ALL plugins: no data flows through relays unless explicitly allowed per-plugin.
+DefaultTransport permits LAN and Direct connections. MaxHedgeFanOut caps the number of concurrent hedged stream attempts. Relay is excluded. This is the default for ALL plugins: no data flows through relays unless explicitly allowed per-plugin.
 
 ### Event Types
 
 ```go
 const (
-    EventPeerConnected    EventType = iota
+    EventPeerConnected    EventType = iota + 1
     EventPeerDisconnected
     EventServiceRegistered
     EventServiceRemoved
@@ -101,8 +99,8 @@ const (
 type PathType string
 
 const (
-    PathDirect  PathType = "direct"
-    PathRelayed PathType = "relayed"
+    PathDirect  PathType = "DIRECT"
+    PathRelayed PathType = "RELAYED"
 )
 ```
 
@@ -381,13 +379,117 @@ func (n *Network) AddRelayAddressesForPeer(relayAddrs []string, target peer.ID) 
 
 AddRelayAddressesForPeer adds relay circuit addresses for a target peer.
 
-#### func (*Network) ParseRelayAddrs
+#### func (*Network) ResetBlackHoles
 
 ```go
-func (n *Network) ParseRelayAddrs(addrs []string) ([]peer.AddrInfo, error)
+func (n *Network) ResetBlackHoles()
 ```
 
-ParseRelayAddrs parses multiaddr relay addresses into AddrInfo.
+ResetBlackHoles resets the libp2p black hole detectors for both IPv4 and IPv6 UDP, allowing immediate retry after a network change.
+
+#### func (*Network) ClearDialBackoffs
+
+```go
+func (n *Network) ClearDialBackoffs(peers []peer.ID)
+```
+
+ClearDialBackoffs clears the swarm's dial backoff for the given peers, enabling immediate reconnection.
+
+#### func (*Network) GetPathProtector
+
+```go
+func (n *Network) GetPathProtector() *PathProtector
+```
+
+GetPathProtector returns the path protector, if set.
+
+#### func (*Network) SetPathProtector
+
+```go
+func (n *Network) SetPathProtector(pp *PathProtector)
+```
+
+SetPathProtector sets the path protector for managed relay connections.
+
+#### func (*Network) GetLANRegistry
+
+```go
+func (n *Network) GetLANRegistry() *LANRegistry
+```
+
+GetLANRegistry returns the mDNS-verified LAN registry.
+
+#### func (*Network) ServiceRegistry
+
+```go
+func (n *Network) ServiceRegistry() *ServiceRegistry
+```
+
+ServiceRegistry returns the network's service registry.
+
+#### func (*Network) RegisterHandler
+
+```go
+func (n *Network) RegisterHandler(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error
+```
+
+RegisterHandler registers a P2P stream handler for a named service. Uses default plugin policy (LAN + Direct, no relay).
+
+#### func (*Network) RegisterHandlerRelayAllowed
+
+```go
+func (n *Network) RegisterHandlerRelayAllowed(name string, handler StreamHandler, allowedPeers map[peer.ID]struct{}) error
+```
+
+RegisterHandlerRelayAllowed registers a handler that also accepts relay connections.
+
+#### func (*Network) RegisterServiceQuery
+
+```go
+func (n *Network) RegisterServiceQuery() error
+```
+
+RegisterServiceQuery registers the service-query protocol handler for remote service discovery.
+
+#### func (*Network) OpenPluginStream
+
+```go
+func (n *Network) OpenPluginStream(ctx context.Context, peerID peer.ID, serviceName string) (network.Stream, error)
+```
+
+OpenPluginStream opens a stream to a remote peer for a plugin service. Applies transport policy and grant verification.
+
+#### func (*Network) OpenPluginStreamOnConn
+
+```go
+func (n *Network) OpenPluginStreamOnConn(ctx context.Context, peerID peer.ID, serviceName string, conn network.Conn) (network.Stream, error)
+```
+
+OpenPluginStreamOnConn opens a plugin stream on a specific connection. Used by hedged open to target a particular path.
+
+#### func (*Network) ReplaceNames
+
+```go
+func (n *Network) ReplaceNames(names map[string]string) error
+```
+
+ReplaceNames replaces all name mappings atomically.
+
+#### func (*Network) ListNames
+
+```go
+func (n *Network) ListNames() map[string]peer.ID
+```
+
+ListNames returns all registered name-to-peer-ID mappings.
+
+#### func (*Network) Events
+
+```go
+func (n *Network) Events() *EventBus
+```
+
+Events returns the network's event bus.
 
 #### func (*Network) Close
 
@@ -396,6 +498,14 @@ func (n *Network) Close() error
 ```
 
 Close shuts down the network and releases resources.
+
+### func ParseRelayAddrs
+
+```go
+func ParseRelayAddrs(relayAddrs []string) ([]peer.AddrInfo, error)
+```
+
+ParseRelayAddrs parses multiaddr relay addresses into AddrInfo. Standalone function, not a Network method.
 
 ### func DHTProtocolPrefixForNamespace
 
@@ -512,6 +622,22 @@ func (r *ServiceRegistry) SetTokenVerifier(v TokenVerifier)
 ```go
 func (r *ServiceRegistry) SetTokenLookup(l TokenLookup)
 ```
+
+#### func (*ServiceRegistry) SetLANRegistry
+
+```go
+func (r *ServiceRegistry) SetLANRegistry(lanReg *LANRegistry)
+```
+
+SetLANRegistry sets the LAN registry for mDNS-verified transport classification in stream handlers.
+
+#### func (*ServiceRegistry) SetRelayGrantChecker
+
+```go
+func (r *ServiceRegistry) SetRelayGrantChecker(checker RelayGrantChecker)
+```
+
+SetRelayGrantChecker sets the relay grant checker for verifying data access grants on relay streams.
 
 #### func (*ServiceRegistry) Use
 
@@ -706,6 +832,147 @@ func (n *Network) HasVerifiedLANConn(id peer.ID) bool
 ```
 
 Nil-safe convenience wrapper over the underlying mDNS-verified LAN registry. Returns true if the peer has at least one live non-relay connection whose remote IP was confirmed via mDNS multicast. This is the authoritative "is this peer on our LAN?" check; use it as the second argument to `VerifiedTransport`.
+
+---
+
+## Connection Groups & Hedging
+
+### type ConnGroup
+
+```go
+type ConnGroup struct {
+    Type  string         // "DIRECT", "RELAYED", or relay peer ID
+    Conns []network.Conn
+}
+```
+
+ConnGroup groups a peer's connections by transport path. Direct connections (LAN or WAN) are in one group, each relay circuit is its own group.
+
+### type HostNetwork
+
+```go
+type HostNetwork interface {
+    Network() network.Network
+}
+```
+
+HostNetwork is satisfied by `host.Host`. Used by ConnGroups/AllConnGroups to access connection lists.
+
+### func ConnGroups
+
+```go
+func ConnGroups(h HostNetwork, peerID peer.ID) []ConnGroup
+```
+
+ConnGroups groups all connections to a peer by transport type. Direct (non-relay) connections are grouped together; each relay circuit forms a separate group.
+
+### func AllConnGroups
+
+```go
+func AllConnGroups(h HostNetwork, peerID peer.ID, pp *PathProtector) []ConnGroup
+```
+
+AllConnGroups returns connection groups including managed relay connections from the PathProtector that may not appear in the host's connection list.
+
+### func OpenStreamOnConn
+
+```go
+func OpenStreamOnConn(ctx context.Context, conn network.Conn, proto protocol.ID) (network.Stream, error)
+```
+
+OpenStreamOnConn opens a new stream on a specific connection using protocol negotiation. Used to target a particular network path (e.g., direct vs relay).
+
+### func HedgedOpenStream
+
+```go
+func HedgedOpenStream(ctx context.Context, n *Network, peerID peer.ID, serviceName string) (network.Stream, error)
+```
+
+HedgedOpenStream opens a plugin stream using hedged racing across all available connection groups. Direct groups are tried first, then relay groups with staggered starts. First success wins, losers are cancelled. Capped at MaxHedgeFanOut concurrent attempts.
+
+---
+
+## Path Protection
+
+### type PathProtector
+
+```go
+type PathProtector struct {
+    // contains unexported fields
+}
+```
+
+PathProtector manages protected relay connections for peers. Prevents relay circuits from being garbage-collected by keeping them alive and tracked. Supports connection reaping and deauth callbacks.
+
+```go
+const MaxProtectedPeers = 10
+const MaxManagedRelayConns = 5
+```
+
+### type ManagedPathInfo
+
+```go
+type ManagedPathInfo struct {
+    PeerID      peer.ID
+    RelayPeerID peer.ID
+    RemoteAddr  string
+    Created     time.Time
+    Streams     int
+    Dead        bool
+}
+```
+
+ManagedPathInfo describes a managed relay connection tracked by PathProtector.
+
+---
+
+## LAN Registry
+
+### type LANRegistry
+
+```go
+type LANRegistry struct {
+    // contains unexported fields
+}
+```
+
+LANRegistry tracks which peers have been verified as LAN-local via mDNS multicast. The authoritative source for "is this peer on our LAN?" decisions. Bare RFC 1918 matching is unreliable (CGNAT, Docker, VPN); only mDNS proves link-local proximity.
+
+### func StripNonLANAddrs
+
+```go
+func StripNonLANAddrs(h host.Host, pid peer.ID, lanReg *LANRegistry)
+```
+
+StripNonLANAddrs removes non-LAN addresses from the peerstore for a peer that has a verified LAN connection, preventing mDNS-discovered peers from accumulating stale public addresses.
+
+### func IsLANMultiaddr
+
+```go
+func IsLANMultiaddr(addr ma.Multiaddr) bool
+```
+
+IsLANMultiaddr returns true if the multiaddr points to a LAN address (private IPv4, link-local IPv6, loopback).
+
+---
+
+## Grant Headers
+
+### func WriteGrantHeader
+
+```go
+func WriteGrantHeader(s network.Stream, tokenBase64 string) error
+```
+
+WriteGrantHeader writes a grant token header onto a stream before the application payload. Used by relay-allowed protocols to present data access credentials.
+
+### func ReadGrantHeader
+
+```go
+func ReadGrantHeader(s network.Stream) (string, error)
+```
+
+ReadGrantHeader reads a grant token header from a stream. Returns the base64-encoded token string.
 
 ---
 
@@ -979,6 +1246,38 @@ OnNetworkChange triggers immediate reconnection attempts.
 func (pm *PeerManager) GetPeer(id peer.ID) (*ManagedPeerInfo, bool)
 ```
 
+#### func (*PeerManager) SetPathProtector
+
+```go
+func (pm *PeerManager) SetPathProtector(pp *PathProtector)
+```
+
+SetPathProtector sets the path protector for managed relay connections.
+
+#### func (*PeerManager) GetLANRegistry
+
+```go
+func (pm *PeerManager) GetLANRegistry() *LANRegistry
+```
+
+GetLANRegistry returns the PeerManager's LAN registry.
+
+#### func (*PeerManager) ResetPeerBackoff
+
+```go
+func (pm *PeerManager) ResetPeerBackoff(pid peer.ID)
+```
+
+ResetPeerBackoff clears the reconnection backoff for a specific peer, enabling immediate reconnection.
+
+#### func (*PeerManager) CloseAllPeerConnections
+
+```go
+func (pm *PeerManager) CloseAllPeerConnections()
+```
+
+CloseAllPeerConnections closes all connections to all watched peers. Used on network change to force path re-evaluation.
+
 #### func (*PeerManager) ListPeers
 
 ```go
@@ -1051,6 +1350,14 @@ func ClassifyMultiaddr(addr string) (pathType PathType, transport string, ipVers
 ```go
 func AddRelayAddressesForPeerFunc(h host.Host, relayAddrs []string, target peer.ID) error
 ```
+
+### func RelayServiceCID
+
+```go
+func RelayServiceCID(namespace string) cid.Cid
+```
+
+RelayServiceCID returns the DHT content ID used for relay service advertisement in a given namespace.
 
 ---
 
@@ -1370,6 +1677,14 @@ RelayDiscovery manages static + DHT relay discovery with health-ranked ordering.
 func NewRelayDiscovery(staticRelays []peer.AddrInfo, namespace string, m *Metrics) *RelayDiscovery
 ```
 
+#### func (*RelayDiscovery) SetBudgetChecker
+
+```go
+func (rd *RelayDiscovery) SetBudgetChecker(gc RelayGrantChecker)
+```
+
+SetBudgetChecker sets the grant checker for budget-aware relay ranking. Relay addresses are ranked by health score + budget bonus.
+
 ### type StaticRelaySource
 
 ```go
@@ -1463,6 +1778,22 @@ func (l *TCPListener) Close() error
 ```go
 func (l *TCPListener) Addr() net.Addr
 ```
+
+#### func (*TCPListener) ActiveConns
+
+```go
+func (l *TCPListener) ActiveConns() int
+```
+
+ActiveConns returns the number of active proxied connections.
+
+#### func (*TCPListener) GracefulClose
+
+```go
+func (l *TCPListener) GracefulClose(timeout time.Duration)
+```
+
+GracefulClose stops accepting new connections, waits for active connections to drain (up to timeout), then closes.
 
 ### func BidirectionalProxy
 
@@ -1673,6 +2004,102 @@ func (bt *BandwidthTracker) Start(ctx context.Context, interval time.Duration)
 ```
 
 Start begins periodic metric publishing.
+
+---
+
+## Identity Utilities
+
+### func LoadOrCreateIdentity
+
+```go
+func LoadOrCreateIdentity(path, password string) (crypto.PrivKey, error)
+```
+
+LoadOrCreateIdentity loads an Ed25519 private key from the given path, or creates one if it does not exist.
+
+### func PeerIDFromKeyFile
+
+```go
+func PeerIDFromKeyFile(path, password string) (peer.ID, error)
+```
+
+PeerIDFromKeyFile reads a key file and returns the corresponding peer ID without loading the full network.
+
+---
+
+## DNS Seeds
+
+### func ResolveDNSSeeds
+
+```go
+func ResolveDNSSeeds(ctx context.Context, domain string) []peer.AddrInfo
+```
+
+ResolveDNSSeeds resolves DNS TXT records for peer bootstrap addresses.
+
+---
+
+## STUN Utilities
+
+### func BuildSTUNBindingRequest
+
+```go
+func BuildSTUNBindingRequest(txID [12]byte) []byte
+```
+
+BuildSTUNBindingRequest constructs a raw STUN Binding Request packet.
+
+### func BuildSTUNBindingResponse
+
+```go
+func BuildSTUNBindingResponse(txID [12]byte, ip net.IP, port int) []byte
+```
+
+BuildSTUNBindingResponse constructs a raw STUN Binding Response packet with an XOR-MAPPED-ADDRESS attribute.
+
+---
+
+## Verification Utilities
+
+### func ComputeFingerprint
+
+```go
+func ComputeFingerprint(a, b peer.ID) (emoji string, numeric string)
+```
+
+ComputeFingerprint computes an OMEMO-style SAS fingerprint (4 emojis + 8 digits) from two peer IDs. Order-independent.
+
+### func FingerprintPrefix
+
+```go
+func FingerprintPrefix(a, b peer.ID) string
+```
+
+FingerprintPrefix returns the short emoji fingerprint prefix for display in peer status.
+
+---
+
+## Reachability
+
+### func ComputeReachabilityGrade
+
+```go
+func ComputeReachabilityGrade(ifaces *InterfaceSummary, stun *STUNResult) ReachabilityGrade
+```
+
+ComputeReachabilityGrade computes a reachability grade (A-F) from interface discovery and STUN results. Grade A = globally reachable, Grade F = no connectivity.
+
+---
+
+## Service Query
+
+### func HandleServiceQuery
+
+```go
+func HandleServiceQuery(registry *ServiceRegistry) StreamHandler
+```
+
+HandleServiceQuery returns a stream handler for remote service discovery. Peers can query which services a node provides.
 
 ---
 
