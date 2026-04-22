@@ -3,6 +3,8 @@ title: "File Transfer"
 weight: 9
 description: "Chunked P2P file transfer with BLAKE3 integrity, zstd compression, erasure coding, multi-source download, and AirDrop-style receive permissions."
 ---
+<!-- Auto-synced from docs/FILE-TRANSFER.md by sync-docs - do not edit directly -->
+
 
 Shurli includes a built-in file transfer plugin that sends files directly between peers over the P2P network. Files are chunked with FastCDC, compressed with zstd, and verified with a BLAKE3 Merkle tree. Relay is blocked for file transfer by default (drives own-relay adoption).
 
@@ -125,7 +127,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 
 ## How It Works
 
-**Chunking**: FastCDC content-defined chunking with adaptive target sizes (128KB-2MB based on file size). Single-pass with BLAKE3 hash per chunk.
+**Chunking**: FastCDC content-defined chunking with 5 adaptive tiers (64KB-4MB based on file size). Single-pass with BLAKE3 hash per chunk.
 
 **Integrity**: BLAKE3 Merkle tree over all chunk hashes. Root hash verified after all chunks received. Each chunk verified before writing to disk.
 
@@ -133,7 +135,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 
 **Erasure Coding**: Reed-Solomon erasure coding, auto-enabled on Direct WAN connections only. Recovers from lost chunks without retransmission. Wire overhead matches the configured `transfer.erasure_overhead` (default 10%); `transfer.bandwidth_budget` and per-peer `bandwidth_budget` ACL attributes are enforced on TOTAL wire bytes (data + parity), so a 100 MB file with 10% erasure consumes ~110 MB of budget. Memory footprint per erasure-coded transfer is bounded to roughly one stripe (≤~400 MB sustained, ≤~880 MB momentary during encode) via the incremental per-stripe encoder; LAN transfers skip erasure entirely and avoid this cost.
 
-**Parallel Streams**: Adaptive parallel QUIC streams per transfer. Defaults: 1 stream on LAN, up to 4 on WAN. Configurable via `transfer.parallel_streams`.
+**Parallel Streams**: Adaptive parallel QUIC streams per transfer. Defaults: 8 on LAN (max 32), 4 on WAN (max 20). Minimum 4 chunks per stream to justify parallelism.
 
 **Resume**: Checkpoint files (`.shurli-ckpt-<hash>`) store a bitfield of received chunks. Interrupted transfers resume from the last checkpoint. Checkpoints cleaned up on successful completion.
 
@@ -143,7 +145,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 - **Path traversal**: Filenames like `../../../etc/passwd` are sanitized. Only the base filename is used. Receive directory is a jail.
 - **Transport encryption**: All data travels over libp2p's encrypted transport (TLS 1.3 or Noise).
 - **Authorization**: Only paired peers can send files. Unauthorized peers are silently rejected at the connection gating layer.
-- **Resource limits**: Max 3 pending transfers per peer, 5 concurrent active, 1M chunk limit, 64MB manifest limit, 1h timeout.
+- **Resource limits**: Max 3 pending transfers per peer, 5 concurrent active, 1M chunk limit, 40MB manifest limit, 1h timeout.
 - **Disk space**: Re-checked before each chunk write, not just at accept time.
 - **Transfer IDs**: Random hex (`xfer-<12hex>`), not sequential (prevents enumeration).
 - **Compression bombs**: zstd decompression capped at 10x ratio per chunk.
@@ -276,8 +278,23 @@ const (
     BrowseProtocol    = "/shurli/file-browse/1.0.0"
     DownloadProtocol  = "/shurli/file-download/1.0.0"
     MultiPeerProtocol = "/shurli/file-multi-peer/1.0.0"
+    CancelProtocol    = "/shurli/transfer-cancel/1.0.0"
 )
 ```
+
+### Cancel Protocol
+
+```go
+func RegisterCancelHandler(h host.Host, ts *TransferService)
+```
+
+Registers the multi-path cancel protocol handler on the host. Called from plugin.Start(). Handles inbound cancel messages: reads a 32-byte transferID, verifies the sender matches the active transfer peer, and cancels the matching send or receive session. Rate-limited to 10 messages per peer per minute with a 5-second stream deadline.
+
+```go
+func UnregisterCancelHandler(h host.Host)
+```
+
+Removes the cancel protocol handler from the host. Called from plugin.Stop() to prevent handler access after TransferService is closed.
 
 ### Reject Reasons
 
@@ -456,7 +473,7 @@ func (ts *TransferService) MultiPeerEnabled() bool
 func (ts *TransferService) MultiPeerMaxPeers() int
 func (ts *TransferService) MultiPeerMinSize() int64
 func (ts *TransferService) HandleMultiPeerRequest() sdk.StreamHandler
-func (ts *TransferService) DownloadMultiPeer(ctx context.Context, remotePath string, probeStream func() (network.Stream, error), peers []MultiPeerStreamOpener) (*TransferProgress, error)
+func (ts *TransferService) DownloadMultiPeer(ctx context.Context, rootHash [32]byte, peers []peer.ID, openStream MultiPeerStreamOpener, destDir string) (*TransferProgress, error)
 ```
 
 #### Hash Registry
@@ -550,10 +567,11 @@ Inbound transfer awaiting approval in ask mode.
 
 ```go
 type SendOptions struct {
-    NoCompress   bool         // disable compression for this transfer
-    Streams      int          // parallel stream count (0 = adaptive)
-    StreamOpener streamOpener // opens additional streams for parallel transfer
-    RelativeName string       // override manifest filename (for directory transfer)
+    NoCompress           bool         // disable compression for this transfer
+    Streams              int          // parallel stream count (0 = adaptive default based on transport)
+    StreamOpener         streamOpener // opens additional streams for parallel transfer
+    RelativeName         string       // override manifest filename (for directory transfer)
+    RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
 }
 ```
 
@@ -763,6 +781,8 @@ const (
     EventLogCancelled         = "cancelled"
     EventLogSpamBlocked       = "spam_blocked"
     EventLogDiskSpaceRejected = "disk_space_rejected"
+    EventLogMultiPeerRejected = "multi_peer_rejected"
+    EventLogPathFailover      = "path_failover"
 )
 ```
 
@@ -818,7 +838,7 @@ Single content-defined chunk with BLAKE3 hash.
 func ChunkTarget(fileSize int64) (minSize, avgSize, maxSize int)
 ```
 
-Selects adaptive chunk sizes based on file size: 256KB for files under 250MB, 1MB under 1GB, 2MB under 4GB, 4MB for 4GB+.
+Selects adaptive chunk sizes (min/avg/max) based on file size across 5 tiers: 64K/128K/256K for <64MB, 128K/256K/512K for <512MB, 256K/512K/1M for <2GB, 512K/1M/2M for <8GB, 1M/2M/4M for >=8GB.
 
 ```go
 func ChunkReader(r io.Reader, fileSize int64, cb func(Chunk) error) error
@@ -935,7 +955,7 @@ const (
     maxFilenameLen         = 4096     // max filename length in bytes
     maxFileSize            = 1 << 40  // 1 TB max single file
     maxChunkCount          = 1 << 20  // 1M chunks max per transfer
-    maxManifestSize        = 64 << 20 // 64 MB max manifest wire size
+    maxManifestSize        = 40 << 20 // 40 MB max manifest wire size
     maxChunkWireSize       = 4 << 20  // 4 MB max single chunk on wire
     maxDecompressedChunk   = 8 << 20  // 8 MB max decompressed chunk
     maxConcurrentTransfers = 10       // global inbound transfer limit
