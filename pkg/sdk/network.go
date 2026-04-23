@@ -112,6 +112,8 @@ func DHTProtocolPrefixForNamespace(namespace string) string {
 // holePunchTracer logs DCUtR hole-punching events and records metrics when available.
 type holePunchTracer struct {
 	metrics *Metrics // nil when metrics disabled
+	udpBH   *swarm.BlackHoleSuccessCounter
+	ipv6BH  *swarm.BlackHoleSuccessCounter
 }
 
 // truncateError returns the first line of an error string, capped at 200 chars.
@@ -168,7 +170,28 @@ func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 
 	switch e := evt.Evt.(type) {
 	case *holepunch.StartHolePunchEvt:
-		slog.Info("hole punch started", "peer", short, "addrs", len(e.RemoteAddrs), "rtt", e.RTT)
+		// Log black hole state + candidate addresses for diagnostics (#36).
+		udpState, ipv6State := "n/a", "n/a"
+		if t.udpBH != nil {
+			udpState = t.udpBH.State().String()
+		}
+		if t.ipv6BH != nil {
+			ipv6State = t.ipv6BH.State().String()
+		}
+		slog.Info("hole punch started", "peer", short,
+			"addrs", len(e.RemoteAddrs), "rtt", e.RTT,
+			"udp_bh", udpState, "ipv6_bh", ipv6State,
+			"remote_addrs", e.RemoteAddrs)
+		// Reset black hole detectors before the hole punch dial. Hole
+		// punching uses coordinated simultaneous opens - the black hole
+		// detector's assumption ("if past dials failed, stop trying")
+		// actively prevents the punch from ever being attempted. (#36)
+		if t.udpBH != nil {
+			t.udpBH.RecordResult(true)
+		}
+		if t.ipv6BH != nil {
+			t.ipv6BH.RecordResult(true)
+		}
 	case *holepunch.EndHolePunchEvt:
 		if e.Success {
 			slog.Info("hole punch succeeded", "peer", short, "elapsed", e.EllapsedTime)
@@ -189,6 +212,8 @@ func (t *holePunchTracer) Trace(evt *holepunch.Event) {
 		} else {
 			slog.Warn("direct dial failed", "peer", short, "error", truncateError(e.Error))
 		}
+	case *holepunch.ProtocolErrorEvt:
+		slog.Warn("hole punch protocol error", "peer", short, "error", truncateError(e.Error))
 	}
 }
 
@@ -322,6 +347,12 @@ func New(cfg *Config) (*Network, error) {
 	// so identify/DHT advertise the full address set to peers.
 	hostOpts = append(hostOpts, libp2p.AddrsFactory(globalIPv6AddrsFactory))
 
+	// Create black hole detector counters. Stored so NetworkMonitor can
+	// reset them on network change, and the hole punch tracer can reset
+	// them before each punch attempt (#36).
+	udpBH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "UDP"}
+	ipv6BH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "IPv6"}
+
 	// Add relay support if enabled
 	if cfg.EnableRelay {
 		// Parse relay addresses
@@ -356,7 +387,11 @@ func New(cfg *Config) (*Network, error) {
 		}
 
 		if cfg.EnableHolePunching {
-			hostOpts = append(hostOpts, libp2p.EnableHolePunching(holepunch.WithTracer(&holePunchTracer{metrics: cfg.Metrics})))
+			hostOpts = append(hostOpts, libp2p.EnableHolePunching(holepunch.WithTracer(&holePunchTracer{
+				metrics: cfg.Metrics,
+				udpBH:   udpBH,
+				ipv6BH:  ipv6BH,
+			})))
 		}
 
 		if cfg.ForcePrivate {
@@ -424,12 +459,7 @@ func New(cfg *Config) (*Network, error) {
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(autoGater))
 	}
 
-	// Create black hole detector counters with libp2p defaults. We store
-	// references so NetworkMonitor can reset them on network change (a WiFi
-	// switch invalidates black hole state - the new network may have working
-	// IPv6/UDP even if the old one didn't).
-	udpBH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "UDP"}
-	ipv6BH := &swarm.BlackHoleSuccessCounter{N: 100, MinSuccesses: 5, Name: "IPv6"}
+	// Wire black hole counters into swarm options.
 	hostOpts = append(hostOpts,
 		libp2p.UDPBlackHoleSuccessCounter(udpBH),
 		libp2p.IPv6BlackHoleSuccessCounter(ipv6BH),
