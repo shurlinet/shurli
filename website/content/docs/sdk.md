@@ -44,6 +44,19 @@ All exported types are safe for concurrent use. The Network, ServiceRegistry, Ev
 
 ---
 
+## QUIC Transport Performance
+
+Shurli uses QUIC (RFC 9000) over UDP for all peer-to-peer data transport. QUIC performance varies across operating systems due to differences in kernel UDP handling, buffer defaults, and hardware offload support.
+
+See [QUIC-TRANSPORT.md](../quic-transport/) for the full reference, including:
+
+- **macOS UDP GSO limitation**: macOS lacks Generic Segmentation Offload for UDP, causing ~17-27% lower LAN send throughput vs TCP. Measured, profiled, and documented with root cause analysis.
+- **Linux UDP buffer tuning**: default kernel limits are too small for high-throughput QUIC. Configuration guide included.
+- **macOS Local Network Privacy**: silent LAN connection blocking after binary replacement.
+- **Elimination matrix**: every hypothesis tested and the evidence for/against.
+
+---
+
 ## Constants
 
 ```go

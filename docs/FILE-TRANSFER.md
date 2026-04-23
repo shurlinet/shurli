@@ -133,6 +133,8 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 
 **Resume**: Checkpoint files (`.shurli-ckpt-<hash>`) store a bitfield of received chunks. Interrupted transfers resume from the last checkpoint. Checkpoints cleaned up on successful completion.
 
+**macOS LAN Send Throughput**: When macOS is the sender over a LAN, QUIC throughput is ~80-90 MB/s for large files instead of the ~107 MB/s that TCP (scp) achieves. This is a platform limitation: macOS lacks UDP GSO (Generic Segmentation Offload), forcing each QUIC packet through a separate system call. The reverse direction (Linux sending to macOS) and WAN transfers are unaffected. See the [QUIC Transport Performance](SDK.md#quic-transport-performance-macos-vs-linux) section in the SDK documentation for the full technical analysis.
+
 ## Security
 
 - **Integrity**: BLAKE3 Merkle tree verification. Corrupted chunks are rejected before writing to disk.

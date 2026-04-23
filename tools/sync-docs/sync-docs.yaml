@@ -39,6 +39,12 @@ docs:
     title: Architecture
     description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, file transfer, connection gating, and naming system."
 
+  - source: QUIC-TRANSPORT.md
+    output: quic-transport.md
+    weight: 12
+    title: QUIC Transport
+    description: "QUIC transport platform behavior and known limitations: macOS UDP GSO, Linux buffer tuning, LNP, and measured performance data."
+
   - source: MONITORING.md
     output: monitoring.md
     weight: 13
