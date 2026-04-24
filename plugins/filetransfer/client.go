@@ -210,8 +210,8 @@ func (c *daemonClient) BrowseText(peer, subPath string) (string, error) {
 // --- Download methods ---
 
 // Download initiates a receiver-side file download from a peer's shared files.
-func (c *daemonClient) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string) (*DownloadResponse, error) {
-	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers}
+func (c *daemonClient) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string, files, exclude []int) (*DownloadResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers, Files: files, Exclude: exclude}
 	body, _ := json.Marshal(req)
 	var resp DownloadResponse
 	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
@@ -249,6 +249,15 @@ func (c *daemonClient) TransferStatus(id string) (*TransferProgress, error) {
 	return &resp, nil
 }
 
+// TransferSnapshot fetches a single transfer by ID (active or pending, R8-F6).
+func (c *daemonClient) TransferSnapshot(id string) (*TransferSnapshot, error) {
+	var resp TransferSnapshot
+	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // TransferList returns all tracked transfers.
 func (c *daemonClient) TransferList() ([]TransferSnapshot, error) {
 	var resp []TransferSnapshot
@@ -277,9 +286,11 @@ func (c *daemonClient) TransferPending() ([]PendingTransferInfo, error) {
 	return resp, nil
 }
 
-// TransferAccept approves a pending transfer, with an optional destination directory.
-func (c *daemonClient) TransferAccept(id, dest string) error {
-	req := TransferAcceptRequest{Dest: dest}
+// TransferAccept approves a pending transfer with optional destination and file selection (#18).
+// files: 0-indexed file indices to accept (nil = all). exclude: 0-indexed indices to reject (nil = none).
+// Mutually exclusive - caller must not set both.
+func (c *daemonClient) TransferAccept(id, dest string, files, exclude []int) error {
+	req := TransferAcceptRequest{Dest: dest, Files: files, Exclude: exclude}
 	body, _ := json.Marshal(req)
 	return c.doJSON("POST", "/v1/transfers/"+id+"/accept", strings.NewReader(string(body)), nil)
 }

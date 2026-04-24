@@ -67,11 +67,23 @@ shurli transfers --history
 # Accept a pending transfer
 shurli accept <transfer-id>
 
+# Accept only specific files (1-indexed)
+shurli accept <transfer-id> --files 1,3,5
+
+# Accept all except specific files
+shurli accept <transfer-id> --exclude 2,4
+
+# Accept with index ranges
+shurli accept <transfer-id> --files 1-5,10,15-20
+
 # Accept all pending
 shurli accept --all
 
 # Reject a pending transfer
 shurli reject <transfer-id>
+
+# View single transfer details (including file list)
+shurli transfers <transfer-id>
 
 # Cancel an outbound transfer
 shurli cancel <transfer-id>
@@ -99,7 +111,15 @@ shurli browse home-server
 
 # Download a specific file from a peer's shares
 shurli download document.pdf home-server
+
+# Download only specific files from a shared directory (1-indexed)
+shurli download photos/ home-server --files 1,3
+
+# Download all except specific files
+shurli download photos/ home-server --exclude 2,4
 ```
+
+Selective file rejection (`--files`/`--exclude`) is not supported with erasure-coded transfers (WAN/relay) or multi-peer downloads. Accept all files or reject the entire transfer in those cases.
 
 Shares persist across daemon restarts (stored in `~/.shurli/shares.json`).
 
@@ -418,7 +438,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler
 Returns handler for inbound transfer protocol. Register with libp2p.
 
 ```go
-func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error)
+func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string, sel ...*FileSelection) (*TransferProgress, error)
 ```
 
 Initiates receiver-side download from a peer's shared file.
@@ -493,7 +513,7 @@ func (ts *TransferService) RequeuePersisted(streamFactory func(peerID string) fu
 
 ```go
 func (ts *TransferService) ListPending() []PendingTransfer
-func (ts *TransferService) AcceptTransfer(id, dest string) error
+func (ts *TransferService) AcceptTransfer(id, dest string, acceptedFiles []int) error
 func (ts *TransferService) RejectTransfer(id string, reason byte) error
 ```
 
@@ -532,7 +552,13 @@ func (p *TransferProgress) Sent() int64
 
 ### type TransferSnapshot
 
-Same fields as TransferProgress. Mutex-free copy safe for JSON serialization and API responses.
+Same fields as TransferProgress plus:
+
+```go
+PendingFiles []PendingFileInfo `json:"pending_files,omitempty"`
+```
+
+Populated for transfers with status `awaiting_approval`. Contains the per-file list for selective rejection. Mutex-free copy safe for JSON serialization and API responses.
 
 ### type StreamInfo
 
@@ -554,10 +580,29 @@ type PendingTransfer struct {
     Size     int64     `json:"size"`
     PeerID   string    `json:"peer_id"`
     Time     time.Time `json:"time"`
+
+    // unexported: files []fileEntry, hasErasure bool, decision chan
 }
 ```
 
-Inbound transfer awaiting approval in ask mode.
+Inbound transfer awaiting approval in ask mode. Internal fields store the per-file table from the wire header (used by `AcceptTransfer` to build selective accept bitfields) and whether the sender uses erasure coding (gates selective rejection).
+
+### type FileSelection
+
+```go
+type FileSelection struct {
+    Include []int // accept ONLY these file indices (0-indexed)
+    Exclude []int // accept all EXCEPT these file indices (0-indexed)
+}
+```
+
+Specifies which files to include or exclude in a download. Nil means all files. Include and Exclude are mutually exclusive. Passed as optional variadic to `ReceiveFrom`.
+
+```go
+func (s *FileSelection) resolve(fileCount int) ([]int, error)
+```
+
+Converts Include/Exclude into accepted 0-indexed file indices. Returns nil for full accept. Returns error for out-of-range indices.
 
 ### type SendOptions
 
@@ -746,15 +791,17 @@ func (d *DirectoryTransfer) RegularFiles() []dirFileEntry
 
 ```go
 type TransferEvent struct {
-    Timestamp time.Time `json:"timestamp"`
-    EventType string    `json:"event_type"`
-    Direction string    `json:"direction"`
-    PeerID    string    `json:"peer_id"`
-    FileName  string    `json:"file_name"`
-    FileSize  int64     `json:"file_size,omitempty"`
-    BytesDone int64     `json:"bytes_done,omitempty"`
-    Error     string    `json:"error,omitempty"`
-    Duration  string    `json:"duration,omitempty"`
+    Timestamp     time.Time `json:"timestamp"`
+    EventType     string    `json:"event_type"`
+    Direction     string    `json:"direction"`
+    PeerID        string    `json:"peer_id"`
+    FileName      string    `json:"file_name"`
+    FileSize      int64     `json:"file_size,omitempty"`
+    BytesDone     int64     `json:"bytes_done,omitempty"`
+    Error         string    `json:"error,omitempty"`
+    Duration      string    `json:"duration,omitempty"`
+    AcceptedFiles int       `json:"accepted_files,omitempty"` // selective rejection: accepted file count
+    TotalFiles    int       `json:"total_files,omitempty"`    // selective rejection: total file count
 }
 ```
 
@@ -871,6 +918,7 @@ type SendRequest struct {
     NoCompress bool   `json:"no_compress"`
     Streams    int    `json:"streams"`
     Priority   string `json:"priority"`
+    RateLimit  string `json:"rate_limit"` // send rate limit e.g. "100M" (empty = service default)
 }
 
 type SendResponse struct {
@@ -881,7 +929,9 @@ type SendResponse struct {
 }
 
 type TransferAcceptRequest struct {
-    Dest string `json:"dest,omitempty"`
+    Dest    string `json:"dest,omitempty"`    // override receive directory
+    Files   []int  `json:"files,omitempty"`   // 0-indexed: accept ONLY these files (nil = all)
+    Exclude []int  `json:"exclude,omitempty"` // 0-indexed: accept all EXCEPT these (nil = none)
 }
 
 type TransferRejectRequest struct {
@@ -889,11 +939,20 @@ type TransferRejectRequest struct {
 }
 
 type PendingTransferInfo struct {
-    ID       string `json:"id"`
-    Filename string `json:"filename"`
-    Size     int64  `json:"size"`
-    PeerID   string `json:"peer_id"`
-    Time     string `json:"time"`
+    ID         string            `json:"id"`
+    Filename   string            `json:"filename"`
+    Size       int64             `json:"size"`
+    PeerID     string            `json:"peer_id"`
+    Time       string            `json:"time"`
+    FileCount  int               `json:"file_count"`            // total files in transfer
+    Files      []PendingFileInfo `json:"files,omitempty"`       // per-file info for selective rejection
+    HasErasure bool              `json:"has_erasure,omitempty"` // sender uses erasure coding (gates selective rejection)
+}
+
+type PendingFileInfo struct {
+    Index int    `json:"index"` // 0-indexed position in file table
+    Path  string `json:"path"`  // relative path (sanitized)
+    Size  int64  `json:"size"`  // file size in bytes
 }
 
 type ShareRequest struct {
@@ -935,12 +994,15 @@ type DownloadRequest struct {
     LocalDest  string   `json:"local_dest"`
     MultiPeer  bool     `json:"multi_peer,omitempty"`
     ExtraPeers []string `json:"extra_peers,omitempty"`
+    Files      []int    `json:"files,omitempty"`   // 0-indexed: download ONLY these files
+    Exclude    []int    `json:"exclude,omitempty"` // 0-indexed: download all EXCEPT these
 }
 
 type DownloadResponse struct {
     TransferID string `json:"transfer_id"`
     FileName   string `json:"filename"`
     FileSize   int64  `json:"file_size"`
+    PeersUsed  int    `json:"peers_used,omitempty"` // multi-peer peer count
 }
 ```
 

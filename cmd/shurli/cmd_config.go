@@ -358,6 +358,20 @@ func doConfigSet(args []string, stdout io.Writer) error {
 		return fmt.Errorf("config error: %w", err)
 	}
 
+	// Route transfer.* keys to the file transfer plugin config file.
+	// The plugin reads its own config.yaml, not the main config's transfer: section.
+	pluginKey := ""
+	if strings.HasPrefix(key, "transfer.") {
+		pluginKey = strings.TrimPrefix(key, "transfer.")
+		configDir := filepath.Dir(cfgFile)
+		pluginCfg := filepath.Join(configDir, "plugins", "shurli.io", "official", "filetransfer", "config.yaml")
+		if _, statErr := os.Stat(pluginCfg); statErr == nil {
+			cfgFile = pluginCfg
+		}
+		// else: plugin config doesn't exist yet, fall through to main config
+		// (createPluginDefaults hasn't been run, or non-standard layout)
+	}
+
 	// Load raw YAML to preserve comments and structure
 	data, err := os.ReadFile(cfgFile)
 	if err != nil {
@@ -369,15 +383,23 @@ func doConfigSet(args []string, stdout io.Writer) error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Navigate dotted key path and set value
+	// Navigate dotted key path and set value.
+	// For plugin config, use the flat key (e.g., "receive_mode" not "transfer.receive_mode").
 	parts := splitDottedKey(key)
+	if pluginKey != "" {
+		parts = splitDottedKey(pluginKey)
+	}
 	if err := yamlNodeSet(&root, parts, value); err != nil {
 		return fmt.Errorf("failed to set %s: %w", key, err)
 	}
 
 	// If --duration provided, also set transfer.timed_duration.
 	if *durationFlag != "" {
-		durParts := splitDottedKey("transfer.timed_duration")
+		durKey := "timed_duration"
+		if pluginKey == "" {
+			durKey = "transfer.timed_duration"
+		}
+		durParts := splitDottedKey(durKey)
 		if err := yamlNodeSet(&root, durParts, *durationFlag); err != nil {
 			return fmt.Errorf("failed to set transfer.timed_duration: %w", err)
 		}
