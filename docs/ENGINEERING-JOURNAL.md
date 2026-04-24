@@ -19,5 +19,15 @@ This document has been split into per-batch files for easier navigation. See the
 - [Phase 5: Network Resilience](engineering-journal/phase5-network-resilience.md) - ADR-L01 to ADR-L08
 - [Dev Tooling](engineering-journal/dev-tooling.md) - ADR-DT01 to ADR-DT02
 - [Phase 6: ACL + Relay Security + Client Invites](engineering-journal/phase6-acl-relay-security.md) - ADR-M01 to ADR-M08
+- [Phase 7: ZKP Privacy Layer](engineering-journal/phase7-zkp-privacy.md) - ADR-N01 to ADR-N18
+- [Phase 8: Identity & Remote Admin](engineering-journal/phase8-identity-remote-admin.md) - ADR-O01 to ADR-O17
+- [Seed Relay Separation & Init Flow](engineering-journal/seed-relay-separation.md) - ADR-P01 to ADR-P05
 - [Phase 9: SDK, Plugins & Protocol Consolidation](engineering-journal/phase9-sdk-plugins.md) - ADR-Q01 to ADR-Q05
 - [Phase 9: File Transfer Architecture](engineering-journal/phase9-file-transfer.md) - ADR-R01 to ADR-R09
+- [Post-Chaos Network Hardening](engineering-journal/post-chaos-network-hardening.md) - ADR-S01 to ADR-S07
+- [File Transfer Hardening](engineering-journal/file-transfer-hardening.md) - ADR-R10 to ADR-R16
+- [Phase 8B: Per-Peer Data Grants](engineering-journal/per-peer-data-grants.md) - ADR-T01 to ADR-T10
+- [Phase 9: Plugin Security Threat Analysis](engineering-journal/plugin-security-threat-analysis.md) - ADR-U01 to ADR-U08
+- [Phase 9: Grant Receipt Protocol](engineering-journal/grant-receipt-protocol.md) - ADR-V01 to ADR-V05
+- [Phase 9: Relay Circuit Investigation](engineering-journal/relay-circuit-investigation.md) - ADR-W01 to ADR-W03
+- [FT-Y: Tail Slayer Path Reliability](engineering-journal/tail-slayer-path-reliability.md) - ADR-X01 to ADR-X07
