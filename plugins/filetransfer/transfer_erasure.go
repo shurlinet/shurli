@@ -453,6 +453,87 @@ func readErasureManifest(r io.Reader) (parityHashes [][32]byte, paritySizes []ui
 	return parityHashes, paritySizes, nil
 }
 
+// --- Chunk manifest wire format (Batch 2c) ---
+
+// writeChunkManifest writes per-data-chunk hashes and decompressed sizes to
+// the trailer wire. Enables receivers to recover truly missing chunks (frame
+// never arrived) via RS reconstruction. Written between the sparse-hashes
+// section and the parity section when erasure is active.
+//
+// Wire layout: count(4) + [hash(32) + decompSize(4)] * count
+//
+// When hashes is nil, writes count=0 (no-op manifest). This allows existing
+// tests to pass nil ChunkHashes without breaking the wire format.
+func writeChunkManifest(w io.Writer, hashes [][32]byte, sizes []uint32) error {
+	count := len(hashes)
+	if count == 0 {
+		var zero [4]byte
+		_, err := w.Write(zero[:])
+		return err
+	}
+	if len(sizes) != count {
+		return fmt.Errorf("chunk manifest: hash count %d != size count %d", count, len(sizes))
+	}
+
+	var countBuf [4]byte
+	binary.BigEndian.PutUint32(countBuf[:], uint32(count))
+	if _, err := w.Write(countBuf[:]); err != nil {
+		return fmt.Errorf("write chunk manifest count: %w", err)
+	}
+
+	var entryBuf [36]byte // hash(32) + decompSize(4)
+	for i := 0; i < count; i++ {
+		copy(entryBuf[0:32], hashes[i][:])
+		binary.BigEndian.PutUint32(entryBuf[32:36], sizes[i])
+		if _, err := w.Write(entryBuf[:]); err != nil {
+			return fmt.Errorf("write chunk manifest entry %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// readChunkManifest reads per-data-chunk hashes and decompressed sizes from
+// the trailer wire. expectedCount is the trailer's chunkCount; a mismatch
+// (except count=0 for legacy/no-manifest trailers) is rejected. Per-entry
+// decompSize is validated against maxDecompressedChunk.
+//
+// Returns nil, nil, nil when count=0 (no manifest present).
+func readChunkManifest(r io.Reader, expectedCount int) ([][32]byte, []uint32, error) {
+	var countBuf [4]byte
+	if _, err := io.ReadFull(r, countBuf[:]); err != nil {
+		return nil, nil, fmt.Errorf("read chunk manifest count: %w", err)
+	}
+	count := int(binary.BigEndian.Uint32(countBuf[:]))
+
+	if count == 0 {
+		return nil, nil, nil
+	}
+	if count > maxChunkCount {
+		return nil, nil, fmt.Errorf("chunk manifest count too large: %d (max %d)", count, maxChunkCount)
+	}
+	if count != expectedCount {
+		return nil, nil, fmt.Errorf("chunk manifest count %d does not match trailer chunkCount %d", count, expectedCount)
+	}
+
+	hashes := make([][32]byte, count)
+	sizes := make([]uint32, count)
+	var entryBuf [36]byte
+	for i := 0; i < count; i++ {
+		if _, err := io.ReadFull(r, entryBuf[:]); err != nil {
+			return nil, nil, fmt.Errorf("read chunk manifest entry %d: %w", i, err)
+		}
+		copy(hashes[i][:], entryBuf[0:32])
+		sz := binary.BigEndian.Uint32(entryBuf[32:36])
+		if sz == 0 || sz > maxDecompressedChunk {
+			return nil, nil, fmt.Errorf("chunk manifest entry %d: invalid decompSize %d (must be 1..%d)", i, sz, maxDecompressedChunk)
+		}
+		sizes[i] = sz
+	}
+
+	return hashes, sizes, nil
+}
+
 // --- RS reconstruction ---
 
 // reconstructSingleStripe recovers corrupted data chunks in one RS stripe
@@ -668,9 +749,17 @@ func (s *streamReceiveState) reconstructSingleStripe(
 			return fmt.Errorf("write reconstructed chunk %d: %w", idx, err)
 		}
 
-		// Clear from corruptedChunks so checkpoint doesn't force retransmission.
+		// Clear from corruptedChunks and mark as received so checkpoint
+		// doesn't force retransmission. For Batch 2b corrupted chunks the
+		// bit was already set by recordChunk (no-op). For Batch 2c missing
+		// chunks populated from the trailer manifest the bit was never set;
+		// without this, TS-5b retry and checkpoint resume would retransmit
+		// chunks that are already correct on disk. [R6-F1]
 		s.mu.Lock()
 		delete(s.corruptedChunks, idx)
+		if s.receivedBitfield != nil {
+			s.receivedBitfield.set(idx)
+		}
 		s.mu.Unlock()
 	}
 

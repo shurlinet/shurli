@@ -1668,6 +1668,13 @@ func (ts *TransferService) streamingSend(
 		progress.mu.Lock()
 		progress.ErasureParity = result.erasure.ParityCount
 		progress.mu.Unlock()
+
+		// [Batch 2c] Attach per-data-chunk hashes and sizes to the erasure
+		// trailer for missing-chunk recovery. The receiver uses these to
+		// populate claimed hash + decompSize for chunks whose frames never
+		// arrived, enabling RS reconstruction of truly missing data.
+		result.erasure.ChunkHashes = result.chunkHashes
+		result.erasure.ChunkSizes = result.chunkSizes
 	}
 
 	// Write trailer.

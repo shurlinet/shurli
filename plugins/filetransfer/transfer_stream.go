@@ -782,7 +782,8 @@ const (
 //
 //	msgTrailer(1) + flags(1) + chunkCount(4) + rootHash(32)
 //	[if trailerFlagSparseHashes: + missingHashCount(4) + [chunkIdx(4)+hash(32)]*N]
-//	[if erasure: + parityCount(4) + parityHashes(N*32) + paritySizes(N*4)]
+//	[if erasure: chunkManifestCount(4) + [hash(32)+decompSize(4)]*N]  (Batch 2c)
+//	[if erasure: parityCount(4) + parityHashes(N*32) + paritySizes(N*4)]
 func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes map[int][32]byte, erasure *erasureTrailer) error {
 	var flags byte
 	if len(sparseHashes) > 0 {
@@ -825,7 +826,13 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 
 	// Erasure fields follow if present. stripeSize + overheadPerMille are in
 	// the header (Option C); trailer carries only parityCount + hashes + sizes.
+	// [Batch 2c] Chunk manifest (per-data-chunk hash + decompSize) precedes the
+	// parity section so the receiver can populate missing-chunk metadata before
+	// RS reconstruction. Writes count=0 when ChunkHashes is nil (no manifest).
 	if erasure != nil {
+		if err := writeChunkManifest(w, erasure.ChunkHashes, erasure.ChunkSizes); err != nil {
+			return fmt.Errorf("write chunk manifest: %w", err)
+		}
 		if err := writeErasureManifest(w, erasure.ParityCount,
 			erasure.ParityHashes, erasure.ParitySizes); err != nil {
 			return fmt.Errorf("write erasure trailer: %w", err)
@@ -840,10 +847,19 @@ func writeTrailer(w io.Writer, chunkCount int, rootHash [32]byte, sparseHashes m
 // StripeSize and OverheadPerMille moved to the SHFT header (Option C, OC-F28)
 // so the receiver can initialize per-stripe parity tracking before any chunks
 // arrive. The trailer retains only parity count + per-parity hashes and sizes.
+//
+// [Batch 2c] ChunkHashes and ChunkSizes carry per-data-chunk metadata for
+// missing-chunk recovery. When a chunk frame never arrives (network loss),
+// the receiver needs the claimed hash (for post-reconstruction BLAKE3
+// verification) and decompressed size (for RS padding trim). These are
+// written between the sparse-hashes section and the parity section in the
+// trailer wire format. Nil when erasure is inactive or the sender omits them.
 type erasureTrailer struct {
 	ParityCount  int
 	ParityHashes [][32]byte
 	ParitySizes  []uint32
+	ChunkHashes  [][32]byte // [Batch 2c] per-data-chunk BLAKE3 hashes (nil if no manifest)
+	ChunkSizes   []uint32   // [Batch 2c] per-data-chunk decompressed sizes (nil if no manifest)
 }
 
 // readTrailer reads the trailer after the msgTrailer byte has been consumed
@@ -853,7 +869,8 @@ type erasureTrailer struct {
 //
 //	flags(1) + chunkCount(4) + rootHash(32)
 //	[if trailerFlagSparseHashes: + missingHashCount(4) + [chunkIdx(4)+hash(32)]*N]
-//	[+ erasure fields if header flags indicate]
+//	[if hasErasure: chunkManifestCount(4) + [hash(32)+decompSize(4)]*N]  (Batch 2c)
+//	[if hasErasure: parityCount(4) + parityHashes(P*32) + paritySizes(P*4)]
 func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byte, sparseHashes map[int][32]byte, erasure *erasureTrailer, err error) {
 	var buf [37]byte // flags(1) + chunkCount(4) + rootHash(32)
 	if _, err := io.ReadFull(r, buf[:]); err != nil {
@@ -895,6 +912,13 @@ func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byt
 	}
 
 	if hasErasure {
+		// [Batch 2c] Read chunk manifest before parity section. The manifest
+		// carries per-data-chunk hash + decompSize for missing-chunk recovery.
+		// Returns nil arrays when count=0 (no manifest / legacy sender).
+		ch, cs, cmErr := readChunkManifest(r, chunkCount)
+		if cmErr != nil {
+			return 0, [32]byte{}, nil, nil, fmt.Errorf("read chunk manifest: %w", cmErr)
+		}
 		ph, ps, readErr := readErasureManifest(r)
 		if readErr != nil {
 			return 0, [32]byte{}, nil, nil, fmt.Errorf("read erasure trailer: %w", readErr)
@@ -903,6 +927,8 @@ func readTrailer(r io.Reader, hasErasure bool) (chunkCount int, rootHash [32]byt
 			ParityCount:  len(ph),
 			ParityHashes: ph,
 			ParitySizes:  ps,
+			ChunkHashes:  ch,
+			ChunkSizes:   cs,
 		}
 	}
 
@@ -1136,14 +1162,14 @@ type streamReceiveState struct {
 	// parityData map with per-stripe slots bounded by a dynamic inflight
 	// cap. Memory becomes O(inflight_stripes x parityPerStripe x maxChunk)
 	// instead of O(totalParity). [OC-F53 decoupled tracking]
-	stripeSize          int                // from header (0 if no erasure)
-	overhead            float64            // from header (0 if no erasure)
-	parityPerFullStripe int                // stripeParityCount(stripeSize, overhead)
-	maxInflightStripes  int                // dynamic cap from budget formula (OC-F10)
-	stripeDataCounts    map[int]int        // stripe -> count of data chunks arrived
+	stripeSize          int                 // from header (0 if no erasure)
+	overhead            float64             // from header (0 if no erasure)
+	parityPerFullStripe int                 // stripeParityCount(stripeSize, overhead)
+	maxInflightStripes  int                 // dynamic cap from budget formula (OC-F10)
+	stripeDataCounts    map[int]int         // stripe -> count of data chunks arrived
 	paritySlots         map[int]*paritySlot // stripe -> parity storage (bounded)
-	totalParityBytes    int64              // aggregate across all inflight slots
-	totalParityReceived int                // monotonic wire counter (OC-F14)
+	totalParityBytes    int64               // aggregate across all inflight slots
+	totalParityReceived int                 // monotonic wire counter (OC-F14)
 	rsFullStripeEnc     reedsolomon.Encoder // reused across full-stripe reconstructions (R5)
 
 	// Corrupted chunk tracking (Batch 2b). Populated when processIncomingChunk
