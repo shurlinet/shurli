@@ -236,6 +236,11 @@ journal:
     title: FT-Y - Tail Slayer Path Reliability
     description: "Hedged relay racing, multi-peer manifest exchange, connection-pinned streams, managed relay backup paths, checkpoint/resume failover, and zero-sync block coordination inspired by Laurie Kirk's (LaurieWired) Tail Slayer pattern."
 
+  - source: streaming-protocol-rewrite.md
+    weight: 31
+    title: FT-Y - Streaming Protocol Rewrite
+    description: "Streaming SHFT protocol rewrite with global chunk space, directory transfer, hash probe split, compression detection, adaptive chunks, and cross-session resume."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
