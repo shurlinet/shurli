@@ -152,7 +152,7 @@ func rewriteQuickStartLinks(body string) string {
 // rewriteJournalBackticks rewrites backtick code references in journal files.
 // e.g., `pkg/sdk/foo.go` -> `https://github.com/.../pkg/sdk/foo.go`
 func rewriteJournalBackticks(body string) string {
-	for _, prefix := range []string{"cmd/shurli/", "pkg/sdk/", "internal/"} {
+	for _, prefix := range []string{"cmd/shurli/", "pkg/sdk/", "internal/", "plugins/"} {
 		body = strings.ReplaceAll(body, "`"+prefix, "`"+cfg.GithubBase+"/"+prefix)
 	}
 	return body
