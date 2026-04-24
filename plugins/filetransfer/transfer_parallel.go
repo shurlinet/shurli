@@ -768,39 +768,89 @@ verify:
 	progress.ChunksTotal = chunkCount
 	progress.mu.Unlock()
 
-	// Check for missing chunks (R3-IMP4). Truly missing chunks (frame never
-	// arrived) cannot be RS-reconstructed — the receiver holds neither the
-	// claimed hash nor the decompressed size needed to trim a reconstructed
-	// stripe shard. Hard-fail here, before reconstruction would otherwise run.
+	// [Batch 2c] Populate missing-chunk metadata from the trailer's chunk
+	// manifest. When a chunk frame never arrived, the receiver has no claimed
+	// hash or decompressed size for it. The manifest provides both, enabling
+	// RS reconstruction to treat missing chunks identically to corrupted ones.
+	// Must run BEFORE missingChunks check and BEFORE corruptedList/rsReconstruct.
+	if ctrlResult.erasure != nil && ctrlResult.erasure.ChunkHashes != nil {
+		manifest := ctrlResult.erasure
+
+		// [R6-F2] Grow receivedBitfield to exact chunkCount so set() calls
+		// in reconstructSingleStripe (R6-F1) don't silently drop high-index
+		// chunks when CDC produced more chunks than estimateChunkCount predicted.
+		state.mu.Lock()
+		if state.receivedBitfield != nil && state.receivedBitfield.n < chunkCount {
+			grown := newBitfield(chunkCount)
+			copy(grown.bits, state.receivedBitfield.bits)
+			state.receivedBitfield = grown
+		}
+
+		populated := 0
+		for i := 0; i < chunkCount; i++ {
+			if _, ok := state.hashes[i]; ok {
+				continue // already received (recordChunk set hash)
+			}
+			// Skip selectively rejected chunks — their hashes are in
+			// sparseHashes, not expected via wire or manifest recovery.
+			if _, isSparse := ctrlResult.sparseHashes[i]; isSparse {
+				continue
+			}
+			// Truly missing chunk: populate from manifest, mark corrupted.
+			state.hashes[i] = manifest.ChunkHashes[i]
+			state.sizes[i] = manifest.ChunkSizes[i]
+			if state.corruptedChunks == nil {
+				state.corruptedChunks = make(map[int]bool)
+			}
+			state.corruptedChunks[i] = true
+			if i > state.maxChunkIdx {
+				state.maxChunkIdx = i
+			}
+			populated++
+		}
+		state.mu.Unlock()
+		if populated > 0 {
+			slog.Info("file-transfer: populated missing chunks from trailer manifest",
+				"count", populated, "transfer_id", progress.ID)
+		}
+	}
+
+	// Check for missing chunks (R3-IMP4). After Batch 2c manifest populate,
+	// only chunks without manifest data (non-erasure, or manifest absent)
+	// remain truly missing. These cannot be RS-reconstructed.
 	missing := state.missingChunks(chunkCount)
 	if len(missing) > 0 {
 		saveCheckpointOnError()
 		return zero, fmt.Errorf("transfer incomplete: %d chunks missing (first: %d)", len(missing), missing[0])
 	}
 
-	// RS erasure reconstruction sweep [Batch 2b, B2-F32/F35/F36].
+	// RS erasure reconstruction sweep [Batch 2b, B2-F32/F35/F36, Batch 2c].
 	//
 	// Runs exactly once per transfer, after the missing-check succeeds and
 	// before Merkle verify. Only fires when the transfer carries erasure
-	// parity AND processIncomingChunk actually marked chunks corrupted.
-	// Intact erasure transfers skip the sweep entirely, so a partial parity
-	// trailer (B2-F14: declared != actual) does not fail a transfer whose
-	// data all arrived cleanly. When reconstruction IS needed, the parity
-	// count mismatch becomes fatal — the stripe math depends on every
-	// declared parity being present at its declared index.
+	// parity AND processIncomingChunk or manifest populate marked chunks
+	// corrupted. Intact erasure transfers skip the sweep entirely, so a
+	// partial parity trailer (B2-F14: declared != actual) does not fail a
+	// transfer whose data all arrived cleanly.
 	if ctrlResult.erasure != nil {
 		corrupted := state.corruptedList()
 		if len(corrupted) > 0 {
-			// Use totalParityReceived (monotonic wire counter) for mismatch
-			// check, not current slot sizes which undercount after eager
-			// reconstruction freed parity. [OC-F14]
+			// [R5-F6] Parity count mismatch: downgraded from hard error to
+			// Warn for Batch 2c. Network loss can drop parity alongside data.
+			// Per-stripe checks in reconstructSingleStripe are the real guards
+			// (line 501: corrupted > parityCount, line 609: nilData+nilParity
+			// > parityCount). The global check was belt-and-braces that blocked
+			// recovery when sufficient parity exists per-stripe.
 			state.mu.Lock()
 			actualParity := state.totalParityReceived
 			state.mu.Unlock()
 			if actualParity != ctrlResult.erasure.ParityCount {
-				saveCheckpointOnError()
-				return zero, fmt.Errorf("erasure parity count mismatch: declared %d, got %d, cannot reconstruct %d corrupted chunks",
-					ctrlResult.erasure.ParityCount, actualParity, len(corrupted))
+				slog.Warn("file-transfer: parity count mismatch (some parity lost in transit)",
+					"declared", ctrlResult.erasure.ParityCount,
+					"received", actualParity,
+					"lost", ctrlResult.erasure.ParityCount-actualParity,
+					"corrupted_chunks", len(corrupted),
+					"transfer_id", progress.ID)
 			}
 			// stripeSize and overhead come from the header (stored in state
 			// by initPerStripeState), not from the trailer. [Option C]

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shurlinet/shurli/pkg/sdk"
@@ -352,6 +353,69 @@ func TestTrailerWithErasureRoundtrip(t *testing.T) {
 	}
 	if parsedErasure.ParitySizes[0] != 1000 {
 		t.Errorf("parity size: got %d, want 1000", parsedErasure.ParitySizes[0])
+	}
+	// Nil ChunkHashes should pass through as nil (count=0 manifest).
+	if parsedErasure.ChunkHashes != nil {
+		t.Error("ChunkHashes should be nil when not populated")
+	}
+}
+
+// TestTrailerWithManifestRoundtrip verifies that writeTrailer -> readTrailer
+// correctly round-trips the chunk manifest (non-nil ChunkHashes/ChunkSizes)
+// through the full trailer wire format. [Batch 2c]
+func TestTrailerWithManifestRoundtrip(t *testing.T) {
+	chunkHashes := [][32]byte{
+		sdk.Blake3Sum([]byte("chunk0")),
+		sdk.Blake3Sum([]byte("chunk1")),
+		sdk.Blake3Sum([]byte("chunk2")),
+	}
+	rootHash := sdk.MerkleRoot(chunkHashes)
+
+	parityHashes := [][32]byte{sdk.Blake3Sum([]byte("parity0"))}
+	erasure := &erasureTrailer{
+		ParityCount:  1,
+		ParityHashes: parityHashes,
+		ParitySizes:  []uint32{128},
+		ChunkHashes:  chunkHashes,
+		ChunkSizes:   []uint32{1024, 2048, 512},
+	}
+
+	var buf bytes.Buffer
+	if err := writeTrailer(&buf, 3, rootHash, nil, erasure); err != nil {
+		t.Fatalf("writeTrailer: %v", err)
+	}
+
+	data := buf.Bytes()[1:] // skip msgTrailer byte
+	reader := bytes.NewReader(data)
+
+	chunkCount, parsedRoot, _, parsedErasure, err := readTrailer(reader, true)
+	if err != nil {
+		t.Fatalf("readTrailer: %v", err)
+	}
+	if chunkCount != 3 {
+		t.Errorf("chunkCount: got %d, want 3", chunkCount)
+	}
+	if parsedRoot != rootHash {
+		t.Error("rootHash mismatch")
+	}
+	if parsedErasure == nil {
+		t.Fatal("erasure should not be nil")
+	}
+	if parsedErasure.ChunkHashes == nil {
+		t.Fatal("ChunkHashes should not be nil")
+	}
+	for i, h := range chunkHashes {
+		if parsedErasure.ChunkHashes[i] != h {
+			t.Errorf("ChunkHashes[%d] mismatch", i)
+		}
+	}
+	for i, s := range []uint32{1024, 2048, 512} {
+		if parsedErasure.ChunkSizes[i] != s {
+			t.Errorf("ChunkSizes[%d]: got %d, want %d", i, parsedErasure.ChunkSizes[i], s)
+		}
+	}
+	if parsedErasure.ParityCount != 1 || parsedErasure.ParityHashes[0] != parityHashes[0] {
+		t.Error("parity data mismatch")
 	}
 }
 
@@ -1782,12 +1846,13 @@ func TestReceiveParallelReconstructsNonDefaultOverhead(t *testing.T) {
 	}
 }
 
-// TestReceiveParallelParityCountMismatchHardFailOnCorruption proves the
-// conditional F35 hard-fail: when corruption is present AND the trailer
-// declared more parity than actually arrived, reconstruction cannot trust
-// the stripe layout and must fail loudly rather than silently give up.
-// [Batch 2b F35 conditional]
-func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
+// TestReceiveParallelParityCountMismatchWarnButRecoverIfSufficient proves
+// that a parity count mismatch (declared != received) is downgraded to a
+// warning when per-stripe parity is sufficient. This enables recovery when
+// network loss drops some parity alongside data. The per-stripe checks in
+// reconstructSingleStripe are the real guards (corrupted > parityCount,
+// nilData+nilParity > parityCount). [Batch 2c R5-F6]
+func TestReceiveParallelParityCountMismatchWarnButRecoverIfSufficient(t *testing.T) {
 	dir := t.TempDir()
 	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
 	if err != nil {
@@ -1807,7 +1872,7 @@ func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
 	}
 	parityHash := sdk.Blake3Sum(parity[0])
 
-	files := []fileEntry{{Path: "count-fail.bin", Size: totalSize}}
+	files := []fileEntry{{Path: "count-warn.bin", Size: totalSize}}
 	cumOffsets := computeCumulativeOffsets(files)
 	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
 	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
@@ -1842,8 +1907,8 @@ func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
 		fileIdx: parityFileIdx, chunkIdx: 0, offset: 0,
 		hash: parityHash, decompSize: uint32(len(parity[0])), data: parity[0],
 	})
-	// Trailer LIES: declares 5 parity but only 1 arrived. With corruption
-	// needing recovery, this MUST hard-fail.
+	// Trailer declares 5 parity but only 1 arrived. Per-stripe the 1 parity
+	// IS sufficient for 1 corrupted chunk. Should Warn + recover, not fail.
 	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
 		ParityCount:  5,
 		ParityHashes: make([][32]byte, 5),
@@ -1851,8 +1916,321 @@ func TestReceiveParallelParityCountMismatchHardFailOnCorruption(t *testing.T) {
 	})
 
 	_, err = ts.receiveParallel(&controlBuf, session)
+	if err != nil {
+		t.Fatalf("receiveParallel should succeed (per-stripe parity sufficient): %v", err)
+	}
+}
+
+// TestReceiveParallelInsufficientPerStripeParity proves that when per-stripe
+// parity is genuinely insufficient (more corrupted chunks than parity shards
+// in the stripe), reconstruction fails with a clear error. This is the real
+// guard — not the global count mismatch check. [Batch 2c R5-F6]
+func TestReceiveParallelInsufficientPerStripeParity(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	data := [][]byte{
+		bytes.Repeat([]byte{0x55}, 64),
+		bytes.Repeat([]byte{0x66}, 64),
+	}
+	totalSize := int64(128)
+	hashes := [][32]byte{sdk.Blake3Sum(data[0]), sdk.Blake3Sum(data[1])}
+	rootHash := sdk.MerkleRoot(hashes)
+	parity, err := encodeStripe(data, 1)
+	if err != nil {
+		t.Fatalf("encodeStripe: %v", err)
+	}
+	parityHash := sdk.Blake3Sum(parity[0])
+
+	files := []fileEntry{{Path: "insuf-parity.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
+	progress := &TransferProgress{ChunksTotal: 2}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	// BOTH chunks corrupted, only 1 parity. 2 > 1 = unrecoverable.
+	corrupt0 := bytes.Repeat([]byte{0xAA}, 64)
+	corrupt1 := bytes.Repeat([]byte{0xFF}, 64)
+	var controlBuf bytes.Buffer
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: hashes[0], decompSize: 64, data: corrupt0,
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 1, offset: 64,
+		hash: hashes[1], decompSize: 64, data: corrupt1,
+	})
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: parityFileIdx, chunkIdx: 0, offset: 0,
+		hash: parityHash, decompSize: uint32(len(parity[0])), data: parity[0],
+	})
+	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
+		ParityCount:  1,
+		ParityHashes: [][32]byte{parityHash},
+		ParitySizes:  []uint32{uint32(len(parity[0]))},
+	})
+
+	_, err = ts.receiveParallel(&controlBuf, session)
 	if err == nil {
-		t.Fatal("receiveParallel returned nil on parity count mismatch with corruption present; must hard-fail")
+		t.Fatal("receiveParallel should fail: 2 corrupted chunks with only 1 parity")
+	}
+	if !strings.Contains(err.Error(), "exceed") {
+		t.Fatalf("expected per-stripe parity exceeded error, got: %v", err)
+	}
+}
+
+// --- Batch 2c: missing-chunk recovery tests ---
+
+// TestChunkManifestRoundtrip verifies writeChunkManifest + readChunkManifest
+// wire format: count(4) + [hash(32)+decompSize(4)]*N. Tests non-empty, empty
+// (nil), and bounds validation. [Batch 2c]
+func TestChunkManifestRoundtrip(t *testing.T) {
+	hashes := [][32]byte{
+		sdk.Blake3Sum([]byte("chunk0")),
+		sdk.Blake3Sum([]byte("chunk1")),
+		sdk.Blake3Sum([]byte("chunk2")),
+	}
+	sizes := []uint32{1024, 2048, 512}
+
+	var buf bytes.Buffer
+	if err := writeChunkManifest(&buf, hashes, sizes); err != nil {
+		t.Fatalf("writeChunkManifest: %v", err)
+	}
+
+	gotHashes, gotSizes, err := readChunkManifest(&buf, 3)
+	if err != nil {
+		t.Fatalf("readChunkManifest: %v", err)
+	}
+	for i := range hashes {
+		if gotHashes[i] != hashes[i] {
+			t.Errorf("hash %d mismatch", i)
+		}
+		if gotSizes[i] != sizes[i] {
+			t.Errorf("size %d: got %d want %d", i, gotSizes[i], sizes[i])
+		}
+	}
+}
+
+// TestChunkManifestNilWritesZero verifies that nil ChunkHashes writes count=0
+// and readChunkManifest returns nil arrays (no-op manifest for tests and
+// legacy compatibility). [Batch 2c]
+func TestChunkManifestNilWritesZero(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeChunkManifest(&buf, nil, nil); err != nil {
+		t.Fatalf("writeChunkManifest(nil): %v", err)
+	}
+	if buf.Len() != 4 {
+		t.Fatalf("nil manifest should write 4 bytes (count=0), got %d", buf.Len())
+	}
+	h, s, err := readChunkManifest(&buf, 0)
+	if err != nil {
+		t.Fatalf("readChunkManifest: %v", err)
+	}
+	if h != nil || s != nil {
+		t.Error("nil manifest should return nil arrays")
+	}
+}
+
+// TestChunkManifestCountMismatch verifies readChunkManifest rejects a manifest
+// whose count does not match the expected chunkCount. [Batch 2c, 2c-R3-F10]
+func TestChunkManifestCountMismatch(t *testing.T) {
+	hashes := [][32]byte{sdk.Blake3Sum([]byte("a")), sdk.Blake3Sum([]byte("b"))}
+	sizes := []uint32{64, 64}
+
+	var buf bytes.Buffer
+	writeChunkManifest(&buf, hashes, sizes)
+
+	_, _, err := readChunkManifest(&buf, 5) // expect 5, manifest has 2
+	if err == nil {
+		t.Fatal("readChunkManifest should reject count mismatch")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected count mismatch error, got: %v", err)
+	}
+}
+
+// TestChunkManifestInvalidDecompSize verifies readChunkManifest rejects
+// entries with decompSize=0 or decompSize>maxDecompressedChunk. [Batch 2c, 2c-R5-F4]
+func TestChunkManifestInvalidDecompSize(t *testing.T) {
+	// decompSize = 0
+	var buf bytes.Buffer
+	h := [32]byte{1}
+	writeChunkManifest(&buf, [][32]byte{h}, []uint32{0})
+	_, _, err := readChunkManifest(&buf, 1)
+	if err == nil {
+		t.Fatal("readChunkManifest should reject decompSize=0")
+	}
+
+	// decompSize > max
+	buf.Reset()
+	writeChunkManifest(&buf, [][32]byte{h}, []uint32{maxDecompressedChunk + 1})
+	_, _, err = readChunkManifest(&buf, 1)
+	if err == nil {
+		t.Fatal("readChunkManifest should reject decompSize > max")
+	}
+}
+
+// TestReceiveParallelRecoversMissingChunk is the end-to-end Batch 2c test:
+// a chunk frame is deliberately omitted (simulating network loss), but its
+// hash+size are in the trailer manifest. The receiver populates the missing
+// metadata, RS reconstructs the missing bytes from parity, and the transfer
+// succeeds. [Batch 2c]
+func TestReceiveParallelRecoversMissingChunk(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	data := [][]byte{
+		bytes.Repeat([]byte{0x11}, 64),
+		bytes.Repeat([]byte{0x22}, 64),
+	}
+	totalSize := int64(128)
+	hashes := [][32]byte{sdk.Blake3Sum(data[0]), sdk.Blake3Sum(data[1])}
+	rootHash := sdk.MerkleRoot(hashes)
+	parity, err := encodeStripe(data, 1)
+	if err != nil {
+		t.Fatalf("encodeStripe: %v", err)
+	}
+	parityHash := sdk.Blake3Sum(parity[0])
+
+	files := []fileEntry{{Path: "missing-recovery.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, flagErasureCoded, cumOffsets)
+	state.initPerStripeState(&erasureHeaderParams{StripeSize: defaultStripeSize, OverheadPerMille: 100})
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
+	progress := &TransferProgress{ChunksTotal: 2}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	// Send ONLY chunk 0 — chunk 1 is "lost in transit" (never sent).
+	var controlBuf bytes.Buffer
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: hashes[0], decompSize: 64, data: data[0],
+	})
+	// Parity covers both chunks.
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: parityFileIdx, chunkIdx: 0, offset: 0,
+		hash: parityHash, decompSize: uint32(len(parity[0])), data: parity[0],
+	})
+	// Trailer with manifest: provides hash+size for ALL chunks including missing.
+	writeTrailer(&controlBuf, 2, rootHash, nil, &erasureTrailer{
+		ParityCount:  1,
+		ParityHashes: [][32]byte{parityHash},
+		ParitySizes:  []uint32{uint32(len(parity[0]))},
+		ChunkHashes:  hashes,
+		ChunkSizes:   []uint32{64, 64},
+	})
+
+	got, err := ts.receiveParallel(&controlBuf, session)
+	if err != nil {
+		t.Fatalf("receiveParallel should recover missing chunk via manifest+RS: %v", err)
+	}
+	if got != rootHash {
+		t.Error("root hash mismatch after recovery")
+	}
+
+	// Verify the recovered file on disk matches original data.
+	final := filepath.Join(dir, "missing-recovery.bin")
+	content, err := os.ReadFile(final)
+	if err != nil {
+		t.Fatalf("read recovered file: %v", err)
+	}
+	expected := append(data[0], data[1]...)
+	if !bytes.Equal(content, expected) {
+		t.Errorf("recovered file content mismatch: got %d bytes, want %d", len(content), len(expected))
+	}
+
+	// R6-F1: verify receivedBitfield has both bits set after reconstruction.
+	if !state.receivedBitfield.has(0) || !state.receivedBitfield.has(1) {
+		t.Error("receivedBitfield should have both bits set after reconstruction")
+	}
+}
+
+// TestReceiveParallelMissingChunkWithoutManifest verifies that without a
+// manifest (non-erasure or nil ChunkHashes), missing chunks still hard-fail.
+// This is the original Batch 2b behavior preserved for non-erasure transfers.
+func TestReceiveParallelMissingChunkWithoutManifest(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: false}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+
+	data := [][]byte{
+		bytes.Repeat([]byte{0x33}, 64),
+		bytes.Repeat([]byte{0x44}, 64),
+	}
+	totalSize := int64(128)
+	hashes := [][32]byte{sdk.Blake3Sum(data[0]), sdk.Blake3Sum(data[1])}
+	rootHash := sdk.MerkleRoot(hashes)
+
+	files := []fileEntry{{Path: "no-manifest.bin", Size: totalSize}}
+	cumOffsets := computeCumulativeOffsets(files)
+	state := newStreamReceiveState(files, totalSize, 0, cumOffsets) // no erasure flag
+	defer state.cleanup()
+	if err := state.allocateTempFiles(dir); err != nil {
+		t.Fatalf("allocateTempFiles: %v", err)
+	}
+	state.initReceivedBitfield(2)
+
+	progress := &TransferProgress{ChunksTotal: 2}
+	var transferID [32]byte
+	rand.Read(transferID[:])
+	session := &parallelSession{
+		transferID: transferID,
+		state:      state,
+		progress:   progress,
+		done:       make(chan struct{}),
+		chunks:     make(chan streamChunk, 4),
+	}
+
+	// Only send chunk 0, omit chunk 1.
+	var controlBuf bytes.Buffer
+	writeStreamChunkFrame(&controlBuf, streamChunk{
+		fileIdx: 0, chunkIdx: 0, offset: 0,
+		hash: hashes[0], decompSize: 64, data: data[0],
+	})
+	writeTrailer(&controlBuf, 2, rootHash, nil, nil) // no erasure
+
+	_, err = ts.receiveParallel(&controlBuf, session)
+	if err == nil {
+		t.Fatal("missing chunk without manifest should hard-fail")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("expected 'missing' error, got: %v", err)
 	}
 }
 
@@ -1898,9 +2276,9 @@ func TestEagerReconstructCleansStripe(t *testing.T) {
 // perStripeParity = 50 * 8MB = 400MB. cap = 512MB / 400MB = 1 → clamped to 2.
 func TestDynamicInflightCap(t *testing.T) {
 	tests := []struct {
-		name       string
-		overhead   uint16
-		wantCap    int
+		name     string
+		overhead uint16
+		wantCap  int
 	}{
 		{"10% overhead", 100, 6},
 		{"50% overhead", 500, 2},
