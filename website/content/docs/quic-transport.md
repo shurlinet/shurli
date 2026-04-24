@@ -40,7 +40,7 @@ macOS supports neither for UDP. Every QUIC packet requires its own `sendmsg()` c
 quic-go explicitly disables GSO on macOS:
 
 ```go
-// quic-go v0.48.2 — sys_conn_helper_darwin.go
+// quic-go v0.48.2 - sys_conn_helper_darwin.go
 func isGSOEnabled(syscall.RawConn) bool { return false }
 ```
 
