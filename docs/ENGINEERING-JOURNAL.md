@@ -34,3 +34,4 @@ This document has been split into per-batch files for easier navigation. See the
 - [FT-Y: Streaming Protocol Rewrite](engineering-journal/streaming-protocol-rewrite.md) - ADR-Y01 to ADR-Y10
 - [FT-Y: Multi-Peer Adaptive Transfer Scheduling](engineering-journal/multi-peer-adaptive-transfer.md) - ADR-MP01 to ADR-MP10
 - [FT-Y: Budget-Aware Relay Selection](engineering-journal/budget-aware-relay-selection.md) - ADR-BR01 to ADR-BR09
+- [FT-Y: Reed-Solomon Erasure Recovery](engineering-journal/reed-solomon-erasure-recovery.md) - ADR-RS01 to ADR-RS08

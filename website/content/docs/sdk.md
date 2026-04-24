@@ -840,7 +840,7 @@ VerifiedTransport classifies a stream using mDNS-verified LAN detection. Use for
 
 Precedence: Limited (relay circuit) → TransportRelay; loopback or link-local remote → TransportLAN (cannot traverse routers); `hasVerifiedLANConn` returns true → TransportLAN; otherwise → TransportDirect.
 
-Unlike `ClassifyTransport`, routable private IPv4 addresses (RFC 1918 / RFC 6598) are NOT classified as LAN unless mDNS has verified the peer. This avoids false positives from CGNAT, Docker bridge networks, VPN tunnels, and multi-WAN routed-private cross-links — only mDNS multicast (which cannot traverse routers) proves real LAN proximity.
+Unlike `ClassifyTransport`, routable private IPv4 addresses (RFC 1918 / RFC 6598) are NOT classified as LAN unless mDNS has verified the peer. This avoids false positives from CGNAT, Docker bridge networks, VPN tunnels, and multi-WAN routed-private cross-links - only mDNS multicast (which cannot traverse routers) proves real LAN proximity.
 
 A nil `hasVerifiedLANConn` callback still classifies loopback and link-local as LAN; for routable addresses it falls back to TransportDirect (conservative).
 

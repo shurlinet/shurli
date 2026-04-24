@@ -251,6 +251,11 @@ journal:
     title: FT-Y - Budget-Aware Relay Selection
     description: "Relay selection from health-only ranking to grant-aware routing, low-budget retry, receipt freshness, budget exhaustion recovery, and operational feedback."
 
+  - source: reed-solomon-erasure-recovery.md
+    weight: 34
+    title: FT-Y - Reed-Solomon Erasure Recovery
+    description: "Bounded per-stripe Reed-Solomon repair for streaming transfers, with explicit recovery metadata, receiver memory limits, and missing-chunk reconstruction."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
