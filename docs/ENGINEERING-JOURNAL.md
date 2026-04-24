@@ -31,3 +31,4 @@ This document has been split into per-batch files for easier navigation. See the
 - [Phase 9: Grant Receipt Protocol](engineering-journal/grant-receipt-protocol.md) - ADR-V01 to ADR-V05
 - [Phase 9: Relay Circuit Investigation](engineering-journal/relay-circuit-investigation.md) - ADR-W01 to ADR-W03
 - [FT-Y: Tail Slayer Path Reliability](engineering-journal/tail-slayer-path-reliability.md) - ADR-X01 to ADR-X07
+- [FT-Y: Streaming Protocol Rewrite](engineering-journal/streaming-protocol-rewrite.md) - ADR-Y01 to ADR-Y10
