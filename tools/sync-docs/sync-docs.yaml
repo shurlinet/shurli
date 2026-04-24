@@ -241,6 +241,11 @@ journal:
     title: FT-Y - Streaming Protocol Rewrite
     description: "Streaming SHFT protocol rewrite with global chunk space, directory transfer, hash probe split, compression detection, adaptive chunks, and cross-session resume."
 
+  - source: multi-peer-adaptive-transfer.md
+    weight: 32
+    title: FT-Y - Multi-Peer Adaptive Transfer Scheduling
+    description: "Multi-peer transfer scheduling from static RaptorQ ranges through interleaved symbols to receiver-owned work-stealing raw chunks, with manifest verification, per-peer workers, checkpoint/resume, and the RaptorQ library boundary."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
