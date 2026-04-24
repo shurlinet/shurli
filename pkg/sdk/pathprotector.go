@@ -368,6 +368,11 @@ func (pp *PathProtector) maybeEstablishRelay(pid peer.ID) {
 		return
 	}
 
+	// Skip LAN peers — managed relay backup is unnecessary (R4-F7).
+	if pp.lanRegistry != nil && pp.lanRegistry.HasVerifiedLANConn(pp.host, pid) {
+		return
+	}
+
 	// Rate limit (S1).
 	pp.mu.RLock()
 	lastAttempt := pp.lastEstablish[pid]
