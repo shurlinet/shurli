@@ -16,7 +16,7 @@ description: "Relay selection from health-only ranking to grant-aware routing, l
 
 Shurli already had health-aware relay ranking and grant receipts. That solved two different problems: which relays looked reachable, and what budget a relay had advertised to the client. The missing FT-Y step was to combine those signals before and during file-transfer relay use, so a transfer would not discover too late that the chosen relay could not carry the payload.
 
-This journal documents that routing decision. It depends on the Grant Receipt Protocol in [ADR-V01 to ADR-V05](grant-receipt-protocol.md), the relay circuit investigation in [ADR-W03](relay-circuit-investigation.md#adr-w03-seed-relay-churn-and-budget-aware-selection-rc3), and relay-side per-peer budget enforcement in `https://github.com/shurlinet/shurli/blob/main/internal/relay/`. It does not replace any of them. Relay enforcement remains authoritative; client-side budget state is an advisory routing signal.
+This journal documents that routing decision. It depends on the Grant Receipt Protocol in [ADR-V01 to ADR-V05](../grant-receipt-protocol/), the relay circuit investigation in [ADR-W03](../relay-circuit-investigation/#adr-w03-seed-relay-churn-and-budget-aware-selection-rc3), and relay-side per-peer budget enforcement in `https://github.com/shurlinet/shurli/blob/main/internal/relay/`. It does not replace any of them. Relay enforcement remains authoritative; client-side budget state is an advisory routing signal.
 
 ---
 
@@ -32,7 +32,7 @@ This journal documents that routing decision. It depends on the Grant Receipt Pr
 
 Before FT-Y budget-aware relay selection, `RelayDiscovery` could order static and discovered relays by health. Health ranking answers "which relay looks reachable and responsive?" It does not answer "can this relay carry the next transfer?"
 
-[ADR-W03](relay-circuit-investigation.md#adr-w03-seed-relay-churn-and-budget-aware-selection-rc3) documented the old gap. Shurli could fail fast once a transfer opened a relay path and checked the grant receipt, but the relay ordering itself still did not prefer a relay with enough budget.
+[ADR-W03](../relay-circuit-investigation/#adr-w03-seed-relay-churn-and-budget-aware-selection-rc3) documented the old gap. Shurli could fail fast once a transfer opened a relay path and checked the grant receipt, but the relay ordering itself still did not prefer a relay with enough budget.
 
 ### Decision
 

@@ -356,12 +356,13 @@ func syncJournalEntry(docsDir, journalOutDir string, entry journalEntry, dryRun 
 	body := stripFirstHeading(string(data))
 	body = rewriteJournalBackticks(body)
 
-	// README.md becomes _index.md with .md->directory link rewriting
+	// README.md becomes _index.md
 	outName := entry.Source
-	if entry.Source == "README.md" {
+	isIndex := entry.Source == "README.md"
+	if isIndex {
 		outName = "_index.md"
-		body = rewriteJournalMdToDir(body)
 	}
+	body = rewriteJournalCrossRefs(body, isIndex)
 
 	output := buildFrontMatter(entry.Title, entry.Weight, entry.Description)
 	output += buildSyncComment("docs/engineering-journal/" + entry.Source)
@@ -398,7 +399,7 @@ func syncFaqEntry(docsDir, faqOutDir string, entry journalEntry, dryRun bool) bo
 	outName := entry.Source
 	if entry.Source == "README.md" {
 		outName = "_index.md"
-		body = rewriteJournalMdToDir(body)
+		body = rewriteJournalCrossRefs(body, true)
 	}
 
 	output := buildFrontMatter(entry.Title, entry.Weight, entry.Description)
