@@ -81,7 +81,7 @@ The transfer queue now distinguishes "receiver busy" from other rejections:
 - Max 5 attempts prevents infinite retry loops
 - Works for both direct and relayed transfers
 
-**Reference**: `plugins/filetransfer/transfer.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go`
 
 ---
 
@@ -114,4 +114,4 @@ Budget-aware relay *selection* (choosing the best relay before dialing) is track
 - The optimization (proactive relay selection) is deferred to FT-Y #7
 - No relay protocol changes were needed; the solution is entirely client-side
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/grants/cache.go`, `plugins/filetransfer/transfer_grants.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/internal/grants/cache.go`, `https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer_grants.go`

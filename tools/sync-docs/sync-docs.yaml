@@ -231,6 +231,11 @@ journal:
     title: Phase 9 - Relay Circuit Investigation
     description: "Tier-aware session limits (RC1), receiver busy retry (RC2), seed relay churn superseded by Grant Receipt Protocol (RC3)."
 
+  - source: tail-slayer-path-reliability.md
+    weight: 30
+    title: FT-Y - Tail Slayer Path Reliability
+    description: "Hedged relay racing, multi-peer manifest exchange, connection-pinned streams, managed relay backup paths, checkpoint/resume failover, and zero-sync block coordination inspired by Laurie Kirk's (LaurieWired) Tail Slayer pattern."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
@@ -286,6 +291,7 @@ github_source_dirs:
   - cmd/
   - pkg/
   - internal/
+  - plugins/
   - tools/
   - deploy/
   - test/
