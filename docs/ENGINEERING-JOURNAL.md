@@ -33,3 +33,4 @@ This document has been split into per-batch files for easier navigation. See the
 - [FT-Y: Tail Slayer Path Reliability](engineering-journal/tail-slayer-path-reliability.md) - ADR-X01 to ADR-X07
 - [FT-Y: Streaming Protocol Rewrite](engineering-journal/streaming-protocol-rewrite.md) - ADR-Y01 to ADR-Y10
 - [FT-Y: Multi-Peer Adaptive Transfer Scheduling](engineering-journal/multi-peer-adaptive-transfer.md) - ADR-MP01 to ADR-MP10
+- [FT-Y: Budget-Aware Relay Selection](engineering-journal/budget-aware-relay-selection.md) - ADR-BR01 to ADR-BR09

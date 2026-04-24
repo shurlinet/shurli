@@ -246,6 +246,11 @@ journal:
     title: FT-Y - Multi-Peer Adaptive Transfer Scheduling
     description: "Multi-peer transfer scheduling from static RaptorQ ranges through interleaved symbols to receiver-owned work-stealing raw chunks, with manifest verification, per-peer workers, checkpoint/resume, and the RaptorQ library boundary."
 
+  - source: budget-aware-relay-selection.md
+    weight: 33
+    title: FT-Y - Budget-Aware Relay Selection
+    description: "Relay selection from health-only ranking to grant-aware routing, low-budget retry, receipt freshness, budget exhaustion recovery, and operational feedback."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
