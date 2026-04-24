@@ -501,8 +501,9 @@ type TransferSnapshot struct {
 	Status           string       `json:"status"`
 	StartTime        time.Time    `json:"start_time"`
 	EndTime          time.Time    `json:"end_time,omitempty"`
-	Done             bool         `json:"done"`
-	Error            string       `json:"error,omitempty"`
+	Done             bool              `json:"done"`
+	Error            string            `json:"error,omitempty"`
+	PendingFiles     []PendingFileInfo `json:"pending_files,omitempty"` // R7-F2: file list for awaiting_approval (selective rejection #18)
 }
 
 // Snapshot returns a mutex-free copy safe for JSON serialization.
@@ -623,15 +624,18 @@ type PendingTransfer struct {
 	PeerID   string    `json:"peer_id"`
 	Time     time.Time `json:"time"`
 
-	// Internal: channel for approval decision. Not serialized.
-	decision chan transferDecision
+	// Internal fields for selective rejection (#18). Not serialized.
+	files      []fileEntry           // file table from wire header
+	hasErasure bool                  // sender uses erasure coding (gates selective rejection, F8)
+	decision   chan transferDecision
 }
 
 // transferDecision carries the user's accept/reject decision for a pending transfer.
 type transferDecision struct {
-	accept bool
-	reason byte   // reject reason (only meaningful if !accept)
-	dest   string // override receive directory (only meaningful if accept)
+	accept        bool
+	reason        byte   // reject reason (only meaningful if !accept)
+	dest          string // override receive directory (only meaningful if accept)
+	acceptedFiles []int  // 0-indexed file indices to accept (nil = all) (#18)
 }
 
 // RejectReasonString returns a human-readable string for a reject reason byte.
@@ -1527,6 +1531,19 @@ func (ts *TransferService) streamingSend(
 		}
 		if !isFullAccept(bf) {
 			acceptBitfield = bf
+			// R6-F7: adjust sender progress to accepted-only total size.
+			// Without this, sender progress never reaches 100% for selective rejection.
+			if progress != nil {
+				var acceptedSize int64
+				for i, f := range files {
+					if bf.has(i) {
+						acceptedSize += f.Size
+					}
+				}
+				progress.mu.Lock()
+				progress.Size = acceptedSize
+				progress.mu.Unlock()
+			}
 		}
 
 	case msgResumeRequest:
@@ -1922,17 +1939,20 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 
 		destDir := ts.receiveDir
+		var acceptedFileIndices []int // #18: nil = full accept, non-nil = selective
 
 		if ts.receiveMode == ReceiveModeAsk {
 			// Ask mode: queue for manual approval with timeout.
 			pendingID := fmt.Sprintf("pending-%d-%s", time.Now().UnixNano(), randomHex(4))
 			pt := &PendingTransfer{
-				ID:       pendingID,
-				Filename: displayName,
-				Size:     totalSize,
-				PeerID:   peerKey,
-				Time:     time.Now(),
-				decision: make(chan transferDecision, 1),
+				ID:         pendingID,
+				Filename:   displayName,
+				Size:       totalSize,
+				PeerID:     peerKey,
+				Time:       time.Now(),
+				files:      files,                 // #18: store for selective rejection
+				hasErasure: erasureHdr != nil,      // #18: gate selective rejection (F8)
+				decision:   make(chan transferDecision, 1),
 			}
 
 			ts.mu.Lock()
@@ -1991,9 +2011,19 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 				destDir = decision.dest
 			}
 
-			slog.Info("file-transfer: approved",
-				"peer", short, "file", displayName, "id", pendingID)
-			ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
+			acceptedFileIndices = decision.acceptedFiles // #18: propagate selective rejection
+			if acceptedFileIndices != nil {
+				// R6-F2/R6-F3: log selective accept with counts.
+				slog.Info("file-transfer: approved (selective)",
+					"peer", short, "file", displayName, "id", pendingID,
+					"accepted", len(acceptedFileIndices), "total", len(files))
+				ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0,
+					fmt.Sprintf("selective: %d/%d files", len(acceptedFileIndices), len(files)), "")
+			} else {
+				slog.Info("file-transfer: approved",
+					"peer", short, "file", displayName, "id", pendingID)
+				ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
+			}
 		} else {
 			slog.Info("file-transfer: receiving",
 				"peer", short, "file", displayName,
@@ -2025,11 +2055,21 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 			if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) && ckpt.flags == flags {
 				restored, restoreErr := ckpt.restoreReceiveState(destDir)
 				if restoreErr == nil {
-					resumeState = restored
-					resumeBitfield = ckpt.have
-					slog.Info("file-transfer: resuming from checkpoint",
-						"peer", short, "file", displayName,
-						"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+					// F11: compare checkpoint's accept bitfield with new decision.
+					// If user changed file selection, delete checkpoint and start fresh.
+					if !acceptBitsMatch(ckpt.acceptBits, acceptedFileIndices, len(files)) {
+						slog.Info("file-transfer: file selection changed, discarding checkpoint",
+							"peer", short, "file", displayName)
+						restored.cleanup()
+						ckpt.cleanupTempFiles(destDir)
+						removeStreamCheckpoint(destDir, ck)
+					} else {
+						resumeState = restored
+						resumeBitfield = ckpt.have
+						slog.Info("file-transfer: resuming from checkpoint",
+							"peer", short, "file", displayName,
+							"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+					}
 				} else {
 					slog.Debug("file-transfer: checkpoint restore failed, starting fresh",
 						"error", restoreErr)
@@ -2080,10 +2120,27 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 				return
 			}
 		} else {
-			// Fresh transfer: send accept with full-accept bitfield (F2).
+			// Fresh transfer: send accept bitfield (F2, #18 selective rejection).
 			acceptBF := newBitfield(len(files))
-			for i := range files {
-				acceptBF.set(i)
+			if acceptedFileIndices != nil {
+				// Selective: only set bits for accepted files.
+				for _, idx := range acceptedFileIndices {
+					acceptBF.set(idx)
+				}
+				// F5: all-rejected check (defense in depth, AcceptTransfer also checks).
+				if isAllRejected(acceptBF) {
+					writeMsg(s, msgReject)
+					ts.logEvent(EventLogRejected, "receive", peerKey, displayName, totalSize, 0, "all files excluded", "")
+					return
+				}
+				slog.Info("file-transfer: selective accept",
+					"peer", short, "file", displayName,
+					"accepted", len(acceptedFileIndices), "total", len(files))
+			} else {
+				// Full accept: set all bits.
+				for i := range files {
+					acceptBF.set(i)
+				}
 			}
 			if err := writeAcceptBitfield(rw, len(files), acceptBF); err != nil {
 				slog.Error("file-transfer: accept write failed", "error", err)
@@ -2094,13 +2151,32 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		// Extend deadline after accept/resume (I9).
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
+		// Compute effective size and chunk estimate for selective rejection (#18, F12).
+		effectiveSize := totalSize
+		if acceptedFileIndices != nil && len(acceptedFileIndices) < len(files) {
+			effectiveSize = 0
+			for _, idx := range acceptedFileIndices {
+				effectiveSize += files[idx].Size
+			}
+		}
+		estimatedChunks := estimateChunkCount(effectiveSize)
+
 		// Create or reuse streaming receive state.
-		estimatedChunks := estimateChunkCount(totalSize)
 		var state *streamReceiveState
 		if resumeState != nil {
 			state = resumeState
 		} else {
 			state = newStreamReceiveState(files, totalSize, flags, cumOffsets)
+
+			// F13: wire accept bitfield into state for selective rejection.
+			// Must be set BEFORE allocateTempFiles (which checks it to skip rejected files).
+			if acceptedFileIndices != nil {
+				bf := newBitfield(len(files))
+				for _, idx := range acceptedFileIndices {
+					bf.set(idx)
+				}
+				state.acceptBitfield = bf
+			}
 
 			// Allocate temp files for each accepted file entry.
 			if err := state.allocateTempFiles(destDir); err != nil {
@@ -2119,7 +2195,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 		defer state.cleanup() // R4-SEC2: always clean up temp files on any exit
 
-		progress := ts.trackTransfer(displayName, totalSize,
+		progress := ts.trackTransfer(displayName, effectiveSize,
 			peerKey, "receive", estimatedChunks, flags&flagCompressed != 0)
 		progress.setStatus("active")
 		// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
@@ -2167,12 +2243,24 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 			ts.logEvent(EventLogFailed, "receive", peerKey, displayName, totalSize, progress.Sent(), recvErr.Error(), dur)
 			ts.recordTransferFailure(peerKey)
 		} else {
-			slog.Info("file-transfer: received",
-				"peer", short, "file", displayName,
-				"size", totalSize, "files", len(files))
-			ts.logEvent(EventLogCompleted, "receive", peerKey, displayName, totalSize, totalSize, "", dur)
+			// R8-F3: log selective info in completion.
+			if acceptedFileIndices != nil {
+				slog.Info("file-transfer: received (selective)",
+					"peer", short, "file", displayName,
+					"accepted", len(acceptedFileIndices), "total_files", len(files),
+					"size", effectiveSize)
+			} else {
+				slog.Info("file-transfer: received",
+					"peer", short, "file", displayName,
+					"size", totalSize, "files", len(files))
+			}
+			if acceptedFileIndices != nil {
+				ts.logEventSelective(EventLogCompleted, "receive", peerKey, displayName, effectiveSize, effectiveSize, "", dur, len(acceptedFileIndices), len(files))
+			} else {
+				ts.logEvent(EventLogCompleted, "receive", peerKey, displayName, effectiveSize, effectiveSize, "", dur)
+			}
 			if transport != sdk.TransportLAN && ts.bandwidthTracker != nil {
-				ts.bandwidthTracker.record(peerKey, totalSize)
+				ts.bandwidthTracker.record(peerKey, effectiveSize)
 			}
 		}
 
@@ -3669,21 +3757,49 @@ func (ts *TransferService) logEvent(eventType, direction, peerID, fileName strin
 	})
 }
 
+// logEventSelective logs a transfer event with selective file rejection info (#18 R8-F3).
+func (ts *TransferService) logEventSelective(eventType, direction, peerID, fileName string, fileSize, bytesDone int64, errStr, duration string, acceptedFiles, totalFiles int) {
+	if ts.logger == nil {
+		return
+	}
+	ts.logger.Log(TransferEvent{
+		Timestamp:     time.Now(),
+		EventType:     eventType,
+		Direction:     direction,
+		PeerID:        peerID,
+		FileName:      fileName,
+		FileSize:      fileSize,
+		BytesDone:     bytesDone,
+		Error:         errStr,
+		Duration:      duration,
+		AcceptedFiles: acceptedFiles,
+		TotalFiles:    totalFiles,
+	})
+}
+
 // --- Ask mode: pending transfer management ---
 
 // ListPending returns snapshots of all pending transfers awaiting approval.
+// Includes per-file info for selective rejection (#18).
 func (ts *TransferService) ListPending() []PendingTransfer {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	result := make([]PendingTransfer, 0, len(ts.pending))
 	for _, p := range ts.pending {
-		result = append(result, PendingTransfer{
-			ID:       p.ID,
-			Filename: p.Filename,
-			Size:     p.Size,
-			PeerID:   p.PeerID,
-			Time:     p.Time,
-		})
+		pt := PendingTransfer{
+			ID:         p.ID,
+			Filename:   p.Filename,
+			Size:       p.Size,
+			PeerID:     p.PeerID,
+			Time:       p.Time,
+			hasErasure: p.hasErasure,
+		}
+		// Copy file entries so the caller can't mutate the pending state.
+		if len(p.files) > 0 {
+			pt.files = make([]fileEntry, len(p.files))
+			copy(pt.files, p.files)
+		}
+		result = append(result, pt)
 	}
 	return result
 }
@@ -3716,9 +3832,13 @@ func (ts *TransferService) findPendingByPrefix(prefix string) (string, *PendingT
 	}
 }
 
-// AcceptTransfer approves a pending transfer. Optional dest overrides the receive directory.
+// AcceptTransfer approves a pending transfer with optional file selection (#18).
 // Supports short ID prefix matching (like git).
-func (ts *TransferService) AcceptTransfer(id, dest string) error {
+//
+// acceptedFiles: 0-indexed file indices to accept (nil = all files).
+// Validates indices against the file table. Gates selective rejection when
+// erasure coding is active (F8) or when all files would be rejected (F5).
+func (ts *TransferService) AcceptTransfer(id, dest string, acceptedFiles []int) error {
 	ts.mu.RLock()
 	_, p, err := ts.findPendingByPrefix(id)
 	ts.mu.RUnlock()
@@ -3726,8 +3846,48 @@ func (ts *TransferService) AcceptTransfer(id, dest string) error {
 		return err
 	}
 
+	// Validate file selection against the pending transfer's file table.
+	if acceptedFiles != nil {
+		fileCount := len(p.files)
+		if fileCount == 0 {
+			return fmt.Errorf("transfer %q has no file list for selective rejection", id)
+		}
+
+		// F8: gate selective rejection when erasure is active.
+		if p.hasErasure {
+			return fmt.Errorf("selective file rejection is not available for this transfer because " +
+				"the sender uses erasure coding (typical for WAN/relay transfers). " +
+				"Accept all files with 'shurli accept %s', or reject with 'shurli reject %s'", id, id)
+		}
+
+		// F2/F7: validate indices are in range.
+		seen := make(map[int]bool, len(acceptedFiles))
+		for _, idx := range acceptedFiles {
+			if idx < 0 || idx >= fileCount {
+				return fmt.Errorf("file index %d out of range (transfer has %d files, valid range 0-%d)", idx, fileCount, fileCount-1)
+			}
+			seen[idx] = true
+		}
+		// F6: deduplicate.
+		deduped := make([]int, 0, len(seen))
+		for idx := range seen {
+			deduped = append(deduped, idx)
+		}
+		acceptedFiles = deduped
+
+		// F5: if all files are excluded, that's a full reject.
+		if len(acceptedFiles) == 0 {
+			return fmt.Errorf("no files selected; use 'shurli reject %s' to reject the entire transfer", id)
+		}
+		// R7-F9: if selective rejection results in all files rejected.
+		if len(acceptedFiles) == fileCount {
+			// All files accepted = full accept, clear selection.
+			acceptedFiles = nil
+		}
+	}
+
 	select {
-	case p.decision <- transferDecision{accept: true, dest: dest}:
+	case p.decision <- transferDecision{accept: true, dest: dest, acceptedFiles: acceptedFiles}:
 		return nil
 	default:
 		return fmt.Errorf("transfer %q already decided or timed out", id)
@@ -3952,7 +4112,10 @@ func (ts *TransferService) downloadNegotiate(
 		}
 
 		if existingState == nil {
-			// Fresh transfer: send full accept.
+			// Fresh transfer: send accept bitfield.
+			// R6-F19: mirrors ReceiveFrom's selective bitfield logic.
+			// On retry (existingState != nil), the resume path preserves
+			// the original accept bitfield from the first attempt's state.
 			acceptBF := newBitfield(len(files))
 			for i := range files {
 				acceptBF.set(i)
@@ -3989,7 +4152,9 @@ func (ts *TransferService) downloadNegotiate(
 // This is the inverse of a push transfer: the receiver opens the stream and
 // pulls data. The sharer's HandleDownload handler calls SendFile(), which
 // writes SHFT manifest + chunks. This method reads that data.
-func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error) {
+// ReceiveFrom initiates a download from a remote peer's shared file.
+// sel: file selection for selective download (#18). nil = download all files.
+func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string, sel ...*FileSelection) (*TransferProgress, error) {
 	if destDir == "" {
 		destDir = ts.receiveDir
 	}
@@ -4061,6 +4226,21 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	// Compute content key for cross-session resume (R3-IMP5, R4-IMP2).
 	ck := contentKey(files)
 
+	// #18: resolve file selection ONCE so we can compare against checkpoint
+	// and use throughout the function (eliminates multiple sel[0].resolve() calls).
+	// Validation happens here (not deferred to the fresh path).
+	var dlNewAccepted []int // nil = full download
+	if len(sel) > 0 && sel[0] != nil {
+		var selErr error
+		dlNewAccepted, selErr = sel[0].resolve(len(files))
+		if selErr != nil {
+			return nil, fmt.Errorf("selective download: %w", selErr)
+		}
+		if dlNewAccepted != nil && len(dlNewAccepted) >= len(files) {
+			dlNewAccepted = nil // all files = full accept
+		}
+	}
+
 	// Check for existing checkpoint (resume support).
 	var resumeState *streamReceiveState
 	var resumeBitfield *bitfield
@@ -4069,11 +4249,21 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		if ckpt.totalSize == totalSize && len(ckpt.files) == len(files) && ckpt.flags == flags {
 			restored, restoreErr := ckpt.restoreReceiveState(destDir)
 			if restoreErr == nil {
-				resumeState = restored
-				resumeBitfield = ckpt.have
-				slog.Info("file-download: resuming from checkpoint",
-					"peer", short, "file", displayName,
-					"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+				// F11: compare checkpoint's accept bitfield with current selection.
+				// Mirrors HandleInbound's acceptBitsMatch check (transfer.go:2060).
+				if !acceptBitsMatch(ckpt.acceptBits, dlNewAccepted, len(files)) {
+					slog.Info("file-download: file selection changed, discarding checkpoint",
+						"peer", short, "file", displayName)
+					restored.cleanup()
+					ckpt.cleanupTempFiles(destDir)
+					removeStreamCheckpoint(destDir, ck)
+				} else {
+					resumeState = restored
+					resumeBitfield = ckpt.have
+					slog.Info("file-download: resuming from checkpoint",
+						"peer", short, "file", displayName,
+						"have", ckpt.have.count(), "total_est", len(ckpt.hashes))
+				}
 			} else {
 				slog.Debug("file-download: checkpoint restore failed, starting fresh",
 					"error", restoreErr)
@@ -4117,10 +4307,30 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			return nil, fmt.Errorf("resume response: err=%v resp=0x%02x", respErr, resp)
 		}
 	} else {
-		// Fresh transfer: auto-accept with full-accept bitfield (receiver initiated this download).
+		// Fresh transfer: build accept bitfield (#18 selective download).
+		// Uses dlNewAccepted (resolved and validated once above, before checkpoint check).
+
+		// F8: gate selective rejection when erasure is active.
+		if dlNewAccepted != nil && erasureHdr2 != nil {
+			ts.unregisterParallelSession(transferID)
+			return nil, fmt.Errorf("selective file rejection is not available: sender uses erasure coding (WAN/relay). Download all files or skip the download")
+		}
+
 		acceptBF := newBitfield(len(files))
-		for i := range files {
-			acceptBF.set(i)
+		if dlNewAccepted != nil {
+			for _, idx := range dlNewAccepted {
+				if idx >= 0 && idx < len(files) {
+					acceptBF.set(idx)
+				}
+			}
+			if isAllRejected(acceptBF) {
+				ts.unregisterParallelSession(transferID)
+				return nil, fmt.Errorf("all files excluded; nothing to download")
+			}
+		} else {
+			for i := range files {
+				acceptBF.set(i)
+			}
 		}
 		if err := writeAcceptBitfield(rw, len(files), acceptBF); err != nil {
 			ts.unregisterParallelSession(transferID)
@@ -4128,8 +4338,30 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 		}
 	}
 
-	estimatedChunks := estimateChunkCount(totalSize)
-	progress := ts.trackTransfer(displayName, totalSize,
+	// Compute effective size for progress (#18 F12, F13, R8-F3).
+	// Uses dlNewAccepted (resolved ONCE above for checkpoint comparison).
+	// The goroutine uses dlNewAccepted for:
+	// 1. state.acceptBitfield (F13 - allocateTempFiles skips rejected files)
+	// 2. completion logging (R8-F3 - AcceptedFiles/TotalFiles in transfer history)
+	// 3. effective size (F12 - progress reaches 100%)
+	effectiveSize := totalSize
+	if dlNewAccepted != nil {
+		acceptSet := make(map[int]bool, len(dlNewAccepted))
+		for _, idx := range dlNewAccepted {
+			acceptSet[idx] = true
+		}
+		var acceptedSize int64
+		for i, f := range files {
+			if acceptSet[i] {
+				acceptedSize += f.Size
+			}
+		}
+		if acceptedSize > 0 {
+			effectiveSize = acceptedSize
+		}
+	}
+	estimatedChunks := estimateChunkCount(effectiveSize)
+	progress := ts.trackTransfer(displayName, effectiveSize,
 		peerKey, "download", estimatedChunks, flags&flagCompressed != 0)
 	progress.setStatus("active")
 	// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
@@ -4172,6 +4404,18 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 			state = resumeState
 		} else {
 			state = newStreamReceiveState(files, totalSize, flags, cumOffsets)
+
+			// F13: wire accept bitfield into state for selective download.
+			// Must be set BEFORE allocateTempFiles (which checks it to skip rejected files).
+			// HandleInbound does this at the parallel code path; this is the ReceiveFrom mirror.
+			// Uses dlNewAccepted resolved once before the goroutine (no re-resolution).
+			if dlNewAccepted != nil {
+				bf := newBitfield(len(files))
+				for _, idx := range dlNewAccepted {
+					bf.set(idx)
+				}
+				state.acceptBitfield = bf
+			}
 
 			if allocErr := state.allocateTempFiles(destDir); allocErr != nil {
 				progress.finish(allocErr)
@@ -4553,10 +4797,19 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 				"peer", short, "file", displayName, "error", recvErr)
 			ts.logEvent(EventLogFailed, "download", peerKey, displayName, totalSize, received, recvErr.Error(), dur)
 		} else {
-			slog.Info("file-download: received",
-				"peer", short, "file", displayName,
-				"size", totalSize, "dest", destDir)
-			ts.logEvent(EventLogCompleted, "download", peerKey, displayName, totalSize, totalSize, "", dur)
+			// R8-F3: log selective info in download completion.
+			if dlNewAccepted != nil {
+				slog.Info("file-download: received (selective)",
+					"peer", short, "file", displayName,
+					"accepted", len(dlNewAccepted), "total_files", len(files),
+					"size", effectiveSize, "dest", destDir)
+				ts.logEventSelective(EventLogCompleted, "download", peerKey, displayName, effectiveSize, effectiveSize, "", dur, len(dlNewAccepted), len(files))
+			} else {
+				slog.Info("file-download: received",
+					"peer", short, "file", displayName,
+					"size", totalSize, "dest", destDir)
+				ts.logEvent(EventLogCompleted, "download", peerKey, displayName, totalSize, totalSize, "", dur)
+			}
 		}
 	}()
 

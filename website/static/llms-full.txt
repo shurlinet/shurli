@@ -749,11 +749,23 @@ shurli transfers --history
 # Accept a pending transfer
 shurli accept <transfer-id>
 
+# Accept only specific files (1-indexed)
+shurli accept <transfer-id> --files 1,3,5
+
+# Accept all except specific files
+shurli accept <transfer-id> --exclude 2,4
+
+# Accept with index ranges
+shurli accept <transfer-id> --files 1-5,10,15-20
+
 # Accept all pending
 shurli accept --all
 
 # Reject a pending transfer
 shurli reject <transfer-id>
+
+# View single transfer details (including file list)
+shurli transfers <transfer-id>
 
 # Cancel an outbound transfer
 shurli cancel <transfer-id>
@@ -781,7 +793,15 @@ shurli browse home-server
 
 # Download a specific file from a peer's shares
 shurli download document.pdf home-server
+
+# Download only specific files from a shared directory (1-indexed)
+shurli download photos/ home-server --files 1,3
+
+# Download all except specific files
+shurli download photos/ home-server --exclude 2,4
 ```
+
+Selective file rejection (`--files`/`--exclude`) is not supported with erasure-coded transfers (WAN/relay) or multi-peer downloads. Accept all files or reject the entire transfer in those cases.
 
 Shares persist across daemon restarts (stored in `~/.shurli/shares.json`).
 
@@ -1100,7 +1120,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler
 Returns handler for inbound transfer protocol. Register with libp2p.
 
 ```go
-func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string) (*TransferProgress, error)
+func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string, sel ...*FileSelection) (*TransferProgress, error)
 ```
 
 Initiates receiver-side download from a peer's shared file.
@@ -1175,7 +1195,7 @@ func (ts *TransferService) RequeuePersisted(streamFactory func(peerID string) fu
 
 ```go
 func (ts *TransferService) ListPending() []PendingTransfer
-func (ts *TransferService) AcceptTransfer(id, dest string) error
+func (ts *TransferService) AcceptTransfer(id, dest string, acceptedFiles []int) error
 func (ts *TransferService) RejectTransfer(id string, reason byte) error
 ```
 
@@ -1214,7 +1234,13 @@ func (p *TransferProgress) Sent() int64
 
 ### type TransferSnapshot
 
-Same fields as TransferProgress. Mutex-free copy safe for JSON serialization and API responses.
+Same fields as TransferProgress plus:
+
+```go
+PendingFiles []PendingFileInfo `json:"pending_files,omitempty"`
+```
+
+Populated for transfers with status `awaiting_approval`. Contains the per-file list for selective rejection. Mutex-free copy safe for JSON serialization and API responses.
 
 ### type StreamInfo
 
@@ -1236,10 +1262,29 @@ type PendingTransfer struct {
     Size     int64     `json:"size"`
     PeerID   string    `json:"peer_id"`
     Time     time.Time `json:"time"`
+
+    // unexported: files []fileEntry, hasErasure bool, decision chan
 }
 ```
 
-Inbound transfer awaiting approval in ask mode.
+Inbound transfer awaiting approval in ask mode. Internal fields store the per-file table from the wire header (used by `AcceptTransfer` to build selective accept bitfields) and whether the sender uses erasure coding (gates selective rejection).
+
+### type FileSelection
+
+```go
+type FileSelection struct {
+    Include []int // accept ONLY these file indices (0-indexed)
+    Exclude []int // accept all EXCEPT these file indices (0-indexed)
+}
+```
+
+Specifies which files to include or exclude in a download. Nil means all files. Include and Exclude are mutually exclusive. Passed as optional variadic to `ReceiveFrom`.
+
+```go
+func (s *FileSelection) resolve(fileCount int) ([]int, error)
+```
+
+Converts Include/Exclude into accepted 0-indexed file indices. Returns nil for full accept. Returns error for out-of-range indices.
 
 ### type SendOptions
 
@@ -1428,15 +1473,17 @@ func (d *DirectoryTransfer) RegularFiles() []dirFileEntry
 
 ```go
 type TransferEvent struct {
-    Timestamp time.Time `json:"timestamp"`
-    EventType string    `json:"event_type"`
-    Direction string    `json:"direction"`
-    PeerID    string    `json:"peer_id"`
-    FileName  string    `json:"file_name"`
-    FileSize  int64     `json:"file_size,omitempty"`
-    BytesDone int64     `json:"bytes_done,omitempty"`
-    Error     string    `json:"error,omitempty"`
-    Duration  string    `json:"duration,omitempty"`
+    Timestamp     time.Time `json:"timestamp"`
+    EventType     string    `json:"event_type"`
+    Direction     string    `json:"direction"`
+    PeerID        string    `json:"peer_id"`
+    FileName      string    `json:"file_name"`
+    FileSize      int64     `json:"file_size,omitempty"`
+    BytesDone     int64     `json:"bytes_done,omitempty"`
+    Error         string    `json:"error,omitempty"`
+    Duration      string    `json:"duration,omitempty"`
+    AcceptedFiles int       `json:"accepted_files,omitempty"` // selective rejection: accepted file count
+    TotalFiles    int       `json:"total_files,omitempty"`    // selective rejection: total file count
 }
 ```
 
@@ -1553,6 +1600,7 @@ type SendRequest struct {
     NoCompress bool   `json:"no_compress"`
     Streams    int    `json:"streams"`
     Priority   string `json:"priority"`
+    RateLimit  string `json:"rate_limit"` // send rate limit e.g. "100M" (empty = service default)
 }
 
 type SendResponse struct {
@@ -1563,7 +1611,9 @@ type SendResponse struct {
 }
 
 type TransferAcceptRequest struct {
-    Dest string `json:"dest,omitempty"`
+    Dest    string `json:"dest,omitempty"`    // override receive directory
+    Files   []int  `json:"files,omitempty"`   // 0-indexed: accept ONLY these files (nil = all)
+    Exclude []int  `json:"exclude,omitempty"` // 0-indexed: accept all EXCEPT these (nil = none)
 }
 
 type TransferRejectRequest struct {
@@ -1571,11 +1621,20 @@ type TransferRejectRequest struct {
 }
 
 type PendingTransferInfo struct {
-    ID       string `json:"id"`
-    Filename string `json:"filename"`
-    Size     int64  `json:"size"`
-    PeerID   string `json:"peer_id"`
-    Time     string `json:"time"`
+    ID         string            `json:"id"`
+    Filename   string            `json:"filename"`
+    Size       int64             `json:"size"`
+    PeerID     string            `json:"peer_id"`
+    Time       string            `json:"time"`
+    FileCount  int               `json:"file_count"`            // total files in transfer
+    Files      []PendingFileInfo `json:"files,omitempty"`       // per-file info for selective rejection
+    HasErasure bool              `json:"has_erasure,omitempty"` // sender uses erasure coding (gates selective rejection)
+}
+
+type PendingFileInfo struct {
+    Index int    `json:"index"` // 0-indexed position in file table
+    Path  string `json:"path"`  // relative path (sanitized)
+    Size  int64  `json:"size"`  // file size in bytes
 }
 
 type ShareRequest struct {
@@ -1617,12 +1676,15 @@ type DownloadRequest struct {
     LocalDest  string   `json:"local_dest"`
     MultiPeer  bool     `json:"multi_peer,omitempty"`
     ExtraPeers []string `json:"extra_peers,omitempty"`
+    Files      []int    `json:"files,omitempty"`   // 0-indexed: download ONLY these files
+    Exclude    []int    `json:"exclude,omitempty"` // 0-indexed: download all EXCEPT these
 }
 
 type DownloadResponse struct {
     TransferID string `json:"transfer_id"`
     FileName   string `json:"filename"`
     FileSize   int64  `json:"file_size"`
+    PeersUsed  int    `json:"peers_used,omitempty"` // multi-peer peer count
 }
 ```
 
@@ -9867,6 +9929,8 @@ New developers, contributors, and future-us should be able to read this and unde
 | [Phase 9: Grant Receipt Protocol](grant-receipt-protocol.md) | ADR-V01 to ADR-V05 | Relay-issued receipts, client-side grant cache, smart pre-transfer check, per-chunk circuit byte tracking, smart reconnection |
 | [Phase 9: Relay Circuit Investigation](relay-circuit-investigation.md) | ADR-W01 to ADR-W03 | Tier-aware session limits, receiver busy retry, seed relay churn (superseded by Grant Receipt Protocol) |
 | [FT-Y: Tail Slayer Path Reliability](tail-slayer-path-reliability.md) | ADR-X01 to ADR-X07 | Hedged relay racing, multi-peer manifest exchange, connection-pinned streams, managed relay backup paths, checkpoint/resume failover, zero-sync block coordination |
+| [FT-Y: Streaming Protocol Rewrite](streaming-protocol-rewrite.md) | ADR-Y01 to ADR-Y10 | Streaming SHFT protocol, global chunk space, directory transfer, hash probe split, compression detection, adaptive chunks, cross-session resume |
+| [FT-Y: Multi-Peer Adaptive Transfer Scheduling](multi-peer-adaptive-transfer.md) | ADR-MP01 to ADR-MP10 | Static partition failure, adaptive RaptorQ evolution, raw block work stealing, per-peer worker streams, checkpoint/resume |
 
 
 ---
@@ -14804,6 +14868,984 @@ No coordination messages are exchanged between peers. Each peer independently ra
 ## Public Notes
 
 This journal omits private topology, node names, peer IDs, addresses, file names, and provider details. Performance numbers are included where they demonstrate architectural impact: relay failover latency (ADR-X02), control signal overhead (ADR-X04), backup path cost (ADR-X05), failover continuity (ADR-X06), and work-stealing efficiency (ADR-X07). All numbers are from physical testing across real network transitions. A formal benchmark report with controlled methodology and reproducible conditions is separate from this architecture record.
+
+
+---
+
+# FT-Y: Streaming Protocol Rewrite
+
+| | |
+|---|---|
+| **Date** | 2026-03-31 to 2026-04-03 |
+| **Status** | Complete |
+| **Phase** | FT-Y (File Transfer Speed Optimization) |
+| **ADRs** | ADR-Y01 to ADR-Y10 |
+
+The FT-Y streaming protocol rewrite replaced Shurli's manifest-first file transfer path with a streaming, directory-aware, checkpointable pipeline. The goal was not only higher speed. The real architectural change was that the sender no longer had to finish building every chunk and every hash before the receiver could start accepting data.
+
+Later FT-Y work built on this foundation, including multi-peer scheduling, path failover, larger chunks, and erasure recovery. Those systems have their own journals. This record stays focused on the streaming protocol rewrite itself: why the old shape had to go, how the new wire shape works, and what trade-offs were accepted.
+
+---
+
+## ADR-Y01: Replace the Accumulate-All Manifest Protocol
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commits** | 8f73963, db1f588 |
+
+### Context
+
+The old file transfer path was manifest-first. The sender chunked the whole input, computed every chunk hash, built a manifest containing the final Merkle root, then started moving payload bytes. That made the transfer wall clock roughly `chunking + hashing + compression + network`, instead of overlapping disk, CPU, and network work.
+
+It also made directories awkward. Directory transfer was built out of per-file flows, which meant per-file stream setup, per-file approval semantics, and no content-defined chunking across small file boundaries. The protocol could transfer files, but it could not behave like one continuous content stream.
+
+### Decision
+
+Replace the manifest-first wire path with:
+
+1. A header containing the file table, total size, flags, transfer ID, and optional erasure parameters.
+2. Self-describing chunk frames carrying global offset, chunk index, BLAKE3 hash, decompressed size, and wire data.
+3. A trailer containing the final chunk count, Merkle root, sparse hashes when needed, and erasure metadata when active.
+
+The receiver starts after the header instead of waiting for a complete manifest. The final root still exists, but it moves to the trailer because it is only known after chunking completes.
+
+### Alternatives Considered
+
+**Keep the old manifest format and tune internals** would preserve compatibility, but it could not solve the serial dependency on a complete manifest.
+
+**Two-pass transfer, hash first and send second** would make the manifest available before data, but it doubles disk reads and still prevents a true streaming pipeline.
+
+**Add a channel between old chunking and old sending** was tested and rejected. The old shape still needed all hashes before the manifest could be sent, and the shared channel design showed heavy goroutine scheduling cost.
+
+### Consequences
+
+- The sender can pipeline production and transmission.
+- The receiver can allocate and write files from a file table before the Merkle root is known.
+- The root hash remains the final integrity boundary, but verification happens at trailer time.
+- Wire compatibility with the old manifest path was intentionally dropped.
+- The protocol became a better base for directory transfer, resume, and parallel worker streams.
+
+### Physical Verification
+
+Profiling before the rewrite showed that chunking and sending were not overlapping. A channel-based attempt under the old manifest model fell to 77 MB/s because scheduling overhead replaced the original bottleneck. After the streaming rewrite and physical retest, single-node LAN send measured 111 MB/s, single-stream download measured 125 MB/s, and relay transfer measured about 4 MB/s. The same retest verified hash matches on single files, real media files, nested directories, and edge-case filenames.
+
+**Reference**: `plugins/filetransfer/transfer.go`, `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer_parallel.go`
+
+---
+
+## ADR-Y02: No Backward Compatibility for the Rewrite
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commit** | 8f73963 |
+
+### Context
+
+The wire format changed completely: manifest-first became header, stream chunks, trailer. A compatibility layer would have required the receiver to support two transfer grammars, two checkpoint interpretations, two worker-stream routing schemes, and old manifest parsing in the hot path.
+
+The project was still pre-release, and all active deployments were controlled. The directive was explicit: `NO backward compat. Keep version 1.` In code terms, the FT-Y rewrite did not introduce a new negotiated file-transfer protocol generation or a second SHFT wire version for compatibility. It changed the active implementation in place.
+
+### Decision
+
+Do not implement mixed-version negotiation. Do not carry old manifest/chunk readers on the file-transfer wire path. Rebuild controlled nodes together and fail loudly if an old node speaks the old grammar.
+
+Checkpoint compatibility was handled differently. Old or incompatible checkpoints are local disk state, not peer protocol state, so they are discarded by magic/version checks rather than negotiated over the network.
+
+### Alternatives Considered
+
+**Bump the protocol and keep both implementations** would reduce operator error during mixed deployments, but it would keep dead code alive in a security-sensitive path.
+
+**Add automatic downgrade** would make behavior harder to reason about and would hide stale deployments until they hit a less obvious edge case.
+
+**Keep the old parser only for reads** would still require the receiver to allocate and validate two formats.
+
+### Consequences
+
+- The active transfer path stayed small enough to audit.
+- Old nodes fail fast instead of silently producing partial or corrupt transfers.
+- The decision assumes controlled deployment discipline.
+- Public docs must explain that this was a pre-release rewrite decision, not a stable-network compatibility promise.
+
+### Physical Verification
+
+The post-rewrite deployment was tested as a same-generation rollout. Physical retest covered LAN send, LAN download, relay transfer, directory transfer, compression detection, cancel, and resume. No mixed-version success path was attempted because accepting mixed wire generations was explicitly rejected.
+
+**Reference**: `plugins/filetransfer/transfer.go`, `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer_resume.go`
+
+---
+
+## ADR-Y03: Streaming File Table and Global Chunk Space
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commit** | 8f73963 |
+
+### Context
+
+Directory transfer needs one approval decision, one content identity, and one continuous chunk stream. Per-file streams make small directories inefficient, and per-file content-defined chunking prevents chunks from crossing file boundaries. That is exactly where content-defined chunking is most useful: many small files can be packed into fewer chunks.
+
+The receiver also needs to write a chunk that may span more than one file. A chunk frame cannot simply say "file index plus local offset" when its bytes cross a boundary.
+
+### Decision
+
+Represent a file or directory as one global byte stream:
+
+1. Build a sorted file table with path, size, mode, and modification time.
+2. Use `multiFileReader` to present all regular files as one `io.Reader`.
+3. Chunk the concatenated stream with FastCDC.
+4. Put global offset and decompressed size in every chunk frame.
+5. Use `globalToLocal` on the receiver to split each global chunk range into per-file writes.
+
+The `fileIdx` in a chunk frame is a hint for the first file touched by the chunk. The authoritative placement comes from global offset plus the file table's cumulative offsets.
+
+### Alternatives Considered
+
+**One stream per file** was easy to understand but kept directory transfer as a set of many small transfers.
+
+**One manifest per directory but per-file chunks** would reduce stream setup but would still waste wire overhead on many small files.
+
+**Put per-file slice metadata in every chunk frame** would avoid recomputing placement, but it would enlarge every frame and duplicate information already derivable from the file table.
+
+### Consequences
+
+- Directory transfer uses one continuous piece flow.
+- Chunks can cross file boundaries without corrupting placement.
+- Empty files still exist in the file table and are finalized as zero-byte files.
+- File ordering must be deterministic, so the sender sorts the table and checkpoint keys depend on that order.
+- Selective rejection becomes more subtle because a boundary chunk may include accepted and rejected file bytes.
+
+### Physical Verification
+
+A nested 27-file directory transferred at 54.6 MB/s on the post-rewrite LAN retest. Edge cases also passed: empty file creation, Unicode filenames, spaced filenames, and nested subdirectories. Later cross-file corruption testing verified that a chunk spanning file boundaries could be mapped back to the correct per-file outputs.
+
+**Reference**: `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-Y04: Parallel Producer/Consumer Streaming Pipeline
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commit** | 8f73963 |
+
+### Context
+
+Once the wire format no longer needed a complete manifest up front, the sender needed an actual pipeline. The producer reads, chunks, hashes, optionally compresses, and emits chunk frames. The sender side then distributes those frames to one control stream and optional worker streams. The receiver side must merge control and worker chunks without accepting trailer verification before the workers are drained.
+
+The key risk was ordering. The trailer lives on the control stream. Worker streams may still have buffered chunks when the trailer arrives.
+
+### Decision
+
+Use bounded producer and worker queues:
+
+- `chunkProducer` emits `streamChunk` values into a bounded channel.
+- `sendParallel` opens worker streams, sends a transfer-ID worker hello, and round-robins chunks across per-stream channels.
+- A `sync.WaitGroup` waits for every worker to flush before the trailer is written.
+- `receiveParallel` registers a session by transfer ID, verifies worker peer identity, merges worker chunks into the shared receive state, and drains worker streams before trailer verification.
+- Queue depths are deliberately bounded to preserve backpressure.
+
+### Alternatives Considered
+
+**Single stream only** was simpler, but it left LAN capacity unused on transfers with enough chunks.
+
+**One shared channel consumed by all workers** was measured and abandoned because scheduler overhead became a bottleneck.
+
+**Write the trailer as soon as the producer finishes** was unsafe because worker streams could still be flushing chunks.
+
+### Consequences
+
+- The sender can overlap file reading, chunking, hashing, compression, and network writes.
+- Worker streams are optional. The code falls back to the control stream when parallel setup fails.
+- Backpressure is explicit, not accidental.
+- Receiver progress must count unique chunks, not highest chunk index, because chunks arrive out of order.
+- Cancellation and cleanup must reset both control and worker streams.
+
+### Physical Verification
+
+Post-rewrite LAN send measured 111 MB/s with eight streams. Single-stream download measured 125 MB/s, which showed that the new single-stream path remained efficient while the parallel path could use multiple streams when useful. Physical testing also found and fixed a worker flush bug where tiny compressed chunks could remain buffered unless worker streams used `CloseWrite` before close.
+
+**Reference**: `plugins/filetransfer/transfer_parallel.go`, `plugins/filetransfer/transfer.go`, `plugins/filetransfer/transfer_stream.go`
+
+---
+
+## ADR-Y05: Split Hash Probe from Download Request
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commit** | 8f73963 |
+
+### Context
+
+The old multi-peer probe path expected to read a manifest and extract its root hash before starting a transfer. Streaming moved the root hash to the trailer, so a normal download stream cannot provide the root until after all data has moved. That broke the probe abstraction.
+
+The old request helper also mixed control flow and data flow by returning "ready" error values. This made success states look like errors, which made the download protocol harder to reason about.
+
+### Decision
+
+Add an explicit request type to the download protocol:
+
+- `requestType=0x01`: full download. The sharer calls `SendFile`.
+- `requestType=0x02`: hash probe. The sharer chunks the file, computes the Merkle root, and returns a fixed 45-byte response.
+
+`RequestDownload` and `RequestProbe` now return normal Go values and errors. `handleHashProbe` opens files through `os.Root`, chunks within the jailed root, checks context cancellation, and rate-limits probe requests because a probe can require a full file read.
+
+### Alternatives Considered
+
+**Let probes start a full transfer and stop after the trailer** defeats the purpose of a metadata probe.
+
+**Keep returning special error values** preserved the old helper shape, but it kept an errors-as-values anti-pattern in a security-sensitive protocol.
+
+**Precompute and cache every shared hash** could make probes fast, but it adds invalidation complexity and does not solve the protocol boundary.
+
+### Consequences
+
+- Metadata queries and data transfers are separate operations.
+- Multi-peer code can ask "what root hash is this file?" without starting a payload transfer.
+- The hash-probe path pays chunking cost, but it is bounded, rate-limited, and explicit.
+- `os.Root` removes the stat-then-open time-of-check/time-of-use gap in probe handling.
+
+### Physical Verification
+
+The probe split was verified through the post-rewrite multi-peer and download paths: probe requests return a root hash without streaming payload bytes, while download requests continue into SHFT streaming. The response is fixed size: one marker byte, 32 bytes of root hash, 8 bytes of total size, and 4 bytes of chunk count.
+
+**Reference**: `plugins/filetransfer/share.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-Y06: Three-Chunk Incompressible Detection
+
+| | |
+|---|---|
+| **Date** | 2026-03-31 |
+| **Status** | Accepted |
+| **Commit** | 6c57d15 |
+
+### Context
+
+Profiling showed zstd work on data that did not compress. Random data, archives, and media often produce a 1.0:1 ratio, but the old path still paid encoder cost chunk after chunk. On fast local transfers, that CPU cost was visible in throughput.
+
+Compression still needed to stay on by default because zero-fill, logs, and text-like data compress extremely well.
+
+### Decision
+
+Use an early probe:
+
+1. Try zstd on the first three chunks.
+2. Treat any chunk with compressed length greater than or equal to 95 percent of raw length as not worth compressing.
+3. If all three probe chunks fail to compress, disable compression for the rest of the transfer.
+4. Keep per-chunk framing self-describing so the receiver can handle compressed and raw chunks correctly.
+
+### Alternatives Considered
+
+**Disable compression by default** would improve random/media transfer speed but would waste bandwidth on highly compressible data.
+
+**Add a user-facing compression knob as the primary solution** would move an implementation detail to the operator and make defaults worse.
+
+**Probe the entire file first** would make the decision more accurate but would reintroduce a serial pre-transfer pass.
+
+### Consequences
+
+- Incompressible transfers stop paying zstd cost after three chunks.
+- Compressible transfers still benefit from zstd.
+- Compression remains automatic and does not add a CLI tuning surface.
+- The decision is local to each transfer, so mixed workloads behave correctly.
+
+### Physical Verification
+
+The pprof session measured 107 MB/s with pooled zstd still compressing random data. Three-chunk incompressible detection raised the average to 134 MB/s, with a 167 MB/s peak. That was 78 percent of the 214-220 MB/s SCP comparison in that test environment. Compression detection also distinguished the two extremes correctly: zero-fill compressed at 8456:1, while random data stayed at 1.0:1 and disabled zstd after the probe.
+
+**Reference**: `plugins/filetransfer/compress.go`, `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-Y07: Adaptive Chunk Sizes Without a Config Knob
+
+| | |
+|---|---|
+| **Date** | 2026-04-17 |
+| **Status** | Accepted |
+| **Commit** | de2ded7 |
+
+### Context
+
+The original chunk targets were too small for large files. More chunks means more frame headers, more hash map entries, more bitfield work, more progress updates, and more goroutine scheduling. But making every file use large chunks would hurt small-file granularity and resume efficiency.
+
+### Decision
+
+Make chunk sizing adaptive by file size inside `ChunkTarget`:
+
+| File Size | Min | Avg | Max |
+|-----------|-----|-----|-----|
+| < 64 MB | 64 KB | 128 KB | 256 KB |
+| < 512 MB | 128 KB | 256 KB | 512 KB |
+| < 2 GB | 256 KB | 512 KB | 1 MB |
+| < 8 GB | 512 KB | 1 MB | 2 MB |
+| >= 8 GB | 1 MB | 2 MB | 4 MB |
+
+No user-facing config knob was added. The file size already contains the signal needed to choose the tier, and exposing a knob would create compatibility and support problems without solving an operator-facing issue.
+
+### Alternatives Considered
+
+**One global larger chunk size** would reduce overhead for large files but punish small files and small resumes.
+
+**Expose chunk size in config** would make performance depend on local tuning and would create mismatched expectations across peers.
+
+**Keep the old size until a full benchmark suite existed** would leave a known overhead in place after the streaming rewrite had already made larger chunks safe.
+
+### Consequences
+
+- Large files use fewer chunks and less per-chunk overhead.
+- Small files keep finer granularity.
+- `maxChunkWireSize`, zstd window size, worker buffer depth, producer buffer depth, and checkpoint versioning are coupled to chunk tiers and must be reviewed together.
+- Resume granularity becomes at worst 4 MB in the largest tier, which is acceptable for both LAN and relay paths.
+
+### Physical Verification
+
+Regression testing after the chunk-tier change transferred 100 MB, 1 GB, and 2 GB random files end-to-end with matching hashes. Receiver memory stayed flat relative to file size: a 2 GB transfer peaked around 66 MB resident set size, roughly 12 MB above idle baseline. The result confirmed that larger chunks did not reintroduce accumulate-all receiver memory behavior.
+
+**Reference**: `plugins/filetransfer/chunker.go`, `plugins/filetransfer/transfer.go`, `plugins/filetransfer/transfer_parallel.go`, `plugins/filetransfer/transfer_resume.go`
+
+---
+
+## ADR-Y08: Checkpoint Format for Cross-Session Resume
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 to 2026-04-17 |
+| **Status** | Accepted |
+| **Commits** | 8f73963, de2ded7, 188e421 |
+
+### Context
+
+The old checkpoint key used the root hash. Streaming does not know the root hash until the trailer, but the receiver needs to decide whether it can resume immediately after reading the header. That makes a root-hash checkpoint key unusable for the new protocol.
+
+Chunk boundaries also changed during FT-Y. A checkpoint written under one chunking scheme can be actively harmful under another because the receiver may claim it has chunks that no longer align with the sender's current chunk stream.
+
+### Decision
+
+Use an explicit checkpoint format:
+
+- Magic bytes `SHCK` plus a checkpoint version.
+- `contentKey` derived with BLAKE3 from deterministic file table data.
+- File table, total size, flags, received bitfield, per-chunk hashes, per-chunk sizes, and temp paths.
+- Atomic save through tmp file plus rename.
+- Version mismatch discard rather than best-effort interpretation.
+- Temp-file cleanup from the checkpoint's own recorded paths when a checkpoint is discarded.
+
+The content key is not a security proof. It is a stable local resume key that lets a new session find the same partially received content before the final Merkle root is known.
+
+### Alternatives Considered
+
+**Keep root hash as the checkpoint key** would make resume unavailable until after the transfer was already complete.
+
+**Use transfer ID as the key** would only resume within one session. A reconnect creates a new transfer ID.
+
+**Try to interpret old checkpoints** risks mapping old chunk boundaries onto new chunk boundaries. Discarding is safer and simpler.
+
+### Consequences
+
+- Resume works across sessions and across retry streams.
+- Old checkpoints fail cleanly instead of corrupting new transfers.
+- Merkle verification remains the final integrity check.
+- Checkpoint files store enough per-chunk metadata to verify resumed transfers without re-reading every completed chunk.
+- Later features can bump the checkpoint version again when checkpoint semantics change.
+
+### Physical Verification
+
+Cancel and resume was physically verified on a 500 MB transfer. The receiver preserved temp data and checkpoint state, then resumed by sending only the remaining portion: 160.4 MB on wire, 249.9 MB/s effective resume speed. The same test confirmed content-key matching across sessions. Later corruption/resume testing verified that corrupted chunks are cleared from the checkpoint have-bit so a resumed session asks the sender for clean data instead of trusting bad temp-file state.
+
+**Reference**: `plugins/filetransfer/transfer_resume.go`, `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-Y09: Pool zstd and Disable Reed-Solomon on Verified LAN
+
+| | |
+|---|---|
+| **Date** | 2026-03-31 |
+| **Status** | Accepted |
+| **Commit** | 6c57d15 |
+
+### Context
+
+The first pprof session found two independent performance bugs. First, zstd encoders and decoders were being recreated per chunk, causing extreme allocation churn. Second, Reed-Solomon erasure coding was active on a local path because transport classification treated a direct non-relay path as WAN even when another connection proved the peers were on the same local network.
+
+Erasure is useful on unreliable WAN and relay paths. On verified LAN it is unnecessary overhead.
+
+### Decision
+
+Pool zstd encoders and decoders with `sync.Pool`, and make erasure transport-aware:
+
+- Use pooled zstd encoder and decoder instances.
+- Keep decompression output bounded to defend against compression bombs.
+- Ask the network layer whether a peer has a verified LAN connection.
+- Disable erasure when the peer is verified LAN.
+- Treat unverified paths conservatively as non-LAN for correctness.
+
+Later LAN classification work refined this from bare private-address checks to mDNS-verified LAN signal, which prevents routed-private and tunnel paths from being misclassified as local.
+
+### Alternatives Considered
+
+**Disable zstd entirely** would avoid encoder cost but lose huge wins on compressible data.
+
+**Keep Reed-Solomon on every direct path** preserved redundancy but wasted CPU and wire bytes on stable local transfers.
+
+**Classify by private IP address alone** was rejected because private ranges can appear in routed, carrier, tunnel, and container networks.
+
+### Consequences
+
+- The fast local path stops paying erasure overhead.
+- zstd allocation churn is removed from the hot path.
+- Transport classification becomes a correctness dependency, not just an optimization.
+- When LAN verification is unavailable, the system chooses safety over speed and keeps erasure available.
+
+### Physical Verification
+
+The pprof session improved 500 MB incompressible transfer speed from 44.1 MB/s to 107 MB/s after zstd pooling, a 2.4x gain. After erasure was correctly disabled for verified LAN, local speed remained about 106 MB/s without unnecessary parity overhead. Later memory profiling found that zstd's default 8 MB window could bloat pooled encoder memory, so the window was bounded at 1 MB while keeping the pool.
+
+**Reference**: `plugins/filetransfer/compress.go`, `plugins/filetransfer/transfer.go`, `plugins/filetransfer/plugin.go`, `pkg/sdk/plugin_policy.go`
+
+---
+
+## ADR-Y10: Delete the Old Wire Path Instead of Parking It
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 |
+| **Status** | Accepted |
+| **Commits** | 8f73963, db1f588 |
+
+### Context
+
+After the streaming path was wired end to end, the old manifest/chunk functions were no longer the active file-transfer wire path. Leaving them in place would create two problems: future audits would have to reason about dead code, and tests might accidentally keep validating the old design instead of the new protocol.
+
+The remaining `transferManifest` type still has a job in the independent multi-peer manifest protocol. That is separate from the single-peer SHFT wire path.
+
+### Decision
+
+Delete the old single-peer wire helpers from the active path:
+
+- Remove `rawChunk`.
+- Remove old chunk-frame read/write helpers.
+- Remove `sendChunked`.
+- Remove the dead streaming receive helper after `receiveParallel` became the only receive path.
+- Keep manifest serialization only where the multi-peer protocol still uses it.
+
+### Alternatives Considered
+
+**Keep old helpers for reference** makes code archaeology easier, but git already preserves history.
+
+**Leave old tests and mark them legacy** would keep test coverage for behavior the product no longer ships.
+
+**Hide the old path behind a flag** would violate the no-backward-compatibility decision and create an unsupported mode.
+
+### Consequences
+
+- The active transfer path is smaller and easier to audit.
+- Tests exercise the streaming protocol, not the retired format.
+- Multi-peer manifest code remains because it is a different protocol with a current caller.
+- Future contributors do not have to guess which wire path is authoritative.
+
+### Physical Verification
+
+The dead-code sweep removed roughly 240 lines of old single-peer wire code and rewrote tests around `writeStreamChunkFrame`, `readStreamChunkFrame`, `writeTrailer`, `readTrailer`, and `receiveParallel`. A code search now finds the old manifest constants only as legacy message IDs or as data structures used by the separate multi-peer manifest protocol, not as the active single-peer SHFT send path. Post-migration retest after moving the engine into `plugins/filetransfer` showed no protocol regression: LAN send, LAN download, relay transfer, directory transfer, compression detection, and resume all passed.
+
+**Reference**: `plugins/filetransfer/transfer.go`, `plugins/filetransfer/transfer_stream.go`, `plugins/filetransfer/transfer_parallel.go`, `plugins/filetransfer/transfer_multipeer.go`
+
+---
+
+## Public Notes
+
+This journal intentionally omits private node names, peer IDs, addresses, providers, hardware identifiers, file paths, and topology details. Performance numbers are included only where they explain architectural decisions: eliminating accumulate-all behavior, avoiding wasted compression, disabling erasure on verified LAN, proving directory streaming, and proving checkpoint resume.
+
+
+---
+
+# FT-Y: Multi-Peer Adaptive Transfer Scheduling
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 to 2026-04-16 |
+| **Status** | Complete |
+| **Phase** | FT-Y (File Transfer Speed Optimization) |
+| **ADRs** | ADR-MP01 to ADR-MP10 |
+| **Primary Commits** | f8f9c7f, 42d58f7, f2de5b1, 674b662, 007ce63, 8dfe669, f9ee530 |
+
+Multi-peer transfer started as a RaptorQ fountain-code design, became an interleaved adaptive symbol design, and then moved to receiver-owned work-stealing raw chunks. That arc matters. The intermediate design had a good instinct: fast peers should be able to contribute more than slow peers. Physical testing showed the implementation still made every peer pay the full file chunking and encoding cost, so the slow peer stayed on the critical path.
+
+This journal documents the multi-peer scheduling and wire-protocol decisions that are not already covered by the Tail Slayer journal. Hedged manifest exchange is covered in [ADR-X03](tail-slayer-path-reliability.md#adr-x03-hedged-multi-peer-manifest-exchange-ts-3). `blockQueue` internals, retry priority, and zero-sync coordination are covered in [ADR-X07](tail-slayer-path-reliability.md#adr-x07-zero-sync-block-coordination-for-multi-peer-downloads-ts-6). The focus here is the evolution from static RaptorQ symbols to raw block requests, the per-peer worker stream protocol, manifest verification, checkpoint shape, and the boundary between retained RaptorQ library code and the active protocol.
+
+---
+
+## ADR-MP01: Static Multi-Peer Partitioning Failed
+
+| | |
+|---|---|
+| **Date** | 2026-03-25 to 2026-04-01 |
+| **Status** | Superseded |
+| **Commits** | bfd4b06, b824271, f8f9c7f |
+
+### Context
+
+The original multi-peer download path used RaptorQ fountain symbols. Each file chunk became a RaptorQ block, and peers were assigned symbol ranges. The intent was that symbols from multiple peers could reconstruct the same content, but the actual scheduling was static: each peer owned a slice of symbol IDs.
+
+Static partitioning predicted that peers would behave similarly. Real peer-to-peer transfers do not behave that way. A fast peer could finish its range and then sit idle while a slow peer still held required symbols. The transfer became bounded by the slowest useful source, not by aggregate available bandwidth.
+
+### Decision
+
+Treat static range assignment as a failed architecture for Shurli multi-peer download. It was useful enough to prove the protocol shape, but it did not meet the FT-Y performance goal.
+
+The replacement direction was adaptive scheduling: make the receiver decide what remains unfinished, and let faster peers take more work.
+
+### Alternatives Considered
+
+**Increase repair overhead** would give the receiver more symbols, but it would also add bandwidth and CPU overhead without removing the slow-peer dependency.
+
+**Tune symbol ranges manually** would only work for a known topology. Shurli cannot assume stable or symmetric peers.
+
+**Wait for all peers to finish their ranges** was the original behavior, and physical testing rejected it.
+
+### Consequences
+
+- Static symbol ownership was removed from the active design.
+- The multi-peer problem was reframed as scheduling, not only erasure recovery.
+- Later designs focused on "who should serve the next unit of work?" instead of "which peer owns this fixed range?"
+
+### Physical Verification
+
+An early two-source RaptorQ test transferred 100 MB at 3.1 MB/s. That was about slowest-peer behavior, not aggregate bandwidth. The result was enough to prove the static partitioning problem before the later FT-Y redesign.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_raptorq.go`, `plugins/filetransfer/transfer_raptorq_test.go`
+
+---
+
+## ADR-MP02: Interleaved Adaptive RaptorQ Symbol IDs Were An Intermediate Step
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 to 2026-04-03 |
+| **Status** | Superseded |
+| **Commit** | f8f9c7f |
+
+### Context
+
+Commit f8f9c7f replaced contiguous symbol ranges with interleaved RaptorQ symbol IDs. Peer `i` generated IDs `i, i+N, i+2N...`, where `N` was the number of peers. That eliminated direct overlap between peers and let the receiver decode from any `K` symbols.
+
+The good idea was real: if one peer was faster, it should be able to deliver enough symbols to decode blocks before a slower peer caught up. This matched the "any K symbols" property of fountain codes.
+
+### Decision
+
+Keep the lesson, not the implementation. Interleaving fixed the most obvious static-range mistake, but it still made every peer serve symbols for every block. The slow peer still had to chunk and encode the full file. On reliable point-to-point streams, this was expensive work that did not buy enough resilience.
+
+### Alternatives Considered
+
+**Keep interleaving and add more diagnostics** would have made the failure easier to observe, but it would not change the work each peer had to do.
+
+**Add per-block locks to the RaptorQ decoder path** would reduce mutex contention, but all peers would still chunk and encode all blocks.
+
+**Terminate slow peers once enough symbols arrive** would help some transfers, but the sender-side full-file chunking cost would still be paid before a slow peer could contribute.
+
+### Consequences
+
+- Interleaved symbols are documented as a transitional design, not as the winning architecture.
+- The receiver-owned scheduling idea survived.
+- The RaptorQ active path was replaced instead of optimized further.
+
+### Physical Verification
+
+A correct two-peer interleaved-symbol test on a 500 MB file measured 7.6 MB/s. The faster single source measured 142.8 MB/s, and the slower single source measured 8.8 MB/s. Multi-peer was slower than the slower source alone because the slow peer still had to chunk and encode the full file before the transfer could finish.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_raptorq.go`, `plugins/filetransfer/transfer_multipeer_test.go`
+
+---
+
+## ADR-MP03: Rewrite The Wire Protocol In Place
+
+| | |
+|---|---|
+| **Date** | 2026-04-06 |
+| **Status** | Accepted |
+| **Commit** | 42d58f7 |
+
+### Context
+
+The RaptorQ and raw-block protocols are not compatible. The old request header carried peer index and peer count for symbol interleaving. The new request header carries a root hash and feature flags. The old data stream carried `msgFountainSymbol`; the new data stream carries explicit block request, block data, block error, and done frames.
+
+The current protocol ID remains `/shurli/file-multi-peer/1.0.0`. The plugin registration also exposes `file-multi-peer` version `1.0.0`. The code was rewritten in a pre-release deployment window where nodes were controlled and rebuilt together.
+
+### Decision
+
+Do not implement mixed-version negotiation for this rewrite. Keep the protocol ID at `1.0.0`, replace the active grammar in place, and rely on same-generation deployments.
+
+This mirrors the FT-Y streaming rewrite decision: compatibility code would keep a dead, security-sensitive parser alive in the hot path. In this case, the active multi-peer protocol was still pre-release and had already proven incorrect under physical testing.
+
+### Alternatives Considered
+
+**Bump to `/shurli/file-multi-peer/2.0.0` and keep both handlers** would be cleaner for public mixed deployments, but it would preserve the RaptorQ active path solely for compatibility.
+
+**Auto-detect old versus new messages** would make the first byte dispatch more complicated and create more malformed-input cases.
+
+**Reject all old nodes with a negotiated capability probe** would still require supporting an additional negotiation layer without improving the active transfer.
+
+### Consequences
+
+- The active wire parser stayed small and auditable.
+- Mixed-generation nodes fail rather than silently degrading.
+- Public docs must describe the current raw-block protocol, not the old RaptorQ symbol protocol.
+
+### Physical Verification
+
+The rewrite was verified as a same-generation rollout. Subsequent physical tests used nodes running the rewritten protocol and did not attempt mixed-version interoperability. Current code confirms the active protocol ID is still `/shurli/file-multi-peer/1.0.0`, while the frame grammar is the raw-block grammar.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/plugin.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-MP04: Verify Every Peer Manifest
+
+| | |
+|---|---|
+| **Date** | 2026-04-01 to 2026-04-09 |
+| **Status** | Accepted |
+| **Commits** | f8f9c7f, 42d58f7, f2de5b1, 8dfe669 |
+
+### Context
+
+Multi-peer download trusts multiple peers for the same content. The receiver starts from a root hash discovered through the download probe, then asks candidate peers for a multi-peer manifest containing chunk hashes, sizes, filename, file size, and chunk count.
+
+Root hash verification is necessary, but it is not sufficient. A malicious or buggy manifest could provide a valid-looking hash list while lying about chunk sizes or total file size. Those fields affect allocation, disk reservation, offsets, and `WriteAt` placement.
+
+### Decision
+
+Verify every manifest before assigning that peer data work:
+
+- Compute the Merkle root from the peer's chunk hashes and compare it to the requested root.
+- Check the sum of `ChunkSizes` equals `FileSize`.
+- Bound every chunk size before allocation.
+- Check peer chunk count and chunk sizes against the winning manifest before launching that peer worker.
+- Cross-check late manifests from hedged manifest exchange against the winner.
+
+### Alternatives Considered
+
+**Trust the first peer's manifest** made peer 0 a stronger trust anchor than necessary.
+
+**Only verify the Merkle root** ignored fields that control memory and disk behavior.
+
+**Wait for all manifests before starting** would maximize agreement, but it would duplicate ADR-X03's startup latency problem. Late manifests are verified in the background instead.
+
+### Consequences
+
+- A peer can only serve blocks after its manifest matches the requested content shape.
+- Allocation and disk writes are bounded before block data is read.
+- Manifest verification works with hedged startup without waiting for slow peers.
+
+### Physical Verification
+
+The healthy physical runs did not produce manifest mismatches. Code-level verification is covered by manifest validation tests for size sums, per-chunk bounds, manifest marshal/unmarshal, and request wire format. The 2026-04-16 multi-peer manifest run verified that both peers could pass manifest exchange and then serve blocks in the same transfer.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_multipeer_test.go`, `plugins/filetransfer/share.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-MP05: Remove RaptorQ From Active Multi-Peer Transfer
+
+| | |
+|---|---|
+| **Date** | 2026-04-04 to 2026-04-06 |
+| **Status** | Accepted |
+| **Commit** | 42d58f7 |
+
+### Context
+
+RaptorQ is useful when a receiver needs any `K` symbols from a larger set, especially on lossy or broadcast-style delivery. Shurli's active multi-peer transfer path is different. It uses reliable QUIC streams between authorized peers. QUIC already retransmits lost packets, and each peer can be asked for a specific chunk.
+
+The physical failure was not "RaptorQ cannot decode." It was that RaptorQ made the transfer unit a symbol instead of a chunk. That forced all peers to work on all blocks, and it added encoding, decoding, repair-symbol overhead, and decoder state.
+
+### Decision
+
+Remove RaptorQ from the active multi-peer protocol. Use raw chunks as the transfer unit. Keep `transfer_raptorq.go` and its tests as a library boundary for future scenarios where fountain codes make sense, such as unreliable or broadcast transport.
+
+### Alternatives Considered
+
+**Optimize the RaptorQ path** would reduce some overhead, but it would not align the transfer unit with the scheduler.
+
+**Use Reed-Solomon on the multi-peer path** was unnecessary for the active reliable-stream case and overlaps with the single-peer erasure path.
+
+**Delete RaptorQ entirely** would lose tested library code that may still be useful later.
+
+### Consequences
+
+- The active path no longer generates or decodes symbols.
+- Multi-peer progress is measured in completed chunks.
+- Per-block hash verification happens before disk writes.
+- RaptorQ remains available as non-active library code.
+
+### Physical Verification
+
+After the raw-chunk rewrite and follow-up fixes, a 562 MB multi-peer download measured 86.4 MB/s with two peers. The fast peer served 96 percent of blocks and the slower peer served 4 percent. The earlier interleaved RaptorQ test on a 500 MB file measured 7.6 MB/s and was slower than the slower source alone.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_raptorq.go`, `plugins/filetransfer/transfer_raptorq_test.go`
+
+---
+
+## ADR-MP06: Receiver-Owned Work Stealing With Raw Block Requests
+
+| | |
+|---|---|
+| **Date** | 2026-04-06 to 2026-04-09 |
+| **Status** | Accepted and physically verified |
+| **Commits** | 42d58f7, f2de5b1, 007ce63, 8dfe669 |
+
+### Context
+
+Once raw chunks became the transfer unit, the receiver needed a way to tell each peer exactly which block to send. ADR-X07 covers the internal `blockQueue` coordination. The missing protocol decision was how a receiver-owned queue maps to per-peer streams.
+
+### Decision
+
+Use one multi-peer stream per serving peer. After manifest verification, each peer stream follows a request/response protocol:
+
+- Receiver sends `msgBlockRequest` with a block index.
+- Sender validates the index and rejects duplicate requests on that stream.
+- Sender reads the requested chunk from disk using boundary metadata and `ReadAt`.
+- Sender replies with `msgBlockData`, including block index, flags, decompressed size, data length, and payload.
+- Sender can reply with `msgBlockError` for a specific requested block.
+- Receiver sends `msgMultiPeerDone` when all blocks are complete.
+
+The sender uses a boundary scan cache and keeps the file descriptor open for the session. It stores offsets, sizes, and hashes, not full chunk data. Blocks are read on demand.
+
+### Alternatives Considered
+
+**Sender-pushed chunks** would let each peer choose work, but peers cannot know the receiver's global completion state.
+
+**A central coordinator protocol between peers** would add network coordination that is unnecessary. The receiver already owns the desired output file and can schedule work locally.
+
+**Reuse the single-peer SHFT stream grammar** would mix two different protocols. Multi-peer needs random-access block requests, while single-peer SHFT is an ordered streaming protocol.
+
+### Consequences
+
+- Fast peers naturally receive more block requests because they drain their pipeline faster.
+- Slow or failed peers do not own a fixed range.
+- Sender memory drops from whole-file chunk storage to boundary metadata plus one block buffer.
+- The wire format is explicit enough to bound allocation before payload reads.
+
+### Physical Verification
+
+Physical tests after the rewrite showed the intended distribution. A 562 MB transfer reached 86.4 MB/s with the fast peer serving 96 percent of blocks. A later 562 MB run with one direct peer and one relay-path peer measured 93.7 MB/s by the client and 95.7 MB/s in daemon logs, with a 91.3 percent / 8.7 percent block split.
+
+The zero-sync queue mechanics and 28 GB distribution result are documented in ADR-X07. This ADR records the wire-level request/response protocol that feeds that queue.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_multipeer_test.go`, `docs/engineering-journal/tail-slayer-path-reliability.md`
+
+---
+
+## ADR-MP07: Fixed-Depth Per-Peer Pipelines And Backpressure
+
+| | |
+|---|---|
+| **Date** | 2026-04-06 to 2026-04-09 |
+| **Status** | Accepted |
+| **Commits** | 42d58f7, 007ce63 |
+
+### Context
+
+A pure request/response loop would pay one round trip per block. A peer with 2,000 blocks and non-trivial round trip time could waste seconds waiting between requests. But unbounded in-flight requests would increase memory pressure and make cancellation/requeue behavior harder to reason about.
+
+The first work-stealing implementation also exposed a deadlock shape: a worker could block trying to claim more work while it still had pipeline responses waiting to be drained.
+
+### Decision
+
+Use a fixed per-peer pipeline depth of 4:
+
+- Pre-fill up to four requested blocks for a peer.
+- Process responses in request order.
+- Requeue all in-flight pipeline blocks when the worker exits.
+- Use non-blocking `tryClaim()` while responses remain in the pipeline.
+- Use blocking `claim()` only when the pipeline is empty.
+- On reconnect, re-exchange and verify the manifest, then resend in-flight requests.
+
+Depth 4 was chosen as the conservative first implementation. Adaptive depth remains a future tuning option, not part of this ADR.
+
+### Alternatives Considered
+
+**Depth 1** would be simpler but too sensitive to round trip time.
+
+**Unbounded pipelining** would hide latency but could turn a slow or failing peer into unbounded buffered work.
+
+**Adaptive depth immediately** was deferred because the fixed-depth design needed physical validation first.
+
+### Consequences
+
+- Each worker has bounded in-flight work.
+- Backpressure stays local to the peer stream.
+- Failed or cancelled workers do not lose block ownership, because in-flight blocks are requeued.
+- The non-blocking claim path prevents a worker from blocking while unread responses remain on its stream.
+
+### Physical Verification
+
+During physical testing, an early work-stealing run stuck near the end of a transfer because workers could block while pipeline responses remained. Commit 007ce63 added `tryClaim()` and removed the false speed-based slow-demotion path. After that fix chain, multi-peer transfers completed, including kill-one-peer recovery and checkpoint resume.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_multipeer_test.go`
+
+---
+
+## ADR-MP08: Peer Health Uses Strikes, Reconnects, And Error-Triggered Retry-Only Demotion
+
+| | |
+|---|---|
+| **Date** | 2026-04-06 to 2026-04-09 |
+| **Status** | Accepted |
+| **Commits** | 42d58f7, f2de5b1, 007ce63 |
+
+### Context
+
+Multi-peer download must tolerate peers that disconnect, serve a wrong block, fail decompression, return an error for the wrong block, or repeatedly fail block requests. The response should be technical and bounded: retry work elsewhere, reduce trust in that peer for this session, and finish with remaining peers when possible.
+
+The design intentionally avoids threat theater. Authorized peers can have transient disk corruption, stale files, relay loss, or process restarts. The system should isolate bad blocks and bad streams without assuming every failure is malicious.
+
+### Decision
+
+Track per-peer state inside the receiver worker:
+
+- Reconnect a failed stream up to three times.
+- Re-exchange and re-verify the manifest after reconnect.
+- Add strikes for out-of-order responses, wrong-block errors, decompression failure, size mismatch, and block hash mismatch.
+- Put suspect peers on parole after a bad block. A clean block clears parole.
+- Ban a peer for the session after the strike threshold.
+- Track consecutive block errors. At five consecutive errors, demote the peer to retry-only work. At ten, disconnect it.
+
+Speed-based slow-peer demotion was removed. Work-stealing already lets fast peers claim more primary blocks, and the average-speed comparison created false positives during physical testing. Retry-only demotion remains error-triggered.
+
+### Alternatives Considered
+
+**Fail the whole transfer on first bad block** would be safe but wastes the core benefit of multi-peer.
+
+**Keep retrying a bad peer indefinitely** risks wasting time and bandwidth.
+
+**Use speed scoring as a demotion trigger** was tried and removed after it could classify healthy peers incorrectly.
+
+### Consequences
+
+- Healthy peers are not punished for being slower.
+- Bad blocks are requeued for another peer.
+- Reconnects are bounded and manifest-checked.
+- Session-level bans do not create permanent peer reputation side effects.
+
+### Physical Verification
+
+Healthy physical runs completed with zero strikes and no bans. A kill-one-peer test passed: one peer was stopped at about 25 percent progress, and the remaining peer completed the transfer at 92.8 MB/s. Unit tests cover strike state transitions and retry-only queue behavior.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_multipeer_test.go`
+
+---
+
+## ADR-MP09: Checkpoint, Resume, And Final Integrity Are Root-Hash Scoped
+
+| | |
+|---|---|
+| **Date** | 2026-04-06 to 2026-04-21 |
+| **Status** | Accepted and physically verified |
+| **Commits** | 42d58f7, 674b662, f9ee530 |
+
+### Context
+
+Single-peer checkpoints derive their content key from the file table. Multi-peer starts from a Merkle root and a manifest served by peers, so it needs a checkpoint key that cannot collide with single-peer state and does not depend on the same file-table derivation.
+
+The receiver also writes blocks out of order. A checkpoint must record which blocks are already present, and finalization must prove that the sparse temp file now matches the requested root.
+
+### Decision
+
+Use a multi-peer-specific content key:
+
+- Derive checkpoint identity from `BLAKE3("shurli-multi-peer-v1" || rootHash)`.
+- Store a bitfield of completed blocks.
+- Store chunk hashes, chunk sizes, and a temp file path.
+- Preallocate the temp file and write blocks with `WriteAt` at offsets computed from chunk sizes.
+- Save checkpoints periodically, on cancel, on incomplete exit, and before finalization.
+- Before final rename, re-read the temp file through FastCDC and verify the Merkle root.
+- `fsync`, close, rename atomically, register the root hash, then remove the checkpoint.
+
+Commit 674b662 removed a single-peer-only content-key recomputation from checkpoint loading because it always rejected multi-peer checkpoints.
+
+### Alternatives Considered
+
+**Use the single-peer content key** would collide conceptually with a different transfer identity model.
+
+**Trust the bitfield at completion** is not enough. The temp file may contain corrupted resumed data.
+
+**Assemble blocks in memory and write once** was the old memory-heavy model.
+
+### Consequences
+
+- Resume can skip already completed blocks.
+- Final integrity does not depend on which peer served which block.
+- Corrupt resumed state is detected before rename.
+- Same-size re-delivery overwrites the existing final file instead of creating a duplicate suffix, matching the later duplicate-send fix.
+
+### Physical Verification
+
+Multi-peer cancel and resume passed after the content-key fix. One physical run cancelled at 50 percent and resumed from 73 percent, reported as 1,594 of 2,169 blocks already complete, then finished at 199.8 MB/s average. The checkpoint content-key mismatch fix was also verified with a cancel and resume sequence that loaded existing completed blocks instead of starting fresh.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_resume.go`, `plugins/filetransfer/transfer.go`
+
+---
+
+## ADR-MP10: Keep RaptorQ As Library Code, Not Active Protocol Behavior
+
+| | |
+|---|---|
+| **Date** | 2026-03-08 to 2026-04-06 |
+| **Status** | Accepted |
+| **Commits** | bfd4b06, b824271, 42d58f7, 82b3466 |
+
+### Context
+
+RaptorQ entered Shurli as part of the original multi-source transfer work. The raw-block rewrite removed its use from `transfer_multipeer.go`, but the RaptorQ wrapper and tests still exist. That can be confusing in public docs because the repository contains working RaptorQ code while the active multi-peer path no longer calls it.
+
+Current code search shows `newRaptorQEncoder`, `newRaptorQDecoder`, and symbol helpers are referenced by `transfer_raptorq.go` and `transfer_raptorq_test.go`, not by the active multi-peer transfer path.
+
+### Decision
+
+Keep the RaptorQ library and tests, but draw a hard documentation boundary:
+
+- Do not describe RaptorQ as active multi-peer behavior.
+- Do not delete the wrapper while it remains a useful tested component for future unreliable or broadcast-style transports.
+- Treat `transfer_multipeer.go` as the active protocol source of truth.
+
+### Alternatives Considered
+
+**Delete RaptorQ immediately** would reduce confusion, but it would discard tested code that may be useful later.
+
+**Keep RaptorQ wired as fallback** would keep a known-slower architecture in the protocol.
+
+**Document both as active choices** would be inaccurate.
+
+### Consequences
+
+- Public docs can explain the historical arc without implying the active protocol uses symbols.
+- Future work can reuse the RaptorQ wrapper deliberately.
+- Code reviewers have a clear boundary: `transfer_raptorq.go` is retained library code; `transfer_multipeer.go` is the active raw-block protocol.
+
+### Physical Verification
+
+No physical speed test is attached to retaining the library. The verification is code-level: the active multi-peer file contains the raw block request/response protocol, while RaptorQ calls are confined to the RaptorQ wrapper and tests.
+
+**Reference**: `plugins/filetransfer/transfer_multipeer.go`, `plugins/filetransfer/transfer_raptorq.go`, `plugins/filetransfer/transfer_raptorq_test.go`
+
+---
+
+## Public Notes
+
+This journal intentionally omits private topology, node names, peer IDs, addresses, provider names, device identifiers, and local file paths. Performance numbers are included only where they explain an architectural decision: static RaptorQ behaving like the slowest peer, interleaved RaptorQ failing under asymmetric peers, raw-block work stealing shifting most blocks to the fast peer, kill-one-peer recovery, and checkpoint resume.
 
 
 ---

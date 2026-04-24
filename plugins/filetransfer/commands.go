@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,7 +71,7 @@ func cliCommandList() []plugin.CLICommandEntry {
 		{
 			Name: "download", PluginName: "filetransfer",
 			Description: "Download from peer's shared files",
-			Usage:       "shurli download <peer>:<path> [--dest dir] [--json]",
+			Usage:       "shurli download <peer>:<path> [--dest dir] [--files 1,3] [--exclude 2] [--json]",
 			Run:         runDownload,
 			Flags: []plugin.CLIFlagEntry{
 				{Long: "json", Type: "bool", Description: "Output as JSON"},
@@ -80,6 +81,8 @@ func cliCommandList() []plugin.CLICommandEntry {
 				{Long: "silent", Type: "bool", Description: "No progress output"},
 				{Long: "multi-peer", Type: "bool", Description: "Enable multi-peer download (requires --peers)"},
 				{Long: "peers", Type: "string", Description: "Extra peer names/IDs for multi-peer download (comma-separated, implies --multi-peer)", RequiresArg: true},
+				{Long: "files", Type: "string", Description: "Download only these files (1-indexed, comma-separated, ranges: 1-5,10)", RequiresArg: true},
+				{Long: "exclude", Type: "string", Description: "Download all except these files (1-indexed, ranges: 1-5,10)", RequiresArg: true},
 			},
 		},
 		{
@@ -130,11 +133,13 @@ func cliCommandList() []plugin.CLICommandEntry {
 		{
 			Name: "accept", PluginName: "filetransfer",
 			Description: "Accept a pending transfer",
-			Usage:       "shurli accept <id|--all> [--dest dir] [--json]",
+			Usage:       "shurli accept <id|--all> [--dest dir] [--files 1,3] [--exclude 2] [--json]",
 			Run:         runAccept,
 			Flags: []plugin.CLIFlagEntry{
 				{Long: "all", Type: "bool", Description: "Accept all pending transfers"},
 				{Long: "dest", Type: "directory", Description: "Save to a specific directory", RequiresArg: true},
+				{Long: "files", Type: "string", Description: "Accept only these files (indices: 1-5,10 or patterns: '*.jpg')", RequiresArg: true},
+				{Long: "exclude", Type: "string", Description: "Accept all except these files (indices: 1-5,10 or patterns: '*.raw')", RequiresArg: true},
 				{Long: "json", Type: "bool", Description: "Output as JSON"},
 			},
 		},
@@ -325,6 +330,8 @@ func runDownload(args []string) {
 	silentFlag := fs.Bool("silent", false, "no progress output")
 	multiPeerFlag := fs.Bool("multi-peer", false, "enable multi-peer download (requires --peers)")
 	extraPeersFlag := fs.String("peers", "", "extra peer names/IDs for multi-peer (comma-separated, implies --multi-peer)")
+	filesFlag := fs.String("files", "", "download only these files (1-indexed, comma-separated, ranges: 1-5,10)")
+	excludeFlag := fs.String("exclude", "", "download all except these files (1-indexed, ranges: 1-5,10)")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
@@ -368,6 +375,31 @@ func runDownload(args []string) {
 		}
 	}
 
+	// #18: validate and parse --files / --exclude for selective download.
+	if *filesFlag != "" && *excludeFlag != "" {
+		fatal("Cannot use both --files and --exclude (mutually exclusive)")
+	}
+	var dlFilesAPI, dlExcludeAPI []int
+	if *filesFlag != "" {
+		parsed, parseErr := parseIndexList(*filesFlag)
+		if parseErr != nil {
+			fatal("Invalid --files: %v", parseErr)
+		}
+		dlFilesAPI = cliToAPIIndices(parsed)
+	}
+	if *excludeFlag != "" {
+		parsed, parseErr := parseIndexList(*excludeFlag)
+		if parseErr != nil {
+			fatal("Invalid --exclude: %v", parseErr)
+		}
+		dlExcludeAPI = cliToAPIIndices(parsed)
+	}
+
+	// F10: multi-peer + selective rejection = incompatible.
+	if *multiPeerFlag && (dlFilesAPI != nil || dlExcludeAPI != nil) {
+		fatal("Selective file rejection is not supported with multi-peer downloads")
+	}
+
 	// IF16-2: --peers implies --multi-peer (no flag redundancy needed).
 	if len(extraPeers) > 0 {
 		*multiPeerFlag = true
@@ -380,7 +412,7 @@ func runDownload(args []string) {
 		}
 	}
 
-	resp, err := client.Download(peerArg, remotePath, *destFlag, *multiPeerFlag, extraPeers)
+	resp, err := client.Download(peerArg, remotePath, *destFlag, *multiPeerFlag, extraPeers, dlFilesAPI, dlExcludeAPI)
 	if err != nil {
 		fatal("Download failed: %s", sdk.HumanizeError(err.Error()))
 	}
@@ -680,6 +712,12 @@ func runTransfers(args []string) {
 		return
 	}
 
+	// R8-F7: if positional arg is given, show single transfer details.
+	if remaining := fs.Args(); len(remaining) > 0 {
+		showSingleTransfer(client, remaining[0], *jsonFlag)
+		return
+	}
+
 	transfers, err := client.TransferList()
 	if err != nil {
 		fatal("Failed to list transfers: %v", err)
@@ -694,13 +732,14 @@ func runTransfers(args []string) {
 	for _, p := range pending {
 		t, _ := time.Parse(time.RFC3339, p.Time)
 		transfers = append(transfers, TransferSnapshot{
-			ID:        p.ID,
-			Filename:  p.Filename,
-			Size:      p.Size,
-			PeerID:    p.PeerID,
-			Direction: "receive",
-			Status:    "awaiting_approval",
-			StartTime: t,
+			ID:           p.ID,
+			Filename:     p.Filename,
+			Size:         p.Size,
+			PeerID:       p.PeerID,
+			Direction:    "receive",
+			Status:       "awaiting_approval",
+			StartTime:    t,
+			PendingFiles: p.Files, // R7-F2: include file list in JSON output
 		})
 	}
 
@@ -717,6 +756,10 @@ func runTransfers(args []string) {
 	}
 
 	printTransferTable(transfers)
+
+	// R6-F20: show file list for pending multi-file transfers.
+	// Critical for selective rejection UX - users need indices.
+	printPendingFileLists(pending)
 }
 
 func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
@@ -753,6 +796,10 @@ func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
 		if ev.Duration != "" {
 			fmt.Printf("  %s", ev.Duration)
 		}
+		// R8-F3: show selective rejection info in transfer history.
+		if ev.AcceptedFiles > 0 && ev.TotalFiles > 0 && ev.AcceptedFiles < ev.TotalFiles {
+			fmt.Printf("  (%d/%d files)", ev.AcceptedFiles, ev.TotalFiles)
+		}
 		if ev.Error != "" {
 			fmt.Printf("  ")
 			tc.Wred(os.Stdout, "%s", sdk.HumanizeError(ev.Error))
@@ -763,6 +810,53 @@ func showTransferHistory(client *daemonClient, max int, jsonOutput bool) {
 		}
 		fmt.Printf("  %s", peerShort)
 		fmt.Println()
+	}
+}
+
+// showSingleTransfer fetches and displays details for a single transfer by ID.
+// R8-F7: supports both active and pending transfers (R8-F6 API fallthrough).
+// For pending multi-file transfers, shows the full file list (no truncation).
+func showSingleTransfer(client *daemonClient, id string, jsonOutput bool) {
+	snap, err := client.TransferSnapshot(id)
+	if err != nil {
+		fatal("Transfer %q not found: %v", id, err)
+	}
+
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(snap)
+		return
+	}
+
+	peerShort := snap.PeerID
+	if len(peerShort) > 16 {
+		peerShort = peerShort[:16] + "..."
+	}
+
+	fmt.Printf("Transfer: %s\n", snap.ID)
+	fmt.Printf("  File:      %s\n", SanitizeDisplayName(snap.Filename))
+	fmt.Printf("  Size:      %s\n", humanSize(snap.Size))
+	fmt.Printf("  Peer:      %s\n", peerShort)
+	fmt.Printf("  Direction: %s\n", snap.Direction)
+	fmt.Printf("  Status:    %s\n", snap.Status)
+
+	if snap.Transferred > 0 {
+		pct := float64(snap.Transferred) / float64(snap.Size) * 100
+		fmt.Printf("  Progress:  %s / %s (%.0f%%)\n",
+			humanSize(snap.Transferred), humanSize(snap.Size), pct)
+	}
+
+	// Show file list for pending multi-file transfers (full, no truncation).
+	if len(snap.PendingFiles) > 1 {
+		fmt.Printf("\n  Files (%d total):\n", len(snap.PendingFiles))
+		for _, f := range snap.PendingFiles {
+			fmt.Printf("    %d. %s  (%s)\n", f.Index+1, SanitizeDisplayName(f.Path), humanSize(f.Size))
+		}
+		fmt.Println()
+		filesHint, excludeHint := selectiveHintIndices(len(snap.PendingFiles))
+		tc.Wfaint(os.Stdout, "  Accept specific files: shurli accept %s --files %s\n", snap.ID, filesHint)
+		tc.Wfaint(os.Stdout, "  Exclude files:         shurli accept %s --exclude %s\n", snap.ID, excludeHint)
 	}
 }
 
@@ -850,6 +944,38 @@ func printTransferTable(transfers []TransferSnapshot) {
 		fmt.Printf("  %s%s\n", age, speedStr)
 		if t.Error != "" {
 			tc.Wred(os.Stdout, "    error: %s\n", sdk.HumanizeError(t.Error))
+		}
+	}
+}
+
+// printPendingFileLists shows file lists for pending multi-file transfers (#18, R6-F20).
+// Truncates to maxPendingFileDisplay files with "and N more" for large transfers.
+// SEC-F5: all paths sanitized. R7-F1: not called from watch mode.
+func printPendingFileLists(pending []PendingTransferInfo) {
+	const maxPendingFileDisplay = 20
+	for _, p := range pending {
+		if len(p.Files) <= 1 {
+			continue
+		}
+		fmt.Printf("\n  Files in %s (%d total):\n", SanitizeDisplayName(p.Filename), len(p.Files))
+		limit := len(p.Files)
+		if limit > maxPendingFileDisplay {
+			limit = maxPendingFileDisplay
+		}
+		for i := 0; i < limit; i++ {
+			f := p.Files[i]
+			// R8-F5: display format with 1-indexed, sanitized path, human size.
+			fmt.Printf("    %d. %s  (%s)\n", f.Index+1, SanitizeDisplayName(f.Path), humanSize(f.Size))
+		}
+		if len(p.Files) > maxPendingFileDisplay {
+			tc.Wfaint(os.Stdout, "    ... and %d more\n", len(p.Files)-maxPendingFileDisplay)
+		}
+		if p.HasErasure {
+			tc.Wfaint(os.Stdout, "    Note: selective rejection unavailable (sender uses erasure coding)\n")
+		} else {
+			filesHint, excludeHint := selectiveHintIndices(len(p.Files))
+			tc.Wfaint(os.Stdout, "    Accept specific files: shurli accept %s --files %s\n", p.ID, filesHint)
+			tc.Wfaint(os.Stdout, "    Exclude files:         shurli accept %s --exclude %s\n", p.ID, excludeHint)
 		}
 	}
 }
@@ -1062,16 +1188,43 @@ func runAccept(args []string) {
 	destFlag := fs.String("dest", "", "save to a specific directory")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	allFlag := fs.Bool("all", false, "accept all pending transfers")
+	filesFlag := fs.String("files", "", "accept only these files (1-indexed, comma-separated, supports ranges: 1-5,10)")
+	excludeFlag := fs.String("exclude", "", "accept all except these files (1-indexed, comma-separated, supports ranges)")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if !*allFlag && len(remaining) < 1 {
 		fmt.Println("Usage: shurli accept <id> [--dest /path/] [--json]")
+		fmt.Println("       shurli accept <id> --files 1,3,5 [--dest /path/]")
+		fmt.Println("       shurli accept <id> --exclude 2,4 [--dest /path/]")
 		fmt.Println("       shurli accept --all [--dest /path/] [--json]")
+		fmt.Println()
+		fmt.Println("File indices are 1-indexed. Use 'shurli transfers' to see file lists.")
+		fmt.Println("Ranges supported: --files 1-5,10,15-20")
+		fmt.Println("Glob patterns:   --exclude '*.raw' (quote to prevent shell expansion)")
 		osExit(1)
 	}
 
+	// F3/R6-F4: validate flag combinations.
+	if *filesFlag != "" && *excludeFlag != "" {
+		fatal("Cannot use both --files and --exclude (mutually exclusive)")
+	}
+	if *allFlag && (*filesFlag != "" || *excludeFlag != "") {
+		fatal("Cannot combine --all with --files or --exclude (different transfers have different file lists)")
+	}
+
 	client := requireClient()
+
+	// Parse file selection (1-indexed CLI -> 0-indexed API).
+	// R7-F11: auto-detect indices vs patterns. Patterns need the file list
+	// from the pending transfer, so we fetch it when patterns are detected.
+	var filesAPI, excludeAPI []int
+	if *filesFlag != "" {
+		filesAPI = resolveFileSelector(client, remaining[0], *filesFlag, "files")
+	}
+	if *excludeFlag != "" {
+		excludeAPI = resolveFileSelector(client, remaining[0], *excludeFlag, "exclude")
+	}
 
 	if *allFlag {
 		pending, err := client.TransferPending()
@@ -1083,7 +1236,7 @@ func runAccept(args []string) {
 			return
 		}
 		for _, p := range pending {
-			if err := client.TransferAccept(p.ID, *destFlag); err != nil {
+			if err := client.TransferAccept(p.ID, *destFlag, nil, nil); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: accept %s failed: %v\n", p.ID, err)
 				continue
 			}
@@ -1098,7 +1251,7 @@ func runAccept(args []string) {
 	}
 
 	id := remaining[0]
-	if err := client.TransferAccept(id, *destFlag); err != nil {
+	if err := client.TransferAccept(id, *destFlag, filesAPI, excludeAPI); err != nil {
 		if *jsonFlag {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -1115,8 +1268,213 @@ func runAccept(args []string) {
 		enc.Encode(map[string]string{"status": "accepted", "id": id})
 	} else {
 		tc.Wgreen(os.Stdout, "Accepted")
-		fmt.Printf(" transfer %s\n", id)
+		if filesAPI != nil {
+			fmt.Printf(" transfer %s (%d files selected)\n", id, len(filesAPI))
+		} else if excludeAPI != nil {
+			fmt.Printf(" transfer %s (%d files excluded)\n", id, len(excludeAPI))
+		} else {
+			fmt.Printf(" transfer %s\n", id)
+		}
 	}
+}
+
+// selectiveHintIndices returns example --files and --exclude values
+// adapted to the actual file count (issue 9: avoid showing out-of-range indices).
+func selectiveHintIndices(fileCount int) (filesHint, excludeHint string) {
+	switch {
+	case fileCount <= 1:
+		return "1", "1"
+	case fileCount == 2:
+		return "1", "2"
+	case fileCount == 3:
+		return "1,3", "2"
+	default:
+		return fmt.Sprintf("1,3,%d", fileCount), "2,4"
+	}
+}
+
+// parseIndexList parses a comma-separated list of 1-indexed integers and ranges.
+// Supports: "1,3,5", "1-5,10", "1-5,10,15-20". Returns 1-indexed values.
+// R8-F1: validates all edge cases. R8-F8: atomic failure (no partial results).
+func parseIndexList(s string) ([]int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("empty index list")
+	}
+
+	parts := strings.Split(s, ",")
+	var result []int
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		if strings.Contains(p, "-") {
+			// Range: "1-5"
+			dashIdx := strings.Index(p, "-")
+			if dashIdx == 0 {
+				return nil, fmt.Errorf("invalid range %q: missing start value", p)
+			}
+			startStr := strings.TrimSpace(p[:dashIdx])
+			endStr := strings.TrimSpace(p[dashIdx+1:])
+			if endStr == "" {
+				return nil, fmt.Errorf("invalid range %q: missing end value", p)
+			}
+			start, err := strconv.Atoi(startStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid range start %q: %v", startStr, err)
+			}
+			end, err := strconv.Atoi(endStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid range end %q: %v", endStr, err)
+			}
+			if start < 1 {
+				return nil, fmt.Errorf("file index %d: must be >= 1 (1-indexed)", start)
+			}
+			if start > end {
+				return nil, fmt.Errorf("invalid range: start %d > end %d", start, end)
+			}
+			if end-start+1 > maxFileCount {
+				return nil, fmt.Errorf("range %d-%d too large (max %d files)", start, end, maxFileCount)
+			}
+			for i := start; i <= end; i++ {
+				result = append(result, i)
+			}
+		} else {
+			// Single index: "3"
+			v, err := strconv.Atoi(p)
+			if err != nil {
+				return nil, fmt.Errorf("invalid file index %q: must be a number (1-indexed)", p)
+			}
+			if v < 1 {
+				return nil, fmt.Errorf("file index %d: must be >= 1 (1-indexed)", v)
+			}
+			result = append(result, v)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no file indices specified")
+	}
+	return result, nil
+}
+
+// cliToAPIIndices converts 1-indexed CLI indices to 0-indexed API indices.
+// Deduplicates via set semantics (F6).
+func cliToAPIIndices(cliIndices []int) []int {
+	seen := make(map[int]bool, len(cliIndices))
+	result := make([]int, 0, len(cliIndices))
+	for _, v := range cliIndices {
+		apiIdx := v - 1 // 1-indexed -> 0-indexed
+		if !seen[apiIdx] {
+			seen[apiIdx] = true
+			result = append(result, apiIdx)
+		}
+	}
+	return result
+}
+
+// resolveFileSelector parses a --files/--exclude flag value into 0-indexed API indices.
+// Auto-detects indices vs patterns (R7-F11). For patterns, fetches the pending
+// transfer's file list from the daemon to resolve against. flagName is "files" or
+// "exclude" for error messages.
+func resolveFileSelector(client *daemonClient, transferID, selector, flagName string) []int {
+	if isPatternSelector(selector) {
+		pending, pendingErr := client.TransferPending()
+		if pendingErr != nil {
+			fatal("Cannot fetch file list for pattern matching: %v", pendingErr)
+		}
+		var fileList []PendingFileInfo
+		for _, p := range pending {
+			if p.ID == transferID || strings.HasPrefix(p.ID, transferID) {
+				fileList = p.Files
+				break
+			}
+		}
+		if len(fileList) == 0 {
+			fatal("Transfer %q has no file list for pattern matching. Use numeric indices instead.", transferID)
+		}
+		resolved, resolveErr := resolvePatternSelector(selector, fileList)
+		if resolveErr != nil {
+			fatal("Invalid --%s pattern: %v", flagName, resolveErr)
+		}
+		return resolved
+	}
+	parsed, err := parseIndexList(selector)
+	if err != nil {
+		fatal("Invalid --%s: %v", flagName, err)
+	}
+	return cliToAPIIndices(parsed)
+}
+
+// isPatternSelector returns true if the selector string contains glob characters
+// and should be interpreted as file path patterns rather than numeric indices.
+// R7-F11: auto-detect indices vs patterns.
+func isPatternSelector(s string) bool {
+	return strings.ContainsAny(s, "*?[")
+}
+
+// resolvePatternSelector resolves glob/literal patterns against a file list,
+// returning 0-indexed file indices that match. R7-F11.
+// Patterns are comma-separated. Each pattern is matched against file paths
+// using filepath.Match (glob) or exact string prefix match (literal/directory).
+// SEC-F5: patterns are matched against sanitized paths from the wire header.
+func resolvePatternSelector(selector string, files []PendingFileInfo) ([]int, error) {
+	patterns := strings.Split(selector, ",")
+	matched := make(map[int]bool)
+
+	for _, pat := range patterns {
+		pat = strings.TrimSpace(pat)
+		if pat == "" {
+			continue
+		}
+
+		anyMatch := false
+		for _, f := range files {
+			// Try glob match first.
+			if isPatternSelector(pat) {
+				// Match against full path and base name.
+				if ok, _ := filepath.Match(pat, f.Path); ok {
+					matched[f.Index] = true
+					anyMatch = true
+					continue
+				}
+				if ok, _ := filepath.Match(pat, filepath.Base(f.Path)); ok {
+					matched[f.Index] = true
+					anyMatch = true
+					continue
+				}
+			} else {
+				// Literal match: exact path, base name, or directory prefix.
+				if f.Path == pat || filepath.Base(f.Path) == pat {
+					matched[f.Index] = true
+					anyMatch = true
+					continue
+				}
+				// Directory prefix: "subdir/" matches "subdir/file.txt"
+				dirPat := strings.TrimSuffix(pat, "/") + "/"
+				if strings.HasPrefix(f.Path, dirPat) {
+					matched[f.Index] = true
+					anyMatch = true
+				}
+			}
+		}
+		if !anyMatch {
+			return nil, fmt.Errorf("pattern %q matched no files", pat)
+		}
+	}
+
+	if len(matched) == 0 {
+		return nil, fmt.Errorf("no patterns matched any files")
+	}
+
+	result := make([]int, 0, len(matched))
+	for idx := range matched {
+		result = append(result, idx)
+	}
+	sort.Ints(result)
+	return result, nil
 }
 
 func runReject(args []string) {
@@ -1131,6 +1489,13 @@ func runReject(args []string) {
 		fmt.Println("Usage: shurli reject <id> [--reason space|busy|size] [--json]")
 		fmt.Println("       shurli reject --all [--json]")
 		osExit(1)
+	}
+
+	// R8-F2: reject applies to the entire transfer. Selective control is through accept.
+	for _, arg := range remaining {
+		if arg == "--files" || arg == "--exclude" {
+			fatal("Reject applies to the entire transfer. To accept specific files, use:\n  shurli accept <id> --exclude <indices>")
+		}
 	}
 
 	reason := *reasonFlag

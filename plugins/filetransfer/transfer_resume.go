@@ -84,14 +84,11 @@ const (
 	ckptMagic1 = 'H'
 	ckptMagic2 = 'C'
 	ckptMagic3 = 'K'
-	// ckptVersion bumped 0x01 -> 0x02 for FT-Y #14. The content key is now
-	// derived from a byte-order sorted file table (TE-69) and the chunk stream
-	// can use the new 4 MB-max tier. Old 0x01 checkpoints carry chunk indices
-	// that do not map onto the new tiers, and their content key may have been
-	// computed from a locale-dependent sort on another platform. Any checkpoint
-	// with version != 0x02 is discarded on load (TE-94 silent-discard policy
-	// with a log line so operators can see the one-time cost after upgrade).
-	ckptVersion = 0x02
+	// ckptVersion bumped 0x01 -> 0x02 for FT-Y #14, 0x02 -> 0x03 for #18.
+	// 0x02: content key from byte-order sorted file table (TE-69), 4MB-max tiers.
+	// 0x03: adds Section 6 (accept bitfield for selective rejection, #18 F11/R7-F10).
+	// Old checkpoints are discarded on load (TE-94 silent-discard with log line).
+	ckptVersion = 0x03
 
 	maxBitfieldSize = maxChunkCount/8 + 1 // ~128 KB for 1M chunks
 
@@ -114,6 +111,7 @@ type transferCheckpoint struct {
 	hashes     [][32]byte  // per-chunk hashes (dense, indexed by chunkIdx)
 	sizes      []uint32    // per-chunk decompressed sizes (dense)
 	tmpPaths   []string    // temp file paths per file entry (base name only)
+	acceptBits *bitfield   // #18: accepted file bitfield (nil = full accept, Section 6)
 }
 
 // checkpointPath returns the checkpoint file path for a given content key.
@@ -206,6 +204,28 @@ func (c *transferCheckpoint) save(receiveDir string) error {
 	// Section 5: Temp file paths.
 	if err := writeCheckpointTmpPaths(f, c.tmpPaths); err != nil {
 		return fmt.Errorf("write tmp paths: %w", err)
+	}
+
+	// Section 6: Accept bitfield for selective rejection (#18, R7-F10).
+	// Marker: 0x00 = full accept (no bitfield), 0x01 = selective (bitfield follows).
+	if c.acceptBits != nil && !isFullAccept(c.acceptBits) {
+		marker := [1]byte{0x01}
+		if _, err := f.Write(marker[:]); err != nil {
+			return fmt.Errorf("write accept marker: %w", err)
+		}
+		var bfLen [2]byte
+		binary.BigEndian.PutUint16(bfLen[:], uint16(len(c.acceptBits.bits)))
+		if _, err := f.Write(bfLen[:]); err != nil {
+			return fmt.Errorf("write accept bitfield len: %w", err)
+		}
+		if _, err := f.Write(c.acceptBits.bits); err != nil {
+			return fmt.Errorf("write accept bitfield: %w", err)
+		}
+	} else {
+		marker := [1]byte{0x00}
+		if _, err := f.Write(marker[:]); err != nil {
+			return fmt.Errorf("write accept marker: %w", err)
+		}
 	}
 
 	if err := f.Sync(); err != nil {
@@ -468,6 +488,35 @@ func readCheckpointBody(f io.Reader, ck [32]byte, receiveDir string) (*transferC
 		return nil, fmt.Errorf("read tmp paths: %w", err)
 	}
 
+	// Section 6: Accept bitfield (#18, v0x03).
+	var acceptBits *bitfield
+	var acceptMarker [1]byte
+	if _, err := io.ReadFull(f, acceptMarker[:]); err != nil {
+		return nil, fmt.Errorf("read accept marker: %w", err)
+	}
+	switch acceptMarker[0] {
+	case 0x00:
+		// Full accept, no bitfield follows.
+	case 0x01:
+		// Selective rejection: read bitfield.
+		var abfLen [2]byte
+		if _, err := io.ReadFull(f, abfLen[:]); err != nil {
+			return nil, fmt.Errorf("read accept bitfield len: %w", err)
+		}
+		bfSize := int(binary.BigEndian.Uint16(abfLen[:]))
+		expectedSize := (len(files) + 7) / 8
+		if bfSize != expectedSize {
+			return nil, fmt.Errorf("accept bitfield size mismatch: got %d, want %d", bfSize, expectedSize)
+		}
+		bits := make([]byte, bfSize)
+		if _, err := io.ReadFull(f, bits); err != nil {
+			return nil, fmt.Errorf("read accept bitfield: %w", err)
+		}
+		acceptBits = &bitfield{bits: bits, n: len(files)}
+	default:
+		return nil, fmt.Errorf("unknown accept marker: 0x%02x", acceptMarker[0])
+	}
+
 	return &transferCheckpoint{
 		contentKey: ck,
 		files:      files,
@@ -477,6 +526,7 @@ func readCheckpointBody(f io.Reader, ck [32]byte, receiveDir string) (*transferC
 		hashes:     hashes,
 		sizes:      sizes,
 		tmpPaths:   tmpPaths,
+		acceptBits: acceptBits,
 	}, nil
 }
 
@@ -645,6 +695,37 @@ func removeStreamCheckpoint(receiveDir string, ck [32]byte) {
 	os.Remove(checkpointPath(receiveDir, ck))
 }
 
+// acceptBitsMatch checks if a checkpoint's stored accept bitfield matches the
+// user's new file selection. Returns true if both represent the same selection
+// (both nil = full accept, or same bits set). Used by F11 to detect changed
+// file selection and discard stale checkpoints.
+func acceptBitsMatch(ckptBits *bitfield, newIndices []int, fileCount int) bool {
+	// Both nil = both full accept.
+	if ckptBits == nil && newIndices == nil {
+		return true
+	}
+	// One nil, one not = mismatch.
+	if (ckptBits == nil) != (newIndices == nil) {
+		return false
+	}
+	// Both non-nil: build bitfield from newIndices and compare.
+	newBF := newBitfield(fileCount)
+	for _, idx := range newIndices {
+		if idx >= 0 && idx < fileCount {
+			newBF.set(idx)
+		}
+	}
+	if ckptBits.n != newBF.n || len(ckptBits.bits) != len(newBF.bits) {
+		return false
+	}
+	for i := range ckptBits.bits {
+		if ckptBits.bits[i] != newBF.bits[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // --- Checkpoint <-> streamReceiveState integration ---
 
 // checkpointFromState creates a transferCheckpoint from the current receive state.
@@ -708,6 +789,16 @@ func checkpointFromState(state *streamReceiveState, ck [32]byte, flags uint8) *t
 	tmpPaths := make([]string, len(state.tmpPaths))
 	copy(tmpPaths, state.tmpPaths)
 
+	// #18: copy accept bitfield if selective rejection is active.
+	var acceptBits *bitfield
+	if state.acceptBitfield != nil {
+		acceptBits = &bitfield{
+			bits: make([]byte, len(state.acceptBitfield.bits)),
+			n:    state.acceptBitfield.n,
+		}
+		copy(acceptBits.bits, state.acceptBitfield.bits)
+	}
+
 	return &transferCheckpoint{
 		contentKey: ck,
 		files:      filesCopy,
@@ -717,6 +808,7 @@ func checkpointFromState(state *streamReceiveState, ck [32]byte, flags uint8) *t
 		hashes:     hashes,
 		sizes:      sizes,
 		tmpPaths:   tmpPaths,
+		acceptBits: acceptBits,
 	}
 }
 
@@ -752,6 +844,19 @@ func (c *transferCheckpoint) restoreReceiveState(destDir string) (*streamReceive
 	}
 	state.receivedBitfield = newBitfield(bfSize)
 	copy(state.receivedBitfield.bits, c.have.bits)
+
+	// Restore accept bitfield from checkpoint (#18 F11).
+	// Without this, the next periodic checkpoint save would write Section 6
+	// as full-accept (0x00), losing the selective rejection info. A third
+	// resume would see nil vs non-nil in acceptBitsMatch → spurious mismatch
+	// → delete checkpoint → data loss.
+	if c.acceptBits != nil {
+		state.acceptBitfield = &bitfield{
+			bits: make([]byte, len(c.acceptBits.bits)),
+			n:    c.acceptBits.n,
+		}
+		copy(state.acceptBitfield.bits, c.acceptBits.bits)
+	}
 
 	// Re-open temp files (they already have partial data).
 	root, err := os.OpenRoot(destDir)

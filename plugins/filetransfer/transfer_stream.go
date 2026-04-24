@@ -1388,16 +1388,22 @@ func (s *streamReceiveState) orderedHashes() [][32]byte {
 }
 
 // missingChunks returns indices of chunks not received, given expected count (R3-IMP4).
+// sparseHashes contains hashes for selectively rejected chunks (#18) — these are
+// intentionally not sent over the wire and must not be counted as missing.
 // Call after trailer to provide useful error messages instead of just "Merkle mismatch".
-func (s *streamReceiveState) missingChunks(expectedCount int) []int {
+func (s *streamReceiveState) missingChunks(expectedCount int, sparseHashes map[int][32]byte) []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var missing []int
 	for i := 0; i < expectedCount; i++ {
-		if _, ok := s.hashes[i]; !ok {
-			missing = append(missing, i)
+		if _, ok := s.hashes[i]; ok {
+			continue
 		}
+		if _, isSparse := sparseHashes[i]; isSparse {
+			continue
+		}
+		missing = append(missing, i)
 	}
 	return missing
 }

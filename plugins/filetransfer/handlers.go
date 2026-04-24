@@ -377,6 +377,25 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// #18: validate selective download fields BEFORE multi-peer path.
+	// F10: multi-peer + selective rejection = incompatible at API level.
+	if req.Files != nil && req.Exclude != nil {
+		daemon.RespondError(w, http.StatusBadRequest, "cannot specify both 'files' and 'exclude' (mutually exclusive)")
+		return
+	}
+	if req.Files != nil && len(req.Files) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "files array is empty; omit the field to download all files")
+		return
+	}
+	if req.Exclude != nil && len(req.Exclude) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "exclude array is empty; omit the field to download all files")
+		return
+	}
+	if req.MultiPeer && (req.Files != nil || req.Exclude != nil) {
+		daemon.RespondError(w, http.StatusBadRequest, "selective file rejection is not supported with multi-peer downloads")
+		return
+	}
+
 	// Multi-peer download path.
 	if req.MultiPeer && ts.MultiPeerEnabled() && len(req.ExtraPeers) > 0 {
 		// Cap extra peers to prevent goroutine explosion from unbounded input.
@@ -467,6 +486,15 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// Build file selection for ReceiveFrom. nil = full download.
+	// Validation already done above (before multi-peer path).
+	var sel *FileSelection
+	if req.Files != nil {
+		sel = &FileSelection{Include: req.Files}
+	} else if req.Exclude != nil {
+		sel = &FileSelection{Exclude: req.Exclude}
+	}
+
 	// Single-peer download. TS-4: hedge across independent paths.
 	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
 	if err != nil {
@@ -474,7 +502,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)
+	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir, sel)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "access denied") {
@@ -702,13 +730,27 @@ func (p *FileTransferPlugin) handleTransferPending(w http.ResponseWriter, r *htt
 	pending := ts.ListPending()
 	infos := make([]PendingTransferInfo, len(pending))
 	for i, pt := range pending {
-		infos[i] = PendingTransferInfo{
-			ID:       pt.ID,
-			Filename: pt.Filename,
-			Size:     pt.Size,
-			PeerID:   pt.PeerID,
-			Time:     pt.Time.Format(time.RFC3339),
+		info := PendingTransferInfo{
+			ID:         pt.ID,
+			Filename:   pt.Filename,
+			Size:       pt.Size,
+			PeerID:     pt.PeerID,
+			Time:       pt.Time.Format(time.RFC3339),
+			FileCount:  len(pt.files),
+			HasErasure: pt.hasErasure,
 		}
+		// #18: include per-file info for selective rejection.
+		if len(pt.files) > 1 {
+			info.Files = make([]PendingFileInfo, len(pt.files))
+			for j, fe := range pt.files {
+				info.Files[j] = PendingFileInfo{
+					Index: j,
+					Path:  fe.Path,
+					Size:  fe.Size,
+				}
+			}
+		}
+		infos[i] = info
 	}
 	daemon.RespondJSON(w, http.StatusOK, infos)
 }
@@ -730,6 +772,27 @@ func (p *FileTransferPlugin) handleTransferStatus(w http.ResponseWriter, r *http
 
 	progress, ok := ts.GetTransfer(id)
 	if !ok {
+		// R8-F6: also check pending transfers.
+		for _, pt := range ts.ListPending() {
+			if pt.ID == id || strings.HasPrefix(pt.ID, id) {
+				var fileInfos []PendingFileInfo
+				for j, fe := range pt.files {
+					fileInfos = append(fileInfos, PendingFileInfo{Index: j, Path: fe.Path, Size: fe.Size})
+				}
+				snap := TransferSnapshot{
+					ID:           pt.ID,
+					Filename:     pt.Filename,
+					Size:         pt.Size,
+					PeerID:       pt.PeerID,
+					Direction:    "receive",
+					Status:       "awaiting_approval",
+					StartTime:    pt.Time,
+					PendingFiles: fileInfos,
+				}
+				daemon.RespondJSON(w, http.StatusOK, snap)
+				return
+			}
+		}
 		daemon.RespondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
 		return
 	}
@@ -759,13 +822,70 @@ func (p *FileTransferPlugin) handleTransferAccept(w http.ResponseWriter, r *http
 		}
 	}
 
-	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
-		daemon.RespondError(w, http.StatusNotFound, err.Error())
+	// #18: validate selective rejection fields (F3, R7-F3).
+	if req.Files != nil && req.Exclude != nil {
+		daemon.RespondError(w, http.StatusBadRequest, "cannot specify both 'files' and 'exclude' (mutually exclusive)")
+		return
+	}
+	if req.Files != nil && len(req.Files) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "files array is empty; omit the field to accept all files, or specify file indices")
+		return
+	}
+	if req.Exclude != nil && len(req.Exclude) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "exclude array is empty; omit the field to accept all files, or specify file indices to reject")
 		return
 	}
 
-	slog.Info("transfer accepted via API", "id", id)
-	daemon.RespondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	// Build accepted file indices from Files or Exclude.
+	// nil = full accept (no selective rejection).
+	var acceptedFiles []int
+	if req.Files != nil {
+		acceptedFiles = req.Files
+	} else if req.Exclude != nil {
+		// Convert exclude to accepted: look up pending transfer's file count.
+		ts.mu.RLock()
+		_, pt, findErr := ts.findPendingByPrefix(id)
+		ts.mu.RUnlock()
+		if findErr != nil {
+			daemon.RespondError(w, http.StatusNotFound, findErr.Error())
+			return
+		}
+		// Validate exclude indices are in range.
+		for _, idx := range req.Exclude {
+			if idx < 0 || idx >= len(pt.files) {
+				daemon.RespondError(w, http.StatusBadRequest,
+					fmt.Sprintf("exclude index %d out of range (transfer has %d files, valid range 0-%d)", idx, len(pt.files), len(pt.files)-1))
+				return
+			}
+		}
+		excludeSet := make(map[int]bool, len(req.Exclude))
+		for _, idx := range req.Exclude {
+			excludeSet[idx] = true
+		}
+		for i := range pt.files {
+			if !excludeSet[i] {
+				acceptedFiles = append(acceptedFiles, i)
+			}
+		}
+		// F5: excluding all files = full reject.
+		if len(acceptedFiles) == 0 {
+			acceptedFiles = []int{} // empty non-nil triggers AcceptTransfer's "no files selected" error
+		}
+	}
+
+	if err := ts.AcceptTransfer(id, req.Dest, acceptedFiles); err != nil {
+		daemon.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	slog.Info("transfer accepted via API", "id", id,
+		"selective", acceptedFiles != nil)
+	// F15: include selective info in JSON response.
+	resp := map[string]any{"status": "accepted", "id": id}
+	if acceptedFiles != nil {
+		resp["accepted_files"] = len(acceptedFiles)
+	}
+	daemon.RespondJSON(w, http.StatusOK, resp)
 }
 
 func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http.Request) {

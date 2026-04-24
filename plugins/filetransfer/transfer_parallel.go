@@ -818,7 +818,7 @@ verify:
 	// Check for missing chunks (R3-IMP4). After Batch 2c manifest populate,
 	// only chunks without manifest data (non-erasure, or manifest absent)
 	// remain truly missing. These cannot be RS-reconstructed.
-	missing := state.missingChunks(chunkCount)
+	missing := state.missingChunks(chunkCount, ctrlResult.sparseHashes)
 	if len(missing) > 0 {
 		saveCheckpointOnError()
 		return zero, fmt.Errorf("transfer incomplete: %d chunks missing (first: %d)", len(missing), missing[0])

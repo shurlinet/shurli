@@ -12,15 +12,17 @@ import (
 
 // TransferEvent is a structured log entry for a file transfer event.
 type TransferEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	EventType string    `json:"event_type"`
-	Direction string    `json:"direction"` // "send" or "receive"
-	PeerID    string    `json:"peer_id"`
-	FileName  string    `json:"file_name"`
-	FileSize  int64     `json:"file_size,omitempty"`
-	BytesDone int64     `json:"bytes_done,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	Duration  string    `json:"duration,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
+	EventType     string    `json:"event_type"`
+	Direction     string    `json:"direction"` // "send" or "receive"
+	PeerID        string    `json:"peer_id"`
+	FileName      string    `json:"file_name"`
+	FileSize      int64     `json:"file_size,omitempty"`
+	BytesDone     int64     `json:"bytes_done,omitempty"`
+	Error         string    `json:"error,omitempty"`
+	Duration      string    `json:"duration,omitempty"`
+	AcceptedFiles int       `json:"accepted_files,omitempty"` // #18 R8-F3: selective rejection count
+	TotalFiles    int       `json:"total_files,omitempty"`    // #18 R8-F3: total file count in transfer
 }
 
 // Transfer event type constants.
