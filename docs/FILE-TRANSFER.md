@@ -161,7 +161,7 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 - **Path traversal**: Filenames like `../../../etc/passwd` are sanitized. Only the base filename is used. Receive directory is a jail.
 - **Transport encryption**: All data travels over libp2p's encrypted transport (TLS 1.3 or Noise).
 - **Authorization**: Only paired peers can send files. Unauthorized peers are silently rejected at the connection gating layer.
-- **Resource limits**: Max 3 pending transfers per peer, 5 concurrent active, 1M chunk limit, 40MB manifest limit, 1h timeout.
+- **Resource limits**: Per-peer queue depth 10 (configurable), per-peer concurrent 5 (configurable), global concurrent 20 (configurable), 1M chunk limit, 40MB manifest limit, 1h timeout. Ask-mode pending transfers consume zero capacity slots.
 - **Disk space**: Re-checked before each chunk write, not just at accept time.
 - **Transfer IDs**: Random hex (`xfer-<12hex>`), not sequential (prevents enumeration).
 - **Compression bombs**: zstd decompression capped at 10x ratio per chunk.
@@ -176,6 +176,8 @@ Each peer contributes RaptorQ symbols. Any sufficient subset of symbols reconstr
 | `transfer.compress` | `true` | Enable zstd compression |
 | `transfer.erasure_overhead` | `0.1` | Reed-Solomon parity ratio (0.0-0.5) |
 | `transfer.max_concurrent` | `5` | Max concurrent outbound transfers |
+| `transfer.max_inbound_transfers` | `20` | Max concurrent inbound transfers (global) |
+| `transfer.max_per_peer_transfers` | `5` | Max concurrent inbound transfers per peer |
 | `transfer.max_file_size` | `0` (unlimited) | Max file size to accept (bytes) |
 | `transfer.timed_duration` | `10m` | Default duration for timed receive mode |
 | `transfer.notify` | `none` | Notification mode: none, desktop, command |
@@ -270,8 +272,10 @@ type PluginConfig struct {
     MultiPeerEnabled  *bool    `yaml:"multi_peer_enabled"`
     MultiPeerMaxPeers int      `yaml:"multi_peer_max_peers"`
     MultiPeerMinSize  int64    `yaml:"multi_peer_min_size"`
-    ErasureOverhead   *float64 `yaml:"erasure_overhead"`
-    GlobalRateLimit   int      `yaml:"global_rate_limit"`
+    ErasureOverhead     *float64 `yaml:"erasure_overhead"`
+    MaxInboundTransfers int      `yaml:"max_inbound_transfers"`
+    MaxPerPeerTransfers int      `yaml:"max_per_peer_transfers"`
+    GlobalRateLimit     int      `yaml:"global_rate_limit"`
     MaxQueuedPerPeer  int      `yaml:"max_queued_per_peer"`
     MinSpeedBytes     int      `yaml:"min_speed_bytes"`
     MinSpeedSeconds   int      `yaml:"min_speed_seconds"`

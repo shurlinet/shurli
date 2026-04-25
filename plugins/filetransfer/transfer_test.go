@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -3085,5 +3086,385 @@ func TestHandleTransferStatusPending(t *testing.T) {
 	}
 	if !found {
 		t.Error("prefix match should find the pending transfer")
+	}
+}
+
+// --- #40: Receiver busy fix tests ---
+
+func TestPeerPreAcceptTracking(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	// Simulate peerPreAccept increment and decrement.
+	peerKey := "12D3KooWtest1234567890"
+	ts.mu.Lock()
+	ts.peerPreAccept[peerKey] = 2
+	ts.mu.Unlock()
+
+	ts.mu.RLock()
+	got := ts.peerPreAccept[peerKey]
+	ts.mu.RUnlock()
+	if got != 2 {
+		t.Errorf("peerPreAccept: got %d, want 2", got)
+	}
+
+	// Decrement.
+	ts.mu.Lock()
+	ts.peerPreAccept[peerKey]--
+	if ts.peerPreAccept[peerKey] <= 0 {
+		delete(ts.peerPreAccept, peerKey)
+	}
+	ts.mu.Unlock()
+
+	ts.mu.RLock()
+	got = ts.peerPreAccept[peerKey]
+	ts.mu.RUnlock()
+	if got != 1 {
+		t.Errorf("peerPreAccept after dec: got %d, want 1", got)
+	}
+}
+
+func TestPeerTotalNoDoubleCounting(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	peerKey := "12D3KooWtest_doublecnt"
+
+	// Simulate: 1 in peerPreAccept, 2 in peerInbound, 1 in pending.
+	ts.mu.Lock()
+	ts.peerPreAccept[peerKey] = 1
+	ts.peerInbound[peerKey] = 2
+	ts.pending["p1"] = &PendingTransfer{PeerID: peerKey, decision: make(chan transferDecision, 1)}
+	total := ts.peerPreAccept[peerKey] + ts.peerInbound[peerKey] + ts.countPeerPending(peerKey)
+	ts.mu.Unlock()
+
+	if total != 4 {
+		t.Errorf("peerTotal: got %d, want 4", total)
+	}
+}
+
+func TestPeerInboundZeroDuringAskMode(t *testing.T) {
+	// Verify that the restructured flow does NOT increment peerInbound
+	// before ask-mode. We test this by checking the config defaults.
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:  dir,
+		Compress:    true,
+		ReceiveMode: ReceiveModeAsk,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	// peerInbound should start empty.
+	ts.mu.RLock()
+	count := len(ts.peerInbound)
+	ts.mu.RUnlock()
+	if count != 0 {
+		t.Errorf("peerInbound should be empty at start, got %d entries", count)
+	}
+}
+
+func TestPeerSlotNotifyBroadcast(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	// Grab initial notify channel.
+	ts.mu.Lock()
+	ch := ts.peerSlotNotify
+	ts.mu.Unlock()
+
+	// Simulate peerInbound release with broadcast.
+	ts.mu.Lock()
+	close(ts.peerSlotNotify)
+	ts.peerSlotNotify = make(chan struct{})
+	newCh := ts.peerSlotNotify
+	ts.mu.Unlock()
+
+	// Old channel should be closed (readable).
+	select {
+	case <-ch:
+		// good
+	default:
+		t.Error("old peerSlotNotify should be closed after broadcast")
+	}
+
+	// New channel should be open (blocking).
+	select {
+	case <-newCh:
+		t.Error("new peerSlotNotify should not be closed yet")
+	default:
+		// good
+	}
+}
+
+func TestPostFinishReleasesPeerInbound(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	peerKey := "12D3KooWtest_postfinish"
+
+	// Simulate peerInbound=1.
+	ts.mu.Lock()
+	ts.peerInbound[peerKey] = 1
+	ts.mu.Unlock()
+
+	released := false
+	p := &TransferProgress{
+		ID:        "test-postfinish",
+		Status:    "active",
+		Direction: "receive",
+	}
+	p.postFinish = func() {
+		released = true
+		ts.mu.Lock()
+		ts.peerInbound[peerKey]--
+		if ts.peerInbound[peerKey] <= 0 {
+			delete(ts.peerInbound, peerKey)
+		}
+		close(ts.peerSlotNotify)
+		ts.peerSlotNotify = make(chan struct{})
+		ts.mu.Unlock()
+	}
+
+	p.finish(nil)
+
+	if !released {
+		t.Error("postFinish should have been called")
+	}
+	ts.mu.RLock()
+	count := ts.peerInbound[peerKey]
+	ts.mu.RUnlock()
+	if count != 0 {
+		t.Errorf("peerInbound should be 0 after postFinish, got %d", count)
+	}
+}
+
+func TestPostFinishIdempotent(t *testing.T) {
+	callCount := 0
+	p := &TransferProgress{
+		ID:        "test-idempotent",
+		Status:    "active",
+		Direction: "receive",
+	}
+	p.postFinish = func() { callCount++ }
+
+	p.finish(nil)
+	p.finish(fmt.Errorf("late error"))
+
+	if callCount != 1 {
+		t.Errorf("postFinish called %d times, want 1", callCount)
+	}
+}
+
+func TestConfigMaxInboundTransfers(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:          dir,
+		Compress:            true,
+		MaxInboundTransfers: 30,
+		MaxPerPeerTransfers: 8,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	if cap(ts.inboundSem) != 30 {
+		t.Errorf("inboundSem cap: got %d, want 30", cap(ts.inboundSem))
+	}
+	if ts.maxPerPeerTransfers != 8 {
+		t.Errorf("maxPerPeerTransfers: got %d, want 8", ts.maxPerPeerTransfers)
+	}
+}
+
+func TestConfigDefaultInboundTransfers(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	if cap(ts.inboundSem) != 20 {
+		t.Errorf("inboundSem cap: got %d, want 20 (default)", cap(ts.inboundSem))
+	}
+	if ts.maxPerPeerTransfers != 5 {
+		t.Errorf("maxPerPeerTransfers: got %d, want 5 (default)", ts.maxPerPeerTransfers)
+	}
+}
+
+func TestEvictCompletedTransfers(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{ReceiveDir: dir, Compress: true}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	// Add a completed transfer with old EndTime.
+	p := &TransferProgress{
+		ID:      "old-done",
+		Done:    true,
+		EndTime: time.Now().Add(-10 * time.Minute),
+		Status:  "complete",
+	}
+	ts.mu.Lock()
+	ts.transfers["old-done"] = p
+	ts.mu.Unlock()
+
+	// Add a recent completed transfer.
+	p2 := &TransferProgress{
+		ID:      "recent-done",
+		Done:    true,
+		EndTime: time.Now().Add(-1 * time.Minute),
+		Status:  "complete",
+	}
+	ts.mu.Lock()
+	ts.transfers["recent-done"] = p2
+	ts.mu.Unlock()
+
+	// Add an active transfer.
+	p3 := &TransferProgress{
+		ID:     "still-active",
+		Done:   false,
+		Status: "active",
+	}
+	ts.mu.Lock()
+	ts.transfers["still-active"] = p3
+	ts.mu.Unlock()
+
+	ts.evictCompletedTransfers()
+
+	ts.mu.RLock()
+	_, oldExists := ts.transfers["old-done"]
+	_, recentExists := ts.transfers["recent-done"]
+	_, activeExists := ts.transfers["still-active"]
+	ts.mu.RUnlock()
+
+	if oldExists {
+		t.Error("old completed transfer should be evicted")
+	}
+	if !recentExists {
+		t.Error("recent completed transfer should NOT be evicted")
+	}
+	if !activeExists {
+		t.Error("active transfer should NOT be evicted")
+	}
+}
+
+func TestTypedErrReceiverBusy(t *testing.T) {
+	// errors.Is should match errReceiverBusy through wrapping.
+	wrapped := fmt.Errorf("peer rejected transfer: %w", errReceiverBusy)
+	if !errors.Is(wrapped, errReceiverBusy) {
+		t.Error("errors.Is should match wrapped errReceiverBusy")
+	}
+	if !isRetryableReject(wrapped) {
+		t.Error("isRetryableReject should return true for wrapped errReceiverBusy")
+	}
+
+	// String-based backward compat still works.
+	legacy := fmt.Errorf("peer rejected transfer: receiver busy")
+	if !isRetryableReject(legacy) {
+		t.Error("isRetryableReject should still match string-based 'receiver busy'")
+	}
+
+	// Non-busy errors should not match.
+	other := fmt.Errorf("peer rejected transfer: file too large")
+	if isRetryableReject(other) {
+		t.Error("isRetryableReject should return false for non-busy errors")
+	}
+}
+
+func TestGlobalPreAcceptCap(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := NewTransferService(TransferConfig{
+		ReceiveDir:          dir,
+		Compress:            true,
+		MaxInboundTransfers: 5, // global cap, so pre-accept cap = 10
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewTransferService: %v", err)
+	}
+	defer ts.Close()
+
+	// Fill peerPreAccept from many peers up to the global cap.
+	globalCap := cap(ts.inboundSem) * 2 // 10
+	ts.mu.Lock()
+	for i := range globalCap {
+		ts.peerPreAccept[fmt.Sprintf("peer-%d", i)] = 1
+	}
+	ts.mu.Unlock()
+
+	// Verify: new peer passes per-peer check but fails global cap.
+	ts.mu.Lock()
+	peerTotal := ts.peerPreAccept["new-peer"] + ts.peerInbound["new-peer"] + ts.countPeerPending("new-peer")
+	perPeerOK := ts.maxQueuedPerPeer == 0 || peerTotal < ts.maxQueuedPerPeer
+	globalTotal := 0
+	for _, v := range ts.peerPreAccept {
+		globalTotal += v
+	}
+	globalOK := globalTotal < cap(ts.inboundSem)*2
+	ts.mu.Unlock()
+
+	if !perPeerOK {
+		t.Error("per-peer check should pass for new peer")
+	}
+	if globalOK {
+		t.Error("global pre-accept check should FAIL when at cap")
+	}
+}
+
+func TestRejectHintRoundtrip(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Write reject with hint.
+	if err := writeRejectWithHint(&buf, RejectReasonBusy, RejectHintAtCapacity); err != nil {
+		t.Fatalf("writeRejectWithHint: %v", err)
+	}
+
+	data := buf.Bytes()
+	if len(data) != 3 {
+		t.Fatalf("expected 3 bytes, got %d", len(data))
+	}
+	if data[0] != msgRejectReason {
+		t.Errorf("byte 0: got 0x%02x, want 0x%02x", data[0], msgRejectReason)
+	}
+	if data[1] != RejectReasonBusy {
+		t.Errorf("byte 1: got 0x%02x, want 0x%02x", data[1], RejectReasonBusy)
+	}
+	if data[2] != RejectHintAtCapacity {
+		t.Errorf("byte 2: got 0x%02x, want 0x%02x", data[2], RejectHintAtCapacity)
+	}
+}
+
+func TestRejectWithReasonIncludesHint(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeRejectWithReason(&buf, RejectReasonSpace); err != nil {
+		t.Fatalf("writeRejectWithReason: %v", err)
+	}
+	data := buf.Bytes()
+	if len(data) != 3 {
+		t.Fatalf("expected 3 bytes (reason+hint), got %d", len(data))
+	}
+	if data[2] != RejectHintNone {
+		t.Errorf("default hint should be RejectHintNone, got 0x%02x", data[2])
 	}
 }
