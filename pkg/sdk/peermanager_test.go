@@ -173,14 +173,16 @@ func TestPeerManager_OnNetworkChange(t *testing.T) {
 	pm := NewPeerManager(netA.Host(), nil, nil, nil, nil)
 	pm.SetWatchlist([]peer.ID{netB.Host().ID()})
 
-	// Simulate accumulated backoff.
+	// Simulate accumulated backoff and churn.
 	pm.mu.Lock()
 	mp := pm.peers[netB.Host().ID()]
 	mp.ConsecFailures = 5
 	mp.BackoffUntil = time.Now().Add(15 * time.Minute)
+	mp.churnCount = 4
+	mp.churnWindowStart = time.Now().Add(-30 * time.Second)
 	pm.mu.Unlock()
 
-	// Network change should reset everything.
+	// Network change should reset everything including churn (#42).
 	pm.OnNetworkChange()
 
 	pm.mu.RLock()
@@ -189,6 +191,12 @@ func TestPeerManager_OnNetworkChange(t *testing.T) {
 	}
 	if !mp.BackoffUntil.IsZero() {
 		t.Error("expected zero backoff after network change")
+	}
+	if mp.churnCount != 0 {
+		t.Errorf("expected 0 churn count after network change, got %d", mp.churnCount)
+	}
+	if !mp.churnWindowStart.IsZero() {
+		t.Error("expected zero churn window start after network change")
 	}
 	pm.mu.RUnlock()
 }
