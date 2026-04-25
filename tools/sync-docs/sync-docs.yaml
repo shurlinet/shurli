@@ -261,6 +261,11 @@ journal:
     title: FT-Y - Verified-LAN Classification Migration
     description: "Migration from bare RFC 1918 mask to mDNS-verified LAN detection for all trust-making decisions, with VerifiedTransport classifier and dead code deletion."
 
+  - source: persistent-proxy-service.md
+    weight: 36
+    title: FT-Y - Persistent Proxy Service
+    description: "Daemon-owned persistent proxy lifecycle with desired-state persistence, GATETIME stability detection, event-driven reconnect, poll fallback, and authorization cleanup."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
