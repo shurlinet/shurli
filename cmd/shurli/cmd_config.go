@@ -251,6 +251,8 @@ var validConfigKeys = []string{
 	"transfer.notify",
 	"transfer.notify_command",
 	"transfer.max_concurrent",
+	"transfer.max_inbound_transfers",
+	"transfer.max_per_peer_transfers",
 	"transfer.erasure_overhead",
 	"transfer.rate_limit",
 	"transfer.multi_peer_enabled",

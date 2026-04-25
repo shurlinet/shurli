@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -58,6 +59,12 @@ const (
 	RejectReasonBusy  byte = 0x02 // receiver busy
 	RejectReasonSize  byte = 0x03 // file too large
 
+	// Reject hints (#40 F11): follow reason byte, tell sender how to react.
+	RejectHintNone            byte = 0x00 // no hint (legacy receivers)
+	RejectHintTransient       byte = 0x01 // transient: retry with backoff
+	RejectHintPendingApproval byte = 0x02 // ask-mode: user hasn't decided yet, wait
+	RejectHintAtCapacity      byte = 0x03 // at capacity: try later or different peer
+
 	// Manifest flags (bitmask).
 	flagCompressed = 0x01 // zstd compression enabled
 
@@ -95,8 +102,8 @@ const (
 	// are expected to be 100+ GB scale; the current accumulate-all design
 	// is architecturally incapable of handling them regardless of this cap.
 	maxParityBudgetBytes   = 512 << 20 // 512 MB hard cap (see Option C / item #23)
-	maxConcurrentTransfers = 10        // global inbound transfer limit
-	maxPerPeerTransfers    = 3         // per-peer inbound limit
+	maxConcurrentTransfers = 20        // default global inbound transfer limit (configurable via max_inbound_transfers)
+	maxPerPeerTransfers    = 5         // default per-peer inbound limit (configurable via max_per_peer_transfers)
 	maxTrackedTransfers    = 10000     // max tracked transfer entries
 
 	// Timeouts.
@@ -369,6 +376,7 @@ type TransferProgress struct {
 	mu           sync.Mutex
 	cancelFunc   func()      // D1 fix: called by CancelTransfer to stop underlying I/O (e.g. stream.Reset for receives)
 	relayTracker func(int64) // per-chunk relay grant byte tracking (H7)
+	postFinish   func()      // #40 F7: called once at finish() to release peerInbound immediately
 
 	// TS-4: cancel protocol routing. Not exported to JSON/API (R4-S4).
 	transferID   [32]byte // transfer session ID for cancel protocol routing
@@ -463,20 +471,30 @@ func (p *TransferProgress) setStatus(status string) {
 
 func (p *TransferProgress) finish(err error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	// D1 fix: idempotent - first completion wins. Prevents a late success from
 	// overwriting an earlier cancel (CancelTransfer + executeQueuedJob race).
 	if p.Done {
+		p.mu.Unlock()
 		return
 	}
 	p.Done = true
 	p.EndTime = time.Now()
 	p.cancelFunc = nil // release stream reference
+	pf := p.postFinish
+	p.postFinish = nil // one-shot
 	if err != nil {
 		p.Error = err.Error()
 		p.Status = "failed"
 	} else {
 		p.Status = "complete"
+	}
+	p.mu.Unlock()
+
+	// #40 F7: release peerInbound immediately at transfer completion,
+	// not when HandleInbound returns. The defer in HandleInbound is the
+	// idempotent safety net (releasePeerInbound checks peerInboundReleased).
+	if pf != nil {
+		pf()
 	}
 }
 
@@ -572,6 +590,10 @@ type TransferConfig struct {
 	MultiPeerStrikeThreshold int   // hash mismatches before peer ban (default: 3, 1 for public) (IF12-2)
 	MaxServedBytesPerHour    int64 // max total bytes served outbound per hour (0 = unlimited) (IF12-1)
 
+	// Inbound capacity.
+	MaxInboundTransfers int // global concurrent inbound limit (default: 20, min: 1)
+	MaxPerPeerTransfers int // per-peer concurrent inbound limit (default: 5, min: 1)
+
 	RateLimit int // max transfer requests per peer per minute (default: 600, 0 = disabled)
 
 	// DDoS defense settings.
@@ -664,7 +686,8 @@ type TransferService struct {
 	logger          *TransferLogger
 	notifier        *TransferNotifier
 
-	inboundSem chan struct{}
+	inboundSem          chan struct{}
+	maxPerPeerTransfers int // per-peer concurrent inbound limit (configurable, default 5)
 
 	// Outbound transfer queue with priority ordering and concurrency limit.
 	queue         *TransferQueue
@@ -678,6 +701,8 @@ type TransferService struct {
 	transfers        map[string]*TransferProgress
 	completed        []string
 	peerInbound      map[string]int
+	peerPreAccept    map[string]int     // goroutines between entry and resource acquisition (#40 R11-F1)
+	peerSlotNotify   chan struct{}       // closed+recreated when peerInbound decrements (#40 R7-F1)
 	pending          map[string]*PendingTransfer // ask mode: transfers awaiting approval
 	parallelSessions map[[32]byte]*parallelSession
 
@@ -865,6 +890,15 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		multiPeerStrikeThreshold = 3 // default: 3 strikes (authorized networks)
 	}
 
+	maxInbound := cfg.MaxInboundTransfers
+	if maxInbound < 1 {
+		maxInbound = 20
+	}
+	maxPerPeer := cfg.MaxPerPeerTransfers
+	if maxPerPeer < 1 {
+		maxPerPeer = 5
+	}
+
 	ts := &TransferService{
 		receiveDir:               dir,
 		maxSize:                  cfg.MaxSize,
@@ -875,12 +909,15 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 		events:                   events,
 		logger:                   logger,
 		notifier:                 notifier,
-		inboundSem:               make(chan struct{}, maxConcurrentTransfers),
+		inboundSem:               make(chan struct{}, maxInbound),
+		maxPerPeerTransfers:      maxPerPeer,
 		queue:                    NewTransferQueue(maxConcurrent),
 		queueReady:               make(chan struct{}, 10),
 		pendingJobs:              make(map[string]*queuedJob),
 		transfers:                make(map[string]*TransferProgress),
 		peerInbound:              make(map[string]int),
+		peerPreAccept:            make(map[string]int),
+		peerSlotNotify:           make(chan struct{}),
 		pending:                  make(map[string]*PendingTransfer),
 		multiPeerEnabled:         cfg.MultiPeerEnabled,
 		multiPeerMaxPeers:        multiPeerMaxPeers,
@@ -1024,6 +1061,7 @@ func NewTransferService(cfg TransferConfig, metrics *sdk.Metrics, events *sdk.Ev
 					ts.cancelRateLimiter.cleanup()
 				}
 				ts.cleanExpiredTempFiles()
+				ts.evictCompletedTransfers() // #40 F8
 			case <-defenseCtx.Done():
 				return
 			}
@@ -1167,7 +1205,13 @@ func readMsg(r io.Reader) (byte, error) {
 
 // writeRejectWithReason writes msgRejectReason followed by a reason byte.
 func writeRejectWithReason(w io.Writer, reason byte) error {
-	_, err := w.Write([]byte{msgRejectReason, reason})
+	_, err := w.Write([]byte{msgRejectReason, reason, RejectHintNone})
+	return err
+}
+
+// writeRejectWithHint writes a reject with both reason and hint byte (#40 F11).
+func writeRejectWithHint(w io.Writer, reason, hint byte) error {
+	_, err := w.Write([]byte{msgRejectReason, reason, hint})
 	return err
 }
 
@@ -1499,8 +1543,22 @@ func (ts *TransferService) streamingSend(
 		return zero, fmt.Errorf("write header: %w", err)
 	}
 
+	// #40 R7-F5: if receiver takes >10s to respond, show "awaiting-approval".
+	// R4-TE-2: check p.Done before overwriting status — the timer callback
+	// can race with finish() if the response arrives around the 10s mark.
+	awaitTimer := time.AfterFunc(10*time.Second, func() {
+		if progress != nil {
+			progress.mu.Lock()
+			if !progress.Done {
+				progress.Status = "awaiting-approval"
+			}
+			progress.mu.Unlock()
+		}
+	})
+
 	// Wait for accept/reject/resume.
 	resp, err := readMsg(rw)
+	awaitTimer.Stop()
 	if err != nil {
 		return zero, fmt.Errorf("read response: %w", err)
 	}
@@ -1516,6 +1574,21 @@ func (ts *TransferService) streamingSend(
 		reasonByte, readErr := readMsg(rw)
 		if readErr != nil {
 			return zero, fmt.Errorf("peer rejected transfer (could not read reason)")
+		}
+		// #40 F11: read optional hint byte. Older receivers send only 2 bytes
+		// (msgRejectReason + reason); the hint byte is absent. Set a short
+		// deadline so the read returns quickly on EOF/old-format instead of
+		// blocking until stream close.
+		if ns, ok := rw.(interface{ SetReadDeadline(time.Time) error }); ok {
+			ns.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		}
+		hintByte, hintErr := readMsg(rw)
+		if hintErr != nil {
+			hintByte = RejectHintNone // old receiver, no hint
+		}
+		_ = hintByte // hint reserved for future retry behavior tuning
+		if reasonByte == RejectReasonBusy {
+			return zero, fmt.Errorf("peer rejected transfer: %w", errReceiverBusy)
 		}
 		return zero, fmt.Errorf("peer rejected transfer: %s", RejectReasonString(reasonByte))
 
@@ -1807,52 +1880,54 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		if ts.globalRateLimiter != nil && !ts.globalRateLimiter.allow("_global_") {
 			slog.Warn("file-transfer: global rate limit exceeded")
 			ts.logEvent(EventLogSpamBlocked, "receive", "", "", 0, 0, "global rate limit exceeded", "")
-			writeRejectWithReason(s, RejectReasonBusy)
+			writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
 			return
 		}
 
-		// Global capacity check.
-		select {
-		case ts.inboundSem <- struct{}{}:
-			defer func() { <-ts.inboundSem }()
-		default:
-			slog.Warn("file-transfer: at capacity, rejecting",
-				"peer", short, "max", maxConcurrentTransfers)
-			writeRejectWithReason(s, RejectReasonBusy)
-			return
-		}
+		// --- #40 restructured flow: peerPreAccept + deferred resource acquisition ---
 
-		// Per-peer queue depth limit (pending + active).
+		// Per-peer pre-accept counter (#40 R11-F1): bounds goroutines between
+		// entry and resource acquisition. A goroutine is in exactly ONE state:
+		// peerPreAccept, pending (ask-mode), or peerInbound (active transfer).
 		ts.mu.Lock()
-		peerTotal := ts.peerInbound[peerKey] + ts.countPeerPending(peerKey)
+		peerTotal := ts.peerPreAccept[peerKey] + ts.peerInbound[peerKey] + ts.countPeerPending(peerKey)
 		if ts.maxQueuedPerPeer > 0 && peerTotal >= ts.maxQueuedPerPeer {
 			ts.mu.Unlock()
 			slog.Warn("file-transfer: per-peer queue depth exceeded",
 				"peer", short, "total", peerTotal, "max", ts.maxQueuedPerPeer)
-			writeRejectWithReason(s, RejectReasonBusy)
+			writeRejectWithHint(s, RejectReasonBusy, RejectHintAtCapacity)
 			return
 		}
-
-		// Per-peer concurrent limit.
-		if ts.peerInbound[peerKey] >= maxPerPeerTransfers {
+		// #40 R4-TE-1: global cap on total pre-accept goroutines across all peers.
+		// Without this, N authorized peers x maxQueuedPerPeer = unbounded goroutines
+		// all reading headers simultaneously (each holds a 4KB bufio reader + goroutine stack).
+		globalPreAcceptCap := cap(ts.inboundSem) * 2 // 2x global inbound capacity
+		totalPreAccept := 0
+		for _, v := range ts.peerPreAccept {
+			totalPreAccept += v
+		}
+		if totalPreAccept >= globalPreAcceptCap {
 			ts.mu.Unlock()
-			slog.Warn("file-transfer: per-peer limit reached",
-				"peer", short, "max", maxPerPeerTransfers)
-			writeRejectWithReason(s, RejectReasonBusy)
+			slog.Warn("file-transfer: global pre-accept limit exceeded",
+				"total", totalPreAccept, "max", globalPreAcceptCap)
+			writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
 			return
 		}
-		ts.peerInbound[peerKey]++
+		ts.peerPreAccept[peerKey]++
 		ts.mu.Unlock()
+		preAcceptReleased := false
 		defer func() {
-			ts.mu.Lock()
-			ts.peerInbound[peerKey]--
-			if ts.peerInbound[peerKey] <= 0 {
-				delete(ts.peerInbound, peerKey)
+			if !preAcceptReleased {
+				ts.mu.Lock()
+				ts.peerPreAccept[peerKey]--
+				if ts.peerPreAccept[peerKey] <= 0 {
+					delete(ts.peerPreAccept, peerKey)
+				}
+				ts.mu.Unlock()
 			}
-			ts.mu.Unlock()
 		}()
 
-		// Per-peer rate limit check (before parsing header to save CPU).
+		// Per-peer rate limit check (#40 SEC-F4: moved before header read).
 		if ts.rateLimiter != nil && !ts.rateLimiter.allow(peerKey) {
 			slog.Warn("file-transfer: rate limit exceeded", "peer", short)
 			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, "", 0, 0, "rate limit exceeded", "")
@@ -1902,9 +1977,6 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 
 		// Per-peer bandwidth budget check (WAN only).
-		// VerifiedTransport: a routed-private-IPv4 peer (CGNAT, Docker, VPN,
-		// multi-WAN) is NOT LAN — its transfers MUST count against the budget.
-		// Bare RFC 1918 match would silently let WAN peers bypass budgets.
 		transport := sdk.VerifiedTransport(s, ts.hasVerifiedLANConn)
 		if transport != sdk.TransportLAN && ts.bandwidthTracker != nil {
 			var peerBudget int64
@@ -1914,7 +1986,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 			if !ts.bandwidthTracker.check(peerKey, totalSize, peerBudget) {
 				slog.Warn("file-transfer: bandwidth budget exceeded",
 					"peer", short, "file", displayName, "size", totalSize)
-				writeRejectWithReason(s, RejectReasonBusy)
+				writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
 				ts.logEvent(EventLogSpamBlocked, "receive", peerKey, displayName, totalSize, 0, "bandwidth budget exceeded", "")
 				return
 			}
@@ -1924,7 +1996,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		if err := ts.checkTempBudget(); err != nil {
 			slog.Warn("file-transfer: temp budget exceeded",
 				"peer", short, "file", displayName, "error", err)
-			writeRejectWithReason(s, RejectReasonBusy)
+			writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
 			ts.logEvent(EventLogSpamBlocked, "receive", peerKey, displayName, totalSize, 0, "temp file budget exceeded", "")
 			return
 		}
@@ -1940,9 +2012,20 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 
 		destDir := ts.receiveDir
 		var acceptedFileIndices []int // #18: nil = full accept, non-nil = selective
+		isAskMode := ts.receiveMode == ReceiveModeAsk
 
-		if ts.receiveMode == ReceiveModeAsk {
+		if isAskMode {
+			// Ask mode: release peerPreAccept (now counted in pending instead).
+			ts.mu.Lock()
+			ts.peerPreAccept[peerKey]--
+			if ts.peerPreAccept[peerKey] <= 0 {
+				delete(ts.peerPreAccept, peerKey)
+			}
+			ts.mu.Unlock()
+			preAcceptReleased = true
+
 			// Ask mode: queue for manual approval with timeout.
+			// NO inboundSem or peerInbound held during wait (#40 F2, F3).
 			pendingID := fmt.Sprintf("pending-%d-%s", time.Now().UnixNano(), randomHex(4))
 			pt := &PendingTransfer{
 				ID:         pendingID,
@@ -1975,30 +2058,63 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 			timer := time.NewTimer(askModeTimeout)
 			defer timer.Stop()
 
+			// #40 F10: poll conn health during ask-mode wait.
 			var decision transferDecision
 			timedOut := false
-			select {
-			case decision = <-pt.decision:
-			case <-timer.C:
-				timedOut = true
-				decision = transferDecision{accept: false, reason: RejectReasonBusy}
-				slog.Info("file-transfer: ask mode timeout, rejecting",
-					"peer", short, "file", displayName, "id", pendingID)
+			connClosed := false
+			pollTicker := time.NewTicker(5 * time.Second)
+			defer pollTicker.Stop()
+		askWait:
+			for {
+				select {
+				case decision = <-pt.decision:
+					break askWait
+				case <-timer.C:
+					timedOut = true
+					decision = transferDecision{accept: false, reason: RejectReasonBusy}
+					slog.Info("file-transfer: ask mode timeout, rejecting",
+						"peer", short, "file", displayName, "id", pendingID)
+					break askWait
+				case <-pollTicker.C:
+					if s.Conn().IsClosed() {
+						connClosed = true
+						decision = transferDecision{accept: false, reason: RejectReasonNone}
+						slog.Info("file-transfer: sender disconnected during ask mode",
+							"peer", short, "id", pendingID)
+						break askWait
+					}
+				}
 			}
 
 			ts.removePending(pendingID)
 
 			if !decision.accept {
-				if decision.reason != RejectReasonNone {
+				if connClosed {
+					ts.logEvent(EventLogCancelled, "receive", peerKey, displayName, totalSize, 0, "sender disconnected", "")
+				} else if decision.reason != RejectReasonNone {
 					writeRejectWithReason(s, decision.reason)
 				} else {
 					writeMsg(s, msgReject)
 				}
 				if timedOut {
 					ts.logEvent(EventLogCancelled, "receive", peerKey, displayName, totalSize, 0, "ask mode timeout", "")
-				} else {
+				} else if !connClosed {
 					ts.logEvent(EventLogRejected, "receive", peerKey, displayName, totalSize, 0, "user rejected", "")
 				}
+				return
+			}
+
+			// #40 R5-F2: reset stream deadline after ask-mode acceptance.
+			// Use transferStreamDeadline (1h) not 30s — post-accept work includes
+			// checkpoint load + temp file allocation which can be slow on disk.
+			// The I9 line further down sets the same deadline redundantly; that's fine.
+			s.SetDeadline(time.Now().Add(transferStreamDeadline))
+
+			// #40 R5-F3: re-check disk space after ask-mode wait.
+			if err := ts.checkDiskSpace(totalSize); err != nil {
+				slog.Warn("file-transfer: insufficient disk space (post-accept recheck)",
+					"peer", short, "file", displayName, "error", err)
+				writeRejectWithReason(s, RejectReasonSpace)
 				return
 			}
 
@@ -2013,7 +2129,6 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 
 			acceptedFileIndices = decision.acceptedFiles // #18: propagate selective rejection
 			if acceptedFileIndices != nil {
-				// R6-F2/R6-F3: log selective accept with counts.
 				slog.Info("file-transfer: approved (selective)",
 					"peer", short, "file", displayName, "id", pendingID,
 					"accepted", len(acceptedFileIndices), "total", len(files))
@@ -2025,12 +2140,180 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 				ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
 			}
 		} else {
+			// Non-ask mode: release peerPreAccept before acquiring peerInbound.
+			ts.mu.Lock()
+			ts.peerPreAccept[peerKey]--
+			if ts.peerPreAccept[peerKey] <= 0 {
+				delete(ts.peerPreAccept, peerKey)
+			}
+			ts.mu.Unlock()
+			preAcceptReleased = true
+
 			slog.Info("file-transfer: receiving",
 				"peer", short, "file", displayName,
 				"size", totalSize, "files", len(files),
 				"compressed", flags&flagCompressed != 0)
 			ts.logEvent(EventLogAccepted, "receive", peerKey, displayName, totalSize, 0, "", "")
 		}
+
+		// --- #40 post-acceptance resource acquisition (F2, F3, R5-F1, R7-F1/F2/F3) ---
+		// Acquire peerInbound first (per-peer), then inboundSem (global).
+		// Ask-mode: wait with timeout + cancel support. Non-ask: immediate reject.
+
+		// #40 R7-F4: register a visible progress entry during slot wait so
+		// CancelTransfer can find and abort it. Only for ask-mode (non-ask is
+		// immediate, no wait). The entry is replaced by the real progress below.
+		var slotWaitCtx context.Context
+		var slotWaitCancel context.CancelFunc
+		var slotWaitProgress *TransferProgress
+		if isAskMode {
+			slotWaitCtx, slotWaitCancel = context.WithCancel(context.Background())
+			slotWaitProgress = ts.trackTransfer(displayName, totalSize,
+				peerKey, "receive", 0, false)
+			slotWaitProgress.setStatus("acquiring-slot")
+			slotWaitProgress.mu.Lock()
+			slotWaitProgress.cancelFunc = func() { slotWaitCancel() }
+			slotWaitProgress.mu.Unlock()
+			// Register cancel func so CancelTransfer calls it.
+			ts.jobCancelMu.Lock()
+			ts.jobCancels[slotWaitProgress.ID] = slotWaitCancel
+			ts.jobCancelMu.Unlock()
+		}
+		defer func() {
+			if slotWaitCancel != nil {
+				slotWaitCancel()
+			}
+			if slotWaitProgress != nil {
+				ts.jobCancelMu.Lock()
+				delete(ts.jobCancels, slotWaitProgress.ID)
+				ts.jobCancelMu.Unlock()
+				// Remove the slot-wait entry if it was never upgraded to real progress.
+				ts.mu.Lock()
+				if p, ok := ts.transfers[slotWaitProgress.ID]; ok {
+					p.mu.Lock()
+					isSlot := p.Status == "acquiring-slot"
+					p.mu.Unlock()
+					if isSlot {
+						delete(ts.transfers, slotWaitProgress.ID)
+					}
+				}
+				ts.mu.Unlock()
+			}
+		}()
+
+		if isAskMode {
+			// Channel-notify wait for peerInbound slot (#40 R7-F1).
+			deadline := time.NewTimer(askModeTimeout)
+			defer deadline.Stop()
+			acquired := false
+		peerSlotWait:
+			for {
+				ts.mu.Lock()
+				if ts.peerInbound[peerKey] < ts.maxPerPeerTransfers {
+					ts.peerInbound[peerKey]++
+					ts.mu.Unlock()
+					acquired = true
+					break peerSlotWait
+				}
+				// Snapshot notify channel under lock to avoid race.
+				notify := ts.peerSlotNotify
+				ts.mu.Unlock()
+				select {
+				case <-notify:
+					continue peerSlotWait
+				case <-deadline.C:
+					break peerSlotWait
+				case <-slotWaitCtx.Done():
+					break peerSlotWait
+				}
+			}
+			if !acquired {
+				if slotWaitProgress != nil {
+					if slotWaitCtx.Err() != nil {
+						slotWaitProgress.finish(fmt.Errorf("cancelled"))
+					} else {
+						slotWaitProgress.finish(fmt.Errorf("slot wait timeout"))
+					}
+				}
+				if slotWaitCtx.Err() != nil {
+					slog.Info("file-transfer: slot wait cancelled by user",
+						"peer", short)
+					writeMsg(s, msgReject)
+				} else {
+					slog.Warn("file-transfer: per-peer slot wait timeout after accept",
+						"peer", short, "max", ts.maxPerPeerTransfers)
+					writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
+				}
+				return
+			}
+		} else {
+			// Non-ask: immediate per-peer check.
+			ts.mu.Lock()
+			if ts.peerInbound[peerKey] >= ts.maxPerPeerTransfers {
+				ts.mu.Unlock()
+				slog.Warn("file-transfer: per-peer limit reached",
+					"peer", short, "max", ts.maxPerPeerTransfers)
+				writeRejectWithHint(s, RejectReasonBusy, RejectHintAtCapacity)
+				return
+			}
+			ts.peerInbound[peerKey]++
+			ts.mu.Unlock()
+		}
+		// peerInbound acquired — defer decrement with broadcast (#40 F7, R7-F1).
+		// sync.Once guarantees exactly-once execution even when called from
+		// multiple goroutines (CancelTransfer calls finish()->postFinish from
+		// HTTP handler goroutine; HandleInbound defer runs in stream goroutine).
+		var releasePeerInboundOnce sync.Once
+		releasePeerInbound := func() {
+			releasePeerInboundOnce.Do(func() {
+				ts.mu.Lock()
+				ts.peerInbound[peerKey]--
+				if ts.peerInbound[peerKey] <= 0 {
+					delete(ts.peerInbound, peerKey)
+				}
+				// Broadcast: close+recreate notify channel to wake all waiters.
+				close(ts.peerSlotNotify)
+				ts.peerSlotNotify = make(chan struct{})
+				ts.mu.Unlock()
+			})
+		}
+		defer releasePeerInbound()
+
+		// Acquire inboundSem (global capacity).
+		if isAskMode {
+			// #40 R7-F2: wait with timeout after ask-mode acceptance.
+			semTimer := time.NewTimer(askModeTimeout)
+			defer semTimer.Stop()
+			select {
+			case ts.inboundSem <- struct{}{}:
+			case <-semTimer.C:
+				if slotWaitProgress != nil {
+					slotWaitProgress.finish(fmt.Errorf("global capacity wait timeout"))
+				}
+				slog.Warn("file-transfer: global capacity wait timeout after accept",
+					"peer", short)
+				writeRejectWithHint(s, RejectReasonBusy, RejectHintTransient)
+				return
+			case <-slotWaitCtx.Done():
+				if slotWaitProgress != nil {
+					slotWaitProgress.finish(fmt.Errorf("cancelled"))
+				}
+				slog.Info("file-transfer: slot wait cancelled", "peer", short)
+				writeMsg(s, msgReject)
+				return
+			}
+		} else {
+			// Non-ask: immediate global capacity check.
+			select {
+			case ts.inboundSem <- struct{}{}:
+			default:
+				slog.Warn("file-transfer: at capacity, rejecting",
+					"peer", short, "max", cap(ts.inboundSem))
+				writeRejectWithHint(s, RejectReasonBusy, RejectHintAtCapacity)
+				return
+			}
+		}
+		defer func() { <-ts.inboundSem }()
 
 		// TS-5: protect relay paths during inbound transfer (C3).
 		// Context-based liveness prevents reaper from killing idle backup circuits
@@ -2195,11 +2478,26 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		}
 		defer state.cleanup() // R4-SEC2: always clean up temp files on any exit
 
+		// #40 R7-F4: remove slot-wait placeholder before creating real progress.
+		// Delete jobCancels FIRST so CancelTransfer can't fire a stale cancel
+		// while the transfers entry is already gone (R5-TE-2 race fix).
+		if slotWaitProgress != nil {
+			ts.jobCancelMu.Lock()
+			delete(ts.jobCancels, slotWaitProgress.ID)
+			ts.jobCancelMu.Unlock()
+			ts.mu.Lock()
+			delete(ts.transfers, slotWaitProgress.ID)
+			ts.mu.Unlock()
+			slotWaitProgress = nil // prevent defer from re-deleting
+		}
+
 		progress := ts.trackTransfer(displayName, effectiveSize,
 			peerKey, "receive", estimatedChunks, flags&flagCompressed != 0)
 		progress.setStatus("active")
-		// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
+		// #40 F7: release peerInbound at finish() for immediate slot availability.
 		progress.mu.Lock()
+		progress.postFinish = releasePeerInbound
+		// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
 		progress.transferID = transferID
 		progress.remotePeerID = remotePeer
 		progress.mu.Unlock()
@@ -2415,6 +2713,23 @@ func (ts *TransferService) markCompleted(id string) {
 	ts.mu.Lock()
 	ts.completed = append(ts.completed, id)
 	ts.mu.Unlock()
+}
+
+// evictCompletedTransfers removes completed transfer entries older than 5 minutes
+// from ts.transfers. Prevents unbounded memory growth (#40 F8).
+func (ts *TransferService) evictCompletedTransfers() {
+	cutoff := time.Now().Add(-5 * time.Minute)
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	for id, p := range ts.transfers {
+		p.mu.Lock()
+		done := p.Done
+		end := p.EndTime
+		p.mu.Unlock()
+		if done && !end.IsZero() && end.Before(cutoff) {
+			delete(ts.transfers, id)
+		}
+	}
 }
 
 // GetTransfer returns the progress of a transfer by ID.
@@ -2970,6 +3285,7 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 	}
 
 	job.progress.finish(finalErr)
+	ts.markCompleted(job.progress.ID) // #40 F5: was missing, entries leaked in ts.transfers
 
 	if finalErr != nil {
 		slog.Error("queued transfer failed",
@@ -2988,11 +3304,17 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 	ts.persistQueue()
 }
 
+// errReceiverBusy is the typed error for receiver busy rejections (#40 F9).
+var errReceiverBusy = errors.New("receiver busy")
+
 // isRetryableReject returns true if the error indicates a transient rejection
 // that should be retried (receiver busy, rate limit, etc.).
 func isRetryableReject(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "receiver busy")
+	if errors.Is(err, errReceiverBusy) {
+		return true
+	}
+	// Backward compat: string match for errors from older receivers.
+	return strings.Contains(err.Error(), "receiver busy")
 }
 
 // pollSendProgress copies progress from a SendFile operation into the queued job's

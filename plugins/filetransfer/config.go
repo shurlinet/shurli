@@ -53,6 +53,10 @@ type PluginConfig struct {
 	// Erasure coding.
 	ErasureOverhead *float64 `yaml:"erasure_overhead"`
 
+	// Inbound capacity.
+	MaxInboundTransfers int `yaml:"max_inbound_transfers"` // global concurrent inbound limit (default: 20)
+	MaxPerPeerTransfers int `yaml:"max_per_peer_transfers"` // per-peer concurrent inbound limit (default: 5)
+
 	// DDoS defenses.
 	GlobalRateLimit  int   `yaml:"global_rate_limit"`
 	MaxQueuedPerPeer int   `yaml:"max_queued_per_peer"`
