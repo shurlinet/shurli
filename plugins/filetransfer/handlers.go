@@ -300,7 +300,7 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 
 	if daemon.WantsText(r) {
 		var sb strings.Builder
-		for _, e := range result.Entries {
+		for i, e := range result.Entries {
 			kind := "     "
 			if e.IsDir {
 				kind = "[dir]"
@@ -311,7 +311,13 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 			if e.ShareID != "" {
 				downloadPath = SanitizeDisplayName(e.ShareID) + "/" + downloadPath
 			}
-			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, displayName, humanSize(e.Size), downloadPath)
+			// F8: 1-indexed numbers for navigation.
+			fmt.Fprintf(&sb, "%3d. %s %s\t%s\t%s\n", i+1, kind, displayName, humanSize(e.Size), downloadPath)
+		}
+		// F17: directory download hint.
+		if len(result.Entries) > 0 {
+			sb.WriteString("\nDownload a directory:  shurli download <peer>:<shareID>\n")
+			sb.WriteString("List files for selection:  shurli download <peer>:<shareID> --list\n")
 		}
 		daemon.RespondText(w, http.StatusOK, sb.String())
 		return
@@ -393,6 +399,42 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 	if req.MultiPeer && (req.Files != nil || req.Exclude != nil) {
 		daemon.RespondError(w, http.StatusBadRequest, "selective file rejection is not supported with multi-peer downloads")
+		return
+	}
+
+	// #41: --list mode — list files without downloading.
+	if req.List {
+		stream, listErr := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
+		if listErr != nil {
+			daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(listErr.Error())))
+			return
+		}
+		defer stream.Close()
+
+		listFiles, totalSize, listReadErr := RequestList(stream, req.RemotePath)
+		if listReadErr != nil {
+			errStr := listReadErr.Error()
+			// R10-F2: graceful degradation for old servers.
+			if strings.Contains(errStr, "unknown request type") {
+				daemon.RespondError(w, http.StatusNotImplemented, "peer does not support --list (older version). Use 'shurli browse' to see files.")
+				return
+			}
+			daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("list failed: %s", sdk.HumanizeError(errStr)))
+			return
+		}
+
+		resp := ListFilesResponse{
+			TotalSize: totalSize,
+			Files:     make([]ListFileEntry, len(listFiles)),
+		}
+		for i, f := range listFiles {
+			resp.Files[i] = ListFileEntry{
+				Index: i + 1,
+				Path:  f.Path,
+				Size:  f.Size,
+			}
+		}
+		daemon.RespondJSON(w, http.StatusOK, resp)
 		return
 	}
 

@@ -47,8 +47,10 @@ const (
 	// msgType(1) + fileIdx(2) + chunkIdx(4) + offset(8) + hash(32) + decompSize(4) + dataLen(4) = 55
 	streamChunkHeaderSize = 55
 
-	// Maximum file count in a single transfer (directory with millions of files is unreasonable).
-	maxFileCount = 100000
+	// Maximum file count in a single transfer. Capped at 65535 because the SHFT
+	// header and list response wire formats use uint16 for fileCount. Previously
+	// 100000, which would silently truncate to uint16 on the wire (#41 audit).
+	maxFileCount = 65535
 
 	// maxTotalTransferSize is the maximum total size for directory transfers (10 TB).
 	// Individual files are still capped at maxFileSize (1 TB). [R4-IMP1]
@@ -67,7 +69,8 @@ const (
 	// parityFileIdx is a sentinel fileIdx value that marks parity (erasure coding) chunks.
 	// Parity chunks don't map to any file in the file table. Using this sentinel prevents
 	// writeChunkGlobal from writing parity data into actual files (S1 fix).
-	// Value 0xFFFF is safe: maxFileCount=100000 < 65535, so no valid file index collides.
+	// Value 0xFFFF is safe: maxFileCount=65535 means valid indices are 0-65534,
+	// so 0xFFFF (65535) never collides with an actual file index.
 	parityFileIdx = 0xFFFF
 )
 
