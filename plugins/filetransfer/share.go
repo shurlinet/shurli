@@ -42,11 +42,14 @@ const (
 	// Download wire error marker.
 	msgDownloadError = 0xFF
 
-	// Download request types (C2: hash probe support).
+	// Download request types (C2: hash probe support, #41: directory listing).
 	// requestTypeDownload is a full file download (sender calls SendFile).
 	requestTypeDownload byte = 0x01
 	// requestTypeProbe is a hash probe (sender chunks file, returns 45-byte response).
 	requestTypeProbe byte = 0x02
+	// requestTypeList lists files available for download (#41). Server walks
+	// directory, returns file table without launching a transfer goroutine.
+	requestTypeList byte = 0x03
 
 	// probeResponseSize is the wire size of a hash probe response:
 	// marker(1) + rootHash(32) + totalSize(8) + chunkCount(4) = 45 bytes.
@@ -58,6 +61,10 @@ const (
 	maxPathLength     = 4096
 	browseTimeout     = 30 * time.Second
 	maxShareEntrySize = 1 << 20 // 1 MB for browse response
+
+	// #41 SEC-F2: global download serving concurrency cap.
+	// maxPerPeerServing is in transfer_multipeer.go (IF13-1, shared with multi-peer).
+	maxGlobalServing = 10
 )
 
 // ShareEntry represents a single shared path with its ACL.
@@ -92,13 +99,59 @@ type ShareRegistry struct {
 	persistPath     string                 // file path for persistent share storage
 	browseRateLimit *transferRateLimiter    // per-peer browse rate limiter (nil = disabled)
 	hmacKey         []byte                 // P6 fix: HMAC key for shares.json integrity
+
+	// #41 SEC-F2: download serving concurrency limits.
+	servingMu   sync.Mutex
+	peerServing map[string]int    // per-peer active download serving count
+	downloadSem chan struct{}      // global serving concurrency cap (nil = unlimited)
 }
 
 // NewShareRegistry creates an empty share registry.
 func NewShareRegistry() *ShareRegistry {
 	return &ShareRegistry{
-		shares: make(map[string]*ShareEntry),
+		shares:      make(map[string]*ShareEntry),
+		peerServing: make(map[string]int),
+		downloadSem: make(chan struct{}, maxGlobalServing),
 	}
+}
+
+// acquireServingSlot tries to acquire a download serving slot for the peer.
+// Returns false if per-peer or global limits are exceeded (non-blocking, R9-F3).
+func (r *ShareRegistry) acquireServingSlot(peerKey string) bool {
+	r.servingMu.Lock()
+	if r.peerServing[peerKey] >= maxPerPeerServing {
+		r.servingMu.Unlock()
+		return false
+	}
+	r.peerServing[peerKey]++
+	r.servingMu.Unlock()
+
+	// Non-blocking global cap.
+	select {
+	case r.downloadSem <- struct{}{}:
+		return true
+	default:
+		// Global cap full — release per-peer slot.
+		r.servingMu.Lock()
+		r.peerServing[peerKey]--
+		if r.peerServing[peerKey] == 0 {
+			delete(r.peerServing, peerKey)
+		}
+		r.servingMu.Unlock()
+		return false
+	}
+}
+
+// releaseServingSlot releases a download serving slot for the peer.
+// Called via OnComplete when the SendFile goroutine exits.
+func (r *ShareRegistry) releaseServingSlot(peerKey string) {
+	<-r.downloadSem
+	r.servingMu.Lock()
+	r.peerServing[peerKey]--
+	if r.peerServing[peerKey] == 0 {
+		delete(r.peerServing, peerKey)
+	}
+	r.servingMu.Unlock()
 }
 
 // SetPersistPath sets the file path used for auto-saving persistent shares.
@@ -945,6 +998,14 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler {
 			return
 		}
 
+		// ATK-3, R9-F10: rate limit all download protocol requests (download, probe, list).
+		if r.browseRateLimit != nil && !r.browseRateLimit.allow(remotePeer.String()) {
+			slog.Warn("file-download: rate limit exceeded",
+				"peer", remotePeer.String()[:16]+"...")
+			s.Reset()
+			return
+		}
+
 		s.SetDeadline(time.Now().Add(transferStreamDeadline))
 
 		// Read requested path: pathLen(2) + path + requestType(1).
@@ -989,112 +1050,288 @@ func (r *ShareRegistry) HandleDownload(ts *TransferService) sdk.StreamHandler {
 			return
 		}
 
-		// Use os.Root for atomic path traversal safety.
-		// For single-file shares, open parent dir as root (os.OpenRoot fails on files).
-		rootPath := share.Path
-		if !share.IsDir {
-			rootPath = filepath.Dir(share.Path)
-			if relPath == "" {
-				relPath = filepath.Base(share.Path)
-			}
-		}
-		root, err := os.OpenRoot(rootPath)
-		if err != nil {
-			writeDownloadError(s, "not found")
-			return
-		}
-		defer root.Close()
-
-		if relPath == "" {
-			writeDownloadError(s, "no file specified")
-			return
-		}
-
-		// Open within the jailed root. os.Root blocks traversal atomically.
-		f, err := root.Open(relPath)
-		if err != nil {
-			writeDownloadError(s, "not found")
-			return
-		}
-
-		info, err := f.Stat()
-		f.Close()
-		if err != nil {
-			writeDownloadError(s, "not found")
-			return
-		}
-
-		if info.IsDir() {
-			writeDownloadError(s, "cannot download directory; use browse + per-file download")
-			return
-		}
-
-		if !info.Mode().IsRegular() {
-			writeDownloadError(s, "not a regular file")
-			return
-		}
-
-		// Resolve the full filesystem path (within jailed root).
-		filePath := filepath.Join(share.Path, relPath)
-		if !share.IsDir {
-			filePath = share.Path
-		}
+		// Resolve the target path and determine if it's a file or directory.
+		// Three cases:
+		// 1. Directory share + relPath="" → download entire shared directory
+		// 2. Any share + relPath!=="" → open within jailed root, may be file or subdir
+		// 3. Single-file share + relPath="" → handled above (relPath set to basename)
+		var filePath string
+		var isDir bool
 
 		short := remotePeer.String()[:16] + "..."
 
+		if !share.IsDir {
+			// Single-file share: only the file itself is accessible.
+			// Reject any sub-path that doesn't match the shared file's basename
+			// to prevent probing other files in the parent directory (existence oracle).
+			if relPath != "" && relPath != filepath.Base(share.Path) {
+				writeDownloadError(s, "not found")
+				return
+			}
+			filePath = share.Path
+		} else if relPath == "" {
+			// F2: Directory share, no sub-path → download the entire directory.
+			// share.Path is set by the local user via ShareRegistry. No attacker control.
+			filePath = share.Path
+			isDir = true
+		} else {
+			// Directory share with sub-path: validate via os.Root jail.
+			root, err := os.OpenRoot(share.Path)
+			if err != nil {
+				writeDownloadError(s, "not found")
+				return
+			}
+			defer root.Close()
+
+			f, err := root.Open(relPath)
+			if err != nil {
+				writeDownloadError(s, "not found")
+				return
+			}
+			info, err := f.Stat()
+			f.Close()
+			if err != nil {
+				writeDownloadError(s, "not found")
+				return
+			}
+
+			if info.IsDir() {
+				// F1: Allow subdirectory download. SendFile handles directory walking.
+				filePath = filepath.Join(share.Path, relPath)
+				isDir = true
+			} else if info.Mode().IsRegular() {
+				filePath = filepath.Join(share.Path, relPath)
+			} else {
+				writeDownloadError(s, "not a regular file")
+				return
+			}
+		}
+
 		switch reqType[0] {
 		case requestTypeDownload:
-			// Full download: send via streaming SHFT protocol.
-			// SendFile spawns a background goroutine that owns the stream.
-			slog.Info("file-download: serving file",
-				"peer", short, "path", info.Name(),
-				"size", info.Size())
+			// SEC-F2, R9-F2: acquire serving slot before SendFile.
+			// R10-F7: only for download, not for probe or list.
+			peerKey := remotePeer.String()
+			if !r.acquireServingSlot(peerKey) {
+				writeDownloadError(s, "server busy, try later")
+				return
+			}
 
-			_, sendErr := ts.SendFile(s, filePath)
+			// R9-F8: log type accurately.
+			if isDir {
+				slog.Info("file-download: serving directory",
+					"peer", short, "path", filepath.Base(filePath))
+			} else {
+				slog.Info("file-download: serving file",
+					"peer", short, "path", filepath.Base(filePath))
+			}
+
+			opts := SendOptions{
+				SkipHidden: isDir, // F7: skip hidden files in directory shares
+				OnComplete: func() { r.releaseServingSlot(peerKey) }, // R9-F2: release when goroutine exits
+			}
+			_, sendErr := ts.SendFile(s, filePath, opts)
 			if sendErr != nil {
+				r.releaseServingSlot(peerKey) // R9-F2: release on sync error (goroutine never launched)
 				slog.Error("file-download: send failed",
-					"peer", short, "path", info.Name(), "error", sendErr)
-				writeDownloadError(s, "internal error")
+					"peer", short, "path", filepath.Base(filePath), "error", sendErr)
+				// F11: pass safe error details. NEVER leak filesystem paths to remote peer.
+				writeDownloadError(s, sanitizeDownloadError(sendErr))
 				return // defer closes stream
 			}
 			// SendFile's goroutine now owns the stream. Don't close it.
 			streamOwned = true
 
 		case requestTypeProbe:
-			// Rate limit probe requests (CPU DoS: each probe chunks the entire file).
-			// Reuse browse rate limiter since probes are metadata queries.
-			if r.browseRateLimit != nil && !r.browseRateLimit.allow(remotePeer.String()) {
-				slog.Warn("file-download: probe rate limit exceeded",
-					"peer", short)
-				writeDownloadError(s, "rate limit exceeded")
+			// F4: Probe only works for single files (chunks the file for MerkleRoot).
+			// Directories produce cross-file CDC with different boundaries — probe
+			// hash would not match the download's Merkle root.
+			if isDir {
+				writeDownloadError(s, "cannot probe directory; download directly or probe individual files")
 				return
 			}
 
-			// Hash probe (C2): chunk the file, compute MerkleRoot, return 45-byte response.
-			slog.Info("file-download: hash probe",
-				"peer", short, "path", info.Name(),
-				"size", info.Size())
+			// Rate limiting handled at top of HandleDownload (line ~1002).
 
-			// Timeout bounds the chunking duration. For a 1TB file at ~200 MB/s
-			// disk read, chunking takes ~80s. 2 minutes covers worst case with
-			// margin. The per-chunk ctx.Done() check in handleHashProbe aborts
-			// early on timeout. If the peer disconnects, the final Write fails
-			// and the handler exits cleanly.
+			slog.Info("file-download: hash probe",
+				"peer", short, "path", filepath.Base(filePath))
+
+			// os.Root for probe: re-open for the probe path since the root
+			// from single-file path above may have been closed.
+			probeRoot, probeRootErr := os.OpenRoot(filepath.Dir(filePath))
+			if probeRootErr != nil {
+				writeDownloadError(s, "internal error")
+				return
+			}
+			defer probeRoot.Close()
+			probeRelPath := filepath.Base(filePath)
+
 			probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer probeCancel()
-			probeErr := handleHashProbe(probeCtx, s, root, relPath, info.Size(), ts.RegisterHash)
+
+			fi, fiErr := os.Stat(filePath)
+			if fiErr != nil {
+				writeDownloadError(s, "not found")
+				return
+			}
+
+			probeErr := handleHashProbe(probeCtx, s, probeRoot, probeRelPath, fi.Size(), ts.RegisterHash)
 			if probeErr != nil {
 				slog.Error("file-download: probe failed",
-					"peer", short, "path", info.Name(), "error", probeErr)
+					"peer", short, "path", filepath.Base(filePath), "error", probeErr)
 				writeDownloadError(s, "internal error")
 			}
-			// defer closes stream
+
+		case requestTypeList:
+			// R9-F1: lightweight file listing without launching a transfer goroutine.
+			// Walks the directory (or stats the single file), builds sorted file table,
+			// writes list response. No SendFile, no progress, no background goroutine.
+			// R10-F7: no serving slot needed (synchronous, bounded by top-level rate limiter).
+			slog.Info("file-download: listing files",
+				"peer", short, "path", filepath.Base(filePath),
+				"isDir", isDir)
+
+			var listFiles []fileEntry
+			if isDir {
+				var walkErr error
+				listFiles, _, _, _, walkErr = walkDirectoryForTransfer(filePath, true) // always SkipHidden for listing
+				if walkErr != nil {
+					// NEVER leak filesystem paths to remote peer.
+					writeDownloadError(s, sanitizeDownloadError(walkErr))
+					return
+				}
+				// Sort for deterministic ordering matching download.
+				// sortFileTable requires a parallel paths slice; for listing we
+				// don't need absolute paths, so mirror the relative paths from
+				// the file table to satisfy the API contract.
+				relPaths := make([]string, len(listFiles))
+				for i := range relPaths {
+					relPaths[i] = listFiles[i].Path
+				}
+				if sortErr := sortFileTable(listFiles, relPaths); sortErr != nil {
+					writeDownloadError(s, "internal error")
+					return
+				}
+			} else {
+				fi, fiErr := os.Stat(filePath)
+				if fiErr != nil {
+					writeDownloadError(s, "not found")
+					return
+				}
+				listFiles = []fileEntry{{
+					Path: filepath.Base(filePath),
+					Size: fi.Size(),
+				}}
+			}
+
+			if err := writeListResponse(s, listFiles); err != nil {
+				slog.Error("file-download: list write failed",
+					"peer", short, "error", err)
+			}
 
 		default:
 			writeDownloadError(s, "unknown request type")
-			// defer closes stream
 		}
 	}
+}
+
+// writeListResponse writes a file listing response.
+// Wire format: 'L'(1) + fileCount(2) + totalSize(8) + [fileCount x (pathLen(2) + path + size(8))].
+func writeListResponse(w io.Writer, files []fileEntry) error {
+	if len(files) > maxFileCount {
+		return fmt.Errorf("too many files for list response: %d (max %d)", len(files), maxFileCount)
+	}
+
+	var totalSize int64
+	for _, f := range files {
+		totalSize += f.Size
+	}
+
+	// Header: marker + fileCount + totalSize.
+	var hdr [11]byte
+	hdr[0] = 'L'
+	binary.BigEndian.PutUint16(hdr[1:3], uint16(len(files)))
+	binary.BigEndian.PutUint64(hdr[3:11], uint64(totalSize))
+	if _, err := w.Write(hdr[:]); err != nil {
+		return fmt.Errorf("write list header: %w", err)
+	}
+
+	// File entries: pathLen(2) + path + size(8).
+	for _, f := range files {
+		pathBytes := []byte(f.Path)
+		var entryHdr [2]byte
+		binary.BigEndian.PutUint16(entryHdr[:], uint16(len(pathBytes)))
+		if _, err := w.Write(entryHdr[:]); err != nil {
+			return err
+		}
+		if _, err := w.Write(pathBytes); err != nil {
+			return err
+		}
+		var sizeBuf [8]byte
+		binary.BigEndian.PutUint64(sizeBuf[:], uint64(f.Size))
+		if _, err := w.Write(sizeBuf[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readListResponse reads a file listing response from the download protocol.
+// R10-F3: wraps reader in LimitedReader to prevent memory DoS.
+func readListResponse(r io.Reader) ([]fileEntry, int64, error) {
+	lr := &io.LimitedReader{R: r, N: maxHeaderSize}
+
+	var hdr [11]byte
+	if _, err := io.ReadFull(lr, hdr[:]); err != nil {
+		return nil, 0, fmt.Errorf("read list header: %w", err)
+	}
+	if hdr[0] != 'L' {
+		return nil, 0, fmt.Errorf("unexpected list response marker: 0x%02x", hdr[0])
+	}
+	fileCount := int(binary.BigEndian.Uint16(hdr[1:3]))
+	totalSize := int64(binary.BigEndian.Uint64(hdr[3:11]))
+
+	if fileCount > maxFileCount {
+		return nil, 0, fmt.Errorf("too many files in listing: %d", fileCount)
+	}
+
+	files := make([]fileEntry, fileCount)
+	for i := range files {
+		var pathLenBuf [2]byte
+		if _, err := io.ReadFull(lr, pathLenBuf[:]); err != nil {
+			return nil, 0, fmt.Errorf("read file %d path length: %w", i, err)
+		}
+		pathLen := int(binary.BigEndian.Uint16(pathLenBuf[:]))
+		if pathLen > maxFilenameLen {
+			return nil, 0, fmt.Errorf("file %d path too long: %d", i, pathLen)
+		}
+		pathBuf := make([]byte, pathLen)
+		if _, err := io.ReadFull(lr, pathBuf); err != nil {
+			return nil, 0, fmt.Errorf("read file %d path: %w", i, err)
+		}
+		var sizeBuf [8]byte
+		if _, err := io.ReadFull(lr, sizeBuf[:]); err != nil {
+			return nil, 0, fmt.Errorf("read file %d size: %w", i, err)
+		}
+		files[i] = fileEntry{
+			Path: string(pathBuf),
+			Size: int64(binary.BigEndian.Uint64(sizeBuf[:])),
+		}
+	}
+	return files, totalSize, nil
+}
+
+// RequestList sends a list request (requestType=0x03) and reads the file listing.
+// Used by `shurli download --list` to preview files before downloading.
+func RequestList(s network.Stream, remotePath string) ([]fileEntry, int64, error) {
+	firstByte, err := sendDownloadRequest(s, remotePath, requestTypeList, browseTimeout)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Prepend the consumed first byte back onto the reader.
+	prefixed := io.MultiReader(&singleByteReader{b: firstByte}, s)
+	return readListResponse(prefixed)
 }
 
 // handleHashProbe chunks a file within the jailed root, computes the Merkle
@@ -1166,6 +1403,28 @@ func writeDownloadError(w io.Writer, msg string) {
 	binary.BigEndian.PutUint16(header[1:], uint16(len(data)))
 	w.Write(header[:])
 	w.Write(data)
+}
+
+// sanitizeDownloadError extracts a safe error message from an internal error.
+// NEVER forwards raw error strings to remote peers — they may contain absolute
+// filesystem paths from os.Stat, filepath.WalkDir, or os.OpenRoot. Only known-safe
+// substrings are passed through; everything else becomes "internal error".
+func sanitizeDownloadError(err error) string {
+	msg := err.Error()
+	// Safe: these messages are generated by walkDirectoryForTransfer with
+	// no filesystem paths (hidden-count message) or generic constants.
+	switch {
+	case strings.Contains(msg, "no downloadable files"):
+		return msg // "no downloadable files (N hidden files excluded by default)" — no path
+	case strings.Contains(msg, "directory is empty"):
+		return "directory is empty" // strip the ": /absolute/path" suffix
+	case strings.Contains(msg, "too many files"):
+		return "too many files" // strip counts that could hint at internals
+	case strings.Contains(msg, "too large"):
+		return "directory too large"
+	default:
+		return "internal error"
+	}
 }
 
 // sendDownloadRequest writes the download request wire format and reads the

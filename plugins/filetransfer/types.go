@@ -76,7 +76,7 @@ func (s *FileSelection) resolve(fileCount int) ([]int, error) {
 		// Validate all include indices are in range.
 		for _, idx := range s.Include {
 			if idx < 0 || idx >= fileCount {
-				return nil, fmt.Errorf("file index %d out of range (transfer has %d files, valid range 0-%d)", idx, fileCount, fileCount-1)
+				return nil, fmt.Errorf("file index %d out of range (transfer has %d files, valid range 0-%d). Use --list to see available files", idx, fileCount, fileCount-1)
 			}
 		}
 		return s.Include, nil
@@ -85,7 +85,7 @@ func (s *FileSelection) resolve(fileCount int) ([]int, error) {
 		// Validate all exclude indices are in range.
 		for _, idx := range s.Exclude {
 			if idx < 0 || idx >= fileCount {
-				return nil, fmt.Errorf("file index %d out of range (transfer has %d files, valid range 0-%d)", idx, fileCount, fileCount-1)
+				return nil, fmt.Errorf("file index %d out of range (transfer has %d files, valid range 0-%d). Use --list to see available files", idx, fileCount, fileCount-1)
 			}
 		}
 		excludeSet := make(map[int]bool, len(s.Exclude))
@@ -151,6 +151,7 @@ type DownloadRequest struct {
 	ExtraPeers []string `json:"extra_peers,omitempty"` // additional peer names/IDs that have the file
 	Files      []int    `json:"files,omitempty"`       // 0-indexed: download ONLY these files (selective rejection #18)
 	Exclude    []int    `json:"exclude,omitempty"`     // 0-indexed: download all EXCEPT these files (#18)
+	List       bool     `json:"list,omitempty"`        // #41: list files without downloading (requestTypeList)
 }
 
 // DownloadResponse is returned by POST /v1/download.
@@ -159,4 +160,17 @@ type DownloadResponse struct {
 	FileName   string `json:"filename"`
 	FileSize   int64  `json:"file_size"`
 	PeersUsed  int    `json:"peers_used,omitempty"` // IF3-7: multi-peer peer count
+}
+
+// ListFilesResponse is returned by POST /v1/download with list=true (#41).
+type ListFilesResponse struct {
+	Files     []ListFileEntry `json:"files"`
+	TotalSize int64           `json:"total_size"`
+}
+
+// ListFileEntry is a single file in a list response.
+type ListFileEntry struct {
+	Index int    `json:"index"` // 1-indexed for CLI display
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
 }

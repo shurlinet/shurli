@@ -97,6 +97,9 @@ Share files for other peers to browse and download on demand:
 # Share a file with all authorized peers
 shurli share add /path/to/file.pdf
 
+# Share a directory (hidden files like .env, .git/ are excluded from downloads)
+shurli share add /path/to/photos
+
 # Share with a specific peer only
 shurli share add /path/to/file.pdf --to home-server
 
@@ -110,14 +113,25 @@ shurli share remove /path/to/file.pdf
 shurli browse home-server
 
 # Download a specific file from a peer's shares
-shurli download document.pdf home-server
+shurli download home-server:shareID/document.pdf
+
+# Download an entire shared directory
+shurli download home-server:shareID
+
+# Download a subdirectory
+shurli download home-server:shareID/photos/2024
+
+# List files in a shared directory (preview before downloading)
+shurli download home-server:shareID --list
 
 # Download only specific files from a shared directory (1-indexed)
-shurli download photos/ home-server --files 1,3
+shurli download home-server:shareID --files 1,3,10-20
 
 # Download all except specific files
-shurli download photos/ home-server --exclude 2,4
+shurli download home-server:shareID --exclude 2,4
 ```
+
+Directory downloads use the same SHFT streaming protocol as sends. The server walks the directory, builds a file table, and streams all files in a single transfer. Hidden files (dot-prefixed: `.env`, `.git/`, `.ssh/`) are automatically excluded from directory shares to prevent accidental data leakage. Single-file shares of hidden files (e.g., `shurli share add .env`) are served normally since the share was explicit.
 
 Selective file rejection (`--files`/`--exclude`) is not supported with erasure-coded transfers (WAN/relay) or multi-peer downloads. Accept all files or reject the entire transfer in those cases.
 
@@ -302,6 +316,31 @@ const (
 )
 ```
 
+### Download Protocol Request Types
+
+The download protocol multiplexes three request types on a single stream:
+
+| Byte | Name | Description |
+|------|------|-------------|
+| `0x01` | `requestTypeDownload` | Full file/directory download via SHFT streaming |
+| `0x02` | `requestTypeProbe` | Hash probe for multi-peer coordination (single files only) |
+| `0x03` | `requestTypeList` | File listing without transfer (directory contents preview) |
+
+Wire format (client to server): `pathLen(2) + path + requestType(1)`.
+
+**requestTypeList** returns a lightweight file table response: `'L'(1) + fileCount(2) + totalSize(8) + [fileCount x (pathLen(2) + path + size(8))]`. Used by `shurli download --list` to preview directory contents with indices before downloading. No goroutine launched, no progress tracking. Rate-limited alongside all other request types.
+
+**requestTypeProbe** rejects directory paths. Probing requires single-file chunking to compute the MerkleRoot; directory transfers use cross-file CDC with different chunk boundaries.
+
+### Download Serving Concurrency
+
+HandleDownload limits concurrent download-serving goroutines to prevent resource exhaustion:
+
+- **Per-peer limit:** 3 concurrent downloads per peer (`maxPerPeerServing`)
+- **Global limit:** 10 concurrent downloads total (`maxGlobalServing`)
+
+Slots are acquired non-blocking before `SendFile`. On rejection: `"server busy, try later"`. The serving slot tracks the actual SendFile goroutine lifetime via the `OnComplete` callback (not the handler return), ensuring slots are held for the full transfer duration.
+
 ### Cancel Protocol
 
 ```go
@@ -445,13 +484,19 @@ Returns handler for inbound transfer protocol. Register with libp2p.
 func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir string, sel ...*FileSelection) (*TransferProgress, error)
 ```
 
-Initiates receiver-side download from a peer's shared file.
+Initiates receiver-side download from a peer's shared file or directory. Supports directory downloads (the server walks and streams the directory as a multi-file SHFT transfer). Optional `FileSelection` enables `--files`/`--exclude` selective download.
 
 ```go
 func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error)
 ```
 
-Sends hash probe request and reads 45-byte response. Used by multi-peer download.
+Sends hash probe request and reads 45-byte response. Used by multi-peer download. Rejects directory paths (probe requires single-file chunking).
+
+```go
+func RequestList(s network.Stream, remotePath string) ([]fileEntry, int64, error)
+```
+
+Sends a list request (`requestTypeList = 0x03`) and reads the file listing response. Returns the sorted file table matching the order a download would use (same `walkDirectoryForTransfer` + `sortFileTable` as `SendFile`). Used by `shurli download --list`.
 
 #### Transfer Management
 
@@ -617,8 +662,14 @@ type SendOptions struct {
     StreamOpener         streamOpener // opens additional streams for parallel transfer
     RelativeName         string       // override manifest filename (for directory transfer)
     RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
+    SkipHidden           bool         // skip dot-prefixed files/dirs in directory walks (#41)
+    OnComplete           func()       // called when send goroutine exits (serving concurrency tracking)
 }
 ```
+
+`SkipHidden` causes directory walks to skip hidden files (`.env`, `.gitignore`) and hidden directories (`.git/`, `.ssh/`) entirely via `filepath.SkipDir`. Used by the download serving path (`HandleDownload`) to prevent accidental data leakage from shared directories. Does not affect single-file shares.
+
+`OnComplete` is called in a defer when the SendFile goroutine exits. Used by `HandleDownload` to track active download-serving goroutine lifetime for concurrency limiting.
 
 ---
 
@@ -1000,6 +1051,7 @@ type DownloadRequest struct {
     ExtraPeers []string `json:"extra_peers,omitempty"`
     Files      []int    `json:"files,omitempty"`   // 0-indexed: download ONLY these files
     Exclude    []int    `json:"exclude,omitempty"` // 0-indexed: download all EXCEPT these
+    List       bool     `json:"list,omitempty"`    // list files without downloading (#41)
 }
 
 type DownloadResponse struct {
@@ -1007,6 +1059,17 @@ type DownloadResponse struct {
     FileName   string `json:"filename"`
     FileSize   int64  `json:"file_size"`
     PeersUsed  int    `json:"peers_used,omitempty"` // multi-peer peer count
+}
+
+type ListFilesResponse struct {
+    Files     []ListFileEntry `json:"files"`
+    TotalSize int64           `json:"total_size"`
+}
+
+type ListFileEntry struct {
+    Index int    `json:"index"` // 1-indexed
+    Path  string `json:"path"`
+    Size  int64  `json:"size"`
 }
 ```
 
@@ -1020,8 +1083,11 @@ const (
     maxManifestSize        = 40 << 20 // 40 MB max manifest wire size
     maxChunkWireSize       = 4 << 20  // 4 MB max single chunk on wire
     maxDecompressedChunk   = 8 << 20  // 8 MB max decompressed chunk
+    maxFileCount           = 65535    // max files per transfer (uint16 wire format)
     maxConcurrentTransfers = 10       // global inbound transfer limit
     maxPerPeerTransfers    = 3        // per-peer inbound limit
     maxTrackedTransfers    = 10000    // max tracked transfer entries
+    maxGlobalServing       = 10       // global download-serving goroutine limit (#41)
+    maxPerPeerServing      = 3        // per-peer download-serving limit (#41)
 )
 ```

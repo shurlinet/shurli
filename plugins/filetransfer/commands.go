@@ -71,7 +71,7 @@ func cliCommandList() []plugin.CLICommandEntry {
 		{
 			Name: "download", PluginName: "filetransfer",
 			Description: "Download from peer's shared files",
-			Usage:       "shurli download <peer>:<path> [--dest dir] [--files 1,3] [--exclude 2] [--json]",
+			Usage:       "shurli download <peer>:<path> [--dest dir] [--files 1,3] [--exclude 2] [--list] [--json]",
 			Run:         runDownload,
 			Flags: []plugin.CLIFlagEntry{
 				{Long: "json", Type: "bool", Description: "Output as JSON"},
@@ -83,6 +83,7 @@ func cliCommandList() []plugin.CLICommandEntry {
 				{Long: "peers", Type: "string", Description: "Extra peer names/IDs for multi-peer download (comma-separated, implies --multi-peer)", RequiresArg: true},
 				{Long: "files", Type: "string", Description: "Download only these files (1-indexed, comma-separated, ranges: 1-5,10)", RequiresArg: true},
 				{Long: "exclude", Type: "string", Description: "Download all except these files (1-indexed, ranges: 1-5,10)", RequiresArg: true},
+				{Long: "list", Type: "bool", Description: "List downloadable files with indices (for use with --files/--exclude)"},
 			},
 		},
 		{
@@ -332,11 +333,12 @@ func runDownload(args []string) {
 	extraPeersFlag := fs.String("peers", "", "extra peer names/IDs for multi-peer (comma-separated, implies --multi-peer)")
 	filesFlag := fs.String("files", "", "download only these files (1-indexed, comma-separated, ranges: 1-5,10)")
 	excludeFlag := fs.String("exclude", "", "download all except these files (1-indexed, ranges: 1-5,10)")
+	listFlag := fs.Bool("list", false, "list downloadable files with indices (for use with --files/--exclude)")
 	fs.Parse(reorderFlags(fs, args))
 
 	remaining := fs.Args()
 	if len(remaining) < 1 {
-		fmt.Println("Usage: shurli download <peer>:<shareID/filename> [--dest /local/dir] [--follow] [--json]")
+		fmt.Println("Usage: shurli download <peer>:<shareID/filename> [--dest /local/dir] [--follow] [--list] [--json]")
 		osExit(1)
 	}
 
@@ -359,6 +361,35 @@ func runDownload(args []string) {
 	if client == nil {
 		fmt.Println("Daemon not running. Start it with: shurli daemon")
 		osExit(1)
+	}
+
+	// #41: --list mode — list files without downloading.
+	if *listFlag && (*filesFlag != "" || *excludeFlag != "" || *multiPeerFlag || *extraPeersFlag != "") {
+		fatal("--list cannot be combined with --files, --exclude, --multi-peer, or --peers")
+	}
+	if *listFlag {
+		resp, err := client.DownloadList(peerArg, remotePath)
+		if err != nil {
+			fatal("List failed: %s", sdk.HumanizeError(err.Error()))
+		}
+		if *jsonFlag {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(resp)
+			return
+		}
+		fmt.Printf("Files available for download from %s:\n", peerArg)
+		for _, f := range resp.Files {
+			fmt.Printf("  %3d. %-60s %s\n", f.Index, SanitizeDisplayName(f.Path), humanSize(f.Size))
+		}
+		fmt.Printf("\n%d files, %s total\n", len(resp.Files), humanSize(resp.TotalSize))
+		// R10-F6: note about mutable directories.
+		fmt.Println()
+		tc.Wfaint(os.Stdout, "Download all:     shurli download %s:%s\n", peerArg, remotePath)
+		tc.Wfaint(os.Stdout, "Select files:     shurli download %s:%s --files 1,3,10-20\n", peerArg, remotePath)
+		tc.Wfaint(os.Stdout, "Exclude files:    shurli download %s:%s --exclude 5-8\n", peerArg, remotePath)
+		tc.Wfaint(os.Stdout, "Note: file indices may change if the shared directory is modified.\n")
+		return
 	}
 
 	if !*jsonFlag && !*silentFlag {

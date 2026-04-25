@@ -1262,6 +1262,8 @@ type SendOptions struct {
 	StreamOpener         streamOpener // opens additional streams to the same peer (required for parallel)
 	RelativeName         string       // override manifest filename (e.g., "subdir/file.txt" for directory transfer)
 	RateLimitBytesPerSec int64        // per-transfer send rate limit (0 = use service default)
+	SkipHidden           bool         // F7: skip dot-prefixed files/dirs in directory walks (download serving path)
+	OnComplete           func()       // R9-F2: called when the send goroutine exits (for serving concurrency tracking)
 
 	// internalShadow hides the internal streaming progress from ts.transfers.
 	// Set by executeQueuedJob: the queued job's q-* progress already appears in
@@ -1269,6 +1271,73 @@ type SendOptions struct {
 	// the internal xfer-* progress as well produces duplicate rows in
 	// `shurli transfers`. Lowercase so external callers cannot set it.
 	internalShadow bool
+}
+
+// walkDirectoryForTransfer walks a directory and builds a file table for SHFT transfer.
+// Used by both SendFile (actual transfer) and requestTypeList (file listing).
+// R9-F7: both callers MUST use this same function to guarantee identical file ordering.
+// R10-F5: hidden directories are skipped entirely via filepath.SkipDir (avoids walking .git/).
+// R10-F8: returns skippedHidden count for clear error messages (R9-F9).
+func walkDirectoryForTransfer(dirPath string, skipHidden bool) (files []fileEntry, filePaths []string, totalSize int64, skippedHidden int, err error) {
+	dirBase := filepath.Base(dirPath)
+	err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		// F7, R10-F5: skip hidden entries when serving shared directories.
+		// SkipDir for directories prevents walking .git/, .ssh/, etc.
+		if skipHidden && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				skippedHidden++
+				return filepath.SkipDir
+			}
+			skippedHidden++
+			return nil
+		}
+
+		// Skip symlinks, device files, sockets (regular files only).
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		fi, fiErr := d.Info()
+		if fiErr != nil {
+			return fiErr
+		}
+		if fi.Size() > maxFileSize {
+			return fmt.Errorf("file %s too large: %d bytes (max %d)", path, fi.Size(), maxFileSize)
+		}
+		rel, relErr := filepath.Rel(dirPath, path)
+		if relErr != nil {
+			return relErr
+		}
+		relPath := filepath.ToSlash(filepath.Join(dirBase, rel))
+		fe := fileEntry{
+			Path:      relPath,
+			Size:      fi.Size(),
+			MetaFlags: metaHasMode | metaHasMtime,
+			Mode:      uint32(fi.Mode().Perm()),
+			Mtime:     fi.ModTime().Unix(),
+		}
+		files = append(files, fe)
+		filePaths = append(filePaths, path)
+		totalSize += fi.Size()
+		return nil
+	})
+	if err != nil {
+		return nil, nil, 0, skippedHidden, fmt.Errorf("walk directory: %w", err)
+	}
+	if len(files) == 0 {
+		// R9-F9: differentiate truly empty from hidden-only.
+		if skippedHidden > 0 {
+			return nil, nil, 0, skippedHidden, fmt.Errorf("no downloadable files (%d hidden files excluded by default)", skippedHidden)
+		}
+		return nil, nil, 0, 0, fmt.Errorf("directory is empty: %s", dirPath)
+	}
+	if totalSize > maxTotalTransferSize {
+		return nil, nil, 0, skippedHidden, fmt.Errorf("directory too large: %d bytes (max %d)", totalSize, maxTotalTransferSize)
+	}
+	return files, filePaths, totalSize, skippedHidden, nil
 }
 
 // SendFile sends a file or directory over a libp2p stream using the streaming protocol.
@@ -1295,48 +1364,11 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 	var totalSize int64
 
 	if info.IsDir() {
-		// Walk directory, collect regular files with metadata.
-		dirBase := filepath.Base(filePath)
-		err = filepath.WalkDir(filePath, func(path string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			// Skip symlinks, device files, sockets (regular files only).
-			if !d.Type().IsRegular() {
-				return nil
-			}
-			fi, fiErr := d.Info()
-			if fiErr != nil {
-				return fiErr
-			}
-			if fi.Size() > maxFileSize {
-				return fmt.Errorf("file %s too large: %d bytes (max %d)", path, fi.Size(), maxFileSize)
-			}
-			rel, relErr := filepath.Rel(filePath, path)
-			if relErr != nil {
-				return relErr
-			}
-			relPath := filepath.ToSlash(filepath.Join(dirBase, rel))
-			fe := fileEntry{
-				Path:      relPath,
-				Size:      fi.Size(),
-				MetaFlags: metaHasMode | metaHasMtime,
-				Mode:      uint32(fi.Mode().Perm()),
-				Mtime:     fi.ModTime().Unix(),
-			}
-			files = append(files, fe)
-			filePaths = append(filePaths, path)
-			totalSize += fi.Size()
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("walk directory: %w", err)
-		}
-		if len(files) == 0 {
-			return nil, fmt.Errorf("directory is empty: %s", filePath)
-		}
-		if totalSize > maxTotalTransferSize {
-			return nil, fmt.Errorf("directory too large: %d bytes (max %d)", totalSize, maxTotalTransferSize)
+		skipHidden := len(opts) > 0 && opts[0].SkipHidden
+		var walkErr error
+		files, filePaths, totalSize, _, walkErr = walkDirectoryForTransfer(filePath, skipHidden)
+		if walkErr != nil {
+			return nil, walkErr
 		}
 	} else {
 		// Single file.
@@ -1444,6 +1476,10 @@ func (ts *TransferService) SendFile(s network.Stream, filePath string, opts ...S
 
 	go func() {
 		defer s.Close()
+		// R9-F2: call OnComplete when goroutine exits (serving concurrency tracking).
+		if len(opts) > 0 && opts[0].OnComplete != nil {
+			defer opts[0].OnComplete()
+		}
 		// TS-5: protect/unprotect relay paths for entire goroutine lifecycle.
 		// Context-based liveness prevents reaper from killing idle backup circuits
 		// during long transfers (TS-5b reaper bug fix).

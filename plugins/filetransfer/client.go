@@ -220,6 +220,17 @@ func (c *daemonClient) Download(peer, remotePath, localDest string, multiPeer bo
 	return &resp, nil
 }
 
+// DownloadList lists files available for download without starting a transfer (#41).
+func (c *daemonClient) DownloadList(peer, remotePath string) (*ListFilesResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, List: true}
+	body, _ := json.Marshal(req)
+	var resp ListFilesResponse
+	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // DownloadText initiates a download and returns a plain text summary.
 func (c *daemonClient) DownloadText(peer, remotePath, localDest string) (string, error) {
 	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest}
