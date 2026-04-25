@@ -256,6 +256,11 @@ journal:
     title: FT-Y - Reed-Solomon Erasure Recovery
     description: "Bounded per-stripe Reed-Solomon repair for streaming transfers, with explicit recovery metadata, receiver memory limits, and missing-chunk reconstruction."
 
+  - source: verified-lan-classification.md
+    weight: 35
+    title: FT-Y - Verified-LAN Classification Migration
+    description: "Migration from bare RFC 1918 mask to mDNS-verified LAN detection for all trust-making decisions, with VerifiedTransport classifier and dead code deletion."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
