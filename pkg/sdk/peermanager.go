@@ -243,6 +243,19 @@ func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
 	// churnThreshold, count it. When too many short-lived connections accumulate,
 	// apply backoff to prevent exhausting the remote peer's rcmgr.
 	if age < churnThreshold {
+		// Skip churn counting if the peer still has other live connections (#42).
+		// Churn detection protects against rcmgr exhaustion from rapid
+		// connect/disconnect where the peer becomes unreachable. When other
+		// connections survive, the close is path cleanup (connLogger LAN
+		// preference, relay cleanup, mDNS upgrade, etc.), not instability.
+		// The last connection's Disconnected always sees remaining==0 because
+		// swarm.removeConn runs synchronously before the async Disconnected
+		// goroutine (go-libp2p v0.38.2 swarm_conn.go:66 vs :94).
+		if len(n.ConnsToPeer(c.RemotePeer())) > 0 {
+			slog.Debug("peermanager: short-lived conn closed but peer still connected, skip churn",
+				"peer", short, "age", age)
+			return
+		}
 		pid := c.RemotePeer()
 		cl.pm.mu.Lock()
 		mp, ok := cl.pm.peers[pid]
@@ -488,6 +501,8 @@ func (pm *PeerManager) ResetPeerBackoff(pid peer.ID) {
 	if mp, ok := pm.peers[pid]; ok {
 		mp.BackoffUntil = time.Time{}
 		mp.ConsecFailures = 0
+		mp.churnCount = 0 // #42: stale churn from prior state should not block fresh attempt
+		mp.churnWindowStart = time.Time{}
 	}
 	pm.mu.Unlock()
 }
@@ -511,6 +526,8 @@ func (pm *PeerManager) ResetBackoffsForNetworkChange() {
 		mp.BackoffUntil = time.Time{}
 		mp.ConsecFailures = 0
 		mp.ProbeUntil = time.Time{} // network changed - probe cooldown is stale, don't block reconnect
+		mp.churnCount = 0          // network changed - prior churn is from old network state (#42)
+		mp.churnWindowStart = time.Time{}
 	}
 	pm.mu.Unlock()
 
@@ -537,6 +554,8 @@ func (pm *PeerManager) ReconnectPeer(pid peer.ID) bool {
 		mp.BackoffUntil = time.Time{}
 		mp.ConsecFailures = 0
 		mp.ProbeUntil = time.Time{}
+		mp.churnCount = 0 // #42: manual reconnect = fresh start, don't carry stale churn
+		mp.churnWindowStart = time.Time{}
 	}
 	pm.mu.Unlock()
 
@@ -640,6 +659,17 @@ func (pm *PeerManager) CloseAllPeerConnections() {
 	if closed > 0 {
 		slog.Info("peermanager: closed all peer connections (network change)", "count", closed)
 	}
+
+	// Reset churn counters (#42). Disconnected callbacks fire asynchronously
+	// (go-libp2p launches a goroutine per conn, swarm_conn.go:87) and would
+	// accumulate false churn from these intentional closes. Belt-and-suspenders
+	// with ResetBackoffsForNetworkChange which runs after this in serve_common.go.
+	pm.mu.Lock()
+	for _, mp := range pm.peers {
+		mp.churnCount = 0
+		mp.churnWindowStart = time.Time{}
+	}
+	pm.mu.Unlock()
 }
 
 // CloseStaleConnections closes connections to watched peers whose local
