@@ -19,7 +19,7 @@ func getEncoder() *zstd.Encoder {
 	// Window size 1MB: sufficient for 256KB-2MB chunks. Default (8MB) caused
 	// 2.6 GB memory bloat on the sender — each pooled encoder retained an 8MB
 	// history buffer, and sync.Pool kept hundreds alive between GC cycles.
-	// BUG-MP-8: OOM-killed the LAN peer daemon mid-transfer (562MB file).
+	// BUG-MP-8: OOM-killed the daemon mid-transfer (562MB file).
 	//
 	// Coupling (ChunkTarget): the window deliberately holds 1 MB even though
 	// FT-Y #14's top tier produces 4 MB chunks. Each chunk is compressed as a
