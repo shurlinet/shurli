@@ -1547,13 +1547,13 @@ func (r *singleByteReader) Read(p []byte) (int, error) {
 
 // DirectoryTransfer coordinates sending all files in a directory.
 type DirectoryTransfer struct {
-	RootDir  string
-	Files    []dirFileEntry
+	RootDir   string
+	Files     []DirFileEntry
 	TotalSize int64
 }
 
-// dirFileEntry is a file within a directory transfer.
-type dirFileEntry struct {
+// DirFileEntry is a file within a directory transfer.
+type DirFileEntry struct {
 	RelPath string // relative path from root
 	AbsPath string // absolute filesystem path
 	Size    int64
@@ -1610,7 +1610,7 @@ func WalkDirectory(dirPath string) (*DirectoryTransfer, error) {
 			return nil
 		}
 
-		dt.Files = append(dt.Files, dirFileEntry{
+		dt.Files = append(dt.Files, DirFileEntry{
 			RelPath: relPath,
 			AbsPath: path,
 			Size:    info.Size(),
@@ -1644,8 +1644,8 @@ func WalkDirectory(dirPath string) (*DirectoryTransfer, error) {
 }
 
 // RegularFiles returns only the regular files (not directories).
-func (dt *DirectoryTransfer) RegularFiles() []dirFileEntry {
-	var files []dirFileEntry
+func (dt *DirectoryTransfer) RegularFiles() []DirFileEntry {
+	var files []DirFileEntry
 	for _, f := range dt.Files {
 		if !f.IsDir {
 			files = append(files, f)

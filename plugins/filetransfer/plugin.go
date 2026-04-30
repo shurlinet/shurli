@@ -500,28 +500,35 @@ func (p *FileTransferPlugin) Routes() []plugin.Route {
 
 // Protocols returns the 4 P2P stream handlers this plugin provides.
 // All use version 1.0.0 (Decision 4).
+// All allow relay transport (ADR-R16): NAT-to-NAT peers need relay circuits
+// for file transfer. The relay's own budget limits provide resource control.
 func (p *FileTransferPlugin) Protocols() []plugin.Protocol {
 	p.mu.RLock()
 	ts := p.transferService
 	sr := p.shareRegistry
 	p.mu.RUnlock()
 
+	// File transfer must work over relay for NAT-to-NAT peers.
+	relayAllowed := &sdk.PluginPolicy{
+		AllowedTransports: sdk.TransportLAN | sdk.TransportDirect | sdk.TransportRelay,
+	}
+
 	var protos []plugin.Protocol
 
 	if ts != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: ts.HandleInbound()},
-			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: ts.HandleMultiPeerRequest()},
+			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: ts.HandleInbound(), Policy: relayAllowed},
+			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: ts.HandleMultiPeerRequest(), Policy: relayAllowed},
 		)
 	}
 
 	if sr != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: sr.HandleBrowse()},
+			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: sr.HandleBrowse(), Policy: relayAllowed},
 		)
 		if ts != nil {
 			protos = append(protos,
-				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: sr.HandleDownload(ts)},
+				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: sr.HandleDownload(ts), Policy: relayAllowed},
 			)
 		}
 	}

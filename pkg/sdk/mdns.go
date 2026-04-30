@@ -122,17 +122,6 @@ func NewMDNSDiscovery(h host.Host, m *Metrics, lanReg *LANRegistry) *MDNSDiscove
 	}
 }
 
-// IsLANPeer returns true if the peer was discovered via mDNS within the last
-// 5 minutes. mDNS multicast only works on the local network segment, so
-// discovery is proof of LAN presence regardless of which IP the QUIC
-// connection uses (private IPv4 or public IPv6 on the same LAN).
-func (md *MDNSDiscovery) IsLANPeer(id peer.ID) bool {
-	md.mu.Lock()
-	t, ok := md.lanPeers[id]
-	md.mu.Unlock()
-	return ok && time.Since(t) < 5*time.Minute
-}
-
 // Start begins mDNS advertising and periodic browsing on the local network.
 func (md *MDNSDiscovery) Start(ctx context.Context) error {
 	md.ctx, md.cancel = context.WithCancel(ctx)
