@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/shurlinet/shurli/pkg/p2pnet"
+import "github.com/shurlinet/shurli/pkg/sdk"
 
 // StatusResponse is returned by GET /v1/status.
 type StatusResponse struct {
@@ -16,7 +16,7 @@ type StatusResponse struct {
 	NATType           string   `json:"nat_type,omitempty"`
 	STUNExternalAddrs []string `json:"stun_external_addrs,omitempty"`
 	IsRelaying        bool     `json:"is_relaying"`
-	Reachability      *p2pnet.ReachabilityGrade `json:"reachability,omitempty"`
+	Reachability      *sdk.ReachabilityGrade `json:"reachability,omitempty"`
 	Relays            []RelayStatus  `json:"relays,omitempty"`
 	MOTDs             []MOTDInfo     `json:"motds,omitempty"`
 	ExpiringGrants    []GrantInfo    `json:"expiring_grants,omitempty"` // grants expiring within 10 minutes
@@ -24,6 +24,15 @@ type StatusResponse struct {
 	Notifications     *NotificationsStatus `json:"notifications,omitempty"`
 	ConfigReload      *ConfigReloadState `json:"config_reload,omitempty"`
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
+	PeerPaths         map[string]PeerPathSummary `json:"peer_paths,omitempty"` // peer ID -> connection summary
+	Proxies           []ProxyStatusInfo          `json:"proxies,omitempty"`
+}
+
+// PeerPathSummary describes how a peer is connected (for status display).
+type PeerPathSummary struct {
+	PathType     string `json:"path_type"`                // "DIRECT" or "RELAYED"
+	RelayPeerID  string `json:"relay_peer_id,omitempty"`  // relay peer ID if relayed
+	RelayName    string `json:"relay_name,omitempty"`     // relay name if known
 }
 
 // RelayStatus describes a configured relay's connection state.
@@ -60,7 +69,7 @@ type PeerInfo struct {
 	AgentVersion string   `json:"agent_version,omitempty"`
 }
 
-// PathInfo is returned by GET /v1/paths. Mirrors p2pnet.PeerPathInfo JSON tags.
+// PathInfo is returned by GET /v1/paths. Mirrors sdk.PeerPathInfo JSON tags.
 type PathInfo struct {
 	PeerID      string `json:"peer_id"`
 	PathType    string `json:"path_type"`
@@ -97,8 +106,8 @@ type PingRequest struct {
 
 // PingResponse wraps ping results for non-streaming responses.
 type PingResponse struct {
-	Results []p2pnet.PingResult `json:"results"`
-	Stats   p2pnet.PingStats   `json:"stats"`
+	Results []sdk.PingResult `json:"results"`
+	Stats   sdk.PingStats   `json:"stats"`
 }
 
 // TraceRequest is the body for POST /v1/traceroute.
@@ -176,6 +185,7 @@ type InviteCreateRequest struct {
 	Name       string `json:"name,omitempty"`
 	Count      int    `json:"count,omitempty"`        // default 1
 	TTLSeconds int    `json:"ttl_seconds,omitempty"`  // default 86400 (24h)
+	Relay      string `json:"relay,omitempty"`         // specific relay address to store invite on
 }
 
 // InviteCreateResponse is returned by POST /v1/invite.
@@ -201,9 +211,42 @@ type RemoteServiceRequest struct {
 
 // RemoteServiceResponse is returned by POST /v1/services/remote.
 type RemoteServiceResponse struct {
-	Services []p2pnet.RemoteServiceInfo `json:"services"`
+	Services []sdk.RemoteServiceInfo `json:"services"`
 }
 
+
+// --- Persistent proxy types ---
+
+// ProxyAddRequest is the body for POST /v1/proxies.
+type ProxyAddRequest struct {
+	Name    string `json:"name"`
+	Peer    string `json:"peer"`
+	Service string `json:"service"`
+	Port    int    `json:"port"`
+}
+
+// ProxyAddResponse is returned by POST /v1/proxies.
+type ProxyAddResponse struct {
+	Name          string `json:"name"`
+	ListenAddress string `json:"listen_address"`
+	Status        string `json:"status"`
+}
+
+// ProxyStatusInfo describes a proxy in API responses (list + status).
+type ProxyStatusInfo struct {
+	Name    string `json:"name"`
+	Peer    string `json:"peer"`
+	Service string `json:"service"`
+	Port    int    `json:"port"`
+	Listen  string `json:"listen,omitempty"`
+	Status  string `json:"status"`           // "active", "waiting", "disabled", "error: ...", "port_conflict"
+	Enabled bool   `json:"enabled"`
+}
+
+// ProxyListResponse is returned by GET /v1/proxies.
+type ProxyListResponse struct {
+	Proxies []ProxyStatusInfo `json:"proxies"`
+}
 
 // ErrorResponse is returned on failure.
 type ErrorResponse struct {
@@ -244,6 +287,8 @@ type GrantRequest struct {
 	MaxDelegations int      `json:"max_delegations,omitempty"` // 0=none, N=limited, -1=unlimited
 	AutoRefresh    bool     `json:"auto_refresh,omitempty"`    // B4: opt-in token refresh
 	MaxRefreshes   int      `json:"max_refreshes,omitempty"`   // B4: max refresh count
+	Transports     string   `json:"transports,omitempty"`      // transport caveat: comma-separated "lan,direct,relay" or decimal bitmask; empty = no caveat
+	Budget         string   `json:"budget,omitempty"`          // per-peer data budget (e.g. "20GB", "unlimited"); stored in Grant.DataBudget
 }
 
 // GrantExtendRequest is the request body for extending a grant.
@@ -265,6 +310,7 @@ type GrantDelegateRequest struct {
 	Duration       string   `json:"duration,omitempty"`        // optional: shorter duration
 	Services       []string `json:"services,omitempty"`        // optional: fewer services
 	MaxDelegations int      `json:"max_delegations,omitempty"` // optional: further delegation hops
+	Transports     string   `json:"transports,omitempty"`      // optional: narrower transport caveat (lan,direct,relay)
 }
 
 // GrantInfo represents a grant in API responses.
@@ -280,6 +326,9 @@ type GrantInfo struct {
 	AutoRefresh    bool     `json:"auto_refresh,omitempty"`     // B4: token refresh enabled
 	MaxRefreshes   int      `json:"max_refreshes,omitempty"`    // B4: total allowed
 	RefreshesUsed  int      `json:"refreshes_used,omitempty"`   // B4: consumed so far
+	Transports     string   `json:"transports,omitempty"`       // transport caveat string (e.g. "lan,direct,relay"); empty = any
+	DataBudget     int64    `json:"data_budget,omitempty"`      // per-peer relay data budget in bytes: 0=global default, -1=unlimited, >0=absolute
+	DataBudgetHR   string   `json:"data_budget_hr,omitempty"`   // human-readable form of DataBudget ("unlimited", "20GB", etc.) — presentation only
 }
 
 // GrantListResponse is the response for listing grants.
@@ -289,12 +338,13 @@ type GrantListResponse struct {
 
 // PouchEntryInfo represents a received grant token in API responses.
 type PouchEntryInfo struct {
-	Issuer    string   `json:"issuer"`              // issuer name or truncated ID
-	IssuerID  string   `json:"issuer_id"`           // full peer ID
-	Services  []string `json:"services,omitempty"`   // empty = all
-	ExpiresAt string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
-	Remaining string   `json:"remaining,omitempty"`  // human-readable
-	Permanent bool     `json:"permanent,omitempty"`
+	Issuer     string   `json:"issuer"`               // issuer name or truncated ID
+	IssuerID   string   `json:"issuer_id"`            // full peer ID
+	Services   []string `json:"services,omitempty"`   // empty = all
+	ExpiresAt  string   `json:"expires_at,omitempty"` // RFC3339, empty for permanent
+	Remaining  string   `json:"remaining,omitempty"`  // human-readable
+	Permanent  bool     `json:"permanent,omitempty"`
+	Transports string   `json:"transports,omitempty"` // effective transport mask parsed from token caveats (AND of all transport caveats); empty = unrestricted
 }
 
 // PouchListResponse is the response for listing pouch entries.
@@ -321,8 +371,9 @@ type RelayGrantInfo struct {
 	Permanent        bool   `json:"permanent,omitempty"`
 	Remaining        string `json:"remaining,omitempty"`        // human-readable time left
 	SessionBudget    string `json:"session_budget,omitempty"`   // e.g. "2 GB" or "unlimited"
-	SessionUsed      string `json:"session_used,omitempty"`     // e.g. "1.2 GB"
-	SessionDuration  string `json:"session_duration,omitempty"` // e.g. "2h"
+	SessionUsed      string `json:"session_used,omitempty"`      // e.g. "1.2 GB"
+	SessionRemaining string `json:"session_remaining,omitempty"` // e.g. "800 MB"
+	SessionDuration  string `json:"session_duration,omitempty"`  // e.g. "2h"
 }
 
 // NotificationsStatus is the notifications section in the status response.

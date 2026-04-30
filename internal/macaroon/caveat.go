@@ -22,7 +22,152 @@ const (
 	CaveatAutoRefresh       = "auto_refresh"        // "true" or "false"
 	CaveatMaxRefreshes      = "max_refreshes"       // remaining refresh count
 	CaveatMaxRefreshDuration = "max_refresh_duration" // RFC3339 absolute deadline for all refreshes
+	CaveatTransport          = "transport"            // bitmask: lan|direct|relay (comma-separated tokens)
 )
+
+// TransportType mirrors pkg/sdk.TransportType with identical bit values so
+// callers can pass the sdk value directly. Defined here to keep the macaroon
+// package free of sdk imports (no import cycles).
+type TransportType int
+
+const (
+	TransportLAN    TransportType = 1 << 0
+	TransportDirect TransportType = 1 << 1
+	TransportRelay  TransportType = 1 << 2
+)
+
+// ParseTransportMask parses a transport caveat value. Accepts comma-separated
+// tokens ("lan,direct,relay") or a decimal bitmask ("7"). Whitespace around
+// tokens is tolerated. Returns 0 and an error for unknown tokens or junk
+// values so verification fails closed.
+func ParseTransportMask(value string) (TransportType, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return 0, fmt.Errorf("empty transport value")
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n <= 0 {
+			return 0, fmt.Errorf("invalid transport bitmask %d", n)
+		}
+		const allBits = int(TransportLAN | TransportDirect | TransportRelay)
+		if n&^allBits != 0 {
+			return 0, fmt.Errorf("invalid transport bitmask %d: unknown bits set", n)
+		}
+		return TransportType(n), nil
+	}
+	var mask TransportType
+	for _, tok := range strings.Split(v, ",") {
+		switch strings.ToLower(strings.TrimSpace(tok)) {
+		case "lan":
+			mask |= TransportLAN
+		case "direct":
+			mask |= TransportDirect
+		case "relay":
+			mask |= TransportRelay
+		case "":
+			// skip trailing/leading commas
+		default:
+			return 0, fmt.Errorf("unknown transport token %q", tok)
+		}
+	}
+	if mask == 0 {
+		return 0, fmt.Errorf("empty transport mask")
+	}
+	return mask, nil
+}
+
+// FormatTransportMask returns the canonical comma-separated token form of
+// a transport bitmask. Returns an empty string for 0 (caller treats empty as
+// "no caveat"). Symmetric with ParseTransportMask which rejects empty/zero.
+// Unknown high bits are ignored.
+func FormatTransportMask(mask TransportType) string {
+	if mask == 0 {
+		return ""
+	}
+	var parts []string
+	if mask&TransportLAN != 0 {
+		parts = append(parts, "lan")
+	}
+	if mask&TransportDirect != 0 {
+		parts = append(parts, "direct")
+	}
+	if mask&TransportRelay != 0 {
+		parts = append(parts, "relay")
+	}
+	return strings.Join(parts, ",")
+}
+
+// EffectiveTransportMask walks a set of caveats and returns the intersection
+// (AND) of every transport caveat it finds. Returns:
+//
+//   - 0 when no transport caveat is present (token is unrestricted),
+//   - the AND-combined mask when one or more caveats narrow transport,
+//   - 0 and an error when any caveat value is malformed.
+//
+// This mirrors how DefaultVerifier composes caveats: each caveat further
+// narrows the allowed set. A multi-hop delegation chain that adds
+// transport=lan,direct to a parent transport=lan,direct,relay yields lan,direct.
+//
+// Display-only — not a security boundary. Use DefaultVerifier for enforcement.
+func EffectiveTransportMask(caveats []string) (TransportType, error) {
+	var mask TransportType
+	sawAny := false
+	for _, c := range caveats {
+		key, value, perr := ParseCaveat(c)
+		if perr != nil || key != CaveatTransport {
+			continue
+		}
+		m, merr := ParseTransportMask(value)
+		if merr != nil {
+			return 0, merr
+		}
+		if !sawAny {
+			mask = m
+			sawAny = true
+		} else {
+			mask &= m
+		}
+	}
+	return mask, nil
+}
+
+// TokenAllowsTransport reports whether the base64-encoded macaroon permits
+// the given transport based ONLY on its transport caveats. This is a
+// client-side heuristic for pre-dial decisions — it does NOT verify the
+// HMAC chain. Use only for UX hints (e.g. skipping a relay attempt that
+// would be rejected anyway). The authoritative check is DefaultVerifier +
+// Macaroon.Verify on the server side.
+//
+// Semantics:
+//   - token decodes and has zero transport caveats: returns true (no restriction)
+//   - token has one or more transport caveats: returns true only if the
+//     requested transport is permitted by EVERY caveat (AND-semantics,
+//     matching how the real verifier composes them)
+//   - token is malformed: returns false (fail-closed for hints)
+//   - transport is 0: returns true (no restriction to enforce)
+func TokenAllowsTransport(tokenBase64 string, transport TransportType) bool {
+	if transport == 0 {
+		return true
+	}
+	tok, err := DecodeBase64(tokenBase64)
+	if err != nil {
+		return false
+	}
+	for _, c := range tok.Caveats {
+		key, value, perr := ParseCaveat(c)
+		if perr != nil || key != CaveatTransport {
+			continue
+		}
+		allowed, merr := ParseTransportMask(value)
+		if merr != nil {
+			return false // malformed caveat — fail closed
+		}
+		if transport&allowed == 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // ParseCaveat splits a "key=value" caveat string into its components.
 func ParseCaveat(s string) (key, value string, err error) {
@@ -171,6 +316,25 @@ func DefaultVerifier(ctx VerifyContext) CaveatVerifier {
 			// last refresh extended expiry past the refresh deadline.
 			return nil
 
+		case CaveatTransport:
+			// Transport caveat restricts which connection types the token
+			// authorizes (lan, direct, relay). A child caveat can only
+			// narrow the mask — widening is structurally impossible because
+			// the macaroon verifier ANDs all caveats, so any added caveat
+			// further restricts the allowed set.
+			if ctx.Transport == 0 {
+				return nil // no transport context, skip check
+			}
+			allowed, err := ParseTransportMask(value)
+			if err != nil {
+				return fmt.Errorf("invalid transport caveat: %w", err)
+			}
+			if ctx.Transport&allowed == 0 {
+				return fmt.Errorf("transport %s not allowed by caveat (allowed: %s)",
+					FormatTransportMask(ctx.Transport), FormatTransportMask(allowed))
+			}
+			return nil
+
 		default:
 			return fmt.Errorf("unknown caveat key: %q", key)
 		}
@@ -253,6 +417,7 @@ type VerifyContext struct {
 	PeersUsed    int       // number of peers already onboarded by this token
 	IsDelegation bool      // true if this verification is for a delegation attempt
 	DelegateTo   string    // if set, the delegate_to peer ID from the token (allows peer_id bypass)
-	Now          time.Time // current time (for expiry checks)
-	Network      string    // current DHT namespace
+	Now          time.Time     // current time (for expiry checks)
+	Network      string        // current DHT namespace
+	Transport    TransportType // current stream transport (LAN/Direct/Relay); 0 = skip transport caveat
 }

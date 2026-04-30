@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes layerPeel { 0% { opacity: 0; transform: translateX(-5px); } 100% { opacity: 1; transform: translateX(0); } }
+    @keyframes fixGlow { 0%, 100% { fill-opacity: 0.06; } 50% { fill-opacity: 0.14; } }
+    @keyframes arrowFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.2s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.5s both; }
+    .f3 { animation: fadeIn 0.5s ease-out 0.8s both; }
+    .f4 { animation: fadeIn 0.5s ease-out 1.1s both; }
+    .p1 { animation: layerPeel 0.5s ease-out 0.4s both; }
+    .p2 { animation: layerPeel 0.5s ease-out 0.7s both; }
+    .p3 { animation: layerPeel 0.5s ease-out 1.0s both; }
+    .p4 { animation: layerPeel 0.5s ease-out 1.3s both; }
+    .glow1 { animation: fixGlow 3s ease-in-out infinite; }
+    .glow2 { animation: fixGlow 3s ease-in-out infinite 0.7s; }
+    .glow3 { animation: fixGlow 3s ease-in-out infinite 1.4s; }
+    .glow4 { animation: fixGlow 3s ease-in-out infinite 2.1s; }
+    .arrow { stroke-dasharray: 6 6; animation: arrowFlow 1.5s linear infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="500" fill="#0a0a1a"/>
+  <text x="400" y="30" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">EACH FIX EXPOSED THE NEXT LAYER</text>
+
+  <!-- Category 1: Transport memory -->
+  <g class="p1">
+    <rect x="40" y="50" width="340" height="90" rx="8" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" class="glow1"/>
+    <text x="60" y="72" font-size="14" fill="#00d4aa" font-weight="600">Transport memory</text>
+    <text x="60" y="92" font-size="12" fill="#888">The network layer remembers what worked.</text>
+    <text x="60" y="108" font-size="12" fill="#888">When you switch WiFi, those memories are wrong.</text>
+    <text x="60" y="128" font-size="11" fill="#00d4aa" opacity="0.6">3 root causes</text>
+  </g>
+
+  <!-- Arrow down -->
+  <line x1="210" y1="142" x2="210" y2="162" stroke="#00d4aa" stroke-width="1.5" class="arrow"/>
+
+  <!-- Category 2: Invisible switches -->
+  <g class="p2">
+    <rect x="40" y="165" width="340" height="90" rx="8" stroke="#ffb347" stroke-width="1" fill="#ffb347" class="glow2"/>
+    <text x="60" y="187" font-size="14" fill="#ffb347" font-weight="600">Invisible switches</text>
+    <text x="60" y="207" font-size="12" fill="#888">VPN tunnels, hotspot-to-hotspot, macOS route</text>
+    <text x="60" y="223" font-size="12" fill="#888">events: three kinds of switch nobody was watching.</text>
+    <text x="60" y="243" font-size="11" fill="#ffb347" opacity="0.6">3 root causes</text>
+  </g>
+
+  <!-- Arrow down -->
+  <line x1="210" y1="257" x2="210" y2="277" stroke="#ffb347" stroke-width="1.5" class="arrow"/>
+
+  <!-- Category 3: Stale state -->
+  <g class="p3">
+    <rect x="40" y="280" width="340" height="90" rx="8" stroke="#4488ff" stroke-width="1" fill="#4488ff" class="glow3"/>
+    <text x="60" y="302" font-size="14" fill="#4488ff" font-weight="600">Stale state</text>
+    <text x="60" y="322" font-size="12" fill="#888">Dead connections reported as alive. Stale addresses</text>
+    <text x="60" y="338" font-size="12" fill="#888">poisoning fresh dials. Cooldowns blocking recovery.</text>
+    <text x="60" y="358" font-size="11" fill="#4488ff" opacity="0.6">3 root causes</text>
+  </g>
+
+  <!-- Arrow down -->
+  <line x1="210" y1="372" x2="210" y2="392" stroke="#4488ff" stroke-width="1.5" class="arrow"/>
+
+  <!-- Category 4: Wrong defaults -->
+  <g class="p4">
+    <rect x="40" y="395" width="340" height="80" rx="8" stroke="#9966ff" stroke-width="1" fill="#9966ff" class="glow4"/>
+    <text x="60" y="417" font-size="14" fill="#9966ff" font-weight="600">Wrong defaults</text>
+    <text x="60" y="437" font-size="12" fill="#888">1-hour retry backoff. Relay dropped on public IPv6.</text>
+    <text x="60" y="453" font-size="12" fill="#888">Tuned for a world that does not exist.</text>
+    <text x="60" y="468" font-size="11" fill="#9966ff" opacity="0.6">2 root causes</text>
+  </g>
+
+  <!-- RIGHT: The discovery pattern -->
+  <g class="f3">
+    <rect x="430" y="50" width="330" height="425" rx="10" stroke="#333" stroke-width="1" fill="none"/>
+    <text x="595" y="78" text-anchor="middle" font-size="13" fill="#666" font-weight="600" letter-spacing="0.5">THE PATTERN</text>
+  </g>
+
+  <g class="f3">
+    <text x="460" y="110" font-size="12" fill="#e0e0e0">1. Switch a real network</text>
+    <text x="460" y="150" font-size="12" fill="#e0e0e0">2. Watch the daemon logs</text>
+    <text x="460" y="190" font-size="12" fill="#e0e0e0">3. Find what broke</text>
+    <text x="460" y="230" font-size="12" fill="#e0e0e0">4. Fix the root cause</text>
+    <text x="460" y="270" font-size="12" fill="#e0e0e0">5. Switch the same network</text>
+    <text x="460" y="310" font-size="12" fill="#e0e0e0">6. The fix exposed a new problem</text>
+    <text x="460" y="350" font-size="12" fill="#e0e0e0">7. Repeat</text>
+  </g>
+
+  <!-- Loop arrow from 7 back to 1 -->
+  <g class="f4">
+    <path d="M500,365 L500,390 Q500,410 520,410 L720,410 Q740,410 740,390 L740,100 Q740,85 725,85 L510,85" stroke="#00d4aa" stroke-width="1" stroke-dasharray="4 4" fill="none" opacity="0.3"/>
+    <polygon points="515,81 505,85 515,89" fill="#00d4aa" opacity="0.3"/>
+  </g>
+
+  <g class="f4">
+    <text x="595" y="445" text-anchor="middle" font-size="12" fill="#888">11 root causes across 4 days.</text>
+    <text x="595" y="463" text-anchor="middle" font-size="12" fill="#00d4aa" opacity="0.6">Every layer peeled back to reveal the next.</text>
+  </g>
+</svg>

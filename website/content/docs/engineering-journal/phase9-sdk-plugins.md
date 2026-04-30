@@ -6,9 +6,11 @@ description: "Invite v1/v2 deletion, protocol ID helpers, bootstrap extraction, 
 <!-- Auto-synced from docs/engineering-journal/phase9-sdk-plugins.md by sync-docs - do not edit directly -->
 
 
-**Date**: 2026-03-08
-**Status**: In Progress
-**ADRs**: ADR-Q01 to ADR-Q05
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | In Progress |
+| **ADRs** | ADR-Q01 to ADR-Q05 |
 
 Phase 9 builds the plugin system, SDK interfaces, and file transfer - the first concrete plugin. It also consolidates legacy protocol versions that accumulated during rapid iteration.
 
@@ -16,8 +18,10 @@ Phase 9 builds the plugin system, SDK interfaces, and file transfer - the first 
 
 ## ADR-Q01: Delete Invite v1/v2 Code
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -53,8 +57,10 @@ The reasoning: backward compatibility for formats with zero users is pure comple
 
 ## ADR-Q02: Pairing Protocol Wire Version Retained
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -68,8 +74,10 @@ Keep the `2.0.0` wire version. The protocol ID is a wire identifier, not a marke
 
 ## ADR-Q03: Protocol ID Helpers
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -77,7 +85,7 @@ Protocol IDs (`/shurli/<name>/<version>`) were string literals scattered across 
 
 ### Decision
 
-Add `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/protocolid.go`:
+Add `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/protocolid.go`:
 - `ProtocolID(name, version)` - constructor that panics on empty, slash, or whitespace
 - `ValidateProtocolID(id)` - runtime validation
 - `MustValidateProtocolIDs(ids...)` - batch validation for `init()` blocks
@@ -88,8 +96,10 @@ All relay protocol constants validated at startup via `init()`.
 
 ## ADR-Q04: Bootstrap Extraction
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -97,7 +107,7 @@ Standalone CLI commands (ping, traceroute) duplicated ~50 lines of DHT bootstrap
 
 ### Decision
 
-Extract to `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/bootstrap.go`:
+Extract to `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/bootstrap.go`:
 - `BootstrapConfig` struct (namespace, bootstrap peers, relay addrs)
 - `BootstrapAndConnect()` function: DHT client mode, connect to bootstrap peers, connect to relays, find peer via DHT, fallback to relay circuit
 
@@ -107,8 +117,10 @@ CLI commands now call one function instead of duplicating the pattern.
 
 ## ADR-Q05: File Transfer Plugin (Phase 9B)
 
-**Date**: 2026-03-08
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-08 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -116,7 +128,7 @@ File transfer is the first concrete plugin built on the Phase 9A service infrast
 
 ### Decision
 
-`https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/transfer.go` implements:
+`https://github.com/shurlinet/shurli/blob/main/plugins/filetransfer/transfer.go` implements:
 - Wire protocol: `version(1) + type(1) + nameLen(2) + name(var) + size(8) + sha256(32)`
 - `TransferService` with `HandleInbound()` returning a `StreamHandler`
 - `SendFile()` for outbound transfers with background progress tracking

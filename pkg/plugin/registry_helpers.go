@@ -9,7 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // reservedProtocolNames is the set of core Shurli protocol names that plugins
@@ -75,12 +75,12 @@ func (r *Registry) registerProtocols(entry *pluginEntry) error {
 			return fmt.Errorf("plugin %q: protocol name %q is reserved for core Shurli protocols",
 				entry.plugin.Name(), proto.Name)
 		}
-		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
+		pid := sdk.ProtocolID(proto.Name, proto.Version)
 		policy := proto.Policy
 		if policy == nil {
-			policy = &p2pnet.PluginPolicy{AllowedTransports: p2pnet.DefaultTransport}
+			policy = &sdk.PluginPolicy{AllowedTransports: sdk.DefaultTransport}
 		}
-		svc := &p2pnet.Service{
+		svc := &sdk.Service{
 			Name:     proto.Name,
 			Protocol: pid,
 			Handler:  r.wrapHandler(entry.plugin.Name(), proto.Handler),
@@ -130,7 +130,7 @@ func (r *Registry) unregisterProtocols(entry *pluginEntry) {
 
 // wrapHandler wraps a plugin's stream handler with state checking, panic recovery,
 // and circuit breaker logic. Streams are only handled in ACTIVE state.
-func (r *Registry) wrapHandler(pluginName string, handler p2pnet.StreamHandler) p2pnet.StreamHandler {
+func (r *Registry) wrapHandler(pluginName string, handler sdk.StreamHandler) sdk.StreamHandler {
 	return func(serviceName string, s network.Stream) {
 		r.mu.RLock()
 		entry, ok := r.plugins[pluginName]

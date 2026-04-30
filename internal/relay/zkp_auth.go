@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/zkp"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // ZKPAuthProtocol is the libp2p protocol ID for ZKP anonymous authentication.
@@ -63,7 +63,7 @@ const maxPeerSeenEntries = 10000
 
 // ZKPAuthHandler handles ZKP anonymous authentication streams on the relay.
 type ZKPAuthHandler struct {
-	Metrics *p2pnet.Metrics // nil-safe
+	Metrics *sdk.Metrics // nil-safe
 
 	mu           sync.RWMutex
 	tree         *zkp.MerkleTree

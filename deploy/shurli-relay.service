@@ -28,7 +28,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 
 # Resource limits
-MemoryMax=512M
+MemoryMax=2G
 CPUQuota=200%
 TasksMax=4096
 

@@ -67,6 +67,14 @@ func main() {
 		runVerify(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
+	case "services":
+		// Convenience: "shurli services <peer>" → "shurli service list --peer <peer>"
+		// Without args, equivalent to "shurli service list"
+		if len(os.Args) > 2 {
+			runService(append([]string{"list", "--peer"}, os.Args[2:]...))
+		} else {
+			runService([]string{"list"})
+		}
 	case "status":
 		runStatus(os.Args[2:])
 	case "recover":
@@ -158,7 +166,11 @@ func printUsage() {
 	fmt.Println("  ping <target> [-c N] [--json]         P2P ping")
 	fmt.Println("  traceroute <target> [--json]           P2P traceroute")
 	fmt.Println("  resolve <name> [--json]                Resolve name to peer ID")
-	fmt.Println("  proxy <target> <service> <local-port>  Forward TCP port")
+	fmt.Println("  proxy add <name> <peer> <svc> <port>   Create persistent proxy")
+	fmt.Println("  proxy list [--json]                    List all proxies")
+	fmt.Println("  proxy remove <name>                    Remove a proxy")
+	fmt.Println("  proxy enable/disable <name>            Toggle a proxy")
+	fmt.Println("  proxy <target> <service> <local-port>  Ephemeral foreground proxy")
 	fmt.Println("  reconnect <peer> [--json]              Clear backoffs and force redial")
 	fmt.Println()
 	fmt.Println("Identity & access:")

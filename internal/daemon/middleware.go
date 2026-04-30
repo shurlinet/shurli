@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // statusRecorder wraps http.ResponseWriter to capture the status code.
@@ -22,7 +22,7 @@ func (sr *statusRecorder) WriteHeader(code int) {
 
 // InstrumentHandler wraps an HTTP handler with Prometheus metrics and audit logging.
 // If both metrics and audit are nil, the handler is returned unchanged (zero overhead).
-func InstrumentHandler(next http.Handler, metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) http.Handler {
+func InstrumentHandler(next http.Handler, metrics *sdk.Metrics, audit *sdk.AuditLogger) http.Handler {
 	if metrics == nil && audit == nil {
 		return next
 	}

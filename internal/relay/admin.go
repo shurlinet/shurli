@@ -32,7 +32,7 @@ import (
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/zkp"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Context keys for caller identity and request origin.
@@ -177,10 +177,11 @@ type AdminServer struct {
 	authKeysPath string          // path to authorized_keys for hot-reload
 	internalMux  *http.ServeMux  // route table reused by HandleRemoteRequest
 	host             libp2phost.Host // set after host creation for connected-peers queries
-	Metrics          *p2pnet.Metrics // nil-safe: metrics are optional
+	Metrics          *sdk.Metrics // nil-safe: metrics are optional
 	receiptHMACKey   []byte          // HKDF("grant-receipt/v1") - dedicated key for receipt HMAC
 	sessionDataLimit int64           // from relay config, bytes per session per direction (0=unlimited)
 	sessionDuration  time.Duration   // from relay config, max time per circuit session
+	budgetTracker    *BudgetTracker  // per-peer budget enforcement (nil if not configured)
 }
 
 // SetHost stores the libp2p host reference for connected-peers queries.
@@ -199,6 +200,14 @@ func (s *AdminServer) SetReceiptHMACKey(key []byte) {
 func (s *AdminServer) SetSessionLimits(dataLimit int64, duration time.Duration) {
 	s.sessionDataLimit = dataLimit
 	s.sessionDuration = duration
+}
+
+// SetBudgetTracker wires the per-peer budget tracker for synchronous budget
+// initialization on grant/extend. The async onGrant callback is a safety net,
+// but the admin handler must initialize budgets synchronously to close the
+// race between grant creation and AllowConnect.
+func (s *AdminServer) SetBudgetTracker(bt *BudgetTracker) {
+	s.budgetTracker = bt
 }
 
 // NewAdminServer creates a new relay admin server.
@@ -300,10 +309,11 @@ func (s *AdminServer) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/info", s.handleInfo)
 
 	// Relay data grant endpoints (time-limited per-peer data access)
-	mux.HandleFunc("POST /v1/relay-grant", s.handleRelayGrant)
+	// Mutations require unsealed vault; read-only grants listing does not.
+	mux.HandleFunc("POST /v1/relay-grant", s.requireUnsealedOr(s.handleRelayGrant))
 	mux.HandleFunc("GET /v1/relay-grants", s.handleRelayGrants)
-	mux.HandleFunc("POST /v1/relay-revoke", s.handleRelayRevoke)
-	mux.HandleFunc("POST /v1/relay-extend", s.handleRelayExtend)
+	mux.HandleFunc("POST /v1/relay-revoke", s.requireUnsealedOr(s.handleRelayRevoke))
+	mux.HandleFunc("POST /v1/relay-extend", s.requireUnsealedOr(s.handleRelayExtend))
 
 	// MOTD and goodbye endpoints
 	mux.HandleFunc("GET /v1/motd", s.handleGetMOTD)
@@ -1337,7 +1347,7 @@ func (s *AdminServer) handleSetPeerAttr(w http.ResponseWriter, r *http.Request) 
 
 	// Validate bandwidth_budget values parse correctly before writing.
 	if req.Key == "bandwidth_budget" {
-		if _, err := p2pnet.ParseByteSize(req.Value); err != nil {
+		if _, err := sdk.ParseByteSize(req.Value); err != nil {
 			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid bandwidth_budget value %q: %v", req.Value, err))
 			return
 		}
@@ -1697,26 +1707,30 @@ func (s *AdminServer) handleGoodbyeShutdown(w http.ResponseWriter, r *http.Reque
 
 // RelayGrantRequest is the JSON body for POST /v1/relay-grant.
 type RelayGrantRequest struct {
-	PeerID      string   `json:"peer_id"`
-	DurationSec int      `json:"duration_secs"`
-	Services    []string `json:"services,omitempty"`
-	Permanent   bool     `json:"permanent,omitempty"`
+	PeerID        string   `json:"peer_id"`
+	DurationSec   int      `json:"duration_secs"`
+	Services      []string `json:"services,omitempty"`
+	Permanent     bool     `json:"permanent,omitempty"`
+	DataBudgetStr string   `json:"data_budget,omitempty"` // human-readable: "500MB", "2GB", "unlimited", "" = use global default
 }
 
 // RelayGrantInfo is the JSON representation of a relay data grant.
 type RelayGrantInfo struct {
-	PeerID       string   `json:"peer_id"`
-	Services     []string `json:"services,omitempty"`
-	ExpiresAt    string   `json:"expires_at,omitempty"`
-	CreatedAt    string   `json:"created_at"`
-	Permanent    bool     `json:"permanent,omitempty"`
-	RemainingSec int      `json:"remaining_seconds"`
+	PeerID        string   `json:"peer_id"`
+	Services      []string `json:"services,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	Permanent     bool     `json:"permanent,omitempty"`
+	RemainingSec  int      `json:"remaining_seconds"`
+	DataBudget    int64    `json:"data_budget,omitempty"`     // raw bytes (I5)
+	DataBudgetStr string   `json:"data_budget_str,omitempty"` // human-readable (I5)
 }
 
 // RelayExtendRequest is the JSON body for POST /v1/relay-extend.
 type RelayExtendRequest struct {
-	PeerID      string `json:"peer_id"`
-	DurationSec int    `json:"duration_secs"`
+	PeerID        string `json:"peer_id"`
+	DurationSec   int    `json:"duration_secs"`
+	DataBudgetStr string `json:"data_budget,omitempty"` // human-readable: "1GB", "unlimited", "" = keep current
 }
 
 // maxGrantDurationSec is the maximum grant duration (365 days) to prevent
@@ -1758,11 +1772,29 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse per-peer data budget (0 = use global default).
+	var dataBudget int64
+	if req.DataBudgetStr != "" {
+		var parseErr error
+		dataBudget, parseErr = parseDataBudgetStr(req.DataBudgetStr)
+		if parseErr != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid data_budget %q: %v", req.DataBudgetStr, parseErr))
+			return
+		}
+	}
+
 	duration := time.Duration(req.DurationSec) * time.Second
-	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0)
+	g, err := s.grantStore.Grant(pid, duration, req.Services, req.Permanent, 0, dataBudget)
 	if err != nil {
 		respondAdminError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create grant: %v", err))
 		return
+	}
+
+	// Initialize budget synchronously BEFORE the response returns, closing the
+	// race between grant creation and AllowConnect seeing the grant. The async
+	// onGrant callback is a safety net but fires in a goroutine (too late).
+	if s.budgetTracker != nil {
+		s.budgetTracker.OnGrantOrExtend(pid, g)
 	}
 
 	// Audit trail: log who created the grant (local admin socket or remote peer).
@@ -1775,24 +1807,17 @@ func (s *AdminServer) handleRelayGrant(w http.ResponseWriter, r *http.Request) {
 		"permanent", req.Permanent,
 		"duration_sec", req.DurationSec)
 
-	// Push grant receipt to the grantee (or legacy signal if no HMAC key).
+	// Push grant receipt to the grantee.
 	// Fire-and-forget: if the peer isn't connected, receipt is delivered on reconnect.
 	// Use request parameters (req.Permanent, duration) instead of the Grant pointer
 	// to avoid a data race: grantStore.Grant() returns the same pointer stored in
 	// the map, and a concurrent Extend() could modify its fields.
 	if s.host != nil && s.receiptHMACKey != nil {
-		receiptData := EncodeGrantReceipt(duration, s.sessionDataLimit,
+		receiptData := EncodeGrantReceipt(duration, peerSessionDataLimit(dataBudget, s.sessionDataLimit),
 			s.sessionDuration, req.Permanent, time.Now(), s.receiptHMACKey)
 		go func() {
 			if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
 				slog.Debug("relay grant: receipt notify failed",
-					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
-			}
-		}()
-	} else if s.host != nil {
-		go func() {
-			if err := NotifyGrantChanged(context.Background(), s.host, pid); err != nil {
-				slog.Debug("relay grant: grant-changed notify failed",
 					"peer", req.PeerID[:min(16, len(req.PeerID))], "err", err)
 			}
 		}()
@@ -1850,6 +1875,16 @@ func (s *AdminServer) handleRelayRevoke(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Send zero-duration receipt BEFORE revoking to invalidate the peer's cached grant.
+	// Must happen first because Revoke() terminates circuits, disconnecting the peer.
+	if s.host != nil && s.receiptHMACKey != nil {
+		revokeReceipt := EncodeGrantReceipt(0, 0, 0, false, time.Now(), s.receiptHMACKey)
+		if err := sendGrantReceipt(r.Context(), s.host, pid, revokeReceipt); err != nil {
+			slog.Warn("relay grant: failed to send revocation receipt",
+				"peer", req.PeerID[:min(16, len(req.PeerID))], "error", err)
+		}
+	}
+
 	if err := s.grantStore.Revoke(pid); err != nil {
 		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("revoke failed: %v", err))
 		return
@@ -1903,10 +1938,29 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Parse optional data budget update for extend (C6).
+	var extendDataBudget []int64
+	if req.DataBudgetStr != "" {
+		db, parseErr := parseDataBudgetStr(req.DataBudgetStr)
+		if parseErr != nil {
+			respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("invalid data_budget %q: %v", req.DataBudgetStr, parseErr))
+			return
+		}
+		extendDataBudget = append(extendDataBudget, db)
+	}
+
 	duration := time.Duration(req.DurationSec) * time.Second
-	if err := s.grantStore.Extend(pid, duration); err != nil {
+	if err := s.grantStore.Extend(pid, duration, extendDataBudget...); err != nil {
 		respondAdminError(w, http.StatusBadRequest, fmt.Sprintf("extend failed: %v", err))
 		return
+	}
+
+	// Synchronous budget refill — same race fix as handleRelayGrant.
+	if s.budgetTracker != nil {
+		extGrant := s.grantStore.CheckAndGet(pid)
+		if extGrant != nil {
+			s.budgetTracker.OnGrantOrExtend(pid, extGrant)
+		}
 	}
 
 	origin, _ := r.Context().Value(ctxOrigin).(string)
@@ -1929,7 +1983,7 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 					grantDuration = 0
 				}
 			}
-			receiptData := EncodeGrantReceipt(grantDuration, s.sessionDataLimit,
+			receiptData := EncodeGrantReceipt(grantDuration, peerSessionDataLimit(extGrant.DataBudget, s.sessionDataLimit),
 				s.sessionDuration, extGrant.Permanent, time.Now(), s.receiptHMACKey)
 			go func() {
 				if err := sendGrantReceipt(context.Background(), s.host, pid, receiptData); err != nil {
@@ -1950,10 +2004,20 @@ func (s *AdminServer) handleRelayExtend(w http.ResponseWriter, r *http.Request) 
 // grantToInfo converts a grants.Grant to the API response type.
 func grantToInfo(g *grants.Grant) RelayGrantInfo {
 	info := RelayGrantInfo{
-		PeerID:    g.PeerIDStr,
-		Services:  g.Services,
-		CreatedAt: g.CreatedAt.Format(time.RFC3339),
-		Permanent: g.Permanent,
+		PeerID:     g.PeerIDStr,
+		Services:   g.Services,
+		CreatedAt:  g.CreatedAt.Format(time.RFC3339),
+		Permanent:  g.Permanent,
+		DataBudget: g.DataBudget,
+	}
+	// Human-readable data budget (I5).
+	switch {
+	case g.DataBudget == -1:
+		info.DataBudgetStr = "unlimited"
+	case g.DataBudget > 0:
+		info.DataBudgetStr = formatDataBudget(g.DataBudget)
+	default:
+		info.DataBudgetStr = "default"
 	}
 	if !g.Permanent {
 		info.ExpiresAt = g.ExpiresAt.Format(time.RFC3339)
@@ -1964,6 +2028,52 @@ func grantToInfo(g *grants.Grant) RelayGrantInfo {
 		info.RemainingSec = remaining
 	}
 	return info
+}
+
+// peerSessionDataLimit resolves a grant's DataBudget to the value sent in
+// grant receipts (I1/I2). The receipt's session_data_limit field carries the
+// per-peer budget so the client knows its actual limit.
+func peerSessionDataLimit(dataBudget, globalDefault int64) int64 {
+	switch {
+	case dataBudget > 0:
+		return dataBudget
+	case dataBudget == -1:
+		return 0 // wire format: 0 = unlimited
+	default:
+		return globalDefault
+	}
+}
+
+// parseDataBudgetStr parses a human-readable data budget string.
+// Accepts "unlimited" (returns -1), "" (returns 0 = use global default),
+// or a byte size string like "500MB", "2GB" parsed via ParseByteSize.
+func parseDataBudgetStr(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if strings.EqualFold(s, "unlimited") {
+		return -1, nil
+	}
+	return sdk.ParseByteSize(s)
+}
+
+// formatDataBudget formats bytes as a human-readable string for display.
+func formatDataBudget(b int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case b >= gb && b%gb == 0:
+		return fmt.Sprintf("%d GB", b/gb)
+	case b >= mb && b%mb == 0:
+		return fmt.Sprintf("%d MB", b/mb)
+	case b >= kb && b%kb == 0:
+		return fmt.Sprintf("%d KB", b/kb)
+	default:
+		return fmt.Sprintf("%d bytes", b)
+	}
 }
 
 func respondAdminError(w http.ResponseWriter, status int, msg string) {

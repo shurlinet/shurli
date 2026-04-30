@@ -5,13 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shurlinet/shurli/internal/daemon"
+	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/termcolor"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // writeJSON encodes v as indented JSON to w, wrapped in the standard
@@ -130,10 +133,14 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	fs.SetOutput(io.Discard)
 	duration := fs.String("duration", "1h", "grant duration (e.g. 1h, 7d, 30m)")
 	services := fs.String("services", "", "comma-separated service names (empty = all)")
+	service := fs.String("service", "", "single service name (alias for --services; takes effect when --services is empty)")
 	permanent := fs.Bool("permanent", false, "grant permanent access (no expiry)")
 	delegateStr := fs.String("delegate", "0", "delegation hops: 0=none (default), N=limited, unlimited")
 	autoRefresh := fs.Bool("auto-refresh", false, "enable automatic token refresh before expiry")
 	maxRefreshes := fs.Int("max-refreshes", 3, "max number of refreshes (requires --auto-refresh)")
+	bandwidth := fs.String("bandwidth", "", "also set bandwidth_budget on the peer (e.g. 500MB, 1GB, unlimited)")
+	budget := fs.String("budget", "", "per-peer data budget — same semantics as --bandwidth (e.g. 20GB); wired into bandwidth_budget peer attribute and Grant.DataBudget")
+	transport := fs.String("transport", "", "transport caveat: comma-separated \"lan,direct,relay\" (empty = no caveat, any transport allowed)")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
@@ -148,8 +155,14 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 	}
 
 	if fs.NArg() != 1 {
-		return errOut(fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--services file-transfer,...] [--permanent] [--delegate N|unlimited] [--auto-refresh] [--max-refreshes N]"))
+		return errOut(fmt.Errorf("usage: shurli auth grant <peer> [--duration 1h] [--service <svc>|--services svc1,svc2,...] [--permanent] [--delegate N|unlimited] [--auto-refresh] [--max-refreshes N] [--transport lan,direct,relay] [--budget 20GB|--bandwidth 20GB]"))
 	}
+
+	normServices, budgetStr, err := normalizeAuthGrantFlags(*service, *services, *budget, *bandwidth, *transport)
+	if err != nil {
+		return errOut(err)
+	}
+	*services = normServices
 
 	delegateVal, err := parseDelegateFlag(*delegateStr)
 	if err != nil {
@@ -197,11 +210,27 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		MaxDelegations: delegateVal,
 		AutoRefresh:    *autoRefresh,
 		MaxRefreshes:   *maxRefreshes,
+		Transports:     *transport,
+		Budget:         budgetStr,
 	}
 
 	info, err := client.GrantCreate(req)
 	if err != nil {
 		return errOut(err)
+	}
+
+	// Auto-sync budget into the bandwidth_budget peer attribute so the
+	// existing filetransfer bandwidth tracker picks it up immediately.
+	// Same path as legacy --bandwidth, but driven by a single normalized
+	// value so --budget and --bandwidth behave identically.
+	if budgetStr != "" {
+		if setErr := doAuthSetAttr([]string{info.PeerID, "bandwidth_budget", budgetStr}, io.Discard); setErr != nil {
+			if *jsonFlag {
+				slog.Warn("grant created but failed to set bandwidth_budget", "peer", info.PeerID, "error", setErr)
+			} else {
+				fmt.Fprintf(stdout, "Warning: grant created but failed to set bandwidth_budget: %v\n", setErr)
+			}
+		}
 	}
 
 	if *jsonFlag {
@@ -220,6 +249,15 @@ func doAuthGrant(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "  Expires:    %s (%s remaining)\n", info.ExpiresAt, info.Remaining)
 	}
 	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(info.MaxDelegations))
+	if info.Transports != "" {
+		fmt.Fprintf(stdout, "  Transport:  %s\n", info.Transports)
+	}
+	if budgetStr != "" {
+		fmt.Fprintf(stdout, "  Bandwidth:  %s per peer\n", budgetStr)
+	}
+	if info.DataBudgetHR != "" {
+		fmt.Fprintf(stdout, "  Data budget: %s (per-grant)\n", info.DataBudgetHR)
+	}
 	if *autoRefresh {
 		effectiveDur, _ := time.ParseDuration(*duration)
 		effectiveMax := effectiveDur * time.Duration(*maxRefreshes+1)
@@ -285,7 +323,15 @@ func doAuthGrants(args []string, stdout io.Writer) error {
 		if g.AutoRefresh {
 			refreshStr = fmt.Sprintf("  refresh:%d/%d", g.RefreshesUsed, g.MaxRefreshes)
 		}
-		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s%s\n", i+1, g.Peer, svc, dur, delStr, refreshStr)
+		transportStr := ""
+		if g.Transports != "" {
+			transportStr = "  transport:" + g.Transports
+		}
+		budgetStr := ""
+		if g.DataBudgetHR != "" {
+			budgetStr = "  budget:" + g.DataBudgetHR
+		}
+		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s%s%s%s\n", i+1, g.Peer, svc, dur, delStr, refreshStr, transportStr, budgetStr)
 		termcolor.Faint("     %s\n", g.PeerID)
 	}
 	return nil
@@ -345,6 +391,7 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 	duration := fs.String("duration", "", "optional shorter duration (e.g. 30m)")
 	services := fs.String("services", "", "optional comma-separated service names")
 	delegateStr := fs.String("delegate", "0", "further delegation hops for target (0=none, N, unlimited)")
+	transport := fs.String("transport", "", "optional narrower transport caveat (lan,direct,relay)")
 	jsonFlag := fs.Bool("json", false, "output as JSON")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
@@ -358,10 +405,17 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 	}
 
 	if fs.NArg() != 1 {
-		return errOut(fmt.Errorf("usage: shurli auth delegate <peer> --to <target> [--duration 30m] [--services file-browse] [--delegate N|unlimited]"))
+		return errOut(fmt.Errorf("usage: shurli auth delegate <peer> --to <target> [--duration 30m] [--services file-browse] [--delegate N|unlimited] [--transport lan,direct,relay]"))
 	}
 	if *to == "" {
 		return errOut(fmt.Errorf("--to is required (target peer for delegation)"))
+	}
+
+	// Early validation of optional transport narrowing.
+	if *transport != "" {
+		if _, err := macaroon.ParseTransportMask(*transport); err != nil {
+			return errOut(fmt.Errorf("invalid --transport value %q: %w", *transport, err))
+		}
 	}
 
 	delegateVal, err := parseDelegateFlag(*delegateStr)
@@ -392,6 +446,7 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 		Duration:       *duration,
 		Services:       svcList,
 		MaxDelegations: delegateVal,
+		Transports:     *transport,
 	}
 
 	result, err := client.GrantDelegate(req)
@@ -419,6 +474,51 @@ func doAuthDelegate(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "  Delegation: %s\n", formatDelegation(delegateVal))
 	return nil
+}
+
+// normalizeAuthGrantFlags validates and reconciles the transport/service/
+// budget flags accepted by `shurli auth grant`. It is pulled out as a pure
+// helper so unit tests can cover the mutual-exclusion and validation logic
+// without a daemon round-trip.
+//
+// Returns the canonical services string (possibly promoted from --service),
+// the canonical budget string (possibly promoted from --bandwidth), or a
+// first error encountered. Empty inputs produce empty outputs — the caller
+// treats empty as "no caveat / use defaults".
+func normalizeAuthGrantFlags(serviceFlag, servicesFlag, budgetFlag, bandwidthFlag, transportFlag string) (services string, budget string, err error) {
+	// Transport mask pre-validation — fail fast, no daemon round-trip.
+	if transportFlag != "" {
+		if _, terr := macaroon.ParseTransportMask(transportFlag); terr != nil {
+			return "", "", fmt.Errorf("invalid --transport value %q: %w", transportFlag, terr)
+		}
+	}
+
+	// --service is a convenience alias for --services. It only kicks in when
+	// --services is empty. If both are set they must name the same value, else
+	// reject to prevent a silent drop.
+	services = servicesFlag
+	if services == "" && serviceFlag != "" {
+		services = serviceFlag
+	} else if services != "" && serviceFlag != "" && services != serviceFlag {
+		return "", "", fmt.Errorf("--service and --services are mutually exclusive (use one)")
+	}
+
+	// --budget and --bandwidth both set the bandwidth_budget peer attribute.
+	// --budget additionally populates Grant.DataBudget (forensic + future).
+	// Mutually exclusive unless they name the exact same value.
+	budget = bandwidthFlag
+	if budgetFlag != "" {
+		if budget != "" && budget != budgetFlag {
+			return "", "", fmt.Errorf("--budget and --bandwidth are mutually exclusive (use one)")
+		}
+		budget = budgetFlag
+	}
+	if budget != "" {
+		if _, berr := sdk.ParseByteSize(budget); berr != nil {
+			return "", "", fmt.Errorf("invalid budget value %q: %w", budget, berr)
+		}
+	}
+	return services, budget, nil
 }
 
 func runAuthPouch(args []string) {
@@ -470,7 +570,11 @@ func doAuthPouch(args []string, stdout io.Writer) error {
 		if e.Permanent {
 			dur = "permanent"
 		}
-		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s\n", i+1, e.Issuer, svc, dur)
+		transportStr := ""
+		if e.Transports != "" {
+			transportStr = "  transport:" + e.Transports
+		}
+		fmt.Fprintf(stdout, "  %d. %s  [%s]  %s%s\n", i+1, e.Issuer, svc, dur, transportStr)
 		termcolor.Faint("     %s\n", e.IssuerID)
 	}
 	return nil

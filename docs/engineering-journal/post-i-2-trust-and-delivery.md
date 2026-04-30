@@ -68,7 +68,7 @@ Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verif
 
 **Consequences**: Verification is optional but visible. The persistent `[UNVERIFIED]` badge serves as a constant reminder without blocking functionality. 4-emoji comparison is quick and engaging. Entropy: 4 emoji from 256 = 2^32 possibilities, sufficient for active MITM detection in the private-network threat model.
 
-**Reference**: `pkg/p2pnet/verify.go`, `pkg/p2pnet/verify_test.go`, `cmd/shurli/cmd_verify.go`
+**Reference**: `pkg/sdk/verify.go`, `pkg/sdk/verify_test.go`, `cmd/shurli/cmd_verify.go`
 
 ---
 
@@ -85,7 +85,7 @@ Peer introduction delivery, HMAC group commitment, relay admin socket, SAS verif
 
 **Consequences**: Users get honest, actionable information. "Grade D - CGNAT detected, hole-punch unlikely" is more useful than "hole-punchable: yes" when CGNAT will actually block it. The grade informs path selection decisions in future phases (Phase 5-L PeerManager). CGNAT detection is limited to RFC 6598 (100.64.0.0/10) on local interfaces - mobile CGNAT using RFC 1918 addresses (172.20.x.x) cannot be distinguished from home networks.
 
-**Reference**: `pkg/p2pnet/reachability.go`, `pkg/p2pnet/reachability_test.go`
+**Reference**: `pkg/sdk/reachability.go`, `pkg/sdk/reachability_test.go`
 
 ---
 

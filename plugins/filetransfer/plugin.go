@@ -23,7 +23,7 @@ import (
 	libp2pnet "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -35,10 +35,10 @@ type FileTransferPlugin struct {
 	// mu protects all mutable fields below (P1 fix: zero synchronization).
 	// Handlers take RLock, Stop() takes full Lock when nilling fields.
 	mu              sync.RWMutex
-	network         *p2pnet.Network
-	transferService *p2pnet.TransferService
-	shareRegistry   *p2pnet.ShareRegistry
-	config          TransferConfig
+	network         *sdk.Network
+	transferService *TransferService
+	shareRegistry   *ShareRegistry
+	config          PluginConfig
 
 	// Drain mechanism (Finding 52 - CRITICAL).
 	// Plugin owns context.Context + sync.WaitGroup for active transfers.
@@ -182,20 +182,23 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		queueFile = filepath.Join(p.configDir, "queue.json")
 	}
 
-	cfg := p2pnet.TransferConfig{
-		ReceiveDir:        p.config.ReceiveDir,
-		MaxSize:           p.config.MaxFileSize,
-		ReceiveMode:       p2pnet.ReceiveMode(p.config.ReceiveMode),
-		Compress:          compress,
-		ErasureOverhead:   erasureOverhead,
-		LogPath:           logPath,
-		Notify:            p.config.Notify,
-		NotifyCommand:     sanitizeNotifyCommand(p.config.NotifyCommand),
-		MaxConcurrent:     p.config.MaxConcurrent,
-		MultiPeerEnabled:  multiPeerEnabled,
-		MultiPeerMaxPeers: p.config.MultiPeerMaxPeers,
-		MultiPeerMinSize:  p.config.MultiPeerMinSize,
-		RateLimit:         p.config.RateLimit,
+	cfg := TransferConfig{
+		ReceiveDir:          p.config.ReceiveDir,
+		MaxSize:             p.config.MaxFileSize,
+		ReceiveMode:         ReceiveMode(p.config.ReceiveMode),
+		Compress:            compress,
+		ErasureOverhead:     erasureOverhead,
+		LogPath:             logPath,
+		Notify:              p.config.Notify,
+		NotifyCommand:       sanitizeNotifyCommand(p.config.NotifyCommand),
+		MaxConcurrent:       p.config.MaxConcurrent,
+		MaxInboundTransfers: p.config.MaxInboundTransfers,
+		MaxPerPeerTransfers: p.config.MaxPerPeerTransfers,
+		MultiPeerEnabled:      multiPeerEnabled,
+		MultiPeerMaxPeers:     p.config.MultiPeerMaxPeers,
+		MultiPeerMinSize:      p.config.MultiPeerMinSize,
+		MaxServedBytesPerHour: parseBandwidthBudget(p.config.MaxServedBytesPerHour),
+		RateLimit:             p.config.RateLimit,
 
 		// DDoS defenses.
 		GlobalRateLimit:         p.config.GlobalRateLimit,
@@ -205,6 +208,7 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		MaxTempSize:             p.config.MaxTempSize,
 		TempFileExpiry:          tempExpiry,
 		BandwidthBudget: parseBandwidthBudget(p.config.BandwidthBudget),
+		SendRateLimit:   parseBandwidthBudget(p.config.SendRateLimit),
 		PeerBudgetFunc:  p.makePeerBudgetFunc(),
 		FailureBackoffThreshold: fbThreshold,
 		FailureBackoffWindow:    fbWindow,
@@ -216,16 +220,37 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 
 		// Relay grant checker for transfer budget/time checks (H7).
 		GrantChecker: p.ctx.RelayGrantChecker(),
+
+		// LAN detection across all connections to a peer (handles public IPv6 between LAN machines).
+		ConnsToPeer: func(pid peer.ID) []libp2pnet.Conn {
+			return p.network.Host().Network().ConnsToPeer(pid)
+		},
+		// Authoritative trust-making LAN signal: mDNS-verified connection IP.
+		// Gates RS erasure + bandwidth budget correctly for CGNAT / Docker /
+		// VPN / multi-WAN routed-private paths that bare RFC 1918 misclassifies.
+		HasVerifiedLANConn: func(pid peer.ID) bool {
+			return p.ctx.HasVerifiedLANConn(pid)
+		},
 	}
 
-	ts, err := p2pnet.NewTransferService(cfg, nil, p.network.Events())
+	ts, err := NewTransferService(cfg, nil, p.network.Events())
 	if err != nil {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
 	p.transferService = ts
 
+	// TS-4: Set host reference for multi-path cancel and register cancel handler.
+	ts.SetHost(p.network.Host())
+	RegisterCancelHandler(p.network.Host(), ts)
+
+	// TS-5: Set path protector for relay path protection during transfers.
+	ts.SetPathProtector(p.network.GetPathProtector())
+
+	// TS-5b: Set network reference for failover retry (HedgedOpenStream).
+	ts.SetNetwork(p.network, "file-download")
+
 	// If config specifies timed mode at startup, activate the timer.
-	if cfg.ReceiveMode == p2pnet.ReceiveModeTimed {
+	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration
 		if durStr == "" {
 			durStr = "10m"
@@ -240,10 +265,10 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// Load/create share registry.
 	if p.configDir != "" {
 		persistPath := filepath.Join(p.configDir, "shares.json")
-		reg, loadErr := p2pnet.LoadShareRegistry(persistPath)
+		reg, loadErr := LoadShareRegistry(persistPath)
 		if loadErr != nil {
 			slog.Warn("plugin.filetransfer: failed to load shares", "error", loadErr)
-			reg = p2pnet.NewShareRegistry()
+			reg = NewShareRegistry()
 			reg.SetPersistPath(persistPath)
 		}
 
@@ -254,6 +279,25 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 
 		p.shareRegistry = reg
 
+		// Wire shared file lister for multi-peer hash scan (IF6-3, IF13-3).
+		ts.SetSharedFileLister(func() []string {
+			shares := reg.ListShares(nil)
+			var paths []string
+			for _, s := range shares {
+				if s.IsDir {
+					filepath.WalkDir(s.Path, func(p string, d os.DirEntry, err error) error {
+						if err == nil && !d.IsDir() {
+							paths = append(paths, p)
+						}
+						return nil
+					})
+				} else {
+					paths = append(paths, s.Path)
+				}
+			}
+			return paths
+		})
+
 		browseLimit := p.config.BrowseRateLimit
 		if browseLimit == 0 {
 			browseLimit = 10
@@ -263,12 +307,24 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 		}
 	}
 
+	// Ensure receive directory exists on startup (before systemd locks mount namespace).
+	if cfg.ReceiveDir != "" {
+		if err := os.MkdirAll(cfg.ReceiveDir, 0700); err != nil {
+			slog.Warn("plugin.filetransfer: failed to create receive_dir", "path", cfg.ReceiveDir, "error", err)
+		}
+	}
+
 	slog.Info("plugin.filetransfer: started", "receive_dir", cfg.ReceiveDir, "receive_mode", string(cfg.ReceiveMode))
 	return nil
 }
 
 // Stop persists state and releases resources. Called on disable.
 func (p *FileTransferPlugin) Stop() error {
+	// TS-4: Unregister cancel handler BEFORE closing TransferService (R3-C3).
+	if p.network != nil {
+		UnregisterCancelHandler(p.network.Host())
+	}
+
 	// Set drain gate to reject new handler work (P2 fix).
 	p.mu.Lock()
 	p.drainGate = true
@@ -344,7 +400,7 @@ func parseBandwidthBudget(s string) int64 {
 	if s == "" {
 		return 0
 	}
-	v, err := p2pnet.ParseByteSize(s)
+	v, err := sdk.ParseByteSize(s)
 	if err != nil {
 		slog.Warn("plugin.filetransfer: invalid bandwidth_budget config, using default",
 			"value", s, "error", err)
@@ -364,7 +420,7 @@ func (p *FileTransferPlugin) makePeerBudgetFunc() func(string) int64 {
 		if v == "" {
 			return 0 // use global default
 		}
-		bytes, err := p2pnet.ParseByteSize(v)
+		bytes, err := sdk.ParseByteSize(v)
 		if err != nil {
 			short := peerID
 			if len(short) > 16 {
@@ -398,7 +454,7 @@ func (p *FileTransferPlugin) OnNetworkReady() error {
 			if err != nil {
 				return nil, fmt.Errorf("decode peer ID: %w", err)
 			}
-			return pnet.OpenPluginStream(p.activeCtx, pid, "file-transfer")
+			return sdk.HedgedOpenStream(p.activeCtx, pnet, pid, "file-transfer")
 		}
 	})
 
@@ -444,28 +500,35 @@ func (p *FileTransferPlugin) Routes() []plugin.Route {
 
 // Protocols returns the 4 P2P stream handlers this plugin provides.
 // All use version 1.0.0 (Decision 4).
+// All allow relay transport (ADR-R16): NAT-to-NAT peers need relay circuits
+// for file transfer. The relay's own budget limits provide resource control.
 func (p *FileTransferPlugin) Protocols() []plugin.Protocol {
 	p.mu.RLock()
 	ts := p.transferService
 	sr := p.shareRegistry
 	p.mu.RUnlock()
 
+	// File transfer must work over relay for NAT-to-NAT peers.
+	relayAllowed := &sdk.PluginPolicy{
+		AllowedTransports: sdk.TransportLAN | sdk.TransportDirect | sdk.TransportRelay,
+	}
+
 	var protos []plugin.Protocol
 
 	if ts != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: ts.HandleInbound()},
-			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: ts.HandleMultiPeerRequest()},
+			plugin.Protocol{Name: "file-transfer", Version: "1.0.0", Handler: ts.HandleInbound(), Policy: relayAllowed},
+			plugin.Protocol{Name: "file-multi-peer", Version: "1.0.0", Handler: ts.HandleMultiPeerRequest(), Policy: relayAllowed},
 		)
 	}
 
 	if sr != nil {
 		protos = append(protos,
-			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: sr.HandleBrowse()},
+			plugin.Protocol{Name: "file-browse", Version: "1.0.0", Handler: sr.HandleBrowse(), Policy: relayAllowed},
 		)
 		if ts != nil {
 			protos = append(protos,
-				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: sr.HandleDownload(ts)},
+				plugin.Protocol{Name: "file-download", Version: "1.0.0", Handler: sr.HandleDownload(ts), Policy: relayAllowed},
 			)
 		}
 	}
@@ -559,7 +622,7 @@ func (p *FileTransferPlugin) Restore(data []byte) error {
 
 // checkpointState is the JSON structure saved by Checkpoint/Restore.
 type checkpointState struct {
-	Transfers []p2pnet.TransferSnapshot `json:"transfers,omitempty"`
+	Transfers []TransferSnapshot `json:"transfers,omitempty"`
 	HasShares bool                      `json:"has_shares,omitempty"`
 }
 

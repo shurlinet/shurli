@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+      @keyframes boxGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .header { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; fill: #999; text-anchor: middle; letter-spacing: 1px; text-transform: uppercase; }
+      .section-title { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; font-weight: 600; text-anchor: middle; }
+      .method { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; }
+      .desc { font-family: system-ui, -apple-system, sans-serif; font-size: 10px; fill: #bbb; }
+      .card { animation: boxGlow 4s ease-in-out infinite; }
+      .c1 { animation-delay: 0s; }
+      .c2 { animation-delay: 1s; }
+      .c3 { animation-delay: 2s; }
+      .f1 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.2s; opacity: 0; }
+      .f2 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.5s; opacity: 0; }
+      .f3 { animation: fadeIn 0.5s ease-out forwards; animation-delay: 0.8s; opacity: 0; }
+    </style>
+  </defs>
+  <rect width="800" height="420" fill="url(#bg)"/>
+
+  <text x="400" y="30" class="header" fill="#999">the plugin interface</text>
+
+  <!-- Identity card -->
+  <g class="f1" transform="translate(30, 50)">
+    <rect x="0" y="0" width="230" height="150" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5" class="card c1"/>
+    <text x="115" y="25" class="section-title" fill="#00d4aa">Identity</text>
+    <line x1="20" y1="35" x2="210" y2="35" stroke="#00d4aa" stroke-width="0.5" opacity="0.3"/>
+
+    <text x="20" y="58" class="method" fill="#00d4aa">ID()</text>
+    <text x="20" y="72" class="desc">shurli.io/official/filetransfer</text>
+
+    <text x="20" y="95" class="method" fill="#00d4aa">Name()</text>
+    <text x="20" y="109" class="desc">filetransfer</text>
+
+    <text x="20" y="132" class="method" fill="#00d4aa">Version()</text>
+    <text x="20" y="145" class="desc">1.0.0</text>
+  </g>
+
+  <!-- Lifecycle card -->
+  <g class="f2" transform="translate(285, 50)">
+    <rect x="0" y="0" width="230" height="150" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5" class="card c2"/>
+    <text x="115" y="25" class="section-title" fill="#ffb347">Lifecycle</text>
+    <line x1="20" y1="35" x2="210" y2="35" stroke="#ffb347" stroke-width="0.5" opacity="0.3"/>
+
+    <text x="20" y="55" class="method" fill="#ffb347">Init(ctx)</text>
+    <text x="20" y="67" class="desc">Once. Receive PluginContext.</text>
+
+    <text x="20" y="82" class="method" fill="#ffb347">Start(ctx) / Stop()</text>
+    <text x="20" y="94" class="desc">Enable/disable cycles.</text>
+
+    <text x="20" y="109" class="method" fill="#ffb347">OnNetworkReady()</text>
+    <text x="20" y="121" class="desc">After bootstrap + relay.</text>
+
+    <text x="20" y="140" class="desc" fill="#ffb347" opacity="0.6">4 lifecycle methods total</text>
+  </g>
+
+  <!-- Registration card -->
+  <g class="f3" transform="translate(540, 50)">
+    <rect x="0" y="0" width="230" height="150" rx="8" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5" class="card c3"/>
+    <text x="115" y="25" class="section-title" fill="#4488ff">Registration</text>
+    <line x1="20" y1="35" x2="210" y2="35" stroke="#4488ff" stroke-width="0.5" opacity="0.3"/>
+
+    <text x="20" y="58" class="method" fill="#4488ff">Commands()</text>
+    <text x="20" y="72" class="desc">CLI commands (send, browse...)</text>
+
+    <text x="20" y="92" class="method" fill="#4488ff">Routes()</text>
+    <text x="20" y="106" class="desc">HTTP endpoints (/v1/send...)</text>
+
+    <text x="20" y="126" class="method" fill="#4488ff">Protocols()</text>
+    <text x="20" y="140" class="desc">P2P stream handlers</text>
+  </g>
+
+  <!-- File transfer example at bottom -->
+  <g transform="translate(30, 225)">
+    <rect x="0" y="0" width="740" height="165" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1" opacity="0.6"/>
+    <text x="370" y="25" class="section-title" fill="#e0e0e0">File Transfer Plugin: What It Declares</text>
+    <line x1="20" y1="35" x2="720" y2="35" stroke="#666" stroke-width="0.5" opacity="0.3"/>
+
+    <text x="20" y="58" class="method" fill="#00d4aa">9 Commands</text>
+    <text x="20" y="74" class="desc">send, download, browse, share, transfers, accept, reject, cancel, clean</text>
+
+    <text x="20" y="100" class="method" fill="#ffb347">15 HTTP Routes</text>
+    <text x="20" y="116" class="desc">/v1/send, /v1/shares, /v1/browse, /v1/download, /v1/transfers...</text>
+
+    <text x="20" y="142" class="method" fill="#4488ff">4 P2P Protocols</text>
+    <text x="20" y="158" class="desc">file-transfer, file-multi-peer, file-browse, file-download (all v1.0.0)</text>
+  </g>
+
+  <text x="400" y="410" font-family="system-ui" font-size="11" fill="#bbb" text-anchor="middle">Eleven methods. One interface. Everything a plugin needs to declare.</text>
+</svg>

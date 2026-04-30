@@ -27,7 +27,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase&nbsp;1 | **Configuration** | YAML config, sample files | Done |
 | Phase&nbsp;2 | **Authentication** | ConnectionGater, authorized_keys | Done |
 | Phase&nbsp;3 | **keytool&nbsp;CLI** | Key management (now shurli subcommands) | Done |
-| Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/p2pnet/`, single binary, init wizard | Done |
+| Phase&nbsp;4A | **Core&nbsp;Library** | `pkg/sdk/`, single binary, init wizard | Done |
 | Phase&nbsp;4B | **Onboarding** | invite/join, QR codes, auth + relay CLI | Done |
 | A | **Reliability** | Reconnection with backoff, dial timeout, DHT in proxy | Done |
 | B | **Code&nbsp;Quality** | Proxy dedup, `log/slog`, sentinel errors, version embedding | Done |
@@ -88,21 +88,25 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
 | **Post-9B: Chaos Testing + Network Hardening** | 4 days | **Complete** |
 | **Post-9B: Plugin Architecture Shift** | 5 days | **Complete** |
+| **E14: Relay-First Onboarding** | 1 day | **Complete** |
+| **Per-Peer Bandwidth Budgets** | 1 day | **Complete** |
+| **Grant Receipt Protocol** | 1 day | **Complete** |
+| **Phase 10: Distribution & Launch** | 1 week | **Partial** (install script, release archives done) |
+| **FT-Y: Transfer Speed Optimization** | 4 weeks | **Complete** (streaming protocol, multi-peer, Tail Slayer, 22 bug fixes) |
 | Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
 | Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
 | Phase 9E: Swift SDK | 1-2 weeks | Planned |
 | Phase 9F: Layer 2 WASM Runtime | - | Planned |
 | Phase 9G: Layer 3 AI Plugin Generation | - | Future |
-| Phase 10: Distribution & Launch | 1-2 weeks | Planned |
 | Phase 11: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 3-4 weeks | Planned (separate repo: shurli-ios) |
 | Phase 13: Federation | 2-3 weeks | Planned |
 | Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
 | Phase 15+: Ecosystem | Ongoing | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> interfaces, file transfer, and plugin architecture (9A-9B + plugin shift done) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> plugins and file transfer (done) -> speed optimization (FT-Y done, 110+ MB/s) -> post-quantum cryptography (next) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
 
-**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/p2pnet`) stays in this repo.
+**Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/sdk`) stays in this repo.
 
 ---
 
@@ -118,4 +122,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-03-23. Current: Phase 8B (per-peer data grants) complete, plugin architecture complete. Next: Phase 8C-8D (ACL migration, module slots), Phase 9C-9G (discovery, SDKs, WASM, AI).*
+*Last updated: 2026-04-30. Current: FT-Y speed optimization complete (110+ MB/s LAN, streaming protocol, multi-peer, Tail Slayer hedging). Pre-merge audit complete. Next: post-quantum cryptography, then Phase 9C-9G.*

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pulseGlow { 0%, 100% { stroke-opacity: 0.5; } 50% { stroke-opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .glow { animation: pulseGlow 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="200" fill="url(#bg)"/>
+
+  <!-- Developer node (left) -->
+  <g transform="translate(40, 30)">
+    <rect x="0" y="0" width="160" height="70" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="glow"/>
+    <text x="80" y="20" font-family="system-ui" font-size="11" fill="#00d4aa" text-anchor="middle" font-weight="600">Your Node</text>
+    <text x="80" y="38" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">git push to local repo</text>
+    <text x="80" y="54" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">replicates to subscribers</text>
+  </g>
+
+  <!-- Fan-out arrows -->
+  <line x1="205" y1="50" x2="348" y2="25" class="flow" stroke="#00d4aa" stroke-width="1.5" opacity="0.5"/>
+  <line x1="205" y1="60" x2="348" y2="55" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.5"/>
+  <line x1="205" y1="70" x2="348" y2="90" class="flow" stroke="#4488ff" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Subscriber nodes -->
+  <g transform="translate(355, 10)">
+    <rect x="0" y="0" width="140" height="32" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="70" y="13" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle" font-weight="600">Contributor A</text>
+    <text x="70" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">synced &#10003;</text>
+  </g>
+  <g transform="translate(355, 48)">
+    <rect x="0" y="0" width="140" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="70" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Contributor B</text>
+    <text x="70" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">synced &#10003;</text>
+  </g>
+  <g transform="translate(355, 86)">
+    <rect x="0" y="0" width="140" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="70" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Contributor C</text>
+    <text x="70" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">synced &#10003;</text>
+  </g>
+
+  <!-- No central forge -->
+  <g transform="translate(570, 30)">
+    <rect x="0" y="0" width="180" height="65" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1.5" opacity="0.5"/>
+    <text x="90" y="20" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle">Central Forge</text>
+    <line x1="25" y1="30" x2="155" y2="58" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <line x1="155" y1="30" x2="25" y2="58" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <text x="90" y="50" font-family="system-ui" font-size="9" fill="#ff6b6b" text-anchor="middle">not required</text>
+  </g>
+
+  <text x="400" y="155" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Push to your node. Subscribers get it. Pull requests become P2P protocol messages.</text>
+
+  <g transform="translate(310, 165)">
+    <rect x="0" y="0" width="140" height="24" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="70" y="16" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle">Git Mirror Plugin</text>
+  </g>
+</svg>

@@ -150,21 +150,33 @@ func rewriteQuickStartLinks(body string) string {
 }
 
 // rewriteJournalBackticks rewrites backtick code references in journal files.
-// e.g., `pkg/p2pnet/foo.go` -> `https://github.com/.../pkg/p2pnet/foo.go`
+// e.g., `pkg/sdk/foo.go` -> `https://github.com/.../pkg/sdk/foo.go`
 func rewriteJournalBackticks(body string) string {
-	for _, prefix := range []string{"cmd/shurli/", "pkg/p2pnet/", "internal/"} {
+	for _, prefix := range []string{"cmd/shurli/", "pkg/sdk/", "internal/", "plugins/"} {
 		body = strings.ReplaceAll(body, "`"+prefix, "`"+cfg.GithubBase+"/"+prefix)
 	}
 	return body
 }
 
-// journalMdLinkRe matches (lowercase-name.md) for journal internal links.
-var journalMdLinkRe = regexp.MustCompile(`\(([a-z][a-z0-9-]*)\.md\)`)
+// journalMdLinkAnchoredRe matches (lowercase-name.md#anchor) for journal cross-references.
+var journalMdLinkAnchoredRe = regexp.MustCompile(`\(([a-z][a-z0-9-]*)\.md(#[^)]+)\)`)
 
-// rewriteJournalMdToDir rewrites .md links in journal _index to Hugo directory format.
-// e.g., (core-architecture.md) -> (core-architecture/)
-func rewriteJournalMdToDir(body string) string {
-	return journalMdLinkRe.ReplaceAllString(body, "($1/)")
+// journalMdLinkPlainRe matches (lowercase-name.md) for journal internal links.
+var journalMdLinkPlainRe = regexp.MustCompile(`\(([a-z][a-z0-9-]*)\.md\)`)
+
+// rewriteJournalCrossRefs rewrites .md links between journal entries to Hugo directory format.
+// For _index.md (isIndex=true): (name.md) -> (name/), (name.md#anchor) -> (name/#anchor)
+// For other entries (isIndex=false): (name.md) -> (../name/), (name.md#anchor) -> (../name/#anchor)
+func rewriteJournalCrossRefs(body string, isIndex bool) string {
+	prefix := "../"
+	if isIndex {
+		prefix = ""
+	}
+	// Anchored links first (more specific match).
+	body = journalMdLinkAnchoredRe.ReplaceAllString(body, "("+prefix+"$1/$2)")
+	// Plain links.
+	body = journalMdLinkPlainRe.ReplaceAllString(body, "("+prefix+"$1/)")
+	return body
 }
 
 // promoteHeadings replaces lines starting with "### " with "## ".

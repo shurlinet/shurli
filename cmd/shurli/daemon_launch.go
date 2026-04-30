@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/shurlinet/shurli/internal/config"
 	"syscall"
 )
 
@@ -109,8 +111,14 @@ func promptInstallService(reader *bufio.Reader, stdout io.Writer, daemonPID int)
 		user = "root"
 	}
 
-	// Generate service file with current user.
-	serviceContent := generateServiceFile(user)
+	// Generate service file with current user and config-based memory limit.
+	memoryLimit := "2G" // default
+	if cfgPath, err := config.FindConfigFile(""); err == nil {
+		if cfg, err := config.LoadHomeNodeConfig(cfgPath); err == nil && cfg.Network.MemoryLimit != "" {
+			memoryLimit = cfg.Network.MemoryLimit
+		}
+	}
+	serviceContent := generateServiceFile(user, memoryLimit)
 
 	// Write to temp file, then sudo move into place.
 	tmp, err := os.CreateTemp("", "shurli-daemon-*.service")
@@ -155,7 +163,10 @@ func promptInstallService(reader *bufio.Reader, stdout io.Writer, daemonPID int)
 // ReadWritePaths is built dynamically from directories that actually exist.
 // Uses the service user's home dir, not the current user's (they may differ
 // when root runs shurli init for a dedicated service account).
-func generateServiceFile(user string) string {
+func generateServiceFile(user, memoryLimit string) string {
+	if memoryLimit == "" {
+		memoryLimit = "2G"
+	}
 	rwPaths := "/run/user"
 	if _, err := os.Stat("/etc/shurli"); err == nil {
 		rwPaths = "/etc/shurli " + rwPaths
@@ -204,11 +215,11 @@ RestrictSUIDSGID=true
 
 # Resource limits
 LimitNOFILE=65536
-MemoryMax=512M
+MemoryMax=%s
 
 [Install]
 WantedBy=multi-user.target
-`, user, user, rwPaths)
+`, user, user, rwPaths, memoryLimit)
 }
 
 // userHomeDir returns the home directory for the given username.

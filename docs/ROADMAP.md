@@ -81,7 +81,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 **Status**: ✅ Completed
 
 **Deliverables**:
-- [x] Create `pkg/p2pnet/` as importable package
+- [x] Create `pkg/sdk/` as importable package
   - [x] `network.go` - Core P2P network setup, relay helpers, name resolution
   - [x] `service.go` - Service registry and management
   - [x] `proxy.go` - Bidirectional TCP↔Stream proxy with half-close
@@ -100,7 +100,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 
 **Key Files**:
 - `cmd/shurli/` - Single binary with subcommands: init, serve, proxy, ping
-- `pkg/p2pnet/` - Reusable P2P networking library
+- `pkg/sdk/` - Reusable P2P networking library
 - `internal/config/loader.go` - Config discovery, loading, path resolution
 
 ---
@@ -226,7 +226,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 8B** | **Per-Peer Data Grants** | Macaroon grants, token delivery, delegation, notifications, audit log, rate limiting. Core access control (not plugin-specific) | ✅ DONE |
 | **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). Replace all 5 ACL layers with capability tokens (M2-M5 planned) | ✅/📋 M1 DONE |
 | **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Reputation slot designed | 📋 Planned |
-| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
+| **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE, Grant Receipt Protocol DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 | Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
 
@@ -238,7 +238,7 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 - [x] Per-service access control - `AllowedPeers` field on each service restricts which peers can connect. Config supports per-service `allowed_peers` list. nil = all authorized peers allowed (backward compatible). ACL check runs before TCP dial. *(Pre-Batch H)*
 - [x] Rate limiting on incoming connections and streams - libp2p ResourceManager enabled (auto-scaled connection/stream/memory limits). Always-on for relay server; opt-in for home/client nodes via `resource_limits_enabled`. OS-level: iptables SYN flood protection (50/s) and UDP rate limiting (200/s) in setup.sh. *(Pre-Batch H)*
 - [x] QUIC source address verification - reverse path filtering (rp_filter=1) enabled in setup.sh, SYN cookies for TCP flood protection. *(Pre-Batch H)*
-- [x] OS-level rate limiting - iptables rules in `setup.sh` (TCP SYN 50/s burst 100, UDP 200/s burst 500), conntrack tuning (131072 max, tw_reuse, fin_timeout=30s), systemd cgroup limits (MemoryMax=512M, CPUQuota=200%, TasksMax=4096). *(Pre-Batch H)*
+- [x] OS-level rate limiting - iptables rules in `setup.sh` (TCP SYN 50/s burst 100, UDP 200/s burst 500), conntrack tuning (131072 max, tw_reuse, fin_timeout=30s), systemd cgroup limits (MemoryMax=2G, CPUQuota=200%, TasksMax=4096). *(Pre-Batch H)*
 - [x] Config file permissions - write with 0600 (not 0644) *(done in Phase 4B)*
 - [x] Key file permission check on load - refuse to load keys with permissions wider than 0600 (actionable error message with `chmod` fix)
 - [x] Service name validation - DNS-label format enforced (1-63 lowercase alphanumeric + hyphens), prevents protocol ID injection
@@ -353,7 +353,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 - [x] Config option: `discovery.network: "my-crew"` in config YAML (optional, default = global shurli DHT)
 - [x] CLI flag: `shurli init --network "my-crew"`
-- [x] DHT protocol prefix derived from namespace: `DHTProtocolPrefixForNamespace()` in `pkg/p2pnet/network.go`
+- [x] DHT protocol prefix derived from namespace: `DHTProtocolPrefixForNamespace()` in `pkg/sdk/network.go`
 - [x] Default (no namespace set) remains `/shurli/kad/1.0.0` for backward compatibility
 - [x] Relay supports namespace via `discovery.network` in relay config
 - [x] `shurli status` displays current network namespace (or "global (default)")
@@ -378,7 +378,7 @@ Probes all available network interfaces at startup, tests each path to peers, pi
 - [x] **I-e: STUN-Assisted Hole-Punching** - Zero-dependency RFC 5389 STUN client. Concurrent multi-server probing, NAT type classification (none/full-cone/address-restricted/port-restricted/symmetric). `HolePunchable()` helper. Background non-blocking probe at startup + re-probe on network change. NAT type and external addresses exposed in daemon status.
 - [x] **I-f: Every-Peer-Is-A-Relay** - Any peer with a global IP auto-enables circuit relay v2 with conservative resource limits (4 reservations, 16 circuits, 128KB/direction, 10min sessions). Auto-detect on startup and network change. Leverages existing ConnectionGater for authorization. `is_relaying` flag in daemon status.
 
-New files: `interfaces.go`, `pathdialer.go`, `pathtracker.go`, `netmonitor.go`, `stunprober.go`, `peerrelay.go` (all in `pkg/p2pnet/` with matching `_test.go` files).
+New files: `interfaces.go`, `pathdialer.go`, `pathtracker.go`, `netmonitor.go`, `stunprober.go`, `peerrelay.go` (all in `pkg/sdk/` with matching `_test.go` files).
 
 **Post-I-1: Frictionless Relay Pairing** ✅ DONE
 
@@ -398,7 +398,7 @@ Eliminates manual SSH + peer ID exchange for relay onboarding. Relay admin gener
 - [x] **AuthEntry extended** - daemon API `GET /v1/auth` now returns `verified` and `expires_at` fields
 - [x] **Status verification badges** - `shurli status` shows `[VERIFIED]` or `[UNVERIFIED]` per peer
 
-New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/p2pnet/verify.go`, `pkg/p2pnet/reachability.go`, `cmd/shurli/cmd_verify.go` (all with matching `_test.go` files).
+New files: `internal/relay/tokens.go`, `internal/relay/pairing.go`, `pkg/sdk/verify.go`, `pkg/sdk/reachability.go`, `cmd/shurli/cmd_verify.go` (all with matching `_test.go` files).
 
 Zero new dependencies. Binary size unchanged at 28MB.
 
@@ -434,18 +434,18 @@ Cross-network testing across multiple ISPs and NAT types exposed 8 bugs. All fix
 - [x] Merged three Go modules (main, relay-server, cmd/keytool) into a single `go.mod`
 - [x] Deleted `go.work` - no workspace needed with one module
 - [x] Moved relay-server source into `cmd/shurli/cmd_relay_serve.go`; deployment artifacts consolidated into `deploy/` and `tools/`
-- [x] Extracted `internal/identity/` package (from `pkg/p2pnet/identity.go`) - `CheckKeyFilePermissions()`, `LoadOrCreateIdentity()`, `PeerIDFromKeyFile()` shared by shurli and relay-server
+- [x] Extracted `internal/identity/` package (from `pkg/sdk/identity.go`) - `CheckKeyFilePermissions()`, `LoadOrCreateIdentity()`, `PeerIDFromKeyFile()` shared by shurli and relay-server
 - [x] Extracted `internal/validate/` package - `ServiceName()` for DNS-label validation of service names
 - [x] Deleted `cmd/keytool/` entirely - all features exist in `shurli` subcommands (`whoami`, `auth add/list/remove/validate`)
 - [x] Added `shurli auth validate` (ported from keytool validate)
 - [x] CI simplified to `go build ./...`, `go vet ./...`, `go test -race -count=1 ./...` from project root
 
 **Pre-Refactoring Foundation** (completed before main 4C work):
-- [x] GitHub Actions CI - build, vet, and test on every push to `main` and `dev/next-iteration`
+- [x] GitHub Actions CI - build, vet, and test on every push to `main` and `dev`
 - [x] Config version field - `version: 1` in all configs; loader defaults missing version to 1, rejects future versions. Enables safe schema migration.
 - [x] Unit tests for config package - loader, validation, path resolution, version handling, relay config
 - [x] Unit tests for auth package - gater (inbound/outbound/update), authorized_keys (load/parse/comments), manage (add/remove/list/duplicate/sanitize)
-- [x] Integration tests - in-process libp2p hosts verify real stream connectivity, half-close semantics, P2P-to-TCP proxy, and `DialWithRetry` behavior (6 tests in `pkg/p2pnet/integration_test.go`)
+- [x] Integration tests - in-process libp2p hosts verify real stream connectivity, half-close semantics, P2P-to-TCP proxy, and `DialWithRetry` behavior (6 tests in `pkg/sdk/integration_test.go`)
 
 **Batch A - Reliability** (completed):
 - [x] `DialWithRetry()` - exponential backoff retry (1s → 2s → 4s) for proxy dial
@@ -492,7 +492,7 @@ Combined coverage: **80.3%** (unit + Docker integration). Relay-server binary me
 Priority areas (all hit or exceeded targets):
 - [x] **cmd/shurli** (4% → 80%+) - 96 test functions covering CLI commands, flag handling, config template, daemon lifecycle, error paths. Relay serve commands merged and tested. *(relay-server binary merged into shurli)*
 - [x] **internal/daemon** (12% → 70%+) - all 14 API handlers tested (status, ping, traceroute, resolve, connect/disconnect, auth CRUD, services, shutdown), format negotiation, cookie auth, proxy lifecycle, client library
-- [x] **pkg/p2pnet** (23% → 84%) - naming, service registry, proxy half-close, relay address parsing, identity, ping, traceroute
+- [x] **pkg/sdk** (23% → 84%) - naming, service registry, proxy half-close, relay address parsing, identity, ping, traceroute
 - [x] **internal/config** (48% → 75%+) - archive/rollback, commit-confirmed timer, loader edge cases, benchmark tests
 - [x] **internal/auth** (50% → 75%+) - hot-reload, concurrent access, malformed input, gater tests
 - [x] **Docker integration tests** - `test/docker/integration_test.go` with relay container, invite/join, ping through circuit. Coverage-instrumented via `test/docker/coverage.sh`
@@ -512,7 +512,7 @@ Priority areas (all hit or exceeded targets):
 
 **Code Quality**:
 - [x] Expand test coverage - 80.3% combined coverage. Naming, proxy, invite edge cases, relay input parsing all tested. *(Batch G)*
-- [x] Structured logging - migrated library code (`pkg/p2pnet/`, `internal/auth/`) to `log/slog` with structured key-value fields and log levels (Info/Warn/Error). CLI commands remain `fmt.Println` for user output. *(Batch B)*
+- [x] Structured logging - migrated library code (`pkg/sdk/`, `internal/auth/`) to `log/slog` with structured key-value fields and log levels (Info/Warn/Error). CLI commands remain `fmt.Println` for user output. *(Batch B)*
 - [x] Sentinel errors - defined `ErrServiceAlreadyRegistered`, `ErrNameNotFound`, `ErrPeerAlreadyAuthorized`, `ErrPeerNotFound`, `ErrInvalidPeerID`, `ErrConfigNotFound`, `ErrConfigVersionTooNew`, `ErrInvalidServiceName` across 4 error files. All wrapped with `fmt.Errorf("%w: ...")` for `errors.Is()` support. *(Batch B)*
 - [x] Deduplicate proxy pattern - extracted `BidirectionalProxy()` with `HalfCloseConn` interface and `tcpHalfCloser` adapter (was copy-pasted 4x, now single ~30-line function). *(Batch B)*
 - [x] Consolidate config loaders - unified `LoadNodeConfig()` delegates to `LoadHomeNodeConfig()`, `LoadClientNodeConfig()` also delegates. Single `NodeConfig` struct.
@@ -757,7 +757,7 @@ Future:          authorized_keys becomes optional cache layer
 
 **Goal**: Define the public API contracts that third-party code will depend on. This is design-first work - get the interfaces right before building implementations, because changing them later breaks downstream users.
 
-**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+**Core Interfaces** (`pkg/sdk/contracts.go`):
 - [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
 - [x] `Resolver` - interface for name resolution with fallback chaining: local -> custom -> peer.Decode
 - [x] `ServiceManager` - interface for service registration and dialing, with middleware support
@@ -773,9 +773,9 @@ Future:          authorized_keys becomes optional cache layer
 - [x] Protocol ID formatter - `ProtocolID()` constructor + `MustValidateProtocolIDs()` for init-time validation *(completed in 9B)*
 
 **Library Consolidation** (completed in 9B):
-- [x] Extract DHT/relay bootstrap from CLI into `pkg/p2pnet/bootstrap.go` - `BootstrapAndConnect()` for standalone CLI commands
+- [x] Extract DHT/relay bootstrap from CLI into `pkg/sdk/bootstrap.go` - `BootstrapAndConnect()` for standalone CLI commands
 - [x] Centralize orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
-- [x] Package-level documentation for `pkg/p2pnet/` - `doc.go`
+- [x] Package-level documentation for `pkg/sdk/` - `doc.go`
 
 **Interface Preview**:
 ```go
@@ -784,20 +784,20 @@ type DNSResolver struct { ... }
 func (r *DNSResolver) Resolve(name string) (peer.ID, error) { ... }
 
 // Wire it up with custom resolver
-net, _ := p2pnet.New(&p2pnet.Config{
+net, _ := sdk.New(&sdk.Config{
     Resolver: &DNSResolver{},
 })
 
 // React to events
-unsub := net.OnEvent(func(e p2pnet.Event) {
-    if e.Type == p2pnet.EventPeerConnected {
+unsub := net.OnEvent(func(e sdk.Event) {
+    if e.Type == sdk.EventPeerConnected {
         metrics.PeerConnections.Inc()
     }
 })
 defer unsub()
 
 // Add stream middleware (applied to all services)
-net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
+net.ServiceRegistry().Use(func(next sdk.StreamHandler) sdk.StreamHandler {
     return func(svcName string, s network.Stream) {
         log.Printf("stream opened for %s", svcName)
         next(svcName, s)
@@ -829,7 +829,7 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 - [x] Disk space checks before each chunk write
 - [x] Atomic writes (write to `.tmp`, rename on completion)
 - [x] `PluginPolicy` - transport-aware access control (LAN + Direct only, relay blocked by default)
-- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go` (standalone CLI commands)
+- [x] `BootstrapAndConnect()` extracted to `pkg/sdk/bootstrap.go` (standalone CLI commands)
 - [x] `ProtocolID()` + `MustValidateProtocolIDs()` for init-time protocol validation
 
 **Download Protocol (FT-A)**:
@@ -915,7 +915,7 @@ net.ServiceRegistry().Use(func(next p2pnet.StreamHandler) p2pnet.StreamHandler {
 
 **Dependencies**: zeebo/blake3 (CC0), klauspost/compress/zstd (BSD-3), klauspost/reedsolomon (MIT), xssnick/raptorq (MIT)
 
-**New files**: 22 source files (~10,000 lines) across `pkg/p2pnet/` and `cmd/shurli/` + matching test files.
+**New files**: 22 source files (~10,000 lines) across `pkg/sdk/` and `cmd/shurli/` + matching test files.
 
 **Test status**: 1100 tests across 21 packages, race detector clean.
 
@@ -965,30 +965,81 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 
 ---
 
-#### Post-9B: Transfer Speed Optimization (FT-Y)
+#### Post-9B: Transfer Speed Optimization (FT-Y) ✅ DONE
 
-**Timeline**: Next iteration (high priority)
-**Status**: 📋 Planned
+**Timeline**: 2026-03-31 to 2026-04-30
+**Status**: ✅ Complete
 
-**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync. Current baseline (2026-03-15, WiFi LAN, 500MB random data): Shurli 5 MB/s vs SCP 9 MB/s (55% of SCP). The 45% overhead comes from per-chunk processing (BLAKE3 hash + zstd compress + wire framing) across 2164 chunks.
+**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync.
 
-**Baseline measurements** (WiFi at distance - NOT protocol ceiling):
-- Client node -> server node, WiFi LAN
-- 500MB incompressible file (urandom)
-- SCP: 56s (~9 MB/s) | Shurli: 1m40s (~5 MB/s)
-- **Important**: Both numbers are constrained by the test environment (WiFi at distance), not protocol capability. Proper benchmarking requires wired gigabit LAN. Do not cite these as final performance numbers.
+**Results** (wired gigabit LAN, 500 MB incompressible):
+- **Before**: 5 MB/s (WiFi, old protocol)
+- **After**: 110 MB/s send, 142 MB/s download (USB LAN, streaming protocol)
+- **SCP baseline**: 107 MB/s (same USB LAN)
+- **Relay**: 4.0 MB/s (Sydney, via mobile hotspot)
+- **Multi-peer**: 95.7 MB/s (28 GB, 2 peers, work-stealing blocks)
 
-**Optimization targets**:
+**What shipped**:
 
-1. **Larger chunk sizes for LAN** - Current: 128K avg for <1GB files. LAN transfers benefit from fewer, larger chunks (less hash/frame overhead per byte). Adaptive: detect LAN path and use 1MB+ chunks.
-2. **Skip compression for incompressible data** - Detect in first chunk. If ratio < 1.05:1, disable for remaining chunks. Saves CPU on random/encrypted/pre-compressed data.
-3. **Streaming send** - Currently buffers all chunks in memory before sending. Stream chunks as they're produced (read -> hash -> compress -> send pipeline). Reduces memory and latency-to-first-byte.
-4. **Parallel chunk hashing** - BLAKE3 is already fast, but hashing can run on multiple cores while I/O waits.
-5. **Adaptive stream count** - Current: 1 stream for LAN. Test whether 2-4 streams improve WiFi throughput (WiFi benefits from parallel flows due to MAC-layer retransmits).
+**Streaming Protocol (SHFT v2)**:
+- [x] Streaming pipeline (read->hash->compress->send, zero full-file buffering)
+- [x] 5-tier adaptive chunks (64K-4M based on file size)
+- [x] Incompressible detection (3-chunk probe, ratio >= 0.95 disables compression)
+- [x] 8-stream parallel workers with work-stealing
+- [x] Per-stripe Reed-Solomon erasure coding (O(1 stripe) memory, not O(file))
+- [x] Missing-chunk recovery from trailer manifest
+- [x] Checkpoint/resume with crash recovery
+- [x] Selective file rejection (--files/--exclude for directory downloads)
+- [x] Progress bar (yt-dlp-style, EWMA speed/ETA)
 
-**Target**: Match or exceed SCP speed on LAN transfers (>= 9 MB/s for 500MB). Accept ~10-15% overhead for integrity verification as the cost of doing business.
+**Multi-Peer Download**:
+- [x] Interleaved symbol IDs (peer i gets i, i+N, i+2N). Fast peers get more blocks
+- [x] Dynamic block claiming with retry priority and slow-peer demotion
+- [x] Manifest verification (hash+sizes) across all peers
 
-**Exit criteria**: 500MB LAN transfer completes within 10% of SCP time. Benchmarks documented for LAN, WAN-direct, and relay paths.
+**Tail Slayer (Hedged Connections)**:
+- [x] TS-1: Hedged relay candidates in PathDialer
+- [x] TS-2: Hedged relay in bootstrap
+- [x] TS-3: Hedged multi-peer manifest exchange
+- [x] TS-4: Always-on control signal hedging (cancel latency: 11 ms)
+- [x] TS-5: Path maintenance + managed relay connections
+- [x] TS-5b: Automatic failover via checkpoint/resume
+- [x] TS-6: Zero-sync block coordination
+
+**Budget-Aware Relay**:
+- [x] Grant cache wired into RelayDiscovery
+- [x] RelayAddrs() ranks by health + budget bonus
+- [x] Per-peer relay data budget (Host Wrapper, no fork)
+
+**Networking Fixes** (found during FT-Y physical testing):
+- [x] #16: mDNS LAN upgrade blocked by dial worker pollution (deferred reconnect fix)
+- [x] #17: IPv6 reconnect loop (StripNonLANAddrs + fe80::/10 filter)
+- [x] #19: TCP-for-LAN experiment (DISPROVEN: 6% slower than QUIC, archived)
+- [x] #21: LAN throughput regression (root cause: macOS lacks UDP GSO, NOT a Shurli bug)
+- [x] #28: Resource manager exhaustion after ~1h45m (PeerBaseLimit.Conns=8 default)
+- [x] #30: Sender false-failure report (decompSize tracking unified)
+- [x] #31: Duplicate file on re-send (same-size overwrite)
+- [x] #32: yt-dlp-style progress bar
+- [x] #33: Relay backoff not cleared on network change
+- [x] #35: Stale transfers --watch after daemon restart
+- [x] #36: Hole punch "no good addresses" (IPv6 black hole detector reset)
+- [x] #39: PathDialer zombie QUIC after WiFi switch
+- [x] #40: Receiver busy after few transfers
+- [x] #41: Download --files/--exclude from shared directories
+- [x] #42: mDNS LAN connection stabilization delay
+
+**Persistent Proxy Service**:
+- [x] CLI: add/list/remove/enable/disable with GATETIME stability detection
+- [x] Event-driven + 30s poll status, persisted via proxies.json
+
+**Engineering Journals**: 8 published (ADR-Y01-Y10, ADR-MP01-MP10, ADR-X01-X07, ADR-BR01-BR09, ADR-RS01-RS08, ADR-VL01-VL05, ADR-PP01-PP05, ADR-TL01-TL07)
+
+**Key Files**:
+- `plugins/filetransfer/transfer_stream.go` - SHFT v2 wire format
+- `plugins/filetransfer/transfer_parallel.go` - Multi-stream workers
+- `plugins/filetransfer/transfer_multipeer.go` - Multi-peer download
+- `pkg/sdk/pathdialer.go` - Hedged connections
+- `docs/QUIC-TRANSPORT.md` - Platform limitations
 
 ---
 
@@ -1045,7 +1096,7 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 shurli binary
 ├── core (network, auth, identity, daemon, CLI framework)
 ├── pkg/plugin/          <- Plugin interface + registry + supervisor
-├── pkg/p2pnet/          <- Protocol library code (unchanged)
+├── pkg/sdk/          <- Protocol library code (unchanged)
 └── plugins/
     └── filetransfer/    <- First plugin (CLI commands, daemon handlers, P2P protocols)
 ```
@@ -1080,6 +1131,36 @@ Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers a
 - [x] Values: `unlimited`, `500MB`, `1GB`, etc. Config accepts human-readable strings
 - [x] 3 audit rounds, 23 tests
 - [x] Docs: COMMANDS.md, managing-network.md updated
+
+#### Grant Receipt Protocol ✅ DONE
+
+**Timeline**: 2026-03-26
+**Status**: ✅ Complete (4 batches + physical retest + docs)
+
+**Goal**: Give clients pre-transfer visibility into relay session budgets. Prevent wasted bandwidth on transfers that will exceed relay limits.
+
+**Why this was needed**: Relay circuit investigation (2026-03-26) revealed three issues: (1) seed and self-hosted relays shared identical conservative defaults, (2) receiver busy rejections were treated as permanent failures, (3) clients had no visibility into relay budgets before attempting transfers. A 174 MB file routed through a seed relay with 64 MB limit would fail after consuming bandwidth.
+
+**What shipped**:
+- [x] **Relay-issued grant receipts**: 62-byte binary message (session data limit, duration, grant expiry, HMAC-SHA256 signature). Protocol: `/shurli/grant-receipt/1.0.0`
+- [x] **Client-side grant cache**: Receipts persisted to disk (HMAC integrity, symlink rejection, 1 MB max). Per-circuit byte tracking (send/receive). Background cleanup of expired entries
+- [x] **Smart pre-transfer check**: `checkRelayGrant()` validates budget + time before transfer starts. Conservative 200 KB/s estimate. Checks both grant remaining and session duration
+- [x] **Per-chunk circuit byte tracking**: `makeChunkTracker()` counts actual compressed bytes on wire. Budget reflects real bandwidth usage, not file size
+- [x] **Smart reconnection**: `isRelaySessionExpiry()` retries transport failures (exponential backoff, max 5 attempts) while excluding application errors (rejected, disk space, access denied, cancelled)
+- [x] **Tier-aware session defaults**: Seed relays 64 MB/10 min, self-hosted relays 2 GB/2 hours. Explicit config always overrides
+- [x] **Receiver busy retry**: Exponential backoff (2s to 32s, max 5 attempts) for transient "receiver busy" rejections
+- [x] **Backward compatibility**: Older relays/clients work without receipts (existing behavior). Version byte (0x01) for future extensions
+- [x] **CLI visibility**: `shurli status` shows per-relay grant info (remaining budget, time, session duration)
+- [x] **Docs**: ARCHITECTURE.md (wire format, client cache, smart pre-transfer, backward compat), COMMANDS.md (relay grants output format)
+
+**Physical retest** (2026-03-26): 4 tests via relay (cellular CGNAT -> seed relay -> home node). 9.6 MB MP3 PASS. 16.8 MB ZIP PASS. 174 MB AVI correctly blocked pre-transfer ("file size exceeds relay session limit 64.0 MB"). Post-rejection 9.6 MB retry PASS.
+
+**Key Files**:
+- `internal/relay/grant_receipt.go` - Wire format, HMAC signing/verification
+- `internal/grants/cache.go` - Client-side grant cache, circuit byte tracking
+- `pkg/sdk/transfer_grants.go` - Pre-transfer check, chunk tracker, smart reconnection
+
+**Engineering Journal**: [Grant Receipt Protocol](engineering-journal/grant-receipt-protocol.md) (ADR-V01 to ADR-V05), [Relay Circuit Investigation](engineering-journal/relay-circuit-investigation.md) (ADR-W01 to ADR-W03)
 
 ---
 
@@ -1140,7 +1221,7 @@ Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers a
 - `internal/grants/` - Store, Pouch, Protocol, DeliveryQueue, AuditLog, RateLimiter
 - `internal/notify/` - Router, Event, LogSink, DesktopSink, WebhookSink
 - `internal/macaroon/caveat.go` - 6 new caveat types (peer_id, delegate_to, max_delegations, auto_refresh, max_refreshes, max_refresh_duration)
-- `pkg/p2pnet/grant_header.go` - Binary token presentation header
+- `pkg/sdk/grant_header.go` - Binary token presentation header
 
 ---
 
@@ -1267,7 +1348,7 @@ The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic s
 - [ ] Example: connect to a remote service in <10 lines of Python
 
 **SDK Documentation** (the plugins above ARE the examples):
-- [ ] `docs/SDK.md` - guide for building on `pkg/p2pnet`
+- [ ] `docs/SDK.md` - guide for building on `pkg/sdk`
 - [ ] Example walkthrough: how file transfer was built as a plugin
 - [ ] Example walkthrough: how service templates use health middleware
 - [ ] Example: custom name resolver plugin
@@ -1311,7 +1392,7 @@ The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic s
 
 ### SDK & App Repository Strategy
 
-Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/p2pnet`) stays in this repo since it IS the core library.
+Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository. The Go SDK (`pkg/sdk`) stays in this repo since it IS the core library.
 
 **Rationale**: Different languages have different release cycles, CI pipelines, dependency ecosystems, and potential contributors. A Python SDK ships to PyPI. A Swift SDK ships via SPM. Forcing them into one repo means every PR touches CI configs for languages the author doesn't use. Separate repos also let each SDK version independently of the daemon.
 
@@ -1323,7 +1404,7 @@ Non-Go SDKs and consumer apps each live in their own dedicated GitHub repository
 | `shurlinet/shurli-ios` | Apple multiplatform app (consumer of Swift SDK) | App Store |
 | Future: `shurlinet/shurli-sdk-js` | JS/TS daemon client | npm (`shurli`) |
 
-The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separate repo needed since Go consumers import the library directly from the daemon's module.
+The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/sdk` - no separate repo needed since Go consumers import the library directly from the daemon's module.
 
 ---
 
@@ -1343,7 +1424,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 - [x] Automated docs sync (`tools/sync-docs`, Go) - transforms `docs/*.md` into Hugo-ready content with front matter and link rewriting
 - [x] Elegant landing page with visual storytelling - hero with problem-first hook, terminal demo section, 3-step "How It Works" grid, network diagram, tabbed install commands (macOS/Linux/source), bottom CTA grid *(enhanced post-Batch G)*
 - [x] Seven retroactive blog posts for Batches A-G (outcomes-focused)
-- [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev/next-iteration` (see deployment note below)
+- [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev` (see deployment note below)
 - [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS provider configured, CNAME deployed, site live *(2026-02-20)*
 - [x] DNS managed via DNS provider - A/AAAA records → GitHub Pages, CDN + DDoS protection enabled, SSL mode "Full" *(2026-02-20)*
 - [x] CNAME `get.shurli.io` → serves install script *(2026-03-24, DNS redirect → shurli.io/install → tools/install.sh)*
@@ -1355,14 +1436,14 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/p2pnet` - no separa
 - [x] 40+ SVG diagrams across docs, blog posts, and architecture visuals - replacing ASCII art in Architecture (7), FAQ (2), Network Tools (1), Daemon API (1), plus blog post diagrams, philosophy visuals, and Batch I architecture diagrams *(post-Batch G, expanded through Batch I)*
 - [x] Feature card icons (Heroicons), section title icons, doc index icons, about page icons *(post-Batch G)*
 - [x] Doc sidebar reordered for user journey: Quick Start → Network Tools → FAQ → Trust & Security → Daemon API → Architecture → Roadmap → Testing → Engineering Journal *(post-Batch G)*
-- [ ] `pkg/p2pnet` library reference (godoc-style or hand-written guides)
+- [ ] `pkg/sdk` library reference (godoc-style or hand-written guides)
 - [ ] Use-case guides integrated into the site (GPU inference, IoT, game servers - see Launch Content below)
 - [ ] Install page with platform-specific instructions (curl, brew, apt, Docker, source)
 - [x] Blog section - 7 retroactive blog posts for Batches A-G (outcomes-focused) *(Batch G)*
 
 **Website Deployment Model** (note for maintainers):
 
-The website deploys from both `main` and `dev/next-iteration` via `.github/workflows/pages.yaml`. This was a deliberate decision (2026-02-23) to solve a real workflow problem: documentation and website content often update alongside code changes on the dev branch, but the code needs live testing on real hardware before merging to `main`. Since Hugo only builds from `website/` and `docs/`, untested Go code in `cmd/`, `pkg/`, `internal/` is completely irrelevant to the website build pipeline. The CI workflow (`.github/workflows/ci.yml`) handles Go build/test separately on both branches.
+The website deploys from both `main` and `dev` via `.github/workflows/pages.yaml`. This was a deliberate decision (2026-02-23) to solve a real workflow problem: documentation and website content often update alongside code changes on the dev branch, but the code needs live testing on real hardware before merging to `main`. Since Hugo only builds from `website/` and `docs/`, untested Go code in `cmd/`, `pkg/`, `internal/` is completely irrelevant to the website build pipeline. The CI workflow (`.github/workflows/ci.yml`) handles Go build/test separately on both branches.
 
 Why this approach was chosen over alternatives:
 - **Cherry-picking doc commits to main**: breaks down when a single commit touches both code and docs; manual overhead on every push.
@@ -1957,7 +2038,9 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 8B: Per-Peer Data Grants** | ✅ | Complete (macaroon grants, token delivery, delegation, notifications, audit log, rate limiting) |
 | **Phase 8C: ACL-to-Macaroon Migration** | ✅/📋 | M1 complete (Phase 8B). M2-M5 planned |
 | **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
-| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth DONE. 9C-9E planned, 9F-9G future |
+| **Grant Receipt Protocol** | ✅ | Complete (relay receipts, client cache, pre-transfer checks, smart reconnection, tier-aware limits) |
+| Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth/Grant Receipt DONE. 9C-9E planned, 9F-9G future |
+| **FT-Y: Transfer Speed Optimization** | ✅ | Complete (streaming protocol, multi-peer, Tail Slayer hedging, budget-aware relay, 22 bug fixes) |
 | Phase 10: Distribution & Launch | ✅/📋 | Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser/Homebrew/APT planned) |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
@@ -2122,8 +2205,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-03-20
-**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). 9C-9E planned.
-**Phases**: 1-8 (complete), 9 (in progress: 9A-9B2 done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
-**Next Milestone**: Phase 9C - Service Discovery & Additional Plugins (discovery protocol, service templates, Wake-on-LAN)
+**Last Updated**: 2026-04-30
+**Latest Release**: v0.3.0 (2026-03-26). Next release pending: FT-Y speed optimization (streaming protocol, multi-peer, Tail Slayer, 22 bug fixes), dep upgrades (libp2p v0.48.0, kad-dht v0.39.1).
+**Current Phase**: FT-Y complete. Pre-merge audit complete. Merging dev to main.
+**Phases**: 1-8B (complete), 9A-9B + FT-Y + Grant Receipt (complete), 9C-9E (planned), 10-15 (planned), 16+ (ecosystem)
+**Next Milestone**: Post-quantum cryptography (go-clatter, `/pq-noise/1` transport). Plan: `pqc-implementation-plan.md`.
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

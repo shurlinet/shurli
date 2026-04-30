@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/internal/auth"
@@ -15,7 +16,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runAuth(args []string) {
@@ -67,7 +68,7 @@ func printAuthUsage() {
 	fmt.Println("  set-attr <peer-id> <key> <value>                              Set peer attribute")
 	fmt.Println()
 	fmt.Println("Relay data access grants (macaroon capability tokens):")
-	fmt.Println("  grant    <peer> --duration 1h [--services ...] [--delegate N]  Grant relay data access")
+	fmt.Println("  grant    <peer> --duration 1h [--bandwidth 1GB] [--delegate N] [--transport lan,direct,relay]  Grant relay data access")
 	fmt.Println("  grants                                                         List active grants")
 	fmt.Println("  revoke   <peer>                                                Revoke relay data access")
 	fmt.Println("  extend   <peer> --duration 2h                                  Extend a grant")
@@ -158,23 +159,28 @@ func doAuthAdd(args []string, stdout io.Writer) error {
 			if name != "" {
 				updateConfigNames(cfgFile, filepath.Dir(cfgFile), name, peerIDStr)
 				fmt.Fprintf(stdout, "  Name: %s (added to config)\n", name)
-				// Trigger daemon config reload so the name is usable immediately.
-				tryDaemonConfigReload()
 			}
 		}
 	}
 
+	// Signal the running daemon to reload authorized_keys so the new peer
+	// is recognized immediately (gater update + watchlist update).
+	tryDaemonConfigReload()
 	return nil
 }
 
 // tryDaemonConfigReload attempts to trigger a config reload on the running daemon.
 // Silently succeeds if the daemon is not running (name will load on next start).
+// Uses a short per-call timeout so a busy or hung daemon cannot stall CLI
+// commands or tests — the config change is persisted on disk already and the
+// daemon will pick it up on next start regardless.
 func tryDaemonConfigReload() {
 	c, err := daemon.NewClient(daemonSocketPath(), daemonCookiePath())
 	if err != nil {
 		return // daemon not running
 	}
-	c.ConfigReload() // best-effort, ignore errors
+	c.SetTimeout(3 * time.Second)
+	c.ConfigReload() //nolint:errcheck // best-effort, ignored by design
 }
 
 func runAuthList(args []string) {
@@ -280,6 +286,11 @@ func doAuthRemove(args []string, stdout io.Writer) error {
 
 	termcolor.Green("Revoked peer: %s", peerIDStr[:min(16, len(peerIDStr))]+"...")
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+
+	// Signal the running daemon to reload authorized_keys so deauthorization
+	// takes effect immediately (closes connections + managed circuits via
+	// OnWatchlistRemoved callback, R7-C1).
+	tryDaemonConfigReload()
 	return nil
 }
 
@@ -404,7 +415,7 @@ func doAuthSetAttr(args []string, stdout io.Writer) error {
 
 	// Validate bandwidth_budget values parse correctly.
 	if key == "bandwidth_budget" {
-		if _, err := p2pnet.ParseByteSize(value); err != nil {
+		if _, err := sdk.ParseByteSize(value); err != nil {
 			return fmt.Errorf("invalid bandwidth_budget value %q: %w", value, err)
 		}
 	}
@@ -429,5 +440,9 @@ func doAuthSetAttr(args []string, stdout io.Writer) error {
 	}
 	termcolor.Green("Set %s=%s on peer %s", key, stored, short)
 	fmt.Fprintf(stdout, "  File: %s\n", authKeysPath)
+	fmt.Fprintln(stdout)
+	termcolor.Wfaint(stdout, "This modifies LOCAL authorized_keys only.\n")
+	termcolor.Wfaint(stdout, "It only affects connections handled by THIS node.\n")
+	termcolor.Wfaint(stdout, "To set on a relay: shurli relay set-attr %s %s %s --remote <relay-addr>\n", peerIDStr, key, value)
 	return nil
 }

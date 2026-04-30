@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,24 +28,25 @@ import (
 	"github.com/shurlinet/shurli/internal/macaroon"
 	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 	"github.com/shurlinet/shurli/plugins"
 )
 
 // --- RuntimeInfo adapter (implements daemon.RuntimeInfo on serveRuntime) ---
 
-func (rt *serveRuntime) Network() *p2pnet.Network            { return rt.network }
+func (rt *serveRuntime) Network() *sdk.Network            { return rt.network }
 func (rt *serveRuntime) ConfigFile() string                   { return rt.configFile }
 func (rt *serveRuntime) AuthKeysPath() string                 { return rt.authKeys }
 func (rt *serveRuntime) Version() string                      { return rt.version }
 func (rt *serveRuntime) StartTime() time.Time                 { return rt.startTime }
 func (rt *serveRuntime) PingProtocolID() string               { return rt.config.Protocols.PingPong.ID }
-func (rt *serveRuntime) Interfaces() *p2pnet.InterfaceSummary { return rt.ifSummary }
-func (rt *serveRuntime) PathTracker() *p2pnet.PathTracker         { return rt.pathTracker }
-func (rt *serveRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return rt.bwTracker }
-func (rt *serveRuntime) RelayHealth() *p2pnet.RelayHealth           { return rt.relayHealth }
-func (rt *serveRuntime) STUNResult() *p2pnet.STUNResult {
+func (rt *serveRuntime) Interfaces() *sdk.InterfaceSummary { return rt.ifSummary }
+func (rt *serveRuntime) PathTracker() *sdk.PathTracker             { return rt.pathTracker }
+func (rt *serveRuntime) PathProtector() *sdk.PathProtector         { return rt.pathProtector }
+func (rt *serveRuntime) BandwidthTracker() *sdk.BandwidthTracker   { return rt.bwTracker }
+func (rt *serveRuntime) RelayHealth() *sdk.RelayHealth           { return rt.relayHealth }
+func (rt *serveRuntime) STUNResult() *sdk.STUNResult {
 	if rt.stunProber == nil {
 		return nil
 	}
@@ -56,15 +59,16 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
-func (rt *serveRuntime) RelayAddresses() []string    { return rt.config.Relay.Addresses }
-func (rt *serveRuntime) DiscoveryNetwork() string     { return rt.config.Discovery.Network }
+func (rt *serveRuntime) RelayAddresses() []string        { return rt.config.Relay.Addresses }
+func (rt *serveRuntime) RelayNameFromConfig(peerID string) string { return rt.config.Relay.RelayName(peerID) }
+func (rt *serveRuntime) DiscoveryNetwork() string         { return rt.config.Discovery.Network }
 func (rt *serveRuntime) GrantStore() *grants.Store              { return rt.grantStore }
 func (rt *serveRuntime) GrantPouch() *grants.Pouch              { return rt.grantPouch }
 func (rt *serveRuntime) GrantProtocol() *grants.GrantProtocol   { return rt.grantProtocol }
 func (rt *serveRuntime) GrantsAutoRefresh() bool                { return rt.config.Grants.AutoRefresh }
 func (rt *serveRuntime) GrantsMaxRefreshDuration() string       { return rt.config.Grants.MaxRefreshDuration }
 func (rt *serveRuntime) NotifyRouter() *notify.Router            { return rt.notifyRouter }
-func (rt *serveRuntime) PeerManager() *p2pnet.PeerManager        { return rt.peerManager }
+func (rt *serveRuntime) PeerManager() *sdk.PeerManager        { return rt.peerManager }
 func (rt *serveRuntime) GrantCacheSnapshot() []*grants.GrantReceipt {
 	if rt.grantCache == nil {
 		return nil
@@ -157,7 +161,7 @@ func (rt *serveRuntime) GaterForHotReload() daemon.GaterReloader {
 type gaterReloader struct {
 	gater        *auth.AuthorizedPeerGater
 	authKeysPath string
-	peerManager  *p2pnet.PeerManager // nil-safe
+	peerManager  *sdk.PeerManager // nil-safe
 }
 
 func (g *gaterReloader) ReloadFromFile() error {
@@ -252,7 +256,8 @@ func daemonConfigDir() string {
 
 func runDaemon(args []string) {
 	// If no subcommand or "start", run the daemon foreground.
-	if len(args) == 0 {
+	// Flags (--pprof, --config) are passed through to runDaemonStart.
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		runDaemonStart(args)
 		return
 	}
@@ -303,10 +308,20 @@ func printDaemonUsage() {
 func runDaemonStart(args []string) {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	configFlag := fs.String("config", "", "path to config file")
+	pprofAddr := fs.String("pprof", "", "enable pprof HTTP server (e.g. localhost:6060)")
 	fs.Parse(reorderFlags(fs, args))
 
 	fmt.Printf("shurli daemon %s (%s)\n", version, commit)
 	fmt.Println()
+
+	if *pprofAddr != "" {
+		go func() {
+			slog.Info("pprof.listen", "addr", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				slog.Error("pprof.failed", "err", err)
+			}
+		}()
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -349,6 +364,13 @@ func runDaemonStart(args []string) {
 		PeerConnector:   rt.ConnectToPeer,
 		ScoreResolver:   scoreResolver,
 	}
+
+	// Wire mDNS-verified LAN connection check. Authoritative signal for
+	// trust-making decisions (RS gates, bandwidth budgets, transport policy).
+	// Bare RFC 1918 matches are unreliable (CGNAT, Docker, VPN, routed-private
+	// subnets via multi-WAN all pass bare-mask but are not LAN). Only mDNS
+	// multicast reception proves link-local proximity.
+	pluginProvider.HasVerifiedLANConn = rt.network.HasVerifiedLANConn
 
 	// Wire peer attribute resolver for per-peer settings (bandwidth_budget, etc.).
 	if rt.authKeys != "" {
@@ -434,10 +456,15 @@ func runDaemonStart(args []string) {
 
 		// Wire grant checker into service registry for stream-level enforcement.
 		// This is the C2 mitigation: node-level enforcement independent of relay ACL.
-		rt.network.ServiceRegistry().SetGrantChecker(gs.Check)
+		// Thin adapter: sdk.TransportType → macaroon.TransportType (identical bit
+		// values, different packages to avoid sdk→macaroon import cycle).
+		checkGrant := func(pid peer.ID, svc string, t sdk.TransportType) bool {
+			return gs.Check(pid, svc, macaroon.TransportType(t))
+		}
+		rt.network.ServiceRegistry().SetGrantChecker(checkGrant)
 
 		// Wire grant checker into plugin context for share warnings (E1-design mitigation).
-		pluginProvider.GrantChecker = gs.Check
+		pluginProvider.GrantChecker = checkGrant
 
 		// Phase B: GrantPouch (received tokens) + delivery protocol + offline queue.
 		configDir := filepath.Dir(rt.configFile)
@@ -503,11 +530,27 @@ func runDaemonStart(args []string) {
 		// Wire grant cache into plugin context for transfer budget/time checks (H7).
 		pluginProvider.RelayGrantChecker = gc
 
+		// Wire grant cache into relay discovery for budget-aware relay ranking (FT-Y #9).
+		// High-budget relays rank above seed relays, preventing large files from
+		// being routed through low-budget seed relays.
+		rt.relayDiscovery.SetBudgetChecker(gc)
+
 		// Wire revocation -> cache clearing (H9/H12).
 		grantProto.SetOnRevoke(func(issuerID peer.ID) {
 			// Use current time as revocation time (best available - relay doesn't
 			// send a timestamp in the revocation message).
 			rt.grantCache.HandleRevocation(issuerID, time.Now())
+
+			// Emit notification for client-side revocation.
+			if rt.notifyRouter != nil {
+				short := issuerID.String()
+				if len(short) > 16 {
+					short = short[:16] + "..."
+				}
+				event := notify.NewEvent(notify.EventGrantRevoked, notify.SeverityWarn,
+					issuerID.String(), short, "relay grant revoked")
+				rt.notifyRouter.Emit(event)
+			}
 		})
 
 		// Wire delivery into Store: deliver grant tokens to peers on create/revoke.
@@ -538,7 +581,7 @@ func runDaemonStart(args []string) {
 		// TokenVerifier: inbound - verify presented tokens cryptographically.
 		// D1 mitigation: constant-time HMAC on all paths (valid, invalid, malformed).
 		dummyToken := macaroon.New("shurli-node", grantRootKey, "dummy")
-		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string) bool {
+		rt.network.ServiceRegistry().SetTokenVerifier(func(tokenB64 string, pid peer.ID, svc string, t sdk.TransportType) bool {
 			short := pid.String()[:16]
 
 			// D1 mitigation: all code paths must execute the same operations
@@ -557,6 +600,7 @@ func runDaemonStart(args []string) {
 				PeerID:     pid.String(),
 				Service:    svc,
 				DelegateTo: delegateTo,
+				Transport:  macaroon.TransportType(t),
 				Now:        time.Now(),
 			})
 			verifyErr := token.Verify(grantRootKey, verifier)
@@ -684,6 +728,13 @@ func runDaemonStart(args []string) {
 		})
 	}
 
+	// Wire relay grant cache into service registry for outbound relay authorization.
+	// When a relay admin grants data access, the receipt is cached locally. This
+	// lets OpenPluginStream allow relay transport for browse/download/send.
+	if rt.grantCache != nil {
+		rt.network.ServiceRegistry().SetRelayGrantChecker(rt.grantCache)
+	}
+
 	// All Set* callbacks configured. Seal the registry to enforce the
 	// set-once-at-startup contract. Any future Set* call will panic.
 	rt.network.ServiceRegistry().Seal()
@@ -697,6 +748,11 @@ func runDaemonStart(args []string) {
 	if states := rt.config.Plugins.PluginStates(); states != nil {
 		pluginRegistry.ApplyConfig(states)
 	}
+
+	// TS-5: PeerManager + PathProtector must be ready before plugins start.
+	// Plugins call Network.GetPathProtector() during Start().
+	rt.SetupPathProtection()
+
 	pluginRegistry.StartAll()
 
 	if err := rt.Bootstrap(); err != nil {
@@ -717,10 +773,27 @@ func runDaemonStart(args []string) {
 	srv := daemon.NewServer(rt, socketPath, cookiePath, version)
 	srv.SetInstrumentation(rt.metrics, rt.audit)
 	srv.SetRegistry(pluginRegistry)
+
+	// Persistent proxy store (Item #24).
+	configDir := filepath.Dir(rt.configFile)
+	proxyStore, psErr := daemon.NewProxyStore(daemon.ProxiesFilePath(configDir))
+	if psErr != nil {
+		slog.Warn("proxy store init failed", "error", psErr)
+	} else {
+		srv.SetProxyStore(proxyStore)
+	}
+
 	if err := srv.Start(); err != nil {
 		rt.Shutdown()
 		fatal("Daemon API failed to start: %v", err)
 	}
+
+	// Restore persistent proxies AFTER server start + bootstrap (F3).
+	srv.RestoreProxies()
+
+	// F1: Subscribe to libp2p peer connectivity events for proxy state management.
+	rt.startProxyEventLoop(srv)
+
 
 	// Start metrics endpoint (no-op if telemetry disabled)
 	rt.StartMetricsServer()
@@ -741,6 +814,10 @@ func runDaemonStart(args []string) {
 
 	rt.StartStatusPrinter()
 	rt.StartDHTHealthCheck()
+
+	// SIGUSR1 triggers a read-only diagnostic snapshot (see cmd_daemon_diag.go).
+	stopDiag := installDiagSignalHandler(rt)
+	defer stopDiag()
 
 	// Wait for signal or API-initiated shutdown
 	sigCh := make(chan os.Signal, 1)

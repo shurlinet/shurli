@@ -24,6 +24,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	libp2phost "github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -46,7 +47,7 @@ import (
 	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 const relayConfigFile = "relay-server.yaml"
@@ -186,6 +187,9 @@ func runRelayServe(args []string) {
 			fmt.Println("recover your relay identity and vault if this server is lost.")
 			fmt.Println()
 			fmt.Print(formatSeedGrid(words))
+			fmt.Println()
+			fmt.Println("Plain text (for copy/paste):")
+			fmt.Println(strings.Join(words, " "))
 			fmt.Println()
 			fmt.Println("===========================")
 			fmt.Println()
@@ -355,6 +359,8 @@ func runRelayServe(args []string) {
 				}
 
 				// Terminate active circuits when a grant is revoked or expires.
+				// NOTE: if BudgetTracker is enabled (below), this callback is
+				// replaced with a combined one that also zeros the budget (SEC7).
 				gs.SetOnRevoke(func(pid peer.ID) {
 					if err := h.Network().ClosePeer(pid); err != nil {
 						short := pid.String()
@@ -375,7 +381,75 @@ func runRelayServe(args []string) {
 
 	relayResources, relayLimit := buildRelayResources(&cfg.Resources)
 	circuitACL := relay.NewCircuitACL(cfg.Security.AuthorizedKeysFile, cfg.Security.EnableDataRelay, cfg.Security.EnableConnectionGating, relayGrantStore)
-	_, err = relayv2.New(h,
+
+	// Per-peer relay data budgets (BUG-GRANT-1).
+	// When grants are enabled, create BudgetTracker + LimitingHost to enforce
+	// per-peer data limits on relay circuits. The LimitingHost wraps streams
+	// at the host.Host layer — zero fork, zero libp2p changes.
+	var relayHost libp2phost.Host = h
+	var relayBudgetTracker *relay.BudgetTracker
+
+	if relayGrantStore != nil {
+		// Parse session data limit for BudgetTracker default.
+		sessionDataLimit, _ := config.ParseDataSize(cfg.Resources.SessionDataLimit)
+		relayBudgetTracker = relay.NewBudgetTracker(relayGrantStore, sessionDataLimit)
+		budgetTracker := relayBudgetTracker
+
+		// Initialize budget entries for grants loaded from disk (SEC5 restart recovery).
+		// Without this, peers with persisted grants would be treated as non-grant
+		// (per-circuit default) until they get a new grant or extend.
+		for _, g := range relayGrantStore.List() {
+			budgetTracker.OnGrantOrExtend(g.PeerID, g)
+		}
+
+		// C5: wire onGrant callback so budget resets on grant create/extend.
+		// NOTE: The grant store fires onGrant in a goroutine (async, for P2P delivery).
+		// Budget initialization MUST happen synchronously before AllowConnect can see
+		// the grant, otherwise a narrow race lets the first circuit get per-circuit
+		// default instead of cumulative tracking (budget inflation for small grants).
+		// Fix: we set onGrant for budget init, but the store calls it async. To close
+		// the race, we also initialize budget in the admin handler path. The async
+		// callback handles the extend case (no admin handler involvement) and serves
+		// as a safety net for any other Grant()/Extend() call path.
+		relayGrantStore.SetOnGrant(func(pid peer.ID, g *grants.Grant) {
+			budgetTracker.OnGrantOrExtend(pid, g)
+		})
+
+		// SEC7: replace the ClosePeer-only onRevoke with a combined callback.
+		// Double protection: budget=0 ensures any in-flight Read/Write on
+		// limitedStream sees exhaustion immediately, then ClosePeer terminates
+		// the connection. Both must fire.
+		relayGrantStore.SetOnRevoke(func(pid peer.ID) {
+			budgetTracker.OnRevoke(pid)
+			if err := h.Network().ClosePeer(pid); err != nil {
+				short := pid.String()
+				if len(short) > 16 {
+					short = short[:16]
+				}
+				slog.Warn("relay grants: failed to close peer on revoke",
+					"peer", short, "error", err)
+			}
+		})
+
+		// TE3-C1: wire budget tracker to ACL for AllowConnect budget check.
+		circuitACL.SetBudgetTracker(budgetTracker)
+
+		// C1/TE3-C2: raise global safety net to 100GB when grants are enabled.
+		// Real enforcement is in limitedStream. Global is just zombie-circuit protection.
+		const safetyNetBytes int64 = 100 * 1024 * 1024 * 1024 // 100 GB
+		const safetyNetDuration = time.Hour
+		relayResources.Limit.Data = safetyNetBytes
+		relayResources.Limit.Duration = safetyNetDuration
+		relayLimit.Data = safetyNetBytes
+		relayLimit.Duration = safetyNetDuration
+
+		// Create LimitingHost — relay sees this as host.Host.
+		relayHost = relay.NewLimitingHost(h, budgetTracker, circuitACL)
+		slog.Info("relay budget: per-peer enforcement enabled",
+			"default_limit", cfg.Resources.SessionDataLimit)
+	}
+
+	_, err = relayv2.New(relayHost,
 		relayv2.WithResources(relayResources),
 		relayv2.WithLimit(relayLimit),
 		relayv2.WithACL(circuitACL),
@@ -399,7 +473,7 @@ func runRelayServe(args []string) {
 	// Bootstrap into the private shurli DHT as a server.
 	// The relay is the primary bootstrap peer - all shurli nodes connect here first
 	// and use this DHT for peer discovery.
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	dhtPrefix := sdk.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	kdht, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeServer),
 		dht.ProtocolPrefix(protocol.ID(dhtPrefix)),
@@ -475,6 +549,10 @@ func runRelayServe(args []string) {
 	if receiptHMACKey != nil {
 		adminSrv.SetReceiptHMACKey(receiptHMACKey)
 		adminSrv.SetSessionLimits(receiptSessionDataLimit, receiptSessionDuration)
+	}
+	// Wire budget tracker for synchronous budget init in admin grant/extend handlers.
+	if relayBudgetTracker != nil {
+		adminSrv.SetBudgetTracker(relayBudgetTracker)
 	}
 
 	// Load vault if configured. When sealed, the relay starts in watch-only mode:
@@ -673,7 +751,7 @@ func runRelayServe(args []string) {
 	}
 
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(cfg.Logging.PeerListIntervalDuration())
 		defer ticker.Stop()
 		for {
 			select {
@@ -713,9 +791,9 @@ func runRelayServe(args []string) {
 	})
 
 	// Initialize relay observability (opt-in)
-	var relayMetrics *p2pnet.Metrics
+	var relayMetrics *sdk.Metrics
 	if cfg.Telemetry.Metrics.Enabled {
-		relayMetrics = p2pnet.NewMetrics(version, runtime.Version())
+		relayMetrics = sdk.NewMetrics(version, runtime.Version())
 		slog.Info("telemetry: metrics enabled", "addr", cfg.Telemetry.Metrics.ListenAddress)
 	}
 	// Wire metrics to Phase 6 components (nil-safe: if metrics disabled, handlers work without them).
@@ -741,9 +819,9 @@ func runRelayServe(args []string) {
 		}
 	}
 
-	var relayAudit *p2pnet.AuditLogger
+	var relayAudit *sdk.AuditLogger
 	if cfg.Telemetry.Audit.Enabled {
-		relayAudit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		relayAudit = sdk.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
 		slog.Info("telemetry: audit logging enabled")
 	}
 
@@ -1711,8 +1789,8 @@ func doRelayVerify(args []string, configFile string, stdout io.Writer) error {
 	}
 
 	// Compute fingerprint.
-	emoji, numeric := p2pnet.ComputeFingerprint(ourPeerID, targetPeerID)
-	prefix := p2pnet.FingerprintPrefix(ourPeerID, targetPeerID)
+	emoji, numeric := sdk.ComputeFingerprint(ourPeerID, targetPeerID)
+	prefix := sdk.FingerprintPrefix(ourPeerID, targetPeerID)
 
 	// Display.
 	fmt.Fprintln(stdout)
@@ -1813,4 +1891,9 @@ func printRelayServeUsage() {
 	fmt.Println()
 	fmt.Println("Server commands use relay-server.yaml in the working directory by default.")
 	fmt.Println("Local commands support --config <path>.")
+	fmt.Println()
+	fmt.Println("Signaling vs Data Grants:")
+	fmt.Println("  By default, relays provide signaling only (peer discovery, ping, hole-punching).")
+	fmt.Println("  Data transfer (browse, download, send, proxy) requires an active data grant.")
+	fmt.Println("  Use 'shurli relay grant' to enable data relay for specific peers.")
 }

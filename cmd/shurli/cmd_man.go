@@ -330,9 +330,31 @@ and the relay hops involved.
 Look up a friendly name in your config and resolve it to a peer ID. Also queries
 the DHT if the name is not found locally.
 .TP
+.B proxy add \fIname\fR \fIpeer\fR \fIservice\fR \fIport\fR
+Create a persistent proxy that survives daemon restarts. The proxy binds
+127.0.0.1:\fIport\fR and forwards TCP connections to the remote peer's service.
+.TP
+.B proxy list \fR[\fB--json\fR]
+List all configured proxies with their current status (active, waiting, disabled, error).
+Works even when the daemon is not running (reads proxies.json directly).
+.TP
+.B proxy remove \fIname\fR
+Remove a persistent proxy and stop its TCP listener.
+.TP
+.B proxy enable \fIname\fR
+Enable a previously disabled proxy.
+.TP
+.B proxy disable \fIname\fR
+Disable a proxy without removing it. The configuration is preserved.
+.TP
 .B proxy \fItarget\fR \fIservice\fR \fIlocal-port\fR
-Forward a local TCP port to a remote peer's service. Runs in the foreground
-until interrupted with Ctrl-C.
+Ephemeral foreground proxy. Runs until interrupted with Ctrl-C. Does not persist.
+.PP
+.B Security note:
+Proxy listeners bind to 127.0.0.1 and are accessible to all local users on
+multi-user systems. This matches the trust model of SSH's \fB-L\fR flag. On
+shared machines, consider using SSH ProxyCommand with a Unix domain socket
+instead.
 .TP
 .B reconnect \fIpeer\fR [\fB--json\fR]
 Clear all dial backoffs for a peer and trigger immediate reconnection. Resets both
@@ -498,10 +520,12 @@ Set an attribute on a peer in the relay's authorized_keys. Allowed keys:
 role (admin/member), group, verified, bandwidth_budget (unlimited, 500MB, 1GB, etc.).
 Supports --remote for administration from any admin device.
 .TP
-.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--remote\fR \fIaddr\fR]
+.B relay grant \fIpeer-id\fR [\fB--duration\fR \fI1h\fR] [\fB--services\fR \fIsvc,...\fR] [\fB--permanent\fR] [\fB--data\fR \fI500MB\fR] [\fB--remote\fR \fIaddr\fR]
 Grant time-limited data relay access to a peer. Default duration is 1 hour.
 Without a grant, peers can only use signaling protocols (pairing, discovery).
 Admin peers always have data access regardless of grants.
+The --data flag sets a per-peer cumulative data budget (e.g. 500MB, 2GB, unlimited).
+If omitted, the relay's configured session_data_limit is used as default.
 .TP
 .B relay grants [\fB--remote\fR \fIaddr\fR]
 List all active data relay grants with remaining time.
@@ -509,8 +533,9 @@ List all active data relay grants with remaining time.
 .B relay revoke \fIpeer-id\fR [\fB--remote\fR \fIaddr\fR]
 Revoke a peer's data relay grant and terminate all active circuits.
 .TP
-.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--remote\fR \fIaddr\fR]
+.B relay extend \fIpeer-id\fR \fB--duration\fR \fI2h\fR [\fB--data\fR \fI1GB\fR] [\fB--remote\fR \fIaddr\fR]
 Extend an existing data relay grant. The new expiry is calculated from now.
+The --data flag optionally updates the peer's data budget (refilled on extend).
 .TP
 .B relay list-peers [\fB--remote\fR \fIaddr\fR]
 Print all peers authorized to use this relay, with their roles and comments.

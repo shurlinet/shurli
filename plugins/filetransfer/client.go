@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // daemonClient connects to a running daemon via its Unix socket.
@@ -211,10 +210,21 @@ func (c *daemonClient) BrowseText(peer, subPath string) (string, error) {
 // --- Download methods ---
 
 // Download initiates a receiver-side file download from a peer's shared files.
-func (c *daemonClient) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string) (*DownloadResponse, error) {
-	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers}
+func (c *daemonClient) Download(peer, remotePath, localDest string, multiPeer bool, extraPeers []string, files, exclude []int) (*DownloadResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, LocalDest: localDest, MultiPeer: multiPeer, ExtraPeers: extraPeers, Files: files, Exclude: exclude}
 	body, _ := json.Marshal(req)
 	var resp DownloadResponse
+	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DownloadList lists files available for download without starting a transfer (#41).
+func (c *daemonClient) DownloadList(peer, remotePath string) (*ListFilesResponse, error) {
+	req := DownloadRequest{Peer: peer, RemotePath: remotePath, List: true}
+	body, _ := json.Marshal(req)
+	var resp ListFilesResponse
 	if err := c.doJSON("POST", "/v1/download", strings.NewReader(string(body)), &resp); err != nil {
 		return nil, err
 	}
@@ -231,8 +241,8 @@ func (c *daemonClient) DownloadText(peer, remotePath, localDest string) (string,
 // --- File transfer methods ---
 
 // Send initiates a file transfer to a peer via the daemon.
-func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int, priority string) (*SendResponse, error) {
-	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority}
+func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int, priority, rateLimit string) (*SendResponse, error) {
+	req := SendRequest{Path: filePath, Peer: peer, NoCompress: noCompress, Streams: streams, Priority: priority, RateLimit: rateLimit}
 	body, _ := json.Marshal(req)
 	var resp SendResponse
 	if err := c.doJSON("POST", "/v1/send", strings.NewReader(string(body)), &resp); err != nil {
@@ -242,8 +252,17 @@ func (c *daemonClient) Send(filePath, peer string, noCompress bool, streams int,
 }
 
 // TransferStatus returns the progress of a transfer by ID.
-func (c *daemonClient) TransferStatus(id string) (*p2pnet.TransferProgress, error) {
-	var resp p2pnet.TransferProgress
+func (c *daemonClient) TransferStatus(id string) (*TransferProgress, error) {
+	var resp TransferProgress
+	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// TransferSnapshot fetches a single transfer by ID (active or pending, R8-F6).
+func (c *daemonClient) TransferSnapshot(id string) (*TransferSnapshot, error) {
+	var resp TransferSnapshot
 	if err := c.doJSON("GET", "/v1/transfers/"+id, nil, &resp); err != nil {
 		return nil, err
 	}
@@ -251,8 +270,8 @@ func (c *daemonClient) TransferStatus(id string) (*p2pnet.TransferProgress, erro
 }
 
 // TransferList returns all tracked transfers.
-func (c *daemonClient) TransferList() ([]p2pnet.TransferSnapshot, error) {
-	var resp []p2pnet.TransferSnapshot
+func (c *daemonClient) TransferList() ([]TransferSnapshot, error) {
+	var resp []TransferSnapshot
 	if err := c.doJSON("GET", "/v1/transfers", nil, &resp); err != nil {
 		return nil, err
 	}
@@ -260,9 +279,9 @@ func (c *daemonClient) TransferList() ([]p2pnet.TransferSnapshot, error) {
 }
 
 // TransferHistory returns recent transfer events from the log file.
-func (c *daemonClient) TransferHistory(max int) ([]p2pnet.TransferEvent, error) {
+func (c *daemonClient) TransferHistory(max int) ([]TransferEvent, error) {
 	path := fmt.Sprintf("/v1/transfers/history?max=%d", max)
-	var resp []p2pnet.TransferEvent
+	var resp []TransferEvent
 	if err := c.doJSON("GET", path, nil, &resp); err != nil {
 		return nil, err
 	}
@@ -278,9 +297,11 @@ func (c *daemonClient) TransferPending() ([]PendingTransferInfo, error) {
 	return resp, nil
 }
 
-// TransferAccept approves a pending transfer, with an optional destination directory.
-func (c *daemonClient) TransferAccept(id, dest string) error {
-	req := TransferAcceptRequest{Dest: dest}
+// TransferAccept approves a pending transfer with optional destination and file selection (#18).
+// files: 0-indexed file indices to accept (nil = all). exclude: 0-indexed indices to reject (nil = none).
+// Mutually exclusive - caller must not set both.
+func (c *daemonClient) TransferAccept(id, dest string, files, exclude []int) error {
+	req := TransferAcceptRequest{Dest: dest, Files: files, Exclude: exclude}
 	body, _ := json.Marshal(req)
 	return c.doJSON("POST", "/v1/transfers/"+id+"/accept", strings.NewReader(string(body)), nil)
 }

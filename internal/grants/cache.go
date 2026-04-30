@@ -24,10 +24,15 @@ type GrantReceipt struct {
 	IssuedAt         time.Time     `json:"issued_at"`   // relay clock (for drift detection + ordering)
 	HMAC             [32]byte      `json:"hmac"`        // relay's HMAC (stored for future verification)
 
-	// Circuit budget tracking (H7). Per-session, NOT persisted.
+	// Circuit budget tracking (H7). Per-circuit, NOT persisted.
 	CircuitBytesSent     int64     `json:"-"`
 	CircuitBytesReceived int64     `json:"-"`
 	CircuitStartedAt     time.Time `json:"-"`
+
+	// Session-level cumulative counters. Accumulate across circuit resets
+	// so status can show total consumption against the grant's budget.
+	SessionBytesSent     int64 `json:"-"`
+	SessionBytesReceived int64 `json:"-"`
 }
 
 // ExpiresAt returns the local expiry time. Zero for permanent grants.
@@ -132,10 +137,18 @@ func (c *GrantCache) Get(relayID peer.ID) *GrantReceipt {
 }
 
 // Put stores a receipt, replacing any existing one for that relay.
+// If a placeholder receipt exists (created by TrackCircuitBytes when no grant
+// was cached), the accumulated byte counters are preserved on the new receipt.
 func (c *GrantCache) Put(receipt *GrantReceipt) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cp := *receipt
+	if existing, ok := c.receipts[cp.RelayPeerID]; ok {
+		cp.CircuitBytesSent = clampAdd(cp.CircuitBytesSent, existing.CircuitBytesSent)
+		cp.CircuitBytesReceived = clampAdd(cp.CircuitBytesReceived, existing.CircuitBytesReceived)
+		cp.SessionBytesSent = clampAdd(cp.SessionBytesSent, existing.SessionBytesSent)
+		cp.SessionBytesReceived = clampAdd(cp.SessionBytesReceived, existing.SessionBytesReceived)
+	}
 	c.receipts[cp.RelayPeerID] = &cp
 	c.version++
 	c.persistLocked()
@@ -186,7 +199,17 @@ func (c *GrantCache) TrackCircuitBytes(relayID peer.ID, direction string, n int6
 	defer c.mu.Unlock()
 	r, ok := c.receipts[relayID]
 	if !ok {
-		return
+		// No cached receipt for this relay. This can happen when the relay has
+		// a grant but the receipt delivery was missed (e.g., reconnect race).
+		// Track bytes in a placeholder receipt so the budget display is correct
+		// when the receipt arrives later via the reconnect notifier.
+		r = &GrantReceipt{
+			RelayPeerID:    relayID,
+			CircuitStartedAt: time.Now(),
+		}
+		c.receipts[relayID] = r
+		slog.Warn("grant-cache: tracking bytes for relay without cached receipt",
+			"relay", relayID.String()[:16]+"...")
 	}
 	if direction == "recv" {
 		if r.CircuitBytesReceived > math.MaxInt64-n {
@@ -203,7 +226,16 @@ func (c *GrantCache) TrackCircuitBytes(relayID peer.ID, direction string, n int6
 	}
 }
 
-// ResetCircuitCounters resets the per-circuit byte counters (called on new circuit).
+// clampAdd adds two int64 values, clamping at MaxInt64 to prevent overflow.
+func clampAdd(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+// ResetCircuitCounters rolls up circuit bytes into session-level accumulators,
+// then resets the per-circuit counters (called on new circuit).
 func (c *GrantCache) ResetCircuitCounters(relayID peer.ID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -211,6 +243,9 @@ func (c *GrantCache) ResetCircuitCounters(relayID peer.ID) {
 	if !ok {
 		return
 	}
+	// Accumulate into session totals before zeroing circuit counters.
+	r.SessionBytesSent = clampAdd(r.SessionBytesSent, r.CircuitBytesSent)
+	r.SessionBytesReceived = clampAdd(r.SessionBytesReceived, r.CircuitBytesReceived)
 	r.CircuitBytesSent = 0
 	r.CircuitBytesReceived = 0
 	r.CircuitStartedAt = time.Now()
@@ -405,7 +440,7 @@ func LoadGrantCache(path string, hmacKey []byte) (*GrantCache, error) {
 // GrantStatus returns grant info for a relay. ok=false if no cached/valid grant.
 // Budget is returned for "send" direction (used for pre-transfer logging).
 // Actual budget validation uses HasSufficientBudget with explicit direction.
-// Satisfies p2pnet.RelayGrantChecker via structural typing (no import needed).
+// Satisfies sdk.RelayGrantChecker via structural typing (no import needed).
 func (c *GrantCache) GrantStatus(relayID peer.ID) (remaining time.Duration, budget int64, sessionDuration time.Duration, ok bool) {
 	r := c.Get(relayID)
 	if r == nil || r.Expired() {

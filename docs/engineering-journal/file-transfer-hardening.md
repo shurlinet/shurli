@@ -1,8 +1,10 @@
 # File Transfer Hardening: DDoS Defense, Queue Persistence & Path Privacy
 
-**Date**: 2026-03-15
-**Status**: Complete
-**ADRs**: ADR-R10 to ADR-R16
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Complete |
+| **ADRs** | ADR-R10 to ADR-R16 |
 
 Physical testing of the file transfer system on real hardware across multiple networks revealed 13 issues. This journal documents the architecture decisions behind the hardening fixes: DDoS defense layers, queue persistence, path privacy, resume integrity, and the audit process that verified them.
 
@@ -10,8 +12,10 @@ Physical testing of the file transfer system on real hardware across multiple ne
 
 ## ADR-R10: Seven-Layer DDoS Defense
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -39,14 +43,16 @@ All rejections are silent (stream reset, no error message). Silent rejection pre
 
 No single defense is sufficient. Rate limiting doesn't prevent slow attacks. Queue depth doesn't prevent bandwidth exhaustion. Temp budget doesn't prevent in-memory queue flooding. Each layer catches what the others miss. The configuration defaults are tuned for a personal network (3-20 peers) but scale to larger deployments.
 
-**Reference**: `pkg/p2pnet/transfer.go` (defense subsystem initialization, lines 660-780)
+**Reference**: `plugins/filetransfer/transfer.go` (defense subsystem initialization, lines 660-780)
 
 ---
 
 ## ADR-R11: Queue Persistence with HMAC Integrity
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -73,14 +79,16 @@ The queue file contains file paths. Without integrity verification, a tampered q
 
 Encryption would hide the file paths, but the daemon needs to read them to re-submit. The paths are local-only (never sent to peers). HMAC integrity is the right tool: verify authenticity without hiding content from the legitimate reader.
 
-**Reference**: `pkg/p2pnet/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
+**Reference**: `plugins/filetransfer/transfer.go` (persistQueue, loadPersistedQueue, RequeuePersisted)
 
 ---
 
 ## ADR-R12: Path Privacy - Opaque Share IDs
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -108,14 +116,16 @@ Any single control could have a bypass. The combination of five controls means a
 
 Level 4 security audit (3 rounds) confirmed: zero path leakage vectors.
 
-**Reference**: `pkg/p2pnet/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
+**Reference**: `plugins/filetransfer/share.go` (HandleBrowse, HandleDownload, LookupShareByID)
 
 ---
 
 ## ADR-R13: Checkpoint Resume with Bitfield Tracking
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -135,14 +145,16 @@ Bitfield-based checkpoint tracking:
 
 Byte offset resume (like HTTP Range) requires sequential transfer. Bitfield allows out-of-order chunk delivery, which is essential for: parallel streams (ADR-R06), multi-peer download (ADR-R05), and network-interrupted transfers where chunks arrive from different paths at different times.
 
-**Reference**: `pkg/p2pnet/transfer_resume.go` (bitfield), `pkg/p2pnet/transfer.go` (checkpoint save/load)
+**Reference**: `plugins/filetransfer/transfer_resume.go` (bitfield), `plugins/filetransfer/transfer.go` (checkpoint save/load)
 
 ---
 
 ## ADR-R14: Queue Backpressure - Global and Per-Peer Limits
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -164,14 +176,16 @@ Additionally, a 5-minute cleanup ticker in the queue processor evicts stale `pen
 
 100 queued transfers to a single peer is generous for real use (batch file operations) but prevents one peer from consuming all 1000 slots. Other peers can always enqueue their transfers.
 
-**Reference**: `pkg/p2pnet/share.go` (TransferQueue.Enqueue), `pkg/p2pnet/transfer.go` (runQueueProcessor cleanup ticker)
+**Reference**: `plugins/filetransfer/share.go` (TransferQueue.Enqueue), `plugins/filetransfer/transfer.go` (runQueueProcessor cleanup ticker)
 
 ---
 
 ## ADR-R15: Case-Insensitive Name Resolution
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -192,14 +206,16 @@ This prevents duplicate map entries (`"Home"` and `"home"` as separate keys) and
 
 The first attempt normalized only on lookup (case-insensitive iteration). This allowed `Register("Home")` followed by `Register("home")` to create two map entries. The audit caught this: normalize on store makes the map key canonical, and all operations become O(1) direct lookups instead of O(n) iterations.
 
-**Reference**: `pkg/p2pnet/naming.go`
+**Reference**: `pkg/sdk/naming.go`
 
 ---
 
 ## ADR-R16: Relay Transport for File Transfer Plugins
 
-**Date**: 2026-03-15
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-15 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -217,7 +233,7 @@ Additionally, the relay ACL requires an active time-limited grant for at least o
 
 Auto-granting relay data access to every peer that joins via invite would remove the relay operator's control. In a personal relay (the current deployment model), the operator should explicitly decide which peers consume relay bandwidth for data transfer, and for what duration. Time-limited grants enforce this without requiring manual revocation.
 
-**Reference**: `pkg/p2pnet/share.go` (plugin registration), `internal/relay/circuit_acl.go` (AllowConnect)
+**Reference**: `plugins/filetransfer/share.go` (plugin registration), `internal/relay/circuit_acl.go` (AllowConnect)
 
 ---
 

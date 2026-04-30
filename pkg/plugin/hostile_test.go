@@ -12,7 +12,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // --- Hook failure matrix (H1-H11) ---
@@ -383,7 +383,7 @@ func TestHostile_ProtocolCollidesWithOtherPlugin(t *testing.T) {
 	}
 	defer h.Close()
 
-	sr := p2pnet.NewServiceRegistry(h, nil)
+	sr := sdk.NewServiceRegistry(h, nil)
 
 	r := NewRegistry(&ContextProvider{
 		ServiceRegistry: sr,

@@ -228,7 +228,9 @@ security:
 #   #   Self-hosted relay (enable_data_relay: true): 2h duration, 2GB data
 #   # Override explicitly if needed:
 #   session_duration: "10m"      # Max duration per relayed session
-#   session_data_limit: "64MB"   # Max data per session per direction (cumulative)
+#   session_data_limit: "64MB"   # Default data budget per peer (or per circuit for non-grant peers).
+#                                # With grants enabled: also the default for 'relay grant' when --data is omitted.
+#                                # The global libp2p limit is raised to a safety-net value (100GB) automatically.
 
 # Health check endpoint for monitoring (Prometheus, UptimeKuma, etc.)
 # Disabled by default. Binds to localhost only - not exposed to the internet.

@@ -8,7 +8,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func TestSanitizePath(t *testing.T) {
@@ -67,7 +67,7 @@ func TestInstrumentHandler_NilPassthrough(t *testing.T) {
 }
 
 func TestInstrumentHandler_RecordsMetrics(t *testing.T) {
-	m := p2pnet.NewMetrics("test-0.1.0", runtime.Version())
+	m := sdk.NewMetrics("test-0.1.0", runtime.Version())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -92,7 +92,7 @@ func TestInstrumentHandler_RecordsMetrics(t *testing.T) {
 }
 
 func TestInstrumentHandler_CapturesErrorStatus(t *testing.T) {
-	m := p2pnet.NewMetrics("test-0.1.0", runtime.Version())
+	m := sdk.NewMetrics("test-0.1.0", runtime.Version())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -117,7 +117,7 @@ func TestInstrumentHandler_CapturesErrorStatus(t *testing.T) {
 }
 
 func TestInstrumentHandler_SanitizesPath(t *testing.T) {
-	m := p2pnet.NewMetrics("test-0.1.0", runtime.Version())
+	m := sdk.NewMetrics("test-0.1.0", runtime.Version())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -140,7 +140,7 @@ func TestInstrumentHandler_SanitizesPath(t *testing.T) {
 }
 
 func TestInstrumentHandler_RecordsDuration(t *testing.T) {
-	m := p2pnet.NewMetrics("test-0.1.0", runtime.Version())
+	m := sdk.NewMetrics("test-0.1.0", runtime.Version())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -162,7 +162,7 @@ func TestInstrumentHandler_RecordsDuration(t *testing.T) {
 }
 
 func TestInstrumentHandler_MultipleRequests(t *testing.T) {
-	m := p2pnet.NewMetrics("test-0.1.0", runtime.Version())
+	m := sdk.NewMetrics("test-0.1.0", runtime.Version())
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -210,7 +210,7 @@ func TestStatusRecorder_ExplicitStatus(t *testing.T) {
 // --- Test helpers using Registry.Gather() ---
 
 // gatherCounter extracts a counter value from the metrics registry.
-func gatherCounter(t *testing.T, m *p2pnet.Metrics, name string, labels map[string]string) float64 {
+func gatherCounter(t *testing.T, m *sdk.Metrics, name string, labels map[string]string) float64 {
 	t.Helper()
 	families, err := m.Registry.Gather()
 	if err != nil {
@@ -230,7 +230,7 @@ func gatherCounter(t *testing.T, m *p2pnet.Metrics, name string, labels map[stri
 }
 
 // gatherHistogramCount extracts the sample count from a histogram.
-func gatherHistogramCount(t *testing.T, m *p2pnet.Metrics, name string, labels map[string]string) uint64 {
+func gatherHistogramCount(t *testing.T, m *sdk.Metrics, name string, labels map[string]string) uint64 {
 	t.Helper()
 	families, err := m.Registry.Gather()
 	if err != nil {

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes brainPulse { 0%, 100% { stroke-opacity: 0.5; fill-opacity: 0.05; } 50% { stroke-opacity: 1; fill-opacity: 0.12; } }
+    @keyframes alivePulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .f1 { animation: fadeIn 0.6s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.7s both; }
+    .f3 { animation: fadeIn 0.6s ease-out 1.1s both; }
+    .f4 { animation: fadeIn 0.6s ease-out 1.5s both; }
+    .f5 { animation: fadeIn 0.6s ease-out 1.9s both; }
+    .brain1 { animation: brainPulse 3s ease-in-out infinite; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+
+  <rect width="800" height="420" fill="#0a0a1a"/>
+  <text x="400" y="32" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">WHY THIS MATTERS FOR AI</text>
+
+  <!-- LEFT: Human can restart -->
+  <g class="f1">
+    <text x="190" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#ffb347">A Human</text>
+    <rect x="60" y="80" width="260" height="165" rx="10" stroke="#ffb347" stroke-width="1" fill="#ffb347" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Human figure (proper head + shoulders silhouette) -->
+  <g class="f1" opacity="0.6">
+    <!-- Head -->
+    <circle cx="140" cy="118" r="14" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.1"/>
+    <!-- Shoulders/body -->
+    <path d="M115,155 C115,140 130,135 140,135 C150,135 165,140 165,155" stroke="#ffb347" stroke-width="1.5" fill="#ffb347" fill-opacity="0.06"/>
+  </g>
+
+  <!-- "Notices, restarts" flow -->
+  <g class="f2">
+    <text x="200" y="120" font-size="12" fill="#ffb347" opacity="0.7">notices the drop</text>
+    <text x="200" y="138" font-size="12" fill="#ffb347" opacity="0.7">taps "reconnect"</text>
+    <text x="200" y="156" font-size="12" fill="#ffb347" opacity="0.7">restarts the app</text>
+    <text x="200" y="174" font-size="12" fill="#ffb347" opacity="0.7">waits...</text>
+  </g>
+
+  <g class="f3">
+    <text x="190" y="225" text-anchor="middle" font-size="13" fill="#888">Annoying, but recoverable.</text>
+  </g>
+
+  <!-- Divider -->
+  <line x1="400" y1="65" x2="400" y2="250" stroke="#333" stroke-width="1" stroke-dasharray="4 4" class="f1"/>
+
+  <!-- RIGHT: AI agent -->
+  <g class="f2">
+    <text x="600" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#00d4aa">An AI Agent</text>
+    <rect x="480" y="80" width="260" height="165" rx="10" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+  </g>
+
+  <!-- Agent brain icon -->
+  <g class="f2">
+    <circle cx="540" cy="130" r="18" stroke="#00d4aa" stroke-width="1.5" fill="#00d4aa" class="brain1"/>
+    <!-- Neural dots inside -->
+    <circle cx="533" cy="125" r="2" fill="#00d4aa" opacity="0.5"/>
+    <circle cx="547" cy="125" r="2" fill="#00d4aa" opacity="0.5"/>
+    <circle cx="540" cy="135" r="2" fill="#00d4aa" opacity="0.5"/>
+    <line x1="533" y1="125" x2="547" y2="125" stroke="#00d4aa" stroke-width="0.8" opacity="0.3"/>
+    <line x1="533" y1="125" x2="540" y2="135" stroke="#00d4aa" stroke-width="0.8" opacity="0.3"/>
+    <line x1="547" y1="125" x2="540" y2="135" stroke="#00d4aa" stroke-width="0.8" opacity="0.3"/>
+  </g>
+
+  <!-- "Could handle it, but at what cost?" -->
+  <g class="f3">
+    <text x="575" y="120" font-size="11" fill="#ffb347" opacity="0.6">detect the drop</text>
+    <text x="575" y="136" font-size="11" fill="#ffb347" opacity="0.6">re-discover peers</text>
+    <text x="575" y="152" font-size="11" fill="#ffb347" opacity="0.6">re-negotiate paths</text>
+    <text x="575" y="168" font-size="11" fill="#ff6b6b" opacity="0.6">but: wasted energy</text>
+  </g>
+
+  <g class="f4">
+    <text x="610" y="225" text-anchor="middle" font-size="12" fill="#ff6b6b" opacity="0.7">Wasted compute.</text>
+  </g>
+
+  <!-- BOTTOM: The consequence -->
+  <g class="f4">
+    <rect x="100" y="275" width="600" height="110" rx="12" stroke="#00d4aa" stroke-width="1" fill="#00d4aa" fill-opacity="0.03"/>
+  </g>
+
+  <g class="f5">
+    <text x="400" y="305" text-anchor="middle" font-size="15" fill="#e0e0e0" font-weight="600">The network should handle resilience.</text>
+    <text x="400" y="328" text-anchor="middle" font-size="15" fill="#e0e0e0" font-weight="600">Not the agent.</text>
+    <text x="400" y="360" text-anchor="middle" font-size="13" fill="#888">Especially on mobile, where every cycle on networking</text>
+    <text x="400" y="378" text-anchor="middle" font-size="13" fill="#888">is a cycle not spent on the agent's actual job.</text>
+  </g>
+</svg>

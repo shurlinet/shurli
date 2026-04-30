@@ -13,19 +13,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/notify"
 	"github.com/shurlinet/shurli/internal/platform"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
 // RuntimeInfo provides the daemon server with access to the P2P runtime.
 // This interface decouples the daemon package from the cmd/shurli serveRuntime struct.
 type RuntimeInfo interface {
-	Network() *p2pnet.Network
+	Network() *sdk.Network
 	ConfigFile() string
 	AuthKeysPath() string
 	GaterForHotReload() GaterReloader // nil if gating disabled
@@ -33,13 +34,15 @@ type RuntimeInfo interface {
 	StartTime() time.Time
 	PingProtocolID() string
 	ConnectToPeer(ctx context.Context, peerID peer.ID) error // DHT + relay fallback
-	Interfaces() *p2pnet.InterfaceSummary                    // nil before discovery
-	PathTracker() *p2pnet.PathTracker                        // nil before bootstrap
-	BandwidthTracker() *p2pnet.BandwidthTracker              // nil when disabled
-	RelayHealth() *p2pnet.RelayHealth                        // nil when disabled
-	STUNResult() *p2pnet.STUNResult                          // nil before probe
+	Interfaces() *sdk.InterfaceSummary                    // nil before discovery
+	PathTracker() *sdk.PathTracker                        // nil before bootstrap
+	PathProtector() *sdk.PathProtector                   // nil before bootstrap (TS-5)
+	BandwidthTracker() *sdk.BandwidthTracker              // nil when disabled
+	RelayHealth() *sdk.RelayHealth                        // nil when disabled
+	STUNResult() *sdk.STUNResult                          // nil before probe
 	IsRelaying() bool                                        // true if peer relay enabled
 	RelayAddresses() []string                                // relay multiaddrs from config
+	RelayNameFromConfig(peerID string) string                // config-based relay name lookup
 	DiscoveryNetwork() string                                // DHT namespace (empty = global)
 	RelayMOTDs() []MOTDInfo                                  // MOTD/goodbye messages from relays
 	ConfigReloader() ConfigReloader                          // nil if reload not supported
@@ -49,7 +52,7 @@ type RuntimeInfo interface {
 	GrantsAutoRefresh() bool                                  // config default for auto-refresh
 	GrantsMaxRefreshDuration() string                         // config default for max refresh duration (e.g. "3d")
 	NotifyRouter() *notify.Router                             // nil before initialization
-	PeerManager() *p2pnet.PeerManager                         // nil before initialization
+	PeerManager() *sdk.PeerManager                         // nil before initialization
 	GrantCacheSnapshot() []*grants.GrantReceipt               // nil if no grant cache
 }
 
@@ -89,15 +92,51 @@ type activeInvite struct {
 	cancel      context.CancelFunc
 }
 
-// activeProxy tracks a dynamically created TCP proxy.
+// proxyGateTime is how long a proxy must survive to be considered stable (NOVEL-2 from autossh).
+const proxyGateTime = 30 * time.Second
+
+// proxyMaxQuickDeaths: after this many rapid failures, mark proxy as error and stop reconnecting.
+const proxyMaxQuickDeaths = 3
+
+// ProxyPortRetryInterval is how often we retry binding port_conflict proxies (EDGE-4).
+const ProxyPortRetryInterval = 30 * time.Second
+
+// activeProxy tracks a dynamically created TCP proxy (both ephemeral and persistent).
 type activeProxy struct {
 	ID       string
 	Peer     string
 	Service  string
 	Listen   string
-	listener *p2pnet.TCPListener
+	Port     int // intended port (always set for persistent, used when listener is nil)
+	listener *sdk.TCPListener
 	cancel   context.CancelFunc
 	done     chan struct{} // closed when the proxy goroutine exits
+
+	// Persistent proxy fields (empty for ephemeral ~proxy-N proxies).
+	persistent bool   // true = from proxies.json, survives daemon restart
+	status     string // "active", "waiting", "disabled", "error: ...", "port_conflict"
+
+	// GATETIME tracking (NOVEL-2).
+	connectedAt     time.Time // when the proxy's peer was last seen connected
+	quickDeathCount int       // connections dying within proxyGateTime
+}
+
+// newPlaceholderProxy creates a proxy entry with no listener and a pre-closed done channel.
+// Used for disabled and port_conflict proxies that have no goroutine to wait on.
+func newPlaceholderProxy(name, peerName, service, listen, status string, port int) *activeProxy {
+	done := make(chan struct{})
+	close(done) // No goroutine to wait for — immediately unblocks <-done in Stop()/Remove.
+	return &activeProxy{
+		ID:         name,
+		Peer:       peerName,
+		Service:    service,
+		Listen:     listen,
+		Port:       port,
+		persistent: true,
+		status:     status,
+		done:       done,
+		cancel:     func() {},
+	}
 }
 
 // Server is the daemon's Unix socket HTTP API server.
@@ -115,14 +154,17 @@ type Server struct {
 	registry *plugin.Registry
 
 	// Optional observability (nil when telemetry disabled)
-	metrics *p2pnet.Metrics
-	audit   *p2pnet.AuditLogger
+	metrics *sdk.Metrics
+	audit   *sdk.AuditLogger
 
 	mu           sync.Mutex
 	proxies      map[string]*activeProxy
 	pendingInvite *activeInvite // nil when no invite active
 	nextID       int
 	locked       bool // sensitive ops disabled when true (default: true)
+
+	// Persistent proxy store (nil until SetProxyStore called).
+	proxyStore *proxyStore
 
 	// Config reload self-healing state
 	reloadState ConfigReloadState
@@ -143,7 +185,7 @@ func NewServer(runtime RuntimeInfo, socketPath, cookiePath, version string) *Ser
 
 // SetInstrumentation configures optional metrics and audit logging.
 // Must be called before Start(). Both parameters are nil-safe.
-func (s *Server) SetInstrumentation(metrics *p2pnet.Metrics, audit *p2pnet.AuditLogger) {
+func (s *Server) SetInstrumentation(metrics *sdk.Metrics, audit *sdk.AuditLogger) {
 	s.metrics = metrics
 	s.audit = audit
 }
@@ -216,6 +258,12 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// SetProxyStore configures persistent proxy storage.
+// Must be called before RestoreProxies(). Nil-safe.
+func (s *Server) SetProxyStore(store *proxyStore) {
+	s.proxyStore = store
+}
+
 // Stop gracefully shuts down the HTTP server, closes all proxies,
 // and cleans up the socket and cookie files.
 func (s *Server) Stop() {
@@ -234,13 +282,13 @@ func (s *Server) Stop() {
 	defer cancel()
 	s.httpServer.Shutdown(ctx)
 
-	// Close all active proxies
+	// Close all active proxies (F9: GracefulClose for conn tracking).
 	s.mu.Lock()
 	for id, proxy := range s.proxies {
 		slog.Info("closing proxy", "id", id)
 		proxy.cancel()
 		if proxy.listener != nil {
-			proxy.listener.Close()
+			proxy.listener.GracefulClose(5 * time.Second)
 		}
 		<-proxy.done // wait for goroutine to exit
 	}
@@ -251,6 +299,309 @@ func (s *Server) Stop() {
 	os.Remove(s.socketPath)
 	os.Remove(s.cookiePath)
 	slog.Info("daemon server stopped")
+}
+
+// RestoreProxies restores persistent proxies from proxies.json.
+// Called AFTER bootstrap completes (F3: peers must be reachable).
+// Each enabled proxy gets its TCP listener bound immediately.
+// Status is set to "waiting" — the peer event loop flips to "active".
+func (s *Server) RestoreProxies() {
+	if s.proxyStore == nil {
+		return
+	}
+
+	entries := s.proxyStore.All()
+	if len(entries) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// F12: clean up orphaned ephemeral proxies from a crashed session.
+	for id, proxy := range s.proxies {
+		if !proxy.persistent {
+			slog.Info("cleaning orphaned ephemeral proxy", "id", id)
+			proxy.cancel()
+			if proxy.listener != nil {
+				proxy.listener.Close()
+			}
+			delete(s.proxies, id)
+		}
+	}
+
+	restored := 0
+	for _, entry := range entries {
+		listenAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
+
+		if !entry.Enabled {
+			s.proxies[entry.Name] = newPlaceholderProxy(
+				entry.Name, entry.Peer, entry.Service, listenAddr, "disabled", entry.Port)
+			continue
+		}
+
+		// R4: Bind to explicit 127.0.0.1 (not localhost).
+		proxy := s.startPersistentProxy(entry.Name, entry.Peer, entry.Service, listenAddr, entry.Port)
+		if proxy != nil {
+			s.proxies[entry.Name] = proxy
+			restored++
+		}
+	}
+
+	if restored > 0 {
+		slog.Info("restored persistent proxies", "count", restored, "total", len(entries))
+	}
+}
+
+// startPersistentProxy binds a TCP listener and starts serving for a persistent proxy.
+// Does NOT require the peer to be connected (EDGE-3). Returns nil on port conflict.
+// Caller must hold s.mu.
+func (s *Server) startPersistentProxy(name, peerName, service, listenAddr string, port int) *activeProxy {
+	pnet := s.runtime.Network()
+
+	// Create dial function with retry (F6: 5 attempts for persistent proxies).
+	dialFunc := sdk.DialWithRetry(func() (sdk.ServiceConn, error) {
+		targetPeerID, err := pnet.ResolveName(peerName)
+		if err != nil {
+			return nil, fmt.Errorf("cannot resolve %q: %w", peerName, err)
+		}
+		return pnet.ConnectToService(targetPeerID, service)
+	}, 5)
+
+	listener, err := sdk.NewTCPListener(listenAddr, dialFunc)
+	if err != nil {
+		slog.Warn("proxy port conflict, will retry", "name", name, "addr", listenAddr, "error", err)
+		return newPlaceholderProxy(name, peerName, service, listenAddr, "port_conflict", port)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	proxy := &activeProxy{
+		ID:         name,
+		Peer:       peerName,
+		Service:    service,
+		Listen:     listener.Addr().String(),
+		Port:       port,
+		listener:   listener,
+		cancel:     cancel,
+		done:       done,
+		persistent: true,
+		status:     "waiting",
+	}
+
+	go func() {
+		defer close(done)
+		<-ctx.Done()
+		listener.GracefulClose(5 * time.Second)
+	}()
+
+	go func() {
+		if err := listener.Serve(); err != nil {
+			select {
+			case <-ctx.Done():
+			default:
+				slog.Error("persistent proxy listener stopped", "name", name, "error", err)
+			}
+		}
+	}()
+
+	slog.Info("proxy listener bound", "name", name, "peer", peerName, "service", service, "listen", proxy.Listen)
+	return proxy
+}
+
+// OnPeerConnected is called when a peer connects (via libp2p event bus subscription).
+// Flips persistent proxies targeting that peer from "waiting" to "active".
+func (s *Server) OnPeerConnected(pid peer.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pnet := s.runtime.Network()
+	for _, proxy := range s.proxies {
+		if !proxy.persistent || proxy.status == "disabled" {
+			continue
+		}
+		targetPeerID, err := pnet.ResolveName(proxy.Peer)
+		if err != nil {
+			continue
+		}
+		if targetPeerID == pid {
+			if proxy.status == "waiting" || proxy.status == "port_conflict" {
+				// If port_conflict, try rebinding.
+				if proxy.status == "port_conflict" && proxy.listener == nil {
+					restarted := s.startPersistentProxy(proxy.ID, proxy.Peer, proxy.Service, proxy.Listen, proxy.Port)
+					if restarted != nil && restarted.status != "port_conflict" {
+						*proxy = *restarted
+					}
+				}
+				if proxy.listener != nil {
+					proxy.status = "active"
+					proxy.connectedAt = time.Now()
+					proxy.quickDeathCount = 0
+					slog.Info("proxy active", "name", proxy.ID, "peer", proxy.Peer)
+				}
+			}
+		}
+	}
+}
+
+// OnPeerDisconnected is called when a peer disconnects.
+// Flips persistent proxies targeting that peer from "active" to "waiting".
+// Applies GATETIME logic (NOVEL-2): rapid disconnects increment quickDeathCount.
+func (s *Server) OnPeerDisconnected(pid peer.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pnet := s.runtime.Network()
+	for _, proxy := range s.proxies {
+		if !proxy.persistent || proxy.status != "active" {
+			continue
+		}
+		targetPeerID, err := pnet.ResolveName(proxy.Peer)
+		if err != nil {
+			continue
+		}
+		if targetPeerID == pid {
+			// GATETIME: if connection died within 30s, it's likely a config/auth problem.
+			if !proxy.connectedAt.IsZero() && time.Since(proxy.connectedAt) < proxyGateTime {
+				proxy.quickDeathCount++
+				if proxy.quickDeathCount >= proxyMaxQuickDeaths {
+					proxy.status = "error: peer connection unstable (3 rapid failures)"
+					slog.Warn("proxy error: rapid failures", "name", proxy.ID, "peer", proxy.Peer, "deaths", proxy.quickDeathCount)
+					continue
+				}
+			}
+			proxy.status = "waiting"
+			slog.Info("proxy waiting (peer disconnected)", "name", proxy.ID, "peer", proxy.Peer)
+		}
+	}
+}
+
+// OnPeerDeauthorized is called when a peer is removed from authorized_keys (F2).
+// Stops all persistent proxies targeting that peer.
+func (s *Server) OnPeerDeauthorized(pid peer.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pnet := s.runtime.Network()
+	for _, proxy := range s.proxies {
+		if !proxy.persistent {
+			continue
+		}
+		targetPeerID, err := pnet.ResolveName(proxy.Peer)
+		if err != nil {
+			continue
+		}
+		if targetPeerID == pid {
+			proxy.status = "error: peer not authorized"
+			slog.Warn("proxy stopped: peer deauthorized", "name", proxy.ID, "peer", proxy.Peer)
+		}
+	}
+}
+
+// ProxyStatusList returns status info for all proxies (persistent + ephemeral).
+func (s *Server) ProxyStatusList() []ProxyStatusInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := make([]ProxyStatusInfo, 0, len(s.proxies))
+	for _, proxy := range s.proxies {
+		if !proxy.persistent {
+			continue // ephemeral proxies don't appear in persistent proxy list
+		}
+
+		info := ProxyStatusInfo{
+			Name:    proxy.ID,
+			Peer:    proxy.Peer,
+			Service: proxy.Service,
+			Port:    proxy.Port,
+			Listen:  proxy.Listen,
+			Status:  proxy.status,
+			Enabled: proxy.status != "disabled",
+		}
+
+		result = append(result, info)
+	}
+	return result
+}
+
+// DetectAlreadyConnected checks all persistent proxies and flips "waiting" to "active"
+// for any peer that is already connected. Called once after RestoreProxies + event loop
+// subscription, to catch peers that connected during bootstrap before the subscription started.
+func (s *Server) DetectAlreadyConnected() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pnet := s.runtime.Network()
+	h := pnet.Host()
+	for _, proxy := range s.proxies {
+		if !proxy.persistent || proxy.status != "waiting" {
+			continue
+		}
+		targetPeerID, err := pnet.ResolveName(proxy.Peer)
+		if err != nil {
+			continue
+		}
+		if h.Network().Connectedness(targetPeerID) == network.Connected {
+			proxy.status = "active"
+			proxy.connectedAt = time.Now()
+			slog.Info("proxy active (peer already connected)", "name", proxy.ID, "peer", proxy.Peer)
+		}
+	}
+}
+
+// RetryPortConflicts attempts to rebind all port_conflict proxies (EDGE-4).
+// Called periodically from the proxy event loop.
+func (s *Server) RetryPortConflicts() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for name, proxy := range s.proxies {
+		if proxy.status != "port_conflict" || proxy.listener != nil {
+			continue
+		}
+		restarted := s.startPersistentProxy(proxy.ID, proxy.Peer, proxy.Service, proxy.Listen, proxy.Port)
+		if restarted != nil && restarted.status != "port_conflict" {
+			s.proxies[name] = restarted
+			slog.Info("proxy port conflict resolved", "name", name, "listen", restarted.Listen)
+		}
+	}
+}
+
+// PollProxyStatus polls peer connectedness for all persistent proxies and
+// flips status to match reality. Catches missed EvtPeerConnectednessChanged
+// events (e.g., relay connections established by PathDialer/reconnect, item #33).
+// Called periodically from the proxy event loop's 30s ticker.
+func (s *Server) PollProxyStatus() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pnet := s.runtime.Network()
+	h := pnet.Host()
+	for _, proxy := range s.proxies {
+		if !proxy.persistent || proxy.status == "disabled" {
+			continue
+		}
+		targetPeerID, err := pnet.ResolveName(proxy.Peer)
+		if err != nil {
+			continue
+		}
+		connected := h.Network().Connectedness(targetPeerID) == network.Connected
+
+		switch {
+		case proxy.status == "waiting" && connected:
+			proxy.status = "active"
+			proxy.connectedAt = time.Now()
+			proxy.quickDeathCount = 0
+			slog.Info("proxy active (poll detected connection)", "name", proxy.ID, "peer", proxy.Peer)
+
+		case proxy.status == "active" && !connected:
+			// Missed disconnect event — correct status without GATETIME
+			// (this is stale detection, not a fresh disconnect).
+			proxy.status = "waiting"
+			slog.Info("proxy waiting (poll detected disconnection)", "name", proxy.ID, "peer", proxy.Peer)
+		}
+	}
 }
 
 // checkStaleSocket checks if a daemon is already running on the socket.

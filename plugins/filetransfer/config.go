@@ -8,7 +8,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
 )
 
 // containsShellMeta returns true if the string contains shell metacharacters
@@ -30,8 +29,8 @@ func sanitizeNotifyCommand(cmd string) string {
 	return cmd
 }
 
-// TransferConfig holds the plugin's configuration, loaded from its own config.yaml.
-type TransferConfig struct {
+// PluginConfig holds the plugin's configuration, loaded from its own config.yaml.
+type PluginConfig struct {
 	ReceiveDir      string  `yaml:"receive_dir"`
 	MaxFileSize     int64   `yaml:"max_file_size"`
 	ReceiveMode     string  `yaml:"receive_mode"`     // off, contacts, ask, open, timed
@@ -46,12 +45,17 @@ type TransferConfig struct {
 	QueueFile       string  `yaml:"queue_file"`
 
 	// Multi-peer swarming.
-	MultiPeerEnabled  *bool `yaml:"multi_peer_enabled"`
-	MultiPeerMaxPeers int   `yaml:"multi_peer_max_peers"`
-	MultiPeerMinSize  int64 `yaml:"multi_peer_min_size"`
+	MultiPeerEnabled       *bool  `yaml:"multi_peer_enabled"`
+	MultiPeerMaxPeers      int    `yaml:"multi_peer_max_peers"`
+	MultiPeerMinSize       int64  `yaml:"multi_peer_min_size"`
+	MaxServedBytesPerHour  string `yaml:"max_served_bytes_per_hour"` // human-readable: "10GB", "unlimited", or plain bytes (0 = unlimited)
 
 	// Erasure coding.
 	ErasureOverhead *float64 `yaml:"erasure_overhead"`
+
+	// Inbound capacity.
+	MaxInboundTransfers int `yaml:"max_inbound_transfers"` // global concurrent inbound limit (default: 20)
+	MaxPerPeerTransfers int `yaml:"max_per_peer_transfers"` // per-peer concurrent inbound limit (default: 5)
 
 	// DDoS defenses.
 	GlobalRateLimit  int   `yaml:"global_rate_limit"`
@@ -61,6 +65,7 @@ type TransferConfig struct {
 	MaxTempSize     int64  `yaml:"max_temp_size"`
 	TempFileExpiry  string `yaml:"temp_file_expiry"`
 	BandwidthBudget string `yaml:"bandwidth_budget"` // human-readable: "500MB", "1GB", "unlimited", or plain bytes
+	SendRateLimit   string `yaml:"send_rate_limit"`  // max send rate bytes/sec: "100M", "500M", "0" = unlimited
 
 	// Share defaults.
 	DefaultPersistent *bool `yaml:"default_persistent"` // default for --persist flag (default: true)
@@ -75,8 +80,8 @@ type TransferConfig struct {
 
 // loadConfig parses the plugin config from raw YAML bytes.
 // Returns defaults if bytes are empty or nil. Logs warning on parse errors (P21 fix).
-func loadConfig(data []byte) TransferConfig {
-	var cfg TransferConfig
+func loadConfig(data []byte) PluginConfig {
+	var cfg PluginConfig
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			slog.Warn("plugin.filetransfer: config parse error, using defaults", "error", err)
@@ -91,7 +96,7 @@ func loadConfig(data []byte) TransferConfig {
 
 // defaultPersistent returns the configured default for share persistence.
 // True unless explicitly set to false in config.
-func (c *TransferConfig) defaultPersistent() bool {
+func (c *PluginConfig) defaultPersistent() bool {
 	return c.DefaultPersistent == nil || *c.DefaultPersistent
 }
 
@@ -163,11 +168,11 @@ func (p *FileTransferPlugin) reloadConfig(newBytes []byte) {
 				rollbackAll()
 				return
 			}
-			ts.SetReceiveMode(p2pnet.ReceiveMode(newMode))
+			ts.SetReceiveMode(ReceiveMode(newMode))
 		}
 		applied = append(applied, rollbackEntry{
 			field:   "receive_mode",
-			restore: func() { ts.SetReceiveMode(p2pnet.ReceiveMode(oldMode)) },
+			restore: func() { ts.SetReceiveMode(ReceiveMode(oldMode)) },
 		})
 	}
 

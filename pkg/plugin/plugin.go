@@ -37,7 +37,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // Checkpointer is optionally implemented by plugins that want state preserved
@@ -129,8 +129,8 @@ type Route struct {
 type Protocol struct {
 	Name    string               // e.g. "file-transfer" (a-z, 0-9, hyphens only, max 64 chars)
 	Version string               // e.g. "2.0.0" - exact match, no semver negotiation
-	Handler p2pnet.StreamHandler // func(serviceName string, s network.Stream)
-	Policy  *p2pnet.PluginPolicy // transport + peer restrictions (nil = default)
+	Handler sdk.StreamHandler // func(serviceName string, s network.Stream)
+	Policy  *sdk.PluginPolicy // transport + peer restrictions (nil = default)
 }
 
 // --- State machine ---
@@ -209,7 +209,7 @@ func newPluginError(code int, msg string) *PluginError {
 type PluginContext struct {
 	pluginName     string
 	logger         *slog.Logger
-	network        *p2pnet.Network
+	network        *sdk.Network
 	nameResolver   func(string) (peer.ID, error)
 	peerConnector  func(context.Context, peer.ID) error // DHT + relay fallback
 	configBytes    []byte
@@ -218,9 +218,10 @@ type PluginContext struct {
 	declaredProtos map[string]bool // protocol IDs this plugin declared
 	keyDeriver     func(domain string) []byte          // HKDF-SHA256 key derivation
 	scoreResolver  func(peer.ID) int                  // reputation score lookup (0-100)
-	grantChecker   func(peer.ID, string) bool         // data access grant check (E1)
+	grantChecker   sdk.GrantChecker                    // data access grant check (E1)
 	peerAttrFunc       func(string, string) string        // peer attribute lookup (peerID, key) -> value
-	relayGrantChecker  p2pnet.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
+	relayGrantChecker  sdk.RelayGrantChecker           // relay grant cache for transfer budget/time checks (H7)
+	hasVerifiedLANConn func(peer.ID) bool                // mDNS-verified LAN connection check (conn-level)
 }
 
 // Logger returns a plugin-scoped structured logger.
@@ -289,11 +290,11 @@ func (c *PluginContext) OnConfigReload(callback func([]byte)) {
 	c.configReloadCb = callback
 }
 
-// EngineHost returns the p2pnet.Network for protocol engine initialization.
+// EngineHost returns the sdk.Network for protocol engine initialization.
 // LAYER 1 ONLY: compiled-in plugins use this to create their protocol engines
 // AND for request-time stream operations (OpenPluginStream, ResolveName, etc.).
 // Layer 2 WASM plugins will NOT have this - they use host functions instead.
-func (c *PluginContext) EngineHost() *p2pnet.Network {
+func (c *PluginContext) EngineHost() *sdk.Network {
 	return c.network
 }
 
@@ -317,12 +318,14 @@ func (c *PluginContext) DeriveKey(domain string) []byte {
 }
 
 // HasGrant checks if a peer has a valid data access grant for the given service.
-// Returns false if no grant checker is configured.
+// Returns false if no grant checker is configured. This is a display-only check
+// (e.g. share-add warning): it passes a catch-all transport mask so any grant,
+// including transport-caveated ones, matches.
 func (c *PluginContext) HasGrant(peerID peer.ID, service string) bool {
 	if c.grantChecker == nil {
 		return false
 	}
-	return c.grantChecker(peerID, service)
+	return c.grantChecker(peerID, service, sdk.TransportLAN|sdk.TransportDirect|sdk.TransportRelay)
 }
 
 // PeerAttr returns the value of a peer attribute from authorized_keys.
@@ -336,8 +339,26 @@ func (c *PluginContext) PeerAttr(peerID string, key string) string {
 
 // RelayGrantChecker returns the relay grant checker for transfer budget/time checks (H7).
 // Returns nil if no grant cache is configured.
-func (c *PluginContext) RelayGrantChecker() p2pnet.RelayGrantChecker {
+func (c *PluginContext) RelayGrantChecker() sdk.RelayGrantChecker {
 	return c.relayGrantChecker
+}
+
+// HasVerifiedLANConn returns true if the peer has at least one live non-relay
+// connection whose remote IP is mDNS-verified as being on the local LAN.
+//
+// This is the authoritative "is this peer on our LAN?" check for plugins making
+// trust or policy decisions (RS erasure gates, bandwidth budgets, transport
+// allow/deny). Bare RFC 1918 matches are NOT reliable: Starlink CGNAT
+// (10.1.x.x), Docker bridge networks (172.17-21.x.x), VPN tunnels, and routed
+// private subnets via multi-WAN all pass bare-mask but are not LAN.
+//
+// Only mDNS multicast reception proves LAN proximity, since mDNS is a
+// link-local protocol that cannot traverse routers.
+func (c *PluginContext) HasVerifiedLANConn(id peer.ID) bool {
+	if c.hasVerifiedLANConn == nil {
+		return false
+	}
+	return c.hasVerifiedLANConn(id)
 }
 
 // X6 fix: Phase 1C stubs unexported until reputation/metrics are wired.
@@ -393,16 +414,17 @@ type interactionReport struct {
 // Constructed in cmd_daemon.go where all runtime components are available.
 // ServiceRegistry is held by the Registry for protocol registration, NOT passed to PluginContext.
 type ContextProvider struct {
-	Network         *p2pnet.Network
-	ServiceRegistry *p2pnet.ServiceRegistry
+	Network         *sdk.Network
+	ServiceRegistry *sdk.ServiceRegistry
 	ConfigDir       string                                      // base config dir (~/.shurli/)
 	NameResolver    func(name string) (peer.ID, error)
 	PeerConnector   func(ctx context.Context, id peer.ID) error // DHT + relay fallback connection
 	KeyDeriver      func(domain string) []byte                  // HKDF-SHA256 key derivation from identity
 	ScoreResolver   func(peerID peer.ID) int                    // reputation score lookup (0-100)
-	GrantChecker    func(peerID peer.ID, service string) bool   // data access grant check (E1)
+	GrantChecker    sdk.GrantChecker                              // data access grant check (E1)
 	PeerAttrFunc       func(peerID string, key string) string     // peer attribute lookup from authorized_keys
-	RelayGrantChecker  p2pnet.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
+	RelayGrantChecker  sdk.RelayGrantChecker                   // relay grant cache for transfer budget/time checks (H7)
+	HasVerifiedLANConn func(peer.ID) bool                       // mDNS-verified LAN connection check
 }
 
 // --- Info ---

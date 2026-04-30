@@ -39,10 +39,10 @@ type RelayAdminAPI interface {
 	GoodbyeShutdown(message string) error
 
 	// Relay data grant management (time-limited per-peer data access)
-	RelayGrant(peerID string, durationSecs int, services []string, permanent bool) (*RelayGrantInfo, error)
+	RelayGrant(peerID string, durationSecs int, services []string, permanent bool, dataBudgetStr string) (*RelayGrantInfo, error)
 	RelayGrants() ([]RelayGrantInfo, error)
 	RelayRevoke(peerID string) error
-	RelayExtend(peerID string, durationSecs int) error
+	RelayExtend(peerID string, durationSecs int, dataBudgetStr string) error
 
 	// Relay info (peer ID, multiaddrs)
 	GetInfo() (*RelayInfoResponse, error)

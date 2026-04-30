@@ -1,8 +1,10 @@
 # Seed Relay Separation & Init Flow
 
-**Date**: 2026-03-03
-**Status**: Complete
-**ADRs**: ADR-P01 to ADR-P05
+| | |
+|---|---|
+| **Date** | 2026-03-03 |
+| **Status** | Complete |
+| **ADRs** | ADR-P01 to ADR-P05 |
 
 Public seed relays are reclassified as discovery-only nodes. Data forwarding (SSH, XRDP, etc.) through seed relays is blocked at the relay server. The init flow defaults to the public Shurli network. A generic `config set` subcommand is added.
 
@@ -94,7 +96,7 @@ This is **UX only**. The client does not make any enforcement decisions. Even if
 
 **Why "discovery node" language**: Design directive: seed relays must never be described as "full relays" in any context. They are discovery nodes and direct connection enablers. This language must be consistent across CLI output, error messages, and documentation.
 
-**Reference**: `pkg/p2pnet/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
+**Reference**: `pkg/sdk/service.go` (`isRelayOnlyPeer`, `relayDataHint`)
 
 ---
 

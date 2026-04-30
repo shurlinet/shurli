@@ -20,7 +20,7 @@ import (
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // MaxRequestBodySize limits the size of JSON request bodies to prevent
@@ -72,6 +72,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/grants/delegate", s.handleGrantDelegate)
 	mux.HandleFunc("GET /v1/grants/pouch", s.handlePouchList)
 
+	// Persistent proxies (Item #24)
+	mux.HandleFunc("GET /v1/proxies", s.handleProxyList)
+	mux.HandleFunc("POST /v1/proxies", s.handleProxyAdd)
+	mux.HandleFunc("DELETE /v1/proxies/{name}", s.handleProxyRemove)
+	mux.HandleFunc("POST /v1/proxies/{name}/enable", s.handleProxyEnable)
+	mux.HandleFunc("POST /v1/proxies/{name}/disable", s.handleProxyDisable)
+
 	// Reconnect (manual backoff reset + redial)
 	mux.HandleFunc("POST /v1/reconnect", s.handleReconnect)
 
@@ -102,6 +109,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			"POST /v1/config/reload": true, "GET /v1/config/reload": true,
 			"GET /v1/grants": true, "POST /v1/grants": true, "POST /v1/grants/revoke": true, "POST /v1/grants/extend": true, "POST /v1/grants/delegate": true, "GET /v1/grants/pouch": true,
 			"POST /v1/reconnect": true,
+			"GET /v1/proxies": true, "POST /v1/proxies": true,
+			"DELETE /v1/proxies/{name}": true, "POST /v1/proxies/{name}/enable": true, "POST /v1/proxies/{name}/disable": true,
 			"GET /v1/notify/sinks": true, "POST /v1/notify/test": true,
 			"GET /v1/plugins": true, "POST /v1/plugins/disable-all": true,
 			"GET /v1/plugins/{name}": true, "POST /v1/plugins/{name}/enable": true, "POST /v1/plugins/{name}/disable": true,
@@ -211,7 +220,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	resp.IsRelaying = rt.IsRelaying()
 
 	// Reachability grade
-	grade := p2pnet.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
+	grade := sdk.ComputeReachabilityGrade(rt.Interfaces(), rt.STUNResult())
 	resp.Reachability = &grade
 
 	// Relay connectivity status
@@ -248,7 +257,64 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// Fall back to config-based relay name if agent version didn't provide one.
+		if rs.RelayName == "" {
+			rs.RelayName = rt.RelayNameFromConfig(pidStr)
+		}
+		// Sanitize relay name: may come from untrusted agent version or config.
+		rs.RelayName = validate.SanitizeForDisplay(rs.RelayName)
 		resp.Relays = append(resp.Relays, rs)
+	}
+
+	// Per-peer connection path summaries (for status display).
+	if tracker := rt.PathTracker(); tracker != nil {
+		paths := tracker.ListPeerPaths()
+		if len(paths) > 0 {
+			resp.PeerPaths = make(map[string]PeerPathSummary, len(paths))
+			// Build relay name lookup from the relays we just populated.
+			relayNames := make(map[string]string)
+			for _, rs := range resp.Relays {
+				if rs.RelayName != "" {
+					relayNames[rs.PeerID] = rs.RelayName
+				}
+			}
+			for _, p := range paths {
+				summary := PeerPathSummary{PathType: string(p.PathType)}
+				if p.PathType == "RELAYED" {
+					rid := sdk.RelayPeerFromAddrStr(p.Address)
+					if rid != "" {
+						summary.RelayPeerID = rid
+						summary.RelayName = relayNames[rid]
+						if summary.RelayName == "" {
+							summary.RelayName = validate.SanitizeForDisplay(rt.RelayNameFromConfig(rid))
+						}
+					}
+				}
+				resp.PeerPaths[p.PeerID] = summary
+			}
+		}
+	}
+
+	// TS-5: Include managed relay connections in path summaries (R9-I1).
+	if pp := rt.PathProtector(); pp != nil {
+		managedPaths := pp.ManagedPaths()
+		if len(managedPaths) > 0 {
+			if resp.PeerPaths == nil {
+				resp.PeerPaths = make(map[string]PeerPathSummary)
+			}
+			for _, mp := range managedPaths {
+				peerStr := mp.PeerID.String()
+				// Only add if not already present from PathTracker (managed is backup).
+				if _, exists := resp.PeerPaths[peerStr]; !exists {
+					relayName := rt.RelayNameFromConfig(mp.RelayPeerID.String())
+					resp.PeerPaths[peerStr] = PeerPathSummary{
+						PathType:    "RELAYED",
+						RelayPeerID: mp.RelayPeerID.String(),
+						RelayName:   validate.SanitizeForDisplay(relayName),
+					}
+				}
+			}
+		}
 	}
 
 	// MOTD/goodbye messages from relays
@@ -328,17 +394,32 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			if r.SessionDataLimit == 0 {
 				rgi.SessionBudget = "unlimited"
 			} else {
-				rgi.SessionBudget = p2pnet.FormatBytes(r.SessionDataLimit)
+				rgi.SessionBudget = sdk.FormatBytes(r.SessionDataLimit)
 			}
-			// Clamp sum to prevent int64 overflow (both counters are individually
-			// clamped to MaxInt64 by TrackCircuitBytes).
-			sent, recv := r.CircuitBytesSent, r.CircuitBytesReceived
+			// Total session usage = accumulated session bytes + current circuit bytes.
+			// All counters are individually clamped to MaxInt64 by TrackCircuitBytes/ResetCircuitCounters.
+			sent := r.SessionBytesSent + r.CircuitBytesSent
+			if sent < r.SessionBytesSent { // overflow
+				sent = math.MaxInt64
+			}
+			recv := r.SessionBytesReceived + r.CircuitBytesReceived
+			if recv < r.SessionBytesReceived { // overflow
+				recv = math.MaxInt64
+			}
 			if sent > math.MaxInt64-recv {
 				sent = math.MaxInt64 - recv
 			}
 			used := sent + recv
 			if used > 0 {
-				rgi.SessionUsed = p2pnet.FormatBytes(used)
+				rgi.SessionUsed = sdk.FormatBytes(used)
+			}
+			// Always show remaining budget for non-unlimited sessions.
+			if r.SessionDataLimit > 0 {
+				rem := r.SessionDataLimit - used
+				if rem < 0 {
+					rem = 0
+				}
+				rgi.SessionRemaining = sdk.FormatBytes(rem)
 			}
 			if r.SessionDuration > 0 {
 				rgi.SessionDuration = formatDuration(r.SessionDuration)
@@ -346,6 +427,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			resp.RelayGrants = append(resp.RelayGrants, rgi)
 		}
 	}
+
+	// Proxy status (F8: single-command overview).
+	resp.Proxies = s.ProxyStatusList()
 
 	if WantsText(r) {
 		var sb strings.Builder
@@ -478,7 +562,7 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -489,7 +573,7 @@ func (s *Server) handleRemoteServiceList(w http.ResponseWriter, r *http.Request)
 	}
 	defer stream.Close()
 
-	services, err := p2pnet.QueryPeerServices(stream)
+	services, err := sdk.QueryPeerServices(stream)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("service query failed: %v", err))
 		return
@@ -559,26 +643,66 @@ func (s *Server) handlePeerList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePaths(w http.ResponseWriter, r *http.Request) {
 	tracker := s.runtime.PathTracker()
 	if tracker == nil {
-		RespondJSON(w, http.StatusOK, []*p2pnet.PeerPathInfo{})
+		RespondJSON(w, http.StatusOK, []*sdk.PeerPathInfo{})
 		return
 	}
 
 	paths := tracker.ListPeerPaths()
 
 	if WantsText(r) {
+		// Build reverse name map: peerID string → name.
+		reverseNames := make(map[string]string)
+		if net := s.runtime.Network(); net != nil {
+			for name, pid := range net.ListNames() {
+				reverseNames[pid.String()] = name
+			}
+		}
+		// Also check relay names from config.
+		for _, p := range paths {
+			if _, ok := reverseNames[p.PeerID]; !ok {
+				if rn := s.runtime.RelayNameFromConfig(p.PeerID); rn != "" {
+					reverseNames[p.PeerID] = rn
+				}
+			}
+		}
+
 		var sb strings.Builder
 		for _, p := range paths {
-			peerShort := p.PeerID
-			if len(peerShort) > 16 {
-				peerShort = peerShort[:16] + "..."
+			name := reverseNames[p.PeerID]
+			nameCol := ""
+			if name != "" {
+				nameCol = " (" + name + ")"
 			}
 			rttStr := "-"
 			if p.LastRTTMs > 0 {
 				rttStr = fmt.Sprintf("%.1fms", p.LastRTTMs)
 			}
-			fmt.Fprintf(&sb, "%s\t%s\t%s\t%s\trtt=%s\n",
-				peerShort, p.PathType, p.Transport, p.IPVersion, rttStr)
+			fmt.Fprintf(&sb, "%s%s\t%s\t%s\t%s\trtt=%s\n",
+				p.PeerID, nameCol, p.PathType, p.Transport, p.IPVersion, rttStr)
 		}
+
+		// TS-5: append managed relay connections (R8-I1).
+		if pp := s.runtime.PathProtector(); pp != nil {
+			for _, mp := range pp.ManagedPaths() {
+				peerStr := mp.PeerID.String()
+				name := reverseNames[peerStr]
+				nameCol := ""
+				if name != "" {
+					nameCol = " (" + name + ")"
+				}
+				relayName := reverseNames[mp.RelayPeerID.String()]
+				if relayName == "" {
+					relayName = s.runtime.RelayNameFromConfig(mp.RelayPeerID.String())
+				}
+				status := "[managed-backup]"
+				if mp.Dead {
+					status = "[managed-dead]"
+				}
+				fmt.Fprintf(&sb, "%s%s\tRELAYED\trelay=%s\tstreams=%d\t%s\n",
+					peerStr, nameCol, relayName, mp.Streams, status)
+			}
+		}
+
 		RespondText(w, http.StatusOK, sb.String())
 		return
 	}
@@ -743,7 +867,7 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -758,14 +882,14 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(count)*interval+30*time.Second)
 	defer cancel()
 
-	ch := p2pnet.PingPeer(ctx, net.Host(), targetPeerID, protocolID, count, interval)
+	ch := sdk.PingPeer(ctx, net.Host(), targetPeerID, protocolID, count, interval)
 
-	var results []p2pnet.PingResult
+	var results []sdk.PingResult
 	for result := range ch {
 		results = append(results, result)
 	}
 
-	stats := p2pnet.ComputePingStats(results)
+	stats := sdk.ComputePingStats(results)
 
 	if WantsText(r) {
 		var sb strings.Builder
@@ -807,11 +931,11 @@ func (s *Server) handleTraceroute(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
-	result, err := p2pnet.TracePeer(r.Context(), net.Host(), targetPeerID)
+	result, err := sdk.TracePeer(r.Context(), net.Host(), targetPeerID)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -885,6 +1009,213 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusOK, resp)
 }
 
+// --- Persistent proxy handlers (Item #24) ---
+
+func (s *Server) handleProxyList(w http.ResponseWriter, r *http.Request) {
+	resp := ProxyListResponse{Proxies: s.ProxyStatusList()}
+	RespondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProxyAdd(w http.ResponseWriter, r *http.Request) {
+	var req ProxyAddRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
+		RespondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.Peer == "" || req.Service == "" || req.Port == 0 {
+		RespondError(w, http.StatusBadRequest, "name, peer, service, and port are required")
+		return
+	}
+	if req.Port < 1 || req.Port > 65535 {
+		RespondError(w, http.StatusBadRequest, "port must be 1-65535")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	entry := &ProxyEntry{
+		Name:    req.Name,
+		Peer:    req.Peer,
+		Service: req.Service,
+		Port:    req.Port,
+		Enabled: true,
+	}
+	if err := s.proxyStore.Add(entry); err != nil {
+		RespondError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	// R4: Bind to explicit 127.0.0.1.
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", req.Port)
+
+	// Capture status and listen inside the lock to avoid data race with event loop.
+	pnet := s.runtime.Network()
+	status := "waiting"
+	listen := listenAddr
+	s.mu.Lock()
+	proxy := s.startPersistentProxy(req.Name, req.Peer, req.Service, listenAddr, req.Port)
+	if proxy != nil {
+		s.proxies[req.Name] = proxy
+		// Check if peer is already connected — flip to active immediately.
+		if proxy.status == "waiting" {
+			if targetPeerID, err := pnet.ResolveName(req.Peer); err == nil {
+				if pnet.Host().Network().Connectedness(targetPeerID) == network.Connected {
+					proxy.status = "active"
+					proxy.connectedAt = time.Now()
+				}
+			}
+		}
+		status = proxy.status
+		if proxy.Listen != "" {
+			listen = proxy.Listen
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Info("persistent proxy added", "name", req.Name, "peer", req.Peer, "service", req.Service, "port", req.Port)
+	RespondJSON(w, http.StatusCreated, ProxyAddResponse{
+		Name:          req.Name,
+		ListenAddress: listen,
+		Status:        status,
+	})
+}
+
+func (s *Server) handleProxyRemove(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.Remove(name); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Stop the running proxy if active.
+	s.mu.Lock()
+	proxy, exists := s.proxies[name]
+	if exists {
+		delete(s.proxies, name)
+	}
+	s.mu.Unlock()
+
+	if exists {
+		proxy.cancel()
+		if proxy.listener != nil {
+			proxy.listener.GracefulClose(5 * time.Second)
+		}
+		<-proxy.done
+	}
+
+	slog.Info("persistent proxy removed", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (s *Server) handleProxyEnable(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.SetEnabled(name, true); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Start the proxy if not already running.
+	entry := s.proxyStore.Get(name)
+	if entry == nil {
+		RespondError(w, http.StatusNotFound, "proxy entry disappeared")
+		return
+	}
+
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", entry.Port)
+
+	pnet := s.runtime.Network()
+	s.mu.Lock()
+	existing, exists := s.proxies[name]
+	if exists && existing.status == "disabled" {
+		// Replace the disabled placeholder with a live proxy.
+		proxy := s.startPersistentProxy(name, entry.Peer, entry.Service, listenAddr, entry.Port)
+		if proxy != nil {
+			s.proxies[name] = proxy
+			// Check if peer is already connected — the libp2p event already fired
+			// before this proxy existed, so DetectAlreadyConnected won't catch it.
+			if proxy.status == "waiting" {
+				if targetPeerID, err := pnet.ResolveName(entry.Peer); err == nil {
+					if pnet.Host().Network().Connectedness(targetPeerID) == network.Connected {
+						proxy.status = "active"
+						proxy.connectedAt = time.Now()
+					}
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Info("persistent proxy enabled", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+}
+
+func (s *Server) handleProxyDisable(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		RespondError(w, http.StatusBadRequest, "proxy name is required")
+		return
+	}
+
+	if s.proxyStore == nil {
+		RespondError(w, http.StatusServiceUnavailable, "proxy store not initialized")
+		return
+	}
+
+	if err := s.proxyStore.SetEnabled(name, false); err != nil {
+		RespondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Stop the running proxy. Release mutex before GracefulClose (up to 5s).
+	s.mu.Lock()
+	proxy, exists := s.proxies[name]
+	var oldListener *sdk.TCPListener
+	if exists && proxy.persistent {
+		proxy.cancel()
+		oldListener = proxy.listener
+		// Replace with disabled placeholder immediately (pre-closed done).
+		s.proxies[name] = newPlaceholderProxy(
+			name, proxy.Peer, proxy.Service, proxy.Listen, "disabled", proxy.Port)
+	}
+	s.mu.Unlock()
+
+	// GracefulClose + wait outside the mutex.
+	if exists {
+		if oldListener != nil {
+			oldListener.GracefulClose(5 * time.Second)
+		}
+		<-proxy.done
+	}
+
+	slog.Info("persistent proxy disabled", "name", name)
+	RespondJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
+
+// --- Ephemeral proxy handlers (existing) ---
+
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var req ConnectRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(&req); err != nil {
@@ -907,17 +1238,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure the peer is reachable (DHT lookup + relay fallback)
 	if err := s.runtime.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
 	// Create dial function with retry
-	dialFunc := p2pnet.DialWithRetry(func() (p2pnet.ServiceConn, error) {
+	dialFunc := sdk.DialWithRetry(func() (sdk.ServiceConn, error) {
 		return pnet.ConnectToService(targetPeerID, req.Service)
 	}, 3)
 
 	// Create TCP listener
-	listener, err := p2pnet.NewTCPListener(req.Listen, dialFunc)
+	listener, err := sdk.NewTCPListener(req.Listen, dialFunc)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create listener: %v", err))
 		return
@@ -926,7 +1257,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Generate proxy ID
 	s.mu.Lock()
 	s.nextID++
-	id := fmt.Sprintf("proxy-%d", s.nextID)
+	id := fmt.Sprintf("~proxy-%d", s.nextID)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	proxy := &activeProxy{
@@ -962,7 +1293,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Detect connection path type for the response
 	h := pnet.Host()
-	pathType, addr := p2pnet.PeerConnInfo(h, targetPeerID)
+	pathType, addr := sdk.PeerConnInfo(h, targetPeerID)
 
 	slog.Info("proxy created via API", "id", id, "peer", req.Peer, "service", req.Service, "listen", proxy.Listen, "path", pathType)
 	RespondJSON(w, http.StatusOK, ConnectResponse{
@@ -1303,9 +1634,44 @@ func (s *Server) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connect to relay and create pairing group
+	// Connect to relay and create pairing group.
+	// If a specific relay was requested, resolve it; otherwise pick the first.
 	h := rt.Network().Host()
-	relayInfos, err := p2pnet.ParseRelayAddrs(relayAddrs)
+	var targetAddrs []string
+	if req.Relay != "" {
+		// req.Relay may be a full multiaddr, a peer ID (or prefix), or a relay name.
+		// Try as multiaddr first, then match by peer ID, then by config name.
+		if _, parseErr := sdk.ParseRelayAddrs([]string{req.Relay}); parseErr == nil {
+			targetAddrs = []string{req.Relay}
+		} else {
+			// Parse all configured relays and match by peer ID or name.
+			for _, addr := range relayAddrs {
+				addrInfo, e := sdk.ParseRelayAddrs([]string{addr})
+				if e != nil || len(addrInfo) == 0 {
+					continue
+				}
+				pidStr := addrInfo[0].ID.String()
+				// Match by peer ID: exact match or prefix (min 8 chars to avoid collisions).
+				if pidStr == req.Relay || (len(req.Relay) >= 8 && strings.HasPrefix(pidStr, req.Relay)) {
+					targetAddrs = []string{addr}
+					break
+				}
+				// Match by config-based relay name (case-insensitive).
+				name := rt.RelayNameFromConfig(pidStr)
+				if name != "" && strings.EqualFold(name, req.Relay) {
+					targetAddrs = []string{addr}
+					break
+				}
+			}
+			if len(targetAddrs) == 0 {
+				RespondError(w, http.StatusBadRequest, fmt.Sprintf("relay %q not found in config (try a full multiaddr, peer ID prefix, or configured relay name)", req.Relay))
+				return
+			}
+		}
+	} else {
+		targetAddrs = relayAddrs
+	}
+	relayInfos, err := sdk.ParseRelayAddrs(targetAddrs)
 	if err != nil || len(relayInfos) == 0 {
 		RespondError(w, http.StatusInternalServerError, "failed to parse relay addresses")
 		return
@@ -1369,7 +1735,7 @@ func (s *Server) handleInviteWait(w http.ResponseWriter, r *http.Request) {
 	rt := s.runtime
 	h := rt.Network().Host()
 	relayAddrs := rt.RelayAddresses()
-	relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+	relayInfos, _ := sdk.ParseRelayAddrs(relayAddrs)
 	if len(relayInfos) == 0 {
 		RespondError(w, http.StatusInternalServerError, "no relay addresses available; add one with 'shurli relay add <address>'")
 		return
@@ -1450,7 +1816,7 @@ func (s *Server) handleInviteCancel(w http.ResponseWriter, r *http.Request) {
 		rt := s.runtime
 		h := rt.Network().Host()
 		relayAddrs := rt.RelayAddresses()
-		relayInfos, _ := p2pnet.ParseRelayAddrs(relayAddrs)
+		relayInfos, _ := sdk.ParseRelayAddrs(relayAddrs)
 		if len(relayInfos) > 0 {
 			relayClient := relay.NewRemoteAdminClient(h, relayInfos[0].ID)
 			if err := relayClient.RevokeGroup(inv.groupID); err != nil {

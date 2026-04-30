@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants (+ D1/D3 hardening), Phase 9A Core Interfaces, Phase 9B File Transfer, Chaos Testing, Plugin Architecture Shift, E14 Relay-First Onboarding, Per-Peer Bandwidth Budgets, Phase 10 Distribution (partial)."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A-9B, Chaos Testing, Plugin Architecture, E14, Bandwidth Budgets, Grant Receipt Protocol, Phase 10 Distribution (partial), FT-Y Speed Optimization."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -53,7 +53,7 @@ All keytool functionality now lives in `shurli` subcommands: `shurli whoami` (pe
 **Goal**: Transform Shurli into a reusable library and enable exposing local services through P2P connections.
 
 **Deliverables**:
-- [x] Create `pkg/p2pnet/` as importable package
+- [x] Create `pkg/sdk/` as importable package
   - [x] `network.go` - Core P2P network setup, relay helpers, name resolution
   - [x] `service.go` - Service registry and management
   - [x] `proxy.go` - Bidirectional TCP-to-Stream proxy with half-close
@@ -584,7 +584,7 @@ Replaced binary `relay_data=true` with time-limited, per-peer capability grants 
 
 **Goal**: Define public API contracts for third-party extensibility. Design-first: get interfaces right before building implementations.
 
-**Core Interfaces** (`pkg/p2pnet/contracts.go`):
+**Core Interfaces** (`pkg/sdk/contracts.go`):
 - [x] `PeerNetwork` - interface for core network operations (expose, connect, resolve, close, events)
 - [x] `Resolver` - interface for name resolution with fallback chaining
 - [x] `ServiceManager` - interface for service registration and dialing, with middleware support
@@ -600,9 +600,9 @@ Replaced binary `relay_data=true` with time-limited, per-peer capability grants 
 - [x] Protocol ID formatter - `ProtocolID()` + `MustValidateProtocolIDs()` for init-time validation
 
 **Library Consolidation** (completed in 9B):
-- [x] `BootstrapAndConnect()` extracted to `pkg/p2pnet/bootstrap.go`
+- [x] `BootstrapAndConnect()` extracted to `pkg/sdk/bootstrap.go`
 - [x] Centralized orchestration - `cmd_ping.go` and `cmd_traceroute.go` reduced by ~100 lines each
-- [x] Package-level documentation in `pkg/p2pnet/doc.go`
+- [x] Package-level documentation in `pkg/sdk/doc.go`
 
 ---
 
@@ -772,7 +772,7 @@ This was a foundational restructuring. Every future feature (service discovery, 
 shurli binary
   core (network, auth, identity, daemon, CLI framework)
   pkg/plugin/          - Plugin interface + registry + supervisor
-  pkg/p2pnet/          - Protocol library code (unchanged)
+  pkg/sdk/          - Protocol library code (unchanged)
   plugins/filetransfer/ - First plugin (CLI, handlers, protocols)
 ```
 
@@ -818,4 +818,61 @@ Per-peer `bandwidth_budget` auth attribute overrides global default. LAN peers a
 - [x] `~/.shurli/` config path (migrated from `~/.config/shurli/`)
 - [x] Website onboarding redesign (Homebrew-style install in hero, dual URLs)
 - [x] Auto-generated release notes from conventional commits
+
+---
+
+## Grant Receipt Protocol
+
+**Timeline**: 2026-03-26
+**Status**: Complete
+
+Relay-issued grant receipts give clients pre-transfer visibility into relay session budgets.
+
+- [x] 62-byte binary grant receipts (HMAC-SHA256 signed, protocol: `/shurli/grant-receipt/1.0.0`)
+- [x] Client-side grant cache with per-circuit byte tracking
+- [x] Smart pre-transfer budget check (`checkRelayGrant()`)
+- [x] Tier-aware session defaults (seed: 64 MB/10 min, self-hosted: 2 GB/2 hours)
+- [x] Receiver busy retry with exponential backoff
+- [x] CLI visibility via `shurli status`
+
+---
+
+## FT-Y: Transfer Speed Optimization
+
+**Timeline**: 2026-03-31 to 2026-04-30
+**Status**: Complete
+
+Closed the speed gap between Shurli file transfer and SCP. Before: 5 MB/s. After: 110 MB/s send, 142 MB/s download (USB LAN). Multi-peer: 95.7 MB/s with 2 peers.
+
+**Streaming Protocol (SHFT v2)**:
+- [x] Streaming pipeline (zero full-file buffering)
+- [x] 5-tier adaptive chunks (64K-4M based on file size)
+- [x] Incompressible detection (3-chunk probe)
+- [x] 8-stream parallel workers with work-stealing
+- [x] Per-stripe Reed-Solomon erasure coding
+- [x] Missing-chunk recovery from trailer manifest
+- [x] Checkpoint/resume with crash recovery
+- [x] Selective file rejection (--files/--exclude)
+- [x] Progress bar (yt-dlp-style, EWMA speed/ETA)
+
+**Multi-Peer Download**:
+- [x] Interleaved symbol IDs with dynamic block claiming
+- [x] Manifest verification across all peers
+- [x] Slow-peer demotion
+
+**Tail Slayer (Hedged Connections)**:
+- [x] TS-1 through TS-6: hedged relay, bootstrap, manifest, control signals, path maintenance, failover, block coordination
+- [x] Cancel protocol with 11 ms latency
+
+**Budget-Aware Relay**:
+- [x] Per-peer relay data budget (Host Wrapper, no fork)
+- [x] Grant-ranked relay selection
+
+**Persistent Proxy Service**:
+- [x] CLI: add/list/remove/enable/disable with GATETIME stability detection
+
+**Networking Fixes** (22 bugs fixed during physical testing):
+- [x] mDNS dial worker pollution, IPv6 reconnect loop, resource manager exhaustion, relay backoff, PathDialer zombies, hole punch black hole, receiver busy, and more
+
+**Engineering Journals**: 8 published (streaming protocol, multi-peer, Tail Slayer, budget-aware relay, Reed-Solomon, verified-LAN, persistent proxy, TCP-for-LAN experiment)
 

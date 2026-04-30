@@ -19,6 +19,7 @@ import (
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/config"
+	"github.com/shurlinet/shurli/internal/daemon"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/notify"
@@ -35,12 +37,18 @@ import (
 	"github.com/shurlinet/shurli/internal/reputation"
 	"github.com/shurlinet/shurli/internal/validate"
 	"github.com/shurlinet/shurli/internal/watchdog"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
+
+// mdnsGracePeriod is how long PeerManager reconnect and DHT bootstrap are
+// deferred after a network change. Gives mDNS time to discover and upgrade
+// LAN peers before broader reconnect mechanisms create swarm dial workers
+// that would block mDNS's targeted LAN dial via dial_sync dedup.
+const mdnsGracePeriod = 5 * time.Second
 
 // serveRuntime holds the shared P2P lifecycle state for the daemon command.
 type serveRuntime struct {
-	network    *p2pnet.Network
+	network    *sdk.Network
 	config     *config.HomeNodeConfig
 	configFile string
 	gater      *auth.AuthorizedPeerGater // nil if connection gating disabled
@@ -52,41 +60,44 @@ type serveRuntime struct {
 	kdht       *dht.IpfsDHT // stored for peer discovery from daemon API
 
 	// Interface discovery (populated at startup)
-	ifSummary *p2pnet.InterfaceSummary
+	ifSummary *sdk.InterfaceSummary
 
 	// Path dialer for parallel connection racing
-	pathDialer *p2pnet.PathDialer
+	pathDialer *sdk.PathDialer
 
 	// Path tracker for per-peer connection visibility
-	pathTracker *p2pnet.PathTracker
+	pathTracker *sdk.PathTracker
+
+	// TS-5: Path protector for managed relay connections during transfers
+	pathProtector *sdk.PathProtector
 
 	// STUN prober for NAT type detection and external address discovery
-	stunProber *p2pnet.STUNProber
+	stunProber *sdk.STUNProber
 
 	// mDNS local discovery (nil when disabled)
-	mdnsDiscovery *p2pnet.MDNSDiscovery
+	mdnsDiscovery *sdk.MDNSDiscovery
 
 	// Peer lifecycle management (background reconnection with backoff)
-	peerManager *p2pnet.PeerManager
+	peerManager *sdk.PeerManager
 
 	// Network intelligence presence protocol (nil when disabled)
-	netIntel *p2pnet.NetIntel
+	netIntel *sdk.NetIntel
 
 	// Routing discovery for DHT re-advertising on network change
 	routingDiscovery *drouting.RoutingDiscovery
 
 	// Peer relay (auto-enabled when public IP detected)
-	peerRelay *p2pnet.PeerRelay
+	peerRelay *sdk.PeerRelay
 
 	// Relay discovery (static + DHT-discovered relays)
-	relayDiscovery *p2pnet.RelayDiscovery
+	relayDiscovery *sdk.RelayDiscovery
 
 	// Observability (nil when telemetry disabled)
-	metrics       *p2pnet.Metrics
-	audit         *p2pnet.AuditLogger
+	metrics       *sdk.Metrics
+	audit         *sdk.AuditLogger
 	metricsServer *http.Server
-	bwTracker     *p2pnet.BandwidthTracker
-	relayHealth   *p2pnet.RelayHealth
+	bwTracker     *sdk.BandwidthTracker
+	relayHealth   *sdk.RelayHealth
 
 	// Sovereign per-peer interaction history
 	peerHistory *reputation.PeerHistory
@@ -106,6 +117,13 @@ type serveRuntime struct {
 
 	// Notification router (Phase C)
 	notifyRouter *notify.Router
+
+	// Deferred reconnect timer: after a network change, PM reconnect and DHT
+	// bootstrap are delayed by mdnsGracePeriod to give mDNS priority for LAN
+	// peers. Cancelled and reset on each new network change.
+	deferredReconnectTimer *time.Timer
+	deferredDHTTimer       *time.Timer
+	deferredMu             sync.Mutex
 }
 
 // newServeRuntime creates a new serve runtime: loads config, creates P2P network,
@@ -175,21 +193,21 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 
 	// Initialize observability (opt-in)
 	if cfg.Telemetry.Metrics.Enabled {
-		rt.metrics = p2pnet.NewMetrics(ver, runtime.Version())
+		rt.metrics = sdk.NewMetrics(ver, runtime.Version())
 		fmt.Printf("Telemetry: metrics enabled on %s\n", cfg.Telemetry.Metrics.ListenAddress)
 	}
 	if cfg.Telemetry.Audit.Enabled {
-		rt.audit = p2pnet.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
+		rt.audit = sdk.NewAuditLogger(slog.NewJSONHandler(os.Stderr, nil))
 		fmt.Println("Telemetry: audit logging enabled")
 	}
 
 	// Initialize bandwidth tracker (always on; nil metrics = stats-only, no Prometheus)
-	rt.bwTracker = p2pnet.NewBandwidthTracker(rt.metrics)
+	rt.bwTracker = sdk.NewBandwidthTracker(rt.metrics)
 
 	// Initialize relay discovery with static relays from config.
 	// DHT discovery is enabled later in Bootstrap() after DHT creation.
-	staticRelayInfos, _ := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
-	rt.relayDiscovery = p2pnet.NewRelayDiscovery(staticRelayInfos, cfg.Discovery.Network, rt.metrics)
+	staticRelayInfos, _ := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
+	rt.relayDiscovery = sdk.NewRelayDiscovery(staticRelayInfos, cfg.Discovery.Network, rt.metrics)
 
 	// Wire auth decision callback (metrics + audit)
 	if rt.gater != nil && (rt.metrics != nil || rt.audit != nil) {
@@ -220,7 +238,7 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	}
 
 	// Create P2P network
-	netCfg := &p2pnet.Config{
+	netCfg := &sdk.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		KeyPassword:        pw,
 		Gater:              rt.gater,
@@ -237,7 +255,18 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 		ResourceLimitsEnabled: cfg.Network.ResourceLimitsEnabled,
 	}
 
-	net, err := p2pnet.New(netCfg)
+	// Detect macOS Local Network Privacy (LNP) hang: if network creation
+	// takes >5s, the process is likely blocked waiting for the LNP permission
+	// dialog. Print a hint so the user knows what to do.
+	lnpTimer := time.AfterFunc(5*time.Second, func() {
+		fmt.Println()
+		fmt.Println("WARNING: Network startup is taking unusually long.")
+		fmt.Println("  If you see a macOS \"Local Network\" permission dialog, please allow it.")
+		fmt.Println("  Check: System Settings > Privacy & Security > Local Network > Shurli")
+		fmt.Println()
+	})
+	net, err := sdk.New(netCfg)
+	lnpTimer.Stop()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create P2P network: %w", err)
 	}
@@ -260,6 +289,25 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 	return rt, nil
 }
 
+// SetupPathProtection creates PathProtector and wires it to Network.
+// MUST be called before pluginRegistry.StartAll() so plugins can access
+// the PathProtector via Network.GetPathProtector() during Start().
+// PeerManager wiring happens later in Bootstrap() after PeerManager is created.
+func (rt *serveRuntime) SetupPathProtection() {
+	h := rt.network.Host()
+
+	// TS-5: Create PathProtector and wire to Network.
+	// Requires: host, relay source, LAN registry (all available at this point).
+	// relayDiscovery is always set (line ~195) and implements RelaySource.
+	rt.pathProtector = sdk.NewPathProtector(h, rt.relayDiscovery, rt.network.GetLANRegistry(), rt.bwTracker)
+	if rt.pathProtector != nil {
+		if rt.metrics != nil {
+			rt.pathProtector.SetMetrics(rt.metrics)
+		}
+		rt.network.SetPathProtector(rt.pathProtector)
+	}
+}
+
 // Bootstrap connects to relay servers, bootstraps the DHT, and starts
 // background advertising. This is the "bring the network up" step.
 func (rt *serveRuntime) Bootstrap() error {
@@ -267,7 +315,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	cfg := rt.config
 
 	// Discover network interfaces and log IPv6/IPv4 availability
-	ifSummary, err := p2pnet.DiscoverInterfaces()
+	ifSummary, err := sdk.DiscoverInterfaces()
 	if err != nil {
 		fmt.Printf("Warning: interface discovery failed: %v\n", err)
 	} else {
@@ -298,7 +346,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Parse relay addresses for manual connection
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	relayInfos, err := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
 	if err != nil {
 		return fmt.Errorf("failed to parse relay addresses: %w", err)
 	}
@@ -354,7 +402,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Bootstrap the DHT
-	dhtPrefix := p2pnet.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
+	dhtPrefix := sdk.DHTProtocolPrefixForNamespace(cfg.Discovery.Network)
 	if cfg.Discovery.Network != "" {
 		fmt.Printf("DHT network: %s (protocol: %s/kad/1.0.0)\n", cfg.Discovery.Network, dhtPrefix)
 	} else {
@@ -405,7 +453,7 @@ func (rt *serveRuntime) Bootstrap() error {
 		if dnsDomain == "" {
 			dnsDomain = DNSSeedDomain
 		}
-		dnsInfos := p2pnet.ResolveDNSSeeds(rt.ctx, dnsDomain)
+		dnsInfos := sdk.ResolveDNSSeeds(rt.ctx, dnsDomain)
 		for _, ai := range dnsInfos {
 			for _, addr := range ai.Addrs {
 				full := addr.Encapsulate(ma.StringCast("/p2p/" + ai.ID.String()))
@@ -488,31 +536,46 @@ func (rt *serveRuntime) Bootstrap() error {
 	}()
 
 	// Initialize path dialer for parallel connection racing
-	rt.pathDialer = p2pnet.NewPathDialer(h, kdht, rt.relayDiscovery, rt.metrics)
+	rt.pathDialer = sdk.NewPathDialer(h, kdht, rt.relayDiscovery, rt.metrics)
 
 	// Initialize path tracker for per-peer connection visibility
-	rt.pathTracker = p2pnet.NewPathTracker(h, rt.metrics)
+	rt.pathTracker = sdk.NewPathTracker(h, rt.metrics)
 	go rt.pathTracker.Start(rt.ctx)
 
 	// Initialize PeerManager for background reconnection of authorized peers.
-	rt.peerManager = p2pnet.NewPeerManager(h, rt.pathDialer, rt.metrics,
+	rt.peerManager = sdk.NewPeerManager(h, rt.pathDialer, rt.metrics,
 		func(peerID, pathType string, latencyMs float64) {
 			if rt.peerHistory != nil {
 				rt.peerHistory.RecordConnection(peerID, pathType, latencyMs)
 			}
 		},
+		rt.network.GetLANRegistry(),
 	)
 	if rt.gater != nil {
 		rt.peerManager.SetWatchlist(rt.gater.GetAuthorizedPeerIDs())
 	}
 	rt.peerManager.Start(rt.ctx)
 
+	// TS-5: Wire PathProtector to PeerManager (PathProtector was created in
+	// SetupPathProtection() before plugins started, PeerManager was just created above).
+	if rt.pathProtector != nil {
+		rt.peerManager.SetPathProtector(rt.pathProtector)
+		// R7-D1: deauth cleanup callback.
+		rt.peerManager.SetOnWatchlistRemoved(func(pid peer.ID) {
+			rt.pathProtector.ForceUnprotectAll(pid)
+			// Also close swarm connections (pre-existing gap fix, R7-I3).
+			for _, c := range h.Network().ConnsToPeer(pid) {
+				c.Close()
+			}
+		})
+	}
+
 	// Start network intelligence presence protocol (default: enabled).
 	// Shares reachability, NAT type, and capability info with connected peers
 	// via direct push + gossip forwarding (Layer 1 + Layer 2 transport).
 	if cfg.Discovery.IsNetIntelEnabled() {
 		announceInterval := cfg.Discovery.AnnounceInterval // 0 = default
-		rt.netIntel = p2pnet.NewNetIntel(h, rt.metrics,
+		rt.netIntel = sdk.NewNetIntel(h, rt.metrics,
 			// PeerFilter: only share with and cache from authorized peers.
 			// When public network mode lands, this callback gets a second
 			// branch for open-network peers. No change to NetIntel itself.
@@ -523,8 +586,8 @@ func (rt *serveRuntime) Bootstrap() error {
 				return rt.gater.IsAuthorized(pid)
 			},
 			// NodeStateProvider: build announcement from current runtime state.
-			func() *p2pnet.NodeAnnouncement {
-				ann := &p2pnet.NodeAnnouncement{
+			func() *sdk.NodeAnnouncement {
+				ann := &sdk.NodeAnnouncement{
 					Version:   1,
 					UptimeSec: int64(time.Since(rt.startTime).Seconds()),
 					PeerCount: len(h.Network().Peers()),
@@ -534,7 +597,7 @@ func (rt *serveRuntime) Bootstrap() error {
 					ann.HasIPv4 = rt.ifSummary.HasGlobalIPv4
 					ann.HasIPv6 = rt.ifSummary.HasGlobalIPv6
 				}
-				var stunResult *p2pnet.STUNResult
+				var stunResult *sdk.STUNResult
 				if rt.stunProber != nil {
 					stunResult = rt.stunProber.Result()
 					if stunResult != nil {
@@ -542,7 +605,7 @@ func (rt *serveRuntime) Bootstrap() error {
 						ann.BehindCGNAT = stunResult.BehindCGNAT
 					}
 				}
-				grade := p2pnet.ComputeReachabilityGrade(rt.ifSummary, stunResult)
+				grade := sdk.ComputeReachabilityGrade(rt.ifSummary, stunResult)
 				ann.Grade = grade.Grade
 				return ann
 			},
@@ -553,9 +616,9 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Start network change monitor (event-driven on macOS/Linux, polling fallback)
-	netmon := p2pnet.NewNetworkMonitor(func(change *p2pnet.NetworkChange) {
+	netmon := sdk.NewNetworkMonitor(func(change *sdk.NetworkChange) {
 		// Update interface summary
-		newSummary, err := p2pnet.DiscoverInterfaces()
+		newSummary, err := sdk.DiscoverInterfaces()
 		if err != nil {
 			fmt.Printf("Warning: interface re-discovery failed: %v\n", err)
 			return
@@ -590,11 +653,24 @@ func (rt *serveRuntime) Bootstrap() error {
 		// the old one was a black hole (e.g., cellular CGNAT -> WiFi with IPv6).
 		rt.network.ResetBlackHoles()
 
-		// Clear swarm dial backoffs for watched peers. Previous "no route to
-		// host" failures are invalid after a network change (e.g., VPN with
-		// local network sharing now allows LAN paths that previously failed).
+		// Clear swarm dial backoffs for all relevant peers. Previous "no route
+		// to host" failures are invalid after a network change. Includes:
+		//  - Authorized peers (watched by PeerManager)
+		//  - Relay servers (F33-R2-1: disconnected relays survive Peers()
+		//    but their backoffs block circuit dials for 5+ minutes)
+		//  - All currently-connected peers (DHT peers whose backoffs
+		//    compound during network transitions, F33-R2-8)
 		if rt.peerManager != nil && rt.gater != nil {
-			rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
+			clearIDs := rt.gater.GetAuthorizedPeerIDs()
+			if rt.relayDiscovery != nil {
+				for _, ai := range rt.relayDiscovery.AllRelays() {
+					clearIDs = append(clearIDs, ai.ID)
+				}
+			}
+			for _, pid := range rt.network.Host().Network().Peers() {
+				clearIDs = append(clearIDs, pid)
+			}
+			rt.network.ClearDialBackoffs(clearIDs)
 		}
 
 		// Re-evaluate peer relay eligibility on network change
@@ -609,17 +685,66 @@ func (rt *serveRuntime) Bootstrap() error {
 			rt.peerManager.CloseStaleConnections(change.Removed)
 		}
 
-		// Reset backoffs and trigger immediate reconnect cycle.
+		// Close ALL connections (direct + relay circuits) to watched peers.
+		// After a WiFi switch, both direct QUIC connections and relay
+		// circuits become zombies: the underlying transport was on the old
+		// interface. CloseStaleConnections' IP matching misses these when
+		// returning to the same network (direct: IP comes back; circuits:
+		// local IP is the relay server's). Relay reconnect (below) creates
+		// fresh relay transport, and mDNS/PM re-establish peer connections.
 		if rt.peerManager != nil {
-			rt.peerManager.OnNetworkChange()
+			rt.peerManager.CloseAllPeerConnections()
 		}
 
-		// Trigger immediate mDNS re-browse. If we just returned to a LAN
-		// where a peer exists, mDNS will discover it and upgrade the path
-		// from RELAYED to DIRECT without waiting for the next 30s cycle.
+		// Reset backoffs immediately so mDNS can dial without hitting stale state.
+		// Reconnect trigger is DEFERRED (below) to give mDNS priority.
+		if rt.peerManager != nil {
+			rt.peerManager.ResetBackoffsForNetworkChange()
+		}
+
+		// Proactively reconnect to relay servers (F33-R2-3). Relay is critical
+		// infrastructure — peers on CGNAT/mobile are unreachable without it.
+		// Don't wait for AutoRelay's periodic cycle; reconnect immediately so
+		// relay paths are available when PM fires its deferred reconnect.
+		if rt.relayDiscovery != nil {
+			relays := rt.relayDiscovery.AllRelays()
+			if len(relays) > 0 {
+				go func() {
+					for _, ai := range relays {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						if err := rt.network.Host().Connect(ctx, ai); err != nil {
+							slog.Debug("network change: relay reconnect failed",
+								"relay", ai.ID.String()[:16], "error", err)
+						}
+						cancel()
+					}
+				}()
+			}
+		}
+
+		// Trigger mDNS re-browse BEFORE PeerManager reconnect. mDNS discovers
+		// LAN peers via multicast (1-2s) and upgrades them to direct connections.
+		// If PM fires first, its DHT/relay-based reconnect creates swarm dial
+		// workers that block mDNS's targeted LAN dial via dial_sync dedup +
+		// per-peer limiter starvation (8 slots consumed by stale public-addr dials).
 		if rt.mdnsDiscovery != nil {
 			rt.mdnsDiscovery.BrowseNow()
 		}
+
+		// Defer PeerManager reconnect by mdnsGracePeriod. By then, mDNS has
+		// either upgraded LAN peers (PM skips them as Connected) or found nothing
+		// (PM handles all peers via DHT/relay). Cancel previous timer on rapid
+		// network changes so only the latest change's timer fires.
+		rt.deferredMu.Lock()
+		if rt.deferredReconnectTimer != nil {
+			rt.deferredReconnectTimer.Stop()
+		}
+		rt.deferredReconnectTimer = time.AfterFunc(mdnsGracePeriod, func() {
+			if rt.peerManager != nil {
+				rt.peerManager.TriggerReconnect()
+			}
+		})
+		rt.deferredMu.Unlock()
 
 		// Probe direct paths through newly available interfaces.
 		// If a relayed peer is reachable via IPv6 on a secondary
@@ -638,6 +763,14 @@ func (rt *serveRuntime) Bootstrap() error {
 		// 3 times with 2s spacing to cover NDP neighbor resolution.
 		if rt.peerManager != nil && len(change.Added) > 0 {
 			go func() {
+				// Wait for mDNS grace period before probing. ProbeAndUpgradeRelayed
+				// calls host.Connect which creates swarm dial workers — same
+				// dial_sync dedup + limiter starvation problem as PM/DHT.
+				select {
+				case <-rt.ctx.Done():
+					return
+				case <-time.After(mdnsGracePeriod):
+				}
 				if !waitForIPv6BindReady(rt.ctx, 5*time.Second) {
 					return
 				}
@@ -676,23 +809,31 @@ func (rt *serveRuntime) Bootstrap() error {
 			}()
 		}
 
-		// Re-bootstrap DHT and re-advertise on network change.
-		// Our addresses changed; DHT peers need the update.
-		go func() {
-			if rt.kdht != nil {
-				refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
-				defer refreshCancel()
-				if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
-					slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
-				} else {
-					slog.Info("netmonitor: DHT re-bootstrapped after network change")
+		// Defer DHT re-bootstrap by the same grace period as PM reconnect.
+		// DHT bootstrap calls host.Connect which creates swarm dial workers
+		// that would poison mDNS's LAN upgrade dial via dial_sync dedup.
+		rt.deferredMu.Lock()
+		if rt.deferredDHTTimer != nil {
+			rt.deferredDHTTimer.Stop()
+		}
+		rt.deferredDHTTimer = time.AfterFunc(mdnsGracePeriod, func() {
+			go func() {
+				if rt.kdht != nil {
+					refreshCtx, refreshCancel := context.WithTimeout(rt.ctx, 30*time.Second)
+					defer refreshCancel()
+					if err := rt.kdht.Bootstrap(refreshCtx); err != nil {
+						slog.Warn("netmonitor: DHT re-bootstrap failed", "error", err)
+					} else {
+						slog.Info("netmonitor: DHT re-bootstrapped after network change")
+					}
 				}
-			}
-			if rt.routingDiscovery != nil {
-				rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
-				slog.Info("netmonitor: re-advertised on rendezvous")
-			}
-		}()
+				if rt.routingDiscovery != nil {
+					rt.routingDiscovery.Advertise(rt.ctx, cfg.Discovery.Rendezvous)
+					slog.Info("netmonitor: re-advertised on rendezvous")
+				}
+			}()
+		})
+		rt.deferredMu.Unlock()
 
 		// Delayed stale-address check: after libp2p has time to update,
 		// warn if it still advertises addresses for removed interfaces.
@@ -717,7 +858,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// STUN probe for NAT type detection and external address discovery.
 	// Run in background so it doesn't block startup.
-	rt.stunProber = p2pnet.NewSTUNProber(nil, rt.metrics) // default STUN servers
+	rt.stunProber = sdk.NewSTUNProber(nil, rt.metrics) // default STUN servers
 	go func() {
 		probeCtx, probeCancel := context.WithTimeout(rt.ctx, 10*time.Second)
 		defer probeCancel()
@@ -750,7 +891,10 @@ func (rt *serveRuntime) Bootstrap() error {
 	// Start mDNS local discovery (default: enabled).
 	// Discovered peers go through ConnectionGater; no auth bypass.
 	if cfg.Discovery.IsMDNSEnabled() {
-		rt.mdnsDiscovery = p2pnet.NewMDNSDiscovery(h, rt.metrics)
+		rt.mdnsDiscovery = sdk.NewMDNSDiscovery(h, rt.metrics, rt.network.GetLANRegistry())
+		if rt.peerManager != nil {
+			rt.mdnsDiscovery.SetPeerReconnector(rt.peerManager)
+		}
 		if err := rt.mdnsDiscovery.Start(rt.ctx); err != nil {
 			slog.Warn("mdns: failed to start", "error", err)
 			rt.mdnsDiscovery = nil
@@ -761,7 +905,7 @@ func (rt *serveRuntime) Bootstrap() error {
 
 	// Initialize peer relay (auto-enables if this host has a public IP).
 	// The existing ConnectionGater restricts who can use this relay.
-	rt.peerRelay = p2pnet.NewPeerRelay(h, rt.metrics, peerRelayConfigFromYAML(cfg.PeerRelay))
+	rt.peerRelay = sdk.NewPeerRelay(h, rt.metrics, peerRelayConfigFromYAML(cfg.PeerRelay))
 
 	// When peer relay enables/disables, start/stop DHT relay advertisement
 	rt.peerRelay.OnStateChange(func(enabled bool) {
@@ -775,7 +919,7 @@ func (rt *serveRuntime) Bootstrap() error {
 	}
 
 	// Initialize relay health tracker and wire into discovery
-	relayHealth := p2pnet.NewRelayHealth(h, rt.metrics)
+	relayHealth := sdk.NewRelayHealth(h, rt.metrics)
 	rt.relayHealth = relayHealth
 	rt.relayDiscovery.SetHealth(relayHealth)
 
@@ -794,7 +938,14 @@ func (rt *serveRuntime) Bootstrap() error {
 }
 
 // ExposeConfiguredServices registers all enabled services from config on the P2P host.
+// Also registers the service-query protocol handler (always, even with no services).
 func (rt *serveRuntime) ExposeConfiguredServices() {
+	// Register service-query protocol so remote peers can discover our services.
+	// Must run even when no services are configured (node still answers "no services").
+	if err := rt.network.RegisterServiceQuery(); err != nil {
+		log.Printf("Warning: failed to register service-query handler: %v", err)
+	}
+
 	if rt.config.Services == nil {
 		return
 	}
@@ -821,12 +972,6 @@ func (rt *serveRuntime) ExposeConfiguredServices() {
 				log.Printf("Failed to expose service %s: %v", name, err)
 			}
 		}
-	}
-
-	// Register service-query protocol so remote peers can discover our services.
-	// Allow relay transport since this is metadata-only (no data transfer).
-	if err := rt.network.RegisterServiceQuery(); err != nil {
-		log.Printf("Warning: failed to register service-query handler: %v", err)
 	}
 
 	fmt.Println()
@@ -1010,32 +1155,15 @@ func (rt *serveRuntime) SetupPeerNotify() {
 
 }
 
-// receiptRateLimiter tracks the last receipt time per relay (S7: max 1 per 10s).
-type receiptRateLimiter struct {
-	mu   sync.Mutex
-	last map[peer.ID]time.Time
-}
+// S7 (revised): receipt rate limiting removed. The original 10s-per-relay
+// rate limit blocked the second receipt in revoke+re-grant sequences.
+// Configured relay check in setupGrantReceiptHandler already limits
+// senders to trusted relays, making spam protection unnecessary.
 
-func (rl *receiptRateLimiter) allow(relayID peer.ID) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.last == nil {
-		rl.last = make(map[peer.ID]time.Time)
-	}
-	last, ok := rl.last[relayID]
-	if ok && time.Since(last) < 10*time.Second {
-		return false
-	}
-	rl.last[relayID] = time.Now()
-	return true
-}
-
-// setupGrantReceiptHandler registers handlers for BOTH the new grant-receipt
-// and legacy grant-changed protocols. The new protocol caches the full receipt;
-// the legacy protocol triggers the same backoff-clearing behavior as before.
+// setupGrantReceiptHandler registers the grant-receipt protocol handler.
+// When a relay pushes a 62-byte receipt, the client caches it and clears backoffs.
 func (rt *serveRuntime) setupGrantReceiptHandler() {
 	h := rt.network.Host()
-	rl := &receiptRateLimiter{}
 
 	// Handler for the new grant-receipt protocol (62-byte receipt).
 	h.SetStreamHandler(protocol.ID(relay.GrantReceiptProtocol), func(s network.Stream) {
@@ -1052,11 +1180,12 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 			return
 		}
 
-		// S7: rate limit receipt processing (max 1 per relay per 10s).
-		if !rl.allow(remotePeer) {
-			slog.Debug("grant-receipt: rate limited", "peer", short)
-			return
-		}
+		// S7 (revised): no rate limit on grant receipts from configured relays.
+		// The original 10s rate limit blocked the second receipt in a
+		// revoke+re-grant sequence (revoke sends zero-duration receipt, then
+		// re-grant sends the new receipt ~1s later, both on the same protocol).
+		// Configured relay check above already limits the sender to trusted
+		// relays only, making spam rate limiting unnecessary.
 
 		// Read the full 62-byte receipt with timeout to prevent hanging
 		// on a malicious relay that sends partial data.
@@ -1112,64 +1241,55 @@ func (rt *serveRuntime) setupGrantReceiptHandler() {
 					"session_data", decoded.SessionDataLimit,
 					"session_duration", decoded.SessionDuration)
 			}
+
+			// Emit notification for client-side grant receipt.
+			// Use deterministic ID so duplicate receipts from the same relay
+			// (e.g. on reconnect, multi-address identification) are deduplicated.
+			if rt.notifyRouter != nil {
+				msg := "relay grant received"
+				if decoded.SessionDataLimit > 0 {
+					msg += " (" + sdk.FormatBytes(decoded.SessionDataLimit) + " budget)"
+				}
+				if decoded.Permanent {
+					msg += " [permanent]"
+				}
+				event := notify.NewEvent(notify.EventGrantCreated, notify.SeverityInfo,
+					remotePeer.String(), short, msg)
+				event.ID = fmt.Sprintf("grant-received-%s-%d", remotePeer, decoded.SessionDataLimit)
+				rt.notifyRouter.Emit(event)
+			}
 		} else {
 			slog.Warn("grant-receipt: received but cache not initialized (identity key missing?)",
 				"relay", short)
 		}
-
-		// Same backoff-clearing as legacy handler.
-		rt.clearBackoffsAndReconnect()
-	})
-
-	// Legacy handler for old relays that only speak grant-changed.
-	h.SetStreamHandler(protocol.ID(relay.GrantChangedProtocol), func(s network.Stream) {
-		defer s.Close()
-		remotePeer := s.Conn().RemotePeer()
-
-		short := remotePeer.String()
-		if len(short) > 16 {
-			short = short[:16] + "..."
-		}
-
-		if !rt.isConfiguredRelay(remotePeer) {
-			slog.Warn("grant-changed: rejected from non-relay", "peer", short)
-			return
-		}
-
-		// S7: rate limit (shared with receipt handler).
-		if !rl.allow(remotePeer) {
-			slog.Debug("grant-changed: rate limited", "peer", short)
-			return
-		}
-
-		// Read and validate version byte with timeout.
-		if err := s.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			slog.Warn("grant-changed: set deadline error", "err", err)
-			return
-		}
-		var ver [1]byte
-		if _, err := io.ReadFull(s, ver[:]); err != nil {
-			slog.Warn("grant-changed: read error", "err", err)
-			return
-		}
-		if ver[0] != 0x01 {
-			slog.Warn("grant-changed: unsupported version", "version", ver[0])
-			return
-		}
-
-		slog.Info("grant-changed: relay notified access changed (legacy), clearing backoffs",
-			"relay", short)
 
 		rt.clearBackoffsAndReconnect()
 	})
 }
 
 // clearBackoffsAndReconnect clears dial backoffs and triggers reconnection.
-// Shared by both grant-receipt and legacy grant-changed handlers.
+// Also closes stale relay circuits so libp2p re-dials with fresh circuits
+// (needed after relay budget refill — old circuits are dead but libp2p
+// still holds the connection objects, blocking re-dial).
 func (rt *serveRuntime) clearBackoffsAndReconnect() {
 	if rt.gater != nil {
 		rt.network.ClearDialBackoffs(rt.gater.GetAuthorizedPeerIDs())
 	}
+
+	// Close idle relay connections. After budget exhaustion the relay kills
+	// the circuit but libp2p still holds the connection object. ConnectToPeer
+	// sees it and returns without re-dialing, then stream open fails.
+	// Closing idle limited connections forces a fresh dial on the next attempt.
+	// Only close connections with no open streams to avoid killing active transfers.
+	h := rt.network.Host()
+	for _, p := range h.Network().Peers() {
+		for _, c := range h.Network().ConnsToPeer(p) {
+			if c.Stat().Limited && len(c.GetStreams()) == 0 {
+				c.Close()
+			}
+		}
+	}
+
 	if rt.peerManager != nil {
 		rt.peerManager.OnNetworkChange()
 	}
@@ -1407,6 +1527,63 @@ func isCGNATAddr(ip net.IP) bool {
 // This is used by daemon API handlers (ping, traceroute, connect).
 func (rt *serveRuntime) ConnectToPeer(ctx context.Context, peerID peer.ID) error {
 	result, err := rt.pathDialer.DialPeer(ctx, peerID)
+	if err == nil {
+		fmt.Printf("Connected to %s [%s] via %s (%s)\n",
+			peerID.String()[:16], result.PathType, result.Address, result.Duration.Round(time.Millisecond))
+		return nil
+	}
+
+	// First dial failed. This commonly happens after relay budget exhaustion:
+	// the circuit was killed, PeerManager accumulated backoff, and swarm-level
+	// dial backoffs prevent re-dial. Clear ALL backoff state and retry once.
+	//
+	// 1. Close stale relay connections (dead circuit objects that fool libp2p
+	//    into thinking the peer is still connected).
+	// 2. Clear swarm dial backoffs (libp2p won't retry addresses it recently
+	//    failed to dial without clearing these).
+	// 3. Reset PeerManager backoff (ConsecFailures and BackoffUntil) so the
+	//    reconnect loop doesn't block subsequent attempts.
+	// 4. Reset black hole detector state (consecutive relay failures may have
+	//    triggered the detector, blocking all relay dials).
+	short := peerID.String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+
+	h := rt.network.Host()
+	for _, c := range h.Network().ConnsToPeer(peerID) {
+		if c.Stat().Limited {
+			c.Close()
+		}
+	}
+	// Clear backoffs for target AND relay servers (F33-R2-4/R2-5). The retry
+	// may dial THROUGH relay servers — if those relay peer IDs have backoffs
+	// from a previous network state, the circuit leg fails before it starts.
+	clearIDs := []peer.ID{peerID}
+	if rt.relayDiscovery != nil {
+		for _, ai := range rt.relayDiscovery.AllRelays() {
+			clearIDs = append(clearIDs, ai.ID)
+		}
+	}
+	rt.network.ClearDialBackoffs(clearIDs)
+	if rt.peerManager != nil {
+		rt.peerManager.ResetPeerBackoff(peerID)
+	}
+	rt.network.ResetBlackHoles()
+
+	// Re-add relay circuit addresses to the peerstore. After circuit death,
+	// the peerstore may only have direct addresses that are unreachable from
+	// CGNAT. Adding fresh circuit addresses ensures the retry's relay leg
+	// has valid addresses to dial.
+	if rt.relayDiscovery != nil {
+		relayAddrs := rt.relayDiscovery.RelayAddrs()
+		if len(relayAddrs) > 0 {
+			_ = sdk.AddRelayAddressesForPeerFunc(h, relayAddrs, peerID)
+		}
+	}
+
+	slog.Info("ConnectToPeer: cleared backoffs, retrying dial", "peer", short)
+	result, err = rt.pathDialer.DialPeer(ctx, peerID)
 	if err != nil {
 		return err
 	}
@@ -1530,7 +1707,74 @@ func (rt *serveRuntime) StartReputationScoreUpdater() func(peer.ID) int {
 // Shutdown cancels the context, stops the metrics server, disables the peer relay,
 // and closes the P2P network.
 // Transfer service shutdown is handled by plugin Stop() via registry.StopAll().
+// startProxyEventLoop subscribes to libp2p peer connectivity events and
+// forwards them to the daemon server's proxy manager (F1).
+// Also chains the deauth callback for proxy cleanup (F2).
+func (rt *serveRuntime) startProxyEventLoop(srv *daemon.Server) {
+	h := rt.network.Host()
+
+	// F1: Subscribe to libp2p's native event bus for peer connectivity.
+	sub, err := h.EventBus().Subscribe(new(event.EvtPeerConnectednessChanged))
+	if err != nil {
+		slog.Warn("proxy event loop: failed to subscribe to peer events", "error", err)
+		return
+	}
+
+	// Detect peers that connected during bootstrap before we subscribed.
+	srv.DetectAlreadyConnected()
+
+	// EDGE-4: Periodic port conflict retry ticker.
+	portRetryTicker := time.NewTicker(daemon.ProxyPortRetryInterval)
+
+	go func() {
+		defer sub.Close()
+		defer portRetryTicker.Stop()
+		for {
+			select {
+			case <-rt.ctx.Done():
+				return
+			case evt, ok := <-sub.Out():
+				if !ok {
+					return
+				}
+				e := evt.(event.EvtPeerConnectednessChanged)
+				switch e.Connectedness {
+				case network.Connected:
+					srv.OnPeerConnected(e.Peer)
+				case network.NotConnected:
+					srv.OnPeerDisconnected(e.Peer)
+				}
+			case <-portRetryTicker.C:
+				srv.RetryPortConflicts()
+				srv.PollProxyStatus()
+			}
+		}
+	}()
+
+	// F2: Chain deauth callback — add proxy cleanup after PathProtector cleanup.
+	if rt.peerManager != nil {
+		existing := rt.peerManager.OnWatchlistRemovedFunc()
+		rt.peerManager.SetOnWatchlistRemoved(func(pid peer.ID) {
+			if existing != nil {
+				existing(pid)
+			}
+			srv.OnPeerDeauthorized(pid)
+		})
+	}
+}
+
 func (rt *serveRuntime) Shutdown() {
+	// Stop deferred network-change timers before any subsystem cleanup.
+	// Prevents callbacks from firing on partially-torn-down state.
+	rt.deferredMu.Lock()
+	if rt.deferredReconnectTimer != nil {
+		rt.deferredReconnectTimer.Stop()
+	}
+	if rt.deferredDHTTimer != nil {
+		rt.deferredDHTTimer.Stop()
+	}
+	rt.deferredMu.Unlock()
+
 	// Save peer history before exit.
 	if rt.peerHistory != nil {
 		if err := rt.peerHistory.Save(); err != nil {
@@ -1574,10 +1818,10 @@ func (rt *serveRuntime) Shutdown() {
 	rt.network.Close()
 }
 
-// peerRelayConfigFromYAML converts the YAML peer relay config to p2pnet's config type.
+// peerRelayConfigFromYAML converts the YAML peer relay config to sdk's config type.
 // Zero values are handled by applyDefaults inside NewPeerRelay.
-func peerRelayConfigFromYAML(cfg config.PeerRelayConfig) p2pnet.PeerRelayConfig {
-	c := p2pnet.PeerRelayConfig{
+func peerRelayConfigFromYAML(cfg config.PeerRelayConfig) sdk.PeerRelayConfig {
+	c := sdk.PeerRelayConfig{
 		Enabled:                cfg.Enabled,
 		MaxReservations:        cfg.Resources.MaxReservations,
 		MaxCircuits:            cfg.Resources.MaxCircuits,
@@ -1651,7 +1895,7 @@ func waitForIPv6BindReady(ctx context.Context, timeout time.Duration) bool {
 			slog.Warn("waitForIPv6BindReady: timed out waiting for DAD")
 			return false
 		case <-ticker.C:
-			summary, err := p2pnet.DiscoverInterfaces()
+			summary, err := sdk.DiscoverInterfaces()
 			if err != nil || summary == nil || len(summary.GlobalIPv6Addrs) == 0 {
 				continue
 			}

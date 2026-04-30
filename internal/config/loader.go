@@ -45,8 +45,9 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Identity  IdentityConfig  `yaml:"identity"`
 		Network   NetworkConfig   `yaml:"network"`
 		Relay     struct {
-			Addresses           []string `yaml:"addresses"`
-			ReservationInterval string   `yaml:"reservation_interval"`
+			Addresses           []string          `yaml:"addresses"`
+			ReservationInterval string            `yaml:"reservation_interval"`
+			Names               map[string]string `yaml:"names,omitempty"`
 		} `yaml:"relay"`
 		Discovery DiscoveryConfig `yaml:"discovery"`
 		Security  SecurityConfig  `yaml:"security"`
@@ -94,6 +95,7 @@ func LoadHomeNodeConfig(path string) (*HomeNodeConfig, error) {
 		Relay: RelayConfig{
 			Addresses:           rawConfig.Relay.Addresses,
 			ReservationInterval: reservationInterval,
+			Names:               rawConfig.Relay.Names,
 		},
 	}
 
@@ -117,8 +119,9 @@ func LoadClientNodeConfig(path string) (*ClientNodeConfig, error) {
 		Identity  IdentityConfig  `yaml:"identity"`
 		Network   NetworkConfig   `yaml:"network"`
 		Relay     struct {
-			Addresses           []string `yaml:"addresses"`
-			ReservationInterval string   `yaml:"reservation_interval"`
+			Addresses           []string          `yaml:"addresses"`
+			ReservationInterval string            `yaml:"reservation_interval"`
+			Names               map[string]string `yaml:"names,omitempty"`
 		} `yaml:"relay"`
 		Discovery DiscoveryConfig `yaml:"discovery"`
 		Security  SecurityConfig  `yaml:"security"`
@@ -146,6 +149,7 @@ func LoadClientNodeConfig(path string) (*ClientNodeConfig, error) {
 		Relay: RelayConfig{
 			Addresses:           rawConfig.Relay.Addresses,
 			ReservationInterval: reservationInterval,
+			Names:               rawConfig.Relay.Names,
 		},
 	}
 

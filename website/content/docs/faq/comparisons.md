@@ -53,7 +53,7 @@ Shurli takes the opposite approach: fully decentralized coordination via a Kadem
 ### Strengths of the decentralized approach
 
 - **No central authority** - No account, no coordination server, no vendor dependency
-- **Importable library** - `pkg/p2pnet` can be embedded into any Go application
+- **Importable library** - `pkg/sdk` can be embedded into any Go application
 - **CGNAT/Starlink proven** - Relay-based architecture works through symmetric NAT
 - **Self-hosted relay** - You run your own relay on a $5 VPS
 - **GPU inference use case** - Purpose-built for exposing Ollama/vLLM through CGNAT
@@ -299,7 +299,7 @@ Where Shurli goes further than Ethereum's usage:
 
 Most P2P tunnel tools ship with no metrics, no traces, and no structured audit logs. DevOps teams bolt on monitoring after the fact, poorly.
 
-Shurli ships with 40 custom Prometheus metrics (proxy, auth, vault, pairing, deposits, admin socket, ZKP proving/verification) alongside libp2p built-in metrics, structured audit logging, and a pre-built Grafana dashboard with 56 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
+Shurli ships with 53 custom Prometheus metrics (proxy, auth, vault, pairing, deposits, admin socket, ZKP proving/verification, grants, transfers, plugins) alongside libp2p built-in metrics, structured audit logging, and a pre-built Grafana dashboard with 56 panels out of the box. No other P2P tunnel tool ships with this level of built-in observability.
 
 **What's next**: Distributed tracing (deferred - 35% CPU overhead not justified yet). OTLP export via Prometheus bridge when users request it.
 

@@ -1,8 +1,10 @@
 # Post-Chaos Network Hardening
 
-**Date**: 2026-03-11 to 2026-03-14
-**Status**: Complete
-**ADRs**: ADR-S01 to ADR-S07
+| | |
+|---|---|
+| **Date** | 2026-03-11 to 2026-03-14 |
+| **Status** | Complete |
+| **ADRs** | ADR-S01 to ADR-S07 |
 
 Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root causes in libp2p's network transition handling and 8 post-chaos flags. All resolved. This journal covers the architectural decisions made during the fix and investigation phase.
 
@@ -10,8 +12,10 @@ Physical chaos testing (16 test cases, 5 ISPs, 3 VPN providers) exposed 11 root 
 
 ### ADR-S01: Reset Black Hole Detectors on Network Change
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -32,14 +36,16 @@ Self-recovery requires 5 successful probes out of 100 attempts. At 1 probe per 1
 - Black hole state resets within 500ms of any network change (debounce delay)
 - False positives possible: a brief network flicker resets the detector, allowing a burst of UDP/IPv6 dials that will fail. The detector re-learns within 100 dials. Acceptable: the burst is short and bounded.
 
-**Reference**: `pkg/p2pnet/network.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/network.go`, `cmd/shurli/serve_common.go`
 
 ---
 
 ### ADR-S02: ForceReachabilityPrivate for Permanent Relay Fallback
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -66,8 +72,10 @@ Set `libp2p.ForceReachabilityPrivate()` always in daemon mode. The daemon mainta
 
 ### ADR-S03: Constrained Dial for Confirmed Path
 
-**Date**: 2026-03-11
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-11 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -82,14 +90,16 @@ Before `DialPeer`, save all peerstore addresses, `ClearAddrs`, add ONLY the conf
 - `DialPeer` only sees the confirmed address, no cascade failures
 - Brief peerstore manipulation window during which other subsystems see reduced addresses. Acceptable: the existing relay connection is unaffected, and the window is bounded by the 10s dial timeout.
 
-**Reference**: `pkg/p2pnet/peermanager.go`
+**Reference**: `pkg/sdk/peermanager.go`
 
 ---
 
 ### ADR-S04: VPN Tunnel Interface Detection
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -106,14 +116,16 @@ Interface name patterns: `utun[0-9]+` (macOS: WireGuard, IKEv2, LightWay), `tun[
 - VPN connect/disconnect fires network change events, triggering the full recovery chain
 - Edge case: VPN setting changes without interface add/remove (e.g., toggling local network sharing) are not detected. Acceptable: the connection state doesn't change in this case.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/netmonitor.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/netmonitor.go`
 
 ---
 
 ### ADR-S05: Default Gateway Tracking for Private IPv4 Switches
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -143,14 +155,16 @@ Option 2 in the original plan. Rejected: higher false-positive rate from DHCP re
 - Platform-specific exec (`route`/`ip`) adds ~10-20ms per check. Acceptable: runs at most once per debounced network event.
 - Feature degrades gracefully on unsupported platforms (returns empty string, gateway detection disabled, other detection methods still work)
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/gateway_darwin.go`, `pkg/p2pnet/gateway_linux.go`, `pkg/p2pnet/gateway_other.go`, `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/netmonitor_darwin.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/gateway_darwin.go`, `pkg/sdk/gateway_linux.go`, `pkg/sdk/gateway_other.go`, `pkg/sdk/netmonitor.go`, `pkg/sdk/netmonitor_darwin.go`
 
 ---
 
 ### ADR-S06: Dial Worker Cache Poisoning Workaround
 
-**Date**: 2026-03-13
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-13 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -179,14 +193,16 @@ Three-part fix (all three required - removing any one re-opens the cache poisoni
 - Additional 3s worst-case delay on first mDNS upgrade attempt (probe timeout). Acceptable: the alternative is a 30s+ wait for the next mDNS browse cycle.
 - Probe TCP connection creates a brief aborted Noise handshake on the target peer. No backoff impact (outbound-only, peer sees it as a normal failed connection attempt).
 
-**Reference**: `pkg/p2pnet/peermanager.go`, `pkg/p2pnet/mdns.go`, `cmd/shurli/serve_common.go`
+**Reference**: `pkg/sdk/peermanager.go`, `pkg/sdk/mdns.go`, `cmd/shurli/serve_common.go`
 
 ---
 
 ### ADR-S07: Autorelay Static Relay Tuning
 
-**Date**: 2026-03-14
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-14 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -214,4 +230,4 @@ Add three options alongside the existing `WithBackoff(30s)`:
 - If DHT-discovered relays are added later, these values should be reviewed (minCandidates=1 skips quality selection)
 - No relay VPS overload risk: `backoff=30s` still rate-limits actual reservation attempts per relay
 
-**Reference**: `pkg/p2pnet/network.go`
+**Reference**: `pkg/sdk/network.go`

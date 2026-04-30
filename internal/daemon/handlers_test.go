@@ -19,13 +19,13 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/notify"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
-// --- Mock runtime with a real p2pnet.Network ---
+// --- Mock runtime with a real sdk.Network ---
 
 type networkMockRuntime struct {
-	net          *p2pnet.Network
+	net          *sdk.Network
 	version      string
 	startTime    time.Time
 	pingProto    string
@@ -33,7 +33,7 @@ type networkMockRuntime struct {
 	gater        GaterReloader
 }
 
-func (m *networkMockRuntime) Network() *p2pnet.Network         { return m.net }
+func (m *networkMockRuntime) Network() *sdk.Network         { return m.net }
 func (m *networkMockRuntime) ConfigFile() string               { return "/mock/config.yaml" }
 func (m *networkMockRuntime) AuthKeysPath() string             { return m.authKeysPath }
 func (m *networkMockRuntime) GaterForHotReload() GaterReloader { return m.gater }
@@ -43,13 +43,15 @@ func (m *networkMockRuntime) PingProtocolID() string           { return m.pingPr
 func (m *networkMockRuntime) ConnectToPeer(_ context.Context, _ peer.ID) error {
 	return nil
 }
-func (m *networkMockRuntime) Interfaces() *p2pnet.InterfaceSummary { return nil }
-func (m *networkMockRuntime) PathTracker() *p2pnet.PathTracker           { return nil }
-func (m *networkMockRuntime) BandwidthTracker() *p2pnet.BandwidthTracker { return nil }
-func (m *networkMockRuntime) RelayHealth() *p2pnet.RelayHealth           { return nil }
-func (m *networkMockRuntime) STUNResult() *p2pnet.STUNResult             { return nil }
+func (m *networkMockRuntime) Interfaces() *sdk.InterfaceSummary { return nil }
+func (m *networkMockRuntime) PathTracker() *sdk.PathTracker           { return nil }
+func (m *networkMockRuntime) PathProtector() *sdk.PathProtector       { return nil }
+func (m *networkMockRuntime) BandwidthTracker() *sdk.BandwidthTracker { return nil }
+func (m *networkMockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
+func (m *networkMockRuntime) STUNResult() *sdk.STUNResult             { return nil }
 func (m *networkMockRuntime) IsRelaying() bool                            { return false }
 func (m *networkMockRuntime) RelayAddresses() []string                    { return nil }
+func (m *networkMockRuntime) RelayNameFromConfig(string) string           { return "" }
 func (m *networkMockRuntime) DiscoveryNetwork() string                    { return "" }
 func (m *networkMockRuntime) RelayMOTDs() []MOTDInfo                      { return nil }
 func (m *networkMockRuntime) ConfigReloader() ConfigReloader               { return nil }
@@ -59,7 +61,7 @@ func (m *networkMockRuntime) GrantProtocol() *grants.GrantProtocol         { ret
 func (m *networkMockRuntime) GrantsAutoRefresh() bool                      { return false }
 func (m *networkMockRuntime) GrantsMaxRefreshDuration() string             { return "" }
 func (m *networkMockRuntime) NotifyRouter() *notify.Router                 { return nil }
-func (m *networkMockRuntime) PeerManager() *p2pnet.PeerManager             { return nil }
+func (m *networkMockRuntime) PeerManager() *sdk.PeerManager             { return nil }
 func (m *networkMockRuntime) GrantCacheSnapshot() []*grants.GrantReceipt   { return nil }
 
 // mockGater implements GaterReloader for testing auth add/remove.
@@ -87,11 +89,11 @@ func genHandlerPeerID(t *testing.T) peer.ID {
 	return pid
 }
 
-// newTestNetwork creates a minimal p2pnet.Network for handler testing.
-func newTestNetwork(t *testing.T) *p2pnet.Network {
+// newTestNetwork creates a minimal sdk.Network for handler testing.
+func newTestNetwork(t *testing.T) *sdk.Network {
 	t.Helper()
 	dir := t.TempDir()
-	net, err := p2pnet.New(&p2pnet.Config{
+	net, err := sdk.New(&sdk.Config{
 		KeyFile: filepath.Join(dir, "test.key"),
 	})
 	if err != nil {
@@ -101,12 +103,12 @@ func newTestNetwork(t *testing.T) *p2pnet.Network {
 	return net
 }
 
-// newListeningTestNetwork creates a p2pnet.Network that listens on localhost TCP.
+// newListeningTestNetwork creates a sdk.Network that listens on localhost TCP.
 // This allows two test networks to connect to each other directly.
-func newListeningTestNetwork(t *testing.T) *p2pnet.Network {
+func newListeningTestNetwork(t *testing.T) *sdk.Network {
 	t.Helper()
 	dir := t.TempDir()
-	net, err := p2pnet.New(&p2pnet.Config{
+	net, err := sdk.New(&sdk.Config{
 		KeyFile: filepath.Join(dir, "test.key"),
 		Config: &config.Config{
 			Network: config.NetworkConfig{
@@ -121,7 +123,7 @@ func newListeningTestNetwork(t *testing.T) *p2pnet.Network {
 	return net
 }
 
-// newNetworkServer creates a Server backed by a real p2pnet.Network.
+// newNetworkServer creates a Server backed by a real sdk.Network.
 func newNetworkServer(t *testing.T) (*Server, *networkMockRuntime) {
 	t.Helper()
 	dir := t.TempDir()

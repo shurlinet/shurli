@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes streamPulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1s linear infinite; }
+      .stream { animation: streamPulse 1.5s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="200" fill="url(#bg)"/>
+
+  <!-- Media server (left) -->
+  <g transform="translate(30, 25)">
+    <rect x="0" y="0" width="180" height="80" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+    <text x="90" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">Your Media Server</text>
+    <line x1="15" y1="30" x2="165" y2="30" stroke="#00d4aa" stroke-width="0.5" opacity="0.3"/>
+    <text x="90" y="46" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">movies, music, photos</text>
+    <text x="90" y="60" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">on your hardware</text>
+    <text x="90" y="74" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">you own everything</text>
+  </g>
+
+  <!-- Streaming arrows -->
+  <line x1="215" y1="45" x2="328" y2="25" class="flow" stroke="#00d4aa" stroke-width="2" opacity="0.5"/>
+  <line x1="215" y1="60" x2="328" y2="60" class="flow" stroke="#4488ff" stroke-width="2" opacity="0.5"/>
+  <line x1="215" y1="75" x2="328" y2="95" class="flow" stroke="#4488ff" stroke-width="2" opacity="0.4"/>
+
+  <!-- Grant badge -->
+  <g transform="translate(240, 42)">
+    <rect x="0" y="0" width="70" height="18" rx="4" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="35" y="13" font-family="'SF Mono', monospace" font-size="7" fill="#ffb347" text-anchor="middle">grant &#10003;</text>
+  </g>
+
+  <!-- Authorized peers -->
+  <g transform="translate(335, 10)">
+    <rect x="0" y="0" width="170" height="32" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+    <text x="85" y="13" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle" font-weight="600">Family Member</text>
+    <text x="85" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">streaming movie, auto quality</text>
+  </g>
+  <g transform="translate(335, 48)">
+    <rect x="0" y="0" width="170" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="85" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Friend</text>
+    <text x="85" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">browsing photos, grant: 7 days</text>
+  </g>
+  <g transform="translate(335, 86)">
+    <rect x="0" y="0" width="170" height="32" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+    <text x="85" y="13" font-family="system-ui" font-size="9" fill="#4488ff" text-anchor="middle" font-weight="600">Guest</text>
+    <text x="85" y="26" font-family="system-ui" font-size="8" fill="#bbb" text-anchor="middle">one album, grant: 24 hours</text>
+  </g>
+
+  <!-- No cloud -->
+  <g transform="translate(590, 35)">
+    <rect x="0" y="0" width="170" height="55" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1.5" opacity="0.5"/>
+    <text x="85" y="20" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle">Cloud Streaming</text>
+    <line x1="25" y1="28" x2="145" y2="48" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <line x1="145" y1="28" x2="25" y2="48" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+  </g>
+
+  <text x="400" y="155" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Grant tokens control who streams what and for how long. Your media stays on your hardware.</text>
+
+  <g transform="translate(300, 168)">
+    <rect x="0" y="0" width="180" height="24" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="90" y="16" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle">Media Streaming Plugin</text>
+  </g>
+</svg>

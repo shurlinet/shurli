@@ -127,7 +127,7 @@ func TestRewriteGitHubSourceLinks(t *testing.T) {
 		name, input, want string
 	}{
 		{"cmd link", "[x](../cmd/shurli/main.go)", "[x](" + cfg.GithubBase + "/cmd/shurli/main.go)"},
-		{"pkg link", "[x](../pkg/p2pnet/foo.go)", "[x](" + cfg.GithubBase + "/pkg/p2pnet/foo.go)"},
+		{"pkg link", "[x](../pkg/sdk/foo.go)", "[x](" + cfg.GithubBase + "/pkg/sdk/foo.go)"},
 		{"internal link", "[x](../internal/config/)", "[x](" + cfg.GithubBase + "/internal/config/)"},
 		{"github link", "[ci](../.github/workflows/ci.yml)", "[ci](" + cfg.GithubBase + "/.github/workflows/ci.yml)"},
 		{"not relative", "[x](cmd/shurli/main.go)", "[x](cmd/shurli/main.go)"},
@@ -170,10 +170,10 @@ func TestRewriteJournalBackticks(t *testing.T) {
 	tests := []struct {
 		name, input, want string
 	}{
-		{"pkg ref", "`pkg/p2pnet/interfaces.go`", "`" + cfg.GithubBase + "/pkg/p2pnet/interfaces.go`"},
+		{"pkg ref", "`pkg/sdk/interfaces.go`", "`" + cfg.GithubBase + "/pkg/sdk/interfaces.go`"},
 		{"cmd ref", "`cmd/shurli/main.go`", "`" + cfg.GithubBase + "/cmd/shurli/main.go`"},
 		{"internal ref", "`internal/config/loader.go`", "`" + cfg.GithubBase + "/internal/config/loader.go`"},
-		{"no backtick", "pkg/p2pnet/interfaces.go", "pkg/p2pnet/interfaces.go"},
+		{"no backtick", "pkg/sdk/interfaces.go", "pkg/sdk/interfaces.go"},
 		{"other prefix", "`test/docker/file.go`", "`test/docker/file.go`"},
 	}
 	for _, tt := range tests {
@@ -186,22 +186,36 @@ func TestRewriteJournalBackticks(t *testing.T) {
 	}
 }
 
-func TestRewriteJournalMdToDir(t *testing.T) {
+func TestRewriteJournalCrossRefs(t *testing.T) {
 	tests := []struct {
-		name, input, want string
+		name    string
+		input   string
+		isIndex bool
+		want    string
 	}{
-		{"simple", "(core-architecture.md)", "(core-architecture/)"},
-		{"with hyphens", "(batch-a-reliability.md)", "(batch-a-reliability/)"},
-		{"with digits", "(pre-batch-i.md)", "(pre-batch-i/)"},
-		{"uppercase not matched", "(FAQ.md)", "(FAQ.md)"},
-		{"external not matched", "(https://example.com/foo.md)", "(https://example.com/foo.md)"},
-		{"in table", "| [Core Architecture](core-architecture.md) |", "| [Core Architecture](core-architecture/) |"},
+		// Index page: no ../ prefix
+		{"index plain", "(core-architecture.md)", true, "(core-architecture/)"},
+		{"index hyphens", "(batch-a-reliability.md)", true, "(batch-a-reliability/)"},
+		{"index digits", "(pre-batch-i.md)", true, "(pre-batch-i/)"},
+		{"index in table", "| [Core](core-architecture.md) |", true, "| [Core](core-architecture/) |"},
+		{"index anchored", "(tail-slayer-path-reliability.md#adr-x03-hedged)", true, "(tail-slayer-path-reliability/#adr-x03-hedged)"},
+
+		// Sibling entry: ../ prefix
+		{"sibling plain", "(grant-receipt-protocol.md)", false, "(../grant-receipt-protocol/)"},
+		{"sibling anchored", "(relay-circuit-investigation.md#adr-w03-seed-relay-churn)", false, "(../relay-circuit-investigation/#adr-w03-seed-relay-churn)"},
+		{"sibling long anchor", "(tail-slayer-path-reliability.md#adr-x03-hedged-multi-peer-manifest-exchange-ts-3)", false, "(../tail-slayer-path-reliability/#adr-x03-hedged-multi-peer-manifest-exchange-ts-3)"},
+		{"sibling multiple", "[V](grant-receipt-protocol.md) and [W](relay-circuit-investigation.md)", false, "[V](../grant-receipt-protocol/) and [W](../relay-circuit-investigation/)"},
+
+		// Not matched (both modes)
+		{"uppercase not matched", "(FAQ.md)", false, "(FAQ.md)"},
+		{"external not matched", "(https://example.com/foo.md)", false, "(https://example.com/foo.md)"},
+		{"inline text unchanged", "See grant-receipt-protocol.md for details", false, "See grant-receipt-protocol.md for details"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := rewriteJournalMdToDir(tt.input)
+			got := rewriteJournalCrossRefs(tt.input, tt.isIndex)
 			if got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
+				t.Errorf("\n got: %q\nwant: %q", got, tt.want)
 			}
 		})
 	}
@@ -403,7 +417,7 @@ Feature list.
 
 	// Create engineering journal
 	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "README.md"), []byte("# Engineering Journal\n\n| [Core](core-architecture.md) |\n"), 0644)
-	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "core-architecture.md"), []byte("# Core Architecture\n\n**Reference**: `pkg/p2pnet/network.go`\n"), 0644)
+	os.WriteFile(filepath.Join(docsDir, "engineering-journal", "core-architecture.md"), []byte("# Core Architecture\n\nSee [ADR-X03](tail-slayer-path-reliability.md#adr-x03-hedged) and [Grant Receipt](grant-receipt-protocol.md).\n\n**Reference**: `pkg/sdk/network.go`\n"), 0644)
 
 	// Create docs/RELAY-SETUP.md
 	os.WriteFile(filepath.Join(docsDir, "RELAY-SETUP.md"), []byte("# Relay Setup\n\nSetup instructions.\n"), 0644)
@@ -459,7 +473,12 @@ Feature list.
 
 	// Verify Journal entry backtick rewriting
 	coreContent := readFile(t, filepath.Join(root, "website", "content", "docs", "engineering-journal", "core-architecture.md"))
-	assertContains(t, coreContent, "`"+cfg.GithubBase+"/pkg/p2pnet/network.go`", "Journal should rewrite backtick refs")
+	assertContains(t, coreContent, "`"+cfg.GithubBase+"/pkg/sdk/network.go`", "Journal should rewrite backtick refs")
+
+	// Verify Journal sibling cross-reference rewriting
+	assertContains(t, coreContent, "(../tail-slayer-path-reliability/#adr-x03-hedged)", "Journal sibling should rewrite anchored .md to ../slug/#anchor")
+	assertContains(t, coreContent, "(../grant-receipt-protocol/)", "Journal sibling should rewrite plain .md to ../slug/")
+	assertNotContains(t, coreContent, "tail-slayer-path-reliability.md", "Journal sibling should not have .md links")
 }
 
 func TestRun_DryRun(t *testing.T) {

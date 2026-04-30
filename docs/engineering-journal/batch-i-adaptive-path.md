@@ -12,11 +12,11 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 - **Rely on libp2p's address reporting** - libp2p reports listen addresses but doesn't classify them by interface or IP version. Insufficient for path ranking decisions.
 - **Platform-specific APIs** (macOS SCDynamicStore, Linux netlink) - More detailed but requires platform-specific code for a cross-platform tool.
 
-**Decision**: `DiscoverInterfaces()` in `pkg/p2pnet/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
+**Decision**: `DiscoverInterfaces()` in `pkg/sdk/interfaces.go` uses Go's `net.Interfaces()` to enumerate all interfaces and classify addresses as global IPv4, global IPv6, or loopback. Returns an `InterfaceSummary` with convenience flags (`HasGlobalIPv6`, `HasGlobalIPv4`). Called at startup and on every network change.
 
 **Consequences**: Cross-platform (Go stdlib). Slightly less detailed than platform-native APIs but sufficient for path ranking. Prometheus `interface_count` gauge tracks interface availability.
 
-**Reference**: `pkg/p2pnet/interfaces.go`, `pkg/p2pnet/interfaces_test.go`
+**Reference**: `pkg/sdk/interfaces.go`, `pkg/sdk/interfaces_test.go`
 
 ---
 
@@ -33,7 +33,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Connection time drops from 45s worst-case to the faster of DHT or relay (typically 3-10s). Slightly more goroutines spawned per connection attempt, but context cancellation ensures clean cleanup.
 
-**Reference**: `pkg/p2pnet/pathdialer.go`, `pkg/p2pnet/pathdialer_test.go`
+**Reference**: `pkg/sdk/pathdialer.go`, `pkg/sdk/pathdialer_test.go`
 
 ---
 
@@ -49,7 +49,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Zero polling overhead. Event-driven means path info updates immediately on connection state changes. Adds a dependency on libp2p's event bus API stability.
 
-**Reference**: `pkg/p2pnet/pathtracker.go`, `pkg/p2pnet/pathtracker_test.go`
+**Reference**: `pkg/sdk/pathtracker.go`, `pkg/sdk/pathtracker_test.go`
 
 ---
 
@@ -65,7 +65,7 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Polling introduces a detection delay (up to the poll interval). Acceptable because network changes are rare events and the poll interval is configurable. Platform-native event-driven detection can be added later as an optimization without changing the callback API.
 
-**Reference**: `pkg/p2pnet/netmonitor.go`, `pkg/p2pnet/netmonitor_test.go`
+**Reference**: `pkg/sdk/netmonitor.go`, `pkg/sdk/netmonitor_test.go`
 
 ---
 
@@ -77,11 +77,11 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 - **pion/stun** - Mature, widely used. Rejected because it pulls in the entire pion dependency tree (already have pion/dtls as a transitive dep of libp2p, but adding pion/stun directly increases attack surface and binary size).
 - **Skip STUN entirely** - Rely on AutoNAT v2 only. AutoNAT gives reachability but not NAT type classification (full-cone vs symmetric matters for hole-punch prediction).
 
-**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `pkg/p2pnet/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
+**Decision**: Implement a minimal RFC 5389 STUN Binding Request client in `pkg/sdk/stunprober.go`. ~150 lines of code. Probes multiple STUN servers concurrently (Google, Cloudflare). Collects external addresses, classifies NAT type (none, full-cone, address-restricted, port-restricted, symmetric). `HolePunchable()` helper indicates DCUtR likelihood.
 
 **Consequences**: Zero new dependencies. Binary size unchanged. The STUN client only implements Binding Request (the simplest STUN transaction). Does NOT implement TURN or ICE. Runs in background at startup (non-blocking) and re-probes on network change.
 
-**Reference**: `pkg/p2pnet/stunprober.go`, `pkg/p2pnet/stunprober_test.go`
+**Reference**: `pkg/sdk/stunprober.go`, `pkg/sdk/stunprober_test.go`
 
 ---
 
@@ -98,4 +98,4 @@ Interface discovery, parallel dial racing, path quality tracking, network change
 
 **Consequences**: Peers behind NAT never become relays (correct). Peers with public IPs silently become relays for their authorized peers. The conservative limits prevent resource exhaustion on home machines. DHT-based relay discovery (so peers can find each other's relays) is deferred to Post-I.
 
-**Reference**: `pkg/p2pnet/peerrelay.go`, `pkg/p2pnet/peerrelay_test.go`
+**Reference**: `pkg/sdk/peerrelay.go`, `pkg/sdk/peerrelay_test.go`

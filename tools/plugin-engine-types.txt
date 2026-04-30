@@ -1,0 +1,45 @@
+# Plugin engine types and protocol constants that must NOT be defined in pkg/sdk/.
+# Both the Go analyzer (tools/boundarycheck/) and shell script
+# (tools/check-plugin-boundary.sh) read this file.
+#
+# When a plugin's code is migrated OUT of pkg/sdk/, remove its entries here.
+# When a NEW plugin is extracted, add its engine types here.
+#
+# Format:
+#   type:<TypeName>         - receiver methods on this type must not be in pkg/sdk/
+#   const:<ConstName>       - this constant must not be defined in pkg/sdk/
+#   grep:<pattern>          - grep pattern for type declarations in pkg/sdk/ (shell script CHECK 3)
+#   receiver:<pattern>      - grep pattern for receiver methods in pkg/sdk/ (shell script CHECK 4)
+
+# --- File Transfer Plugin engine types ---
+type:TransferService
+type:ShareRegistry
+type:TransferQueue
+type:TransferLogger
+type:TransferNotifier
+
+# --- File Transfer Plugin protocol constants ---
+const:TransferProtocol
+const:BrowseProtocol
+const:DownloadProtocol
+const:MultiPeerProtocol
+
+# --- File Transfer Plugin type grep patterns (for shell script CHECK 3) ---
+# These match "type FooBar struct/interface/..." at the start of a line in pkg/sdk/
+grep:^type Transfer
+grep:^type Share[A-Z]
+grep:^type Browse
+grep:^type Download[A-Z]
+grep:^type Pending
+grep:^type SendOption
+grep:^type ReceiveMode
+grep:^type StreamInfo
+grep:^type RejectReason
+grep:^type QueuedTransfer
+
+# --- File Transfer Plugin receiver grep patterns (for shell script CHECK 4) ---
+receiver:^func (ts \*TransferService)
+receiver:^func (r \*ShareRegistry)
+receiver:^func (q \*TransferQueue)
+receiver:^func (l \*TransferLogger)
+receiver:^func (n \*TransferNotifier)

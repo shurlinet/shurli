@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" fill="none">
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes drawLine { from { stroke-dashoffset: 1000; } to { stroke-dashoffset: 0; } }
+    @keyframes dotPop { 0% { r: 0; opacity: 0; } 100% { r: 4; opacity: 1; } }
+    .f1 { animation: fadeIn 0.5s ease-out 0.3s both; }
+    .f2 { animation: fadeIn 0.5s ease-out 0.8s both; }
+    .line { stroke-dasharray: 1000; animation: drawLine 2s ease-out 0.5s both; }
+    .dot { animation: dotPop 0.3s ease-out both; }
+    .d1 { animation-delay: 0.6s; } .d2 { animation-delay: 0.8s; } .d3 { animation-delay: 1.0s; }
+    .d4 { animation-delay: 1.2s; } .d5 { animation-delay: 1.4s; } .d6 { animation-delay: 1.6s; }
+    .d7 { animation-delay: 1.8s; } .d8 { animation-delay: 2.0s; } .d9 { animation-delay: 2.2s; }
+    .d10 { animation-delay: 2.4s; } .d11 { animation-delay: 2.6s; } .d12 { animation-delay: 2.8s; }
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <rect width="800" height="340" fill="#0a0a1a"/>
+
+  <text x="400" y="30" text-anchor="middle" font-size="15" fill="#666" letter-spacing="1">GLOBAL IPv6 ADOPTION (GOOGLE, 2015-2026)</text>
+
+  <!-- Chart area: x=80..720, y=55..275 (220px tall) -->
+  <!-- Y axis -->
+  <line x1="80" y1="55" x2="80" y2="275" stroke="#333" stroke-width="1" class="f1"/>
+  <!-- X axis -->
+  <line x1="80" y1="275" x2="720" y2="275" stroke="#333" stroke-width="1" class="f1"/>
+
+  <!-- Y labels: 0% to 50% -->
+  <g class="f1">
+    <text x="72" y="59" text-anchor="end" font-size="11" fill="#666">50%</text>
+    <text x="72" y="103" text-anchor="end" font-size="11" fill="#666">40%</text>
+    <text x="72" y="147" text-anchor="end" font-size="11" fill="#666">30%</text>
+    <text x="72" y="191" text-anchor="end" font-size="11" fill="#666">20%</text>
+    <text x="72" y="235" text-anchor="end" font-size="11" fill="#666">10%</text>
+    <text x="72" y="279" text-anchor="end" font-size="11" fill="#666">0%</text>
+  </g>
+
+  <!-- Grid lines -->
+  <g opacity="0.08" class="f1">
+    <line x1="80" y1="55" x2="720" y2="55" stroke="#888" stroke-width="0.5"/>
+    <line x1="80" y1="99" x2="720" y2="99" stroke="#888" stroke-width="0.5"/>
+    <line x1="80" y1="143" x2="720" y2="143" stroke="#888" stroke-width="0.5"/>
+    <line x1="80" y1="187" x2="720" y2="187" stroke="#888" stroke-width="0.5"/>
+    <line x1="80" y1="231" x2="720" y2="231" stroke="#888" stroke-width="0.5"/>
+  </g>
+
+  <!-- X labels (2015-2026, 12 points, spaced ~58px) -->
+  <g class="f1">
+    <text x="80" y="295" text-anchor="middle" font-size="11" fill="#666">2015</text>
+    <text x="138" y="295" text-anchor="middle" font-size="11" fill="#666">2016</text>
+    <text x="196" y="295" text-anchor="middle" font-size="11" fill="#666">2017</text>
+    <text x="254" y="295" text-anchor="middle" font-size="11" fill="#666">2018</text>
+    <text x="312" y="295" text-anchor="middle" font-size="11" fill="#666">2019</text>
+    <text x="370" y="295" text-anchor="middle" font-size="11" fill="#666">2020</text>
+    <text x="428" y="295" text-anchor="middle" font-size="11" fill="#666">2021</text>
+    <text x="486" y="295" text-anchor="middle" font-size="11" fill="#666">2022</text>
+    <text x="544" y="295" text-anchor="middle" font-size="11" fill="#666">2023</text>
+    <text x="602" y="295" text-anchor="middle" font-size="11" fill="#666">2024</text>
+    <text x="660" y="295" text-anchor="middle" font-size="11" fill="#666">2025</text>
+    <text x="720" y="295" text-anchor="middle" font-size="11" fill="#00d4aa" font-weight="600">2026</text>
+  </g>
+
+  <!-- Data: 5.8, 10.4, 16.5, 21.8, 26.3, 30.2, 34.2, 37.8, 42.0, 43.9, 46.0, 48.7 -->
+  <!-- Y scale: 0%=275, 50%=55. Each 1% = 4.4px. y = 275 - (val * 4.4) -->
+  <!-- 5.8=249, 10.4=229, 16.5=202, 21.8=179, 26.3=159, 30.2=142, 34.2=125, 37.8=109, 42=90, 43.9=82, 46=72, 48.7=61 -->
+  <polyline points="80,249 138,229 196,202 254,179 312,159 370,142 428,125 486,109 544,90 602,82 660,72 720,61"
+    stroke="#00d4aa" stroke-width="2.5" fill="none" class="line"/>
+
+  <!-- Data dots with values -->
+  <circle cx="80" cy="249" r="0" fill="#00d4aa" class="dot d1"/>
+  <circle cx="138" cy="229" r="0" fill="#00d4aa" class="dot d2"/>
+  <circle cx="196" cy="202" r="0" fill="#00d4aa" class="dot d3"/>
+  <circle cx="254" cy="179" r="0" fill="#00d4aa" class="dot d4"/>
+  <circle cx="312" cy="159" r="0" fill="#00d4aa" class="dot d5"/>
+  <circle cx="370" cy="142" r="0" fill="#00d4aa" class="dot d6"/>
+  <circle cx="428" cy="125" r="0" fill="#00d4aa" class="dot d7"/>
+  <circle cx="486" cy="109" r="0" fill="#00d4aa" class="dot d8"/>
+  <circle cx="544" cy="90" r="0" fill="#00d4aa" class="dot d9"/>
+  <circle cx="602" cy="82" r="0" fill="#00d4aa" class="dot d10"/>
+  <circle cx="660" cy="72" r="0" fill="#00d4aa" class="dot d11"/>
+  <circle cx="720" cy="61" r="0" fill="#00d4aa" class="dot d12"/>
+
+  <!-- Value labels on key points -->
+  <g class="f2">
+    <text x="80" y="243" text-anchor="middle" font-size="9" fill="#00d4aa" class="mono">6%</text>
+    <text x="370" y="136" text-anchor="middle" font-size="9" fill="#00d4aa" class="mono">30%</text>
+    <text x="720" y="53" text-anchor="middle" font-size="10" fill="#00d4aa" font-weight="600" class="mono">49%</text>
+  </g>
+
+  <!-- 50% threshold -->
+  <line x1="80" y1="55" x2="720" y2="55" stroke="#00d4aa" stroke-width="1" stroke-dasharray="4 4" opacity="0.2" class="f2"/>
+
+  <!-- Source -->
+  <text x="400" y="325" text-anchor="middle" font-size="10" fill="#666" class="f2">Source: Google IPv6 Statistics (% of users reaching Google over IPv6)</text>
+</svg>

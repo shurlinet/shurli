@@ -15,7 +15,7 @@ import (
 
 // AuthDecisionFunc is called on every inbound auth decision with the peer ID
 // (truncated) and result ("allow" or "deny"). Used for metrics and audit logging
-// without creating a circular dependency on pkg/p2pnet.
+// without creating a circular dependency on pkg/sdk.
 type AuthDecisionFunc func(peerID, result string)
 
 // AuthorizedPeerGater implements the ConnectionGater interface.
@@ -36,6 +36,12 @@ type AuthorizedPeerGater struct {
 	// Per-IP rate limiting: prevents rapid probation cycling from a single IP.
 	probationIPCooldown  map[string]time.Time // IP -> last probation admission
 	probationCooldownDur time.Duration        // minimum gap between admissions from same IP
+
+	// lanDialFilter is called by InterceptAddrDial to decide whether an
+	// outbound dial to a specific address should be allowed. When set,
+	// returning false blocks the dial. Used to prevent non-LAN dials when
+	// a LAN connection already exists to the peer (BUG-MP-4).
+	lanDialFilter func(peer.ID, ma.Multiaddr) bool
 }
 
 // NewAuthorizedPeerGater creates a new connection gater with the given authorized peers.
@@ -58,10 +64,29 @@ func (g *AuthorizedPeerGater) InterceptPeerDial(p peer.ID) bool {
 	return true
 }
 
-// InterceptAddrDial is called when dialing an address
+// InterceptAddrDial is called when dialing an address.
+// When a LAN dial filter is set, blocks non-LAN dials to peers that already
+// have a LAN connection (prevents identify/DHT address leaks from displacing
+// established LAN paths).
 func (g *AuthorizedPeerGater) InterceptAddrDial(id peer.ID, addr ma.Multiaddr) bool {
-	// Allow outbound connections
+	g.mu.RLock()
+	filter := g.lanDialFilter
+	g.mu.RUnlock()
+	if filter != nil {
+		if !filter(id, addr) {
+			return false
+		}
+	}
 	return true
+}
+
+// SetLANDialFilter sets a callback that controls outbound address dials.
+// The callback receives the target peer ID and address. Return true to
+// allow the dial, false to block it.
+func (g *AuthorizedPeerGater) SetLANDialFilter(fn func(peer.ID, ma.Multiaddr) bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lanDialFilter = fn
 }
 
 // InterceptAccept is called when accepting a connection (before crypto handshake)
@@ -203,7 +228,7 @@ func (g *AuthorizedPeerGater) GetAuthorizedPeerIDs() []peer.ID {
 
 // SetDecisionCallback sets a callback invoked on every inbound auth decision.
 // This is used by the observability layer to record metrics and audit events
-// without creating a circular import from internal/auth to pkg/p2pnet.
+// without creating a circular import from internal/auth to pkg/sdk.
 func (g *AuthorizedPeerGater) SetDecisionCallback(fn AuthDecisionFunc) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

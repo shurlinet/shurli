@@ -18,7 +18,7 @@ import (
 	"github.com/shurlinet/shurli/internal/deposit"
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/macaroon"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // InviteProtocol is the protocol ID for PAKE-secured relay invite/join.
@@ -26,10 +26,9 @@ const InviteProtocol = "/shurli/invite/1.0.0"
 
 func init() {
 	// Validate all relay protocol constants at startup.
-	p2pnet.MustValidateProtocolIDs(
+	sdk.MustValidateProtocolIDs(
 		InviteProtocol,
 		PeerNotifyProtocol,
-		GrantChangedProtocol,
 		GrantReceiptProtocol,
 		MOTDProtocol,
 		UnsealProtocol,
@@ -63,7 +62,7 @@ type PairingHandler struct {
 	Deposits     *deposit.DepositStore // for macaroon delivery in v2
 	AuthKeysPath string
 	Gater        GaterInterface
-	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	Metrics      *sdk.Metrics // nil-safe: metrics are optional
 	RootKeyFunc  func() ([]byte, error) // returns vault root key for macaroon verification
 	authMu       sync.Mutex             // serializes authorized_keys file mutations
 }

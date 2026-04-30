@@ -19,7 +19,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/auth"
 	"github.com/shurlinet/shurli/internal/vault"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // UnsealProtocol is the libp2p protocol ID for remote vault unseal.
@@ -94,7 +94,7 @@ type UnsealHandler struct {
 	Vault        *vault.Vault
 	AuthKeysPath string
 	StateFile    string          // path to lockout state file (empty = no persistence)
-	Metrics      *p2pnet.Metrics // nil-safe: metrics are optional
+	Metrics      *sdk.Metrics // nil-safe: metrics are optional
 
 	mu       sync.Mutex
 	lockouts map[peer.ID]*peerLockout
@@ -193,16 +193,37 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 	remotePeer := s.Conn().RemotePeer()
 	short := remotePeer.String()[:16] + "..."
 
+	// Generate and send challenge nonce FIRST (16 bytes).
+	// The nonce must be sent before any error responses so the client's
+	// ReadUnsealChallenge/ReadUnsealResponse protocol stays in sync.
+	// Pre-nonce rejection (admin check, lockout) caused the client to
+	// read error bytes as a nonce, then get EOF on the response read,
+	// producing "failed to read unseal response: unexpected EOF".
+	var nonce [unsealNonceLen]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		slog.Error("unseal: failed to generate nonce", "err", err)
+		writeUnsealResponse(s, unsealStatusErr, "internal error")
+		return
+	}
+	if _, err := s.Write(nonce[:]); err != nil {
+		slog.Warn("unseal: failed to send nonce", "peer", short, "err", err)
+		return
+	}
+
 	// Only admin peers can unseal.
 	if !auth.IsAdmin(h.AuthKeysPath, remotePeer) {
 		slog.Warn("unseal: rejected non-admin peer", "peer", short)
 		h.recordMetric("denied")
+		// Client will read the nonce, send a request (which we ignore),
+		// then read this response with the human-readable error.
+		drainUnsealRequest(s)
 		writeUnsealResponse(s, unsealStatusErr, "permission denied: admin role required")
 		return
 	}
 
 	// Check lockout (iOS-style escalating backoff).
 	if locked, remaining := h.isLockedOut(remotePeer); locked {
+		drainUnsealRequest(s)
 		if remaining < 0 {
 			slog.Warn("unseal: permanently blocked peer attempted unseal", "peer", short)
 			h.recordMetric("blocked")
@@ -213,18 +234,6 @@ func (h *UnsealHandler) HandleStream(s network.Stream) {
 		h.recordMetric("locked_out")
 		msg := fmt.Sprintf("locked out: try again in %s", formatLockoutRemaining(remaining))
 		writeUnsealResponse(s, unsealStatusErr, msg)
-		return
-	}
-
-	// Generate and send challenge nonce (16 bytes).
-	var nonce [unsealNonceLen]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		slog.Error("unseal: failed to generate nonce", "err", err)
-		writeUnsealResponse(s, unsealStatusErr, "internal error")
-		return
-	}
-	if _, err := s.Write(nonce[:]); err != nil {
-		slog.Warn("unseal: failed to send nonce", "peer", short, "err", err)
 		return
 	}
 
@@ -497,6 +506,21 @@ func formatLockoutRemaining(d time.Duration) string {
 		}
 		return fmt.Sprintf("%d seconds", s)
 	}
+}
+
+// drainUnsealRequest reads and discards the client's unseal request after
+// the nonce has been sent. This keeps the protocol in sync so the client
+// reads the error response at the correct point (after sending its request).
+func drainUnsealRequest(s network.Stream) {
+	s.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 512)
+	for {
+		_, err := s.Read(buf)
+		if err != nil {
+			break
+		}
+	}
+	s.SetReadDeadline(time.Time{}) // clear deadline for response write
 }
 
 func writeUnsealResponse(s network.Stream, status byte, msg string) {

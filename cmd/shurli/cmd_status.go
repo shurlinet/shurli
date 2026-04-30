@@ -14,7 +14,7 @@ import (
 	"github.com/shurlinet/shurli/internal/daemon"
 	tc "github.com/shurlinet/shurli/internal/termcolor"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runStatus(args []string) {
@@ -53,7 +53,7 @@ func doStatus(args []string, stdout io.Writer) error {
 
 	// Peer ID
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-	peerID, err := p2pnet.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
+	peerID, err := sdk.PeerIDFromKeyFile(cfg.Identity.KeyFile, pw)
 	tc.Wblue(stdout, "Peer ID:  ")
 	if err != nil {
 		fmt.Fprintf(stdout, "error (%v)\n", err)
@@ -102,6 +102,40 @@ func doStatus(args []string, stdout io.Writer) error {
 		writeReachabilityGrade(stdout, r)
 		tc.Wfaint(stdout, " - %s", r.Description)
 		fmt.Fprintln(stdout)
+		// Practical guidance for restricted NAT grades.
+		switch r.Grade {
+		case "C", "D":
+			tc.Wfaint(stdout, "  All connections will be relayed. Direct connections are unlikely.\n")
+			tc.Wfaint(stdout, "  File transfer and browsing require active data grants from relay admins.\n")
+			// Show which relays have active grants inline.
+			if daemonStatus != nil {
+				var active []string
+				seen := make(map[string]bool)
+				for _, rg := range daemonStatus.RelayGrants {
+					if seen[rg.RelayPeerID] {
+						continue
+					}
+					seen[rg.RelayPeerID] = true
+					if rg.Remaining != "" || rg.Permanent {
+						name := validate.SanitizeForDisplay(rg.RelayName)
+						if name == "" {
+							name = rg.RelayPeerID
+							if len(name) > 16 {
+								name = name[:16] + "..."
+							}
+						}
+						active = append(active, name)
+					}
+				}
+				if len(active) > 0 {
+					tc.Wfaint(stdout, "  Active grants: %s\n", strings.Join(active, ", "))
+				} else {
+					tc.Wfaint(stdout, "  No active grants. Request from relay admin: shurli relay grant <your-id> --duration 1h\n")
+				}
+			}
+		case "F":
+			tc.Wfaint(stdout, "  No connectivity detected. Check your network and firewall settings.\n")
+		}
 		fmt.Fprintln(stdout)
 	}
 
@@ -116,7 +150,10 @@ func doStatus(args []string, stdout io.Writer) error {
 				tc.Wred(stdout, "[disconnected]")
 			}
 			fmt.Fprint(stdout, "  ")
-			fmt.Fprint(stdout, r.Address)
+			if r.RelayName != "" {
+				fmt.Fprintf(stdout, "%-12s  ", validate.SanitizeForDisplay(r.RelayName))
+			}
+			fmt.Fprint(stdout, truncateAddr(r.Address))
 			if r.AgentVersion != "" {
 				tc.Wfaint(stdout, "  %s", validate.SanitizeForDisplay(r.AgentVersion))
 			}
@@ -157,10 +194,17 @@ func doStatus(args []string, stdout io.Writer) error {
 		tc.Wfaint(stdout, "Relay addresses: (none configured)\n")
 	}
 	// Relay grants (client-side cached receipts from relays).
+	// Dedup by relay peer ID (same relay may appear via IPv4 + IPv6).
 	if daemonStatus != nil && len(daemonStatus.RelayGrants) > 0 {
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "Relay Grants:")
+		seen := make(map[string]bool)
 		for _, rg := range daemonStatus.RelayGrants {
+			if seen[rg.RelayPeerID] {
+				continue
+			}
+			seen[rg.RelayPeerID] = true
+
 			name := validate.SanitizeForDisplay(rg.RelayName)
 			if name == "" {
 				pid := rg.RelayPeerID
@@ -183,8 +227,12 @@ func doStatus(args []string, stdout io.Writer) error {
 				fmt.Fprintf(stdout, ", expires in %s", rg.Remaining)
 			}
 			fmt.Fprintf(stdout, ", %s/session", rg.SessionBudget)
-			if rg.SessionUsed != "" {
+			if rg.SessionUsed != "" && rg.SessionRemaining != "" {
+				tc.Wfaint(stdout, " (%s used, %s remaining)", rg.SessionUsed, rg.SessionRemaining)
+			} else if rg.SessionUsed != "" {
 				tc.Wfaint(stdout, " (%s used)", rg.SessionUsed)
+			} else if rg.SessionRemaining != "" {
+				tc.Wfaint(stdout, " (%s remaining)", rg.SessionRemaining)
 			}
 			if rg.SessionDuration != "" {
 				fmt.Fprintf(stdout, ", %s/circuit", rg.SessionDuration)
@@ -236,6 +284,27 @@ func doStatus(args []string, stdout io.Writer) error {
 				if p.Comment != "" {
 					tc.Wfaint(stdout, "  # %s", validate.SanitizeForDisplay(p.Comment))
 				}
+				// Show connection path when daemon is running.
+				if daemonStatus != nil && daemonStatus.PeerPaths != nil {
+					if ps, ok := daemonStatus.PeerPaths[p.PeerID.String()]; ok {
+						if ps.PathType == "RELAYED" {
+							relayLabel := ps.RelayName
+							if relayLabel == "" && ps.RelayPeerID != "" {
+								relayLabel = ps.RelayPeerID
+								if len(relayLabel) > 16 {
+									relayLabel = relayLabel[:16] + "..."
+								}
+							}
+							if relayLabel != "" {
+								tc.Wyellow(stdout, "  [RELAYED via %s]", validate.SanitizeForDisplay(relayLabel))
+							} else {
+								tc.Wyellow(stdout, "  [RELAYED]")
+							}
+						} else if ps.PathType == "DIRECT" {
+							tc.Wgreen(stdout, "  [DIRECT]")
+						}
+					}
+				}
 				fmt.Fprintln(stdout)
 			}
 		}
@@ -279,7 +348,7 @@ func doStatus(args []string, stdout io.Writer) error {
 }
 
 // writeReachabilityGrade writes a colorized reachability grade (e.g., "A Excellent").
-func writeReachabilityGrade(w io.Writer, r *p2pnet.ReachabilityGrade) {
+func writeReachabilityGrade(w io.Writer, r *sdk.ReachabilityGrade) {
 	grade := r.Grade + " " + r.Label
 	switch r.Grade {
 	case "A":

@@ -10,7 +10,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 	}
 
 	// Create P2P network
-	net, err := p2pnet.New(&p2pnet.Config{
+	net, err := sdk.New(&sdk.Config{
 		KeyFile: "client.key",
 		Config: &config.Config{
 			Network: config.NetworkConfig{

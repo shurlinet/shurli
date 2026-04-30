@@ -28,7 +28,8 @@ type CircuitACL struct {
 	authKeysPath         string
 	enableDataRelay      bool
 	enableConnectionGating bool
-	grantStore           *grants.Store // time-limited data access grants
+	grantStore           *grants.Store   // time-limited data access grants
+	budgetTracker        *BudgetTracker  // per-peer relay data budgets (nil if not configured)
 
 	mu      sync.RWMutex
 	peers   map[peer.ID]bool         // cached authorized peer set
@@ -61,6 +62,20 @@ func NewCircuitACL(authKeysPath string, enableDataRelay, enableConnectionGating 
 	// Initial load.
 	acl.loadFromDisk()
 	return acl
+}
+
+// SetBudgetTracker wires the budget tracker for AllowConnect budget checks (TE3-C1).
+func (a *CircuitACL) SetBudgetTracker(bt *BudgetTracker) {
+	a.budgetTracker = bt
+}
+
+// IsAdmin returns true if the peer has the admin role in authorized_keys (SEC4).
+// Used by LimitingHost to bypass budget enforcement for admin peers.
+func (a *CircuitACL) IsAdmin(p peer.ID) bool {
+	a.mu.RLock()
+	e, ok := a.entries[p]
+	a.mu.RUnlock()
+	return ok && e.Role == auth.RoleAdmin
 }
 
 // Reload refreshes the cached authorized_keys data from disk.
@@ -189,8 +204,27 @@ func (a *CircuitACL) hasDataAccess(p peer.ID) bool {
 	}
 
 	// Check time-limited grant (empty service = any grant qualifies).
+	// Transport 0 = skip transport caveat check: circuit ACL is before the
+	// circuit is usable for plugin streams, so transport-level restrictions
+	// in the grant caveat chain aren't applicable here.
 	if gs != nil {
-		return gs.Check(p, "")
+		if !gs.Check(p, "", 0) {
+			return false
+		}
+		// TE3-C1: deny if grant exists but budget is exhausted.
+		// Prevents wasted relay resources (goroutines, memory, streams) on
+		// circuits that would immediately terminate.
+		if a.budgetTracker != nil && a.budgetTracker.HasBudget(p) {
+			if a.budgetTracker.RemainingBudget(p) <= 0 {
+				short := p.String()
+				if len(short) > 16 {
+					short = short[:16] + "..."
+				}
+				slog.Info("circuit ACL: denied (budget exhausted)", "peer", short)
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }

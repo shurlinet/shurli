@@ -10,9 +10,17 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
+
+// defaultClientTimeout bounds every request the daemon client issues,
+// so a hung or busy daemon cannot freeze callers indefinitely. The value
+// is generous enough for normal operations (config reload, status
+// snapshots, plugin management) but short enough that a stalled socket
+// surfaces as an error rather than a CLI or test hang.
+const defaultClientTimeout = 30 * time.Second
 
 // Client connects to a running daemon via its Unix socket.
 type Client struct {
@@ -39,6 +47,7 @@ func NewClient(socketPath, cookiePath string) (*Client, error) {
 		socketPath: socketPath,
 		authToken:  strings.TrimSpace(string(token)),
 		httpClient: &http.Client{
+			Timeout: defaultClientTimeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
@@ -49,6 +58,17 @@ func NewClient(socketPath, cookiePath string) (*Client, error) {
 	}
 
 	return c, nil
+}
+
+// SetTimeout overrides the daemon client's request timeout. Use it for
+// best-effort, fire-and-forget calls (such as tryDaemonConfigReload)
+// where waiting up to the default 30s would be excessive. Values <= 0
+// are ignored so callers cannot accidentally disable the safety net.
+func (c *Client) SetTimeout(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	c.httpClient.Timeout = d
 }
 
 // do sends an HTTP request to the daemon and returns the raw response body.
@@ -258,10 +278,10 @@ func (c *Client) PingText(peer string, count, intervalMs int) (string, error) {
 }
 
 // Traceroute traces the path to a peer and returns the result as JSON.
-func (c *Client) Traceroute(peer string) (*p2pnet.TraceResult, error) {
+func (c *Client) Traceroute(peer string) (*sdk.TraceResult, error) {
 	req := TraceRequest{Peer: peer}
 	body, _ := json.Marshal(req)
-	var resp p2pnet.TraceResult
+	var resp sdk.TraceResult
 	if err := c.doJSON("POST", "/v1/traceroute", strings.NewReader(string(body)), &resp); err != nil {
 		return nil, err
 	}
@@ -304,9 +324,44 @@ func (c *Client) Connect(peer, service, listen string) (*ConnectResponse, error)
 	return &resp, nil
 }
 
-// Disconnect tears down a proxy.
+// Disconnect tears down an ephemeral proxy.
 func (c *Client) Disconnect(id string) error {
 	return c.doJSON("DELETE", "/v1/connect/"+id, nil, nil)
+}
+
+// ProxyAdd creates a persistent proxy.
+func (c *Client) ProxyAdd(name, peer, service string, port int) (*ProxyAddResponse, error) {
+	req := ProxyAddRequest{Name: name, Peer: peer, Service: service, Port: port}
+	body, _ := json.Marshal(req)
+	var resp ProxyAddResponse
+	if err := c.doJSON("POST", "/v1/proxies", strings.NewReader(string(body)), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProxyList returns all persistent proxies.
+func (c *Client) ProxyList() (*ProxyListResponse, error) {
+	var resp ProxyListResponse
+	if err := c.doJSON("GET", "/v1/proxies", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProxyRemove deletes a persistent proxy.
+func (c *Client) ProxyRemove(name string) error {
+	return c.doJSON("DELETE", "/v1/proxies/"+name, nil, nil)
+}
+
+// ProxyEnable enables a disabled persistent proxy.
+func (c *Client) ProxyEnable(name string) error {
+	return c.doJSON("POST", "/v1/proxies/"+name+"/enable", nil, nil)
+}
+
+// ProxyDisable disables a persistent proxy without removing it.
+func (c *Client) ProxyDisable(name string) error {
+	return c.doJSON("POST", "/v1/proxies/"+name+"/disable", nil, nil)
 }
 
 // Expose registers a service on the P2P host.
@@ -339,8 +394,8 @@ func (c *Client) Unlock() error {
 // --- Invite methods ---
 
 // InviteCreate creates a new async invite via the daemon (relay-delegated).
-func (c *Client) InviteCreate(name string, ttlSeconds, count int) (*InviteCreateResponse, error) {
-	req := InviteCreateRequest{Name: name, TTLSeconds: ttlSeconds, Count: count}
+func (c *Client) InviteCreate(name string, ttlSeconds, count int, relay string) (*InviteCreateResponse, error) {
+	req := InviteCreateRequest{Name: name, TTLSeconds: ttlSeconds, Count: count, Relay: relay}
 	body, _ := json.Marshal(req)
 	var resp InviteCreateResponse
 	if err := c.doJSON("POST", "/v1/invite", strings.NewReader(string(body)), &resp); err != nil {
@@ -550,6 +605,31 @@ func (c *Client) NotifyTest() (map[string]string, error) {
 	var result map[string]string
 	if err := c.doJSON("POST", "/v1/notify/test", nil, &result); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+// ProxyListOffline reads proxies.json directly when the daemon is not running (EDGE-7).
+func ProxyListOffline(configDir string) ([]ProxyStatusInfo, error) {
+	store, err := NewProxyStore(ProxiesFilePath(configDir))
+	if err != nil {
+		return nil, err
+	}
+	entries := store.All()
+	result := make([]ProxyStatusInfo, 0, len(entries))
+	for _, e := range entries {
+		status := "unknown (daemon not running)"
+		if !e.Enabled {
+			status = "disabled"
+		}
+		result = append(result, ProxyStatusInfo{
+			Name:    e.Name,
+			Peer:    e.Peer,
+			Service: e.Service,
+			Port:    e.Port,
+			Enabled: e.Enabled,
+			Status:  status,
+		})
 	}
 	return result, nil
 }

@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/grants"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/termcolor"
@@ -25,13 +28,14 @@ func doRelayGrant(args []string, configFile string, stdout io.Writer) error {
 	duration := fs.String("duration", "1h", "grant duration (e.g. 1h, 7d, 30m)")
 	services := fs.String("services", "", "comma-separated service names (empty = all)")
 	permanent := fs.Bool("permanent", false, "grant permanent access (no expiry)")
+	dataFlag := fs.String("data", "", "per-peer data budget (e.g. 500MB, 2GB, unlimited; empty = relay default)")
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
 	}
 
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: shurli relay grant <peer-id> [--duration 1h] [--services ...] [--permanent] [--remote <addr>]")
+		return fmt.Errorf("usage: shurli relay grant <peer-id> [--duration 1h] [--services ...] [--permanent] [--data 500MB] [--remote <addr>]")
 	}
 
 	peerID := fs.Arg(0)
@@ -73,7 +77,7 @@ func doRelayGrant(args []string, configFile string, stdout io.Writer) error {
 	}
 	defer cleanup()
 
-	info, err := client.RelayGrant(peerID, durationSecs, svcList, *permanent)
+	info, err := client.RelayGrant(peerID, durationSecs, svcList, *permanent, *dataFlag)
 	if err != nil {
 		return err
 	}
@@ -89,6 +93,9 @@ func doRelayGrant(args []string, configFile string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "  Duration: permanent")
 	} else {
 		fmt.Fprintf(stdout, "  Expires: %s (%s remaining)\n", info.ExpiresAt, formatRemainingTime(info.RemainingSec))
+	}
+	if info.DataBudgetStr != "" {
+		fmt.Fprintf(stdout, "  Data budget: %s\n", info.DataBudgetStr)
 	}
 	return nil
 }
@@ -125,29 +132,57 @@ func doRelayGrants(args []string, configFile string, stdout io.Writer) error {
 		return nil
 	}
 
+	// Build peer ID -> name map from authorized_keys (local relay only).
+	// When using --remote, we can't access the remote relay's authorized_keys.
+	peerNames := make(map[string]string)
+	if *remoteFlag == "" && configFile != "" {
+		if relayCfg, loadErr := config.LoadRelayServerConfig(configFile); loadErr == nil {
+			config.ResolveRelayConfigPaths(relayCfg, filepath.Dir(configFile))
+			if peers, listErr := auth.ListPeers(relayCfg.Security.AuthorizedKeysFile); listErr == nil {
+				for _, p := range peers {
+					if p.Comment != "" {
+						peerNames[p.PeerID.String()] = p.Comment
+					}
+				}
+			}
+		}
+	}
+
 	fmt.Fprintf(stdout, "Relay data grants (%d):\n\n", len(grantList))
 	for _, g := range grantList {
-		printRelayGrantInfo(stdout, g)
+		printRelayGrantInfo(stdout, g, peerNames)
 	}
 	return nil
 }
 
-func printRelayGrantInfo(stdout io.Writer, g relay.RelayGrantInfo) {
+func printRelayGrantInfo(stdout io.Writer, g relay.RelayGrantInfo, peerNames map[string]string) {
 	pid := g.PeerID
 	if len(pid) > 16 {
 		pid = pid[:16] + "..."
 	}
+
+	// Show peer name from authorized_keys if available.
+	name := peerNames[g.PeerID]
 
 	scope := "[all]"
 	if len(g.Services) > 0 {
 		scope = "[" + strings.Join(g.Services, ",") + "]"
 	}
 
-	if g.Permanent {
-		fmt.Fprintf(stdout, "  %s  %s  permanent\n", pid, scope)
-	} else {
-		fmt.Fprintf(stdout, "  %s  %s  %s remaining\n", pid, scope, formatRemainingTime(g.RemainingSec))
+	budgetStr := ""
+	if g.DataBudgetStr != "" && g.DataBudgetStr != "default" {
+		budgetStr = "  data:" + g.DataBudgetStr
 	}
+
+	if g.Permanent {
+		fmt.Fprintf(stdout, "  %s  %s  permanent%s", pid, scope, budgetStr)
+	} else {
+		fmt.Fprintf(stdout, "  %s  %s  %s remaining%s", pid, scope, formatRemainingTime(g.RemainingSec), budgetStr)
+	}
+	if name != "" {
+		termcolor.Wfaint(stdout, "  # %s", name)
+	}
+	fmt.Fprintln(stdout)
 	fmt.Fprintf(stdout, "    Full ID: %s\n", g.PeerID)
 }
 
@@ -198,6 +233,7 @@ func doRelayExtend(args []string, configFile string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("relay extend", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	duration := fs.String("duration", "", "new duration from now (e.g. 2h, 1d)")
+	dataFlag := fs.String("data", "", "update data budget (e.g. 1GB, unlimited; empty = keep current)")
 	remoteFlag := fs.String("remote", "", "relay multiaddr for remote P2P admin")
 	if err := fs.Parse(reorderArgs(args, nil)); err != nil {
 		return err
@@ -227,7 +263,7 @@ func doRelayExtend(args []string, configFile string, stdout io.Writer) error {
 	}
 	defer cleanup()
 
-	if err := client.RelayExtend(peerID, durationSecs); err != nil {
+	if err := client.RelayExtend(peerID, durationSecs, *dataFlag); err != nil {
 		return err
 	}
 

@@ -6,9 +6,11 @@ description: "Macaroon capability tokens for per-peer, time-limited access contr
 <!-- Auto-synced from docs/engineering-journal/per-peer-data-grants.md by sync-docs - do not edit directly -->
 
 
-**Date**: 2026-03-22
-**Status**: Complete (Phases A, R, B, C, D)
-**ADRs**: ADR-T01 to ADR-T10
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Complete (Phases A, R, B, C, D) |
+| **ADRs** | ADR-T01 to ADR-T10 |
 
 The first external user session (2026-03-15) exposed a fundamental flaw: relay-level ACLs (`relay_data=true`) are binary, permanent, and - critically - bypassable in multi-relay topologies. This journal documents the architecture decisions behind the per-peer data access grant system that replaced it.
 
@@ -16,8 +18,10 @@ The first external user session (2026-03-15) exposed a fundamental flaw: relay-l
 
 ## ADR-T01: Node-Level Enforcement as Primary Security Boundary
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -33,14 +37,16 @@ The NODE is the only enforcement point that sees all traffic regardless of relay
 - Node can operate with any number of relays, none of which need grant awareness
 - Relay ACLs can be relaxed without compromising node security
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/service.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/network.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/service.go`, `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/network.go`
 
 ---
 
 ## ADR-T02: Macaroon Tokens Over ACL Attributes
 
-**Date**: 2026-03-16
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-16 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -71,8 +77,10 @@ Key properties:
 
 ## ADR-T03: Dual-Store Architecture (GrantStore + GrantPouch)
 
-**Date**: 2026-03-20
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-20 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -105,8 +113,10 @@ A single store would conflate "grants I've issued" with "tokens I hold." Differe
 
 ## ADR-T04: Binary Grant Header on Plugin Streams
 
-**Date**: 2026-03-21
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-21 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -137,14 +147,16 @@ Binary (not JSON) because this is the hot path. Stack-allocated 4-byte fast path
 - Token-from-header verification is pure math (no disk I/O) - the Phase B performance win
 - Constant-time HMAC work on all paths (valid, invalid, malformed) prevents timing oracles (D1 mitigation)
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/grant_header.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/grant_header.go`
 
 ---
 
 ## ADR-T05: P2P Grant Delivery Protocol
 
-**Date**: 2026-03-21
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-21 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -179,8 +191,10 @@ Trust check: only accept deliveries from peers in authorized_keys (prevents rand
 
 ## ADR-T06: Multi-Hop Delegation via Caveat Attenuation
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -215,8 +229,10 @@ Zero-duration delegation: when delegating without `--duration`, the duration def
 
 ## ADR-T07: Notification Subsystem (Sink Pattern)
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -256,8 +272,10 @@ AppleScript injection via unsanitized peer name in DesktopSink. Both title and b
 
 ## ADR-T08: Integrity-Chained Audit Log
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -281,8 +299,10 @@ Separate file (`grant_audit.log`), separate HKDF sub-key (`shurli/grants/audit/v
 
 ## ADR-T09: Per-Peer Ops Rate Limiter
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -306,8 +326,10 @@ Notification callback called OUTSIDE lock (prevents webhook response time from b
 
 ## ADR-T10: Grant-Aware Backoff Reset
 
-**Date**: 2026-03-22
-**Status**: Accepted
+| | |
+|---|---|
+| **Date** | 2026-03-22 |
+| **Status** | Accepted |
 
 ### Context
 
@@ -317,7 +339,7 @@ After a relay grants data access to a client, the client's swarm may have accumu
 
 Two mechanisms:
 
-1. **Automatic**: Relay sends `/shurli/grant-changed/1.0.0` to client on grant creation. Client calls `OnNetworkChange()` to clear all swarm backoffs.
+1. **Automatic**: Relay pushes `/shurli/grant-receipt/1.0.0` to client on grant creation. Client caches the receipt and calls `OnNetworkChange()` to clear all swarm backoffs.
 
 2. **Manual**: `shurli reconnect <peer> [--json]` clears dial backoff for a specific peer and forces immediate redial. Designed for AI agent control loops.
 
@@ -326,4 +348,4 @@ Two mechanisms:
 - Grants take effect immediately (no waiting for backoff timers)
 - AI agents can programmatically trigger reconnection after granting access
 
-**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/p2pnet/peermanager.go`
+**Reference**: `https://github.com/shurlinet/shurli/blob/main/pkg/sdk/peermanager.go`

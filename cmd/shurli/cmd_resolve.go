@@ -11,7 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/config"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runResolve(args []string) {
@@ -51,7 +51,7 @@ func doResolve(args []string, stdout io.Writer) error {
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	// Create a minimal name resolver (no P2P host needed)
-	resolver := p2pnet.NewNameResolver()
+	resolver := sdk.NewNameResolver()
 	if cfg.Names != nil {
 		if err := resolver.LoadFromMap(cfg.Names); err != nil {
 			return fmt.Errorf("failed to load names: %w", err)

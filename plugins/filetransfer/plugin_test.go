@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
 	"github.com/shurlinet/shurli/pkg/plugin"
 )
 
@@ -147,9 +146,9 @@ func TestReloadConfigRollbackOnInvalidMode(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -158,7 +157,7 @@ func TestReloadConfigRollbackOnInvalidMode(t *testing.T) {
 
 	p := New()
 	p.transferService = ts
-	p.config = TransferConfig{
+	p.config = PluginConfig{
 		ReceiveDir:  receiveDir,
 		ReceiveMode: "contacts",
 		MaxFileSize: 100,
@@ -187,9 +186,9 @@ func TestReloadConfigSuccessfulChange(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -198,7 +197,7 @@ func TestReloadConfigSuccessfulChange(t *testing.T) {
 
 	p := New()
 	p.transferService = ts
-	p.config = TransferConfig{
+	p.config = PluginConfig{
 		ReceiveDir:  receiveDir,
 		ReceiveMode: "contacts",
 	}
@@ -226,7 +225,7 @@ max_file_size: 500
 
 func TestReloadConfigNilService(t *testing.T) {
 	p := New()
-	p.config = TransferConfig{ReceiveMode: "contacts"}
+	p.config = PluginConfig{ReceiveMode: "contacts"}
 
 	p.reloadConfig([]byte(`receive_mode: open`))
 
@@ -430,9 +429,9 @@ func TestConcurrentStopAndStatusFields(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -468,7 +467,7 @@ func TestConcurrentStopAndStatusFields(t *testing.T) {
 func TestC2_NilNetworkDerefInHandlers(t *testing.T) {
 	p := New()
 	// shareRegistry non-nil (so handler passes the nil check), network nil.
-	p.shareRegistry = p2pnet.NewShareRegistry()
+	p.shareRegistry = NewShareRegistry()
 
 	// handleShareAdd with peers list triggers p.network.ResolveName() on nil.
 	w := httptest.NewRecorder()
@@ -626,7 +625,7 @@ func TestF4_AcceptRejectIgnoreJSONErrors(t *testing.T) {
 func TestF1_ConfigReloadRaceOnPConfig(t *testing.T) {
 	p := New()
 	p.mu.Lock()
-	p.config = TransferConfig{ReceiveMode: "contacts"}
+	p.config = PluginConfig{ReceiveMode: "contacts"}
 	p.mu.Unlock()
 
 	// Two concurrent config reloads must not race.
@@ -676,9 +675,9 @@ func TestP4_DownloadDestPathTraversal(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeOpen,
+		ReceiveMode: ReceiveModeOpen,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -721,9 +720,9 @@ func TestP11_SendPathNoConfinement(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeOpen,
+		ReceiveMode: ReceiveModeOpen,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -862,9 +861,9 @@ func TestAllHandlersSurviveConcurrentStop(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -1085,9 +1084,9 @@ func TestProtocolCountAfterStart(t *testing.T) {
 	receiveDir := filepath.Join(tmpDir, "receive")
 	os.MkdirAll(receiveDir, 0755)
 
-	ts, err := p2pnet.NewTransferService(p2pnet.TransferConfig{
+	ts, err := NewTransferService(TransferConfig{
 		ReceiveDir:  receiveDir,
-		ReceiveMode: p2pnet.ReceiveModeContacts,
+		ReceiveMode: ReceiveModeContacts,
 	}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransferService: %v", err)
@@ -1097,7 +1096,7 @@ func TestProtocolCountAfterStart(t *testing.T) {
 	p := New()
 	p.transferService = ts
 	persistPath := filepath.Join(tmpDir, "shares.json")
-	p.shareRegistry = p2pnet.NewShareRegistry()
+	p.shareRegistry = NewShareRegistry()
 	p.shareRegistry.SetPersistPath(persistPath)
 
 	protos := p.Protocols()

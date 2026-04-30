@@ -20,7 +20,7 @@ Key capabilities: SSH/XRDP/any-TCP tunneling through CGNAT, 60-second device pai
 ## Code
 
 - [GitHub Repository](https://github.com/shurlinet/shurli): Single Go module, `go build ./cmd/shurli`
-- [pkg/p2pnet](https://github.com/shurlinet/shurli/tree/main/pkg/p2pnet): Importable P2P library - network setup, service registry, TCP-stream proxy, naming, ping, traceroute
+- [pkg/sdk](https://github.com/shurlinet/shurli/tree/main/pkg/sdk): Importable P2P library - network setup, service registry, TCP-stream proxy, naming, ping, traceroute
 - [internal/daemon](https://github.com/shurlinet/shurli/tree/main/internal/daemon): Daemon server + client library - Unix socket HTTP API, cookie auth
 - [internal/config](https://github.com/shurlinet/shurli/tree/main/internal/config): YAML config loading, archive/rollback, commit-confirmed pattern
 - [internal/auth](https://github.com/shurlinet/shurli/tree/main/internal/auth): SSH-style ConnectionGater, authorized_keys parser, hot-reload

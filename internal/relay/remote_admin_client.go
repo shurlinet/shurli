@@ -497,12 +497,13 @@ func (c *RemoteAdminClient) GoodbyeShutdown(message string) error {
 // --- Relay grant methods ---
 
 // RelayGrant creates a time-limited data access grant for a peer.
-func (c *RemoteAdminClient) RelayGrant(peerID string, durationSecs int, services []string, permanent bool) (*RelayGrantInfo, error) {
+func (c *RemoteAdminClient) RelayGrant(peerID string, durationSecs int, services []string, permanent bool, dataBudgetStr string) (*RelayGrantInfo, error) {
 	reqBody, _ := json.Marshal(RelayGrantRequest{
-		PeerID:      peerID,
-		DurationSec: durationSecs,
-		Services:    services,
-		Permanent:   permanent,
+		PeerID:        peerID,
+		DurationSec:   durationSecs,
+		Services:      services,
+		Permanent:     permanent,
+		DataBudgetStr: dataBudgetStr,
 	})
 	data, status, err := c.do("POST", "/v1/relay-grant", strings.NewReader(string(reqBody)))
 	if err != nil {
@@ -548,10 +549,11 @@ func (c *RemoteAdminClient) RelayRevoke(peerID string) error {
 }
 
 // RelayExtend extends an existing relay data grant.
-func (c *RemoteAdminClient) RelayExtend(peerID string, durationSecs int) error {
+func (c *RemoteAdminClient) RelayExtend(peerID string, durationSecs int, dataBudgetStr string) error {
 	reqBody, _ := json.Marshal(RelayExtendRequest{
-		PeerID:      peerID,
-		DurationSec: durationSecs,
+		PeerID:        peerID,
+		DurationSec:   durationSecs,
+		DataBudgetStr: dataBudgetStr,
 	})
 	data, status, err := c.do("POST", "/v1/relay-extend", strings.NewReader(string(reqBody)))
 	if err != nil {

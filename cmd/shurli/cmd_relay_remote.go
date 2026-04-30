@@ -11,14 +11,14 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/relay"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // remoteAdminConnection holds a RemoteAdminClient and its cleanup function.
 // Call cleanup() when done (shuts down the P2P host).
 type remoteAdminConnection struct {
 	client      *relay.RemoteAdminClient
-	network     *p2pnet.Network
+	network     *sdk.Network
 	relayPeerID peer.ID
 }
 
@@ -59,7 +59,7 @@ func connectRemoteRelay(remoteAddr string) (*remoteAdminConnection, error) {
 		pw = ""
 	}
 
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
+	p2pNetwork, err := sdk.New(&sdk.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},

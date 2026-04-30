@@ -19,7 +19,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 // TRUST BOUNDARY (G5 - foundational security comment):
@@ -46,7 +46,7 @@ type Registry struct {
 	plugins             map[string]*pluginEntry
 	registrationOrder   []string // G4 fix: tracks insertion order for deterministic DisableAll
 	provider            *ContextProvider
-	serviceRegistry     *p2pnet.ServiceRegistry
+	serviceRegistry     *sdk.ServiceRegistry
 	enableDisableCooldown time.Duration // per-Registry cooldown (P5: was package global)
 }
 
@@ -155,7 +155,7 @@ func (r *Registry) Register(p Plugin) error {
 	// Build declared protocols map for namespace validation.
 	declaredProtos := make(map[string]bool)
 	for _, proto := range p.Protocols() {
-		pid := p2pnet.ProtocolID(proto.Name, proto.Version)
+		pid := sdk.ProtocolID(proto.Name, proto.Version)
 		declaredProtos[pid] = true
 	}
 
@@ -197,7 +197,7 @@ func (r *Registry) Register(p Plugin) error {
 	var peerConnector func(context.Context, peer.ID) error
 	var keyDeriver func(string) []byte
 	var scoreResolver func(peer.ID) int
-	var grantChecker func(peer.ID, string) bool
+	var grantChecker sdk.GrantChecker
 	var peerAttrFunc func(string, string) string
 	if r.provider != nil {
 		nameResolver = r.provider.NameResolver
@@ -207,7 +207,7 @@ func (r *Registry) Register(p Plugin) error {
 		grantChecker = r.provider.GrantChecker
 		peerAttrFunc = r.provider.PeerAttrFunc
 	}
-	var net *p2pnet.Network
+	var net *sdk.Network
 	if r.provider != nil {
 		net = r.provider.Network
 	}
@@ -225,7 +225,8 @@ func (r *Registry) Register(p Plugin) error {
 		scoreResolver:  scoreResolver,
 		grantChecker:      grantChecker,
 		peerAttrFunc:      peerAttrFunc,
-		relayGrantChecker: r.provider.RelayGrantChecker,
+		relayGrantChecker:  r.provider.RelayGrantChecker,
+		hasVerifiedLANConn: r.provider.HasVerifiedLANConn,
 	}
 
 	entry := &pluginEntry{

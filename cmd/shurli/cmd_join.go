@@ -29,7 +29,7 @@ import (
 	"github.com/shurlinet/shurli/internal/invite"
 	"github.com/shurlinet/shurli/internal/relay"
 	"github.com/shurlinet/shurli/internal/validate"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runJoin(args []string) {
@@ -129,7 +129,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 	pw, _ := resolvePassword(configDir)
 
 	// Create P2P network.
-	p2pNetwork, err := p2pnet.New(&p2pnet.Config{
+	p2pNetwork, err := sdk.New(&sdk.Config{
 		KeyFile:            cfg.Identity.KeyFile,
 		KeyPassword:        pw,
 		Config:             &config.Config{Network: cfg.Network},
@@ -155,7 +155,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 
 	// Connect to relay.
 	outln("Connecting to relay...")
-	relayInfos, err := p2pnet.ParseRelayAddrs(cfg.Relay.Addresses)
+	relayInfos, err := sdk.ParseRelayAddrs(cfg.Relay.Addresses)
 	if err != nil {
 		fatal("Failed to parse relay addresses: %v", err)
 	}
@@ -291,7 +291,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 
 		updateConfigNames(cfgFile, configDir, finalName, p.PeerID.String())
 
-		emoji, numeric := p2pnet.ComputeFingerprint(h.ID(), p.PeerID)
+		emoji, numeric := sdk.ComputeFingerprint(h.ID(), p.PeerID)
 		out("Peer \"%s\" authorized. [UNVERIFIED]\n", finalName)
 		out("  Verification code: %s  (%s)\n", emoji, numeric)
 		out("  Verify with: shurli verify %s\n", finalName)
@@ -302,6 +302,12 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 		outln("Authorized on relay. No other peers in this group yet.")
 		outln()
 	}
+
+	// Note: the relay used for pairing is already in the joiner's config
+	// (cfg.Relay.Addresses) since v3 invite codes don't carry relay addresses.
+	// The joiner always pairs through one of their own configured relays.
+	// Future: PairingResponse should include the inviter's relay list so the
+	// joiner can add relays they don't have yet. This requires protocol changes.
 
 	out("Config: %s\n", cfgFile)
 	out("Authorized keys: %s\n", authKeysPath)
@@ -653,6 +659,9 @@ func bootstrapForJoin(relayInput string, userMode bool, stdin io.Reader, stdout 
 		fmt.Fprintln(stdout, "recover your identity if you lose this device.")
 		fmt.Fprintln(stdout)
 		fmt.Fprint(stdout, formatSeedGrid(words))
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Plain text (for copy/paste):")
+		fmt.Fprintln(stdout, strings.Join(words, " "))
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "===========================")
 		fmt.Fprintln(stdout)

@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/shurlinet/shurli/internal/daemon"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func (p *FileTransferPlugin) handleShareList(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,8 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		persistent = *req.Persistent
 	}
 
-	if err := reg.Share(req.Path, peerIDs, persistent); err != nil {
+	entry, err := reg.Share(req.Path, peerIDs, persistent)
+	if err != nil {
 		daemon.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -152,8 +153,8 @@ func (p *FileTransferPlugin) handleShareAdd(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	slog.Info("path shared via API", "path", req.Path, "peers", len(req.Peers))
-	resp := map[string]any{"status": "shared"}
+	slog.Info("path shared via API", "path", req.Path, "share_id", entry.ID, "peers", len(req.Peers))
+	resp := map[string]any{"status": "shared", "share_id": entry.ID}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}
@@ -268,18 +269,19 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
-	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-browse")
+	// TS-4: Hedge browse across independent paths (direct vs relay).
+	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-browse")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open browse stream: %s", sdk.HumanizeError(err.Error())))
 		return
 	}
 	defer stream.Close()
 
-	result, err := p2pnet.BrowsePeer(stream, req.SubPath)
+	result, err := BrowsePeer(stream, req.SubPath)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "stream reset") || strings.Contains(errStr, "stream canceled") {
@@ -298,18 +300,24 @@ func (p *FileTransferPlugin) handleBrowse(w http.ResponseWriter, r *http.Request
 
 	if daemon.WantsText(r) {
 		var sb strings.Builder
-		for _, e := range result.Entries {
+		for i, e := range result.Entries {
 			kind := "     "
 			if e.IsDir {
 				kind = "[dir]"
 			}
 			// D3 fix: sanitize remote-controlled strings for display (terminal injection).
-			displayName := p2pnet.SanitizeDisplayName(e.Name)
-			downloadPath := p2pnet.SanitizeDisplayName(e.Path)
+			displayName := SanitizeDisplayName(e.Name)
+			downloadPath := SanitizeDisplayName(e.Path)
 			if e.ShareID != "" {
-				downloadPath = p2pnet.SanitizeDisplayName(e.ShareID) + "/" + downloadPath
+				downloadPath = SanitizeDisplayName(e.ShareID) + "/" + downloadPath
 			}
-			fmt.Fprintf(&sb, "%s %s\t%s\t%s\n", kind, displayName, humanSize(e.Size), downloadPath)
+			// F8: 1-indexed numbers for navigation.
+			fmt.Fprintf(&sb, "%3d. %s %s\t%s\t%s\n", i+1, kind, displayName, humanSize(e.Size), downloadPath)
+		}
+		// F17: directory download hint.
+		if len(result.Entries) > 0 {
+			sb.WriteString("\nDownload a directory:  shurli download <peer>:<shareID>\n")
+			sb.WriteString("List files for selection:  shurli download <peer>:<shareID> --list\n")
 		}
 		daemon.RespondText(w, http.StatusOK, sb.String())
 		return
@@ -357,7 +365,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -375,27 +383,118 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// #18: validate selective download fields BEFORE multi-peer path.
+	// F10: multi-peer + selective rejection = incompatible at API level.
+	if req.Files != nil && req.Exclude != nil {
+		daemon.RespondError(w, http.StatusBadRequest, "cannot specify both 'files' and 'exclude' (mutually exclusive)")
+		return
+	}
+	if req.Files != nil && len(req.Files) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "files array is empty; omit the field to download all files")
+		return
+	}
+	if req.Exclude != nil && len(req.Exclude) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "exclude array is empty; omit the field to download all files")
+		return
+	}
+	if req.MultiPeer && (req.Files != nil || req.Exclude != nil) {
+		daemon.RespondError(w, http.StatusBadRequest, "selective file rejection is not supported with multi-peer downloads")
+		return
+	}
+
+	// #41: --list mode — list files without downloading.
+	if req.List {
+		stream, listErr := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
+		if listErr != nil {
+			daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(listErr.Error())))
+			return
+		}
+		defer stream.Close()
+
+		listFiles, totalSize, listReadErr := RequestList(stream, req.RemotePath)
+		if listReadErr != nil {
+			errStr := listReadErr.Error()
+			// R10-F2: graceful degradation for old servers.
+			if strings.Contains(errStr, "unknown request type") {
+				daemon.RespondError(w, http.StatusNotImplemented, "peer does not support --list (older version). Use 'shurli browse' to see files.")
+				return
+			}
+			daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("list failed: %s", sdk.HumanizeError(errStr)))
+			return
+		}
+
+		resp := ListFilesResponse{
+			TotalSize: totalSize,
+			Files:     make([]ListFileEntry, len(listFiles)),
+		}
+		for i, f := range listFiles {
+			resp.Files[i] = ListFileEntry{
+				Index: i + 1,
+				Path:  f.Path,
+				Size:  f.Size,
+			}
+		}
+		daemon.RespondJSON(w, http.StatusOK, resp)
+		return
+	}
+
 	// Multi-peer download path.
 	if req.MultiPeer && ts.MultiPeerEnabled() && len(req.ExtraPeers) > 0 {
+		// Cap extra peers to prevent goroutine explosion from unbounded input.
+		maxExtra := ts.MultiPeerMaxPeers() - 1 // -1 for target peer
+		if maxExtra < 1 {
+			maxExtra = 3
+		}
+		extraPeers := req.ExtraPeers
+		if len(extraPeers) > maxExtra {
+			extraPeers = extraPeers[:maxExtra]
+		}
+
 		allPeers := []peer.ID{targetPeerID}
-		for _, name := range req.ExtraPeers {
-			pid, resolveErr := pnet.ResolveName(name)
-			if resolveErr != nil {
-				slog.Warn("multi-peer: cannot resolve extra peer", "name", name, "error", resolveErr)
+
+		// IF5-2: Deduplicate peers by ID.
+		seen := map[peer.ID]bool{targetPeerID: true}
+
+		// IF5-3: Connect to extra peers in parallel.
+		type peerResult struct {
+			pid peer.ID
+			err error
+		}
+		results := make(chan peerResult, len(extraPeers))
+		for _, name := range extraPeers {
+			peerName := name
+			go func() {
+				pid, resolveErr := pnet.ResolveName(peerName)
+				if resolveErr != nil {
+					results <- peerResult{err: resolveErr}
+					return
+				}
+				connectCtx, connectCancel := context.WithTimeout(r.Context(), 15*time.Second)
+				defer connectCancel()
+				if connectErr := p.ctx.ConnectToPeer(connectCtx, pid); connectErr != nil {
+					results <- peerResult{err: connectErr}
+					return
+				}
+				results <- peerResult{pid: pid}
+			}()
+		}
+		for range extraPeers {
+			res := <-results
+			if res.err != nil {
+				slog.Warn("multi-peer: extra peer failed", "error", res.err)
 				continue
 			}
-			if connectErr := p.ctx.ConnectToPeer(r.Context(), pid); connectErr != nil {
-				slog.Warn("multi-peer: cannot reach extra peer", "name", name, "error", connectErr)
-				continue
+			if !seen[res.pid] {
+				seen[res.pid] = true
+				allPeers = append(allPeers, res.pid)
 			}
-			allPeers = append(allPeers, pid)
 		}
 
 		if len(allPeers) >= 2 {
-			rootHash, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
+			rootHash, probeSize, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
 				return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 			}, req.RemotePath)
-			if probeErr == nil {
+			if probeErr == nil && probeSize >= ts.MultiPeerMinSize() {
 				// Use activeCtx (not r.Context()) so streams survive after HTTP response.
 				// Same pattern as handleSend: r.Context() dies when response is sent,
 				// but multi-peer download continues in background.
@@ -418,24 +517,37 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 						TransferID: snap.ID,
 						FileName:   snap.Filename,
 						FileSize:   snap.Size,
+						PeersUsed:  len(allPeers),
 					})
 					return
 				}
 				slog.Warn("multi-peer download failed, falling back to single-peer", "error", dlErr)
-			} else {
+			} else if probeErr != nil {
 				slog.Warn("root hash probe failed, falling back to single-peer", "error", probeErr)
+			} else {
+				slog.Info("file too small for multi-peer, using single-peer",
+					"size", probeSize, "minSize", ts.MultiPeerMinSize())
 			}
 		}
 	}
 
-	// Single-peer download. Use r.Context() so drain cancellation propagates (F2 fix).
-	stream, err := pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
+	// Build file selection for ReceiveFrom. nil = full download.
+	// Validation already done above (before multi-peer path).
+	var sel *FileSelection
+	if req.Files != nil {
+		sel = &FileSelection{Include: req.Files}
+	} else if req.Exclude != nil {
+		sel = &FileSelection{Exclude: req.Exclude}
+	}
+
+	// Single-peer download. TS-4: hedge across independent paths.
+	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
 	if err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(err.Error())))
 		return
 	}
 
-	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir)
+	progress, err := ts.ReceiveFrom(stream, req.RemotePath, destDir, sel)
 	if err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "access denied") {
@@ -471,7 +583,7 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		activeCtx := p.activeCtx
 		p.mu.RUnlock()
 		if activeCtx != nil {
-			go func(ctx context.Context, id, dir string, prog *p2pnet.TransferProgress) {
+			go func(ctx context.Context, id, dir string, prog *TransferProgress) {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
 				for {
@@ -539,7 +651,7 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := p.ctx.ConnectToPeer(r.Context(), targetPeerID); err != nil {
-		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, p2pnet.HumanizeError(err.Error())))
+		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot reach peer %q: %s", req.Peer, sdk.HumanizeError(err.Error())))
 		return
 	}
 
@@ -554,20 +666,31 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	opener := func() (network.Stream, error) {
-		return pnet.OpenPluginStream(ctx, targetPeerID, "file-transfer")
+		return sdk.HedgedOpenStream(ctx, pnet, targetPeerID, "file-transfer")
 	}
-	sendOpts := p2pnet.SendOptions{
+	sendOpts := SendOptions{
 		NoCompress:   req.NoCompress,
 		Streams:      req.Streams,
 		StreamOpener: opener,
 	}
 
-	priority := p2pnet.PriorityNormal
+	if req.RateLimit != "" {
+		v, parseErr := sdk.ParseByteSize(req.RateLimit)
+		if parseErr != nil {
+			daemon.RespondError(w, http.StatusBadRequest, "invalid rate_limit: "+parseErr.Error())
+			return
+		}
+		if v > 0 {
+			sendOpts.RateLimitBytesPerSec = v
+		}
+	}
+
+	priority := PriorityNormal
 	switch strings.ToLower(req.Priority) {
 	case "low":
-		priority = p2pnet.PriorityLow
+		priority = PriorityLow
 	case "high":
-		priority = p2pnet.PriorityHigh
+		priority = PriorityHigh
 	}
 
 	progress, err := ts.SubmitSend(req.Path, targetPeerID.String(), priority, opener, sendOpts)
@@ -593,7 +716,7 @@ func (p *FileTransferPlugin) handleTransferList(w http.ResponseWriter, r *http.R
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferSnapshot{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferSnapshot{})
 		return
 	}
 	daemon.RespondJSON(w, http.StatusOK, ts.ListTransfers())
@@ -604,13 +727,13 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 	ts := p.transferService
 	p.mu.RUnlock()
 	if ts == nil {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferEvent{})
 		return
 	}
 
 	logPath := ts.LogPath()
 	if logPath == "" {
-		daemon.RespondJSON(w, http.StatusOK, []p2pnet.TransferEvent{})
+		daemon.RespondJSON(w, http.StatusOK, []TransferEvent{})
 		return
 	}
 
@@ -628,14 +751,14 @@ func (p *FileTransferPlugin) handleTransferHistory(w http.ResponseWriter, r *htt
 		}
 	}
 
-	events, err := p2pnet.ReadTransferEvents(logPath, max)
+	events, err := ReadTransferEvents(logPath, max)
 	if err != nil {
 		slog.Warn("plugin.filetransfer: read transfer log failed", "path", logPath, "error", err)
 		daemon.RespondError(w, http.StatusInternalServerError, "transfer history unavailable")
 		return
 	}
 	if events == nil {
-		events = []p2pnet.TransferEvent{}
+		events = []TransferEvent{}
 	}
 	daemon.RespondJSON(w, http.StatusOK, events)
 }
@@ -652,13 +775,27 @@ func (p *FileTransferPlugin) handleTransferPending(w http.ResponseWriter, r *htt
 	pending := ts.ListPending()
 	infos := make([]PendingTransferInfo, len(pending))
 	for i, pt := range pending {
-		infos[i] = PendingTransferInfo{
-			ID:       pt.ID,
-			Filename: pt.Filename,
-			Size:     pt.Size,
-			PeerID:   pt.PeerID,
-			Time:     pt.Time.Format(time.RFC3339),
+		info := PendingTransferInfo{
+			ID:         pt.ID,
+			Filename:   pt.Filename,
+			Size:       pt.Size,
+			PeerID:     pt.PeerID,
+			Time:       pt.Time.Format(time.RFC3339),
+			FileCount:  len(pt.files),
+			HasErasure: pt.hasErasure,
 		}
+		// #18: include per-file info for selective rejection.
+		if len(pt.files) > 1 {
+			info.Files = make([]PendingFileInfo, len(pt.files))
+			for j, fe := range pt.files {
+				info.Files[j] = PendingFileInfo{
+					Index: j,
+					Path:  fe.Path,
+					Size:  fe.Size,
+				}
+			}
+		}
+		infos[i] = info
 	}
 	daemon.RespondJSON(w, http.StatusOK, infos)
 }
@@ -680,6 +817,27 @@ func (p *FileTransferPlugin) handleTransferStatus(w http.ResponseWriter, r *http
 
 	progress, ok := ts.GetTransfer(id)
 	if !ok {
+		// R8-F6: also check pending transfers.
+		for _, pt := range ts.ListPending() {
+			if pt.ID == id || strings.HasPrefix(pt.ID, id) {
+				var fileInfos []PendingFileInfo
+				for j, fe := range pt.files {
+					fileInfos = append(fileInfos, PendingFileInfo{Index: j, Path: fe.Path, Size: fe.Size})
+				}
+				snap := TransferSnapshot{
+					ID:           pt.ID,
+					Filename:     pt.Filename,
+					Size:         pt.Size,
+					PeerID:       pt.PeerID,
+					Direction:    "receive",
+					Status:       "awaiting_approval",
+					StartTime:    pt.Time,
+					PendingFiles: fileInfos,
+				}
+				daemon.RespondJSON(w, http.StatusOK, snap)
+				return
+			}
+		}
 		daemon.RespondError(w, http.StatusNotFound, fmt.Sprintf("transfer %q not found", id))
 		return
 	}
@@ -709,13 +867,70 @@ func (p *FileTransferPlugin) handleTransferAccept(w http.ResponseWriter, r *http
 		}
 	}
 
-	if err := ts.AcceptTransfer(id, req.Dest); err != nil {
-		daemon.RespondError(w, http.StatusNotFound, err.Error())
+	// #18: validate selective rejection fields (F3, R7-F3).
+	if req.Files != nil && req.Exclude != nil {
+		daemon.RespondError(w, http.StatusBadRequest, "cannot specify both 'files' and 'exclude' (mutually exclusive)")
+		return
+	}
+	if req.Files != nil && len(req.Files) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "files array is empty; omit the field to accept all files, or specify file indices")
+		return
+	}
+	if req.Exclude != nil && len(req.Exclude) == 0 {
+		daemon.RespondError(w, http.StatusBadRequest, "exclude array is empty; omit the field to accept all files, or specify file indices to reject")
 		return
 	}
 
-	slog.Info("transfer accepted via API", "id", id)
-	daemon.RespondJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	// Build accepted file indices from Files or Exclude.
+	// nil = full accept (no selective rejection).
+	var acceptedFiles []int
+	if req.Files != nil {
+		acceptedFiles = req.Files
+	} else if req.Exclude != nil {
+		// Convert exclude to accepted: look up pending transfer's file count.
+		ts.mu.RLock()
+		_, pt, findErr := ts.findPendingByPrefix(id)
+		ts.mu.RUnlock()
+		if findErr != nil {
+			daemon.RespondError(w, http.StatusNotFound, findErr.Error())
+			return
+		}
+		// Validate exclude indices are in range.
+		for _, idx := range req.Exclude {
+			if idx < 0 || idx >= len(pt.files) {
+				daemon.RespondError(w, http.StatusBadRequest,
+					fmt.Sprintf("exclude index %d out of range (transfer has %d files, valid range 0-%d)", idx, len(pt.files), len(pt.files)-1))
+				return
+			}
+		}
+		excludeSet := make(map[int]bool, len(req.Exclude))
+		for _, idx := range req.Exclude {
+			excludeSet[idx] = true
+		}
+		for i := range pt.files {
+			if !excludeSet[i] {
+				acceptedFiles = append(acceptedFiles, i)
+			}
+		}
+		// F5: excluding all files = full reject.
+		if len(acceptedFiles) == 0 {
+			acceptedFiles = []int{} // empty non-nil triggers AcceptTransfer's "no files selected" error
+		}
+	}
+
+	if err := ts.AcceptTransfer(id, req.Dest, acceptedFiles); err != nil {
+		daemon.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	slog.Info("transfer accepted via API", "id", id,
+		"selective", acceptedFiles != nil)
+	// F15: include selective info in JSON response.
+	resp := map[string]any{"status": "accepted", "id": id}
+	if acceptedFiles != nil {
+		resp["accepted_files"] = len(acceptedFiles)
+	}
+	daemon.RespondJSON(w, http.StatusOK, resp)
 }
 
 func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http.Request) {
@@ -741,14 +956,14 @@ func (p *FileTransferPlugin) handleTransferReject(w http.ResponseWriter, r *http
 		}
 	}
 
-	reason := p2pnet.RejectReasonNone
+	reason := RejectReasonNone
 	switch req.Reason {
 	case "space":
-		reason = p2pnet.RejectReasonSpace
+		reason = RejectReasonSpace
 	case "busy":
-		reason = p2pnet.RejectReasonBusy
+		reason = RejectReasonBusy
 	case "size":
-		reason = p2pnet.RejectReasonSize
+		reason = RejectReasonSize
 	}
 
 	if err := ts.RejectTransfer(id, reason); err != nil {

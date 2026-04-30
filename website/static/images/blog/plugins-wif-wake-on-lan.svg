@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 220">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <style>
+      @keyframes dashFlow { 0% { stroke-dashoffset: 12; } 100% { stroke-dashoffset: 0; } }
+      @keyframes powerOn { 0%, 40% { opacity: 0.2; } 50%, 100% { opacity: 1; } }
+      .flow { stroke-dasharray: 6 4; animation: dashFlow 1.5s linear infinite; }
+      .wake { animation: powerOn 3s ease-in-out infinite; }
+    </style>
+  </defs>
+  <rect width="800" height="220" fill="url(#bg)"/>
+
+  <!-- Your node (left) -->
+  <g transform="translate(40, 25)">
+    <rect x="0" y="0" width="170" height="70" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+    <text x="85" y="22" font-family="system-ui" font-size="11" fill="#00d4aa" text-anchor="middle" font-weight="600">Your Shurli Node</text>
+    <text x="85" y="42" font-family="'SF Mono', monospace" font-size="9" fill="#4488ff" text-anchor="middle">shurli wake nas-server</text>
+    <text x="85" y="58" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">LAN-only command</text>
+  </g>
+
+  <!-- Arrow with magic packet label -->
+  <line x1="215" y1="60" x2="318" y2="60" class="flow" stroke="#00d4aa" stroke-width="2" opacity="0.6"/>
+  <polygon points="315,55 325,60 315,65" fill="#00d4aa" opacity="0.6"/>
+  <text x="267" y="52" font-family="'SF Mono', monospace" font-size="8" fill="#ffb347" text-anchor="middle">magic packet</text>
+
+  <!-- NAS Server (center) -->
+  <g transform="translate(330, 25)">
+    <rect x="0" y="0" width="170" height="70" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2" class="wake"/>
+    <text x="85" y="22" font-family="system-ui" font-size="12" fill="#00d4aa" text-anchor="middle" font-weight="600">NAS Server</text>
+    <text x="85" y="42" font-family="system-ui" font-size="9" fill="#bbb" text-anchor="middle">was sleeping</text>
+    <text x="85" y="58" font-family="system-ui" font-size="9" fill="#00d4aa" text-anchor="middle">powering on &#10003;</text>
+  </g>
+
+  <!-- Relay blocked (right) -->
+  <g transform="translate(580, 20)">
+    <rect x="0" y="0" width="180" height="80" rx="8" fill="#1a1a2e" stroke="#ff6b6b" stroke-width="1.5" opacity="0.5"/>
+    <text x="90" y="24" font-family="system-ui" font-size="10" fill="#ff6b6b" text-anchor="middle">Relay Transport</text>
+    <!-- X through it -->
+    <line x1="30" y1="35" x2="150" y2="70" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <line x1="150" y1="35" x2="30" y2="70" stroke="#ff6b6b" stroke-width="1.5" opacity="0.4"/>
+    <text x="90" y="58" font-family="system-ui" font-size="9" fill="#ff6b6b" text-anchor="middle">blocked by policy</text>
+  </g>
+
+  <!-- Bottom text -->
+  <text x="400" y="135" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">LAN-only transport policy. Waking a machine through the internet makes no sense.</text>
+
+  <!-- Plugin badge -->
+  <g transform="translate(300, 155)">
+    <rect x="0" y="0" width="170" height="24" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" opacity="0.6"/>
+    <text x="85" y="16" font-family="system-ui" font-size="9" fill="#ffb347" text-anchor="middle">Wake-on-LAN Plugin</text>
+  </g>
+
+  <text x="400" y="205" font-family="system-ui" font-size="10" fill="#bbb" text-anchor="middle">Two commands. Same LAN only. Relay disabled by design.</text>
+</svg>

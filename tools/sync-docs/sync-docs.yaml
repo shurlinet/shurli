@@ -15,11 +15,35 @@ docs:
   # Weights 6-10 reserved for manual user journey guides:
   # relay-security(6), inviting-peers(7), managing-network(8), zkp-setup(9), zkp-anonymous-auth(10)
 
+  - source: FILE-TRANSFER.md
+    output: file-transfer.md
+    weight: 9
+    title: File Transfer
+    description: "Chunked P2P file transfer with BLAKE3 integrity, zstd compression, erasure coding, multi-source download, and AirDrop-style receive permissions."
+
+  - source: SDK.md
+    output: sdk.md
+    weight: 10
+    title: Go SDK
+    description: "Shurli Go SDK reference: PeerNetwork, ServiceManager, Resolver, Authorizer interfaces, events, plugin policies, and network tools."
+
+  - source: PLUGINS.md
+    output: plugins.md
+    weight: 11
+    title: Plugin System
+    description: "How Shurli's plugin system works: the Plugin interface, lifecycle states, CLI commands, configuration, transport policy, supervisor, and file transfer as the reference implementation."
+
   - source: ARCHITECTURE.md
     output: architecture.md
     weight: 11
     title: Architecture
     description: "Technical architecture of Shurli: libp2p foundation, circuit relay v2, DHT peer discovery, daemon design, file transfer, connection gating, and naming system."
+
+  - source: QUIC-TRANSPORT.md
+    output: quic-transport.md
+    weight: 12
+    title: QUIC Transport
+    description: "QUIC transport platform behavior and known limitations: macOS UDP GSO, Linux buffer tuning, LNP, and measured performance data."
 
   - source: MONITORING.md
     output: monitoring.md
@@ -192,6 +216,61 @@ journal:
     title: Per-Peer Data Grants
     description: "Macaroon capability tokens for per-peer, time-limited access control. Node-level enforcement, delegation, notifications, tamper-evident audit log."
 
+  - source: plugin-security-threat-analysis.md
+    weight: 27
+    title: Phase 9 - Plugin Security Threat Analysis
+    description: "43-vector threat analysis across 3 rounds. Trusted computing base, WASM host function API, supply chain defense, credential isolation, AI-era constraints."
+
+  - source: grant-receipt-protocol.md
+    weight: 28
+    title: Phase 9 - Grant Receipt Protocol
+    description: "Relay-issued receipts with session budgets, client-side grant cache, smart pre-transfer checks, per-chunk circuit byte tracking, smart reconnection."
+
+  - source: relay-circuit-investigation.md
+    weight: 29
+    title: Phase 9 - Relay Circuit Investigation
+    description: "Tier-aware session limits (RC1), receiver busy retry (RC2), seed relay churn superseded by Grant Receipt Protocol (RC3)."
+
+  - source: tail-slayer-path-reliability.md
+    weight: 30
+    title: FT-Y - Tail Slayer Path Reliability
+    description: "Hedged relay racing, multi-peer manifest exchange, connection-pinned streams, managed relay backup paths, checkpoint/resume failover, and zero-sync block coordination inspired by Laurie Kirk's (LaurieWired) Tail Slayer pattern."
+
+  - source: streaming-protocol-rewrite.md
+    weight: 31
+    title: FT-Y - Streaming Protocol Rewrite
+    description: "Streaming SHFT protocol rewrite with global chunk space, directory transfer, hash probe split, compression detection, adaptive chunks, and cross-session resume."
+
+  - source: multi-peer-adaptive-transfer.md
+    weight: 32
+    title: FT-Y - Multi-Peer Adaptive Transfer Scheduling
+    description: "Multi-peer transfer scheduling from static RaptorQ ranges through interleaved symbols to receiver-owned work-stealing raw chunks, with manifest verification, per-peer workers, checkpoint/resume, and the RaptorQ library boundary."
+
+  - source: budget-aware-relay-selection.md
+    weight: 33
+    title: FT-Y - Budget-Aware Relay Selection
+    description: "Relay selection from health-only ranking to grant-aware routing, low-budget retry, receipt freshness, budget exhaustion recovery, and operational feedback."
+
+  - source: reed-solomon-erasure-recovery.md
+    weight: 34
+    title: FT-Y - Reed-Solomon Erasure Recovery
+    description: "Bounded per-stripe Reed-Solomon repair for streaming transfers, with explicit recovery metadata, receiver memory limits, and missing-chunk reconstruction."
+
+  - source: verified-lan-classification.md
+    weight: 35
+    title: FT-Y - Verified-LAN Classification Migration
+    description: "Migration from bare RFC 1918 mask to mDNS-verified LAN detection for all trust-making decisions, with VerifiedTransport classifier and dead code deletion."
+
+  - source: persistent-proxy-service.md
+    weight: 36
+    title: FT-Y - Persistent Proxy Service
+    description: "Daemon-owned persistent proxy lifecycle with desired-state persistence, GATETIME stability detection, event-driven reconnect, poll fallback, and authorization cleanup."
+
+  - source: tcp-for-lan-experiment.md
+    weight: 37
+    title: FT-Y - TCP-for-LAN Experiment
+    description: "Negative-result experiment proving that TCP plus yamux does not beat QUIC for Shurli LAN bulk transfers on macOS, despite TCP TSO avoiding QUIC sendmsg overhead."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md
@@ -247,6 +326,7 @@ github_source_dirs:
   - cmd/
   - pkg/
   - internal/
+  - plugins/
   - tools/
   - deploy/
   - test/

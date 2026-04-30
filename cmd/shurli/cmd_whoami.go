@@ -11,7 +11,7 @@ import (
 
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
-	"github.com/shurlinet/shurli/pkg/p2pnet"
+	"github.com/shurlinet/shurli/pkg/sdk"
 )
 
 func runWhoami(args []string) {
@@ -40,7 +40,7 @@ func doWhoami(args []string, stdout io.Writer) error {
 	config.ResolveConfigPaths(cfg, filepath.Dir(cfgFile))
 
 	pw, _ := resolvePassword(filepath.Dir(cfgFile))
-	priv, err := p2pnet.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
+	priv, err := sdk.LoadOrCreateIdentity(cfg.Identity.KeyFile, pw)
 	if err != nil {
 		return fmt.Errorf("failed to load identity: %w", err)
 	}

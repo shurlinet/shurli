@@ -41,7 +41,7 @@ func SanitizeForDisplay(s string) string {
 
 // isUnsafeDisplayRune returns true for characters that should never appear in
 // terminal output from peer-controlled data. Mirrors isDangerousRune in
-// pkg/p2pnet/transfer.go but lives in validate/ for use across all layers.
+// plugins/filetransfer/transfer.go but lives in validate/ for use across all layers.
 func isUnsafeDisplayRune(r rune) bool {
 	// C0 control chars (U+0000-U+001F) - includes ESC (0x1B), NUL, BEL, etc.
 	if r <= 0x1F {

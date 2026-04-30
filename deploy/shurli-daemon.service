@@ -18,14 +18,14 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/etc/shurli /run/user
-PrivateTmp=true
+PrivateTmp=false
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 
 # Resource limits
 LimitNOFILE=65536
-MemoryMax=512M
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target
