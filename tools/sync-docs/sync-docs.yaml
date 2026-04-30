@@ -266,6 +266,11 @@ journal:
     title: FT-Y - Persistent Proxy Service
     description: "Daemon-owned persistent proxy lifecycle with desired-state persistence, GATETIME stability detection, event-driven reconnect, poll fallback, and authorization cleanup."
 
+  - source: tcp-for-lan-experiment.md
+    weight: 37
+    title: FT-Y - TCP-for-LAN Experiment
+    description: "Negative-result experiment proving that TCP plus yamux does not beat QUIC for Shurli LAN bulk transfers on macOS, despite TCP TSO avoiding QUIC sendmsg overhead."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md

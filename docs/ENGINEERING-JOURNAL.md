@@ -37,3 +37,4 @@ This document has been split into per-batch files for easier navigation. See the
 - [FT-Y: Reed-Solomon Erasure Recovery](engineering-journal/reed-solomon-erasure-recovery.md) - ADR-RS01 to ADR-RS08
 - [FT-Y: Verified-LAN Classification Migration](engineering-journal/verified-lan-classification.md) - ADR-VL01 to ADR-VL05
 - [FT-Y: Persistent Proxy Service](engineering-journal/persistent-proxy-service.md) - ADR-PP01 to ADR-PP05
+- [FT-Y: TCP-for-LAN Experiment](engineering-journal/tcp-for-lan-experiment.md) - ADR-TL01 to ADR-TL07
