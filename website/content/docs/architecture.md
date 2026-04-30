@@ -114,7 +114,7 @@ Shurli/
 │   │   ├── flagorder.go     # Flag reordering (positional args after flags)
 │   │   └── exit.go          # Testable os.Exit wrapper
 │
-├── pkg/sdk/              # Importable P2P library
+├── pkg/sdk/              # Importable P2P library (generic primitives, no plugin-specific code)
 │   ├── network.go           # Core network setup, relay helpers, name resolution
 │   ├── service.go           # Service registry (register/unregister, expose/unexpose)
 │   ├── service_query.go     # Service query protocol (/shurli/service-query/1.0.0)
@@ -131,8 +131,12 @@ Shurli/
 │   ├── verify.go            # SAS verification helpers (emoji fingerprints)
 │   ├── reachability.go      # Reachability grade calculation (A-F scale)
 │   ├── interfaces.go        # Interface discovery, IPv6/IPv4 classification
-│   ├── pathdialer.go        # Parallel dial racing (direct + relay, first wins)
+│   ├── pathdialer.go        # Parallel dial racing with hedged relay candidates
+│   ├── pathprotector.go     # Managed relay connection protection (TS-5)
 │   ├── pathtracker.go       # Per-peer path quality tracking (event-bus driven)
+│   ├── hedged.go            # HedgedOpenStream: race across independent connection paths (TS-4)
+│   ├── connstream.go        # OpenStreamOnConn, ConnGroups, OpenPluginStreamOnConn helpers
+│   ├── managed_conn.go      # Managed relay connections with reaper and lifecycle
 │   ├── netmonitor.go        # Network change monitoring (event-driven)
 │   ├── netmonitor_darwin.go # macOS route socket network change detection
 │   ├── netmonitor_linux.go  # Linux netlink network change detection
@@ -143,30 +147,18 @@ Shurli/
 │   ├── relaydiscovery.go    # DHT relay discovery + RelaySource interface + AutoRelay PeerSource
 │   ├── relayhealth.go       # EWMA relay health scoring (success rate, RTT, freshness)
 │   ├── bandwidth.go         # Per-peer/protocol bandwidth tracking (wraps libp2p BandwidthCounter)
+│   ├── bytes.go             # ParseByteSize, FormatBytes (generic utilities)
+│   ├── relay_utils.go       # RelayGrantChecker, RelayPeerFromAddr (generic relay helpers)
 │   ├── dnsseed.go           # DNS seed resolution (_dnsaddr TXT records, IPFS convention)
-│   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting)
+│   ├── mdns.go              # mDNS LAN discovery (dedup, concurrency limiting, deferred reconnect)
 │   ├── mdns_browse_native.go # Native DNS-SD via dns_sd.h (macOS/Linux CGo)
 │   ├── mdns_browse_fallback.go # Pure-Go zeroconf fallback (other platforms)
 │   ├── peermanager.go       # Background reconnection with exponential backoff
 │   ├── netintel.go          # Presence protocol (/shurli/presence/1.0.0, gossip forwarding)
+│   ├── merkle.go            # BLAKE3 Merkle tree (binary, odd-node promotion)
 │   ├── gateway_darwin.go    # Default gateway detection (macOS)
 │   ├── gateway_linux.go     # Default gateway detection (Linux)
 │   ├── gateway_other.go     # Default gateway detection (fallback)
-│   ├── diskspace_unix.go    # Disk space checking (Unix statfs)
-│   ├── diskspace_windows.go # Disk space checking (Windows)
-│   ├── transfer.go          # SHFT v2 wire format, chunked transfer, receive modes, rate limiting
-│   ├── transfer_erasure.go  # Reed-Solomon erasure coding (stripe-based, auto-enable on Direct WAN)
-│   ├── transfer_resume.go   # Checkpoint-based resume (bitfield of received chunks, .shurli-ckpt files)
-│   ├── transfer_parallel.go # Parallel QUIC streams (adaptive, 1 for LAN, up to 4 for WAN)
-│   ├── transfer_multipeer.go # RaptorQ fountain codes for multi-source download
-│   ├── transfer_raptorq.go  # RaptorQ symbol encoding/decoding
-│   ├── transfer_grants.go   # Relay grant pre-transfer checks, smart reconnection, budget tracking
-│   ├── transfer_log.go      # Transfer event logger (JSON lines, file rotation)
-│   ├── transfer_notify.go   # Transfer notifications (desktop/command modes)
-│   ├── chunker.go           # FastCDC content-defined chunking (own impl, adaptive targets)
-│   ├── merkle.go            # BLAKE3 Merkle tree (binary, odd-node promotion)
-│   ├── compress.go          # zstd compress/decompress with bomb protection
-│   ├── share.go             # ShareRegistry, TransferQueue, browse/download protocols
 │   ├── plugin_policy.go     # Transport-aware plugin access control (LAN/Direct/Relay bitmask)
 │   ├── grant_header.go      # Binary grant header on plugin streams (4-byte overhead, token presentation)
 │   ├── standalone.go        # Standalone mode helpers for CLI commands
@@ -188,15 +180,32 @@ Shurli/
 │
 ├── plugins/                 # Plugin implementations
 │   ├── plugins.go           # Plugin registration (all compiled-in plugins)
-│   └── filetransfer/        # File transfer plugin (first extraction)
-│       ├── plugin.go        # Implements Plugin interface
-│       ├── commands.go      # 9 CLI command handlers (send, download, browse, share, etc.)
-│       ├── handlers.go      # 14 daemon HTTP handlers
+│   └── filetransfer/        # File transfer plugin (owns entire protocol engine)
+│       ├── plugin.go        # Implements Plugin interface, lifecycle, config wiring
+│       ├── commands.go      # CLI command handlers (send, download, browse, share, transfers, etc.)
+│       ├── handlers.go      # Daemon HTTP handlers (send, download, browse, share, transfers, accept, reject, cancel)
 │       ├── client.go        # Daemon client methods for file transfer
-│       ├── types.go         # 12 request/response types
-│       ├── config.go        # Plugin config section (~30 fields)
+│       ├── types.go         # Request/response types
+│       ├── config.go        # Plugin config section
+│       ├── transfer.go      # SHFT v2 wire format, chunked transfer, receive modes, rate limiting
+│       ├── transfer_stream.go # Streaming wire format: header, chunk frames, accept bitfield, trailer
+│       ├── transfer_parallel.go # Parallel QUIC stream workers (adaptive count, work-stealing)
+│       ├── transfer_multipeer.go # Multi-peer download (interleaved symbols, dynamic block claiming)
+│       ├── transfer_raptorq.go # RaptorQ symbol encoding/decoding
+│       ├── transfer_erasure.go # Per-stripe Reed-Solomon erasure coding
+│       ├── transfer_resume.go # Checkpoint-based resume (bitfield, .shurli-ckpt files)
+│       ├── transfer_grants.go # Relay grant pre-transfer checks, budget tracking
+│       ├── transfer_cancel.go # Cancel protocol (/shurli/transfer-cancel/1.0.0)
+│       ├── transfer_log.go  # Transfer event logger (JSON lines, file rotation)
+│       ├── transfer_notify.go # Transfer notifications (desktop/command modes)
+│       ├── transfer_errors.go # Human-readable error mapping
 │       ├── checkpoint.go    # Transfer checkpoint persistence
-│       └── progress.go      # Transfer progress tracking
+│       ├── progress.go      # Transfer progress tracking (EWMA speed/ETA)
+│       ├── share.go         # ShareRegistry, browse/download protocols, hash probe
+│       ├── chunker.go       # FastCDC content-defined chunking (5-tier adaptive)
+│       ├── compress.go      # zstd compress/decompress with bomb protection
+│       ├── diskspace_unix.go # Disk space checking (Unix statfs)
+│       └── diskspace_windows.go # Disk space checking (Windows)
 │
 ├── internal/
 │   ├── config/              # YAML configuration loading + self-healing
@@ -403,7 +412,7 @@ Shurli/
 ├── pkg/plugin/              # ✅ Plugin framework (interface, registry, supervisor)
 │
 ├── plugins/                 # ✅ Plugin implementations
-│   ├── filetransfer/        # ✅ File transfer plugin (first extraction)
+│   ├── filetransfer/        # ✅ File transfer plugin (25 source files, full protocol engine)
 │   ├── discovery/           # 🆕 Phase 9C: Service discovery
 │   ├── servicetemplates/    # 🆕 Phase 9C: Ollama, vLLM templates
 │   └── wakeonlan/           # 🆕 Phase 9C: Wake-on-LAN
@@ -657,7 +666,7 @@ Custom shurli metrics (50 total):
 
 **Relay Metrics**: When both health and metrics are enabled on the relay, `/metrics` is added to the existing `/healthz` HTTP mux. When only metrics is enabled, a dedicated HTTP server is started.
 
-**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, ZKP operations, and system metrics. 56 panels (45 visualizations + 11 row headers) across 11 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, and ZKP Tree Operations.
+**Grafana Dashboard**: A pre-built dashboard (`grafana/shurli-dashboard.json`) ships with the project. Import it into any Grafana instance to visualize proxy throughput, auth decisions, vault unseal attempts, hole punch success rates, API latency, ZKP operations, and system metrics. 47 panels across 11 sections: Overview, Proxy Throughput, Security, Hole Punch, Daemon API, System, ZKP Privacy, ZKP Auth Overview, ZKP Proof Generation, ZKP Verification, and ZKP Tree Operations.
 
 **Reference**: `pkg/sdk/metrics.go`, `pkg/sdk/audit.go`, `internal/daemon/middleware.go`, `cmd/shurli/serve_common.go`, `grafana/shurli-dashboard.json`
 
@@ -1946,7 +1955,7 @@ Validated at four points:
 
 **Core**:
 - Go 1.26+
-- libp2p v0.47.0 (networking)
+- libp2p v0.48.0 (networking)
 - Private Kademlia DHT (`/shurli/kad/1.0.0` - isolated from IPFS Amino). Optional namespace isolation: `discovery.network: "my-crew"` produces `/shurli/my-crew/kad/1.0.0`, creating protocol-level separation between peer groups
 - Noise protocol (encryption)
 - QUIC transport (preferred - 3 RTTs vs 4 for TCP)
@@ -1966,5 +1975,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-03-20
-**Architecture Version**: 6.0 (Phase 9B + Plugin Architecture Complete: Plugin Framework, File Transfer Plugin Extraction, Supervisor Auto-Restart, Security Hardening. Previous: File Transfer, FastCDC Chunking, BLAKE3 Merkle, zstd Compression, Reed-Solomon Erasure, RaptorQ Multi-Source, Parallel Streams, Share Registry, Plugin Policy)
+**Last Updated**: 2026-04-30
+**Architecture Version**: 7.0 (FT-Y Speed Optimization Complete: SHFT v2 streaming protocol, multi-peer download, Tail Slayer hedged connections, per-stripe Reed-Solomon, budget-aware relay, persistent proxy service, 22 networking bug fixes. Plugin code migration complete: all transfer engine code in plugins/filetransfer/, SDK provides generic primitives only. Dependencies: go-libp2p v0.48.0, kad-dht v0.39.1.)
