@@ -491,10 +491,10 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 		}
 
 		if len(allPeers) >= 2 {
-			rootHash, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
+			rootHash, probeSize, probeErr := ts.ProbeRootHash(func() (network.Stream, error) {
 				return pnet.OpenPluginStream(r.Context(), targetPeerID, "file-download")
 			}, req.RemotePath)
-			if probeErr == nil {
+			if probeErr == nil && probeSize >= ts.MultiPeerMinSize() {
 				// Use activeCtx (not r.Context()) so streams survive after HTTP response.
 				// Same pattern as handleSend: r.Context() dies when response is sent,
 				// but multi-peer download continues in background.
@@ -522,8 +522,11 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 					return
 				}
 				slog.Warn("multi-peer download failed, falling back to single-peer", "error", dlErr)
-			} else {
+			} else if probeErr != nil {
 				slog.Warn("root hash probe failed, falling back to single-peer", "error", probeErr)
+			} else {
+				slog.Info("file too small for multi-peer, using single-peer",
+					"size", probeSize, "minSize", ts.MultiPeerMinSize())
 			}
 		}
 	}

@@ -1253,12 +1253,6 @@ func (pm *PeerManager) OnNetworkChange()
 
 OnNetworkChange triggers immediate reconnection attempts.
 
-#### func (*PeerManager) GetPeer
-
-```go
-func (pm *PeerManager) GetPeer(id peer.ID) (*ManagedPeerInfo, bool)
-```
-
 #### func (*PeerManager) SetPathProtector
 
 ```go
@@ -1291,11 +1285,13 @@ func (pm *PeerManager) CloseAllPeerConnections()
 
 CloseAllPeerConnections closes all connections to all watched peers. Used on network change to force path re-evaluation.
 
-#### func (*PeerManager) ListPeers
+#### func (*PeerManager) GetManagedPeers
 
 ```go
-func (pm *PeerManager) ListPeers() []ManagedPeerInfo
+func (pm *PeerManager) GetManagedPeers() []ManagedPeerInfo
 ```
+
+GetManagedPeers returns a snapshot of all watched peers and their state.
 
 ### type ManagedPeerInfo
 

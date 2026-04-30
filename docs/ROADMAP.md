@@ -441,7 +441,7 @@ Cross-network testing across multiple ISPs and NAT types exposed 8 bugs. All fix
 - [x] CI simplified to `go build ./...`, `go vet ./...`, `go test -race -count=1 ./...` from project root
 
 **Pre-Refactoring Foundation** (completed before main 4C work):
-- [x] GitHub Actions CI - build, vet, and test on every push to `main` and `dev/next-iteration`
+- [x] GitHub Actions CI - build, vet, and test on every push to `main` and `dev`
 - [x] Config version field - `version: 1` in all configs; loader defaults missing version to 1, rejects future versions. Enables safe schema migration.
 - [x] Unit tests for config package - loader, validation, path resolution, version handling, relay config
 - [x] Unit tests for auth package - gater (inbound/outbound/update), authorized_keys (load/parse/comments), manage (add/remove/list/duplicate/sanitize)
@@ -965,30 +965,81 @@ TCP source binding, black hole detector reset, autorelay backoff/minInterval/boo
 
 ---
 
-#### Post-9B: Transfer Speed Optimization (FT-Y)
+#### Post-9B: Transfer Speed Optimization (FT-Y) ✅ DONE
 
-**Timeline**: Next iteration (high priority)
-**Status**: 📋 Planned
+**Timeline**: 2026-03-31 to 2026-04-30
+**Status**: ✅ Complete
 
-**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync. Current baseline (2026-03-15, WiFi LAN, 500MB random data): Shurli 5 MB/s vs SCP 9 MB/s (55% of SCP). The 45% overhead comes from per-chunk processing (BLAKE3 hash + zstd compress + wire framing) across 2164 chunks.
+**Goal**: Close the speed gap between Shurli file transfer and raw SCP/rsync.
 
-**Baseline measurements** (WiFi at distance - NOT protocol ceiling):
-- Client node -> server node, WiFi LAN
-- 500MB incompressible file (urandom)
-- SCP: 56s (~9 MB/s) | Shurli: 1m40s (~5 MB/s)
-- **Important**: Both numbers are constrained by the test environment (WiFi at distance), not protocol capability. Proper benchmarking requires wired gigabit LAN. Do not cite these as final performance numbers.
+**Results** (wired gigabit LAN, 500 MB incompressible):
+- **Before**: 5 MB/s (WiFi, old protocol)
+- **After**: 110 MB/s send, 142 MB/s download (USB LAN, streaming protocol)
+- **SCP baseline**: 107 MB/s (same USB LAN)
+- **Relay**: 4.0 MB/s (Sydney, via mobile hotspot)
+- **Multi-peer**: 95.7 MB/s (28 GB, 2 peers, work-stealing blocks)
 
-**Optimization targets**:
+**What shipped**:
 
-1. **Larger chunk sizes for LAN** - Current: 128K avg for <1GB files. LAN transfers benefit from fewer, larger chunks (less hash/frame overhead per byte). Adaptive: detect LAN path and use 1MB+ chunks.
-2. **Skip compression for incompressible data** - Detect in first chunk. If ratio < 1.05:1, disable for remaining chunks. Saves CPU on random/encrypted/pre-compressed data.
-3. **Streaming send** - Currently buffers all chunks in memory before sending. Stream chunks as they're produced (read -> hash -> compress -> send pipeline). Reduces memory and latency-to-first-byte.
-4. **Parallel chunk hashing** - BLAKE3 is already fast, but hashing can run on multiple cores while I/O waits.
-5. **Adaptive stream count** - Current: 1 stream for LAN. Test whether 2-4 streams improve WiFi throughput (WiFi benefits from parallel flows due to MAC-layer retransmits).
+**Streaming Protocol (SHFT v2)**:
+- [x] Streaming pipeline (read->hash->compress->send, zero full-file buffering)
+- [x] 5-tier adaptive chunks (64K-4M based on file size)
+- [x] Incompressible detection (3-chunk probe, ratio >= 0.95 disables compression)
+- [x] 8-stream parallel workers with work-stealing
+- [x] Per-stripe Reed-Solomon erasure coding (O(1 stripe) memory, not O(file))
+- [x] Missing-chunk recovery from trailer manifest
+- [x] Checkpoint/resume with crash recovery
+- [x] Selective file rejection (--files/--exclude for directory downloads)
+- [x] Progress bar (yt-dlp-style, EWMA speed/ETA)
 
-**Target**: Match or exceed SCP speed on LAN transfers (>= 9 MB/s for 500MB). Accept ~10-15% overhead for integrity verification as the cost of doing business.
+**Multi-Peer Download**:
+- [x] Interleaved symbol IDs (peer i gets i, i+N, i+2N). Fast peers get more blocks
+- [x] Dynamic block claiming with retry priority and slow-peer demotion
+- [x] Manifest verification (hash+sizes) across all peers
 
-**Exit criteria**: 500MB LAN transfer completes within 10% of SCP time. Benchmarks documented for LAN, WAN-direct, and relay paths.
+**Tail Slayer (Hedged Connections)**:
+- [x] TS-1: Hedged relay candidates in PathDialer
+- [x] TS-2: Hedged relay in bootstrap
+- [x] TS-3: Hedged multi-peer manifest exchange
+- [x] TS-4: Always-on control signal hedging (cancel latency: 11 ms)
+- [x] TS-5: Path maintenance + managed relay connections
+- [x] TS-5b: Automatic failover via checkpoint/resume
+- [x] TS-6: Zero-sync block coordination
+
+**Budget-Aware Relay**:
+- [x] Grant cache wired into RelayDiscovery
+- [x] RelayAddrs() ranks by health + budget bonus
+- [x] Per-peer relay data budget (Host Wrapper, no fork)
+
+**Networking Fixes** (found during FT-Y physical testing):
+- [x] #16: mDNS LAN upgrade blocked by dial worker pollution (deferred reconnect fix)
+- [x] #17: IPv6 reconnect loop (StripNonLANAddrs + fe80::/10 filter)
+- [x] #19: TCP-for-LAN experiment (DISPROVEN: 6% slower than QUIC, archived)
+- [x] #21: LAN throughput regression (root cause: macOS lacks UDP GSO, NOT a Shurli bug)
+- [x] #28: Resource manager exhaustion after ~1h45m (PeerBaseLimit.Conns=8 default)
+- [x] #30: Sender false-failure report (decompSize tracking unified)
+- [x] #31: Duplicate file on re-send (same-size overwrite)
+- [x] #32: yt-dlp-style progress bar
+- [x] #33: Relay backoff not cleared on network change
+- [x] #35: Stale transfers --watch after daemon restart
+- [x] #36: Hole punch "no good addresses" (IPv6 black hole detector reset)
+- [x] #39: PathDialer zombie QUIC after WiFi switch
+- [x] #40: Receiver busy after few transfers
+- [x] #41: Download --files/--exclude from shared directories
+- [x] #42: mDNS LAN connection stabilization delay
+
+**Persistent Proxy Service**:
+- [x] CLI: add/list/remove/enable/disable with GATETIME stability detection
+- [x] Event-driven + 30s poll status, persisted via proxies.json
+
+**Engineering Journals**: 8 published (ADR-Y01-Y10, ADR-MP01-MP10, ADR-X01-X07, ADR-BR01-BR09, ADR-RS01-RS08, ADR-VL01-VL05, ADR-PP01-PP05, ADR-TL01-TL07)
+
+**Key Files**:
+- `plugins/filetransfer/transfer_stream.go` - SHFT v2 wire format
+- `plugins/filetransfer/transfer_parallel.go` - Multi-stream workers
+- `plugins/filetransfer/transfer_multipeer.go` - Multi-peer download
+- `pkg/sdk/pathdialer.go` - Hedged connections
+- `docs/QUIC-TRANSPORT.md` - Platform limitations
 
 ---
 
@@ -1373,7 +1424,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/sdk` - no separate 
 - [x] Automated docs sync (`tools/sync-docs`, Go) - transforms `docs/*.md` into Hugo-ready content with front matter and link rewriting
 - [x] Elegant landing page with visual storytelling - hero with problem-first hook, terminal demo section, 3-step "How It Works" grid, network diagram, tabbed install commands (macOS/Linux/source), bottom CTA grid *(enhanced post-Batch G)*
 - [x] Seven retroactive blog posts for Batches A-G (outcomes-focused)
-- [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev/next-iteration` (see deployment note below)
+- [x] GitHub Actions CI/CD - build Hugo site and deploy to GitHub Pages on push to `main` or `dev` (see deployment note below)
 - [x] GitHub Pages hosting with custom domain (`shurli.io`) - DNS provider configured, CNAME deployed, site live *(2026-02-20)*
 - [x] DNS managed via DNS provider - A/AAAA records → GitHub Pages, CDN + DDoS protection enabled, SSL mode "Full" *(2026-02-20)*
 - [x] CNAME `get.shurli.io` → serves install script *(2026-03-24, DNS redirect → shurli.io/install → tools/install.sh)*
@@ -1392,7 +1443,7 @@ The Go "SDK" is just `go get github.com/shurlinet/shurli/pkg/sdk` - no separate 
 
 **Website Deployment Model** (note for maintainers):
 
-The website deploys from both `main` and `dev/next-iteration` via `.github/workflows/pages.yaml`. This was a deliberate decision (2026-02-23) to solve a real workflow problem: documentation and website content often update alongside code changes on the dev branch, but the code needs live testing on real hardware before merging to `main`. Since Hugo only builds from `website/` and `docs/`, untested Go code in `cmd/`, `pkg/`, `internal/` is completely irrelevant to the website build pipeline. The CI workflow (`.github/workflows/ci.yml`) handles Go build/test separately on both branches.
+The website deploys from both `main` and `dev` via `.github/workflows/pages.yaml`. This was a deliberate decision (2026-02-23) to solve a real workflow problem: documentation and website content often update alongside code changes on the dev branch, but the code needs live testing on real hardware before merging to `main`. Since Hugo only builds from `website/` and `docs/`, untested Go code in `cmd/`, `pkg/`, `internal/` is completely irrelevant to the website build pipeline. The CI workflow (`.github/workflows/ci.yml`) handles Go build/test separately on both branches.
 
 Why this approach was chosen over alternatives:
 - **Cherry-picking doc commits to main**: breaks down when a single commit touches both code and docs; manual overhead on every push.
@@ -1989,6 +2040,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **Phase 8D: Module Slots** | 📋 | Planned (reputation slot designed) |
 | **Grant Receipt Protocol** | ✅ | Complete (relay receipts, client cache, pre-transfer checks, smart reconnection, tier-aware limits) |
 | Phase 9: Plugins, SDK & First Plugins | ✅/📋 | 9A/9B/Plugins/E14/bandwidth/Grant Receipt DONE. 9C-9E planned, 9F-9G future |
+| **FT-Y: Transfer Speed Optimization** | ✅ | Complete (streaming protocol, multi-peer, Tail Slayer hedging, budget-aware relay, 22 bug fixes) |
 | Phase 10: Distribution & Launch | ✅/📋 | Partial (install script, release archives, relay-setup --prebuilt done. GoReleaser/Homebrew/APT planned) |
 | Phase 11: Desktop Gateway + Private DNS | 📋 2-3 weeks | Planned |
 | Phase 12: Apple Multiplatform App | 📋 3-4 weeks | Planned (separate repo: `shurli-ios`) |
@@ -2153,9 +2205,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-03-27
-**Latest Release**: v0.3.0 (2026-03-26, 148 commits merged to main). Plugin architecture, grants, Grant Receipt Protocol, distribution, relay-first onboarding, bandwidth budgets, pre-merge audit, physical testing.
-**Current Phase**: Phase 9 in progress. Plugin architecture complete (9A + 9B + plugin framework + extraction + security hardening + physical retest). Grant Receipt Protocol complete. 9C-9E planned.
-**Phases**: 1-8B (complete), 9 (in progress: 9A-9B + Grant Receipt done, 9C-9E planned), 10-15 (planned), 16+ (ecosystem)
-**Next Milestone**: Phase 9C - Service Discovery & Additional Plugins (discovery protocol, service templates, Wake-on-LAN)
+**Last Updated**: 2026-04-30
+**Latest Release**: v0.3.0 (2026-03-26). Next release pending: FT-Y speed optimization (streaming protocol, multi-peer, Tail Slayer, 22 bug fixes), dep upgrades (libp2p v0.48.0, kad-dht v0.39.1).
+**Current Phase**: FT-Y complete. Pre-merge audit complete. Merging dev to main.
+**Phases**: 1-8B (complete), 9A-9B + FT-Y + Grant Receipt (complete), 9C-9E (planned), 10-15 (planned), 16+ (ecosystem)
+**Next Milestone**: Post-quantum cryptography (go-clatter, `/pq-noise/1` transport). Plan: `pqc-implementation-plan.md`.
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

@@ -1179,9 +1179,12 @@ func sanitizeRelativePath(name string) string {
 		// Strip dangerous characters from each component (control chars,
 		// terminal escapes, invisible Unicode, BiDi overrides).
 		part = sanitizeFilename(part)
-		if part != "" {
-			parts = append(parts, part)
+		// Re-check after sanitization: stripping control chars can
+		// reduce a component to ".." (e.g. "..\v" -> "..").
+		if part == "" || part == "." || part == ".." {
+			continue
 		}
+		parts = append(parts, part)
 	}
 
 	if len(parts) == 0 {
@@ -5176,23 +5179,23 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 
 // ProbeRootHash opens a download stream to a peer, sends a hash probe request
 // (requestType=0x02), and reads the 45-byte probe response containing the
-// file's Merkle root hash. This is used by multi-peer download to discover
-// the content hash before fanning out to multiple peers (C2).
+// file's Merkle root hash and total size. This is used by multi-peer download
+// to discover the content hash before fanning out to multiple peers (C2).
 //
 // The handler side chunks the file and computes MerkleRoot without streaming
 // any data back. Cost: ~2.5s for 500MB (FastCDC + BLAKE3).
-func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, error) {
+func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, error), remotePath string) ([32]byte, int64, error) {
 	var zero [32]byte
 
 	stream, err := openStream()
 	if err != nil {
-		return zero, fmt.Errorf("open stream: %w", err)
+		return zero, 0, fmt.Errorf("open stream: %w", err)
 	}
 	defer stream.Close()
 
 	probe, err := RequestProbe(stream, remotePath)
 	if err != nil {
-		return zero, fmt.Errorf("probe request: %w", err)
+		return zero, 0, fmt.Errorf("probe request: %w", err)
 	}
 
 	slog.Debug("file-download: probe result",
@@ -5200,7 +5203,7 @@ func (ts *TransferService) ProbeRootHash(openStream func() (network.Stream, erro
 		"totalSize", probe.TotalSize,
 		"chunkCount", probe.ChunkCount)
 
-	return probe.RootHash, nil
+	return probe.RootHash, probe.TotalSize, nil
 }
 
 // createTempFileIn creates a temp file in the given directory.
