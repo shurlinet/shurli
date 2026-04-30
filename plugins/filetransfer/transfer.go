@@ -366,8 +366,9 @@ type TransferProgress struct {
 	StreamProgress   []StreamInfo `json:"stream_progress,omitempty"` // per-stream progress (parallel only)
 	Failovers        int          `json:"failovers,omitempty"`       // TS-5b: number of path failovers (F10)
 	PeerID           string       `json:"peer_id"`
-	Direction        string       `json:"direction"` // "send" or "receive"
-	Status           string       `json:"status"`    // "pending", "active", "complete", "failed", "rejected"
+	Direction        string       `json:"direction"`  // "send" or "receive"
+	Status           string       `json:"status"`     // "pending", "active", "complete", "failed", "rejected"
+	Transport        string       `json:"transport,omitempty"` // #19: "tcp", "quic", or empty (R15-F11)
 	StartTime        time.Time    `json:"start_time"`
 	EndTime          time.Time    `json:"end_time,omitempty"`
 	Done             bool         `json:"done"`
@@ -517,6 +518,7 @@ type TransferSnapshot struct {
 	PeerID           string       `json:"peer_id"`
 	Direction        string       `json:"direction"`
 	Status           string       `json:"status"`
+	Transport        string       `json:"transport,omitempty"` // #19: "tcp", "quic", or empty (R15-F11)
 	StartTime        time.Time    `json:"start_time"`
 	EndTime          time.Time    `json:"end_time,omitempty"`
 	Done             bool              `json:"done"`
@@ -537,6 +539,7 @@ func (p *TransferProgress) Snapshot() TransferSnapshot {
 		ParityChunksDone: p.ParityChunksDone,
 		Failovers:        p.Failovers,
 		PeerID:           p.PeerID, Direction: p.Direction, Status: p.Status,
+		Transport: p.Transport,
 		StartTime: p.StartTime, EndTime: p.EndTime,
 		Done: p.Done, Error: p.Error,
 	}
@@ -2532,6 +2535,7 @@ func (ts *TransferService) HandleInbound() sdk.StreamHandler {
 		progress.setStatus("active")
 		// #40 F7: release peerInbound at finish() for immediate slot availability.
 		progress.mu.Lock()
+		progress.Transport = transportFromStream(s)
 		progress.postFinish = releasePeerInbound
 		// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
 		progress.transferID = transferID
@@ -3074,6 +3078,9 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 			if streamErr != nil {
 				finalErr = fmt.Errorf("open stream for directory: %w", streamErr)
 			} else {
+				job.progress.mu.Lock()
+				job.progress.Transport = transportFromStream(stream)
+				job.progress.mu.Unlock()
 				sendOpts := job.opts
 				sendOpts.internalShadow = true
 				sendProgress, sendErr := ts.SendFile(stream, job.filePath, sendOpts)
@@ -3089,6 +3096,9 @@ func (ts *TransferService) executeQueuedJob(job *queuedJob) {
 		if err != nil {
 			finalErr = fmt.Errorf("open stream: %w", err)
 		} else {
+			job.progress.mu.Lock()
+			job.progress.Transport = transportFromStream(stream)
+			job.progress.mu.Unlock()
 			// Pre-transfer relay grant check: budget + time (H7).
 			if ts.grantChecker != nil {
 				relayID := relayPeerFromStream(stream)
@@ -4724,6 +4734,7 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 	progress.setStatus("active")
 	// TS-4: store transferID + remotePeer for cancel protocol routing (R4-C2).
 	progress.mu.Lock()
+	progress.Transport = transportFromStream(s)
 	progress.transferID = transferID
 	progress.remotePeerID = remotePeer
 	progress.mu.Unlock()
@@ -4956,8 +4967,9 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 				goto done
 			}
 
-			// Open new stream on backup path via HedgedOpenStream (R2-F2).
-			newStream, hedgeErr := sdk.HedgedOpenStream(
+			// Open new stream on backup path. #19/R15-F1: OpenBulkStream
+			// prefers TCP LAN when configured, falls back to HedgedOpenStream.
+			newStream, hedgeErr := sdk.OpenBulkStream(
 				ts.queueCtx, ts.networkRef, remotePeer, ts.downloadServiceName)
 			if hedgeErr != nil {
 				// All existing connection groups failed (dead connections from
@@ -5000,7 +5012,8 @@ func (ts *TransferService) ReceiveFrom(s network.Stream, remotePath, destDir str
 						connectCtx, connectCancel := context.WithTimeout(ts.queueCtx, 10*time.Second)
 						ts.networkRef.Host().Connect(connectCtx, peer.AddrInfo{ID: remotePeer})
 						connectCancel()
-						newStream, hedgeErr = sdk.HedgedOpenStream(
+						// #19/R15-F2: OpenBulkStream for TCP-for-LAN on reconnect.
+						newStream, hedgeErr = sdk.OpenBulkStream(
 							ts.queueCtx, ts.networkRef, remotePeer, ts.downloadServiceName)
 						if hedgeErr == nil {
 							reconnected = true

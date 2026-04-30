@@ -102,7 +102,7 @@ TCP does not have this problem because macOS supports TSO (TCP Segmentation Offl
 There is no application-level fix for the missing kernel GSO support. The options are:
 
 1. **Accept the ceiling**: 80-90 MB/s on macOS-as-sender for LAN is still fast. Most real-world transfers are over WAN or relay where this limit does not apply.
-2. **TCP transport for LAN** (planned): TCP gets full TSO offload on all platforms. Adding TCP as an alternative LAN transport would match scp's throughput.
+2. **TCP transport for LAN** (config-gated): set `network.lan_transport: tcp` in your node config. When enabled, file transfer bulk data streams prefer TCP connections to verified-LAN peers. TCP gets full TSO offload on macOS, avoiding the per-packet sendmsg overhead. Core networking (ping, mDNS, relay, control signals) continues using QUIC. This option primarily benefits macOS senders; Linux senders already have native UDP GSO and do not need it. TCP on LAN is vulnerable to RST injection by devices on the same network segment (QUIC is immune due to encrypted connection IDs) - use only on trusted LANs.
 3. **Wait for Apple**: macOS may eventually add GSO for UDP. When it does, quic-go will enable it automatically. No Shurli code changes would be needed.
 4. **Wait for quic-go**: the quic-go project continues optimizing its packet sending path. Any improvements benefit Shurli automatically via dependency updates.
 

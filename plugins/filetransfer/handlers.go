@@ -538,7 +538,13 @@ func (p *FileTransferPlugin) handleDownload(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Single-peer download. TS-4: hedge across independent paths.
-	stream, err := sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
+	// #19: prefer TCP LAN connection for bulk data when configured.
+	var stream network.Stream
+	if p.bulkStreamEnabled {
+		stream, err = sdk.OpenBulkStream(r.Context(), pnet, targetPeerID, "file-download")
+	} else {
+		stream, err = sdk.HedgedOpenStream(r.Context(), pnet, targetPeerID, "file-download")
+	}
 	if err != nil {
 		daemon.RespondError(w, http.StatusBadGateway, fmt.Sprintf("cannot open download stream: %s", sdk.HumanizeError(err.Error())))
 		return
@@ -662,8 +668,13 @@ func (p *FileTransferPlugin) handleSend(w http.ResponseWriter, r *http.Request) 
 		daemon.RespondError(w, http.StatusServiceUnavailable, "plugin is shutting down")
 		return
 	}
-	opener := func() (network.Stream, error) {
-		return sdk.HedgedOpenStream(ctx, pnet, targetPeerID, "file-transfer")
+	var opener func() (network.Stream, error)
+	if p.bulkStreamEnabled {
+		opener = sdk.BulkStreamOpener(ctx, pnet, targetPeerID, "file-transfer")
+	} else {
+		opener = func() (network.Stream, error) {
+			return sdk.HedgedOpenStream(ctx, pnet, targetPeerID, "file-transfer")
+		}
 	}
 	sendOpts := SendOptions{
 		NoCompress:   req.NoCompress,

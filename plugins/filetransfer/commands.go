@@ -870,6 +870,9 @@ func showSingleTransfer(client *daemonClient, id string, jsonOutput bool) {
 	fmt.Printf("  Size:      %s\n", humanSize(snap.Size))
 	fmt.Printf("  Peer:      %s\n", peerShort)
 	fmt.Printf("  Direction: %s\n", snap.Direction)
+	if snap.Transport != "" {
+		fmt.Printf("  Transport: %s\n", snap.Transport)
+	}
 	fmt.Printf("  Status:    %s\n", snap.Status)
 
 	if snap.Transferred > 0 {
@@ -931,6 +934,11 @@ func printTransferTable(transfers []TransferSnapshot) {
 				t.ErasureOverhead*100, t.ErasureParity)
 		}
 
+		transportTag := ""
+		if t.Transport == "tcp" {
+			transportTag = " [tcp]"
+		}
+
 		// Use EndTime for completed/failed transfers so elapsed time freezes.
 		var age time.Duration
 		if !t.EndTime.IsZero() {
@@ -944,10 +952,10 @@ func printTransferTable(transfers []TransferSnapshot) {
 
 		name := truncateDisplay(SanitizeDisplayName(t.Filename), 20) // R2-F24
 
-		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
+		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s%s  ",
 			dir, t.ID, name, peerShort,
 			humanSize(t.Transferred), humanSize(t.Size),
-			pctStr, compressTag, erasureTag,
+			pctStr, compressTag, erasureTag, transportTag,
 		)
 
 		switch t.Status {
@@ -1151,6 +1159,11 @@ func printWatchTable(transfers []TransferSnapshot, prevSnap map[string]watchSnap
 				t.ErasureOverhead*100, t.ErasureParity)
 		}
 
+		transportTag := ""
+		if t.Transport == "tcp" {
+			transportTag = " [tcp]"
+		}
+
 		var age time.Duration
 		if !t.EndTime.IsZero() {
 			age = t.EndTime.Sub(t.StartTime).Truncate(time.Second)
@@ -1186,10 +1199,10 @@ func printWatchTable(transfers []TransferSnapshot, prevSnap map[string]watchSnap
 			speedStr = fmt.Sprintf("  %s/s", humanSize(int64(bytesPerSec)))
 		}
 
-		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s  ",
+		fmt.Printf("  %s %s  %s  %s  %s/%s%s%s%s%s  ",
 			dir, t.ID, name, peerShort,
 			humanSize(t.Transferred), humanSize(t.Size),
-			pctStr, compressTag, erasureTag,
+			pctStr, compressTag, erasureTag, transportTag,
 		)
 
 		switch t.Status {

@@ -222,6 +222,9 @@ func ValidateHomeNodeConfig(cfg *HomeNodeConfig) error {
 	if cfg.Security.EnableConnectionGating && cfg.Security.AuthorizedKeysFile == "" {
 		return fmt.Errorf("security.authorized_keys_file is required when connection gating is enabled")
 	}
+	if err := validateLANTransport(cfg.Network.LANTransport); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -241,6 +244,9 @@ func ValidateClientNodeConfig(cfg *ClientNodeConfig) error {
 	}
 	if cfg.Security.EnableConnectionGating && cfg.Security.AuthorizedKeysFile == "" {
 		return fmt.Errorf("security.authorized_keys_file is required when connection gating is enabled")
+	}
+	if err := validateLANTransport(cfg.Network.LANTransport); err != nil {
+		return err
 	}
 	return nil
 }
@@ -360,6 +366,9 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 			return fmt.Errorf("discovery.network: %w", err)
 		}
 	}
+	if err := validateLANTransport(cfg.Network.LANTransport); err != nil {
+		return err
+	}
 	// Validate service names (prevent protocol ID injection)
 	for name := range cfg.Services {
 		if err := validate.ServiceName(name); err != nil {
@@ -367,6 +376,16 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 		}
 	}
 	return nil
+}
+
+// validateLANTransport checks that network.lan_transport is a valid value.
+func validateLANTransport(v string) error {
+	switch v {
+	case "", "auto", "tcp":
+		return nil
+	default:
+		return fmt.Errorf("network.lan_transport must be \"auto\" or \"tcp\", got %q", v)
+	}
 }
 
 // DefaultConfigDir returns the system-level config directory (/etc/shurli).

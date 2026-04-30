@@ -211,6 +211,7 @@ var validConfigKeys = []string{
 	"network.force_cgnat",
 	"network.resource_limits_enabled",
 	"network.memory_limit",
+	"network.lan_transport",
 	"relay.addresses",
 	"relay.reservation_interval",
 	"discovery.rendezvous",

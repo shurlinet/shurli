@@ -700,6 +700,7 @@ func TestValidateHomeNodeConfig(t *testing.T) {
 		{"gating without auth_keys", func(c *HomeNodeConfig) {
 			c.Security = SecurityConfig{EnableConnectionGating: true, AuthorizedKeysFile: ""}
 		}},
+		{"invalid lan_transport", func(c *HomeNodeConfig) { c.Network.LANTransport = "quic" }},
 	}
 
 	for _, tt := range tests {
@@ -708,6 +709,17 @@ func TestValidateHomeNodeConfig(t *testing.T) {
 			tt.mutate(&cfg)
 			if err := ValidateHomeNodeConfig(&cfg); err == nil {
 				t.Error("expected validation error")
+			}
+		})
+	}
+
+	// Valid lan_transport values must pass.
+	for _, v := range []string{"", "auto", "tcp"} {
+		t.Run("lan_transport="+v, func(t *testing.T) {
+			cfg := base
+			cfg.Network.LANTransport = v
+			if err := ValidateHomeNodeConfig(&cfg); err != nil {
+				t.Errorf("lan_transport=%q rejected: %v", v, err)
 			}
 		})
 	}

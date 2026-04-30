@@ -44,9 +44,10 @@ type FileTransferPlugin struct {
 	// Plugin owns context.Context + sync.WaitGroup for active transfers.
 	// Start() creates cancelable context, passes to ALL TransferService operations.
 	// Stop() cancels context, waits on WaitGroup (25s budget within 30s drain timeout).
-	activeCtx    context.Context
-	activeCancel context.CancelFunc
-	wg           sync.WaitGroup
+	activeCtx        context.Context
+	activeCancel     context.CancelFunc
+	wg               sync.WaitGroup
+	bulkStreamEnabled bool // #19: TCP-for-LAN bulk transfer streams
 
 	// drainGate is set to true when Stop() begins. wrapHandler checks this
 	// before wg.Add(1) to prevent new work after drain starts (P2 fix).
@@ -249,6 +250,11 @@ func (p *FileTransferPlugin) Start(ctx context.Context) error {
 	// TS-5b: Set network reference for failover retry (HedgedOpenStream).
 	ts.SetNetwork(p.network, "file-download")
 
+	// #19: TCP-for-LAN bulk streams. OpenBulkStream reads config internally
+	// and falls back to HedgedOpenStream when lan_transport != "tcp".
+	// Always enable — the SDK function handles the config check.
+	p.bulkStreamEnabled = true
+
 	// If config specifies timed mode at startup, activate the timer.
 	if cfg.ReceiveMode == ReceiveModeTimed {
 		durStr := p.config.TimedDuration
@@ -448,13 +454,15 @@ func (p *FileTransferPlugin) OnNetworkReady() error {
 	// Re-enqueue persisted transfers now that the network is ready.
 	// Uses 1.0.0 protocol version (Decision 4), NOT the TransferProtocol constant (2.0.0).
 	// P18 fix: use OpenPluginStream instead of direct host stream creation.
+	// R15-F5: RequeuePersisted uses OpenBulkStream so persisted queue items
+	// benefit from TCP-for-LAN when configured (falls back to HedgedOpenStream).
 	ts.RequeuePersisted(func(peerID string) func() (libp2pnet.Stream, error) {
 		return func() (libp2pnet.Stream, error) {
 			pid, err := peer.Decode(peerID)
 			if err != nil {
 				return nil, fmt.Errorf("decode peer ID: %w", err)
 			}
-			return sdk.HedgedOpenStream(p.activeCtx, pnet, pid, "file-transfer")
+			return sdk.OpenBulkStream(p.activeCtx, pnet, pid, "file-transfer")
 		}
 	})
 

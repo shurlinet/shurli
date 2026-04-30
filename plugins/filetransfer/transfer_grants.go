@@ -40,6 +40,20 @@ func relayPeerFromStream(s network.Stream) peer.ID {
 	return sdk.RelayPeerFromAddr(s.Conn().RemoteMultiaddr())
 }
 
+// transportFromStream returns "tcp", "quic", or "relay" based on the stream's
+// connection transport. Used to populate TransferProgress.Transport for operator
+// visibility (#19 R15-F11). Relay connections report "relay" regardless of the
+// underlying transport to the relay server.
+func transportFromStream(s network.Stream) string {
+	if s.Conn().Stat().Limited {
+		return "relay"
+	}
+	if sdk.IsTCPConn(s.Conn()) {
+		return "tcp"
+	}
+	return "quic"
+}
+
 // checkRelayGrant performs pre-transfer grant checks for a relayed connection.
 // Returns transfer info with grant status and logs user-facing messages.
 func (ts *TransferService) checkRelayGrant(s network.Stream, fileSize int64, direction string) relayTransferInfo {
