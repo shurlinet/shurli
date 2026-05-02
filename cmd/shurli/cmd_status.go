@@ -93,6 +93,26 @@ func doStatus(args []string, stdout io.Writer) error {
 	} else {
 		tc.Wred(stdout, "not running\n")
 	}
+	// PQC status (when daemon is running and has connections)
+	if daemonStatus != nil && daemonStatus.PQC != nil {
+		tc.Wblue(stdout, "PQC:      ")
+		if daemonStatus.PQC.QUICPQCVerified {
+			tc.Wgreen(stdout, "verified")
+			// Show the curve from the first PQ connection.
+			for _, c := range daemonStatus.PQC.Connections {
+				if c.PQ {
+					tc.Wfaint(stdout, " (%s on QUIC)", c.CurveID)
+					break
+				}
+			}
+		} else if daemonStatus.ConnectedPeers > 0 {
+			tc.Wyellow(stdout, "classical only")
+			tc.Wfaint(stdout, " (no PQ key exchange observed)")
+		} else {
+			tc.Wfaint(stdout, "no connections")
+		}
+		fmt.Fprintln(stdout)
+	}
 	fmt.Fprintln(stdout)
 
 	// Reachability details (when daemon is running and grade available)
