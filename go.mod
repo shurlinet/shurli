@@ -1,6 +1,6 @@
 module github.com/shurlinet/shurli
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/consensys/gnark v0.14.0
@@ -17,15 +17,16 @@ require (
 	github.com/multiformats/go-multistream v0.6.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
+	github.com/quic-go/quic-go v0.59.0
 	github.com/xssnick/raptorq v1.3.0
 	github.com/zeebo/blake3 v0.2.4
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.49.0
+	golang.org/x/crypto v0.50.0
 	golang.org/x/net v0.52.0
 	golang.org/x/sync v0.20.0
-	golang.org/x/sys v0.42.0
-	golang.org/x/term v0.41.0
-	golang.org/x/text v0.35.0
+	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.42.0
+	golang.org/x/text v0.36.0
 	golang.org/x/time v0.12.0
 	golang.org/x/tools v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -113,10 +114,10 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/quic-go/webtransport-go v0.10.0 // indirect
 	github.com/ronanh/intcomp v1.1.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
+	github.com/shurlinet/go-clatter v0.1.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
