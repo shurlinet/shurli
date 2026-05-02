@@ -27,29 +27,11 @@ Phase 8B (Per-Peer Data Grants), Phase 9A (Core Interfaces), Phase 9B (File Tran
 
 ### Phase 8C: ACL-to-Macaroon Migration
 
-**Status**: M1 complete (Phase 8B). M2-M5 planned.
-
-Replace all five layers of ACL-based access control with macaroon capability tokens.
-
-| Phase | Layer | Current | Replacement | Risk |
-|-------|-------|---------|-------------|------|
-| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon caveats | **DONE** (Phase 8B) |
-| **M2** | Share | `shares.json` peer lists | `share_id` caveat | Low |
-| **M3** | Relay | `relay_authorized_keys` | Token for circuit auth | Medium |
-| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** |
-| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low |
+**Status**: M1 complete (Phase 8B). M2-M5 moved to Phase 14.
 
 ### Phase 8D: Module Slots
 
-**Status**: Planned (reputation slot designed)
-
-Swappable system algorithms without a full plugin.
-
-| Slot | Current | Next | Enterprise |
-|------|---------|------|------------|
-| **Reputation** | Heuristic scoring | Community Notes matrix factorization | Custom algorithms |
-| **Auth** | Macaroons + PAKE | (current is sufficient) | LDAP, SAML, OAuth2, client certs |
-| **Storage** | Local filesystem | (current is sufficient) | S3-compatible, distributed |
+**Status**: Moved to Phase 19.
 
 ---
 
@@ -95,7 +77,7 @@ Ship the Python SDK and comprehensive documentation. The plugins from 9B/9C ARE 
 **Timeline**: 1-2 weeks
 **Repository**: `shurlinet/shurli-sdk-swift` (separate repo, ships via Swift Package Manager)
 
-Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 12) will be built on. Building it before the app validates the API surface from a non-Go language and catches design issues early.
+Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 20) will be built on. Building it before the app validates the API surface from a non-Go language and catches design issues early.
 
 **Swift SDK** (`ShurliSDK`):
 - [ ] Swift Package (SPM) wrapping daemon HTTP API (Unix socket + cookie auth)
@@ -222,9 +204,243 @@ services:
 
 ---
 
-## Phase 11: Desktop Gateway Daemon + Private DNS
+## Phase 11: Post-Quantum Cryptography
 
-**Timeline**: 2-3 weeks
+**Status**: Next
+**Prerequisite**: go-clatter v0.1.0 (DONE)
+
+**Goal**: Wire post-quantum key exchange into Shurli as a libp2p security transport, giving every connection quantum-resistant encryption alongside classical Noise.
+
+**Deliverables**:
+- [ ] `/pq-noise/1` libp2p security transport using go-clatter HybridDualLayerHandshake
+- [ ] Fixed cipher suites (no negotiation - simplicity over flexibility)
+- [ ] Fallback to classical `/noise` for non-PQ peers
+- [ ] Downgrade enforcement via connection gater
+- [ ] ML-DSA-65 (FIPS 204) signing module: hybrid Ed25519 + ML-DSA-65 identity proofs
+- [ ] PQ-signed capability tokens and admin commands
+- [ ] `shurli status` shows PQC status per connection
+- [ ] Full security audit, architecture docs, engineering journal, blog post
+
+---
+
+## Phase 12: Topic-Based Pub/Sub
+
+**Status**: Planned
+**Prerequisite**: Phase 11 (for PQ-signed messages), or can start in parallel
+
+**Goal**: Integrate GossipSub for topic-based publish/subscribe, replacing the custom presence forwarding layer and enabling agent capability advertisement.
+
+**Deliverables**:
+- [ ] Fork and update go-libp2p-pubsub to match Shurli's go-libp2p version (upstream pinned 9 versions behind)
+- [ ] Wire GossipSub into NetIntel Layer 3 slot
+- [ ] Private topic namespace: `/shurli/` prefix (like private DHT)
+- [ ] Peer scoring enabled, message signing required (Ed25519, future: ML-DSA-65)
+- [ ] Topic validators for capability claims
+- [ ] Service add/remove events propagated via pub/sub
+- [ ] MOTD propagation to all connected peers
+
+---
+
+## Phase 13: Naming Standards (SNR)
+
+**Status**: Planned
+**Prerequisite**: Phase 12 (pub/sub for name broadcasting)
+
+**Goal**: Pluggable naming architecture with 5 identity layers, W3C DID support, local petname store, and a resolution pipeline that any plugin can extend.
+
+**Identity Layers**:
+
+| Layer | Global | Secure | Memorable | Description |
+|-------|--------|--------|-----------|-------------|
+| PeerID | Yes | Yes | No | Cryptographic ground truth (already exists) |
+| DID | Yes | Yes | No | W3C standard identity (`did:peer`, `did:key`) |
+| Petname | No | Yes | Yes | Local, user-assigned, per-node |
+| Nickname | Yes | No | Yes | Self-chosen, travels in invite codes |
+| External | Yes | Varies | Yes | Plugin-resolved (ENS, DNS, etc.) |
+
+**Name Resolution Tiers**:
+
+| Tier | Backend | Cost | Speed |
+|------|---------|------|-------|
+| 1 | Local Petname (YAML/DB) | Free | Instant, offline |
+| 2 | Network-Scoped (relay, Phase 17D) | Free | Federated |
+| 3 | DID (`did:peer`, `did:key`) | Free | Standards-based |
+| 4 | External Plugins (ENS, DNS TXT, VerusID, Nostr, social, AD/LDAP) | Varies | Plugin-dependent |
+
+**Deliverables**:
+- [ ] Name format parsing (`shurli:<type>:<value>` URI scheme + CLI shorthand)
+- [ ] Resolution pipeline (route to resolver, validate, cache, return)
+- [ ] Local petname store (`~/.shurli/names.db`)
+- [ ] Built-in `did:peer` and `did:key` resolution + DID Document generation
+- [ ] DID in invite codes (alongside PeerID)
+- [ ] Plugin resolver registry with priority ordering, timeout, conflict resolution
+- [ ] CLI: `shurli name add/remove/rename/list/search/resolve/did`
+- [ ] All existing commands that accept PeerID also accept any resolvable name
+- [ ] DNS TXT record resolver as reference implementation
+- [ ] Plugin resolvers: ENS, Ethereum smart contract, VerusID, Nostr, social, AD/LDAP, IPFS/Arweave, Bitcoin OP_RETURN
+
+---
+
+## Phase 14: ACL-to-Macaroon Migration (M2-M5)
+
+**Status**: Planned
+**Prerequisite**: Phase 13 (name-scoped capability caveats)
+
+**Goal**: Replace all ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) is DONE and proven (10/10 physical tests PASS).
+
+| Phase | Layer | Current | Replacement | Risk |
+|-------|-------|---------|-------------|------|
+| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon caveats | **DONE** (Phase 8B) |
+| **M2** | Share | `shares.json` peer lists | `share_id` caveat | Low |
+| **M3** | Relay | `relay_authorized_keys` | Token for circuit auth | Medium |
+| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** |
+| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low |
+
+---
+
+## Phase 15: Agent Foundation - MCP + Service Templates
+
+**Status**: Planned
+**Prerequisite**: Phase 13 (naming for agent identity), Phase 12 (pub/sub for advertisement)
+
+**Goal**: Make Shurli's existing TCP tunneling explicitly agent-friendly with MCP service templates, agent-readable capability documents, and distribution channel listings.
+
+**Deliverables**:
+- [ ] `mcp` as well-known service name in service registry
+- [ ] `shurli service add mcp --port 8080` with auto-detection of common MCP ports
+- [ ] `shurli proxy <peer> mcp` (auto-resolve port from service registry)
+- [ ] MCP health check in `shurli doctor`
+- [ ] Machine-readable skill document for agent discovery platforms
+- [ ] Documentation: "MCP Server in 60 Seconds"
+
+---
+
+## Phase 16: Agent-to-Agent Task Protocol
+
+**Status**: Planned
+**Prerequisite**: Phases 12-15
+
+**Goal**: Implement the A2A task protocol as a Shurli plugin, making Shurli the sovereign, E2E encrypted, PQC-ready, grant-controlled transport for agent-to-agent communication.
+
+**Deliverables**:
+- [ ] Agent Card generation from Shurli config (peer ID, DID, services, capabilities)
+- [ ] Agent Card served via daemon API and private DHT
+- [ ] Skills advertised via pub/sub topics
+- [ ] Task lifecycle FSM (submitted -> working -> input-needed -> completed/failed/canceled)
+- [ ] `/shurli/a2a/1.0.0` protocol over libp2p streams (E2E encrypted, NAT traversed)
+- [ ] Task authorization via macaroon grants
+- [ ] HTTP Bridge for interop with standard HTTP-based agents
+- [ ] MCP Protocol Bridge: expose MCP servers as agent skills and vice versa
+- [ ] CLI: `shurli agent card`, `shurli agent skills`, `shurli agent task submit/tasks`
+
+---
+
+## Phase 17: Agent Discovery + Federation
+
+**Status**: Planned
+**Prerequisite**: Phase 16
+
+**Goal**: Capability-based agent discovery via pub/sub topics, relay as opt-in federated capability index, and relay-to-relay federation protocol.
+
+**Discovery**:
+- [ ] Topic-based agent discovery via pub/sub (`/shurli/skill/<category>/1.0.0`)
+- [ ] Anycast routing: "find an agent that can do X" -> network routes to capable peer
+- [ ] Privacy-aware: optional ZKP membership proof before skill advertisement
+- [ ] Relay hosts opt-in capability index with cross-relay queries
+- [ ] Export capability records in standard formats for external discovery indices
+
+**Federation**:
+- [ ] `/shurli/relay-federation/1.0.0` protocol
+- [ ] Relay federation configuration
+- [ ] Network-scoped naming (`host.network`)
+- [ ] Cross-network routing protocol
+- [ ] Trust/authorization between networks
+- [ ] Multi-network client support - single client connected to multiple independent networks simultaneously
+
+{{< figure src="/images/docs/roadmap-federation.svg" alt="Federation Architecture" >}}
+
+**Federation Config Example**:
+```yaml
+# relay-server.yaml
+network:
+  name: "grewal"
+
+federation:
+  enabled: true
+  peers:
+    - network_name: "alice"
+      relay: "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW..."
+      trust_level: "full"
+```
+
+**Usage**:
+```bash
+# From your network, access friend's services:
+ssh user@laptop.alice
+curl http://desktop.bob:8080
+```
+
+---
+
+## Phase 18: Payments
+
+**Status**: Planned
+**Prerequisite**: Phases 14, 16
+
+**Goal**: Machine-to-machine payment protocol integration for paid relay capacity, pay-per-agent-query, and streaming payments - without coupling to any centralized payment processor.
+
+**Deliverables**:
+- [ ] Payment server (402 challenge generation, credential verification, receipt issuance)
+- [ ] Payment client (402 detection, intent selection, credential construction, retry)
+- [ ] First settlement intent: stablecoin on cheapest L2
+- [ ] Macaroon integration (payment receipt caveats)
+- [ ] Agent payment mandate support (signed permission statements)
+- [ ] Session-based payments for streamed delivery
+- [ ] MCP servers can charge per tool call
+
+---
+
+## Phase 19: Reputation / Module Slots
+
+**Status**: Deferred (until traffic demands)
+**Prerequisite**: Phases 14, 17
+
+**Goal**: Complete reputation scoring pipeline with hot-swappable algorithms and connected identity trust.
+
+**Deliverables**:
+- [ ] Community-Notes-style matrix factorization scoring
+- [ ] Hot-swappable scoring algorithm module slots
+- [ ] Connected identity trust: external profiles feed into reputation as tiered signal
+- [ ] Two trust dimensions: identity trust (from verified profiles) vs performance trust (from behavior)
+
+---
+
+## Phase 20: Apple Multiplatform App
+
+**Status**: In Progress (separate repo)
+**Repository**: `shurlinet/shurli-ios` (depends on Swift SDK from Phase 9E)
+
+**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing. The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
+
+**iOS Strategy**:
+- **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
+- **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
+
+**Deliverables**:
+- [ ] SwiftUI app targeting macOS, iOS, iPadOS, visionOS
+- [ ] NEPacketTunnelProvider for iOS/iPadOS
+- [ ] QR code scanning for `shurli invite` codes
+- [ ] Background connection maintenance + battery optimization
+- [ ] dotbeam visual pairing - animated visual verification replacing emoji fingerprints
+
+{{< figure src="/images/docs/roadmap-mobile-flow.svg" alt="Mobile App Config Flow" >}}
+
+---
+
+## Phase 21: Desktop Gateway + Private DNS
+
+**Status**: Deferred
+**Prerequisite**: Phases 13, 17
 
 **Goal**: Multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay.
 
@@ -252,83 +468,6 @@ shurli-gateway --mode dns --port 53
 # Mode 3: Virtual network (requires root)
 sudo shurli-gateway --mode tun --network 10.64.0.0/16
 ```
-
----
-
-## Phase 12: Apple Multiplatform App
-
-**Timeline**: 3-4 weeks
-**Repository**: `shurlinet/shurli-ios` (separate repo, depends on `shurli-sdk-swift` from Phase 9E)
-
-**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing. The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
-
-**iOS Strategy**:
-- **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
-- **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
-
-**Deliverables**:
-- [ ] SwiftUI app targeting macOS, iOS, iPadOS, visionOS
-- [ ] NEPacketTunnelProvider for iOS/iPadOS
-- [ ] QR code scanning for `shurli invite` codes
-- [ ] Background connection maintenance + battery optimization
-- [ ] dotbeam visual pairing - animated visual verification replacing emoji fingerprints
-
-{{< figure src="/images/docs/roadmap-mobile-flow.svg" alt="Mobile App Config Flow" >}}
-
----
-
-## Phase 13: Federation - Network Peering
-
-**Timeline**: 2-3 weeks
-
-**Goal**: Enable relay-to-relay federation for cross-network communication.
-
-**Deliverables**:
-- [ ] Relay federation configuration
-- [ ] Network-scoped naming (`host.network`)
-- [ ] Cross-network routing protocol
-- [ ] Trust/authorization between networks
-- [ ] Multi-network client support
-
-{{< figure src="/images/docs/roadmap-federation.svg" alt="Federation Architecture" >}}
-
-**Federation Config Example**:
-```yaml
-# relay-server.yaml
-network:
-  name: "grewal"
-
-federation:
-  enabled: true
-  peers:
-    - network_name: "alice"
-      relay: "/ip4/45.67.89.12/tcp/7777/p2p/12D3KooW..."
-      trust_level: "full"
-```
-
-**Usage**:
-```bash
-# From your network, access friend's services:
-ssh user@laptop.alice
-curl http://desktop.bob:8080
-```
-
----
-
-## Phase 14: Advanced Naming Systems + Peer ID Prefix (Optional)
-
-**Timeline**: 2-3 weeks
-
-**Goal**: Pluggable naming architecture supporting multiple backends.
-
-**Name Resolution Tiers**:
-
-| Tier | Backend | Cost | Speed |
-|------|---------|------|-------|
-| 1 | Local Override (YAML) | Free | Instant |
-| 2 | Network-Scoped (relay) | Free | Federated |
-| 3 | Blockchain-Anchored (Ethereum) | ~$10-50 one-time | Guaranteed |
-| 4 | Existing Blockchain DNS (ENS) | $5-640/year | Premium |
 
 ---
 
@@ -362,7 +501,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 15+: Ecosystem & Polish
+## Phase 22+: Ecosystem & Polish
 
 **Status**: Conceptual
 
@@ -393,12 +532,12 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 ## Protocol & Security Evolution
 
 - [ ] MASQUE relay transport (RFC 9298) - HTTP/3 relay alternative to Circuit Relay v2
-- [ ] Post-quantum cryptography - hybrid Noise + ML-KEM (FIPS 203) handshakes
+- [x] Post-quantum cryptography - go-clatter v0.1.0 (PQ Noise framework) DONE. Phase 11 integrates into Shurli as `/pq-noise/1` transport. ML-DSA-65 signing planned.
 - [ ] WebTransport transport - native QUIC-based, browser-compatible
 - [ ] Zero-RTT proxy connection resume - QUIC session tickets for instant reconnection
 - [ ] Hardware-backed peer identity - TPM 2.0 (Linux) or Secure Enclave (macOS/iOS)
 - [ ] eBPF/XDP relay acceleration - kernel-bypass packet forwarding
-- [ ] W3C DID-compatible identity - `did:key`, `did:peer` format
+- [ ] W3C DID-compatible identity - Phase 13 (Naming Standards) implements `did:peer` and `did:key` with DID Document generation
 - [ ] Formal verification of invite/join protocol state machine
 
 ---
@@ -411,7 +550,7 @@ Checked after each phase completion:
 3. **gnark IPA backend** - would enable Halo 2-style proofs in gnark.
 
 **Deferred from Phase 7**:
-- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 13 federation work)
+- [ ] **Private DHT namespace membership** - prove namespace membership without revealing the namespace name (deferred to Phase 17 federation work)
 
 ---
 
@@ -433,10 +572,18 @@ Checked after each phase completion:
 
 **Phase 10**: One-line install, `shurli upgrade --auto` with rollback safety, GPU inference guide published
 
-**Phase 11**: Gateway works in all 3 modes, private DNS resolves only within P2P network
+**Phase 11**: `/pq-noise/1` transport negotiates HybridDualLayer handshakes, classical Noise fallback works, ML-DSA-65 signs capability tokens
 
-**Phase 12**: Apple multiplatform app approved, QR invite flow works, dotbeam visual pairing live
+**Phase 12**: GossipSub integrated via NetIntel Layer 3 slot, service events propagated via pub/sub
 
-**Phase 13**: Two networks federate, cross-network routing works
+**Phase 13**: Petname store works offline, DID Documents generated, at least 1 external resolver demonstrated
 
-**Phase 14**: 3+ naming backends working, plugin API documented
+**Phase 14**: All 5 ACL layers replaced with macaroon capability tokens
+
+**Phase 15**: MCP servers tunneled with zero extra config beyond `shurli service add mcp`
+
+**Phase 16**: Agent Card published to DHT, task lifecycle works E2E over libp2p, MCP <-> A2A bridge working
+
+**Phase 17**: Two independent relay networks federate, agents discoverable by capability
+
+**Phase 20**: Apple multiplatform app approved, QR invite flow works, dotbeam visual pairing live

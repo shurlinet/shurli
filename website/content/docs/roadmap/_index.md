@@ -52,11 +52,25 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;7** | **ZKP&nbsp;Privacy** | Anonymous auth, Poseidon2 Merkle tree, range proofs | **Done** |
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
 | **Phase&nbsp;8B** | **Per-Peer&nbsp;Data&nbsp;Grants** | Macaroon grants, token delivery, delegation, notifications, audit log | **Done** |
-| **Phase&nbsp;8C** | **ACL-to-Macaroon** | Replace all 5 ACL layers with capability tokens (M1 done, M2-M5 planned) | Partial |
-| **Phase&nbsp;8D** | **Module&nbsp;Slots** | Swappable system algorithms (reputation, auth, storage) | Planned |
+| **Phase&nbsp;8C** | **ACL-to-Macaroon** | M1 done (Phase 8B). M2-M5 moved to Phase 14 | Partial |
+| **Phase&nbsp;8D** | **Module&nbsp;Slots** | Swappable system algorithms. Moved to Phase 19 | Planned |
 | 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | **Done** |
 | 9B | **File&nbsp;Transfer** | Chunked P2P transfer, erasure coding, multi-source download | **Done** |
 | Post-9B | **Plugin&nbsp;Architecture** | Plugin framework, file transfer extraction, supervisor, security hardening, physical retest | **Done** |
+| **v0.3.0** | **Release** (2026-03-26) | 148 commits. Plugins, grants, receipts, relay-first onboarding, bandwidth budgets | **Done** |
+| **v0.4.0** | **Release** (2026-05-01) | Streaming protocol, multi-peer, Tail Slayer hedging, LAN 111 MB/s send | **Done** |
+| **go-clatter** | **v0.1.0** | PQ Noise framework: 5 handshake modes, ML-KEM-768, 233+ tests, 408 interop vectors | **Done** |
+| **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing | Next |
+| **Phase&nbsp;12** | **Topic-Based&nbsp;Pub/Sub** | GossipSub integration via NetIntel Layer 3 slot | Planned |
+| **Phase&nbsp;13** | **Naming&nbsp;Standards** | 5 identity layers, DID, petnames, resolution pipeline, plugin resolvers | Planned |
+| **Phase&nbsp;14** | **ACL-to-Macaroon** | M2-M5 migration (promoted from 8C) | Planned |
+| **Phase&nbsp;15** | **Agent&nbsp;Foundation** | MCP service templates, agent distribution | Planned |
+| **Phase&nbsp;16** | **Agent&nbsp;Task&nbsp;Protocol** | A2A plugin, Agent Cards, task FSM, MCP bridge | Planned |
+| **Phase&nbsp;17** | **Discovery&nbsp;+&nbsp;Federation** | Capability discovery, relay federation protocol | Planned |
+| **Phase&nbsp;18** | **Payments** | Machine + agent payment protocols (HTTP 402) | Planned |
+| **Phase&nbsp;19** | **Reputation** | Module slots, connected identity trust | Deferred |
+| **Phase&nbsp;20** | **Apple&nbsp;App** | macOS/iOS/iPadOS/visionOS (separate repo) | In Progress |
+| **Phase&nbsp;21** | **Gateway&nbsp;+&nbsp;DNS** | Desktop gateway, private DNS on relay | Deferred |
 | 9C | **Discovery&nbsp;&&nbsp;Plugins** | Service discovery, service templates, Wake-on-LAN | Planned |
 | 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK (separate repo), SDK documentation | Planned |
 | 9E | **Swift&nbsp;SDK** | Swift SDK for Apple platforms (separate repo, SPM) | Planned |
@@ -69,42 +83,42 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 
 <img src="/images/docs/roadmap-timeline.svg" alt="Development timeline showing completed phases (1-4C) and planned phases (5-12+)" loading="lazy" />
 
-| Phase | Duration | Status |
-|-------|----------|--------|
-| Phase 1: Configuration | 1 week | Complete |
-| Phase 2: Authentication | 2 weeks | Complete |
-| Phase 3: keytool CLI | 1 week | Complete |
-| Phase 4A: Core Library + UX | 2-3 weeks | Complete |
-| Phase 4B: Frictionless Onboarding | 1-2 weeks | Complete |
-| **Phase 4C: Core Hardening & Security** | 6-8 weeks | Complete (Batches A-I, Post-I-1) |
-| **Phase 5: Network Intelligence** | 4-6 weeks | **Complete** |
-| **Phase 6: ACL + Relay Security + Client Invites** | 1 day | **Complete** |
-| **Phase 7: ZKP Privacy Layer** | 1 day | **Complete** |
-| **Phase 8: Identity Security + Remote Admin** | 1 day | **Complete** |
-| **Phase 8B: Per-Peer Data Grants** | 3 days | **Complete** |
-| **Phase 8C: ACL-to-Macaroon Migration** | - | M1 complete, M2-M5 planned |
-| **Phase 8D: Module Slots** | - | Planned |
-| **Phase 9A: Core Interfaces & Library** | 1 week | **Complete** |
-| **Phase 9B: File Transfer Plugin** | 3 weeks | **Complete** |
-| **Post-9B: Chaos Testing + Network Hardening** | 4 days | **Complete** |
-| **Post-9B: Plugin Architecture Shift** | 5 days | **Complete** |
-| **E14: Relay-First Onboarding** | 1 day | **Complete** |
-| **Per-Peer Bandwidth Budgets** | 1 day | **Complete** |
-| **Grant Receipt Protocol** | 1 day | **Complete** |
-| **Phase 10: Distribution & Launch** | 1 week | **Partial** (install script, release archives done) |
-| **FT-Y: Transfer Speed Optimization** | 4 weeks | **Complete** (streaming protocol, multi-peer, Tail Slayer, 22 bug fixes) |
-| Phase 9C: Service Discovery & Plugins | 1-2 weeks | Planned |
-| Phase 9D: Python SDK & Documentation | 1-2 weeks | Planned |
-| Phase 9E: Swift SDK | 1-2 weeks | Planned |
-| Phase 9F: Layer 2 WASM Runtime | - | Planned |
-| Phase 9G: Layer 3 AI Plugin Generation | - | Future |
-| Phase 11: Desktop Gateway + Private DNS | 2-3 weeks | Planned |
-| Phase 12: Apple Multiplatform App | 3-4 weeks | Planned (separate repo: shurli-ios) |
-| Phase 13: Federation | 2-3 weeks | Planned |
-| Phase 14: Advanced Naming + Peer ID Prefix | 2-3 weeks | Planned (Optional) |
-| Phase 15+: Ecosystem | Ongoing | Conceptual |
+| Phase | Status |
+|-------|--------|
+| Phase 1: Configuration | Complete |
+| Phase 2: Authentication | Complete |
+| Phase 3: keytool CLI | Complete (superseded) |
+| Phase 4A-4B: Core Library + Onboarding | Complete |
+| Phase 4C: Core Hardening & Security | Complete (Batches A-I, Post-I-1/2, Pre-Phase 5) |
+| Phase 5: Network Intelligence | **Complete** (mDNS, PeerManager, Presence) |
+| Phase 6: ACL + Relay Security | **Complete** (Macaroons, vault, 2FA) |
+| Phase 7: ZKP Privacy Layer | **Complete** (gnark PLONK + KZG) |
+| Phase 8: Identity Security + Remote Admin | **Complete** (BIP39, encrypted identity, P2P admin) |
+| Phase 8B: Per-Peer Data Grants | **Complete** (macaroon grants, delegation, audit) |
+| Grant Receipt Protocol | **Complete** |
+| Phase 9A-9B: Plugins + File Transfer | **Complete** |
+| Plugin Architecture Shift | **Complete** (framework, extraction, supervisor, 43-vector threat analysis) |
+| E14: Relay-First Onboarding | **Complete** (3 ISP physical test) |
+| FT-Y: Transfer Speed Optimization | **Complete** (streaming protocol, multi-peer, Tail Slayer, 22 bug fixes) |
+| **v0.3.0 Release** (2026-03-26) | **148 commits merged** |
+| **v0.4.0 Release** (2026-05-01) | **Streaming protocol, hedged racing, LAN 111 MB/s send** |
+| **go-clatter v0.1.0** (PQ Noise) | **5 handshake modes, 233+ tests, 408 interop vectors** |
+| Phase 10: Distribution | Partial (install script, archives done. Homebrew/APT planned) |
+| **Phase 11: PQC Integration** | Next |
+| **Phase 12: Topic-Based Pub/Sub** | Planned |
+| **Phase 13: Naming Standards (SNR)** | Planned |
+| **Phase 14: ACL-to-Macaroon (M2-M5)** | Planned |
+| **Phase 15: Agent Foundation (MCP)** | Planned |
+| **Phase 16: Agent Task Protocol (A2A)** | Planned |
+| **Phase 17: Agent Discovery + Federation** | Planned |
+| **Phase 18: Payments** | Planned |
+| **Phase 19: Reputation / Module Slots** | Deferred |
+| **Phase 20: Apple Multiplatform App** | In Progress (separate repo) |
+| **Phase 21: Desktop Gateway + Private DNS** | Deferred |
+| Phase 9C-9G: SDKs, WASM, AI Plugins | Planned / Future |
+| Phase 22+: Ecosystem | Conceptual |
 
-**Priority logic**: Harden the core (done) -> network intelligence (done) -> ACL and relay security (done) -> ZKP privacy (done) -> identity security (done) -> plugins and file transfer (done) -> speed optimization (FT-Y done, 110+ MB/s) -> post-quantum cryptography (next) -> remaining plugins and SDKs (9C-9E) -> distribute -> transparent access (gateway, DNS) -> expand (Apple multiplatform app -> federation -> naming).
+**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> **PQC** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/sdk`) stays in this repo.
 
@@ -122,4 +136,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-04-30. Current: FT-Y speed optimization complete (110+ MB/s LAN, streaming protocol, multi-peer, Tail Slayer hedging). Pre-merge audit complete. Next: post-quantum cryptography, then Phase 9C-9G.*
+*Last updated: 2026-05-02. v0.4.0 released. go-clatter v0.1.0 released. Next: Phase 11 PQC Integration (go-clatter Phase 2 `/pq-noise/1` transport + ML-DSA-65 signing).*
