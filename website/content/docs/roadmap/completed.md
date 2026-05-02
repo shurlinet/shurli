@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A-9B, Chaos Testing, Plugin Architecture, E14, Bandwidth Budgets, Grant Receipt Protocol, Phase 10 Distribution (partial), FT-Y Speed Optimization."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A-9B, Chaos Testing, Plugin Architecture, E14, Bandwidth Budgets, Grant Receipt Protocol, Phase 10 Distribution (partial), FT-Y Speed Optimization, v0.3.0 Release, v0.4.0 Release, go-clatter v0.1.0."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -875,4 +875,64 @@ Closed the speed gap between Shurli file transfer and SCP. Before: 5 MB/s. After
 - [x] mDNS dial worker pollution, IPv6 reconnect loop, resource manager exhaustion, relay backoff, PathDialer zombies, hole punch black hole, receiver busy, and more
 
 **Engineering Journals**: 8 published (streaming protocol, multi-peer, Tail Slayer, budget-aware relay, Reed-Solomon, verified-LAN, persistent proxy, TCP-for-LAN experiment)
+
+---
+
+## v0.3.0 Release (2026-03-26)
+
+**Status**: Complete - 148 commits merged dev -> main
+
+Consolidated release covering plugins, grants, relay-first onboarding, and network hardening.
+
+- [x] Plugin Architecture Layer 1 (4 batches + docs + physical testing, 79+ findings resolved, 43-vector threat analysis)
+- [x] Per-peer Data Grants (Phases A/R/B/C/D: macaroon grants, token delivery, delegation, notifications, audit log)
+- [x] Grant Receipt Protocol (4 batches: relay receipts, client cache, pre-transfer checks, tier-aware limits)
+- [x] E14 Relay-First Onboarding (12 commits, init wizard flipped, join --relay, identity recovery, 3 ISP physical test)
+- [x] Per-peer Bandwidth Budgets
+- [x] Phase 10 partial (install.sh, release archives, relay-setup --prebuilt)
+- [x] Post-chaos investigation (11 fixes, 16 test cases)
+- [x] IPv6 QUIC vs mDNS LAN fix
+- [x] Physical testing: 11/11 plugin tests PASS, chaos retest 15/16 PASS
+
+---
+
+## v0.4.0 Release (2026-05-01)
+
+**Status**: Complete - 5 platform archives published (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64)
+
+Speed optimization release. Streaming protocol rewrite, hedged connections, path reliability.
+
+- [x] FT-Y speed optimization: LAN send 111 MB/s, download 125 MB/s (92%/84% of SCP)
+- [x] Streaming protocol v2 with FastCDC + BLAKE3 Merkle + zstd compression
+- [x] Multi-peer adaptive symbol allocation (interleaved, 6 audit rounds)
+- [x] Budget-aware relay selection (grant cache in RelayDiscovery + queue processor)
+- [x] TS-1/2/3: Hedged relay racing, hedged bootstrap, hedged multi-peer manifest exchange
+- [x] TS-5: Path maintenance + managed relay connections + automatic failover
+- [x] mDNS upgrade-to-direct dial fix (deferred reconnect, 3-part fix)
+- [x] 22 networking bugs fixed during physical testing
+- [x] Pre-merge audit complete, CI+Release+Website all SUCCESS
+
+---
+
+## go-clatter v0.1.0 (2026-05-01)
+
+**Status**: Complete - separate repo (`github.com/shurlinet/go-clatter`), MIT license
+
+Full Go port of Rust Clatter PQ Noise framework. Foundation for Phase 11 PQC Integration.
+
+- [x] All 5 handshake modes: NQ, PQ, Hybrid, DualLayer, HybridDualLayer
+- [x] ML-KEM-768 via Go stdlib, zero external crypto dependencies
+- [x] 6 implementation batches, 233+ tests, 26,112 smoke handshakes
+- [x] 408 cross-implementation test vectors (cacophony + snow) byte-for-byte match
+- [x] 9 fuzz targets, 5 standalone examples
+- [x] v0.1.0 tagged and released on GitHub
+
+**PQC Phase 0: QUIC PQC Verification**:
+- [x] X25519MLKEM768 (CurveID 4588) verified on all QUIC connections
+- [x] Code: `pkg/sdk/pqc.go` + wiring in types/handlers/status/connLogger
+
+**PQC Phase 2 Thought Experiments**:
+- [x] 47 findings (20 original + 27 from deep analysis)
+- [x] Key decisions locked: HybridDualLayerHandshake, fixed CipherSuites, no negotiation, downgrade enforcement
+- [x] Ready for Phase 11 implementation
 

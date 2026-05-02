@@ -206,47 +206,81 @@ services:
 
 ## Phase 11: Post-Quantum Cryptography
 
-**Status**: Next
-**Prerequisite**: go-clatter v0.1.0 (DONE)
+**Status**: 📋 Next
+**Prerequisite**: go-clatter v0.1.0 (DONE - full Go Noise PQ framework, 5 handshake modes, ML-KEM-768, 233+ tests, 408 cross-implementation vectors)
 
 **Goal**: Wire post-quantum key exchange into Shurli as a libp2p security transport, giving every connection quantum-resistant encryption alongside classical Noise.
 
+**Rationale**: QUIC already negotiates X25519MLKEM768 for the transport layer (verified). Phase 11 adds PQ Noise at the application layer via go-clatter. First-mover advantage is time-limited - once PQ becomes standard, it stops being a differentiator.
+
 **Deliverables**:
+
+**11A: PQ Noise Transport**:
 - [ ] `/pq-noise/1` libp2p security transport using go-clatter HybridDualLayerHandshake
 - [ ] Fixed cipher suites (no negotiation - simplicity over flexibility)
 - [ ] Fallback to classical `/noise` for non-PQ peers
+- [ ] Key material cleanup on connection close
 - [ ] Downgrade enforcement via connection gater
-- [ ] ML-DSA-65 (FIPS 204) signing module: hybrid Ed25519 + ML-DSA-65 identity proofs
-- [ ] PQ-signed capability tokens and admin commands
+- [ ] Config: `pqc.enabled` (default true), `pqc.required` (default false)
 - [ ] `shurli status` shows PQC status per connection
-- [ ] Full security audit, architecture docs, engineering journal, blog post
+- [ ] `shurli doctor` checks PQC negotiation health
+
+**11B: Post-Quantum Signing (ML-DSA-65)**:
+- [ ] ML-DSA-65 (FIPS 204, NIST Level 3) signing module in go-clatter
+- [ ] Hybrid Ed25519 + ML-DSA-65 peer identity proofs
+- [ ] PQ-signed capability tokens and admin commands
+- [ ] Library: `filippo.io/mldsa` (migrates to Go stdlib `crypto/mldsa` on Go 1.27)
+
+**11C: Audit + Documentation**:
+- [ ] Full security audit (pre-merge + post-phase checklists)
+- [ ] Architecture and roadmap updates
+- [ ] Engineering journal entries
+- [ ] Blog post on PQC implementation
 
 ---
 
 ## Phase 12: Topic-Based Pub/Sub
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phase 11 (for PQ-signed messages), or can start in parallel
 
 **Goal**: Integrate GossipSub for topic-based publish/subscribe, replacing the custom presence forwarding layer and enabling agent capability advertisement.
 
+**Rationale**: Shurli's custom NetIntel system handles peer presence but is not designed for arbitrary topic pub/sub. Agent features (Phase 15+) need topic-based messaging for capability advertisement, skill announcements, and task broadcasts. The NetIntel Layer 3 slot was explicitly designed as a GossipSub drop-in point.
+
 **Deliverables**:
+
+**12A: GossipSub Integration**:
 - [ ] Fork and update go-libp2p-pubsub to match Shurli's go-libp2p version (upstream pinned 9 versions behind)
 - [ ] Wire GossipSub into NetIntel Layer 3 slot
 - [ ] Private topic namespace: `/shurli/` prefix (like private DHT)
 - [ ] Peer scoring enabled, message signing required (Ed25519, future: ML-DSA-65)
 - [ ] Topic validators for capability claims
+
+**12B: Service Event Broadcasting**:
 - [ ] Service add/remove events propagated via pub/sub
 - [ ] MOTD propagation to all connected peers
+- [ ] Network-wide maintenance announcements
+- [ ] Config: `pubsub.enabled`, topic configuration
 
 ---
 
 ## Phase 13: Naming Standards (SNR)
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phase 12 (pub/sub for name broadcasting)
 
 **Goal**: Pluggable naming architecture with 5 identity layers, W3C DID support, local petname store, and a resolution pipeline that any plugin can extend.
+
+**Rationale**: Every peer command currently requires a raw peer ID or a simple name from `names.yaml`. The naming standard provides a proper resolution pipeline (petnames, DIDs, external resolvers) that agent features build on - Agent Cards need DIDs, skill discovery needs name resolution, task authorization needs name-scoped capabilities.
+
+**Design Principles**:
+- No blockchain required in core. Blockchain naming via resolver plugins only.
+- No central authority. The relay MUST NOT become a name authority.
+- Plugin-extensible. External systems (ENS, DNS, VerusID, social handles) via resolver plugins.
+- Agent-native. AI agents work with cryptographic identifiers; human names are a UX layer on top.
+- Offline-first. Local resolution works without network access.
+- Standards-aligned. W3C DIDs + petname system principles (RFC 9498).
 
 **Identity Layers**:
 
@@ -258,52 +292,123 @@ services:
 | Nickname | Yes | No | Yes | Self-chosen, travels in invite codes |
 | External | Yes | Varies | Yes | Plugin-resolved (ENS, DNS, etc.) |
 
-**Name Resolution Tiers**:
-
-| Tier | Backend | Cost | Speed |
-|------|---------|------|-------|
-| 1 | Local Petname (YAML/DB) | Free | Instant, offline |
-| 2 | Network-Scoped (relay, Phase 17D) | Free | Federated |
-| 3 | DID (`did:peer`, `did:key`) | Free | Standards-based |
-| 4 | External Plugins (ENS, DNS TXT, VerusID, Nostr, social, AD/LDAP) | Varies | Plugin-dependent |
-
 **Deliverables**:
+
+**13A: Core Resolution Engine + Petname Store**:
 - [ ] Name format parsing (`shurli:<type>:<value>` URI scheme + CLI shorthand)
 - [ ] Resolution pipeline (route to resolver, validate, cache, return)
 - [ ] Local petname store (`~/.shurli/names.db`)
-- [ ] Built-in `did:peer` and `did:key` resolution + DID Document generation
-- [ ] DID in invite codes (alongside PeerID)
+- [ ] Name validation (1-63 chars, `a-z0-9-_.`, strict anti-homoglyph constraints)
+- [ ] `PluginContext.ResolveName()` and `PluginContext.RegisterResolver()` methods
 - [ ] Plugin resolver registry with priority ordering, timeout, conflict resolution
-- [ ] CLI: `shurli name add/remove/rename/list/search/resolve/did`
+- [ ] Name cache with disk persistence and TTL
+- [ ] CLI: `shurli name add/remove/rename/list/search/resolve`
 - [ ] All existing commands that accept PeerID also accept any resolvable name
-- [ ] DNS TXT record resolver as reference implementation
-- [ ] Plugin resolvers: ENS, Ethereum smart contract, VerusID, Nostr, social, AD/LDAP, IPFS/Arweave, Bitcoin OP_RETURN
+
+**13B: DID Integration**:
+- [ ] Built-in `did:peer` and `did:key` resolution
+- [ ] DID Document generation from node identity
+- [ ] DID in invite codes (alongside PeerID)
+- [ ] CLI: `shurli name did` (show DID document)
+
+**13C: Invite Integration + Nickname System**:
+- [ ] Nickname field in invite codes (self-chosen, advisory)
+- [ ] Auto-petname from nickname on invite accept (collision handling)
+- [ ] Nickname broadcast in peer metadata
+
+**13D: Built-in + Plugin Resolvers**:
+- [ ] Built-in resolvers:
+  - [ ] Local petname store (YAML/DB)
+  - [ ] DHT-based (federated, network-scoped)
+  - [ ] mDNS (.local)
+  - [ ] DID (`did:peer`, `did:key`)
+- [ ] Optional plugin resolvers (community-built):
+  - [ ] DNS TXT records (reference implementation)
+  - [ ] ENS (.eth domains)
+  - [ ] Ethereum smart contract
+  - [ ] VerusID
+  - [ ] Nostr npub identifiers
+  - [ ] Social media handles (X, Telegram)
+  - [ ] Active Directory / LDAP (enterprise)
+  - [ ] IPFS/Arweave archiving for redundancy
+  - [ ] Bitcoin OP_RETURN
+
+**13E: Documentation**:
+- [ ] NameResolver interface documentation for community plugin authors
+- [ ] Architecture docs update
+- [ ] Engineering journal entry
+
+**Name Resolution Tiers**:
+
+**Tier 1: Local Petname** (Free, Instant, Offline)
+```yaml
+# ~/.shurli/names.db (or names.yaml fallback)
+sat       -> 12D3KooWAbCdEf...
+home-pi   -> 12D3KooWXyZaBc...
+work-mac  -> 12D3KooWDeFgHi...
+```
+
+**Tier 2: Network-Scoped** (Free, Federated)
+```
+Format: <hostname>.<network>
+Examples: laptop.grewal, desktop.alice
+Resolution: Ask relay for peer ID (Phase 17D federation)
+```
+
+**Tier 3: DID** (Free, Standards-Based)
+```
+did:peer:0z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+```
+
+**Tier 4: External Resolver Plugins** (Varies)
+```
+ens:name.eth                    # Ethereum Name Service plugin
+dns:node.example.com            # DNS TXT record plugin
+verusid:sat@                    # VerusID plugin
+nostr:npub1abc...               # Nostr plugin
+x:@handle                       # Social media plugin
+ad:jsmith                       # Active Directory plugin (enterprise)
+```
+
+**Name Resolution Example**:
+```bash
+# All resolve to the same peer:
+shurli send sat ./file.txt                    # petname lookup
+shurli send 12D3KooWAbCdEf... ./file.txt      # raw PeerID
+shurli send did:peer:0z6Mkh... ./file.txt      # DID
+shurli send ens:name.eth ./file.txt            # external resolver plugin
+shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
+```
 
 ---
 
 ## Phase 14: ACL-to-Macaroon Migration (M2-M5)
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phase 13 (name-scoped capability caveats)
 
-**Goal**: Replace all ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) is DONE and proven (10/10 physical tests PASS).
+**Goal**: Replace all ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) is DONE and proven. This phase extends to the remaining 4 layers.
 
-| Phase | Layer | Current | Replacement | Risk |
-|-------|-------|---------|-------------|------|
-| **M1** | Plugin/Service | GrantStore + GrantPouch | Macaroon caveats | **DONE** (Phase 8B) |
-| **M2** | Share | `shares.json` peer lists | `share_id` caveat | Low |
-| **M3** | Relay | `relay_authorized_keys` | Token for circuit auth | Medium |
-| **M4** | Connection | `authorized_keys` + ConnectionGater | Token in handshake | **High** |
-| **M5** | Role | `role=admin/member` attribute | `action` caveat | Low |
+**Rationale**: Macaroons enable offline attenuation (delegate restricted access without contacting the authority), name-scoped capabilities, and composable authorization. The proving ground (M1, 10/10 physical tests PASS) confirmed the pattern works.
+
+**Deliverables**:
+- [ ] **M2 - Share Layer**: File share access via macaroon tokens (share-scoped caveats)
+- [ ] **M3 - Relay Layer**: Relay access via macaroon tokens (bandwidth budget, time limit caveats)
+- [ ] **M4 - Connection Layer**: Connection gating via macaroon presentation in Noise handshake
+- [ ] **M5 - Role Layer**: Admin/member roles via macaroon caveats (delegation via attenuation)
+- [ ] Deferred ACL items from relay-first onboarding (auto peer ID discovery, instant disconnect on deauth)
 
 ---
 
 ## Phase 15: Agent Foundation - MCP + Service Templates
 
-**Status**: Planned
+**Status**: 📋 Planned (partially urgent)
 **Prerequisite**: Phase 13 (naming for agent identity), Phase 12 (pub/sub for advertisement)
 
 **Goal**: Make Shurli's existing TCP tunneling explicitly agent-friendly with MCP service templates, agent-readable capability documents, and distribution channel listings.
+
+**Rationale**: `shurli proxy` already tunnels any TCP service through P2P - including MCP servers. The gap is MCP-specific documentation, service templates, and agent discoverability. Low effort, high impact.
 
 **Deliverables**:
 - [ ] `mcp` as well-known service name in service registry
@@ -317,47 +422,78 @@ services:
 
 ## Phase 16: Agent-to-Agent Task Protocol
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phases 12-15
 
 **Goal**: Implement the A2A task protocol as a Shurli plugin, making Shurli the sovereign, E2E encrypted, PQC-ready, grant-controlled transport for agent-to-agent communication.
 
+**Rationale**: The A2A protocol defines how agents discover each other, exchange tasks, and negotiate outcomes. Shurli implements it as a transport - the protocol is a communication standard, Shurli is infrastructure. Every other implementation lacks ZKP, PQC, grants, sealed vault, and file transfer.
+
 **Deliverables**:
-- [ ] Agent Card generation from Shurli config (peer ID, DID, services, capabilities)
-- [ ] Agent Card served via daemon API and private DHT
-- [ ] Skills advertised via pub/sub topics
+
+**16A: Agent Card + Skill Registry**:
+- [ ] Generate Agent Card from Shurli config (peer ID, DID, services, capabilities)
+- [ ] Serve Agent Card via daemon API and private DHT
+- [ ] Advertise skills via pub/sub topics
+- [ ] CLI: `shurli agent card`, `shurli agent skills`
+
+**16B: Task Protocol**:
 - [ ] Task lifecycle FSM (submitted -> working -> input-needed -> completed/failed/canceled)
 - [ ] `/shurli/a2a/1.0.0` protocol over libp2p streams (E2E encrypted, NAT traversed)
 - [ ] Task authorization via macaroon grants
-- [ ] HTTP Bridge for interop with standard HTTP-based agents
-- [ ] MCP Protocol Bridge: expose MCP servers as agent skills and vice versa
-- [ ] CLI: `shurli agent card`, `shurli agent skills`, `shurli agent task submit/tasks`
+- [ ] CLI: `shurli agent task submit <peer> <skill>`, `shurli agent tasks`
+
+**16C: HTTP Bridge + Interop**:
+- [ ] Daemon API endpoints for standard HTTP-based agent clients
+- [ ] Agent Card discovery from HTTPS endpoints
+- [ ] Bidirectional: Shurli agents appear as standard HTTP agents
+
+**16D: MCP Protocol Bridge**:
+- [ ] Expose MCP servers as agent skills
+- [ ] Expose agent skills as MCP tools
+- [ ] Tool discovery across P2P network via pub/sub
 
 ---
 
 ## Phase 17: Agent Discovery + Federation
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phase 16
 
 **Goal**: Capability-based agent discovery via pub/sub topics, relay as opt-in federated capability index, and relay-to-relay federation protocol.
 
-**Discovery**:
+**Rationale**: Discovery is what makes agent networks useful at scale. Without it, agents can only talk to peers they already know. Federation extends this across independent relay networks.
+
+**Deliverables**:
+
+**17A: Capability Discovery**:
 - [ ] Topic-based agent discovery via pub/sub (`/shurli/skill/<category>/1.0.0`)
 - [ ] Anycast routing: "find an agent that can do X" -> network routes to capable peer
 - [ ] Privacy-aware: optional ZKP membership proof before skill advertisement
-- [ ] Relay hosts opt-in capability index with cross-relay queries
-- [ ] Export capability records in standard formats for external discovery indices
 
-**Federation**:
+**17B: Relay Agent Registry**:
+- [ ] Relay hosts opt-in capability index
+- [ ] Cross-relay capability queries
+
+**17C: Discovery Protocol Compatibility**:
+- [ ] Export capability records in standard formats
+- [ ] Registration with external discovery indices (opt-in)
+
+**17D: Relay-to-Relay Federation**:
+
+Enable relay-to-relay federation for cross-network communication. Only matters once you have multiple users with their own networks.
+
 - [ ] `/shurli/relay-federation/1.0.0` protocol
 - [ ] Relay federation configuration
 - [ ] Network-scoped naming (`host.network`)
 - [ ] Cross-network routing protocol
 - [ ] Trust/authorization between networks
+- [ ] Route advertisement and discovery
 - [ ] Multi-network client support - single client connected to multiple independent networks simultaneously
-
-{{< figure src="/images/docs/roadmap-federation.svg" alt="Federation Architecture" >}}
+- [ ] Relay peering agreements (mutual trust, config-driven)
+- [ ] Cross-network service discovery
+- [ ] Federated capability index sync via pub/sub
+- [ ] CLI: `shurli relay federation list/add/remove`
 
 **Federation Config Example**:
 ```yaml
@@ -371,6 +507,13 @@ federation:
     - network_name: "alice"
       relay: "/ip4/203.0.113.50/tcp/7777/p2p/12D3KooW..."
       trust_level: "full"
+
+    - network_name: "bob"
+      relay: "/dns4/relay.example.com/tcp/7777/p2p/12D3KooW..."
+      trust_level: "full"
+
+  routing:
+    allow_transit: true  # Let alice -> bob via your relay
 ```
 
 **Usage**:
@@ -380,20 +523,34 @@ ssh user@laptop.alice
 curl http://desktop.bob:8080
 ```
 
+**Architecture**:
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Your Network   │      │  Alice Network  │      │   Bob Network   │
+│    "grewal"     │<---->│     "alice"     │<---->│      "bob"      │
+│                 │      │                 │      │                 │
+│  ├─ laptop      │      │  ├─ desktop     │      │  ├─ server      │
+│  └─ relay       │      │  └─ relay       │      │  └─ relay       │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+```
+
 ---
 
 ## Phase 18: Payments
 
-**Status**: Planned
+**Status**: 📋 Planned
 **Prerequisite**: Phases 14, 16
 
 **Goal**: Machine-to-machine payment protocol integration for paid relay capacity, pay-per-agent-query, and streaming payments - without coupling to any centralized payment processor.
+
+**Rationale**: Payment-method neutral wire-level protocol (IETF-track, HTTP 402). Composes with existing layers: DSP gates trust -> macaroons gate authorization -> payments gate paid resource access. Unlocks relay marketplace economics and agent bounty patterns.
 
 **Deliverables**:
 - [ ] Payment server (402 challenge generation, credential verification, receipt issuance)
 - [ ] Payment client (402 detection, intent selection, credential construction, retry)
 - [ ] First settlement intent: stablecoin on cheapest L2
 - [ ] Macaroon integration (payment receipt caveats)
+- [ ] User-configurable spending caps per peer, per resource, per time window
 - [ ] Agent payment mandate support (signed permission statements)
 - [ ] Session-based payments for streamed delivery
 - [ ] MCP servers can charge per tool call
@@ -402,10 +559,10 @@ curl http://desktop.bob:8080
 
 ## Phase 19: Reputation / Module Slots
 
-**Status**: Deferred (until traffic demands)
+**Status**: 📋 Deferred (until traffic demands)
 **Prerequisite**: Phases 14, 17
 
-**Goal**: Complete reputation scoring pipeline with hot-swappable algorithms and connected identity trust.
+**Goal**: Complete reputation scoring pipeline with hot-swappable algorithms and connected identity trust from the naming standard.
 
 **Deliverables**:
 - [ ] Community-Notes-style matrix factorization scoring
@@ -417,59 +574,129 @@ curl http://desktop.bob:8080
 
 ## Phase 20: Apple Multiplatform App
 
-**Status**: In Progress (separate repo)
-**Repository**: `shurlinet/shurli-ios` (depends on Swift SDK from Phase 9E)
+**Status**: 📋 In Progress (separate repo)
+**Repository**: `github.com/shurlinet/shurli-ios` (depends on Swift SDK from Phase 9E)
 
-**Goal**: Native Apple multiplatform app (macOS, iOS, iPadOS, visionOS) with VPN-like functionality and dotbeam visual pairing. The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
+**Goal**: Native Apple multiplatform app (macOS/iOS/iPadOS/visionOS) with VPN-like functionality and beautiful visual pairing via dotbeam.
+
+**Rationale**: Phone → relay → home GPU is the dream demo. Mobile closes the loop on "access your stuff from anywhere." The app consumes the Swift SDK (Phase 9E) - it contains zero daemon API plumbing, only UI and platform integration code.
 
 **iOS Strategy**:
-- **Primary**: NEPacketTunnelProvider (VPN mode) - full TUN interface, virtual network support
+- **Primary**: NEPacketTunnelProvider (VPN mode)
+  - Full TUN interface
+  - Virtual network support
+  - Frame as "self-hosted personal network" (like WireGuard)
 - **Fallback**: SOCKS proxy app (if VPN rejected by Apple)
+- **Apple Review Approach**: "Connect to your own devices via relay server"
+
+**Visual Pairing: Constellation Code (dotbeam)**:
+- Animated visual data transfer for invite code exchange between devices
+- dotbeam library: colored dots in concentric rings, fountain-coded frames, camera decode
+- Standalone repo: `github.com/satindergrewal/dotbeam` (Go + JS, ~75-80% camera decode accuracy achieved)
+- Replaces boring QR with Apple-style flowing particle aesthetic
+- Not required for functionality (text invite codes work), but elevates the pairing UX
 
 **Deliverables**:
-- [ ] SwiftUI app targeting macOS, iOS, iPadOS, visionOS
-- [ ] NEPacketTunnelProvider for iOS/iPadOS
+- [ ] SwiftUI app targeting macOS/iOS/iPadOS/visionOS
+- [ ] NEPacketTunnelProvider (iOS/macOS)
+- [ ] Mobile-optimized config UI
 - [ ] QR code scanning for `shurli invite` codes
-- [ ] Background connection maintenance + battery optimization
-- [ ] dotbeam visual pairing - animated visual verification replacing emoji fingerprints
+- [ ] dotbeam visual pairing (optional, beautiful alternative to QR)
+- [ ] Background connection maintenance
+- [ ] Battery optimization
+- [ ] Per-app SDK for third-party integration
 
-{{< figure src="/images/docs/roadmap-mobile-flow.svg" alt="Mobile App Config Flow" >}}
+**User Experience**:
+```
+iOS/Android App Config:
+├─ Scan QR Code (from shurli invite)
+├─ Or enter invite code: ABCX-7KMN-P2P3
+└─ Connect Button
+
+Once connected:
+- SSH clients work: ssh user@home
+- Browsers work: http://laptop:8080
+- Native apps work: Plex connects to home.grewal:32400
+- Chat with home LLM via Ollama API
+```
 
 ---
 
-## Phase 21: Desktop Gateway + Private DNS
+## Phase 21: Desktop Gateway Daemon + Private DNS
 
-**Status**: Deferred
+**Timeline**: 2-3 weeks
+**Status**: 📋 Deferred
 **Prerequisite**: Phases 13, 17
 
-**Goal**: Multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay.
+**Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
+
+**Rationale**: Infrastructure-level features that make Shurli transparent - services accessed via real domain names, no manual proxy commands. The DNS resolver uses the `Resolver` interface from Phase 9.
+
+**Deliverables**:
 
 **Client-side Gateway**:
-- [ ] Gateway daemon with multiple modes: SOCKS5 proxy, Local DNS server (`.p2p` TLD), TUN/TAP virtual network interface
-- [ ] Virtual IP assignment, subnet routing, trusted network detection
+- [ ] `cmd/gateway/` - Gateway daemon with multiple modes
+- [ ] **Mode 1**: SOCKS5 proxy (localhost:1080)
+- [ ] **Mode 2**: Local DNS server (`.p2p` TLD)
+- [ ] **Mode 3**: TUN/TAP virtual network interface (requires root)
+- [ ] `/etc/hosts` integration for local name overrides
+- [ ] Virtual IP assignment (10.64.0.0/16 range)
+- [ ] Subnet routing - route entire LAN segments through tunnel (access printers, cameras, IoT without per-device install)
+- [ ] Trusted network detection - auto-disable tunneling when already on home LAN
 
-**Relay-side Private DNS**:
-
-{{< figure src="/images/docs/roadmap-private-dns.svg" alt="Private DNS Architecture" >}}
-
+**Relay-side Private DNS** (pluggable `Resolver` backend from 4D):
 - [ ] Lightweight DNS zone on the relay server (e.g., CoreDNS or custom)
 - [ ] Exposed **only** via P2P protocol - never bound to public UDP/53
-- [ ] Subdomains assigned on the relay, resolvable only within the P2P network
+- [ ] Relay operator configures a real domain (e.g., `example.com`) pointing to the VPS IP
+- [ ] Subdomains (`bob.example.com`, `home.example.com`) assigned on the relay, resolvable only within the P2P network
 - [ ] Public DNS returns NXDOMAIN for all subdomains - they don't exist outside the network
+- [ ] Gateway daemon queries relay's private DNS as upstream resolver
+
+**Private DNS Architecture**:
+```
+Public Internet:
+  example.com → 123.123.123.123 (relay VPS)    ← public, A record
+  bob.example.com → NXDOMAIN                    ← not in public DNS
+  home.example.com → NXDOMAIN                   ← not in public DNS
+
+Inside P2P network (via relay's private DNS):
+  bob.example.com → Bob's peer ID → Bob's services
+  home.example.com → Home's peer ID → SSH, XRDP, Ollama
+```
+
+**How it works**:
+1. Relay operator owns `example.com`, points it to the relay VPS
+2. Relay runs a private DNS zone mapping `<name>.example.com` → peer ID
+3. Peers register their friendly name with the relay on connect
+4. Client gateway daemon queries the relay's DNS over a P2P stream (not raw UDP)
+5. Gateway translates the response into a local DNS answer for the OS
+6. Subdomains stay private - no DNS records ever created on public registrars
 
 **Usage Examples**:
 ```bash
 # Mode 1: SOCKS proxy (no root needed)
 shurli-gateway --mode socks --port 1080
+# Configure apps to use SOCKS proxy
 
 # Mode 2: DNS server (queries relay's private DNS)
 shurli-gateway --mode dns --port 53
+# Resolves: home.example.com → virtual IP (via relay's private zone)
 
 # Mode 3: Virtual network (requires root)
 sudo shurli-gateway --mode tun --network 10.64.0.0/16
+# Creates virtual interface, transparent routing
+```
+
+**Connection Examples**:
+```bash
+# After gateway is running:
+ssh user@home.example.com        # resolved privately via relay
+curl http://bob.example.com:8080 # never touches public DNS
+mount -t cifs //home.example.com/media /mnt/media
 ```
 
 ---
+
 
 ## Positioning & Community
 
