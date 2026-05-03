@@ -319,3 +319,57 @@ func TestFormatLineRoundTrip(t *testing.T) {
 		t.Error("expires should appear before verified in formatted line")
 	}
 }
+
+func TestLoadPQCOverrides(t *testing.T) {
+	pid1 := "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+	pid2 := "12D3KooWJ9jWVBD9GTpR2CJMqnPhXBVVWfSWUBQvnMSVmHfsXXLt"
+
+	content := pid1 + "  pqc=mandatory  # forced PQ\n" +
+		pid2 + "  role=admin  # no pqc attr\n" +
+		"# comment line\n" +
+		"\n"
+
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	overrides, err := LoadPQCOverrides(path)
+	if err != nil {
+		t.Fatalf("LoadPQCOverrides: %v", err)
+	}
+
+	p1, err := peer.Decode(pid1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := peer.Decode(pid2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if overrides[p1] != PQCPolicyMandatory {
+		t.Errorf("pid1: got %q, want %q", overrides[p1], PQCPolicyMandatory)
+	}
+	if _, ok := overrides[p2]; ok {
+		t.Errorf("pid2 should not have an override, got %q", overrides[p2])
+	}
+}
+
+func TestLoadPQCOverrides_InvalidValue(t *testing.T) {
+	pid := "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+	content := pid + "  pqc=invalid_typo\n"
+
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	overrides, err := LoadPQCOverrides(path)
+	if err != nil {
+		t.Fatalf("LoadPQCOverrides: %v", err)
+	}
+	if len(overrides) != 0 {
+		t.Errorf("invalid pqc value should be ignored, got %d overrides", len(overrides))
+	}
+}

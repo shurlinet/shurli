@@ -50,6 +50,40 @@ func IsAuthorized(peerID peer.ID, authorizedPeers map[peer.ID]bool) bool {
 	return authorizedPeers[peerID]
 }
 
+// LoadPQCOverrides loads per-peer PQC policy overrides from an authorized_keys
+// file. Returns a map of peer ID -> policy string for peers that have a
+// "pqc=mandatory" or "pqc=opportunistic" attribute. Peers without the attr
+// are not included (they use the global policy).
+func LoadPQCOverrides(path string) (map[peer.ID]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	result := make(map[peer.ID]string)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		peerIDStr, attrs, _ := parseLine(scanner.Text())
+		if peerIDStr == "" || attrs == nil {
+			continue
+		}
+		pqcVal, ok := attrs["pqc"]
+		if !ok || pqcVal == "" {
+			continue
+		}
+		if pqcVal != PQCPolicyMandatory && pqcVal != PQCPolicyOpportunistic {
+			continue // ignore invalid values silently
+		}
+		pid, err := peer.Decode(peerIDStr)
+		if err != nil {
+			continue
+		}
+		result[pid] = pqcVal
+	}
+	return result, scanner.Err()
+}
+
 // LoadCommentMap loads an authorized_keys file and returns a map from
 // comment (lowercased) to peer ID. Only entries with non-empty comments
 // are included. This enables resolving friendly names like "relay" or

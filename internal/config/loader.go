@@ -366,6 +366,15 @@ func ValidateNodeConfig(cfg *NodeConfig) error {
 			return fmt.Errorf("services: %w", err)
 		}
 	}
+	// Validate PQC policy if set (typo detection - silent fallback to opportunistic is dangerous)
+	if p := cfg.Security.PQCPolicy; p != "" {
+		switch p {
+		case "mandatory", "opportunistic", "disabled":
+			// valid
+		default:
+			return fmt.Errorf("security.pqc_policy: invalid value %q (must be 'mandatory', 'opportunistic', or 'disabled')", p)
+		}
+	}
 	return nil
 }
 

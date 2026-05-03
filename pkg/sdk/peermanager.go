@@ -127,8 +127,11 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 		"remote", c.RemoteMultiaddr(),
 		"local", c.LocalMultiaddr())
 
-	// Log PQC status once on first post-quantum QUIC connection.
+	// Log PQC status once on first post-quantum connection (QUIC or PQ Noise).
 	pqcLogger.LogIfPQ(c)
+
+	// Warn if relay circuit negotiated classical instead of PQ Noise (F143/F144).
+	LogRelayDowngrade(c)
 
 	// When a direct connection arrives (especially inbound from home-node
 	// after pathDialer already established relay), clean up the idle relay

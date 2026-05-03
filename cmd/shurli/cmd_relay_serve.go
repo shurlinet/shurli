@@ -30,6 +30,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ws "github.com/libp2p/go-libp2p/p2p/transport/websocket"
@@ -48,6 +49,7 @@ import (
 	"github.com/shurlinet/shurli/internal/vault"
 	"github.com/shurlinet/shurli/internal/watchdog"
 	"github.com/shurlinet/shurli/pkg/sdk"
+	"github.com/shurlinet/shurli/pkg/sdk/pqnoise"
 )
 
 const relayConfigFile = "relay-server.yaml"
@@ -291,6 +293,10 @@ func runRelayServe(args []string) {
 		libp2p.Transport(libp2pquic.NewTransport),
 		libp2p.Transport(tcp.NewTCPTransport),
 		libp2p.Transport(ws.New),
+		// PQ Noise preferred, classical Noise fallback. Relay must serve
+		// both PQ-capable and legacy peers (always opportunistic).
+		libp2p.Security(pqnoise.ID, pqnoise.New),
+		libp2p.Security(noise.ID, noise.New),
 		libp2p.EnableAutoNATv2(),
 		libp2p.UserAgent(relayUserAgent(cfg.Name)),
 	}

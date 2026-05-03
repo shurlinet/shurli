@@ -170,6 +170,15 @@ func (g *gaterReloader) ReloadFromFile() error {
 		return fmt.Errorf("failed to reload authorized_keys: %w", err)
 	}
 	g.gater.UpdateAuthorizedPeers(peers)
+
+	// Reload per-peer PQC overrides from the same file (F122).
+	pqcOverrides, pqcErr := auth.LoadPQCOverrides(g.authKeysPath)
+	if pqcErr != nil {
+		slog.Warn("failed to reload PQC overrides (using previous)", "error", pqcErr)
+	} else {
+		g.gater.UpdatePeerPQCOverrides(pqcOverrides)
+	}
+
 	if g.peerManager != nil {
 		g.peerManager.SetWatchlist(g.gater.GetAuthorizedPeerIDs())
 	}
@@ -205,6 +214,20 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 			return nil, fmt.Errorf("authorized_keys reload failed: %w", err)
 		}
 		result.Changed = append(result.Changed, "security.authorized_keys")
+	}
+
+	// Propagate PQC policy change to gater (F107: runtime policy update).
+	// Transport registration cannot change at runtime (requires restart),
+	// but the gater's InterceptUpgraded enforcement updates immediately.
+	if cr.rt.gater != nil {
+		newPolicy := newCfg.Security.PQCPolicyEffective()
+		if currentPolicy := cr.rt.gater.PQCPolicy(); currentPolicy != newPolicy {
+			if err := cr.rt.gater.SetPQCPolicy(newPolicy); err != nil {
+				slog.Warn("pqc policy reload skipped", "error", err)
+			} else {
+				result.Changed = append(result.Changed, "security.pqc_policy")
+			}
+		}
 	}
 
 	// Reload name mappings from config so auth add --comment changes

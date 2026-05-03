@@ -485,7 +485,18 @@ type SecurityConfig struct {
 	AuthorizedKeysFile     string    `yaml:"authorized_keys_file"`
 	EnableConnectionGating bool      `yaml:"enable_connection_gating"`
 	InvitePolicy           string    `yaml:"invite_policy,omitempty"` // "admin-only" (default) or "open"
+	PQCPolicy              string    `yaml:"pqc_policy,omitempty"`    // "mandatory", "opportunistic" (default), "disabled"
 	ZKP                    ZKPConfig `yaml:"zkp,omitempty"`
+}
+
+// PQCPolicyEffective returns the effective PQC policy, defaulting to "opportunistic".
+func (s *SecurityConfig) PQCPolicyEffective() string {
+	switch s.PQCPolicy {
+	case "mandatory", "disabled":
+		return s.PQCPolicy
+	default:
+		return "opportunistic"
+	}
 }
 
 // ZKPConfig holds zero-knowledge proof configuration.

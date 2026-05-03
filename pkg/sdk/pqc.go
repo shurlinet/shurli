@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -131,10 +132,32 @@ var pqcLogger = &pqcFirstLog{}
 
 type pqcFirstLog struct {
 	once sync.Once
+	done atomic.Bool // fast-path: skip inspectConn after first log
 }
 
 // LogIfPQ checks a new connection for PQC and logs once on first verification.
+// Also logs PQ Noise verification for TCP/WS connections.
 func (p *pqcFirstLog) LogIfPQ(conn network.Conn) {
+	if conn == nil || p.done.Load() {
+		return
+	}
+	// Check PQ Noise on TCP/WS connections.
+	security := conn.ConnState().Security
+	if security == "/pq-noise/1" {
+		p.once.Do(func() {
+			short := conn.RemotePeer().String()
+			if len(short) > 16 {
+				short = short[:16] + "..."
+			}
+			slog.Info("pqc: post-quantum Noise verified on TCP/WS connection",
+				"peer", short,
+				"security", security)
+			p.done.Store(true)
+		})
+		return
+	}
+
+	// Check PQ QUIC (TLS X25519MLKEM768).
 	info := inspectConn(conn)
 	if !info.PQ {
 		return
@@ -144,5 +167,28 @@ func (p *pqcFirstLog) LogIfPQ(conn network.Conn) {
 			"curve", info.CurveID,
 			"curve_code", info.CurveCode,
 			"peer", info.PeerID)
+		p.done.Store(true)
 	})
+}
+
+// LogRelayDowngrade logs a warning when a relay circuit uses classical Noise
+// instead of PQ Noise in opportunistic mode (F143, F144). Called by connLogger.
+func LogRelayDowngrade(conn network.Conn) {
+	if conn == nil {
+		return
+	}
+	if !conn.Stat().Limited {
+		return // not a relay connection
+	}
+	security := conn.ConnState().Security
+	if security == "/pq-noise/1" || security == "" {
+		return // PQ Noise or QUIC (already PQ) - no downgrade
+	}
+	short := conn.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Warn("pqc: relay circuit using classical security (not PQ Noise)",
+		"peer", short,
+		"security", security)
 }

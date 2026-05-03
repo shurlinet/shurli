@@ -19,6 +19,7 @@ import (
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
@@ -30,6 +31,7 @@ import (
 	"github.com/shurlinet/shurli/internal/config"
 	"github.com/shurlinet/shurli/internal/identity"
 	"github.com/shurlinet/shurli/internal/macaroon"
+	"github.com/shurlinet/shurli/pkg/sdk/pqnoise"
 )
 
 // tokenPermitsRelay is a client-side hint: reports whether the given
@@ -315,6 +317,33 @@ func New(cfg *Config) (*Network, error) {
 		libp2p.EnableAutoNATv2(),
 	}
 
+	// PQC security transport registration (F145).
+	// Overrides libp2p's default TLS+Noise with policy-appropriate options.
+	// QUIC already has PQC at the TLS layer (X25519MLKEM768), this controls TCP/WS.
+	pqcPolicy := auth.PQCPolicyOpportunistic
+	if cfg.Config != nil {
+		pqcPolicy = cfg.Config.Security.PQCPolicyEffective()
+	}
+	switch pqcPolicy {
+	case auth.PQCPolicyMandatory:
+		// PQ Noise only. No classical fallback. Peers without PQ support cannot connect.
+		hostOpts = append(hostOpts, libp2p.Security(pqnoise.ID, pqnoise.New))
+		slog.Info("pqc: mandatory mode - only PQ Noise registered for TCP/WS")
+	case auth.PQCPolicyOpportunistic:
+		// PQ Noise preferred, classical Noise as fallback. First listed = preferred.
+		hostOpts = append(hostOpts,
+			libp2p.Security(pqnoise.ID, pqnoise.New),
+			libp2p.Security(noise.ID, noise.New),
+		)
+		slog.Info("pqc: opportunistic mode - PQ Noise preferred, classical Noise fallback")
+	case auth.PQCPolicyDisabled:
+		// Classical only. Explicitly register Noise (no PQ Noise).
+		// libp2p defaults include TLS+Noise, but explicit registration ensures
+		// PQ Noise is never accidentally activated.
+		hostOpts = append(hostOpts, libp2p.Security(noise.ID, noise.New))
+		slog.Info("pqc: disabled - classical Noise only (no PQ Noise)")
+	}
+
 	// Metrics: when enabled, register libp2p's built-in Prometheus collectors
 	// on our isolated registry. When disabled, turn off libp2p's default metric
 	// collection to avoid CPU overhead from counters nobody reads.
@@ -457,6 +486,24 @@ func New(cfg *Config) (*Network, error) {
 
 		autoGater = auth.NewAuthorizedPeerGater(authorizedPeers)
 		hostOpts = append(hostOpts, libp2p.ConnectionGater(autoGater))
+	}
+
+	// Wire PQC policy into gater for InterceptUpgraded enforcement (F110).
+	if cfg.Gater != nil {
+		cfg.Gater.SetPQCPolicyStartup(pqcPolicy)
+	} else if autoGater != nil {
+		autoGater.SetPQCPolicyStartup(pqcPolicy)
+	}
+
+	// Warn if mandatory PQC but relay/seeds may not support PQ (F160, F162).
+	// This is advisory only - the relay will either negotiate PQ Noise or fail.
+	if pqcPolicy == auth.PQCPolicyMandatory {
+		if cfg.EnableRelay && len(cfg.RelayAddrs) > 0 {
+			slog.Warn("pqc: mandatory mode with relay configured - relay must support PQ Noise or connections will fail")
+		}
+		if cfg.Config != nil && len(cfg.Config.Discovery.BootstrapPeers) > 0 {
+			slog.Warn("pqc: mandatory mode with bootstrap seeds - seeds must support PQ Noise or DHT bootstrap will fail")
+		}
 	}
 
 	// Wire black hole counters into swarm options.
