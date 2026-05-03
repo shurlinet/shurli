@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
 	"github.com/shurlinet/shurli/internal/auth"
+	"github.com/shurlinet/shurli/pkg/sdk"
 	"github.com/shurlinet/shurli/pkg/sdk/pqnoise"
 )
 
@@ -311,5 +312,118 @@ func TestIntegration_DefaultPolicyOpportunistic(t *testing.T) {
 	gater := auth.NewAuthorizedPeerGater(map[peer.ID]bool{})
 	if gater.PQCPolicy() != auth.PQCPolicyOpportunistic {
 		t.Errorf("default policy should be opportunistic, got %q", gater.PQCPolicy())
+	}
+}
+
+// TestIntegration_InspectPQC_PQNoise verifies InspectPQC reports PQ Noise
+// connections on TCP (F86, F108).
+func TestIntegration_InspectPQC_PQNoise(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Two PQ Noise hosts.
+	h1, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.Security(pqnoise.ID, pqnoise.New),
+		libp2p.NoTransports,
+		libp2p.Transport(tcpTransport),
+	)
+	if err != nil {
+		t.Fatalf("h1: %v", err)
+	}
+	defer h1.Close()
+
+	h2, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.Security(pqnoise.ID, pqnoise.New),
+		libp2p.NoTransports,
+		libp2p.Transport(tcpTransport),
+	)
+	if err != nil {
+		t.Fatalf("h2: %v", err)
+	}
+	defer h2.Close()
+
+	// Connect.
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	if err := h1.Connect(ctx, peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	// Inspect PQC on h1.
+	status := sdk.InspectPQC(h1)
+
+	if !status.NoisePQCVerified {
+		t.Error("NoisePQCVerified should be true after PQ Noise connection")
+	}
+	if status.QUICPQCVerified {
+		t.Error("QUICPQCVerified should be false (no QUIC connections)")
+	}
+	if len(status.Connections) == 0 {
+		t.Fatal("expected at least one connection in status")
+	}
+	found := false
+	for _, c := range status.Connections {
+		if c.PQ && c.Security == string(pqnoise.ID) {
+			found = true
+			if c.Transport != "tcp" {
+				t.Errorf("expected transport 'tcp', got %q", c.Transport)
+			}
+		}
+	}
+	if !found {
+		t.Error("no PQ Noise connection found in InspectPQC results")
+	}
+}
+
+// TestIntegration_InspectPQC_Classical verifies InspectPQC correctly reports
+// classical connections as non-PQ.
+func TestIntegration_InspectPQC_Classical(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Two classical Noise hosts.
+	h1, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.NoTransports,
+		libp2p.Transport(tcpTransport),
+	)
+	if err != nil {
+		t.Fatalf("h1: %v", err)
+	}
+	defer h1.Close()
+
+	h2, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.Security(noise.ID, noise.New),
+		libp2p.NoTransports,
+		libp2p.Transport(tcpTransport),
+	)
+	if err != nil {
+		t.Fatalf("h2: %v", err)
+	}
+	defer h2.Close()
+
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	if err := h1.Connect(ctx, peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	status := sdk.InspectPQC(h1)
+
+	if status.NoisePQCVerified {
+		t.Error("NoisePQCVerified should be false for classical connections")
+	}
+	if status.QUICPQCVerified {
+		t.Error("QUICPQCVerified should be false for classical connections")
+	}
+	for _, c := range status.Connections {
+		if c.PQ {
+			t.Errorf("classical connection should not be PQ: %+v", c)
+		}
+		if c.Security != "/noise" {
+			t.Errorf("expected security '/noise', got %q", c.Security)
+		}
 	}
 }

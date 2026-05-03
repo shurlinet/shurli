@@ -96,21 +96,25 @@ func doStatus(args []string, stdout io.Writer) error {
 	// PQC status (when daemon is running and has connections)
 	if daemonStatus != nil && daemonStatus.PQC != nil {
 		tc.Wblue(stdout, "PQC:      ")
-		if daemonStatus.PQC.QUICPQCVerified {
+		if daemonStatus.PQC.QUICPQCVerified || daemonStatus.PQC.NoisePQCVerified {
 			tc.Wgreen(stdout, "verified")
-			// Show the curve from the first PQ connection.
+			// Show details from the first PQ connection.
 			for _, c := range daemonStatus.PQC.Connections {
 				if c.PQ {
-					tc.Wfaint(stdout, " (%s on QUIC)", c.CurveID)
+					if c.CurveID != "" {
+						tc.Wfaint(stdout, " (%s on QUIC)", c.CurveID)
+					} else if c.Security == "/pq-noise/1" {
+						tc.Wfaint(stdout, " (PQ Noise on %s)", c.Transport)
+					}
 					break
 				}
 			}
 		} else if daemonStatus.ConnectedPeers > 0 {
 			tc.Wyellow(stdout, "classical only")
-			tc.Wfaint(stdout, " (no PQ key exchange observed)")
 		} else {
 			tc.Wfaint(stdout, "no connections")
 		}
+		tc.Wfaint(stdout, " [%s]", daemonStatus.PQC.Policy)
 		fmt.Fprintln(stdout)
 	}
 	fmt.Fprintln(stdout)

@@ -428,8 +428,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// PQC status: inspect all QUIC connections for post-quantum key exchange.
+	// PQC status: inspect all connections for post-quantum security (QUIC TLS + PQ Noise).
 	pqcStatus := sdk.InspectPQC(h)
+	pqcStatus.Policy = s.runtime.PQCPolicy()
 	resp.PQC = &pqcStatus
 
 	// Proxy status (F8: single-command overview).

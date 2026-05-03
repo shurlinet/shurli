@@ -13,21 +13,29 @@ import (
 
 // PQCStatus summarizes post-quantum cryptography state across all connections.
 type PQCStatus struct {
+	// Policy is the active PQC policy ("mandatory", "opportunistic", "disabled").
+	Policy string `json:"policy"`
+
 	// QUICPQCVerified is true when at least one QUIC connection negotiated
 	// a post-quantum key exchange (X25519MLKEM768 or other PQ curve).
 	QUICPQCVerified bool `json:"quic_pqc_verified"`
 
-	// Connections breaks down the key exchange curve for every active connection.
+	// NoisePQCVerified is true when at least one TCP/WS connection negotiated
+	// PQ Noise (/pq-noise/1) as the security protocol.
+	NoisePQCVerified bool `json:"noise_pqc_verified"`
+
+	// Connections breaks down the security state for every active connection.
 	Connections []PQCConnInfo `json:"connections,omitempty"`
 }
 
-// PQCConnInfo describes the TLS key exchange used on a single connection.
+// PQCConnInfo describes the security state of a single connection.
 type PQCConnInfo struct {
 	PeerID    string `json:"peer_id"`
-	Transport string `json:"transport"` // "quic", "tcp", "relay"
-	CurveID   string `json:"curve_id"`  // e.g. "X25519MLKEM768", "X25519", ""
+	Transport string `json:"transport"` // "quic", "tcp", "ws", "relay"
+	Security  string `json:"security"`  // "/pq-noise/1", "/noise", "" (QUIC = TLS layer)
+	CurveID   string `json:"curve_id"`  // e.g. "X25519MLKEM768", "X25519", "" (QUIC only)
 	CurveCode uint16 `json:"curve_code"`
-	PQ        bool   `json:"pq"` // true if post-quantum
+	PQ        bool   `json:"pq"` // true if post-quantum (either QUIC TLS or PQ Noise)
 }
 
 // isPQCurve returns true if the TLS CurveID represents a post-quantum or
@@ -47,16 +55,18 @@ func isPQCurve(id tls.CurveID) bool {
 }
 
 // InspectPQC examines all active connections on the host and returns PQC status.
-// For QUIC connections, it unwraps the underlying quic.Conn to read the TLS
-// ConnectionState. TCP and relay connections report transport only (no TLS
-// curve extraction — their Noise handshake is classical X25519).
+// Detects both PQ QUIC (TLS X25519MLKEM768) and PQ Noise (/pq-noise/1 on TCP/WS).
 func InspectPQC(h host.Host) PQCStatus {
 	var status PQCStatus
 	for _, pid := range h.Network().Peers() {
 		for _, conn := range h.Network().ConnsToPeer(pid) {
 			info := inspectConn(conn)
 			if info.PQ {
-				status.QUICPQCVerified = true
+				if info.Security == "/pq-noise/1" {
+					status.NoisePQCVerified = true
+				} else {
+					status.QUICPQCVerified = true
+				}
 			}
 			status.Connections = append(status.Connections, info)
 		}
@@ -72,27 +82,38 @@ func inspectConn(conn network.Conn) PQCConnInfo {
 
 	info := PQCConnInfo{PeerID: short}
 
-	// Classify transport.
+	// Classify transport from ConnState (authoritative) or multiaddr (fallback).
+	cs := conn.ConnState()
 	if conn.Stat().Limited {
 		info.Transport = "relay"
+	} else if cs.Transport != "" {
+		info.Transport = cs.Transport
+	} else if rma := conn.RemoteMultiaddr(); rma != nil {
+		info.Transport = classifyTransportFromAddr(rma.String())
 	} else {
-		info.Transport = classifyTransportFromAddr(conn.RemoteMultiaddr().String())
+		info.Transport = "unknown"
 	}
 
-	// Only QUIC connections carry TLS state we can inspect.
-	if info.Transport != "quic" {
+	// Record the negotiated security protocol (F86, F108).
+	info.Security = string(cs.Security)
+
+	// TCP/WS: check if PQ Noise was negotiated (F86, F108).
+	if cs.Security == "/pq-noise/1" {
+		info.PQ = true
 		return info
 	}
 
-	var qc *quic.Conn
-	if !conn.As(&qc) {
-		return info
+	// QUIC: inspect TLS layer for PQ key exchange.
+	if info.Transport == "quic-v1" || info.Transport == "quic" {
+		var qc *quic.Conn
+		if conn.As(&qc) {
+			tlsCS := qc.ConnectionState()
+			info.CurveID = tlsCS.TLS.CurveID.String()
+			info.CurveCode = uint16(tlsCS.TLS.CurveID)
+			info.PQ = isPQCurve(tlsCS.TLS.CurveID)
+		}
 	}
 
-	cs := qc.ConnectionState()
-	info.CurveID = cs.TLS.CurveID.String()
-	info.CurveCode = uint16(cs.TLS.CurveID)
-	info.PQ = isPQCurve(cs.TLS.CurveID)
 	return info
 }
 

@@ -59,6 +59,12 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
+func (rt *serveRuntime) PQCPolicy() string {
+	if rt.gater != nil {
+		return rt.gater.PQCPolicy()
+	}
+	return rt.config.Security.PQCPolicyEffective()
+}
 func (rt *serveRuntime) RelayAddresses() []string        { return rt.config.Relay.Addresses }
 func (rt *serveRuntime) RelayNameFromConfig(peerID string) string { return rt.config.Relay.RelayName(peerID) }
 func (rt *serveRuntime) DiscoveryNetwork() string         { return rt.config.Discovery.Network }
