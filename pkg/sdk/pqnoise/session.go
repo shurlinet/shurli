@@ -99,7 +99,7 @@ func (s *pqSession) Read(buf []byte) (int, error) {
 		copied := copy(buf, s.qbuf[s.qseek:])
 		s.qseek += copied
 		if s.qseek == len(s.qbuf) {
-			zeroSlice(s.qbuf)
+			zeroSlice(s.qbuf[:cap(s.qbuf)]) // zero full pool buffer, not just the slice
 			pool.Put(s.qbuf)
 			s.qseek, s.qbuf = 0, nil
 		}
@@ -158,6 +158,11 @@ func (s *pqSession) Write(data []byte) (int, error) {
 	}
 	if s.transportState == nil {
 		return 0, errNoTransportState
+	}
+
+	// Empty write: no work needed, no pool allocation.
+	if len(data) == 0 {
+		return 0, nil
 	}
 
 	var (
@@ -223,7 +228,7 @@ func (s *pqSession) Close() error {
 		s.transportState.Destroy()
 	}
 	if s.qbuf != nil {
-		zeroSlice(s.qbuf)
+		zeroSlice(s.qbuf[:cap(s.qbuf)]) // zero full pool buffer, not just the slice
 		pool.Put(s.qbuf)
 		s.qseek, s.qbuf = 0, nil
 	}

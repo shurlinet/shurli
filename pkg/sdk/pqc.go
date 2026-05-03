@@ -192,10 +192,16 @@ func (p *pqcFirstLog) LogIfPQ(conn network.Conn) {
 	})
 }
 
+// pqNoiseEnabled tracks whether PQ Noise transport was registered on the host.
+// Set by Network construction based on pqc_policy. When false (disabled mode),
+// LogRelayDowngrade skips warnings since classical security is expected.
+var pqNoiseEnabled atomic.Bool
+
 // LogRelayDowngrade logs a warning when a relay circuit uses classical Noise
 // instead of PQ Noise in opportunistic mode (F143, F144). Called by connLogger.
+// Suppressed when PQ Noise is not registered (disabled mode) to avoid noise.
 func LogRelayDowngrade(conn network.Conn) {
-	if conn == nil {
+	if conn == nil || !pqNoiseEnabled.Load() {
 		return
 	}
 	if !conn.Stat().Limited {

@@ -328,6 +328,7 @@ func New(cfg *Config) (*Network, error) {
 	case auth.PQCPolicyMandatory:
 		// PQ Noise only. No classical fallback. Peers without PQ support cannot connect.
 		hostOpts = append(hostOpts, libp2p.Security(pqnoise.ID, pqnoise.New))
+		pqNoiseEnabled.Store(true)
 		slog.Info("pqc: mandatory mode - only PQ Noise registered for TCP/WS")
 	case auth.PQCPolicyOpportunistic:
 		// PQ Noise preferred, classical Noise as fallback. First listed = preferred.
@@ -335,12 +336,14 @@ func New(cfg *Config) (*Network, error) {
 			libp2p.Security(pqnoise.ID, pqnoise.New),
 			libp2p.Security(noise.ID, noise.New),
 		)
+		pqNoiseEnabled.Store(true)
 		slog.Info("pqc: opportunistic mode - PQ Noise preferred, classical Noise fallback")
 	case auth.PQCPolicyDisabled:
 		// Classical only. Explicitly register Noise (no PQ Noise).
 		// libp2p defaults include TLS+Noise, but explicit registration ensures
 		// PQ Noise is never accidentally activated.
 		hostOpts = append(hostOpts, libp2p.Security(noise.ID, noise.New))
+		pqNoiseEnabled.Store(false)
 		slog.Info("pqc: disabled - classical Noise only (no PQ Noise)")
 	}
 
