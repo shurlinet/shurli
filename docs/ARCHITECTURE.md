@@ -37,8 +37,8 @@ This document describes the technical architecture of Shurli, from current imple
   - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source (plugin)
   - [Plugin System](#plugin-system) - Plugin interface, registry, lifecycle, supervisor
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 13)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
+- [Federation Model](#federation-model) - planned (Phase 19)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 22)
 
 ---
 
@@ -396,12 +396,12 @@ Building on the current structure, future phases will add:
 Shurli/
 ├── cmd/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
-│   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 23: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/sdk/              # ✅ Core library (importable) - network, events, Merkle,
 │   │                        #   plugin policy, transport classification, byte utilities
 │   ├── ...existing...
-│   └── federation.go        # 🆕 Phase 13: Network peering
+│   └── federation.go        # 🆕 Phase 19: Network peering
 │
 ├── pkg/plugin/              # ✅ Plugin framework (interface, registry, supervisor)
 │
@@ -417,14 +417,14 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
+│   └── tun/                 # 🆕 Phase 23: TUN/TAP interface
 │
 └── ...existing (deploy/, tools/, configs, docs, examples)
 
 # External repositories (separate repos, independent release cycles):
 # shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
 # shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
-# shurlinet/shurli-ios    -> App Store (Phase 12)
+# shurlinet/shurli-ios    -> App Store (Phase 22)
 ```
 
 ### Service Exposure Architecture
@@ -433,7 +433,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md) for details.
+> **Status: Planned (Phase 23)** - not yet implemented. See [Roadmap Phase 23](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -831,7 +831,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 9/14)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 14](ROADMAP.md).
+> **Planned (Phase 9/15)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 15](ROADMAP.md).
 
 ---
 
@@ -1682,7 +1682,7 @@ The per-peer data grant system (Phase 8B) proved that macaroon capability tokens
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 19](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -1725,7 +1725,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Roadmap Phase 19](ROADMAP.md).
 
 ### Relay Peering
 
@@ -1735,7 +1735,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](ROADMAP.md).
+> **Status: Planned (Phase 22)** - not yet implemented. See [Roadmap Phase 22](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -1779,7 +1779,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 13+.
+> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 15+.
 
 ### Binary Size
 

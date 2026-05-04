@@ -224,8 +224,8 @@ $ shurli relay remove /ip4/203.0.113.50/tcp/7777/p2p/12D3KooW...
 | **Phase 7** | **ZKP Privacy Layer** | Anonymous auth, anonymous relay, privacy-preserving reputation, private namespace membership. gnark PLONK + Ethereum KZG ceremony (141,416 participants). | ✅ DONE |
 | **Phase 8** | **Identity Security + Remote Admin** | Unified BIP39 seed, encrypted identity (Argon2id), remote relay admin over P2P, MOTD/goodbye announcements, session tokens, lock/unlock, doctor, completion, man page | ✅ DONE |
 | **Phase 8B** | **Per-Peer Data Grants** | Macaroon grants, token delivery, delegation, notifications, audit log, rate limiting. Core access control (not plugin-specific) | ✅ DONE |
-| **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). M2-M5 moved to Phase 14 | ✅/📋 M1 DONE |
-| **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Moved to Phase 19 | 📋 Planned |
+| **Phase 8C** | **ACL-to-Macaroon Migration** | M1 complete (Phase 8B). M2-M5 moved to Phase 16 | ✅/📋 M1 DONE |
+| **Phase 8D** | **Module Slots** | Swappable system algorithms (reputation, auth, storage). Moved to Phase 21 | 📋 Planned |
 | **Phase 9** | **Plugins, SDK & First Plugins** | 9A interfaces DONE, 9B file transfer DONE, plugin architecture DONE, Grant Receipt Protocol DONE. 9C-9E planned, 9F WASM, 9G AI | ✅ 9A-9B |
 | Post-9B | **Chaos Testing + Network Hardening** | 16 test cases, 11 root causes fixed, 8 post-chaos flags resolved. libp2p overrides: black hole reset, gateway tracking, VPN detection, dial cache workaround, autorelay tuning | ✅ DONE |
 | Post-9B | **Plugin Architecture Shift** | Plugin framework (`pkg/plugin/`), file transfer extracted to `plugins/filetransfer/`, hot reload, supervisor auto-restart, security hardening (43-vector threat analysis), physical retest 11/11 PASS | ✅ DONE |
@@ -365,7 +365,7 @@ After: DHT prefix becomes `/shurli/<namespace>/kad/1.0.0`. Nodes with different 
 
 Bootstrap model: Each private network needs at least one well-known bootstrap node (typically the relay). One relay per namespace (simple, self-sovereign). Multi-namespace relay support deferred to future if demand exists.
 
-Foundation for Phase 17 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
+Foundation for Phase 19 (Federation): each private network becomes a federation unit. Cross-network communication is federation between namespaces.
 
 **Batch I: Adaptive Multi-Interface Path Selection** ✅ DONE
 
@@ -1369,7 +1369,7 @@ The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic s
 **Status**: 📋 Planned
 **Repository**: `github.com/shurlinet/shurli-sdk-swift` (separate repo, ships via Swift Package Manager)
 
-**Goal**: Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 20) will be built on. Building it here, before the app, validates the API surface from a non-Go language and catches design issues early. "Eat your own cooking" - if the SDK can't power the Apple app, it can't power anything.
+**Goal**: Ship a native Swift SDK that wraps the daemon API. This is the foundation the Apple multiplatform app (Phase 22) will be built on. Building it here, before the app, validates the API surface from a non-Go language and catches design issues early. "Eat your own cooking" - if the SDK can't power the Apple app, it can't power anything.
 
 **Swift SDK** (`ShurliSDK`):
 - [ ] Swift Package (SPM) wrapping daemon HTTP API (Unix socket + cookie auth)
@@ -1386,7 +1386,7 @@ The reputation slot is the first: `ComputeScore()` returns 0-100 deterministic s
 - Works in App Extension context (Network Extensions have restricted APIs)
 - Shared between macOS app (direct socket), iOS app (tunnel context), and any third-party Swift app
 
-**Exit Criteria**: Package importable via SPM, all daemon API endpoints covered, async/await works, tested on macOS (direct) and iOS simulator (localhost transport). Phase 20 app can depend on this package with zero API plumbing in the app repo.
+**Exit Criteria**: Package importable via SPM, all daemon API endpoints covered, async/await works, tested on macOS (direct) and iOS simulator (localhost transport). Phase 22 app can depend on this package with zero API plumbing in the app repo.
 
 ---
 
@@ -1575,58 +1575,141 @@ services:
 
 ### Phase 11: Post-Quantum Cryptography
 
-**Status**: 📋 Next
-**Prerequisite**: go-clatter v0.1.0 (DONE - full Go Noise PQ framework, 5 handshake modes, ML-KEM-768, 233+ tests, 408 cross-implementation vectors)
+**Status**: 🔶 11A+11B DONE, 11C pending
+**Prerequisite**: go-clatter v0.1.0 (DONE), go-clatter v0.2.0 (DONE)
 
 **Goal**: Wire post-quantum key exchange into Shurli as a libp2p security transport, giving every connection quantum-resistant encryption alongside classical Noise.
 
-**Rationale**: QUIC already negotiates X25519MLKEM768 for the transport layer (verified). Phase 11 adds PQ Noise at the application layer via go-clatter. First-mover advantage is time-limited - once PQ becomes standard, it stops being a differentiator.
+**Rationale**: QUIC already negotiates X25519MLKEM768 for the transport layer (verified). Phase 11 adds PQ Noise at the application layer via go-clatter. First-mover advantage is time-limited - once PQ becomes standard, it stops being a differentiator. No other P2P project has shipped PQ node/peer identity authentication.
 
 **Deliverables**:
 
-**11A: PQ Noise Transport**:
-- [ ] `/pq-noise/1` libp2p security transport using go-clatter HybridDualLayerHandshake
-- [ ] Fixed cipher suites (no negotiation - simplicity over flexibility)
-- [ ] Fallback to classical `/noise` for non-PQ peers
-- [ ] Key material cleanup on connection close
-- [ ] Downgrade enforcement via connection gater
-- [ ] Config: `pqc.enabled` (default true), `pqc.required` (default false)
-- [ ] `shurli status` shows PQC status per connection
-- [ ] `shurli doctor` checks PQC negotiation health
+**11A: PQ Noise Transport** ✅ DONE:
+- [x] `/pq-noise/1` libp2p security transport using go-clatter HybridDualLayerHandshake
+- [x] Fixed cipher suites (no negotiation - simplicity over flexibility)
+- [x] Fallback to classical `/noise` for non-PQ peers
+- [x] Key material cleanup on connection close
+- [x] Downgrade enforcement via connection gater (InterceptUpgraded)
+- [x] Config: `pqc_policy: mandatory|opportunistic|disabled`, per-peer override via authorized_keys
+- [x] `shurli status` shows PQC status per connection (QUIC + Noise PQ)
+- [x] Phase 3 adversarial security audit (167 findings, 3 bugs fixed)
 
-**11B: Post-Quantum Signing (ML-DSA-65)**:
-- [ ] ML-DSA-65 (FIPS 204, NIST Level 3) signing module in go-clatter
-- [ ] Hybrid Ed25519 + ML-DSA-65 peer identity proofs
-- [ ] PQ-signed capability tokens and admin commands
-- [ ] Library: `filippo.io/mldsa` (migrates to Go stdlib `crypto/mldsa` on Go 1.27)
+**11B: Post-Quantum Signing (ML-DSA-65)** ✅ DONE:
+- [x] ML-DSA-65 (FIPS 204, NIST Level 3) signing module in go-clatter v0.2.0
+- [x] Library: `filippo.io/mldsa` (migrates to Go stdlib `crypto/mldsa` on Go 1.27)
+- [x] GenerateKey, Sign/Verify with FIPS 204 context strings, Destroy with secret zeroing
+- [x] 29 tests, 3 examples, concurrent stress test, accumulated regression vectors
+- Hybrid Ed25519 + ML-DSA-65 identity proofs -> Phase 13 (PQ Identity Attestation)
+- PQ-signed capability tokens and admin commands -> Phase 13+
 
 **11C: Audit + Documentation**:
-- [ ] Full security audit (pre-merge + post-phase checklists)
+- [x] Full security audit (Phase 3 adversarial audit, 167 findings cross-checked)
 - [ ] Architecture and roadmap updates
 - [ ] Engineering journal entries
 - [ ] Blog post on PQC implementation
+- [ ] Katzenpost/nyquist comparison documentation (research DONE, write-up pending)
 
 ---
 
-### Phase 12: Topic-Based Pub/Sub
+### Phase 12: Seed & Recovery Infrastructure
 
-**Status**: 📋 Planned
-**Prerequisite**: Phase 11 (for PQ-signed messages), or can start in parallel
+**Status**: 📋 Next
+**Prerequisite**: Phase 11B (ML-DSA-65 in go-clatter, DONE)
 
-**Goal**: Integrate GossipSub for topic-based publish/subscribe, replacing the custom presence forwarding layer and enabling agent capability advertisement.
+**Goal**: Build the seed abstraction libraries that enable multi-identity derivation (BIP85) and Shamir secret sharing recovery (SLIP39). These are foundation dependencies for PQ identity attestation (Phase 13).
 
-**Rationale**: Shurli's custom NetIntel system handles peer presence but is not designed for arbitrary topic pub/sub. Agent features (Phase 15+) need topic-based messaging for capability advertisement, skill announcements, and task broadcasts. The NetIntel Layer 3 slot was explicitly designed as a GossipSub drop-in point.
+**Rationale**: PQ identity attestation requires deterministic multi-identity derivation from a single master seed. BIP85 provides industry-standard derivation with hardware wallet interop. SLIP39 provides threshold recovery (2-of-3, 3-of-5) without single-point-of-failure seed phrases. Both are standalone libraries usable beyond Shurli.
 
 **Deliverables**:
 
-**12A: GossipSub Integration**:
+**12A: go-bip85 Library** (separate repo: `shurlinet/go-bip85`):
+- [ ] Full BIP85 spec implementation (9 applications, 12 test vectors)
+- [ ] BIP32 HD key derivation via `dcrd/hdkeychain/v3`
+- [ ] secp256k1 via `dcrd/dcrec/secp256k1/v4` (constant-time, approved by Satinder)
+- [ ] Base85 RFC 1924 encoder (own implementation, ~40 lines)
+- [ ] Cross-implementation verification against Python (bipsea) and JavaScript (bip85-js) references
+- [ ] Shurli identity derivation path: `m/83696968'/128169'/32'/{identity_index}'`
+- [ ] HMAC-SHA512 barrier verification (compromised child reveals nothing about master)
+
+**12B: SLIP39 Fork + Hardening** (fork `duodekalexeis/go-slip39` to `satindergrewal`):
+- [ ] Fork and audit existing Go SLIP39 implementation
+- [ ] Memory zeroing for secret material (shares, intermediate values)
+- [ ] Constant-time operations where applicable
+- [ ] 2-level group support (e.g., 2-of-3 groups, each group 2-of-3 shares)
+- [ ] Share generation + reconstruction core code
+- [ ] Test vectors from Trezor reference implementation
+
+**12C: Seed Abstraction Integration**:
+- [ ] `SeedSource` interface: `Entropy() []byte`, `Type() string`, `DisplayBackup() string`
+- [ ] BIP85 multi-identity derivation wired into identity package
+- [ ] SHRL envelope redesign: N-key modular format (ERC-2335 pattern, KDF/cipher as named modules)
+- [ ] `shurli init` / `shurli recover` updates for multiple SeedSource types
+
+---
+
+### Phase 13: PQ Identity Attestation
+
+**Status**: 📋 Planned
+**Prerequisite**: Phase 12 (BIP85 for multi-identity derivation), Phase 11A (PQ Noise transport)
+
+**Goal**: Add ML-DSA-65 identity attestation to the PQ Noise handshake, proving each peer's post-quantum identity alongside the existing Ed25519 identity. Design offline master key architecture for passwordless daemon operation.
+
+**Rationale**: Every P2P project uses PQ for key exchange while keeping classical crypto for identity. Shurli shipping PQ identity attestation is a genuine first-mover position (verified against QRL, Algorand, IOTA, Signal, WireGuard, Cloudflare, OpenSSH, Chrome, Tor - none have shipped PQ peer identity). ML-DSA-65 adds ~390us per handshake (benchmarked on M3 Max) - negligible.
+
+**Deliverables**:
+
+**13A: Core PQ Attestation**:
+- [ ] HKDF domain `shurli/pq-identity/v1` for ML-DSA-65 seed derivation from BIP85 identity entropy
+- [ ] `DerivePQIdentityKey()` in identity package
+- [ ] Own protobuf at `pkg/sdk/pqnoise/pb/payload.proto` (field-compatible with libp2p, PQ attestation at field 3)
+- [ ] ML-DSA-65 `SignWithContext` / `VerifyWithContext` in handshake (context: `"shurli-pq-attestation-v1"`)
+- [ ] Buffer constant increases (maxHandshakeMessageLen=16384, bufSize=16384, maxPayloadLen=8192)
+- [ ] pqSession extended with PQ attestation data
+- [ ] PQCStatus extended with attestation reporting
+- [ ] Namespace PQ identity: `shurli/pq-identity/v1/ns:<name>` (federation-ready)
+
+**13B: Gater Enforcement**:
+- [ ] Config: `require_pq_identity: true|false` (valid with mandatory or opportunistic pqc_policy)
+- [ ] `pq_id=sha256:<hex>` attribute in authorized_keys
+- [ ] TOFU: first connection with no `pq_id` -> allow, async write to authorized_keys
+- [ ] Mismatch: stored `pq_id` vs presented key -> REJECT
+- [ ] InterceptUpgraded extended for PQ attestation verification
+
+**13C: Offline Master Key Design** (Tor model):
+- [ ] Certificate chain structure: master Ed25519 signs medium-term signing key cert
+- [ ] Medium-term key handles handshakes (rotatable, time-bounded)
+- [ ] ML-DSA-65 attestation covers both medium-term and permanent identity
+- [ ] Wire format accommodates direct attestation AND cert chain from day one
+- [ ] Design spec for offline master key workflow (implementation phased)
+
+**13D: Signing Agent Process**:
+- [ ] ssh-agent model: separate process holds private keys
+- [ ] Unix socket communication between daemon and signing agent
+- [ ] Main daemon NEVER has raw key material in memory
+- [ ] Supports Ed25519, ML-DSA-65, and vault keys
+- [ ] memguard (mlock'd memory with guard pages) for key storage in agent process
+
+---
+
+### Phase 14: Topic-Based Pub/Sub
+
+**Status**: 📋 Planned
+**Prerequisite**: Phase 13 (for PQ-signed messages), or can start in parallel
+
+**Goal**: Integrate GossipSub for topic-based publish/subscribe, replacing the custom presence forwarding layer and enabling agent capability advertisement.
+
+**Rationale**: Shurli's custom NetIntel system handles peer presence but is not designed for arbitrary topic pub/sub. Agent features (Phase 17+) need topic-based messaging for capability advertisement, skill announcements, and task broadcasts. The NetIntel Layer 3 slot was explicitly designed as a GossipSub drop-in point.
+
+**Deliverables**:
+
+**14A: GossipSub Integration**:
 - [ ] Fork and update go-libp2p-pubsub to match Shurli's go-libp2p version (upstream pinned 9 versions behind)
 - [ ] Wire GossipSub into NetIntel Layer 3 slot
 - [ ] Private topic namespace: `/shurli/` prefix (like private DHT)
 - [ ] Peer scoring enabled, message signing required (Ed25519, future: ML-DSA-65)
 - [ ] Topic validators for capability claims
 
-**12B: Service Event Broadcasting**:
+**14B: Service Event Broadcasting**:
 - [ ] Service add/remove events propagated via pub/sub
 - [ ] MOTD propagation to all connected peers
 - [ ] Network-wide maintenance announcements
@@ -1634,10 +1717,10 @@ services:
 
 ---
 
-### Phase 13: Naming Standards (SNR)
+### Phase 15: Naming Standards (SNR)
 
 **Status**: 📋 Planned
-**Prerequisite**: Phase 12 (pub/sub for name broadcasting)
+**Prerequisite**: Phase 14 (pub/sub for name broadcasting)
 
 **Goal**: Pluggable naming architecture with 5 identity layers, W3C DID support, local petname store, and a resolution pipeline that any plugin can extend.
 
@@ -1663,7 +1746,7 @@ services:
 
 **Deliverables**:
 
-**13A: Core Resolution Engine + Petname Store**:
+**15A: Core Resolution Engine + Petname Store**:
 - [ ] Name format parsing (`shurli:<type>:<value>` URI scheme + CLI shorthand)
 - [ ] Resolution pipeline (route to resolver, validate, cache, return)
 - [ ] Local petname store (`~/.shurli/names.db`)
@@ -1674,18 +1757,18 @@ services:
 - [ ] CLI: `shurli name add/remove/rename/list/search/resolve`
 - [ ] All existing commands that accept PeerID also accept any resolvable name
 
-**13B: DID Integration**:
+**15B: DID Integration**:
 - [ ] Built-in `did:peer` and `did:key` resolution
 - [ ] DID Document generation from node identity
 - [ ] DID in invite codes (alongside PeerID)
 - [ ] CLI: `shurli name did` (show DID document)
 
-**13C: Invite Integration + Nickname System**:
+**15C: Invite Integration + Nickname System**:
 - [ ] Nickname field in invite codes (self-chosen, advisory)
 - [ ] Auto-petname from nickname on invite accept (collision handling)
 - [ ] Nickname broadcast in peer metadata
 
-**13D: Built-in + Plugin Resolvers**:
+**15D: Built-in + Plugin Resolvers**:
 - [ ] Built-in resolvers:
   - [ ] Local petname store (YAML/DB)
   - [ ] DHT-based (federated, network-scoped)
@@ -1702,7 +1785,7 @@ services:
   - [ ] IPFS/Arweave archiving for redundancy
   - [ ] Bitcoin OP_RETURN
 
-**13E: Documentation**:
+**15E: Documentation**:
 - [ ] NameResolver interface documentation for community plugin authors
 - [ ] Architecture docs update
 - [ ] Engineering journal entry
@@ -1721,7 +1804,7 @@ work-mac  -> 12D3KooWDeFgHi...
 ```
 Format: <hostname>.<network>
 Examples: laptop.grewal, desktop.alice
-Resolution: Ask relay for peer ID (Phase 17D federation)
+Resolution: Ask relay for peer ID (Phase 19D federation)
 ```
 
 **Tier 3: DID** (Free, Standards-Based)
@@ -1752,10 +1835,10 @@ shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
 
 ---
 
-### Phase 14: ACL-to-Macaroon Migration (M2-M5)
+### Phase 16: ACL-to-Macaroon Migration (M2-M5)
 
 **Status**: 📋 Planned
-**Prerequisite**: Phase 13 (name-scoped capability caveats)
+**Prerequisite**: Phase 15 (name-scoped capability caveats)
 
 **Goal**: Replace all ACL-based access control with macaroon capability tokens. M1 (plugin/service layer) is DONE and proven. This phase extends to the remaining 4 layers.
 
@@ -1770,10 +1853,10 @@ shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
 
 ---
 
-### Phase 15: Agent Foundation - MCP + Service Templates
+### Phase 17: Agent Foundation - MCP + Service Templates
 
 **Status**: 📋 Planned (partially urgent)
-**Prerequisite**: Phase 13 (naming for agent identity), Phase 12 (pub/sub for advertisement)
+**Prerequisite**: Phase 15 (naming for agent identity), Phase 14 (pub/sub for advertisement)
 
 **Goal**: Make Shurli's existing TCP tunneling explicitly agent-friendly with MCP service templates, agent-readable capability documents, and distribution channel listings.
 
@@ -1786,13 +1869,15 @@ shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
 - [ ] MCP health check in `shurli doctor`
 - [ ] Machine-readable skill document for agent discovery platforms
 - [ ] Documentation: "MCP Server in 60 Seconds"
+- [ ] Identity management backend APIs - RPC/CLI for managing agent egos (create, list, revoke, rotate)
+- [ ] Per-identity permission policies - each agent ego gets own authorized_keys scope
 
 ---
 
-### Phase 16: Agent-to-Agent Task Protocol
+### Phase 18: Agent-to-Agent Task Protocol
 
 **Status**: 📋 Planned
-**Prerequisite**: Phases 12-15
+**Prerequisite**: Phases 14-17
 
 **Goal**: Implement the A2A task protocol as a Shurli plugin, making Shurli the sovereign, E2E encrypted, PQC-ready, grant-controlled transport for agent-to-agent communication.
 
@@ -1800,34 +1885,39 @@ shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
 
 **Deliverables**:
 
-**16A: Agent Card + Skill Registry**:
+**18A: Agent Card + Skill Registry**:
 - [ ] Generate Agent Card from Shurli config (peer ID, DID, services, capabilities)
 - [ ] Serve Agent Card via daemon API and private DHT
 - [ ] Advertise skills via pub/sub topics
 - [ ] CLI: `shurli agent card`, `shurli agent skills`
 
-**16B: Task Protocol**:
+**18B: Task Protocol**:
 - [ ] Task lifecycle FSM (submitted -> working -> input-needed -> completed/failed/canceled)
 - [ ] `/shurli/a2a/1.0.0` protocol over libp2p streams (E2E encrypted, NAT traversed)
 - [ ] Task authorization via macaroon grants
 - [ ] CLI: `shurli agent task submit <peer> <skill>`, `shurli agent tasks`
 
-**16C: HTTP Bridge + Interop**:
+**18C: HTTP Bridge + Interop**:
 - [ ] Daemon API endpoints for standard HTTP-based agent clients
 - [ ] Agent Card discovery from HTTPS endpoints
 - [ ] Bidirectional: Shurli agents appear as standard HTTP agents
 
-**16D: MCP Protocol Bridge**:
+**18D: MCP Protocol Bridge**:
 - [ ] Expose MCP servers as agent skills
 - [ ] Expose agent skills as MCP tools
 - [ ] Tool discovery across P2P network via pub/sub
 
+**18E: Agent Authorization + Key Isolation**:
+- [ ] Agent-to-agent authorization between co-located egos on same machine
+- [ ] Agent ego ML-DSA-65 attestation via protocol handlers (`/shurli/agent/<name>/1.0.0`)
+- [ ] Full multi-Host isolation (ONLY if Option B sub-identity model proves insufficient)
+
 ---
 
-### Phase 17: Agent Discovery + Federation
+### Phase 19: Agent Discovery + Federation
 
 **Status**: 📋 Planned
-**Prerequisite**: Phase 16
+**Prerequisite**: Phase 18
 
 **Goal**: Capability-based agent discovery via pub/sub topics, relay as opt-in federated capability index, and relay-to-relay federation protocol.
 
@@ -1835,20 +1925,20 @@ shurli send dns:node.example.com ./file.txt    # DNS TXT resolver plugin
 
 **Deliverables**:
 
-**17A: Capability Discovery**:
+**19A: Capability Discovery**:
 - [ ] Topic-based agent discovery via pub/sub (`/shurli/skill/<category>/1.0.0`)
 - [ ] Anycast routing: "find an agent that can do X" -> network routes to capable peer
 - [ ] Privacy-aware: optional ZKP membership proof before skill advertisement
 
-**17B: Relay Agent Registry**:
+**19B: Relay Agent Registry**:
 - [ ] Relay hosts opt-in capability index
 - [ ] Cross-relay capability queries
 
-**17C: Discovery Protocol Compatibility**:
+**19C: Discovery Protocol Compatibility**:
 - [ ] Export capability records in standard formats
 - [ ] Registration with external discovery indices (opt-in)
 
-**17D: Relay-to-Relay Federation**:
+**19D: Relay-to-Relay Federation**:
 
 Enable relay-to-relay federation for cross-network communication. Only matters once you have multiple users with their own networks.
 
@@ -1905,10 +1995,10 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 18: Payments
+### Phase 20: Payments
 
 **Status**: 📋 Planned
-**Prerequisite**: Phases 14, 16
+**Prerequisite**: Phases 16, 18
 
 **Goal**: Machine-to-machine payment protocol integration for paid relay capacity, pay-per-agent-query, and streaming payments - without coupling to any centralized payment processor.
 
@@ -1926,10 +2016,10 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 19: Reputation / Module Slots
+### Phase 21: Reputation / Module Slots
 
 **Status**: 📋 Deferred (until traffic demands)
-**Prerequisite**: Phases 14, 17
+**Prerequisite**: Phases 16, 19
 
 **Goal**: Complete reputation scoring pipeline with hot-swappable algorithms and connected identity trust from the naming standard.
 
@@ -1941,7 +2031,7 @@ curl http://desktop.bob:8080
 
 ---
 
-### Phase 20: Apple Multiplatform App
+### Phase 22: Apple Multiplatform App
 
 **Status**: 📋 In Progress (separate repo)
 **Repository**: `github.com/shurlinet/shurli-ios` (depends on Swift SDK from Phase 9E)
@@ -1991,11 +2081,11 @@ Once connected:
 
 ---
 
-### Phase 21: Desktop Gateway Daemon + Private DNS
+### Phase 23: Desktop Gateway Daemon + Private DNS
 
 **Timeline**: 2-3 weeks
 **Status**: 📋 Deferred
-**Prerequisite**: Phases 13, 17
+**Prerequisite**: Phases 15, 19
 
 **Goal**: Create multi-mode gateway daemon for transparent service access, backed by a private DNS zone on the relay that is never exposed to the public internet.
 
@@ -2152,7 +2242,7 @@ Shurli is not a cheaper version of existing VPN tools. It's the **self-sovereign
 
 ---
 
-## Phase 22+: Ecosystem & Polish
+## Phase 24+: Ecosystem & Polish
 
 **Timeline**: Ongoing
 **Status**: 📋 Conceptual
@@ -2240,7 +2330,7 @@ Rate-Limiting Nullifier for anonymous anti-spam on relays. Based on Shamir's Sec
 
 Anonymous presence and network intelligence announcements. Peers share reachability grade, NAT type, and connection quality without revealing identity. Extends the existing `/shurli/presence/1.0.0` protocol with ZKP membership proofs.
 
-**Dependency**: Phase 12 (Topic-Based Pub/Sub). Direct push works today; gossip forwarding for anonymous announcements needs pub/sub integration.
+**Dependency**: Phase 14 (Topic-Based Pub/Sub). Direct push works today; gossip forwarding for anonymous announcements needs pub/sub integration.
 
 - [ ] ZKP-authenticated presence announcements (prove membership without revealing peer ID)
 - [ ] Anonymous reachability grade sharing (network health without identity exposure)
@@ -2253,7 +2343,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 - [ ] Zero-RTT proxy connection resume - QUIC session tickets for instant reconnection after network switch (WiFi→cellular). No existing P2P tool provides this.
 - [ ] Hardware-backed peer identity - store peer private keys in TPM 2.0 (Linux) or Secure Enclave (macOS/iOS). No existing P2P tool provides this.
 - [ ] eBPF/XDP relay acceleration - kernel-bypass packet forwarding for high-throughput relay deployments. DDoS mitigation at millions of packets/sec.
-- [ ] W3C DID-compatible identity - Phase 13 (Naming Standards) implements `did:peer` and `did:key` with DID Document generation.
+- [ ] W3C DID-compatible identity - Phase 15 (Naming Standards) implements `did:peer` and `did:key` with DID Document generation.
 - [ ] Formal verification of invite/join protocol state machine - mathematically prove correctness of key exchange. Possible with TLA+ model or Kani (Rust).
 
 **Security Hardening (deferred from 2026-03-06 audit)**:
@@ -2303,21 +2393,23 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **v0.4.0 Release** (2026-05-01) | ✅ Streaming protocol, hedged racing, LAN 111 MB/s send |
 | **go-clatter v0.1.0** (PQ Noise) | ✅ 5 handshake modes, 233+ tests, 408 interop vectors |
 | Phase 10: Distribution | ✅/📋 Partial (install script, archives done. Homebrew/APT planned) |
-| **Phase 11: PQC Integration** | 📋 Next |
-| **Phase 12: Topic-Based Pub/Sub** | 📋 Planned |
-| **Phase 13: Naming Standards (SNR)** | 📋 Planned |
-| **Phase 14: ACL-to-Macaroon (M2-M5)** | 📋 Planned |
-| **Phase 15: Agent Foundation (MCP)** | 📋 Planned |
-| **Phase 16: Agent Task Protocol (A2A)** | 📋 Planned |
-| **Phase 17: Agent Discovery + Federation** | 📋 Planned |
-| **Phase 18: Payments** | 📋 Planned |
-| **Phase 19: Reputation / Module Slots** | 📋 Deferred |
-| **Phase 20: Apple Multiplatform App** | 📋 In Progress (separate repo) |
-| **Phase 21: Desktop Gateway + Private DNS** | 📋 Deferred |
+| **Phase 11: PQC Integration** | 🔶 11A+11B DONE, 11C pending |
+| **Phase 12: Seed & Recovery** | 📋 Next |
+| **Phase 13: PQ Identity Attestation** | 📋 Planned |
+| **Phase 14: Topic-Based Pub/Sub** | 📋 Planned |
+| **Phase 15: Naming Standards (SNR)** | 📋 Planned |
+| **Phase 16: ACL-to-Macaroon (M2-M5)** | 📋 Planned |
+| **Phase 17: Agent Foundation (MCP)** | 📋 Planned |
+| **Phase 18: Agent Task Protocol (A2A)** | 📋 Planned |
+| **Phase 19: Agent Discovery + Federation** | 📋 Planned |
+| **Phase 20: Payments** | 📋 Planned |
+| **Phase 21: Reputation / Module Slots** | 📋 Deferred |
+| **Phase 22: Apple Multiplatform App** | 📋 In Progress (separate repo) |
+| **Phase 23: Desktop Gateway + Private DNS** | 📋 Deferred |
 | Phase 9C-9G: SDKs, WASM, AI Plugins | 📋 Planned / Future |
-| Phase 22+: Ecosystem | 📋 Conceptual |
+| Phase 24+: Ecosystem | 📋 Conceptual |
 
-**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> **PQC** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
+**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> PQC (11A+11B done) -> **seed infrastructure** -> **PQ identity attestation** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. See "SDK & App Repository Strategy" section under Phase 9 for the full table.
 
@@ -2414,7 +2506,7 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - `shurli discover <peer>` returns list of exposed services with tags
 - Python SDK works: `pip install shurli-sdk` - connect to remote service in <10 lines
 - Swift SDK works: SPM import `ShurliSDK` - connect to daemon and list peers in <10 lines of Swift
-- Swift SDK validated as foundation for Phase 20 Apple app (zero API plumbing needed in app repo)
+- Swift SDK validated as foundation for Phase 22 Apple app (zero API plumbing needed in app repo)
 - `shurli invite --headless` outputs JSON; `shurli join --from-env` reads env vars
 
 **Phase 10 Success** (Distribution & Launch):
@@ -2445,38 +2537,53 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 **Phase 11 Success** (PQC Integration):
 - `/pq-noise/1` transport negotiates HybridDualLayer handshakes on all connections
 - Classical Noise fallback works for non-PQ peers
-- `shurli status` shows PQC status per connection
-- ML-DSA-65 signs capability tokens and admin commands
+- `shurli status` shows PQC status per connection (QUIC + Noise PQ)
+- Phase 3 adversarial audit passed (167 findings, 3 bugs fixed)
 
-**Phase 12 Success** (Pub/Sub):
+**Phase 12 Success** (Seed & Recovery):
+- go-bip85 library produces byte-identical output to Python/JS reference implementations
+- SLIP39 share generation + reconstruction works with 2-level groups
+- SeedSource interface supports BIP39, SLIP39, and hex entropy
+- SHRL envelope stores N keys per identity with modular KDF/cipher
+
+**Phase 13 Success** (PQ Identity Attestation):
+- ML-DSA-65 attestation in PQ Noise handshake (proto field 3)
+- Gater enforces pq_id with TOFU for first contact
+- Offline master key certificate chain designed in wire format
+- Signing agent process isolates key material from main daemon
+
+**Phase 14 Success** (Pub/Sub):
 - GossipSub integrated via NetIntel Layer 3 slot
 - Service events propagated via pub/sub topics
 - MOTD and maintenance announcements reach all connected peers
 
-**Phase 13 Success** (Naming Standards):
+**Phase 15 Success** (Naming Standards):
 - Petname store works offline, petnames usable in all existing commands
 - DID Documents generated from node identity
 - At least 1 external resolver plugin demonstrated (DNS TXT)
 - Name resolution pipeline extensible via PluginContext
 
-**Phase 14 Success** (Macaroon Migration):
+**Phase 16 Success** (Macaroon Migration):
 - All 5 ACL layers replaced with macaroon capability tokens
 - Offline attenuation works (delegate restricted access without authority contact)
 
-**Phase 15 Success** (Agent Foundation):
+**Phase 17 Success** (Agent Foundation):
 - MCP servers tunneled with zero extra config beyond `shurli service add mcp`
 - Agent discovery platforms can find and install Shurli MCP bridge
+- Identity management APIs ready (RPC/CLI for managing agent egos)
 
-**Phase 16 Success** (A2A Task Protocol):
+**Phase 18 Success** (A2A Task Protocol):
 - Agent Card published to DHT and served via HTTP
 - Task lifecycle works E2E over libp2p streams (E2E encrypted, NAT traversed)
 - MCP <-> A2A bridge: MCP servers appear as agent skills and vice versa
+- Agent-to-agent authorization between co-located egos
+- Signing agent process supports agent ego keys
 
-**Phase 17 Success** (Discovery + Federation):
+**Phase 19 Success** (Discovery + Federation):
 - Two independent relay networks federate and exchange capability queries
 - Agents discoverable by capability across federated networks
 
-**Phase 20 Success** (Apple App):
+**Phase 22 Success** (Apple App):
 - SwiftUI app runs on macOS/iOS/iPadOS/visionOS
 - QR code invite flow works mobile -> desktop
 - dotbeam visual pairing as optional alternative to QR
