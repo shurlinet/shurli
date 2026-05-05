@@ -1,7 +1,7 @@
 ---
 title: "Completed Work"
 weight: 1
-description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A-9B, Chaos Testing, Plugin Architecture, E14, Bandwidth Budgets, Grant Receipt Protocol, Phase 10 Distribution (partial), FT-Y Speed Optimization, v0.3.0 Release, v0.4.0 Release, go-clatter v0.1.0."
+description: "All completed phases and batches: Configuration, Authentication, CLI, Core Library, Onboarding, Phase 4C hardening, Phase 5 Network Intelligence, Phase 6 ACL + Relay Security, Phase 7 ZKP Privacy Layer, Phase 8 Identity Security + Remote Admin, Phase 8B Per-Peer Data Grants, Phase 9A-9B, Chaos Testing, Plugin Architecture, E14, Bandwidth Budgets, Grant Receipt Protocol, Phase 10 Distribution (partial), FT-Y Speed Optimization, v0.3.0 Release, v0.4.0 Release, go-clatter v0.1.0+v0.2.0, Phase 11A PQ Noise Transport, Phase 11B ML-DSA-65, Phase 3 PQC Audit."
 ---
 
 ## Phase 1: Configuration Infrastructure
@@ -932,7 +932,54 @@ Full Go port of Rust Clatter PQ Noise framework. Foundation for Phase 11 PQC Int
 - [x] Code: `pkg/sdk/pqc.go` + wiring in types/handlers/status/connLogger
 
 **PQC Phase 2 Thought Experiments**:
-- [x] 47 findings (20 original + 27 from deep analysis)
+- [x] 167 total findings across 12 rounds (115 CRITICAL, 29 IMPORTANT)
 - [x] Key decisions locked: HybridDualLayerHandshake, fixed CipherSuites, no negotiation, downgrade enforcement
-- [x] Ready for Phase 11 implementation
+- [x] Zero go-clatter changes needed
+
+---
+
+## go-clatter v0.2.0 (2026-05-03)
+
+**Status**: Complete - ML-DSA-65 signing module added to go-clatter
+
+- [x] ML-DSA-65 (FIPS 204, NIST Level 3) signing package `crypto/sign/mldsa65`
+- [x] 279 lines source, 566 lines test, 29 tests + 3 examples
+- [x] Library: `filippo.io/mldsa` (migrates to Go stdlib `crypto/mldsa` on Go 1.27)
+- [x] Secret zeroing, concurrent safety, hedged signing default
+- [x] v0.2.0 tagged and released on GitHub
+
+---
+
+## Phase 11A: PQ Noise Transport (2026-05-03)
+
+**Status**: Complete - `/pq-noise/1` libp2p security transport shipped
+
+- [x] `/pq-noise/1` security transport using go-clatter HybridDualLayerHandshake
+- [x] Fixed cipher suites (no negotiation)
+- [x] Fallback to classical `/noise` for non-PQ peers
+- [x] Key material cleanup on connection close (Destroy on both layers)
+- [x] Downgrade enforcement via InterceptUpgraded in connection gater
+- [x] Config: `pqc_policy: mandatory|opportunistic|disabled`, per-peer override via authorized_keys
+- [x] `shurli status` shows PQC status per connection (QUIC + Noise PQ)
+- [x] Relay server PQ Noise (always opportunistic)
+- [x] 4 implementation batches, 52+ tests, 6 audit rounds
+
+---
+
+## Phase 11B: ML-DSA-65 Integration (2026-05-03)
+
+**Status**: Complete - go-clatter v0.2.0 ML-DSA-65 ready for Shurli
+
+ML-DSA-65 signing module shipped in go-clatter v0.2.0. Enables PQ-signed Agent Cards (Phase 18), PQ-signed macaroon tokens (Phase 16), and PQ-signed relay admin commands. Hybrid Ed25519 + ML-DSA-65 identity proofs planned for Phase 13 (PQ Identity Attestation).
+
+---
+
+## Phase 3 PQC Adversarial Audit (2026-05-03)
+
+**Status**: Complete - full security audit of PQ Noise implementation
+
+- [x] 167 findings (F110-F208) cross-checked against code
+- [x] All findings implemented correctly
+- [x] 3 bugs found and fixed: buffer partial zeroing, empty Write allocation, relay downgrade log policy awareness
+- [x] 2 audit rounds, 4 parallel agents, zero bugs in round 2
 
