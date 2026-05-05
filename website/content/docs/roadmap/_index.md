@@ -52,25 +52,27 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **Phase&nbsp;7** | **ZKP&nbsp;Privacy** | Anonymous auth, Poseidon2 Merkle tree, range proofs | **Done** |
 | **Phase&nbsp;8** | **Identity&nbsp;Security** | BIP39 seed, encrypted keys, session tokens, remote admin | **Done** |
 | **Phase&nbsp;8B** | **Per-Peer&nbsp;Data&nbsp;Grants** | Macaroon grants, token delivery, delegation, notifications, audit log | **Done** |
-| **Phase&nbsp;8C** | **ACL-to-Macaroon** | M1 done (Phase 8B). M2-M5 moved to Phase 14 | Partial |
-| **Phase&nbsp;8D** | **Module&nbsp;Slots** | Swappable system algorithms. Moved to Phase 19 | Planned |
+| **Phase&nbsp;8C** | **ACL-to-Macaroon** | M1 done (Phase 8B). M2-M5 moved to Phase 16 | Partial |
+| **Phase&nbsp;8D** | **Module&nbsp;Slots** | Swappable system algorithms. Moved to Phase 21 | Planned |
 | 9A | **Interfaces&nbsp;&&nbsp;Library** | Core interfaces, extension points, library consolidation | **Done** |
 | 9B | **File&nbsp;Transfer** | Chunked P2P transfer, erasure coding, multi-source download | **Done** |
 | Post-9B | **Plugin&nbsp;Architecture** | Plugin framework, file transfer extraction, supervisor, security hardening, physical retest | **Done** |
 | **v0.3.0** | **Release** (2026-03-26) | 148 commits. Plugins, grants, receipts, relay-first onboarding, bandwidth budgets | **Done** |
 | **v0.4.0** | **Release** (2026-05-01) | Streaming protocol, multi-peer, Tail Slayer hedging, LAN 111 MB/s send | **Done** |
 | **go-clatter** | **v0.1.0** | PQ Noise framework: 5 handshake modes, ML-KEM-768, 233+ tests, 408 interop vectors | **Done** |
-| **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing | Next |
-| **Phase&nbsp;12** | **Topic-Based&nbsp;Pub/Sub** | GossipSub integration via NetIntel Layer 3 slot | Planned |
-| **Phase&nbsp;13** | **Naming&nbsp;Standards** | 5 identity layers, DID, petnames, resolution pipeline, plugin resolvers | Planned |
-| **Phase&nbsp;14** | **ACL-to-Macaroon** | M2-M5 migration (promoted from 8C) | Planned |
-| **Phase&nbsp;15** | **Agent&nbsp;Foundation** | MCP service templates, agent distribution | Planned |
-| **Phase&nbsp;16** | **Agent&nbsp;Task&nbsp;Protocol** | A2A plugin, Agent Cards, task FSM, MCP bridge | Planned |
-| **Phase&nbsp;17** | **Discovery&nbsp;+&nbsp;Federation** | Capability discovery, relay federation protocol | Planned |
-| **Phase&nbsp;18** | **Payments** | Machine + agent payment protocols (HTTP 402) | Planned |
-| **Phase&nbsp;19** | **Reputation** | Module slots, connected identity trust | Deferred |
-| **Phase&nbsp;20** | **Apple&nbsp;App** | macOS/iOS/iPadOS/visionOS (separate repo) | In Progress |
-| **Phase&nbsp;21** | **Gateway&nbsp;+&nbsp;DNS** | Desktop gateway, private DNS on relay | Deferred |
+| **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing | 11A+11B Done |
+| **Phase&nbsp;12** | **Seed&nbsp;&&nbsp;Recovery** | go-bip85, SLIP39 fork+harden, SeedSource interface, SHRL redesign | Next |
+| **Phase&nbsp;13** | **PQ&nbsp;Identity&nbsp;Attestation** | ML-DSA-65 handshake, gater enforcement, offline master key, signing agent | Planned |
+| **Phase&nbsp;14** | **Topic-Based&nbsp;Pub/Sub** | GossipSub integration via NetIntel Layer 3 slot | Planned |
+| **Phase&nbsp;15** | **Naming&nbsp;Standards** | 5 identity layers, DID, petnames, resolution pipeline, plugin resolvers | Planned |
+| **Phase&nbsp;16** | **ACL-to-Macaroon** | M2-M5 migration (promoted from 8C) | Planned |
+| **Phase&nbsp;17** | **Agent&nbsp;Foundation** | MCP service templates, identity mgmt APIs, per-identity permissions | Planned |
+| **Phase&nbsp;18** | **Agent&nbsp;Task&nbsp;Protocol** | A2A plugin, Agent Cards, task FSM, MCP bridge, agent auth | Planned |
+| **Phase&nbsp;19** | **Discovery&nbsp;+&nbsp;Federation** | Capability discovery, relay federation protocol | Planned |
+| **Phase&nbsp;20** | **Payments** | Machine + agent payment protocols (HTTP 402) | Planned |
+| **Phase&nbsp;21** | **Reputation** | Module slots, connected identity trust | Deferred |
+| **Phase&nbsp;22** | **Apple&nbsp;App** | macOS/iOS/iPadOS/visionOS (separate repo) | In Progress |
+| **Phase&nbsp;23** | **Gateway&nbsp;+&nbsp;DNS** | Desktop gateway, private DNS on relay | Deferred |
 | 9C | **Discovery&nbsp;&&nbsp;Plugins** | Service discovery, service templates, Wake-on-LAN | Planned |
 | 9D | **Python&nbsp;SDK&nbsp;&&nbsp;Docs** | Python SDK (separate repo), SDK documentation | Planned |
 | 9E | **Swift&nbsp;SDK** | Swift SDK for Apple platforms (separate repo, SPM) | Planned |
@@ -104,21 +106,23 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **v0.4.0 Release** (2026-05-01) | **Streaming protocol, hedged racing, LAN 111 MB/s send** |
 | **go-clatter v0.1.0** (PQ Noise) | **5 handshake modes, 233+ tests, 408 interop vectors** |
 | Phase 10: Distribution | Partial (install script, archives done. Homebrew/APT planned) |
-| **Phase 11: PQC Integration** | Next |
-| **Phase 12: Topic-Based Pub/Sub** | Planned |
-| **Phase 13: Naming Standards (SNR)** | Planned |
-| **Phase 14: ACL-to-Macaroon (M2-M5)** | Planned |
-| **Phase 15: Agent Foundation (MCP)** | Planned |
-| **Phase 16: Agent Task Protocol (A2A)** | Planned |
-| **Phase 17: Agent Discovery + Federation** | Planned |
-| **Phase 18: Payments** | Planned |
-| **Phase 19: Reputation / Module Slots** | Deferred |
-| **Phase 20: Apple Multiplatform App** | In Progress (separate repo) |
-| **Phase 21: Desktop Gateway + Private DNS** | Deferred |
+| **Phase 11: PQC Integration** | 11A+11B DONE, 11C pending |
+| **Phase 12: Seed & Recovery** | Next |
+| **Phase 13: PQ Identity Attestation** | Planned |
+| **Phase 14: Topic-Based Pub/Sub** | Planned |
+| **Phase 15: Naming Standards (SNR)** | Planned |
+| **Phase 16: ACL-to-Macaroon (M2-M5)** | Planned |
+| **Phase 17: Agent Foundation (MCP)** | Planned |
+| **Phase 18: Agent Task Protocol (A2A)** | Planned |
+| **Phase 19: Agent Discovery + Federation** | Planned |
+| **Phase 20: Payments** | Planned |
+| **Phase 21: Reputation / Module Slots** | Deferred |
+| **Phase 22: Apple Multiplatform App** | In Progress (separate repo) |
+| **Phase 23: Desktop Gateway + Private DNS** | Deferred |
 | Phase 9C-9G: SDKs, WASM, AI Plugins | Planned / Future |
-| Phase 22+: Ecosystem | Conceptual |
+| Phase 24+: Ecosystem | Conceptual |
 
-**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> **PQC** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
+**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> PQC (11A+11B done) -> **seed infrastructure** -> **PQ identity attestation** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/sdk`) stays in this repo.
 
@@ -136,4 +140,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-05-02. v0.4.0 released. go-clatter v0.1.0 released. Next: Phase 11 PQC Integration (go-clatter Phase 2 `/pq-noise/1` transport + ML-DSA-65 signing).*
+*Last updated: 2026-05-05. v0.4.0 released. go-clatter v0.2.0 released. Phase 11A+11B done (PQ Noise transport + ML-DSA-65 signing). Next: Phase 12 Seed & Recovery Infrastructure.*
