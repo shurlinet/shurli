@@ -2338,7 +2338,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 
 **Protocol & Security Evolution**:
 - [ ] MASQUE relay transport ([RFC 9298](https://www.ietf.org/rfc/rfc9298.html)) - HTTP/3 relay alternative to Circuit Relay v2. Looks like standard HTTPS to DPI, supports 0-RTT session resumption for instant reconnection. Could coexist with Circuit Relay v2 as user-selectable relay transport.
-- [x] Post-quantum cryptography - go-clatter v0.1.0 (PQ Noise framework) DONE. Phase 11 integrates into Shurli as `/pq-noise/1` transport. ML-DSA-65 signing planned.
+- [x] Post-quantum cryptography - go-clatter v0.1.0+v0.2.0 DONE. Phase 11A+11B shipped (PQ Noise transport + ML-DSA-65 signing). Phase 13 adds PQ identity attestation.
 - [ ] WebTransport transport - replace WebSocket anti-censorship layer with native QUIC-based WebTransport. Lower overhead, browser-compatible, native datagrams.
 - [ ] Zero-RTT proxy connection resume - QUIC session tickets for instant reconnection after network switch (WiFi→cellular). No existing P2P tool provides this.
 - [ ] Hardware-backed peer identity - store peer private keys in TPM 2.0 (Linux) or Secure Enclave (macOS/iOS). No existing P2P tool provides this.
@@ -2392,6 +2392,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **v0.3.0 Release** (2026-03-26) | ✅ 148 commits merged |
 | **v0.4.0 Release** (2026-05-01) | ✅ Streaming protocol, hedged racing, LAN 111 MB/s send |
 | **go-clatter v0.1.0** (PQ Noise) | ✅ 5 handshake modes, 233+ tests, 408 interop vectors |
+| **go-clatter v0.2.0** (ML-DSA-65) | ✅ FIPS 204 signing, 29 tests, secret zeroing |
 | Phase 10: Distribution | ✅/📋 Partial (install script, archives done. Homebrew/APT planned) |
 | **Phase 11: PQC Integration** | 🔶 11A+11B DONE, 11C pending |
 | **Phase 12: Seed & Recovery** | 📋 Next |
@@ -2591,9 +2592,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-05-02
+**Last Updated**: 2026-05-05
 **Latest Release**: v0.4.0 (2026-05-01). Streaming protocol, multi-peer adaptive transfer, Tail Slayer hedged racing, budget-aware relay selection, 22 bug fixes. LAN: 111 MB/s send, 125 MB/s download.
-**Current Phase**: v0.4.0 released. go-clatter v0.1.0 released. PQC Phase 0 verified (X25519MLKEM768 on all QUIC). Phase 2 thought experiments complete (47 findings).
-**Phases**: 1-9B + FT-Y + Grants + Receipts + Plugins (complete), 10 (partial), 11-21 (planned), 22+ (ecosystem)
-**Next Milestone**: Phase 11 - PQC Integration (go-clatter Phase 2 `/pq-noise/1` transport + ML-DSA-65 signing).
+**Current Phase**: Phase 11A+11B done (PQ Noise transport + ML-DSA-65 signing). go-clatter v0.2.0 released. Phase 3 adversarial audit complete (167 findings, 3 bugs fixed). 11C (docs/blog) pending.
+**Phases**: 1-11B (complete), 10 (partial), 11C (pending), 12-24+ (planned)
+**Next Milestone**: Phase 12 - Seed & Recovery Infrastructure (go-bip85, SLIP39 fork+harden).
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete

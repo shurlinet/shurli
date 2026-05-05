@@ -60,6 +60,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **v0.3.0** | **Release** (2026-03-26) | 148 commits. Plugins, grants, receipts, relay-first onboarding, bandwidth budgets | **Done** |
 | **v0.4.0** | **Release** (2026-05-01) | Streaming protocol, multi-peer, Tail Slayer hedging, LAN 111 MB/s send | **Done** |
 | **go-clatter** | **v0.1.0** | PQ Noise framework: 5 handshake modes, ML-KEM-768, 233+ tests, 408 interop vectors | **Done** |
+| **go-clatter** | **v0.2.0** | ML-DSA-65 signing module (FIPS 204), 29 tests, secret zeroing | **Done** |
 | **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing | 11A+11B Done |
 | **Phase&nbsp;12** | **Seed&nbsp;&&nbsp;Recovery** | go-bip85, SLIP39 fork+harden, SeedSource interface, SHRL redesign | Next |
 | **Phase&nbsp;13** | **PQ&nbsp;Identity&nbsp;Attestation** | ML-DSA-65 handshake, gater enforcement, offline master key, signing agent | Planned |
@@ -105,6 +106,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **v0.3.0 Release** (2026-03-26) | **148 commits merged** |
 | **v0.4.0 Release** (2026-05-01) | **Streaming protocol, hedged racing, LAN 111 MB/s send** |
 | **go-clatter v0.1.0** (PQ Noise) | **5 handshake modes, 233+ tests, 408 interop vectors** |
+| **go-clatter v0.2.0** (ML-DSA-65) | **FIPS 204 signing, 29 tests, secret zeroing** |
 | Phase 10: Distribution | Partial (install script, archives done. Homebrew/APT planned) |
 | **Phase 11: PQC Integration** | 11A+11B DONE, 11C pending |
 | **Phase 12: Seed & Recovery** | Next |
