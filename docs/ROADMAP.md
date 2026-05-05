@@ -2578,7 +2578,6 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 - Task lifecycle works E2E over libp2p streams (E2E encrypted, NAT traversed)
 - MCP <-> A2A bridge: MCP servers appear as agent skills and vice versa
 - Agent-to-agent authorization between co-located egos
-- Signing agent process supports agent ego keys
 
 **Phase 19 Success** (Discovery + Federation):
 - Two independent relay networks federate and exchange capability queries
