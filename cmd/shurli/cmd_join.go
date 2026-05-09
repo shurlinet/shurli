@@ -319,7 +319,7 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 	if started := kickServiceDaemon(); !started {
 		self, _ := os.Executable()
 		if self == "" {
-			self = os.Args[0] // fallback if /proc/self/exe unavailable
+			self = os.Args[0] // fallback if os.Executable fails
 		}
 		daemonCmd := exec.Command(self, "daemon")
 		daemonCmd.Stdout = nil
