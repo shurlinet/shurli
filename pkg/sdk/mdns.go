@@ -2,8 +2,9 @@ package sdk
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"log/slog"
-	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -178,7 +179,7 @@ func (md *MDNSDiscovery) startServer() error {
 	// only use TXT records for actual address resolution).
 	ips := getIPs(p2pAddrs)
 
-	peerName := randomString(32 + rand.Intn(32))
+	peerName := randomString(32 + cryptoIntn(32))
 	server, err := zeroconf.RegisterProxy(
 		peerName,
 		MDNSServiceName,
@@ -796,11 +797,38 @@ func getIPs(addrs []ma.Multiaddr) []string {
 	return ips
 }
 
+// cryptoIntn returns a cryptographically random int in [0, n).
+// Uses rejection sampling to eliminate modulo bias.
+// Panics if the OS entropy source is unavailable (system is broken).
+func cryptoIntn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	un := uint64(n)
+	// Compute the number of top-of-range values that cause modulo bias.
+	// This is 2^64 % un, computed without overflow: ((2^64-1) % un + 1) % un.
+	reject := (^uint64(0)%un + 1) % un
+	// max is the largest value such that [0, max] contains exactly a
+	// multiple-of-un count of values. For n=36 this rejects 16 out of
+	// 2^64 samples (probability ~8.7e-19, effectively never loops twice).
+	max := ^uint64(0) - reject
+	var buf [8]byte
+	for {
+		if _, err := rand.Read(buf[:]); err != nil {
+			panic("crypto/rand: " + err.Error())
+		}
+		v := binary.LittleEndian.Uint64(buf[:])
+		if v <= max {
+			return int(v % un)
+		}
+	}
+}
+
 func randomString(l int) string {
 	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 	s := make([]byte, 0, l)
 	for i := 0; i < l; i++ {
-		s = append(s, alphabet[rand.Intn(len(alphabet))])
+		s = append(s, alphabet[cryptoIntn(len(alphabet))])
 	}
 	return string(s)
 }

@@ -9,7 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -344,9 +344,27 @@ func runDaemonStart(args []string) {
 	fmt.Println()
 
 	if *pprofAddr != "" {
+		// Force localhost bind: pprof exposes heap dumps, goroutine stacks,
+		// and CPU profiles - never safe on a non-loopback interface.
+		pprofBind := *pprofAddr
+		if !strings.HasPrefix(pprofBind, "localhost:") && !strings.HasPrefix(pprofBind, "127.0.0.1:") && !strings.HasPrefix(pprofBind, "[::1]:") {
+			// Extract port from user input, bind to localhost.
+			if _, port, ok := strings.Cut(pprofBind, ":"); ok {
+				pprofBind = "localhost:" + port
+			} else {
+				pprofBind = "localhost:" + pprofBind
+			}
+			slog.Warn("pprof.bind_override", "requested", *pprofAddr, "actual", pprofBind)
+		}
 		go func() {
-			slog.Info("pprof.listen", "addr", *pprofAddr)
-			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			slog.Info("pprof.listen", "addr", pprofBind)
+			if err := http.ListenAndServe(pprofBind, mux); err != nil {
 				slog.Error("pprof.failed", "err", err)
 			}
 		}()
