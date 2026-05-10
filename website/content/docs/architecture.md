@@ -42,15 +42,16 @@ This document describes the technical architecture of Shurli, from current imple
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
   - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source (plugin)
   - [Plugin System](#plugin-system) - Plugin interface, registry, lifecycle, supervisor
+  - [Post-Quantum Cryptography (Phase 11)](#post-quantum-cryptography-phase-11) - PQ Noise transport, PQC status, gater enforcement
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 13)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
+- [Federation Model](#federation-model) - planned (Phase 19)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 22)
 
 ---
 
 ## Current Architecture
 
-Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets complete.
+Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets + Phase 11 Post-Quantum Cryptography (PQ Noise transport + PQC status) complete.
 
 ### Component Overview
 
@@ -161,6 +162,10 @@ Shurli/
 │   ├── gateway_other.go     # Default gateway detection (fallback)
 │   ├── plugin_policy.go     # Transport-aware plugin access control (LAN/Direct/Relay bitmask)
 │   ├── grant_header.go      # Binary grant header on plugin streams (4-byte overhead, token presentation)
+│   ├── pqc.go               # PQC status inspection (InspectPQC, LogIfPQ, LogRelayDowngrade)
+│   ├── pqnoise/             # PQ Noise security transport (/pq-noise/1)
+│   │   ├── transport.go     # sec.SecureTransport implementation (New, SecureInbound, SecureOutbound)
+│   │   └── session.go       # Encrypted session (Read, Write, close with buffer zeroing)
 │   ├── standalone.go        # Standalone mode helpers for CLI commands
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
@@ -402,12 +407,12 @@ Building on the current structure, future phases will add:
 Shurli/
 ├── cmd/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
-│   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 23: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/sdk/              # ✅ Core library (importable) - network, events, Merkle,
 │   │                        #   plugin policy, transport classification, byte utilities
 │   ├── ...existing...
-│   └── federation.go        # 🆕 Phase 13: Network peering
+│   └── federation.go        # 🆕 Phase 19: Network peering
 │
 ├── pkg/plugin/              # ✅ Plugin framework (interface, registry, supervisor)
 │
@@ -423,14 +428,14 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
+│   └── tun/                 # 🆕 Phase 23: TUN/TAP interface
 │
 └── ...existing (deploy/, tools/, configs, docs, examples)
 
 # External repositories (separate repos, independent release cycles):
 # shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
 # shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
-# shurlinet/shurli-ios    -> App Store (Phase 12)
+# shurlinet/shurli-ios    -> App Store (Phase 22)
 ```
 
 ### Service Exposure Architecture
@@ -439,7 +444,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](../roadmap/) for details.
+> **Status: Planned (Phase 23)** - not yet implemented. See [Roadmap Phase 23](../roadmap/) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](/images/docs/arch-gateway-modes.svg)
 
@@ -837,7 +842,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 9/14)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 14](../roadmap/).
+> **Planned (Phase 9/15)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 15](../roadmap/).
 
 ---
 
@@ -1666,6 +1671,68 @@ Key mitigations:
 
 **Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
 
+### Post-Quantum Cryptography (Phase 11)
+
+> **Status: Phase 11A+11B complete.** PQ Noise transport and PQC status reporting shipped. Phase 13 adds PQ identity attestation (ML-DSA-65).
+
+Shurli provides dual-layer post-quantum protection:
+
+1. **QUIC layer (automatic)**: Go 1.24+ negotiates X25519MLKEM768 (hybrid classical + ML-KEM-768) for the TLS 1.3 key exchange. No configuration needed.
+2. **Application layer (PQ Noise)**: A custom libp2p security transport (`/pq-noise/1`) using go-clatter's HybridDualLayerHandshake. Provides PQ key exchange on TCP/WebSocket connections where QUIC is unavailable (relay circuits, fallback transports).
+
+#### PQ Noise Transport (`pkg/sdk/pqnoise/`)
+
+The PQ Noise transport implements `sec.SecureTransport` from libp2p. It performs a 5-message hybrid handshake:
+
+- **Outer layer**: X25519 Diffie-Hellman (classical, fast, proven)
+- **Inner layer**: ML-KEM-768 key encapsulation (post-quantum, NIST FIPS 203)
+- **Combined**: Both layers must succeed. An attacker needs to break both classical DH and the lattice KEM.
+
+Wire format: length-prefixed messages (2-byte big-endian length + payload). Maximum handshake message: 8192 bytes. Maximum identity payload: 4096 bytes.
+
+Identity binding: The initiator's Ed25519 identity key signs the handshake hash (prefixed with `noise-libp2p-pq-handshake:`) to bind the peer's libp2p identity to the PQ-secured channel. The responder verifies this signature before accepting.
+
+#### Configuration
+
+```yaml
+security:
+  pqc_policy: "opportunistic"  # mandatory | opportunistic | disabled
+```
+
+- **mandatory**: Reject TCP/WS connections that fail to negotiate PQ Noise. QUIC is always allowed (PQ at TLS layer).
+- **opportunistic** (default): Prefer PQ Noise but fall back to classical Noise if the remote peer doesn't support it.
+- **disabled**: Do not register PQ Noise transport. Classical Noise only.
+
+Per-peer override in `authorized_keys`:
+
+```
+<peer-id> expires=2027-01-01 pqc=mandatory
+```
+
+#### PQC Status Reporting
+
+`shurli status` displays PQC state for every active connection:
+
+```
+PQC Status:
+  Policy: opportunistic
+  QUIC PQ: verified (X25519MLKEM768)
+  Noise PQ: verified (/pq-noise/1)
+  Connections:
+    12D3KooW... quic-v1 X25519MLKEM768 [PQ]
+    12D3KooW... tcp     /pq-noise/1    [PQ]
+```
+
+The daemon logs the first PQ-verified connection (both QUIC and Noise) and warns when relay circuits downgrade to classical security in opportunistic mode.
+
+#### Gater Enforcement
+
+`InterceptUpgraded` in the connection gater acts as belt-and-suspenders enforcement for `mandatory` policy. If a classical Noise connection somehow slips through transport registration (edge case), the gater rejects it post-handshake. QUIC connections are always allowed (PQ enforced at TLS layer).
+
+**Reference**: `pkg/sdk/pqnoise/transport.go`, `pkg/sdk/pqnoise/session.go`, `pkg/sdk/pqc.go`, `internal/auth/gater.go`, `internal/config/config.go`
+
+**External libraries**: [go-clatter](https://github.com/shurlinet/go-clatter) v0.1.0 (PQ Noise handshake)
+
 ### Phase 8C: ACL-to-Macaroon Migration
 
 > **Status: M1 complete (Phase 8B). M2-M5 planned.**
@@ -1688,7 +1755,7 @@ The per-peer data grant system (Phase 8B) proved that macaroon capability tokens
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](../roadmap/).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 19](../roadmap/).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -1731,7 +1798,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](../roadmap/).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Roadmap Phase 19](../roadmap/).
 
 ### Relay Peering
 
@@ -1741,7 +1808,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](../roadmap/).
+> **Status: Planned (Phase 22)** - not yet implemented. See [Roadmap Phase 22](../roadmap/).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](/images/docs/arch-mobile.svg)
 
@@ -1785,7 +1852,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 13+.
+> Items marked "planned" are tracked in the [Roadmap](../roadmap/) under Phase 4C deferred items and Phase 15+.
 
 ### Binary Size
 
@@ -1975,5 +2042,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-04-30
+**Last Updated**: 2026-05-11
 **Architecture Version**: 7.0 (FT-Y Speed Optimization Complete: SHFT v2 streaming protocol, multi-peer download, Tail Slayer hedged connections, per-stripe Reed-Solomon, budget-aware relay, persistent proxy service, 22 networking bug fixes. Plugin code migration complete: all transfer engine code in plugins/filetransfer/, SDK provides generic primitives only. Dependencies: go-libp2p v0.48.0, kad-dht v0.39.1.)

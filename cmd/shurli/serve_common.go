@@ -186,6 +186,20 @@ func newServeRuntime(ctx context.Context, cancel context.CancelFunc, configFlag,
 			return nil, fmt.Errorf("failed to load authorized_keys: %w", err)
 		}
 		rt.gater = auth.NewAuthorizedPeerGater(authorizedPeers)
+
+		// Load per-peer PQC overrides from authorized_keys (F122).
+		if pqcOverrides, err := auth.LoadPQCOverrides(authorizedKeysFile); err == nil && len(pqcOverrides) > 0 {
+			rt.gater.UpdatePeerPQCOverrides(pqcOverrides)
+			// Warn if disabled globally but per-peer overrides exist (contradiction).
+			if cfg.Security.PQCPolicyEffective() == "disabled" {
+				for _, pol := range pqcOverrides {
+					if pol == auth.PQCPolicyMandatory {
+						slog.Warn("pqc: per-peer 'mandatory' override has no effect when global policy is 'disabled' (PQ Noise transport not registered)")
+						break
+					}
+				}
+			}
+		}
 	} else {
 		fmt.Println("WARNING: Connection gating is DISABLED - any peer can connect!")
 	}

@@ -26,6 +26,7 @@ type StatusResponse struct {
 	PluginStatus      map[string]map[string]any `json:"plugin_status,omitempty"`
 	PeerPaths         map[string]PeerPathSummary `json:"peer_paths,omitempty"` // peer ID -> connection summary
 	Proxies           []ProxyStatusInfo          `json:"proxies,omitempty"`
+	PQC               *sdk.PQCStatus             `json:"pqc,omitempty"`
 }
 
 // PeerPathSummary describes how a peer is connected (for status display).

@@ -40,6 +40,7 @@ type RuntimeInfo interface {
 	BandwidthTracker() *sdk.BandwidthTracker              // nil when disabled
 	RelayHealth() *sdk.RelayHealth                        // nil when disabled
 	STUNResult() *sdk.STUNResult                          // nil before probe
+	PQCPolicy() string                                       // active PQC policy ("mandatory", "opportunistic", "disabled")
 	IsRelaying() bool                                        // true if peer relay enabled
 	RelayAddresses() []string                                // relay multiaddrs from config
 	RelayNameFromConfig(peerID string) string                // config-based relay name lookup

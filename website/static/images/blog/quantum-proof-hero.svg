@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00d4aa"/>
+      <stop offset="100%" stop-color="#4488ff"/>
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes shieldPulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+    @keyframes layerSplit { 0%,100% { transform: translateX(0); } 50% { transform: translateX(-12px); } }
+    @keyframes layerSplit2 { 0%,100% { transform: translateX(0); } 50% { transform: translateX(12px); } }
+    @keyframes dataFlow { 0% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 0; } }
+    .shield { animation: shieldPulse 3s ease-in-out infinite; }
+    .layer1 { animation: layerSplit 4s ease-in-out infinite; }
+    .layer2 { animation: layerSplit2 4s ease-in-out infinite; }
+    .flow { stroke-dasharray: 8 4; animation: dataFlow 2s linear infinite; }
+  </style>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Data flow lines (start/end outside node circles, r=45) -->
+  <line x1="170" y1="220" x2="460" y2="220" stroke="#00d4aa" stroke-width="2" class="flow" opacity="0.4"/>
+  <line x1="740" y1="220" x2="1030" y2="220" stroke="#00d4aa" stroke-width="2" class="flow" opacity="0.4"/>
+
+  <!-- Shield - outer layer (wide, proper shield proportions) -->
+  <g class="layer1">
+    <path d="M 490 100 L 600 70 L 710 100 L 710 250 C 710 330 600 370 600 370 C 600 370 490 330 490 250 Z" fill="none" stroke="url(#shield)" stroke-width="3" class="shield"/>
+  </g>
+
+  <!-- Shield - inner layer -->
+  <g class="layer2">
+    <path d="M 520 125 L 600 100 L 680 125 L 680 235 C 680 300 600 335 600 335 C 600 335 520 300 520 235 Z" fill="none" stroke="#ffb347" stroke-width="2.5" class="shield"/>
+  </g>
+
+  <!-- Center checkmark -->
+  <polyline points="570,220 590,245 630,195" fill="none" stroke="#e0e0e0" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Node left -->
+  <circle cx="120" cy="220" r="45" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+  <text x="120" y="226" text-anchor="middle" fill="#e0e0e0" font-family="system-ui, -apple-system, sans-serif" font-size="16">Node A</text>
+
+  <!-- Node right -->
+  <circle cx="1080" cy="220" r="45" fill="#1a1a2e" stroke="#00d4aa" stroke-width="2"/>
+  <text x="1080" y="226" text-anchor="middle" fill="#e0e0e0" font-family="system-ui, -apple-system, sans-serif" font-size="16">Node B</text>
+
+  <!-- Layer labels -->
+  <text x="470" y="390" text-anchor="middle" fill="#00d4aa" font-family="system-ui, -apple-system, sans-serif" font-size="16">X25519</text>
+  <text x="730" y="390" text-anchor="middle" fill="#ffb347" font-family="system-ui, -apple-system, sans-serif" font-size="16">ML-KEM-768</text>
+
+  <!-- Title -->
+  <text x="600" y="475" text-anchor="middle" fill="#e0e0e0" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="700">Quantum-Proof Connections</text>
+
+  <!-- Subtitle -->
+  <text x="600" y="520" text-anchor="middle" fill="#888" font-family="system-ui, -apple-system, sans-serif" font-size="18">Two layers of post-quantum protection on every path</text>
+
+  <!-- Stats row -->
+  <text x="300" y="580" text-anchor="middle" fill="#00d4aa" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700">2</text>
+  <text x="300" y="602" text-anchor="middle" fill="#888" font-family="system-ui, -apple-system, sans-serif" font-size="12">PQ layers</text>
+
+  <text x="500" y="580" text-anchor="middle" fill="#ffb347" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700">0</text>
+  <text x="500" y="602" text-anchor="middle" fill="#888" font-family="system-ui, -apple-system, sans-serif" font-size="12">config needed</text>
+
+  <text x="700" y="580" text-anchor="middle" fill="#4488ff" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700">3</text>
+  <text x="700" y="602" text-anchor="middle" fill="#888" font-family="system-ui, -apple-system, sans-serif" font-size="12">policy modes</text>
+
+  <text x="900" y="580" text-anchor="middle" fill="#00d4aa" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700">5</text>
+  <text x="900" y="602" text-anchor="middle" fill="#888" font-family="system-ui, -apple-system, sans-serif" font-size="12">msg handshake</text>
+</svg>

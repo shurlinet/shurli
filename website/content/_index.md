@@ -1,6 +1,6 @@
 ---
 title: Shurli
-description: "AI-native P2P networking for the Zero-Human Network. Connect devices and agents directly. No accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
+description: "Sovereign P2P infrastructure. Connect your devices directly. No accounts, no cloud, no central authority. Works through NAT, CGNAT, and firewalls."
 layout: hextra-home
 ---
 
@@ -26,7 +26,7 @@ layout: hextra-home
 
 <div class="hx:mb-6">
 {{< hextra/hero-subtitle >}}
-  Connect your devices and agents directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
+  Connect your devices directly - no accounts, no cloud, no subscriptions.&nbsp;<br class="hx:sm:block hx:hidden" />Works even when your network blocks everything.
 {{< /hextra/hero-subtitle >}}
 </div>
 
@@ -154,11 +154,10 @@ curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.s
 
 <div class="shurli-section shurli-vision-section">
   <div class="shurli-section-icon">{{< icon name="chip" attributes="height=28" >}}</div>
-  <h2 class="shurli-section-title">The <a href="/blog/how-we-build-shurli/#the-zero-human-network">Zero-Human Network</a></h2>
+  <h2 class="shurli-section-title">Where this is going</h2>
   <div class="shurli-vision-statement">
-    <p>Zero-human companies are coming. They need a network that operates itself - where agents connect, negotiate, and transact directly. No cloud middleman. No central authority. Intelligence at every node.</p>
-    <p><strong>Shurli is that network.</strong></p>
-    <p>What connects your devices today is the foundation for what agents will run on tomorrow.</p>
+    <p>Shurli is sovereign P2P infrastructure today. The long-term trajectory is the <a href="/blog/how-we-build-shurli/#the-zero-human-network">Zero-Human Network</a>: a network where zero humans are required to <em>operate</em> it. Nodes discover peers, negotiate connections, traverse NATs, and manage trust autonomously.</p>
+    <p>What connects your devices today is the foundation for what runs autonomously tomorrow.</p>
   </div>
 </div>
 
@@ -262,7 +261,7 @@ curl -sSL https://raw.githubusercontent.com/shurlinet/shurli/dev/tools/install.s
         <li>Privacy-conscious users who refuse vendor accounts</li>
         <li>Home lab operators behind CGNAT or double NAT</li>
         <li>Developers exposing local services (Ollama, databases, web apps)</li>
-        <li>AI agents that need direct peer-to-peer connectivity</li>
+        <li>Anyone tired of routing through someone else's servers to reach their own devices</li>
         <li>Anyone who wants their network under their own control</li>
       </ul>
     </div>

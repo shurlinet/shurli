@@ -428,6 +428,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// PQC status: inspect all connections for post-quantum security (QUIC TLS + PQ Noise).
+	pqcStatus := sdk.InspectPQC(h)
+	pqcStatus.Policy = s.runtime.PQCPolicy()
+	resp.PQC = &pqcStatus
+
 	// Proxy status (F8: single-command overview).
 	resp.Proxies = s.ProxyStatusList()
 
@@ -460,6 +465,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&sb, "relay_addresses: %d\n", len(resp.RelayAddrs))
 		for _, a := range resp.RelayAddrs {
 			fmt.Fprintf(&sb, "  %s\n", a)
+		}
+		if resp.PQC != nil {
+			fmt.Fprintf(&sb, "pqc_verified: %v\n", resp.PQC.QUICPQCVerified)
 		}
 		if resp.ConfigReload != nil {
 			cr := resp.ConfigReload

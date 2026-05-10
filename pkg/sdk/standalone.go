@@ -55,7 +55,7 @@ func NewStandaloneHost(cfg StandaloneConfig) (*StandaloneResult, error) {
 	net, err := New(&Config{
 		KeyFile:               nodeCfg.Identity.KeyFile,
 		KeyPassword:           cfg.Password,
-		Config:                &config.Config{Network: nodeCfg.Network},
+		Config:                &config.Config{Network: nodeCfg.Network, Security: nodeCfg.Security},
 		UserAgent:             cfg.UserAgent,
 		Namespace:             nodeCfg.Discovery.Network,
 		EnableRelay:           true,

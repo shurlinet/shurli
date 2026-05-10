@@ -13,6 +13,16 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
+// PQC policy constants.
+const (
+	PQCPolicyDisabled      = "disabled"
+	PQCPolicyOpportunistic = "opportunistic"
+	PQCPolicyMandatory     = "mandatory"
+)
+
+// pqNoiseProtocolID is the security protocol reported by PQ Noise connections.
+const pqNoiseProtocolID = "/pq-noise/1"
+
 // AuthDecisionFunc is called on every inbound auth decision with the peer ID
 // (truncated) and result ("allow" or "deny"). Used for metrics and audit logging
 // without creating a circular dependency on pkg/sdk.
@@ -42,6 +52,12 @@ type AuthorizedPeerGater struct {
 	// returning false blocks the dial. Used to prevent non-LAN dials when
 	// a LAN connection already exists to the peer (BUG-MP-4).
 	lanDialFilter func(peer.ID, ma.Multiaddr) bool
+
+	// PQC enforcement: belt-and-suspenders check in InterceptUpgraded.
+	// Primary enforcement is at transport registration level (network.go).
+	// This catches edge cases where a classical connection slips through.
+	pqcPolicy        string              // "mandatory", "opportunistic", "disabled"
+	peerPQCOverrides map[peer.ID]string  // per-peer PQC policy override from authorized_keys
 }
 
 // NewAuthorizedPeerGater creates a new connection gater with the given authorized peers.
@@ -54,6 +70,7 @@ func NewAuthorizedPeerGater(authorizedPeers map[peer.ID]bool) *AuthorizedPeerGat
 		probationTimeout:     10 * time.Second,
 		probationIPCooldown:  make(map[string]time.Time),
 		probationCooldownDur: 2 * time.Second,
+		peerPQCOverrides:     make(map[peer.ID]string),
 	}
 }
 
@@ -186,10 +203,127 @@ func (g *AuthorizedPeerGater) InterceptSecured(dir network.Direction, p peer.ID,
 	return false
 }
 
-// InterceptUpgraded is called after connection upgrade (after muxer negotiation)
+// InterceptUpgraded is called after connection upgrade (after muxer negotiation).
+// Enforces PQC policy as belt-and-suspenders: rejects classical Noise connections
+// when the effective policy for the peer is "mandatory".
+//
+// QUIC connections report empty Security (PQC handled at TLS layer via
+// X25519MLKEM768) and are always allowed through this check.
 func (g *AuthorizedPeerGater) InterceptUpgraded(conn network.Conn) (bool, control.DisconnectReason) {
-	// No additional checks needed at this stage
-	return true, 0
+	if conn == nil {
+		return true, 0
+	}
+
+	g.mu.RLock()
+	policy := g.effectivePQCPolicy(conn.RemotePeer())
+	g.mu.RUnlock()
+
+	if policy != PQCPolicyMandatory {
+		return true, 0
+	}
+
+	// QUIC: PQC is handled at the TLS 1.3 layer (X25519MLKEM768).
+	// Check Transport field directly rather than relying on empty Security.
+	cs := conn.ConnState()
+	if cs.Transport == "quic-v1" || cs.Transport == "quic" {
+		return true, 0
+	}
+
+	// Non-QUIC with empty security (shouldn't happen, but defensive).
+	if cs.Security == "" {
+		return true, 0
+	}
+
+	security := cs.Security
+
+	// TCP/WS: check that PQ Noise was negotiated, not classical /noise.
+	if security == pqNoiseProtocolID {
+		return true, 0
+	}
+
+	short := conn.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	dir := "inbound"
+	if conn.Stat().Direction == network.DirOutbound {
+		dir = "outbound"
+	}
+	slog.Warn("pqc: rejected connection (mandatory policy, classical security)",
+		"peer", short, "security", security, "direction", dir)
+	return false, 0
+}
+
+// effectivePQCPolicy returns the PQC policy for a specific peer, considering
+// per-peer overrides. Must be called with at least a read lock held.
+func (g *AuthorizedPeerGater) effectivePQCPolicy(p peer.ID) string {
+	if override, ok := g.peerPQCOverrides[p]; ok {
+		return override
+	}
+	if g.pqcPolicy == "" {
+		return PQCPolicyOpportunistic
+	}
+	return g.pqcPolicy
+}
+
+// SetPQCPolicy sets the global PQC policy. Only "mandatory" and "opportunistic"
+// are valid runtime values. "disabled" can only be set at startup (F151).
+// Returns an error if attempting to set "disabled" at runtime.
+func (g *AuthorizedPeerGater) SetPQCPolicy(policy string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if policy == PQCPolicyDisabled {
+		return fmt.Errorf("pqc policy cannot be set to 'disabled' at runtime (startup-only)")
+	}
+	if policy != PQCPolicyMandatory && policy != PQCPolicyOpportunistic {
+		return fmt.Errorf("invalid pqc policy: %q (must be 'mandatory' or 'opportunistic')", policy)
+	}
+	g.pqcPolicy = policy
+	slog.Info("pqc policy updated (gater enforcement active, restart for full transport change)", "policy", policy)
+	return nil
+}
+
+// SetPQCPolicyStartup sets the PQC policy at startup (allows all values including "disabled").
+func (g *AuthorizedPeerGater) SetPQCPolicyStartup(policy string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pqcPolicy = policy
+}
+
+// SetPeerPQCOverride sets a per-peer PQC policy override.
+// Pass empty string to remove the override.
+func (g *AuthorizedPeerGater) SetPeerPQCOverride(p peer.ID, policy string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if policy == "" {
+		delete(g.peerPQCOverrides, p)
+		return
+	}
+	if g.peerPQCOverrides == nil {
+		g.peerPQCOverrides = make(map[peer.ID]string)
+	}
+	g.peerPQCOverrides[p] = policy
+}
+
+// UpdatePeerPQCOverrides replaces all per-peer PQC overrides with the given map.
+// Used during hot-reload to sync with authorized_keys file.
+func (g *AuthorizedPeerGater) UpdatePeerPQCOverrides(overrides map[peer.ID]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.peerPQCOverrides = overrides
+	if g.peerPQCOverrides == nil {
+		g.peerPQCOverrides = make(map[peer.ID]string)
+	}
+}
+
+// PQCPolicy returns the current global PQC policy.
+func (g *AuthorizedPeerGater) PQCPolicy() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if g.pqcPolicy == "" {
+		return PQCPolicyOpportunistic
+	}
+	return g.pqcPolicy
 }
 
 // UpdateAuthorizedPeers updates the authorized peers list (for hot-reload support)

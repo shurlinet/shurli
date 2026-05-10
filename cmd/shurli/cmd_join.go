@@ -317,7 +317,11 @@ func runPairJoin(data *invite.InviteData, nameFlag, configFlag, relayAddr string
 	outln("Starting daemon...")
 	var daemonPID int
 	if started := kickServiceDaemon(); !started {
-		daemonCmd := exec.Command(os.Args[0], "daemon")
+		self, _ := os.Executable()
+		if self == "" {
+			self = os.Args[0] // fallback if os.Executable fails
+		}
+		daemonCmd := exec.Command(self, "daemon")
 		daemonCmd.Stdout = nil
 		daemonCmd.Stderr = nil
 		daemonCmd.SysProcAttr = detachedProcAttr()

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes msgFlow { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
+    @keyframes msgFlowR { 0% { opacity: 0; transform: translateX(10px); } 100% { opacity: 1; transform: translateX(0); } }
+    @keyframes barPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+    .m1 { animation: msgFlow 0.6s ease-out 0.5s forwards; opacity: 0; }
+    .m2 { animation: msgFlowR 0.6s ease-out 1.0s forwards; opacity: 0; }
+    .m3 { animation: msgFlow 0.6s ease-out 1.5s forwards; opacity: 0; }
+    .m4 { animation: msgFlowR 0.6s ease-out 2.0s forwards; opacity: 0; }
+    .m5 { animation: msgFlow 0.6s ease-out 2.5s forwards; opacity: 0; }
+    .pulse { animation: barPulse 2s ease-in-out infinite; }
+    .label { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+  <rect width="800" height="420" fill="url(#bg3)"/>
+
+  <!-- Header -->
+  <text x="400" y="30" text-anchor="middle" class="label" fill="#666" font-size="12" letter-spacing="2">PQ NOISE HANDSHAKE SEQUENCE</text>
+
+  <!-- Initiator column -->
+  <rect x="80" y="50" width="140" height="35" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5"/>
+  <text x="150" y="72" text-anchor="middle" class="label" fill="#00d4aa" font-size="13" font-weight="600">Initiator</text>
+  <line x1="150" y1="85" x2="150" y2="380" stroke="#00d4aa" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+
+  <!-- Responder column -->
+  <rect x="580" y="50" width="140" height="35" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1.5"/>
+  <text x="650" y="72" text-anchor="middle" class="label" fill="#4488ff" font-size="13" font-weight="600">Responder</text>
+  <line x1="650" y1="85" x2="650" y2="380" stroke="#4488ff" stroke-width="1" stroke-dasharray="3 3" opacity="0.4"/>
+
+  <!-- Message 1: e -->
+  <g class="m1">
+    <line x1="160" y1="115" x2="640" y2="115" stroke="#00d4aa" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="310" y="100" width="180" height="26" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1"/>
+    <text x="400" y="117" text-anchor="middle" class="mono" fill="#00d4aa" font-size="10">msg1: e (X25519 pub)</text>
+  </g>
+
+  <!-- Message 2: e, ee, KEM_ENCAPS -->
+  <g class="m2">
+    <line x1="640" y1="165" x2="160" y2="165" stroke="#4488ff" stroke-width="1.5"/>
+    <rect x="270" y="150" width="260" height="26" rx="4" fill="#1a1a2e" stroke="#4488ff" stroke-width="1"/>
+    <text x="400" y="167" text-anchor="middle" class="mono" fill="#4488ff" font-size="10">msg2: e, ee + ML-KEM encaps</text>
+  </g>
+
+  <!-- Message 3: s, KEM_DECAPS -->
+  <g class="m3">
+    <line x1="160" y1="215" x2="640" y2="215" stroke="#00d4aa" stroke-width="1.5"/>
+    <rect x="280" y="200" width="240" height="26" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1"/>
+    <text x="400" y="217" text-anchor="middle" class="mono" fill="#00d4aa" font-size="10">msg3: s, se + KEM decaps</text>
+  </g>
+
+  <!-- Message 4: s, payload -->
+  <g class="m4">
+    <line x1="640" y1="265" x2="160" y2="265" stroke="#4488ff" stroke-width="1.5"/>
+    <rect x="280" y="250" width="240" height="26" rx="4" fill="#1a1a2e" stroke="#4488ff" stroke-width="1"/>
+    <text x="400" y="267" text-anchor="middle" class="mono" fill="#4488ff" font-size="10">msg4: s, es + identity proof</text>
+  </g>
+
+  <!-- Message 5: identity sig -->
+  <g class="m5">
+    <line x1="160" y1="315" x2="640" y2="315" stroke="#00d4aa" stroke-width="1.5"/>
+    <rect x="270" y="300" width="260" height="26" rx="4" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1"/>
+    <text x="400" y="317" text-anchor="middle" class="mono" fill="#00d4aa" font-size="10">msg5: Ed25519 sig(hash) + muxers</text>
+  </g>
+
+  <!-- Result bar -->
+  <rect x="200" y="360" width="400" height="35" rx="6" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5" class="pulse"/>
+  <text x="400" y="382" text-anchor="middle" class="label" fill="#00d4aa" font-size="12" font-weight="600">Secure channel established - classical + PQ</text>
+
+  <!-- Side annotations -->
+  <text x="30" y="215" text-anchor="middle" class="label" fill="#888" font-size="10" transform="rotate(-90, 30, 215)">OUTER: X25519</text>
+  <text x="770" y="215" text-anchor="middle" class="label" fill="#888" font-size="10" transform="rotate(90, 770, 215)">INNER: ML-KEM-768</text>
+</svg>

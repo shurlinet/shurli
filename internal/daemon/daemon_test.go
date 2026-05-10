@@ -43,6 +43,7 @@ func (m *mockRuntime) PathProtector() *sdk.PathProtector       { return nil }
 func (m *mockRuntime) BandwidthTracker() *sdk.BandwidthTracker { return nil }
 func (m *mockRuntime) RelayHealth() *sdk.RelayHealth           { return nil }
 func (m *mockRuntime) STUNResult() *sdk.STUNResult             { return nil }
+func (m *mockRuntime) PQCPolicy() string                           { return "opportunistic" }
 func (m *mockRuntime) IsRelaying() bool                            { return false }
 func (m *mockRuntime) RelayAddresses() []string                    { return nil }
 func (m *mockRuntime) RelayNameFromConfig(string) string           { return "" }

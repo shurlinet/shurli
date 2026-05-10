@@ -9,7 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -59,6 +59,12 @@ func (rt *serveRuntime) IsRelaying() bool {
 	return rt.peerRelay.Enabled()
 }
 
+func (rt *serveRuntime) PQCPolicy() string {
+	if rt.gater != nil {
+		return rt.gater.PQCPolicy()
+	}
+	return rt.config.Security.PQCPolicyEffective()
+}
 func (rt *serveRuntime) RelayAddresses() []string        { return rt.config.Relay.Addresses }
 func (rt *serveRuntime) RelayNameFromConfig(peerID string) string { return rt.config.Relay.RelayName(peerID) }
 func (rt *serveRuntime) DiscoveryNetwork() string         { return rt.config.Discovery.Network }
@@ -170,6 +176,15 @@ func (g *gaterReloader) ReloadFromFile() error {
 		return fmt.Errorf("failed to reload authorized_keys: %w", err)
 	}
 	g.gater.UpdateAuthorizedPeers(peers)
+
+	// Reload per-peer PQC overrides from the same file (F122).
+	pqcOverrides, pqcErr := auth.LoadPQCOverrides(g.authKeysPath)
+	if pqcErr != nil {
+		slog.Warn("failed to reload PQC overrides (using previous)", "error", pqcErr)
+	} else {
+		g.gater.UpdatePeerPQCOverrides(pqcOverrides)
+	}
+
 	if g.peerManager != nil {
 		g.peerManager.SetWatchlist(g.gater.GetAuthorizedPeerIDs())
 	}
@@ -205,6 +220,20 @@ func (cr *configReloader) ReloadConfig() (*daemon.ConfigReloadResult, error) {
 			return nil, fmt.Errorf("authorized_keys reload failed: %w", err)
 		}
 		result.Changed = append(result.Changed, "security.authorized_keys")
+	}
+
+	// Propagate PQC policy change to gater (F107: runtime policy update).
+	// Transport registration cannot change at runtime (requires restart),
+	// but the gater's InterceptUpgraded enforcement updates immediately.
+	if cr.rt.gater != nil {
+		newPolicy := newCfg.Security.PQCPolicyEffective()
+		if currentPolicy := cr.rt.gater.PQCPolicy(); currentPolicy != newPolicy {
+			if err := cr.rt.gater.SetPQCPolicy(newPolicy); err != nil {
+				slog.Warn("pqc policy reload skipped", "error", err)
+			} else {
+				result.Changed = append(result.Changed, "security.pqc_policy")
+			}
+		}
 	}
 
 	// Reload name mappings from config so auth add --comment changes
@@ -315,9 +344,27 @@ func runDaemonStart(args []string) {
 	fmt.Println()
 
 	if *pprofAddr != "" {
+		// Force localhost bind: pprof exposes heap dumps, goroutine stacks,
+		// and CPU profiles - never safe on a non-loopback interface.
+		pprofBind := *pprofAddr
+		if !strings.HasPrefix(pprofBind, "localhost:") && !strings.HasPrefix(pprofBind, "127.0.0.1:") && !strings.HasPrefix(pprofBind, "[::1]:") {
+			// Extract port from user input, bind to localhost.
+			if _, port, ok := strings.Cut(pprofBind, ":"); ok {
+				pprofBind = "localhost:" + port
+			} else {
+				pprofBind = "localhost:" + pprofBind
+			}
+			slog.Warn("pprof.bind_override", "requested", *pprofAddr, "actual", pprofBind)
+		}
 		go func() {
-			slog.Info("pprof.listen", "addr", *pprofAddr)
-			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			slog.Info("pprof.listen", "addr", pprofBind)
+			if err := http.ListenAndServe(pprofBind, mux); err != nil {
 				slog.Error("pprof.failed", "err", err)
 			}
 		}()

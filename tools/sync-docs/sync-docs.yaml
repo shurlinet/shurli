@@ -271,6 +271,11 @@ journal:
     title: FT-Y - TCP-for-LAN Experiment
     description: "Negative-result experiment proving that TCP plus yamux does not beat QUIC for Shurli LAN bulk transfers on macOS, despite TCP TSO avoiding QUIC sendmsg overhead."
 
+  - source: phase11-post-quantum-cryptography.md
+    weight: 38
+    title: Phase 11 - Post-Quantum Cryptography
+    description: "Dual-layer PQ protection: QUIC X25519MLKEM768 at transport, PQ Noise via go-clatter at application. Policy enforcement, status introspection, ML-DSA-65 signing."
+
 # FAQ sub-pages (ordered by weight, README.md becomes _index.md)
 faq:
   - source: README.md

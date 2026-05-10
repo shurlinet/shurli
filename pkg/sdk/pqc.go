@@ -1,0 +1,221 @@
+package sdk
+
+import (
+	"crypto/tls"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	quic "github.com/quic-go/quic-go"
+)
+
+// PQCStatus summarizes post-quantum cryptography state across all connections.
+type PQCStatus struct {
+	// Policy is the active PQC policy ("mandatory", "opportunistic", "disabled").
+	Policy string `json:"policy"`
+
+	// QUICPQCVerified is true when at least one QUIC connection negotiated
+	// a post-quantum key exchange (X25519MLKEM768 or other PQ curve).
+	QUICPQCVerified bool `json:"quic_pqc_verified"`
+
+	// NoisePQCVerified is true when at least one TCP/WS connection negotiated
+	// PQ Noise (/pq-noise/1) as the security protocol.
+	NoisePQCVerified bool `json:"noise_pqc_verified"`
+
+	// Connections breaks down the security state for every active connection.
+	Connections []PQCConnInfo `json:"connections,omitempty"`
+}
+
+// PQCConnInfo describes the security state of a single connection.
+type PQCConnInfo struct {
+	PeerID    string `json:"peer_id"`
+	Transport string `json:"transport"` // "quic", "tcp", "ws", "relay"
+	Security  string `json:"security"`  // "/pq-noise/1", "/noise", "" (QUIC = TLS layer)
+	CurveID   string `json:"curve_id"`  // e.g. "X25519MLKEM768", "X25519", "" (QUIC only)
+	CurveCode uint16 `json:"curve_code"`
+	PQ        bool   `json:"pq"` // true if post-quantum (either QUIC TLS or PQ Noise)
+}
+
+// isPQCurve returns true if the TLS CurveID represents a post-quantum or
+// hybrid post-quantum key exchange. Go 1.24+ defines X25519MLKEM768 (4588),
+// SecP256r1MLKEM768 (4587), and SecP384r1MLKEM1024 (4589).
+func isPQCurve(id tls.CurveID) bool {
+	switch id {
+	case tls.X25519MLKEM768:
+		return true
+	}
+	// Future-proof: check the two other NIST hybrid curves added in Go 1.26.
+	const (
+		secP256r1MLKEM768  tls.CurveID = 4587
+		secP384r1MLKEM1024 tls.CurveID = 4589
+	)
+	return id == secP256r1MLKEM768 || id == secP384r1MLKEM1024
+}
+
+// InspectPQC examines all active connections on the host and returns PQC status.
+// Detects both PQ QUIC (TLS X25519MLKEM768) and PQ Noise (/pq-noise/1 on TCP/WS).
+func InspectPQC(h host.Host) PQCStatus {
+	var status PQCStatus
+	for _, pid := range h.Network().Peers() {
+		for _, conn := range h.Network().ConnsToPeer(pid) {
+			info := inspectConn(conn)
+			if info.PQ {
+				if info.Security == "/pq-noise/1" {
+					status.NoisePQCVerified = true
+				} else {
+					status.QUICPQCVerified = true
+				}
+			}
+			status.Connections = append(status.Connections, info)
+		}
+	}
+	return status
+}
+
+func inspectConn(conn network.Conn) PQCConnInfo {
+	short := conn.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+
+	info := PQCConnInfo{PeerID: short}
+
+	// Classify transport from ConnState (authoritative) or multiaddr (fallback).
+	cs := conn.ConnState()
+	if conn.Stat().Limited {
+		info.Transport = "relay"
+	} else if cs.Transport != "" {
+		info.Transport = cs.Transport
+	} else if rma := conn.RemoteMultiaddr(); rma != nil {
+		info.Transport = classifyTransportFromAddr(rma.String())
+	} else {
+		info.Transport = "unknown"
+	}
+
+	// Record the negotiated security protocol (F86, F108).
+	info.Security = string(cs.Security)
+
+	// TCP/WS: check if PQ Noise was negotiated (F86, F108).
+	if cs.Security == "/pq-noise/1" {
+		info.PQ = true
+		return info
+	}
+
+	// QUIC: inspect TLS layer for PQ key exchange.
+	if info.Transport == "quic-v1" || info.Transport == "quic" {
+		var qc *quic.Conn
+		if conn.As(&qc) {
+			tlsCS := qc.ConnectionState()
+			info.CurveID = tlsCS.TLS.CurveID.String()
+			info.CurveCode = uint16(tlsCS.TLS.CurveID)
+			info.PQ = isPQCurve(tlsCS.TLS.CurveID)
+		}
+	}
+
+	return info
+}
+
+// classifyTransportFromAddr returns "quic", "tcp", or "ws" from a multiaddr string.
+func classifyTransportFromAddr(addr string) string {
+	// QUIC multiaddrs contain /quic-v1
+	for _, marker := range []string{"/quic-v1", "/quic/"} {
+		if containsSubstring(addr, marker) {
+			return "quic"
+		}
+	}
+	if containsSubstring(addr, "/ws") || containsSubstring(addr, "/wss") {
+		return "ws"
+	}
+	if containsSubstring(addr, "/tcp/") {
+		return "tcp"
+	}
+	return "unknown"
+}
+
+func containsSubstring(s, sub string) bool {
+	return len(s) >= len(sub) && searchSubstring(s, sub)
+}
+
+func searchSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+// pqcLogger logs the first PQC-verified QUIC connection once per daemon lifetime.
+// Used by connLogger to surface PQC status at startup without spamming.
+var pqcLogger = &pqcFirstLog{}
+
+type pqcFirstLog struct {
+	once sync.Once
+	done atomic.Bool // fast-path: skip inspectConn after first log
+}
+
+// LogIfPQ checks a new connection for PQC and logs once on first verification.
+// Also logs PQ Noise verification for TCP/WS connections.
+func (p *pqcFirstLog) LogIfPQ(conn network.Conn) {
+	if conn == nil || p.done.Load() {
+		return
+	}
+	// Check PQ Noise on TCP/WS connections.
+	security := conn.ConnState().Security
+	if security == "/pq-noise/1" {
+		p.once.Do(func() {
+			short := conn.RemotePeer().String()
+			if len(short) > 16 {
+				short = short[:16] + "..."
+			}
+			slog.Info("pqc: post-quantum Noise verified on TCP/WS connection",
+				"peer", short,
+				"security", security)
+			p.done.Store(true)
+		})
+		return
+	}
+
+	// Check PQ QUIC (TLS X25519MLKEM768).
+	info := inspectConn(conn)
+	if !info.PQ {
+		return
+	}
+	p.once.Do(func() {
+		slog.Info("pqc: post-quantum key exchange verified on QUIC connection",
+			"curve", info.CurveID,
+			"curve_code", info.CurveCode,
+			"peer", info.PeerID)
+		p.done.Store(true)
+	})
+}
+
+// pqNoiseEnabled tracks whether PQ Noise transport was registered on the host.
+// Set by Network construction based on pqc_policy. When false (disabled mode),
+// LogRelayDowngrade skips warnings since classical security is expected.
+var pqNoiseEnabled atomic.Bool
+
+// LogRelayDowngrade logs a warning when a relay circuit uses classical Noise
+// instead of PQ Noise in opportunistic mode (F143, F144). Called by connLogger.
+// Suppressed when PQ Noise is not registered (disabled mode) to avoid noise.
+func LogRelayDowngrade(conn network.Conn) {
+	if conn == nil || !pqNoiseEnabled.Load() {
+		return
+	}
+	if !conn.Stat().Limited {
+		return // not a relay connection
+	}
+	security := conn.ConnState().Security
+	if security == "/pq-noise/1" || security == "" {
+		return // PQ Noise or QUIC (already PQ) - no downgrade
+	}
+	short := conn.RemotePeer().String()
+	if len(short) > 16 {
+		short = short[:16] + "..."
+	}
+	slog.Warn("pqc: relay circuit using classical security (not PQ Noise)",
+		"peer", short,
+		"security", security)
+}
