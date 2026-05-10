@@ -156,6 +156,10 @@ Shurli/
 │   ├── gateway_other.go     # Default gateway detection (fallback)
 │   ├── plugin_policy.go     # Transport-aware plugin access control (LAN/Direct/Relay bitmask)
 │   ├── grant_header.go      # Binary grant header on plugin streams (4-byte overhead, token presentation)
+│   ├── pqc.go               # PQC status inspection (InspectPQC, LogIfPQ, LogRelayDowngrade)
+│   ├── pqnoise/             # PQ Noise security transport (/pq-noise/1)
+│   │   ├── transport.go     # sec.SecureTransport implementation (New, SecureInbound, SecureOutbound)
+│   │   └── session.go       # Encrypted session (Read, Write, close with buffer zeroing)
 │   ├── standalone.go        # Standalone mode helpers for CLI commands
 │   ├── metrics.go           # Prometheus metrics (custom registry, all shurli collectors)
 │   ├── audit.go             # Structured audit logger (nil-safe, slog-based)
@@ -2032,5 +2036,5 @@ Validated at four points:
 
 ---
 
-**Last Updated**: 2026-04-30
+**Last Updated**: 2026-05-11
 **Architecture Version**: 7.0 (FT-Y Speed Optimization Complete: SHFT v2 streaming protocol, multi-peer download, Tail Slayer hedged connections, per-stripe Reed-Solomon, budget-aware relay, persistent proxy service, 22 networking bug fixes. Plugin code migration complete: all transfer engine code in plugins/filetransfer/, SDK provides generic primitives only. Dependencies: go-libp2p v0.48.0, kad-dht v0.39.1.)
