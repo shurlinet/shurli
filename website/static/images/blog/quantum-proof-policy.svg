@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+    @keyframes shieldGlow { 0%,100% { stroke-opacity: 0.6; } 50% { stroke-opacity: 1; } }
+    .f1 { animation: fadeIn 0.6s ease-out forwards; opacity: 0; }
+    .f2 { animation: fadeIn 0.6s ease-out 0.3s forwards; opacity: 0; }
+    .f3 { animation: fadeIn 0.6s ease-out 0.6s forwards; opacity: 0; }
+    .glow { animation: shieldGlow 2.5s ease-in-out infinite; }
+    .label { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+  <rect width="800" height="420" fill="url(#bg4)"/>
+
+  <!-- Header -->
+  <text x="400" y="35" text-anchor="middle" class="label" fill="#666" font-size="12" letter-spacing="2">PQC POLICY MODES</text>
+
+  <!-- Mandatory -->
+  <g >
+    <rect x="40" y="60" width="220" height="320" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5" class="glow"/>
+    <text x="150" y="90" text-anchor="middle" class="mono" fill="#00d4aa" font-size="14" font-weight="600">mandatory</text>
+
+    <!-- Shield - proper wide proportions -->
+    <path d="M 110 125 L 150 110 L 190 125 L 190 175 C 190 205 150 220 150 220 C 150 220 110 205 110 175 Z" fill="none" stroke="#00d4aa" stroke-width="2"/>
+    <!-- Checkmark inside -->
+    <polyline points="135,168 147,182 168,153" fill="none" stroke="#e0e0e0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="150" y="248" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">Reject non-PQ</text>
+    <text x="150" y="266" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">TCP/WS connections</text>
+    <text x="150" y="298" text-anchor="middle" class="label" fill="#888" font-size="10">All nodes upgraded</text>
+    <text x="150" y="316" text-anchor="middle" class="label" fill="#888" font-size="10">Maximum security</text>
+    <text x="150" y="348" text-anchor="middle" class="label" fill="#00d4aa" font-size="10">QUIC always allowed</text>
+    <text x="150" y="366" text-anchor="middle" class="label" fill="#00d4aa" font-size="10">(PQ at TLS layer)</text>
+  </g>
+
+  <!-- Opportunistic -->
+  <g >
+    <rect x="290" y="60" width="220" height="320" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5" class="glow"/>
+    <text x="400" y="90" text-anchor="middle" class="mono" fill="#ffb347" font-size="14" font-weight="600">opportunistic</text>
+    <text x="400" y="107" text-anchor="middle" class="label" fill="#888" font-size="10">(default)</text>
+
+    <!-- Shield with fallback arrow -->
+    <path d="M 360 125 L 400 110 L 440 125 L 440 175 C 440 205 400 220 400 220 C 400 220 360 205 360 175 Z" fill="none" stroke="#ffb347" stroke-width="2"/>
+    <!-- Down-right arrow (fallback) -->
+    <path d="M 390 158 L 410 172 L 390 186" fill="none" stroke="#e0e0e0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="400" y="248" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">Prefer PQ, fall back</text>
+    <text x="400" y="266" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">to classical if needed</text>
+    <text x="400" y="298" text-anchor="middle" class="label" fill="#888" font-size="10">Mixed networks</text>
+    <text x="400" y="316" text-anchor="middle" class="label" fill="#888" font-size="10">Zero breakage</text>
+    <text x="400" y="348" text-anchor="middle" class="label" fill="#ffb347" font-size="10">Warns on relay</text>
+    <text x="400" y="366" text-anchor="middle" class="label" fill="#ffb347" font-size="10">downgrade</text>
+  </g>
+
+  <!-- Disabled -->
+  <g >
+    <rect x="540" y="60" width="220" height="320" rx="8" fill="#1a1a2e" stroke="#666" stroke-width="1.5"/>
+    <text x="650" y="90" text-anchor="middle" class="mono" fill="#666" font-size="14" font-weight="600">disabled</text>
+
+    <!-- Shield greyed with X -->
+    <path d="M 610 125 L 650 110 L 690 125 L 690 175 C 690 205 650 220 650 220 C 650 220 610 205 610 175 Z" fill="none" stroke="#666" stroke-width="2" opacity="0.5"/>
+    <!-- X mark -->
+    <line x1="635" y1="152" x2="665" y2="185" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <line x1="665" y1="152" x2="635" y2="185" stroke="#ff6b6b" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+
+    <text x="650" y="248" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">Classical Noise only</text>
+    <text x="650" y="266" text-anchor="middle" class="label" fill="#e0e0e0" font-size="11">No PQ transport</text>
+    <text x="650" y="298" text-anchor="middle" class="label" fill="#888" font-size="10">Constrained devices</text>
+    <text x="650" y="316" text-anchor="middle" class="label" fill="#888" font-size="10">or testing</text>
+    <text x="650" y="348" text-anchor="middle" class="label" fill="#666" font-size="10">QUIC still gets PQ</text>
+    <text x="650" y="366" text-anchor="middle" class="label" fill="#666" font-size="10">(Go TLS, not Shurli)</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="400" y="405" text-anchor="middle" class="label" fill="#888" font-size="11">Per-peer override: authorized_keys pqc_policy=mandatory for specific high-value peers</text>
+</svg>

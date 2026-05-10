@@ -61,7 +61,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **v0.4.0** | **Release** (2026-05-01) | Streaming protocol, multi-peer, Tail Slayer hedging, LAN 111 MB/s send | **Done** |
 | **go-clatter** | **v0.1.0** | PQ Noise framework: 5 handshake modes, ML-KEM-768, 233+ tests, 408 interop vectors | **Done** |
 | **go-clatter** | **v0.2.0** | ML-DSA-65 signing module (FIPS 204), 29 tests, secret zeroing | **Done** |
-| **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing | 11A+11B Done |
+| **Phase&nbsp;11** | **PQC&nbsp;Integration** | `/pq-noise/1` transport, ML-DSA-65 signing, docs, blog | **Done** |
 | **Phase&nbsp;12** | **Seed&nbsp;&&nbsp;Recovery** | go-bip85, SLIP39 fork+harden, SeedSource interface, SHRL redesign | Next |
 | **Phase&nbsp;13** | **PQ&nbsp;Identity&nbsp;Attestation** | ML-DSA-65 handshake, gater enforcement, offline master key, signing agent | Planned |
 | **Phase&nbsp;14** | **Topic-Based&nbsp;Pub/Sub** | GossipSub integration via NetIntel Layer 3 slot | Planned |
@@ -108,7 +108,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | **go-clatter v0.1.0** (PQ Noise) | **5 handshake modes, 233+ tests, 408 interop vectors** |
 | **go-clatter v0.2.0** (ML-DSA-65) | **FIPS 204 signing, 29 tests, secret zeroing** |
 | Phase 10: Distribution | Partial (install script, archives done. Homebrew/APT planned) |
-| **Phase 11: PQC Integration** | 11A+11B DONE, 11C pending |
+| **Phase 11: PQC Integration** | ✅ DONE (11A+11B+11C) |
 | **Phase 12: Seed & Recovery** | Next |
 | **Phase 13: PQ Identity Attestation** | Planned |
 | **Phase 14: Topic-Based Pub/Sub** | Planned |
@@ -124,7 +124,7 @@ This document outlines the multi-phase evolution of Shurli from a simple NAT tra
 | Phase 9C-9G: SDKs, WASM, AI Plugins | Planned / Future |
 | Phase 24+: Ecosystem | Conceptual |
 
-**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> PQC (11A+11B done) -> **seed infrastructure** -> **PQ identity attestation** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
+**Priority logic**: Harden core (done) -> network intelligence (done) -> ACL + relay security (done) -> ZKP (done) -> identity + remote admin (done) -> plugins + file transfer (done) -> speed optimization (done) -> PQC (done) -> **seed infrastructure** -> **PQ identity attestation** -> pub/sub -> naming standards -> macaroon migration -> agent foundation -> agent protocol -> discovery + federation -> payments -> reputation -> mobile -> gateway.
 
 **Repository strategy**: Non-Go SDKs and consumer apps live in separate GitHub repos. The Go SDK (`pkg/sdk`) stays in this repo.
 
@@ -142,4 +142,4 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-*Last updated: 2026-05-05. v0.4.0 released. go-clatter v0.2.0 released. Phase 11A+11B done (PQ Noise transport + ML-DSA-65 signing). Next: Phase 12 Seed & Recovery Infrastructure.*
+*Last updated: 2026-05-10. v0.4.0 released. go-clatter v0.2.0 released. Phase 11 DONE (PQ Noise + ML-DSA-65 + docs/blog). go-bip85 v0.1.0, go-slip39 v0.1.0 released. Next: Phase 12 Seed & Recovery (SHRL integration).*

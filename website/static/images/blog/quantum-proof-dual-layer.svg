@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes flowRight { 0% { stroke-dashoffset: 30; } 100% { stroke-dashoffset: 0; } }
+    @keyframes boxGlow { 0%,100% { stroke-opacity: 0.6; } 50% { stroke-opacity: 1; } }
+    @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+    .flow { stroke-dasharray: 6 3; animation: flowRight 1.5s linear infinite; }
+    .glow { animation: boxGlow 3s ease-in-out infinite; }
+    .f1 { animation: fadeIn 0.8s ease-out forwards; opacity: 0; }
+    .f2 { animation: fadeIn 0.8s ease-out 0.3s forwards; opacity: 0; }
+    .f3 { animation: fadeIn 0.8s ease-out 0.6s forwards; opacity: 0; }
+    .f4 { animation: fadeIn 0.8s ease-out 0.9s forwards; opacity: 0; }
+    .label { font-family: system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+  <rect width="800" height="420" fill="url(#bg2)"/>
+
+  <!-- Section header -->
+  <text x="400" y="35" text-anchor="middle" class="label" fill="#666" font-size="12" letter-spacing="2" text-transform="uppercase">DUAL-LAYER POST-QUANTUM ARCHITECTURE</text>
+
+  <!-- QUIC path (top) -->
+  <rect x="40" y="60" width="720" height="140" rx="8" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1.5" class="glow f1"/>
+  <text x="70" y="85" class="label" fill="#00d4aa" font-size="14" font-weight="600">Layer 1: Transport (QUIC)</text>
+  <text x="70" y="108" class="label" fill="#888" font-size="12">Automatic - Go TLS 1.3 negotiates X25519MLKEM768</text>
+
+  <!-- QUIC flow -->
+  <rect x="70" y="125" width="100" height="50" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1" class="f2"/>
+  <text x="120" y="148" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Node A</text>
+  <text x="120" y="163" text-anchor="middle" class="mono" fill="#888" font-size="9">QUIC</text>
+
+  <line x1="180" y1="150" x2="340" y2="150" stroke="#00d4aa" stroke-width="1.5" class="flow"/>
+  <text x="260" y="140" text-anchor="middle" class="mono f3" fill="#00d4aa" font-size="10">X25519MLKEM768</text>
+
+  <rect x="350" y="125" width="120" height="50" rx="5" fill="#1a1a2e" stroke="#00d4aa" stroke-width="1" class="f2"/>
+  <text x="410" y="148" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Direct</text>
+  <text x="410" y="163" text-anchor="middle" class="mono" fill="#00d4aa" font-size="9">[PQ]</text>
+
+  <line x1="480" y1="150" x2="620" y2="150" stroke="#00d4aa" stroke-width="1.5" class="flow"/>
+
+  <rect x="630" y="125" width="100" height="50" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1" class="f2"/>
+  <text x="680" y="148" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Node B</text>
+  <text x="680" y="163" text-anchor="middle" class="mono" fill="#888" font-size="9">QUIC</text>
+
+  <!-- PQ Noise path (bottom) -->
+  <rect x="40" y="220" width="720" height="160" rx="8" fill="#1a1a2e" stroke="#ffb347" stroke-width="1.5" class="glow f3"/>
+  <text x="70" y="248" class="label" fill="#ffb347" font-size="14" font-weight="600">Layer 2: Application (PQ Noise)</text>
+  <text x="70" y="271" class="label" fill="#888" font-size="12">For TCP/WebSocket paths - relay circuits, fallback transports</text>
+
+  <!-- PQ Noise flow -->
+  <rect x="70" y="290" width="100" height="50" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1" class="f3"/>
+  <text x="120" y="313" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Node A</text>
+  <text x="120" y="328" text-anchor="middle" class="mono" fill="#888" font-size="9">TCP</text>
+
+  <line x1="180" y1="315" x2="340" y2="315" stroke="#ffb347" stroke-width="1.5" class="flow"/>
+  <text x="260" y="305" text-anchor="middle" class="mono f4" fill="#ffb347" font-size="10">/pq-noise/1</text>
+
+  <rect x="350" y="290" width="120" height="50" rx="5" fill="#1a1a2e" stroke="#ffb347" stroke-width="1" class="f4"/>
+  <text x="410" y="313" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Relay</text>
+  <text x="410" y="328" text-anchor="middle" class="mono" fill="#ffb347" font-size="9">[PQ]</text>
+
+  <line x1="480" y1="315" x2="620" y2="315" stroke="#ffb347" stroke-width="1.5" class="flow"/>
+
+  <rect x="630" y="290" width="100" height="50" rx="5" fill="#1a1a2e" stroke="#4488ff" stroke-width="1" class="f4"/>
+  <text x="680" y="313" text-anchor="middle" class="mono" fill="#e0e0e0" font-size="10">Node B</text>
+  <text x="680" y="328" text-anchor="middle" class="mono" fill="#888" font-size="9">TCP</text>
+
+  <!-- Bottom note -->
+  <text x="400" y="405" text-anchor="middle" class="label" fill="#666" font-size="11">Both layers use hybrid schemes - attacker must break classical AND quantum-resistant math</text>
+</svg>

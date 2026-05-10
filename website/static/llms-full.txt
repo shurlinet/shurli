@@ -4864,15 +4864,16 @@ This document describes the technical architecture of Shurli, from current imple
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
   - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source (plugin)
   - [Plugin System](#plugin-system) - Plugin interface, registry, lifecycle, supervisor
+  - [Post-Quantum Cryptography (Phase 11)](#post-quantum-cryptography-phase-11) - PQ Noise transport, PQC status, gater enforcement
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
-- [Federation Model](#federation-model) - planned (Phase 13)
-- [Mobile Architecture](#mobile-architecture) - planned (Phase 12)
+- [Federation Model](#federation-model) - planned (Phase 19)
+- [Mobile Architecture](#mobile-architecture) - planned (Phase 22)
 
 ---
 
 ## Current Architecture
 
-Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets complete.
+Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets + Phase 11 Post-Quantum Cryptography (PQ Noise transport + PQC status) complete.
 
 ### Component Overview
 
@@ -5224,12 +5225,12 @@ Building on the current structure, future phases will add:
 Shurli/
 ├── cmd/
 │   ├── shurli/              # ✅ Single binary (core + plugin-injected commands)
-│   └── gateway/             # 🆕 Phase 11: Multi-mode daemon (SOCKS, DNS, TUN)
+│   └── gateway/             # 🆕 Phase 23: Multi-mode daemon (SOCKS, DNS, TUN)
 │
 ├── pkg/sdk/              # ✅ Core library (importable) - network, events, Merkle,
 │   │                        #   plugin policy, transport classification, byte utilities
 │   ├── ...existing...
-│   └── federation.go        # 🆕 Phase 13: Network peering
+│   └── federation.go        # 🆕 Phase 19: Network peering
 │
 ├── pkg/plugin/              # ✅ Plugin framework (interface, registry, supervisor)
 │
@@ -5245,14 +5246,14 @@ Shurli/
 │   ├── identity/            # ✅ Shared identity management
 │   ├── validate/            # ✅ Input validation (service names, etc.)
 │   ├── watchdog/            # ✅ Health checks + sd_notify
-│   └── tun/                 # 🆕 Phase 11: TUN/TAP interface
+│   └── tun/                 # 🆕 Phase 23: TUN/TAP interface
 │
 └── ...existing (deploy/, tools/, configs, docs, examples)
 
 # External repositories (separate repos, independent release cycles):
 # shurlinet/shurli-sdk-python  -> PyPI (Phase 9D)
 # shurlinet/shurli-sdk-swift   -> Swift Package Manager (Phase 9E)
-# shurlinet/shurli-ios    -> App Store (Phase 12)
+# shurlinet/shurli-ios    -> App Store (Phase 22)
 ```
 
 ### Service Exposure Architecture
@@ -5261,7 +5262,7 @@ Shurli/
 
 ### Gateway Daemon Modes
 
-> **Status: Planned (Phase 11)** - not yet implemented. See [Roadmap Phase 12](ROADMAP.md) for details.
+> **Status: Planned (Phase 23)** - not yet implemented. See [Roadmap Phase 23](ROADMAP.md) for details.
 
 ![Gateway daemon modes: SOCKS Proxy (no root, app must be configured), DNS Server (resolve peer names to virtual IPs), and TUN/TAP (fully transparent, requires root)](images/arch-gateway-modes.svg)
 
@@ -5659,7 +5660,7 @@ func (r *LocalFileResolver) Resolve(name string) (peer.ID, error) {
 }
 ```
 
-> **Planned (Phase 9/14)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 14](ROADMAP.md).
+> **Planned (Phase 9/15)**: The `NameResolver` interface, `DHTResolver`, multi-tier chaining, and blockchain naming are planned extensions. See [Naming System](#naming-system) below and [Roadmap Phase 15](ROADMAP.md).
 
 ---
 
@@ -6488,6 +6489,68 @@ Key mitigations:
 
 **Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
 
+### Post-Quantum Cryptography (Phase 11)
+
+> **Status: Phase 11A+11B complete.** PQ Noise transport and PQC status reporting shipped. Phase 13 adds PQ identity attestation (ML-DSA-65).
+
+Shurli provides dual-layer post-quantum protection:
+
+1. **QUIC layer (automatic)**: Go 1.24+ negotiates X25519MLKEM768 (hybrid classical + ML-KEM-768) for the TLS 1.3 key exchange. No configuration needed.
+2. **Application layer (PQ Noise)**: A custom libp2p security transport (`/pq-noise/1`) using go-clatter's HybridDualLayerHandshake. Provides PQ key exchange on TCP/WebSocket connections where QUIC is unavailable (relay circuits, fallback transports).
+
+#### PQ Noise Transport (`pkg/sdk/pqnoise/`)
+
+The PQ Noise transport implements `sec.SecureTransport` from libp2p. It performs a 5-message hybrid handshake:
+
+- **Outer layer**: X25519 Diffie-Hellman (classical, fast, proven)
+- **Inner layer**: ML-KEM-768 key encapsulation (post-quantum, NIST FIPS 203)
+- **Combined**: Both layers must succeed. An attacker needs to break both classical DH and the lattice KEM.
+
+Wire format: length-prefixed messages (2-byte big-endian length + payload). Maximum handshake message: 8192 bytes. Maximum identity payload: 4096 bytes.
+
+Identity binding: The initiator's Ed25519 identity key signs the handshake hash (prefixed with `noise-libp2p-pq-handshake:`) to bind the peer's libp2p identity to the PQ-secured channel. The responder verifies this signature before accepting.
+
+#### Configuration
+
+```yaml
+security:
+  pqc_policy: "opportunistic"  # mandatory | opportunistic | disabled
+```
+
+- **mandatory**: Reject TCP/WS connections that fail to negotiate PQ Noise. QUIC is always allowed (PQ at TLS layer).
+- **opportunistic** (default): Prefer PQ Noise but fall back to classical Noise if the remote peer doesn't support it.
+- **disabled**: Do not register PQ Noise transport. Classical Noise only.
+
+Per-peer override in `authorized_keys`:
+
+```
+<peer-id> expires=2027-01-01 pqc=mandatory
+```
+
+#### PQC Status Reporting
+
+`shurli status` displays PQC state for every active connection:
+
+```
+PQC Status:
+  Policy: opportunistic
+  QUIC PQ: verified (X25519MLKEM768)
+  Noise PQ: verified (/pq-noise/1)
+  Connections:
+    12D3KooW... quic-v1 X25519MLKEM768 [PQ]
+    12D3KooW... tcp     /pq-noise/1    [PQ]
+```
+
+The daemon logs the first PQ-verified connection (both QUIC and Noise) and warns when relay circuits downgrade to classical security in opportunistic mode.
+
+#### Gater Enforcement
+
+`InterceptUpgraded` in the connection gater acts as belt-and-suspenders enforcement for `mandatory` policy. If a classical Noise connection somehow slips through transport registration (edge case), the gater rejects it post-handshake. QUIC connections are always allowed (PQ enforced at TLS layer).
+
+**Reference**: `pkg/sdk/pqnoise/transport.go`, `pkg/sdk/pqnoise/session.go`, `pkg/sdk/pqc.go`, `internal/auth/gater.go`, `internal/config/config.go`
+
+**External libraries**: [go-clatter](https://github.com/shurlinet/go-clatter) v0.1.0 (PQ Noise handshake)
+
 ### Phase 8C: ACL-to-Macaroon Migration
 
 > **Status: M1 complete (Phase 8B). M2-M5 planned.**
@@ -6510,7 +6573,7 @@ The per-peer data grant system (Phase 8B) proved that macaroon capability tokens
 
 ### Federation Trust Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Federation Model](#federation-model) and [Roadmap Phase 19](ROADMAP.md).
 
 ```yaml
 # relay-server.yaml (planned config format)
@@ -6553,7 +6616,7 @@ home.grewal.local       # mDNS compatible
 
 ## Federation Model
 
-> **Status: Planned (Phase 13)** - not yet implemented. See [Roadmap Phase 14](ROADMAP.md).
+> **Status: Planned (Phase 19)** - not yet implemented. See [Roadmap Phase 19](ROADMAP.md).
 
 ### Relay Peering
 
@@ -6563,7 +6626,7 @@ home.grewal.local       # mDNS compatible
 
 ## Mobile Architecture
 
-> **Status: Planned (Phase 12)** - not yet implemented. See [Roadmap Phase 13](ROADMAP.md).
+> **Status: Planned (Phase 22)** - not yet implemented. See [Roadmap Phase 22](ROADMAP.md).
 
 ![Mobile architecture: iOS uses NEPacketTunnelProvider, Android uses VPNService - both embed libp2p-go via gomobile](images/arch-mobile.svg)
 
@@ -6607,7 +6670,7 @@ The UserAgent is stored in each peer's peerstore under the `AgentVersion` key af
    - Rate limiting per service
    - Bandwidth monitoring and alerts
 
-> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 13+.
+> Items marked "planned" are tracked in the [Roadmap](ROADMAP.md) under Phase 4C deferred items and Phase 15+.
 
 ### Binary Size
 
@@ -10011,6 +10074,7 @@ New developers, contributors, and future-us should be able to read this and unde
 | [FT-Y: Verified-LAN Classification Migration](verified-lan-classification.md) | ADR-VL01 to ADR-VL05 | Bare RFC 1918 mask replaced with mDNS-verified LAN detection for trust-making decisions, VerifiedTransport classifier, dead code deletion |
 | [FT-Y: Persistent Proxy Service](persistent-proxy-service.md) | ADR-PP01 to ADR-PP05 | Daemon-owned persistent proxy lifecycle with desired-state persistence, GATETIME stability detection, event-driven reconnect, poll fallback, and authorization cleanup |
 | [FT-Y: TCP-for-LAN Experiment](tcp-for-lan-experiment.md) | ADR-TL01 to ADR-TL07 | Negative-result experiment proving that TCP plus yamux does not beat QUIC for Shurli LAN bulk transfers on macOS |
+| [Phase 11: Post-Quantum Cryptography](phase11-post-quantum-cryptography.md) | ADR-PQ01 to ADR-PQ06 | Dual-layer PQ strategy, go-clatter, transport integration, policy enforcement, PQC status, ML-DSA-65 signing |
 
 
 ---
@@ -17746,6 +17810,207 @@ Do not present per-worker TCP connections as a plan or shipping direction. Treat
 ## Public Notes
 
 This journal omits private topology, node names, IP addresses, peer IDs, hostnames, network operator details, device names, usernames, local paths, and command outputs. Physical numbers are included only because they explain the architecture decision. The experiment code is archived on a separate branch and is not merged into `dev` or production. The measurements are validation data from one physical setup, not formal benchmarks.
+
+
+---
+
+# Phase 11: Post-Quantum Cryptography
+
+| | |
+|---|---|
+| **Date** | 2026-04-28 to 2026-05-10 |
+| **Status** | Complete (11A+11B+11C) |
+| **Phase** | Phase 11 (Post-Quantum Cryptography) |
+| **ADRs** | ADR-PQ01 to ADR-PQ06 |
+| **Primary Commits** | b271bf4, 36ceca0, 3eedc6c, 9ff2ff7, b2cf954, ed1718e |
+
+Dual-layer post-quantum protection: QUIC X25519MLKEM768 at transport, PQ Noise via go-clatter at application. PQ Noise is a Go port of the Rust [Clatter](https://github.com/jmlepisto/clatter) library, enhanced with Go-native generics, secret zeroing, and ML-DSA-65 signing. 408 interop vectors cross-validated against the Rust original.
+
+This journal covers the integration into Shurli. The go-clatter library itself (github.com/shurlinet/go-clatter) is an independent repo with its own release cycle.
+
+---
+
+### ADR-PQ01: Dual-Layer PQ Strategy
+
+| | |
+|---|---|
+| **Commit** | b271bf4 (Phase 0 QUIC verification), 36ceca0 (Phase 2 Batch 1 PQ Noise) |
+
+**Context**: Quantum computers threaten classical Diffie-Hellman (X25519) and ECDSA. "Harvest now, decrypt later" attacks mean PQ protection is urgent for infrastructure that carries long-lived secrets. Shurli needs PQ protection on every connection type.
+
+**Problem**: QUIC connections get PQ automatically via Go's TLS 1.3 (X25519MLKEM768 since Go 1.24). But TCP/WebSocket connections use libp2p's Noise protocol (XX pattern, X25519 only). Relay circuits often fall back to TCP. A single-layer approach leaves gaps.
+
+**Alternatives considered**:
+- **Single layer (QUIC only)**: Leaves TCP/WS connections (relay circuits, fallback transports) unprotected. Not acceptable for infrastructure that routes through relays.
+- **Replace Noise entirely**: Would break compatibility with all existing peers. Gradual rollout is essential.
+- **Wait for libp2p upstream**: No upstream PQ Noise transport exists or is planned. Waiting means shipping without PQ on relay circuits indefinitely.
+
+**Decision**: Two independent PQ layers:
+1. **QUIC TLS**: X25519MLKEM768 negotiated automatically by Go's crypto/tls. Zero code needed.
+2. **PQ Noise** (`/pq-noise/1`): Custom libp2p security transport using go-clatter's HybridDualLayerHandshake on TCP/WS.
+
+Both layers use hybrid schemes (classical + PQ). An attacker must break both X25519 AND ML-KEM-768 to compromise a connection.
+
+**Consequences**: Every Shurli connection has PQ protection regardless of transport. Relay circuits (TCP) get the same protection as direct QUIC connections. Binary size impact: ~2.3 MB from go-clatter + ML-KEM.
+
+### Physical Verification
+
+QUIC PQ verified on live network with `shurli status` showing `X25519MLKEM768` curve on all QUIC connections to relays. PQ Noise not yet verified on live relay circuits (relays need binary upgrade).
+
+**Reference**: `pkg/sdk/network.go` (transport registration), `pkg/sdk/pqnoise/transport.go` (PQ Noise transport)
+
+---
+
+### ADR-PQ02: go-clatter as PQ Noise Library
+
+| | |
+|---|---|
+| **Commit** | 36ceca0 (initial integration) |
+
+**Context**: Need a Noise-framework library that supports hybrid PQ handshakes with ML-KEM-768. Must be pure Go (single-binary constraint), must support the DualLayer pattern (outer classical + inner PQ), must handle identity binding.
+
+**Alternatives considered**:
+- **flynn/noise** - Classical Noise only. No KEM support. Would require forking and adding PQ primitives.
+- **libp2p/go-libp2p-noise** - Tightly coupled to libp2p's Noise XX. No extension points for PQ. Modifying it would break upstream compatibility.
+- **Write from scratch** - Risky without a reference. Noise protocol is subtle (nonce management, ratcheting, payload encryption).
+
+**Decision**: Port the Rust [Clatter](https://github.com/jmlepisto/clatter) library to Go as go-clatter (github.com/shurlinet/go-clatter). Clatter already implemented the DualLayer hybrid pattern with KEM support - the exact capability we needed. The port preserved the architecture and protocol logic, then enhanced it with Go-native improvements: generics for cipher/hash/DH/KEM primitives, structured errors, automatic secret zeroing, and ML-DSA-65 signing (not in the Rust original). Independent, MIT-licensed. Supports 5 handshake modes including HybridDualLayerHandshake (outer X25519 XX + inner ML-KEM-768 XX). Full test suite: 233+ tests, 408 interop vectors cross-validated against the Rust implementation.
+
+**Consequences**: Pure Go library with zero CGo dependencies. Single `go get` adds the entire PQ Noise stack. The 408 interop vectors ensure wire-compatible output with the Rust original.
+
+**Reference**: `go.mod` (go-clatter v0.1.0), `pkg/sdk/pqnoise/transport.go`
+
+---
+
+### ADR-PQ03: Transport Integration Pattern
+
+| | |
+|---|---|
+| **Commit** | 9ff2ff7 (libp2p integration, gater enforcement, config) |
+
+**Context**: libp2p's security transport interface (`sec.SecureTransport`) requires implementing `SecureInbound`, `SecureOutbound`, and `ID`. The PQ Noise transport must integrate cleanly alongside classical Noise without breaking existing connections.
+
+**Alternatives considered**:
+- **Replace classical Noise entirely**: Would break all non-upgraded peers. Unacceptable for gradual rollout.
+- **Muxer-level negotiation**: Would require changes to libp2p's upgrader. Invasive and fragile.
+- **Application-layer handshake after Noise**: Would add a second round-trip. Performance penalty on every connection.
+
+**Decision**: Register PQ Noise as an additional security transport with higher priority than classical Noise:
+
+```go
+libp2p.Security(pqnoise.ID, pqnoise.New),  // priority 1
+libp2p.Security(noise.ID, noise.New),       // priority 2 (fallback)
+```
+
+The libp2p upgrader negotiates security protocols in registration order. Peers that support PQ Noise will select it. Peers that don't will fall back to classical Noise (in opportunistic mode).
+
+**Consequences**: Zero breaking changes for existing peers. Gradual rollout: as nodes upgrade, connections automatically upgrade to PQ. The `pqc_policy` config controls enforcement level.
+
+### Physical Verification
+
+Live daemon with both transports registered. Classical Noise peers connect successfully (fallback works). `shurli status` shows `/noise` for classical peers.
+
+**Reference**: `pkg/sdk/network.go` (Security option registration), `pkg/sdk/pqnoise/transport.go` (New constructor matching libp2p Fx pattern)
+
+---
+
+### ADR-PQ04: Policy Enforcement Architecture
+
+| | |
+|---|---|
+| **Commit** | 9ff2ff7 (gater enforcement + config) |
+
+**Context**: Different deployment scenarios need different PQ requirements. A home network with all-upgraded nodes can mandate PQ. A mixed network with legacy peers needs graceful fallback.
+
+**Alternatives considered**:
+- **Binary toggle (on/off)**: Too coarse. No path for mixed networks during transition.
+- **Transport-only enforcement**: Relies entirely on negotiation order. Edge cases (relay circuits stripping metadata) could bypass PQ.
+- **Per-connection config**: Too complex. Policy should be network-wide with per-peer exceptions.
+
+**Decision**: Three-tier policy with gater enforcement:
+
+| Policy | Transport Registration | Gater Enforcement |
+|--------|----------------------|-------------------|
+| `mandatory` | PQ Noise + classical Noise | Reject non-PQ TCP/WS in InterceptUpgraded |
+| `opportunistic` (default) | PQ Noise + classical Noise | Allow all, log relay downgrades |
+| `disabled` | Classical Noise only | No PQ checks |
+
+Per-peer override via `authorized_keys` attribute (`pqc=mandatory`). Allows requiring PQ from specific high-value peers while allowing classical from others.
+
+Belt-and-suspenders: transport priority handles the common case (negotiation prefers PQ). The gater handles edge cases (connection through relay that strips security negotiation metadata).
+
+**Consequences**: Three clear modes. Per-peer granularity. Belt-and-suspenders catches edge cases. Config validated at startup (`PQCPolicyEffective()` defaults unknown values to `opportunistic`).
+
+### Physical Verification
+
+Tested on live network with `opportunistic` policy (default). All connections establish successfully. Status shows `not verified` for PQ Noise (expected - relays not yet upgraded). Mandatory mode tested in unit tests (`TestInterceptUpgraded_PQCPolicy` in `internal/auth/authorized_keys_test.go`).
+
+**Reference**: `internal/auth/gater.go` (InterceptUpgraded, effectivePQCPolicy), `internal/auth/authorized_keys.go` (`pqc` attribute parsing), `internal/config/config.go` (PQCPolicyEffective)
+
+---
+
+### ADR-PQ05: PQC Status Introspection
+
+| | |
+|---|---|
+| **Commit** | b271bf4 (QUIC PQ inspection), b2cf954 (PQ Noise status, per-connection breakdown) |
+
+**Context**: Operators need to verify their connections are actually PQ-protected. "Trust but verify" - the daemon must report what security each connection actually negotiated.
+
+**Alternatives considered**:
+- **Log-only**: Operators would have to grep logs. Not acceptable for real-time visibility.
+- **Prometheus metrics only**: Good for dashboards but not for quick CLI checks.
+- **Separate `shurli pqc` command**: Unnecessary command proliferation. Status is the right place.
+
+**Decision**: `InspectPQC()` examines every active connection:
+- QUIC: Uses `conn.As(*quic.Conn)` to access TLS ConnectionState, checks CurveID for PQ curves.
+- TCP/WS: Checks `ConnState().Security` for `/pq-noise/1` protocol ID.
+
+Exposed via `shurli status` (CLI) and daemon API endpoint. Per-layer summary (QUIC PQ, Noise PQ) plus per-connection breakdown.
+
+First-connection logging: the daemon logs the first PQ-verified connection (once per daemon lifetime) to confirm PQ is working without spamming logs.
+
+Relay downgrade warning: in opportunistic mode, logs a warning when relay circuits use classical Noise instead of PQ Noise.
+
+**Consequences**: Real-time visibility into PQ state. No guessing. Downgrade warnings surface relay upgrade needs.
+
+### Physical Verification
+
+`shurli status` on live network shows per-layer and per-connection PQC state. All connections show classical `/noise` because relays are not yet upgraded. QUIC PQ would show `X25519MLKEM768` on direct peer-to-peer connections.
+
+**Reference**: `pkg/sdk/pqc.go` (InspectPQC, PQCStatus, PQCConnInfo, LogIfPQ, LogRelayDowngrade), `cmd/shurli/cmd_status.go` (PQC status display)
+
+---
+
+### ADR-PQ06: ML-DSA-65 Signing (go-clatter v0.2.0)
+
+| | |
+|---|---|
+| **Commit** | N/A (library-only change, not yet integrated into Shurli binary) |
+
+**Context**: PQ key exchange protects data in transit. But peer identity is still Ed25519. A quantum attacker could forge identity signatures. Completing the PQ story requires PQ identity authentication.
+
+**Alternatives considered**:
+- **SPHINCS+ (SLH-DSA, FIPS 205)**: Hash-based, conservative security assumptions. But signatures are 7-41 KB (vs 3.3 KB for ML-DSA-65). Too large for per-handshake attestation.
+- **FALCON (FN-DSA)**: Compact signatures (~666 bytes) but requires constant-time floating-point or double-precision integer arithmetic. Implementation complexity and side-channel risk.
+- **Wait for Go stdlib**: `crypto/mldsa` is internal in Go 1.26. Public API expected in Go 1.27. Waiting means no PQ signing capability until then.
+
+**Decision**: Added ML-DSA-65 (FIPS 204, NIST Level 3) to go-clatter v0.2.0. Uses `filippo.io/mldsa` (pre-release wrapper around Go's internal `crypto/mldsa`). Automatic secret zeroing on key disposal.
+
+ML-DSA-65 provides ~143-bit post-quantum security. Key sizes: public 1952 bytes, secret 4032 bytes, signature 3309 bytes. Signing/verification adds ~390us per handshake (benchmarked on Apple M3 Max).
+
+**Consequences**: PQ signing ready in the library. Phase 13 will wire it into the handshake. When Go 1.27 releases, swap `filippo.io/mldsa` for stdlib `crypto/mldsa` (drop-in replacement by design).
+
+**Reference**: go-clatter v0.2.0+ (`crypto/sign/mldsa65/`), tracking issue golang/go#77626
+
+---
+
+## Public Notes
+
+- PQ Noise transport is registered and negotiated but has no effect until remote peers also support it. Current relay fleet runs classical Noise only. Relay binary upgrade is the next deployment step.
+- QUIC PQ (X25519MLKEM768) is automatic for direct peer-to-peer connections on Go 1.24+. No Shurli code needed.
+- ML-DSA-65 signing exists in go-clatter but is not yet wired into Shurli's handshake. Phase 13 (PQ Identity Attestation) delivers the integration.
+- The `pqc_policy` config key and per-peer `pqc` authorized_keys attribute are stable API. The three modes (mandatory/opportunistic/disabled) are final.
 
 
 ---

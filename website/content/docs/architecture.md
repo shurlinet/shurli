@@ -42,6 +42,7 @@ This document describes the technical architecture of Shurli, from current imple
   - [Session Tokens (Phase 8)](#session-tokens-phase-8) - machine-bound auto-decrypt, lock/unlock
   - [File Transfer (Phase 9B)](#file-transfer-phase-9b) - chunked P2P transfer, erasure coding, multi-source (plugin)
   - [Plugin System](#plugin-system) - Plugin interface, registry, lifecycle, supervisor
+  - [Post-Quantum Cryptography (Phase 11)](#post-quantum-cryptography-phase-11) - PQ Noise transport, PQC status, gater enforcement
 - [Naming System](#naming-system) - local names implemented, network-scoped and blockchain planned
 - [Federation Model](#federation-model) - planned (Phase 19)
 - [Mobile Architecture](#mobile-architecture) - planned (Phase 22)
@@ -50,7 +51,7 @@ This document describes the technical architecture of Shurli, from current imple
 
 ## Current Architecture
 
-Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets complete.
+Phase 9B + Plugin Architecture + Per-Peer Data Grants + E14 Relay-First Onboarding + Phase 10 Distribution (install script, release archives, relay-setup --prebuilt) + D1/D3 Security Hardening + Per-Peer Bandwidth Budgets + Phase 11 Post-Quantum Cryptography (PQ Noise transport + PQC status) complete.
 
 ### Component Overview
 
@@ -1665,6 +1666,68 @@ Key mitigations:
 - Layer 2: WASM namespace enforcement, memory caps, context timeouts, pre-opened directory scoping
 
 **Reference**: `pkg/plugin/plugin.go`, `pkg/plugin/registry.go`, `pkg/plugin/supervisor.go`, `plugins/filetransfer/plugin.go`
+
+### Post-Quantum Cryptography (Phase 11)
+
+> **Status: Phase 11A+11B complete.** PQ Noise transport and PQC status reporting shipped. Phase 13 adds PQ identity attestation (ML-DSA-65).
+
+Shurli provides dual-layer post-quantum protection:
+
+1. **QUIC layer (automatic)**: Go 1.24+ negotiates X25519MLKEM768 (hybrid classical + ML-KEM-768) for the TLS 1.3 key exchange. No configuration needed.
+2. **Application layer (PQ Noise)**: A custom libp2p security transport (`/pq-noise/1`) using go-clatter's HybridDualLayerHandshake. Provides PQ key exchange on TCP/WebSocket connections where QUIC is unavailable (relay circuits, fallback transports).
+
+#### PQ Noise Transport (`pkg/sdk/pqnoise/`)
+
+The PQ Noise transport implements `sec.SecureTransport` from libp2p. It performs a 5-message hybrid handshake:
+
+- **Outer layer**: X25519 Diffie-Hellman (classical, fast, proven)
+- **Inner layer**: ML-KEM-768 key encapsulation (post-quantum, NIST FIPS 203)
+- **Combined**: Both layers must succeed. An attacker needs to break both classical DH and the lattice KEM.
+
+Wire format: length-prefixed messages (2-byte big-endian length + payload). Maximum handshake message: 8192 bytes. Maximum identity payload: 4096 bytes.
+
+Identity binding: The initiator's Ed25519 identity key signs the handshake hash (prefixed with `noise-libp2p-pq-handshake:`) to bind the peer's libp2p identity to the PQ-secured channel. The responder verifies this signature before accepting.
+
+#### Configuration
+
+```yaml
+security:
+  pqc_policy: "opportunistic"  # mandatory | opportunistic | disabled
+```
+
+- **mandatory**: Reject TCP/WS connections that fail to negotiate PQ Noise. QUIC is always allowed (PQ at TLS layer).
+- **opportunistic** (default): Prefer PQ Noise but fall back to classical Noise if the remote peer doesn't support it.
+- **disabled**: Do not register PQ Noise transport. Classical Noise only.
+
+Per-peer override in `authorized_keys`:
+
+```
+<peer-id> expires=2027-01-01 pqc=mandatory
+```
+
+#### PQC Status Reporting
+
+`shurli status` displays PQC state for every active connection:
+
+```
+PQC Status:
+  Policy: opportunistic
+  QUIC PQ: verified (X25519MLKEM768)
+  Noise PQ: verified (/pq-noise/1)
+  Connections:
+    12D3KooW... quic-v1 X25519MLKEM768 [PQ]
+    12D3KooW... tcp     /pq-noise/1    [PQ]
+```
+
+The daemon logs the first PQ-verified connection (both QUIC and Noise) and warns when relay circuits downgrade to classical security in opportunistic mode.
+
+#### Gater Enforcement
+
+`InterceptUpgraded` in the connection gater acts as belt-and-suspenders enforcement for `mandatory` policy. If a classical Noise connection somehow slips through transport registration (edge case), the gater rejects it post-handshake. QUIC connections are always allowed (PQ enforced at TLS layer).
+
+**Reference**: `pkg/sdk/pqnoise/transport.go`, `pkg/sdk/pqnoise/session.go`, `pkg/sdk/pqc.go`, `internal/auth/gater.go`, `internal/config/config.go`
+
+**External libraries**: [go-clatter](https://github.com/shurlinet/go-clatter) v0.1.0 (PQ Noise handshake)
 
 ### Phase 8C: ACL-to-Macaroon Migration
 

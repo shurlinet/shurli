@@ -206,7 +206,7 @@ services:
 
 ## Phase 11: Post-Quantum Cryptography
 
-**Status**: 🔶 11A+11B DONE, 11C pending
+**Status**: ✅ DONE (11A+11B+11C)
 **Prerequisite**: go-clatter v0.1.0 (DONE), go-clatter v0.2.0 (DONE)
 
 **Goal**: Wire post-quantum key exchange into Shurli as a libp2p security transport, giving every connection quantum-resistant encryption alongside classical Noise.
@@ -233,12 +233,14 @@ services:
 - Hybrid Ed25519 + ML-DSA-65 identity proofs -> Phase 13 (PQ Identity Attestation)
 - PQ-signed capability tokens and admin commands -> Phase 13+
 
-**11C: Audit + Documentation**:
+**11C: Audit + Documentation** ✅ DONE:
 - [x] Full security audit (Phase 3 adversarial audit, 167 findings cross-checked)
-- [ ] Architecture and roadmap updates
-- [ ] Engineering journal entries
-- [ ] Blog post on PQC implementation
-- [ ] Katzenpost/nyquist comparison documentation (research DONE, write-up pending)
+- [x] Architecture and roadmap updates
+- [x] Engineering journal entries (6 ADRs: PQ01-PQ06)
+- [x] Blog post on PQC implementation
+- [x] `shurli status` PQC display upgraded to per-layer detail
+- [x] golang.org/x/net v0.53.0 security bump (GO-2026-4918)
+- Katzenpost/nyquist comparison write-up deferred (research complete, not blocking)
 
 ---
 

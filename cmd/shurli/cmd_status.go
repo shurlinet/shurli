@@ -95,27 +95,58 @@ func doStatus(args []string, stdout io.Writer) error {
 	}
 	// PQC status (when daemon is running and has connections)
 	if daemonStatus != nil && daemonStatus.PQC != nil {
-		tc.Wblue(stdout, "PQC:      ")
-		if daemonStatus.PQC.QUICPQCVerified || daemonStatus.PQC.NoisePQCVerified {
+		pqc := daemonStatus.PQC
+		fmt.Fprintln(stdout, "PQC Status:")
+		tc.Wblue(stdout, "  Policy:   ")
+		fmt.Fprintln(stdout, pqc.Policy)
+
+		// QUIC PQ line
+		tc.Wblue(stdout, "  QUIC PQ:  ")
+		if pqc.QUICPQCVerified {
 			tc.Wgreen(stdout, "verified")
-			// Show details from the first PQ connection.
-			for _, c := range daemonStatus.PQC.Connections {
-				if c.PQ {
-					if c.CurveID != "" {
-						tc.Wfaint(stdout, " (%s on QUIC)", c.CurveID)
-					} else if c.Security == "/pq-noise/1" {
-						tc.Wfaint(stdout, " (PQ Noise on %s)", c.Transport)
-					}
+			// Find the curve name from the first QUIC PQ connection.
+			for _, c := range pqc.Connections {
+				if c.PQ && c.CurveID != "" {
+					tc.Wfaint(stdout, " (%s)", c.CurveID)
 					break
 				}
 			}
+			fmt.Fprintln(stdout)
 		} else if daemonStatus.ConnectedPeers > 0 {
-			tc.Wyellow(stdout, "classical only")
+			tc.Wfaint(stdout, "not verified\n")
 		} else {
-			tc.Wfaint(stdout, "no connections")
+			tc.Wfaint(stdout, "no connections\n")
 		}
-		tc.Wfaint(stdout, " [%s]", daemonStatus.PQC.Policy)
-		fmt.Fprintln(stdout)
+
+		// Noise PQ line
+		tc.Wblue(stdout, "  Noise PQ: ")
+		if pqc.NoisePQCVerified {
+			tc.Wgreen(stdout, "verified")
+			tc.Wfaint(stdout, " (/pq-noise/1)")
+			fmt.Fprintln(stdout)
+		} else if daemonStatus.ConnectedPeers > 0 {
+			tc.Wfaint(stdout, "not verified\n")
+		} else {
+			tc.Wfaint(stdout, "no connections\n")
+		}
+
+		// Per-connection breakdown
+		if len(pqc.Connections) > 0 {
+			tc.Wblue(stdout, "  Connections:\n")
+			for _, c := range pqc.Connections {
+				fmt.Fprintf(stdout, "    %s", c.PeerID)
+				tc.Wfaint(stdout, " %s", c.Transport)
+				if c.CurveID != "" {
+					tc.Wfaint(stdout, " %s", c.CurveID)
+				} else if c.Security != "" {
+					tc.Wfaint(stdout, " %s", c.Security)
+				}
+				if c.PQ {
+					tc.Wgreen(stdout, " [PQ]")
+				}
+				fmt.Fprintln(stdout)
+			}
+		}
 	}
 	fmt.Fprintln(stdout)
 

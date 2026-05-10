@@ -1575,7 +1575,7 @@ services:
 
 ### Phase 11: Post-Quantum Cryptography
 
-**Status**: 🔶 11A+11B DONE, 11C pending
+**Status**: ✅ DONE (11A+11B+11C)
 **Prerequisite**: go-clatter v0.1.0 (DONE), go-clatter v0.2.0 (DONE)
 
 **Goal**: Wire post-quantum key exchange into Shurli as a libp2p security transport, giving every connection quantum-resistant encryption alongside classical Noise.
@@ -1602,12 +1602,14 @@ services:
 - Hybrid Ed25519 + ML-DSA-65 identity proofs -> Phase 13 (PQ Identity Attestation)
 - PQ-signed capability tokens and admin commands -> Phase 13+
 
-**11C: Audit + Documentation**:
+**11C: Audit + Documentation** ✅ DONE:
 - [x] Full security audit (Phase 3 adversarial audit, 167 findings cross-checked)
-- [ ] Architecture and roadmap updates
-- [ ] Engineering journal entries
-- [ ] Blog post on PQC implementation
-- [ ] Katzenpost/nyquist comparison documentation (research DONE, write-up pending)
+- [x] Architecture and roadmap updates
+- [x] Engineering journal entries (6 ADRs: PQ01-PQ06)
+- [x] Blog post on PQC implementation
+- [x] `shurli status` PQC display upgraded to per-layer detail
+- [x] golang.org/x/net v0.53.0 security bump (GO-2026-4918)
+- Katzenpost/nyquist comparison write-up deferred (research complete, not blocking)
 
 ---
 
@@ -2394,7 +2396,7 @@ Anonymous presence and network intelligence announcements. Peers share reachabil
 | **go-clatter v0.1.0** (PQ Noise) | ✅ 5 handshake modes, 233+ tests, 408 interop vectors |
 | **go-clatter v0.2.0** (ML-DSA-65) | ✅ FIPS 204 signing, 29 tests, secret zeroing |
 | Phase 10: Distribution | ✅/📋 Partial (install script, archives done. Homebrew/APT planned) |
-| **Phase 11: PQC Integration** | 🔶 11A+11B DONE, 11C pending |
+| **Phase 11: PQC Integration** | ✅ DONE (11A+11B+11C) |
 | **Phase 12: Seed & Recovery** | 📋 Next |
 | **Phase 13: PQ Identity Attestation** | 📋 Planned |
 | **Phase 14: Topic-Based Pub/Sub** | 📋 Planned |
@@ -2591,9 +2593,9 @@ This roadmap is a living document. Phases may be reordered, combined, or adjuste
 
 ---
 
-**Last Updated**: 2026-05-05
+**Last Updated**: 2026-05-10
 **Latest Release**: v0.4.0 (2026-05-01). Streaming protocol, multi-peer adaptive transfer, Tail Slayer hedged racing, budget-aware relay selection, 22 bug fixes. LAN: 111 MB/s send, 125 MB/s download.
-**Current Phase**: Phase 11A+11B done (PQ Noise transport + ML-DSA-65 signing). go-clatter v0.2.0 released. Phase 3 adversarial audit complete (167 findings, 3 bugs fixed). 11C (docs/blog) pending.
-**Phases**: 1-11B (complete), 10 (partial), 11C (pending), 12-24+ (planned)
-**Next Milestone**: Phase 12 - Seed & Recovery Infrastructure (go-bip85, SLIP39 fork+harden).
+**Current Phase**: Phase 11 DONE (PQ Noise transport + ML-DSA-65 signing + docs/blog/audit). go-clatter v0.2.0 released. Phase 3 adversarial audit complete (167 findings, 3 bugs fixed). go-bip85 v0.1.0, go-slip39 v0.1.0 released.
+**Phases**: 1-11 (complete), 10 (partial), 12-24+ (planned)
+**Next Milestone**: Phase 12 - Seed & Recovery Infrastructure (SHRL entropy storage integration).
 **Relay elimination**: Every-peer-is-a-relay shipped (Batch I-f). `require_auth` peer relays -> DHT discovery -> VPS becomes obsolete
