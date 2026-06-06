@@ -390,7 +390,6 @@ func addRelayToConfigFile(cfgFile, relayAddr string) error {
 	lines := strings.Split(string(data), "\n")
 	var result []string
 	added := false
-	entry := fmt.Sprintf("    - \"%s\"", relayAddr)
 
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
@@ -398,8 +397,9 @@ func addRelayToConfigFile(cfgFile, relayAddr string) error {
 		// Handle "addresses: []" inline empty array.
 		if !added && trimmed == "addresses: []" {
 			idx := strings.Index(lines[i], "addresses:")
+			entryIndent := lines[i][:idx] + "  " // one level deeper than "addresses:"
 			result = append(result, lines[i][:idx]+"addresses:")
-			result = append(result, entry)
+			result = append(result, fmt.Sprintf("%s- \"%s\"", entryIndent, relayAddr))
 			added = true
 			for k := i + 1; k < len(lines); k++ {
 				result = append(result, lines[k])
@@ -411,17 +411,22 @@ func addRelayToConfigFile(cfgFile, relayAddr string) error {
 
 		// Handle "addresses:" multi-line format (empty or with entries).
 		if !added && trimmed == "addresses:" {
-			// Skip past any existing entries.
+			// Detect indent: default to one level deeper than addresses: key.
+			addrKeyIndent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
+			entryIndent := addrKeyIndent + "  "
+
+			// Skip past any existing entries, detecting their indent.
 			for i+1 < len(lines) {
 				next := strings.TrimSpace(lines[i+1])
 				if strings.HasPrefix(next, "- ") {
 					i++
+					entryIndent = lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
 					result = append(result, lines[i])
 				} else {
 					break
 				}
 			}
-			result = append(result, entry)
+			result = append(result, fmt.Sprintf("%s- \"%s\"", entryIndent, relayAddr))
 			added = true
 		}
 	}

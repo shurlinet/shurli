@@ -213,6 +213,41 @@ func TestDoServiceAdd(t *testing.T) {
 			},
 		},
 		{
+			name: "add to existing services with 4-space indent",
+			servicesYAML: `services:
+    ssh:
+        enabled: true
+        local_address: "localhost:22"`,
+			args: func(cfgPath string) []string {
+				return []string{"--config", cfgPath, "fulcrum", "localhost:50001"}
+			},
+			wantOutput: []string{"Config:"},
+			checkFile: func(t *testing.T, cfgPath string) {
+				data, err := os.ReadFile(cfgPath)
+				if err != nil {
+					t.Fatalf("read config: %v", err)
+				}
+				content := string(data)
+				if !strings.Contains(content, "ssh:") {
+					t.Error("config should still contain 'ssh:'")
+				}
+				if !strings.Contains(content, "fulcrum:") {
+					t.Error("config should contain 'fulcrum:'")
+				}
+				// The resulting YAML must be parseable
+				cfg, err := config.LoadNodeConfig(cfgPath)
+				if err != nil {
+					t.Fatalf("config corrupted after adding to 4-space config: %v\nContent:\n%s", err, content)
+				}
+				if len(cfg.Services) != 2 {
+					t.Fatalf("expected 2 services, got %d", len(cfg.Services))
+				}
+				if cfg.Services["fulcrum"].LocalAddress != "localhost:50001" {
+					t.Fatalf("fulcrum address = %q, want localhost:50001", cfg.Services["fulcrum"].LocalAddress)
+				}
+			},
+		},
+		{
 			name: "add service with commented services in template",
 			// Empty servicesYAML means the test config has "services: {}", but
 			// we need the REAL template with "# services:" comments. Override
@@ -646,6 +681,46 @@ func TestDoServiceRemove(t *testing.T) {
 				// web should still be present
 				if !strings.Contains(content, "web:") {
 					t.Error("config should still contain 'web:'")
+				}
+			},
+		},
+		{
+			name: "remove first of three with 4-space indent",
+			servicesYAML: `services:
+    ssh:
+        enabled: true
+        local_address: "localhost:22"
+    fulcrum:
+        enabled: true
+        local_address: "localhost:50001"
+    btcexplorer:
+        enabled: true
+        local_address: "localhost:8181"`,
+			args: func(cfgPath string) []string {
+				return []string{"--config", cfgPath, "fulcrum"}
+			},
+			wantOutput: []string{"Config:"},
+			checkFile: func(t *testing.T, cfgPath string) {
+				data, err := os.ReadFile(cfgPath)
+				if err != nil {
+					t.Fatalf("read config: %v", err)
+				}
+				content := string(data)
+				if strings.Contains(content, "fulcrum:") {
+					t.Error("config should no longer contain 'fulcrum:'")
+				}
+				cfg, err := config.LoadNodeConfig(cfgPath)
+				if err != nil {
+					t.Fatalf("config corrupted after remove in 4-space config: %v\nContent:\n%s", err, content)
+				}
+				if len(cfg.Services) != 2 {
+					t.Fatalf("expected 2 services after remove, got %d", len(cfg.Services))
+				}
+				if _, ok := cfg.Services["ssh"]; !ok {
+					t.Error("ssh should still exist")
+				}
+				if _, ok := cfg.Services["btcexplorer"]; !ok {
+					t.Error("btcexplorer should still exist")
 				}
 			},
 		},

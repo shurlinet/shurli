@@ -107,14 +107,6 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 		}
 	}
 
-	// Build the service YAML block
-	var block string
-	if *protocolFlag != "" {
-		block = fmt.Sprintf("  %s:\n    enabled: true\n    local_address: \"%s\"\n    protocol: \"%s\"", name, address, *protocolFlag)
-	} else {
-		block = fmt.Sprintf("  %s:\n    enabled: true\n    local_address: \"%s\"", name, address)
-	}
-
 	// Read config file and insert service
 	data, err := os.ReadFile(cfgFile)
 	if err != nil {
@@ -136,12 +128,55 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 		}
 	}
 
+	// buildBlock creates the service YAML block with the given indentation.
+	buildBlock := func(keyIndent, valIndent string) string {
+		if *protocolFlag != "" {
+			return fmt.Sprintf("%s%s:\n%senabled: true\n%slocal_address: \"%s\"\n%sprotocol: \"%s\"",
+				keyIndent, name, valIndent, valIndent, address, valIndent, *protocolFlag)
+		}
+		return fmt.Sprintf("%s%s:\n%senabled: true\n%slocal_address: \"%s\"",
+			keyIndent, name, valIndent, valIndent, address)
+	}
+
 	if hasEmptyServices {
 		// Replace empty services block
+		block := buildBlock("  ", "    ")
 		content = strings.Replace(content, "services: {}", "services:\n"+block, 1)
 	} else if hasUncommentedServices {
-		// Find the services section and append after the last service entry
+		// Find the services section and append after the last service entry.
+		// Detect indentation from existing entries so the new block matches.
 		lines := strings.Split(content, "\n")
+
+		keyIndent, valIndent := "", ""
+		scanSvc := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "services:" {
+				scanSvc = true
+				continue
+			}
+			if scanSvc {
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+				indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				if keyIndent == "" {
+					keyIndent = indent
+				} else if valIndent == "" {
+					valIndent = indent
+					break
+				}
+			}
+		}
+		if keyIndent == "" {
+			keyIndent = "  "
+		}
+		if valIndent == "" {
+			valIndent = keyIndent + keyIndent
+		}
+
+		block := buildBlock(keyIndent, valIndent)
+
 		var result []string
 		inserted := false
 		inServices := false
@@ -184,6 +219,7 @@ func doServiceAdd(args []string, stdout io.Writer) error {
 		content = strings.Join(result, "\n")
 	} else {
 		// No services section at all  - append at end
+		block := buildBlock("  ", "    ")
 		content += fmt.Sprintf("\nservices:\n%s\n", block)
 	}
 
@@ -328,6 +364,7 @@ func doServiceSetEnabled(args []string, enabled bool, stdout io.Writer) error {
 	inServices := false
 	inTarget := false
 	replaced := false
+	keyIndentLen := 0 // detected from the target service's indent
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -339,8 +376,9 @@ func doServiceSetEnabled(args []string, enabled bool, stdout io.Writer) error {
 		}
 
 		if inServices && !inTarget && !replaced {
-			// Look for target service name at 2-space indent
+			// Look for target service name (indented under services:)
 			if trimmed == name+":" && strings.HasPrefix(line, "  ") {
+				keyIndentLen = len(line) - len(strings.TrimLeft(line, " \t"))
 				inTarget = true
 				result = append(result, line)
 				continue
@@ -348,16 +386,17 @@ func doServiceSetEnabled(args []string, enabled bool, stdout io.Writer) error {
 		}
 
 		if inTarget && !replaced {
-			if trimmed == oldVal && strings.HasPrefix(line, "    ") {
+			lineIndentLen := len(line) - len(strings.TrimLeft(line, " \t"))
+			if trimmed == oldVal && lineIndentLen > keyIndentLen {
 				// Replace the enabled line, preserving indentation
-				indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				indent := line[:lineIndentLen]
 				result = append(result, indent+newVal)
 				replaced = true
 				inTarget = false
 				continue
 			}
-			// If we hit a line that's not a child (not 4+ space indent), stop looking
-			if trimmed != "" && !strings.HasPrefix(line, "    ") {
+			// If we hit a line that's not a child (same or less indent), stop looking
+			if trimmed != "" && lineIndentLen <= keyIndentLen {
 				inTarget = false
 			}
 		}
@@ -428,6 +467,7 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 	removed := false
 	inServices := false
 	skipping := false
+	keyIndentLen := 0 // detected from the target service's indent
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -440,8 +480,9 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 
 		if inServices && !skipping {
 			// Check if this line is the service name we want to remove.
-			// Service names appear as "  <name>:" with 2-space indent under services.
 			if trimmed == name+":" && strings.HasPrefix(line, "  ") {
+				// Record the indent of this service key so we know what's a child vs sibling.
+				keyIndentLen = len(line) - len(strings.TrimLeft(line, " \t"))
 				skipping = true
 				removed = true
 				continue
@@ -449,19 +490,19 @@ func doServiceRemove(args []string, stdout io.Writer) error {
 		}
 
 		if skipping {
-			// Skip child lines (4+ space indent: properties of the service).
-			// Stop skipping when we hit a line with 2-space indent (next service)
-			// or less indent (next top-level section) or empty line before next section.
+			// Skip child lines (deeper indent than the service key).
+			// Stop skipping when we hit a sibling (same indent) or top-level key (less indent).
 			if trimmed == "" {
-				// Empty line  - could be between services or end of section.
+				// Empty line - could be between services or end of section.
 				// Peek-skip: include it in removal to keep formatting clean.
 				continue
 			}
-			if strings.HasPrefix(line, "    ") {
-				// Child property line (4+ space indent)  - skip
+			lineIndentLen := len(line) - len(strings.TrimLeft(line, " \t"))
+			if lineIndentLen > keyIndentLen {
+				// Child property line (deeper indent) - skip
 				continue
 			}
-			// Not a child line  - stop skipping
+			// Same or less indent - stop skipping
 			skipping = false
 			inServices = false
 		}

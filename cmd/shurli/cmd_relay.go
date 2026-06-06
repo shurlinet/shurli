@@ -270,15 +270,21 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 	var result []string
 	added := false
 
+	// formatEntry builds a YAML list entry with the given indent.
+	formatEntry := func(indent, addr string) string {
+		return fmt.Sprintf("%s- \"%s\"", indent, addr)
+	}
+
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
 		// Handle "addresses: []" inline empty array.
 		if !added && trimmedLine == "addresses: []" {
 			idx := strings.Index(line, "addresses:")
+			addrIndent := line[:idx] + "  " // one level deeper than "addresses:"
 			result = append(result, line[:idx]+"addresses:")
 			for _, addr := range toAdd {
-				result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+				result = append(result, formatEntry(addrIndent, addr))
 			}
 			added = true
 			for k := i + 1; k < len(lines); k++ {
@@ -291,7 +297,11 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 
 		// Find relay.addresses and insert new entries.
 		if !added && trimmedLine == "addresses:" {
-			// Scan forward to find existing entries.
+			// Detect indent from addresses: key for default entry indent.
+			addrKeyIndent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			entryIndent := addrKeyIndent + "  " // default: one level deeper
+
+			// Scan forward to find existing entries and detect their indent.
 			hasEntries := false
 			insertIdx := len(result) - 1
 			for j := i + 1; j < len(lines); j++ {
@@ -299,6 +309,8 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 				if strings.HasPrefix(trimmed, "- ") {
 					insertIdx = len(result) + (j - i - 1)
 					hasEntries = true
+					// Detect indent from existing entry
+					entryIndent = lines[j][:len(lines[j])-len(strings.TrimLeft(lines[j], " \t"))]
 				} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 					break
 				}
@@ -307,7 +319,7 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 			if !hasEntries {
 				// Empty list: insert right after "addresses:" line.
 				for _, addr := range toAdd {
-					result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+					result = append(result, formatEntry(entryIndent, addr))
 				}
 				added = true
 				for k := i + 1; k < len(lines); k++ {
@@ -319,7 +331,7 @@ func doRelayAdd(args []string, stdout io.Writer) error {
 					result = append(result, lines[k])
 					if len(result)-1 == insertIdx {
 						for _, addr := range toAdd {
-							result = append(result, fmt.Sprintf("    - \"%s\"", addr))
+							result = append(result, formatEntry(entryIndent, addr))
 						}
 						added = true
 					}
