@@ -127,6 +127,22 @@ func (cl *connLogger) Connected(n network.Network, c network.Conn) {
 		"remote", c.RemoteMultiaddr(),
 		"local", c.LocalMultiaddr())
 
+	// Diagnostics: detect remote IP changes (IPv6 prefix rotation, ISP change).
+	remoteIP := extractIPFromMultiaddrObj(c.RemoteMultiaddr())
+	if remoteIP != "" && !c.Stat().Limited {
+		cl.pm.mu.Lock()
+		if mp, ok := cl.pm.peers[c.RemotePeer()]; ok {
+			if mp.lastRemoteIP != "" && mp.lastRemoteIP != remoteIP {
+				slog.Warn("peermanager: remote IP changed (possible rotation)",
+					"peer", short,
+					"previous", mp.lastRemoteIP,
+					"current", remoteIP)
+			}
+			mp.lastRemoteIP = remoteIP
+		}
+		cl.pm.mu.Unlock()
+	}
+
 	// Log PQC status once on first post-quantum connection (QUIC or PQ Noise).
 	pqcLogger.LogIfPQ(c)
 
@@ -237,13 +253,15 @@ func (cl *connLogger) Disconnected(n network.Network, c network.Conn) {
 		short = short[:16] + "..."
 	}
 	age := time.Since(c.Stat().Opened).Round(time.Millisecond)
+	numStreams := len(c.GetStreams())
 	slog.Info("peermanager: connection closed",
 		"peer", short,
 		"type", connType,
 		"direction", dir,
 		"remote", c.RemoteMultiaddr(),
 		"local", c.LocalMultiaddr(),
-		"age", age)
+		"age", age,
+		"streams", numStreams)
 
 	// Connection churn detection (#28): if the connection lived shorter than
 	// churnThreshold, count it. When too many short-lived connections accumulate,
@@ -316,8 +334,12 @@ type ManagedPeer struct {
 	// A connection that lives <churnThreshold is counted as churn. When churnCount
 	// reaches churnBackoffThreshold within churnWindow, the peer is backed off
 	// exponentially. Resets when a connection survives >churnThreshold.
-	churnCount    int
+	churnCount       int
 	churnWindowStart time.Time
+
+	// Diagnostics: cross-ISP connection stability monitoring.
+	// Tracks remote IP across sessions to detect ISP IPv6 prefix rotation.
+	lastRemoteIP string
 }
 
 // ManagedPeerInfo is a read-only snapshot for the daemon API and status display.
@@ -1045,8 +1067,11 @@ func (pm *PeerManager) attemptReconnect(target peer.ID) {
 
 		pm.incMetric("failure")
 		pm.mu.Unlock()
-		slog.Debug("peermanager: reconnect failed",
+		// Log at Info (not Debug) so reconnect failures are visible in
+		// daemon logs for cross-ISP connection stability diagnosis.
+		slog.Info("peermanager: reconnect failed",
 			"peer", short,
+			"error", err,
 			"failures", mp.ConsecFailures,
 			"backoff", backoff.Round(time.Second))
 		return
