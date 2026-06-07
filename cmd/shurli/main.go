@@ -65,6 +65,8 @@ func main() {
 		runJoin(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
+	case "name":
+		runName(os.Args[2:])
 	case "service":
 		runService(os.Args[2:])
 	case "services":
@@ -250,6 +252,11 @@ func printUsage() {
 	fmt.Println("ZKP:")
 	fmt.Println("  relay zkp-setup [--keys-dir path]      Generate PLONK circuit keys")
 	fmt.Println("  relay zkp-test [--auth-keys path]      End-to-end ZKP auth test")
+	fmt.Println()
+	fmt.Println("Names:")
+	fmt.Println("  name list                              List all named peers")
+	fmt.Println("  name add <name> <peer-id>              Add or update a name mapping")
+	fmt.Println("  name remove <name>                     Remove a name mapping")
 	fmt.Println()
 	fmt.Println("Services:")
 	fmt.Println("  service add <name> <address>           Expose a local service")
